@@ -197,10 +197,10 @@ describe('buildRegistry', () => {
     expect(besided).toEqual(['okf']);
   });
 
-  it('SIMPLE MODE: omitting openPanelBeside drops every new-tile row, Focus rows stay', () => {
-    // Simple mode's layout is locked to one service tile, so palette-boot
-    // withholds the closure — the rows come off the SAME getter as Focus, so
-    // this is the only thing that can distinguish them.
+  it('NO PLACEMENT VERB: omitting openPanelBeside drops every new-tile row, Focus rows stay', () => {
+    // A host with nowhere to place a second tile withholds the closure — the
+    // rows come off the SAME getter as Focus, so this is the only thing that
+    // can distinguish them.
     const items = buildRegistry({
       getVisiblePanels: () => [{ id: 'okf', label: 'Facility' }],
       getPopoutPanels: () => [{ id: 'okf', label: 'Facility' }],

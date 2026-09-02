@@ -86,8 +86,8 @@ import { flashElement } from '/design-system/js/highlight.js';
  * Every callback is optional: omit `onClose` to render no close corner, omit
  * `onDragStart` to render non-draggable entries. `onDragStart` may return
  * false to cancel the drag for that entry, and `onContextMenu` false to let
- * the browser's native menu through (the caller's policy — e.g. the terminal
- * entry, simple mode); this module stays policy-free.
+ * the browser's native menu through (the caller's policy — e.g. a disabled
+ * entry); this module stays policy-free.
  * @typedef {object} RailOptions
  * @property {(id: string) => void} [onActivate]   - an entry was clicked
  * @property {(id: string) => void} [onClose]      - the entry's close "×" was clicked
@@ -200,7 +200,7 @@ function buildRailButton(panel, options = {}) {
   // Drag source: dragging an entry into the workspace opens the panel as a
   // NEW tile at the drop position (the precise half of the open-beside verb).
   // The caller's onDragStart stamps the dataTransfer payload and may cancel
-  // (return false) — e.g. for the terminal entry or a locked simple layout.
+  // (return false) — e.g. for the terminal entry, or with no dock to drop into.
   if (options.onDragStart) {
     const onDragStart = options.onDragStart;
     btn.setAttribute('draggable', 'true');

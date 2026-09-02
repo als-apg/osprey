@@ -1,5 +1,5 @@
 /**
- * Bar customize — the ways in, and the mode that gates them, happy-dom:
+ * Bar customize — the ways in, in both ui modes, happy-dom:
  *   npx vitest run tests/interfaces/web_terminal/js/bar-customize-entry.test.js
  *
  * The distinction these assertions exist to hold:
@@ -8,10 +8,11 @@
  *     chrome, not the mode's, so a flip to Simple must not move, drop or
  *     rewrite a single item — and must not write anything either.
  *
- *   - the three ways to REARRANGE it are Expert-only, and ABSENT rather than
- *     inert in Simple: right-click on either bar, the row projected into the
- *     display menu beside the View toggle, and the palette action. A control
- *     that is visible and does nothing is worse than no control.
+ *   - the three ways to REARRANGE it are present in both modes too: right-click
+ *     on either bar, the row projected into the display menu beside the View
+ *     toggle, and the palette action. Simple simplifies the workspace, not the
+ *     operator's hand on their own chrome, and a flip in either direction
+ *     neither adds nor removes a way in.
  */
 
 import { test, expect, describe, afterEach, vi } from 'vitest';
@@ -102,10 +103,12 @@ describe('the display-menu row', () => {
     expect(customize.isEditing()).toBe(true);
   });
 
-  test('Simple mode projects no row', async () => {
+  test('Simple mode projects the same row', async () => {
     ({ customize, sync } = await boot({ menu: true, uiMode: 'simple' }));
 
-    expect(displayRow()).toBe(null);
+    expect(displayRow()).not.toBe(null);
+    displayRow().click();
+    expect(customize.isEditing()).toBe(true);
   });
 
   test('a deployment with no display menu is not an error', async () => {
@@ -125,7 +128,7 @@ describe('right-clicking a bar', () => {
     expect(document.querySelector('.bar-context-menu')).not.toBe(null);
   });
 
-  test('does nothing in Simple mode', async () => {
+  test('opens the same menu in Simple mode', async () => {
     ({ customize, sync } = await boot({
       fetch: endpoint({ get: doc(['logo'], []) }),
       uiMode: 'simple',
@@ -133,7 +136,7 @@ describe('right-clicking a bar', () => {
 
     rightClick(headerHost());
 
-    expect(document.querySelector('.bar-context-menu')).toBe(null);
+    expect(document.querySelector('.bar-context-menu')).not.toBe(null);
   });
 
   test('enters edit mode from the menu', async () => {
@@ -155,12 +158,12 @@ describe('the palette action', () => {
     expect(paletteLabels()).toContain('Customize bars');
   });
 
-  test('Simple mode does not', async () => {
+  test('Simple mode offers it too', async () => {
     ({ customize, sync } = await boot({ uiMode: 'simple' }));
 
     await openPalette();
 
-    expect(paletteLabels()).not.toContain('Customize bars');
+    expect(paletteLabels()).toContain('Customize bars');
   });
 });
 
@@ -224,13 +227,14 @@ describe('a teardown while the display menu is still upgrading', () => {
 });
 
 describe('flipping the ui mode', () => {
-  test('takes the entry points with it, both ways', async () => {
+  test('leaves the entry points in place, both ways', async () => {
     ({ customize, sync } = await boot({ menu: true, fetch: endpoint({ get: doc(['logo'], []) }) }));
 
     await switchMode('simple');
     rightClick(headerHost());
-    expect(displayRow()).toBe(null);
-    expect(document.querySelector('.bar-context-menu')).toBe(null);
+    expect(displayRow()).not.toBe(null);
+    expect(document.querySelector('.bar-context-menu')).not.toBe(null);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 
     await switchMode('expert');
     rightClick(headerHost());
@@ -238,14 +242,14 @@ describe('flipping the ui mode', () => {
     expect(document.querySelector('.bar-context-menu')).not.toBe(null);
   });
 
-  test('a flip to Simple ends an edit in progress', async () => {
+  test('a flip to Simple leaves an edit in progress alone', async () => {
     ({ customize, sync } = await boot({ menu: true }));
     customize.enterEditMode();
 
     await switchMode('simple');
 
-    expect(customize.isEditing()).toBe(false);
-    expect(document.body.classList.contains('bar-editing')).toBe(false);
+    expect(customize.isEditing()).toBe(true);
+    expect(document.body.classList.contains('bar-editing')).toBe(true);
   });
 
   test('the saved layout is the same in both modes, and the flip writes nothing', async () => {

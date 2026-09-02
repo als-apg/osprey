@@ -4,9 +4,9 @@
  *
  * The assertions that are the point of this module:
  *
- *   - edit mode is refused in Simple mode. The entry points land later, but a
- *     mode that hides the dock's rearrangement affordances must not offer the
- *     bars' either, whichever surface calls in.
+ *   - edit mode does not read the ui mode. Simple simplifies the workspace,
+ *     not the operator's own chrome, so the bars are as editable there as in
+ *     Expert, whichever surface calls in.
  *
  *   - a refused edit is REFUSED, not silently dropped. `normalize()` would
  *     quietly discard an item over the per-host cap, one the deployment cannot
@@ -274,17 +274,17 @@ describe('entering and leaving edit mode', () => {
   });
 });
 
-describe('Simple mode refuses edit mode', () => {
-  test('entry is refused and nothing is opened', async () => {
+describe('edit mode is the same in both ui modes', () => {
+  test('Simple mode enters it and opens the sheet', async () => {
     await boot({ uiMode: 'simple' });
 
-    expect(customize.enterEditMode()).toBe(false);
-    expect(customize.isEditing()).toBe(false);
-    expect(document.body.classList.contains('bar-editing')).toBe(false);
-    expect(sheet()).toBe(null);
+    expect(customize.enterEditMode()).toBe(true);
+    expect(customize.isEditing()).toBe(true);
+    expect(document.body.classList.contains('bar-editing')).toBe(true);
+    expect(sheet()).not.toBe(null);
   });
 
-  test('Expert mode is not refused', async () => {
+  test('Expert mode enters it', async () => {
     await boot({ uiMode: 'expert' });
 
     expect(customize.enterEditMode()).toBe(true);

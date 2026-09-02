@@ -2,20 +2,16 @@
  *
  * Three of them: right-click either bar, the row this module projects into the
  * display menu beside the View toggle, and the palette action (wired where the
- * palette's actions are assembled, palette-boot.js). All three are EXPERT ONLY.
+ * palette's actions are assembled, palette-boot.js). All three are present in
+ * BOTH ui modes.
  *
  * THE MODE AXIS IS NOT THE LAYOUT AXIS. The saved arrangement renders in both
- * modes — the bars are the operator's chrome, not the mode's — and Simple mode
- * takes away only the ways to REARRANGE it. So nothing here touches a layout,
- * a document or a bar: it mounts and unmounts entry points, and edit mode's own
- * guard stays the backstop underneath them.
- *
- * ABSENT, NOT INERT. A control that is visible and does nothing is worse than
- * no control, so Simple mode removes the row and unbinds the gestures rather
- * than disabling them. The mode is read from `html[data-ui-mode]` — the same
- * authoritative attribute mode-boot.js stamps pre-paint and the display menu's
- * View row flips at runtime — and watched, because a flip must take the entry
- * points with it.
+ * modes, and so do the ways to rearrange it: the bars are the operator's
+ * chrome, not the mode's. Simple mode simplifies the workspace — one service
+ * tile, the operator console in place of the terminal — and leaves the
+ * operator's own chrome exactly as editable as it is in Expert. So nothing here
+ * reads `data-ui-mode` at all; it mounts the entry points once and takes them
+ * away on teardown.
  */
 
 import { docOf } from './bar-host.js';
@@ -25,12 +21,6 @@ import { armMenus, disarmMenus } from './bar-customize-menus.js';
 
 /** The class that marks the row this module owns inside the display menu. */
 const ROW_CLASS = 'bar-customize-entry';
-
-/** @type {MutationObserver | null} */
-let watcher = null;
-
-/** The mode the entry points are currently built for. @type {string | null} */
-let lastMode = null;
 
 /**
  * Which generation of entry points is current. Bumped by BOTH `initEntryPoints`
@@ -45,16 +35,10 @@ let lastMode = null;
  */
 let generation = 0;
 
-/** Whether this page is in Expert mode. @param {Document} owner */
-function isExpert(owner) {
-  return owner.documentElement.getAttribute('data-ui-mode') !== 'simple';
-}
-
 /**
  * Put the Customize row in the display menu's action row — the component's own
- * projection point, beside the View toggle that renders in both modes. Built
- * here rather than declared in the template because the row must come and go
- * with the mode, and the template is rendered once.
+ * projection point, beside the View toggle. Built here rather than declared in
+ * the template so the row lives and dies with the bar stack that owns it.
  * @param {Document} owner
  * @param {BarEditController} ctrl
  * @returns {boolean} whether the row is now mounted
@@ -91,7 +75,7 @@ function mountRow(owner, ctrl) {
  * (palette-boot.js does, for the palette's Customize action) pulls this
  * module's boot ahead of the component's definition. A row that mounted only on
  * the synchronous first try would then be silently missing for the life of the
- * page, since nothing re-stamps `data-ui-mode` on an ordinary load.
+ * page, since nothing calls back in here on an ordinary load.
  *
  * `whenDefined` is the fix rather than an import reorder because it cannot be
  * undone by a later refactor: the upgrade runs inside `define()`, so by the
@@ -108,7 +92,7 @@ function mountWhenReady(owner, ctrl) {
     .whenDefined('osprey-display-menu')
     .then(() => {
       if (mine !== generation) return;
-      if (isExpert(owner)) mountRow(owner, ctrl);
+      mountRow(owner, ctrl);
     })
     .catch(() => {
       // No display menu on this page; there is nothing to project into.
@@ -121,56 +105,21 @@ function unmountRow(owner) {
 }
 
 /**
- * Bring the entry points into line with the current mode.
- *
- * A mutation that did not actually change the mode is ignored: re-arming would
- * tear down and rebuild the listeners, closing whatever popover the operator
- * has open, for a stamp that said nothing new.
- * @param {BarEditController} ctrl
- * @param {Document | Element} root
- * @param {boolean} [force] - run even when the mode has not changed (first sync)
- */
-function sync(ctrl, root, force = false) {
-  const owner = docOf(root);
-  const mode = isExpert(owner) ? 'expert' : 'simple';
-  if (!force && mode === lastMode) return;
-  lastMode = mode;
-  if (mode === 'expert') {
-    armMenus(ctrl, root);
-    mountWhenReady(owner, ctrl);
-    return;
-  }
-  // Leaving Expert with the sheet open would strand the operator in an edit
-  // mode they can no longer reach.
-  if (ctrl.isEditing()) ctrl.exitEditMode();
-  disarmMenus();
-  unmountRow(owner);
-}
-
-/**
- * Mount the entry points and follow the mode from here on.
+ * Mount the entry points: arm the right-click menus on both bars and project
+ * the Customize row into the display menu.
  * @param {BarEditController} ctrl
  * @param {Document | Element} root
  */
 export function initEntryPoints(ctrl, root) {
   stopEntryPoints();
   generation += 1;
-  const owner = docOf(root);
-  sync(ctrl, root, true);
-  if (typeof MutationObserver === 'undefined') return;
-  watcher = new MutationObserver(() => sync(ctrl, root));
-  watcher.observe(owner.documentElement, {
-    attributes: true,
-    attributeFilter: ['data-ui-mode'],
-  });
+  armMenus(ctrl, root);
+  mountWhenReady(docOf(root), ctrl);
 }
 
-/** Take every entry point away and stop watching the mode. */
+/** Take every entry point away. */
 export function stopEntryPoints() {
   generation += 1;
-  watcher?.disconnect();
-  watcher = null;
-  lastMode = null;
   disarmMenus();
   if (typeof document !== 'undefined') unmountRow(document);
 }

@@ -154,14 +154,14 @@ export function railOptions() {
 }
 
 // Tooltip suffix advertising the context menu on every service entry. The
-// terminal entry gets none: its menu exists only in expert mode, so a tooltip
-// promising actions would misinform every simple-mode operator.
+// terminal entry gets none: its verb set changes with the ui view (see
+// buildTerminalMenuItems), so one fixed promise would misinform one of them.
 export const RAIL_MENU_HINT = 'right-click for actions';
 
 /**
- * Simple mode locks the workspace to a single service tile and replaces the
- * xterm card with the operator console — the two facts every menu-policy gate
- * below turns on.
+ * Simple mode replaces the xterm card with the operator console — the one fact
+ * the terminal menu below turns on. The workspace itself is as editable there
+ * as in Expert, so no service-panel verb reads the mode.
  * @returns {boolean}
  */
 function isSimpleMode() {
@@ -194,9 +194,8 @@ export function openRailContextMenu(id, x, y) {
 /**
  * The tile-header counterpart of openRailContextMenu, registered into
  * dock-tab.js at init. Same verb sets, so a panel's two surfaces cannot offer
- * different actions, and the same decline-by-empty-list contract: the terminal
- * header in simple mode reports false and keeps the browser's native menu,
- * unless a hidden bar leaves a Show row to offer.
+ * different actions, and the same decline-by-empty-list contract: a surface
+ * with no rows to offer reports false and keeps the browser's native menu.
  *
  * The rail's enabled gate has no counterpart here on purpose. It exists so a
  * panel that has never answered cannot be acted on from an offline entry; a
@@ -233,8 +232,7 @@ function openSurfaceMenu(id, x, y, anchorEl) {
     ...(verbs.length && restore.length ? [{ divider: true }] : []),
     ...restore,
   ];
-  // No rows is a decline, never an empty popover — simple mode's terminal
-  // with both bars showing.
+  // No rows is a decline, never an empty popover.
   if (!items.length) return false;
   const label = id === TERMINAL_RAIL_ID ? TERMINAL_RAIL_LABEL : ctx().labelOf(id);
   openContextMenu({ x, y, anchorEl, ariaLabel: `${label} actions`, items });
@@ -247,10 +245,9 @@ function openSurfaceMenu(id, x, y, anchorEl) {
  * downstream from any other path to the verb. Shared by the rail entry and the
  * panel's tile header so the two surfaces cannot drift apart.
  *
- * Policy carried over from the retired corner glyphs: "Open in a new tile" is
- * not a simple-mode gesture (the layout is locked to one service tile), and
- * "Open in a new window" stays inert until the panel's standalone URL
- * resolves.
+ * Policy carried over from the retired corner glyphs: "Open in a new window"
+ * stays inert until the panel's standalone URL resolves. The rows are the same
+ * in both ui views.
  * @param {string} id
  * @returns {import('./panel-context-menu.js').MenuItem[]}
  */
@@ -262,7 +259,7 @@ export function buildServiceMenuItems(id) {
     // "Focus" and made the panel disappear would say the opposite of what it
     // does, so on the already-active panel this row is deliberately a no-op.
     { label: `Focus ${label}`, run: () => { if (ctx().isMember(id)) ctx().activateTab(id, { userInitiated: true }); else ctx().showPanel(id); } },
-    ...(isSimpleMode() ? [] : [{ label: 'Open in a new tile', glyph: '⊞', run: () => openPanelBeside(id) }]),
+    { label: 'Open in a new tile', glyph: '⊞', run: () => openPanelBeside(id) },
     { label: 'Open in a new window', glyph: '↗', disabled: ctx().getPanelStandaloneUrl(id) === null, run: () => ctx().popoutPanel(id) },
     { divider: true },
     // The one server-side membership change in the menu — same POST as the "×".
@@ -290,14 +287,15 @@ export function buildBarRestoreItems() {
  * The terminal surfaces' menu rows — the SESSION rail entry and the terminal
  * tile header, which share one verb set.
  *
- * Empty in simple mode, and that emptiness IS the callers' decline signal:
- * there the terminal card is replaced by the operator console and
- * closeTerminalPanel no-ops, so every row would act on a surface the operator
- * cannot see. (The palette drops the same actions there, for the same reason.)
+ * In simple mode the tile hosts the operator console instead of the xterm
+ * card, so the two PTY verbs would act on a surface the operator cannot see
+ * and are withheld (the palette drops the same actions there, for the same
+ * reason). The tile itself is as closable there as in Expert.
  * @returns {import('./panel-context-menu.js').MenuItem[]}
  */
 export function buildTerminalMenuItems() {
-  if (isSimpleMode()) return [];
+  const close = { label: 'Close terminal tile', glyph: '×', danger: true, run: () => closeTerminalPanel() };
+  if (isSimpleMode()) return [close];
   return [
     // restartTerminal tears the PTY down but does NOT reconnect — pairing it
     // with startTerminal is what keeps the card from being left stranded. The
@@ -305,6 +303,6 @@ export function buildTerminalMenuItems() {
     { label: 'Restart terminal', run: async () => { await restartTerminal(); startTerminal(); } },
     { label: 'New session', run: () => { startNewSession(); } },
     { divider: true },
-    { label: 'Close terminal tile', glyph: '×', danger: true, run: () => closeTerminalPanel() },
+    close,
   ];
 }

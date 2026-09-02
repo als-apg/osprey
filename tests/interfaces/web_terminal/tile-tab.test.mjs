@@ -283,7 +283,7 @@ describe('tile header context menu', () => {
 
   test('a declined press keeps the browser default (nothing is prevented)', async () => {
     const { createTileTab, setTileContextMenuHandler } = await import(MOD);
-    // What simple mode's terminal reports: no menu opened, so the native one
+    // What a surface with no rows reports: no menu opened, so the native one
     // must still appear.
     setTileContextMenuHandler(vi.fn(() => false));
     const tab = createTileTab('iframe:ariel');

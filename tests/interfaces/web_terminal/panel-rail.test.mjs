@@ -192,8 +192,8 @@ describe('entry interactions', () => {
   });
 
   test('a declined right-click keeps the native browser menu', () => {
-    // The caller's policy — a disabled entry, the terminal in simple mode —
-    // is expressed as `false`, and the rail must then leave the event alone.
+    // The caller's policy — a disabled entry, say — is expressed as `false`,
+    // and the rail must then leave the event alone.
     createRail(rail, PANELS, { onContextMenu: () => false });
     const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
     /** @type {HTMLElement} */ (getEntry(rail, 'ariel')).dispatchEvent(ev);

@@ -91,7 +91,7 @@ export const PLACEHOLDER_COMPONENT = 'dock-iframe-placeholder';
 export { PLACEHOLDER_PREFIX };
 // dockview panel id of the native terminal/chat card (dock-core-shell), used as
 // the anchor for the first placeholder: services open LEFT of the terminal at
-// the classic 60/40 split, in expert and (locked) simple mode alike.
+// the classic 60/40 split, in expert and simple mode alike.
 const TERMINAL_PANEL_ID = 'terminal';
 
 /** @type {HTMLElement | null} */

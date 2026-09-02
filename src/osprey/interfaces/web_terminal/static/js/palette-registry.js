@@ -202,8 +202,8 @@ function buildSettings(deps) {
  *     it beside itself is a guaranteed no-op), and carries no URL gate — the
  *     rail corner this verb replaces never had one.
  *
- * The new-tile rows are dropped wholesale when `openPanelBeside` is absent,
- * which is how simple mode (locked to one service tile) omits them.
+ * The new-tile rows are dropped wholesale when `openPanelBeside` is absent —
+ * the registry's one lever for a host with nowhere to place a second tile.
  *
  * @param {PaletteDeps} deps
  * @returns {Item[]}

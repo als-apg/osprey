@@ -10,8 +10,8 @@
  * panel's own verbs, bound to the same setBarVisible the bar's menu and the
  * Customize sheet call. These tests pin the rows: absent while both bars
  * show, present per hidden bar, effective (a PUT that turns the flag back
- * on), and offered even where the surface's own verbs are empty — the
- * simple-mode terminal, which otherwise declines the menu altogether.
+ * on), and offered beside whatever verbs the surface has of its own — the
+ * simple-mode terminal's single close row included.
  *
  * The panel modules the policy's verbs reach into (the dock, the PTY, the
  * rail) are stubbed: nothing here runs a verb, and importing dockview into
@@ -143,15 +143,16 @@ describe('the Show rows on a panel surface', () => {
     expect(labels()).toEqual(['Restart terminal', 'New session', 'Close terminal tile']);
   });
 
-  test('the simple-mode terminal declines with both bars showing, but opens for a hidden one', async () => {
+  test('the simple-mode terminal keeps its close row, and a hidden bar adds its Show row', async () => {
     await bootWith(doc(['logo'], ['stopwatch']), 'simple');
-    expect(openTileMenu('terminal')).toBe(false);
-    expect(document.querySelector('.rail-context-menu')).toBe(null);
+    expect(openTileMenu('terminal')).toBe(true);
+    expect(labels()).toEqual(['Close terminal tile']);
+    expect(document.querySelectorAll('.rail-context-divider')).toHaveLength(0);
     teardown(modules);
 
     await bootWith(doc(['logo'], ['stopwatch'], { headerVisible: false }), 'simple');
     expect(openTileMenu('terminal')).toBe(true);
-    expect(labels()).toEqual(['Show header']);
-    expect(document.querySelectorAll('.rail-context-divider')).toHaveLength(0);
+    expect(labels()).toEqual(['Close terminal tile', 'Show header']);
+    expect(document.querySelectorAll('.rail-context-divider')).toHaveLength(1);
   });
 });

@@ -128,9 +128,8 @@ export function setTileContextMenuHandler(fn) {
  * Declining is doing NOTHING — no menu and no preventDefault — so the browser
  * shows its own menu instead. That happens on interactive header children
  * (right-clicking inside a contributed search input must still offer
- * copy/paste) and whenever the handler itself declines, e.g. the terminal in
- * simple mode, where every terminal verb acts on a surface the operator
- * cannot see.
+ * copy/paste) and whenever the handler itself declines because it has no
+ * rows to offer for that surface.
  * @param {HTMLElement} el  the header surface, and the menu's anchor
  * @param {string} id  the panel id the menu's verbs act on
  */
