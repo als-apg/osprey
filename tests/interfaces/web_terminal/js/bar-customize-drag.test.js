@@ -17,8 +17,8 @@
  *   - a drop the layout cannot accept is REFUSED AND NAMED, with the same
  *     sentence the sheet's tile carries, and issues no PUT.
  *
- *   - a locked item may be moved and never removed: dropping one outside the
- *     bars is a no-op that says so.
+ *   - no item is exempt: the wordmark dropped outside the bars is removed like
+ *     any other.
  *
  * happy-dom lays nothing out, so a test that depends on WHERE something sits
  * gives the nodes boxes with `withRect()`. The pixels themselves are the
@@ -154,13 +154,13 @@ describe('the drop index is the layout position, not the DOM position', () => {
     withRect(shell('clock'), { left: 40, right: 80 });
     withRect(shell('stopwatch'), { left: 80, right: 120 });
 
-    await drag(tile('connection'), { x: 85, y: 20 }, { from: { x: 20, y: 200 } });
+    await drag(tile('stopwatch'), { x: 85, y: 20 }, { from: { x: 20, y: 200 } });
 
     expect(putBodies()[0].header.map((/** @type {any} */ i) => i.type)).toEqual([
       'logo',
       'clock',
       'docs',
-      'connection',
+      'stopwatch',
       'stopwatch',
     ]);
   });
@@ -174,26 +174,28 @@ describe('the drop index is the layout position, not the DOM position', () => {
     withRect(shell('logo'), { left: 0, right: 40 });
     withRect(shell('clock'), { left: 40, right: 80 });
 
-    await drag(tile('connection'), { x: 200, y: 20 }, { from: { x: 20, y: 200 } });
+    await drag(tile('stopwatch'), { x: 200, y: 20 }, { from: { x: 20, y: 200 } });
 
     expect(putBodies()[0].header.map((/** @type {any} */ i) => i.type)).toEqual([
       'logo',
       'clock',
-      'connection',
+      'stopwatch',
       'docs',
     ]);
   });
 });
 
 describe('a refused drop is named and writes nothing', () => {
-  test('a header-only type is refused by the status bar', async () => {
+  test('a header item dropped on the status bar moves there', async () => {
+    // This drop used to be refused as "Header only"; every type may now sit in
+    // either bar, so the search trigger simply moves.
     await editing(doc(['logo', 'search'], []));
 
     await drag(shell('search'), IN_STATUS);
 
-    expect(putBodies()).toEqual([]);
-    expect(noticeText()).toBe('Header only');
-    expect(rendered('header')).toEqual(['logo', 'search']);
+    expect(putBodies()[0].status.map((/** @type {any} */ i) => i.type)).toEqual(['search']);
+    expect(rendered('status')).toEqual(['search']);
+    expect(rendered('header')).toEqual(['logo']);
   });
 
   test('a full host refuses the drop by name', async () => {
@@ -217,15 +219,13 @@ describe('dropping outside the bars', () => {
     expect(rendered('header')).toEqual(['logo']);
   });
 
-  test('leaves a locked item where it is and says why', async () => {
+  test('removes the wordmark like any other item', async () => {
     await editing(doc(['logo', 'clock'], []));
 
     await drag(shell('logo'), OUTSIDE);
 
-    expect(putBodies()).toEqual([]);
-    // ONE sentence for this rule, wherever it is refused.
-    expect(noticeText()).toBe('Locked by the deployment');
-    expect(rendered('header')).toEqual(['logo', 'clock']);
+    expect(putBodies()[0].header.map((/** @type {any} */ i) => i.type)).toEqual(['clock']);
+    expect(rendered('header')).toEqual(['clock']);
   });
 
   test('a tile dragged out of the sheet and dropped nowhere adds nothing', async () => {
@@ -282,8 +282,106 @@ describe('dragging in from the sheet', () => {
   test('a disabled tile does not start a drag', async () => {
     await editing(doc(['logo'], []));
 
-    await drag(tile('bluesky-queue'), IN_HEADER, { from: { x: 20, y: 200 } });
+    await drag(tile('identity'), IN_HEADER, { from: { x: 20, y: 200 } });
 
+    expect(putBodies()).toEqual([]);
+  });
+
+  test('a dimmed tile does not start a drag either', async () => {
+    await editing(doc(['logo', 'docs'], []));
+
+    await drag(tile('docs'), IN_STATUS, { from: { x: 20, y: 200 } });
+
+    expect(putBodies()).toEqual([]);
+  });
+});
+
+describe('resizing a space', () => {
+  /** One of the first space shell's two grips. @param {'start' | 'end'} [edge] */
+  function grip(edge = 'end') {
+    return /** @type {any} */ (shell('space').querySelector(`.bar-space-grip[data-edge="${edge}"]`));
+  }
+
+  test('a space carries a grip at each end', async () => {
+    await editing(doc(['logo', 'space', 'clock'], []));
+
+    expect(grip('start')).not.toBe(null);
+    expect(grip('end')).not.toBe(null);
+  });
+
+  test('the start grip widens the space as the pointer moves LEFT', async () => {
+    // Whichever edge was grabbed is the one that follows the hand: pulling the
+    // left edge outward makes more space, pushing it inward makes less.
+    await editing(doc(['logo', 'space', 'clock'], []));
+    withRect(shell('space'), { left: 50, right: 150, top: 0, bottom: 40 });
+
+    pointer('pointerdown', grip('start'), { x: 50, y: 20 });
+    pointer('pointermove', grip('start'), { x: 20, y: 20 });
+    expect(shell('space').style.getPropertyValue('flex')).toBe('0 1 130px');
+    pointer('pointermove', grip('start'), { x: 90, y: 20 });
+    pointer('pointerup', grip('start'), { x: 90, y: 20 });
+    await settle();
+
+    expect(putBodies()[0].header[1].options.width).toBe(60);
+  });
+
+  test('dragging the grip writes the width the pointer asked for, once', async () => {
+    await editing(doc(['logo', 'space', 'clock'], []));
+    withRect(shell('space'), { left: 50, right: 150, top: 0, bottom: 40 });
+
+    pointer('pointerdown', grip(), { x: 150, y: 20 });
+    pointer('pointermove', grip(), { x: 170, y: 20 });
+    expect(shell('space').style.getPropertyValue('flex')).toBe('0 1 120px');
+    expect(shell('space').querySelector('.bar-space-label')?.textContent).toBe('120 px');
+    pointer('pointermove', grip(), { x: 190, y: 20 });
+    pointer('pointerup', grip(), { x: 190, y: 20 });
+    await settle();
+
+    expect(putBodies()).toHaveLength(1);
+    expect(putBodies()[0].header[1].options.width).toBe(140);
+    expect(document.body.classList.contains('bar-resizing')).toBe(false);
+  });
+
+  test('a grip press is a resize, never a drag of the space', async () => {
+    await editing(doc(['logo', 'space', 'clock'], []));
+    withRect(shell('space'), { left: 50, right: 150, top: 0, bottom: 40 });
+
+    pointer('pointerdown', grip(), { x: 150, y: 20 });
+    pointer('pointermove', grip(), { x: 150, y: 400 });
+    pointer('pointerup', grip(), { x: 150, y: 400 });
+    await settle();
+
+    expect(document.querySelector('.bar-drag-ghost')).toBe(null);
+    expect(rendered('header')).toEqual(['logo', 'space', 'clock']);
+    expect(putBodies()).toEqual([]);
+  });
+
+  test('the width never drags below the minimum or above the catalog ceiling', async () => {
+    await editing(doc(['logo', 'space', 'clock'], []));
+    withRect(shell('space'), { left: 50, right: 150, top: 0, bottom: 40 });
+
+    pointer('pointerdown', grip(), { x: 150, y: 20 });
+    pointer('pointermove', grip(), { x: -500, y: 20 });
+    expect(shell('space').style.getPropertyValue('flex')).toBe('0 1 8px');
+    pointer('pointermove', grip(), { x: 9000, y: 20 });
+    pointer('pointerup', grip(), { x: 9000, y: 20 });
+    await settle();
+
+    expect(putBodies()[0].header[1].options.width).toBe(2000);
+  });
+
+  test('a cancelled resize puts the space back', async () => {
+    await editing(doc(['logo', { type: 'space', options: { width: 60 } }, 'clock'], []));
+    withRect(shell('space'), { left: 50, right: 110, top: 0, bottom: 40 });
+    const before = shell('space').style.getPropertyValue('flex');
+
+    pointer('pointerdown', grip(), { x: 110, y: 20 });
+    pointer('pointermove', grip(), { x: 200, y: 20 });
+    pointer('pointercancel', grip(), { x: 200, y: 20 });
+    await settle();
+
+    expect(shell('space').style.getPropertyValue('flex')).toBe(before);
+    expect(shell('space').querySelector('.bar-space-label')?.textContent).toBe('60 px');
     expect(putBodies()).toEqual([]);
   });
 });

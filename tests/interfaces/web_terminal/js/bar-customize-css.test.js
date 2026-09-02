@@ -2,14 +2,14 @@
  * Bar customize — the one CSS invariant a unit suite can actually hold:
  *   npx vitest run tests/interfaces/web_terminal/js/bar-customize-css.test.js
  *
- * EDIT MODE MUST NOT MAKE A BAR LOOK CROWDED. Its decorations — the dashed
- * outline and the lock badge — are drawn OUTSIDE the item's own box, so on the
+ * EDIT MODE MUST NOT MAKE A BAR LOOK CROWDED. Its decoration — the dashed
+ * outline — is drawn OUTSIDE the item's own box, so on the
  * last item in a bar they hang past the host's content edge, and an absolutely
  * positioned descendant hanging over that edge is real scrollable overflow. The
  * overflow ladder's probe is `scrollWidth - clientWidth`, so a bar whose
  * trailing item is decorated reported crowding it did not have and folded its
  * lowest-priority item on the next reconcile: on the shipped default header,
- * whose last item is the locked `display`, that was every drop into the header.
+ * whose last item is `display`, that was every drop into the header.
  *
  * The fix is a reservation on the host, and the thing that can silently undo it
  * is a decoration added later that reaches further out than the reservation. No
@@ -56,10 +56,13 @@ describe('edit-mode decoration fits inside the room the bar reserves', () => {
 
   test('every host reserves it while editing', () => {
     const reservation = rules().find(
-      (rule) => rule.selector.includes('bar-editing') && rule.selector.includes('[data-bar-host]')
+      (rule) =>
+        rule.selector.includes('bar-editing') &&
+        rule.selector.includes('[data-bar-host]') &&
+        rule.selector.includes('::after')
     );
 
-    expect(reservation?.selector).toContain('::after');
+    expect(reservation).toBeDefined();
     expect(reservation?.body).toContain('var(--bar-edit-overhang)');
   });
 

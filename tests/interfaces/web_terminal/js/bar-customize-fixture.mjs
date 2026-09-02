@@ -28,7 +28,7 @@ const realFetch = globalThis.fetch;
  * A layout document, as the server serves it.
  * @param {(string | {type: string, options: Record<string, unknown>})[]} header
  * @param {(string | {type: string, options: Record<string, unknown>})[]} status
- * @param {{rev?: number, version?: number, statusVisible?: boolean}} [extra]
+ * @param {{rev?: number, version?: number, headerVisible?: boolean, statusVisible?: boolean}} [extra]
  * @returns {Record<string, unknown>}
  */
 export function doc(header, status, extra = {}) {
@@ -39,6 +39,7 @@ export function doc(header, status, extra = {}) {
     rev: extra.rev ?? 0,
     header: header.map(item),
     status: status.map(item),
+    header_visible: extra.headerVisible ?? true,
     status_visible: extra.statusVisible ?? true,
   };
 }
@@ -153,6 +154,7 @@ export function teardown({ customize, sync } = {}) {
   sync?.stopBarSync?.();
   document.body.innerHTML = '';
   document.documentElement.removeAttribute('data-ui-mode');
+  document.documentElement.removeAttribute('data-header-bar');
   document.documentElement.removeAttribute('data-status-bar');
   globalThis.fetch = realFetch;
   fetchSpy = null;

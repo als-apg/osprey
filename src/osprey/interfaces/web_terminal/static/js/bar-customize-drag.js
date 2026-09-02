@@ -21,11 +21,21 @@
  *
  * A REFUSED DROP IS NOT A REMOVAL. Releasing over a bar that will not take the
  * item leaves it exactly where it was, with the reason on the sheet. Only a
- * release over NEITHER bar removes, and a locked item refuses even that.
+ * release over NEITHER bar removes.
+ *
+ * THE SPACE'S GRIPS ARE A SECOND GESTURE, not a drag: a press on either one
+ * resizes the space it belongs to. The width follows the pointer live — the
+ * shell's own flex basis is written on every move, so the bar reflows as the
+ * operator drags — and is committed as the item's `width` option when the
+ * pointer lifts, through the same controller every other edit goes through.
+ * The end grip grows the space as the pointer moves right; the start grip
+ * grows it as the pointer moves left, so whichever edge was grabbed is the one
+ * that appears to follow the hand.
  */
 
 import { BAR_CATALOG, BAR_HOSTS, barItemType } from './bar-catalog.js';
 import { closeBarPopovers, docOf, hostElement, isLive } from './bar-host.js';
+import { spaceLabel } from './bar-items.js';
 
 /** @typedef {import('./bar-catalog.js').BarHost} BarHost */
 /** @typedef {import('./bar-customize.js').BarEditController} BarEditController */
@@ -60,6 +70,32 @@ const HOST_MARGIN = 8;
 
 /** The gesture in flight, if any. @type {DragSession | null} */
 let session = null;
+
+/**
+ * The narrowest a space can be dragged to. Zero is reserved for "flexible" and
+ * is set from the options popover, not by closing the space with the pointer:
+ * a drag that ended at zero would snap the space back to full width.
+ */
+const SPACE_MIN_DRAG_WIDTH = 8;
+
+/**
+ * @typedef {object} ResizeSession
+ * @property {BarEditController} ctrl
+ * @property {Document} owner
+ * @property {HTMLElement} shell
+ * @property {import('./bar-customize.js').BarItemPlace} place
+ * @property {number} pointerId
+ * @property {number} startX
+ * @property {number} startWidth
+ * @property {number} width - the width the pointer currently asks for
+ * @property {1 | -1} direction - +1 when the pointer moving right widens the
+ *   space (the end grip), -1 when it narrows it (the start grip)
+ * @property {string} startFlex - the shell's inline flex before the gesture
+ * @property {string} startMinWidth
+ */
+
+/** The resize in flight, if any. @type {ResizeSession | null} */
+let resize = null;
 
 /** Undo the pointerdown listener. @type {(() => void) | null} */
 let stopListening = null;
@@ -98,6 +134,7 @@ export function armDrag(ctrl, root) {
 /** Stop listening, ending any gesture in flight without applying it. */
 export function disarmDrag() {
   if (session) finish(false, null);
+  if (resize) finishResize(false);
   stopListening?.();
   stopListening = null;
 }
@@ -110,9 +147,14 @@ export function disarmDrag() {
  * @param {Document} owner
  */
 function beginDrag(event, ctrl, owner) {
-  if (session || event.button !== 0) return;
+  if (session || resize || event.button !== 0) return;
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
+  const grip = /** @type {HTMLElement | null} */ (target.closest('.bar-space-grip'));
+  if (grip) {
+    beginResize(event, ctrl, owner, grip);
+    return;
+  }
   const source = sourceOf(target, ctrl);
   if (!source) return;
 
@@ -351,6 +393,113 @@ function finish(commit, event) {
   }, 0);
   if (!commit || !event) return;
   void apply(active);
+}
+
+/* ---- resizing a space ---- */
+
+/**
+ * A press on a space's grip. Nothing is written until the pointer lifts; until
+ * then the shell's own flex basis follows the pointer so the bar reflows live.
+ * @param {PointerEvent} event
+ * @param {BarEditController} ctrl
+ * @param {Document} owner
+ * @param {HTMLElement} grip
+ */
+function beginResize(event, ctrl, owner, grip) {
+  const shell = /** @type {HTMLElement | null} */ (
+    grip.closest('.bar-item[data-bar-item="space"]')
+  );
+  if (!shell || !isLive(shell)) return;
+  const place = ctrl.locate(shell);
+  if (!place) return;
+  const width = shell.getBoundingClientRect().width;
+  resize = {
+    ctrl,
+    owner,
+    shell,
+    place,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startWidth: width,
+    width,
+    direction: grip.dataset.edge === 'start' ? -1 : 1,
+    startFlex: shell.style.flex,
+    startMinWidth: shell.style.minWidth,
+  };
+  closeBarPopovers();
+  owner.body?.classList.add('bar-resizing');
+  owner.addEventListener('pointermove', onResizeMove);
+  owner.addEventListener('pointerup', onResizeUp);
+  owner.addEventListener('pointercancel', onResizeCancel);
+  event.preventDefault();
+}
+
+/**
+ * The width the pointer is asking for, held inside what the option allows.
+ * @param {number} raw
+ * @returns {number}
+ */
+function clampWidth(raw) {
+  const spec = BAR_CATALOG.space.options.width;
+  const max = spec.kind === 'number' ? spec.max : raw;
+  return Math.round(Math.max(SPACE_MIN_DRAG_WIDTH, Math.min(max, raw)));
+}
+
+/** @param {Event} event */
+function onResizeMove(event) {
+  const pointer = /** @type {PointerEvent} */ (event);
+  if (!resize || pointer.pointerId !== resize.pointerId) return;
+  const travel = (pointer.clientX - resize.startX) * resize.direction;
+  const width = clampWidth(resize.startWidth + travel);
+  resize.width = width;
+  // The same hint the catalog would stamp for this width, written directly so
+  // the bar reflows under the pointer without a save per pixel.
+  resize.shell.style.setProperty('flex', `0 1 ${width}px`);
+  resize.shell.style.setProperty('min-width', '0');
+  const label = resize.shell.querySelector('.bar-space-label');
+  if (label) label.textContent = spaceLabel(width);
+}
+
+/** @param {Event} event */
+function onResizeUp(event) {
+  if (!resize || /** @type {PointerEvent} */ (event).pointerId !== resize.pointerId) return;
+  finishResize(true);
+}
+
+/** @param {Event} event */
+function onResizeCancel(event) {
+  if (!resize || /** @type {PointerEvent} */ (event).pointerId !== resize.pointerId) return;
+  finishResize(false);
+}
+
+/**
+ * End the resize. A committed one writes the width as the item's option — one
+ * edit, one PUT, and the reconcile that follows restamps the shell from the
+ * stored value. A cancelled one puts the shell's inline style back.
+ * @param {boolean} commit
+ */
+function finishResize(commit) {
+  const active = resize;
+  resize = null;
+  if (!active) return;
+  active.owner.removeEventListener('pointermove', onResizeMove);
+  active.owner.removeEventListener('pointerup', onResizeUp);
+  active.owner.removeEventListener('pointercancel', onResizeCancel);
+  active.owner.body?.classList.remove('bar-resizing');
+  dragged = true;
+  setTimeout(() => {
+    dragged = false;
+  }, 0);
+  if (commit && active.width !== active.startWidth) {
+    void active.ctrl.setOption(active.place.host, active.place.index, 'width', active.width);
+    return;
+  }
+  active.shell.style.setProperty('flex', active.startFlex);
+  active.shell.style.setProperty('min-width', active.startMinWidth);
+  const label = active.shell.querySelector('.bar-space-label');
+  const item = active.ctrl.itemAt(active.place.host, active.place.index);
+  const stored = item && typeof item.options.width === 'number' ? item.options.width : 0;
+  if (label) label.textContent = spaceLabel(stored);
 }
 
 /**

@@ -18,12 +18,10 @@
  *     it never hand-resolves a concrete theme id: theme-manager.js is the
  *     single source of truth and this element reads state back through
  *     `getTheme()`/`getFamily()` + `subscribe()`.
- *   - **View** (Expert/Simple) — the mechanism app.js's `initModeToggle()`
- *     uses, minus the hub-only dock/panel follow-ups: persist the explicit
- *     choice under the per-persona `osprey-ui-mode` key (scoped through
- *     storage-scope.js's `scopedStorageKey()`), call frame-params.js's
- *     `stripQueryMode()` so a leftover one-shot `?mode=` deep-link cannot
- *     out-rank that choice on the next reload, then post
+ *   - **View** (Expert/Simple) — frame-params.js's `pickUiMode()`, which
+ *     persists the explicit choice under the per-persona `osprey-ui-mode`
+ *     key, drops a leftover one-shot `?mode=` deep-link so it cannot out-rank
+ *     that choice on the next reload, then posts
  *     `{type: 'osprey-mode-change', mode}` to this element's OWN window.
  *     Stamping `data-ui-mode` is deliberately NOT done here: the page's
  *     same-origin `osprey-mode-change` listener owns that, and a
@@ -98,8 +96,7 @@
  * @module components/osprey-display-menu
  */
 
-import { onModeChange, stripQueryMode } from '/design-system/js/frame-params.js';
-import { scopedStorageKey } from '/design-system/js/storage-scope.js';
+import { onModeChange, pickUiMode } from '/design-system/js/frame-params.js';
 import {
   getFamily,
   getTheme,
@@ -112,13 +109,6 @@ import {
 
 const STYLE_ID = 'osprey-display-menu-style';
 
-/**
- * Base Expert/Simple key — the one mode-boot.js resolves from. Never used
- * bare: it goes through `scopedStorageKey()` so that on a multi-user mount the
- * pick lands in this persona's own slot instead of the shared origin-wide one
- * every persona would otherwise overwrite in turn.
- */
-const MODE_STORAGE_KEY = 'osprey-ui-mode';
 
 /**
  * The UI mode currently stamped on `<html>` by mode-boot.js (pre-paint) or by
@@ -594,10 +584,9 @@ export class OspreyDisplayMenu extends HTMLElement {
   }
 
   /**
-   * View pick: persist the explicit choice, drop a leftover one-shot `?mode=`,
-   * then broadcast it to this element's own window for the page's same-origin
-   * listener (this element's included) to apply. Mirrors app.js's
-   * `initModeToggle()` minus its hub-only dock/panel follow-ups.
+   * View pick: frame-params.js's `pickUiMode()` for the row's own segment —
+   * the same call a page makes to flip the mode with no instance of this
+   * element on it.
    * @param {Event} event
    */
   _onViewPick(event) {
@@ -607,13 +596,7 @@ export class OspreyDisplayMenu extends HTMLElement {
     const mode = target.dataset.mode;
     if (mode !== 'expert' && mode !== 'simple') return;
 
-    try {
-      // Key resolved at write time, not at module load: the scope attribute is
-      // a property of the document this element ended up in.
-      window.localStorage.setItem(scopedStorageKey(MODE_STORAGE_KEY), mode);
-    } catch { /* storage blocked — the mode still applies for this session */ }
-    stripQueryMode();
-    window.postMessage({ type: 'osprey-mode-change', mode }, window.location.origin);
+    pickUiMode(mode);
     // Reflect the pick now rather than waiting for the message to round-trip:
     // the post is asynchronous, and the row must not look unchanged in
     // between. The listener's own sync then confirms what was applied.

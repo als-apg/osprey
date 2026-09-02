@@ -343,7 +343,6 @@ export async function initPanelManager(panelId) {
           label: cp.label || cp.id.toUpperCase(),
           configEndpoint: null,
           healthEndpoint: cp.healthEndpoint,  // null = skip health polling
-          statusBarId: null,
           path: cp.path || '/',             // subpath for iframe (e.g. "/panel/")
         });
       }

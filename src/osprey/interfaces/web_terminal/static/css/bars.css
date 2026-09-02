@@ -4,8 +4,8 @@
  * (var(--wt-status-bar-height)) are item HOSTS: a flat, ordered run of
  * `.bar-item` shells laid out on one uniform gap. This file owns the SHELL
  * layer only — the box every item sits in, the button geometry items share,
- * and the two layout shells (flexible space, fixed gap). What an item looks
- * like and what it does belong with that item.
+ * and the two layout shells (space, separator). What an item looks like and
+ * what it does belong with that item.
  *
  * Three rules govern everything below.
  *
@@ -22,9 +22,9 @@
  *    and at status density in the status bar with no per-item rule, and a
  *    third host would need no new item CSS at all.
  *
- * 3. SPACING YIELDS BEFORE CONTENT. Item shells never shrink; the space and
- *    gap shells declare their own flex-shrink so that a crowded bar eats its
- *    whitespace first and only then hands the problem to the overflow ladder.
+ * 3. SPACING YIELDS BEFORE CONTENT. Item shells never shrink; the space shell
+ *    declares its own flex-shrink so that a crowded bar eats its whitespace
+ *    first and only then hands the problem to the overflow ladder.
  *
  * Geometry is derived from the design of record: header items are 28px on a
  * var(--space-2) gap, status items 20px on var(--space-1). 28px is the
@@ -86,24 +86,35 @@
   gap: var(--space-1);
 }
 
-/* ---- A withdrawn status bar ----
+/* ---- A withdrawn bar ----
 
-   `data-status-bar="hidden"` is stamped on <html> by the server when the
-   effective layout hides the status bar, before the first paint — the reason
-   it is an html attribute and not a JS decision is that the shell's height
-   depends on it, and learning it from JS would paint the bar and then reflow
-   everything under it on every load.
+   `data-header-bar="hidden"` / `data-status-bar="hidden"` are stamped on <html>
+   by the server when the effective layout hides that bar, before the first
+   paint — the reason they are html attributes and not a JS decision is that
+   the shell's height depends on them, and learning it from JS would paint the
+   bar and then reflow everything under it on every load.
 
    So this zeroes the height TOKEN rather than restating `.shell-body`'s own
    `calc(100vh - header - status)` from terminal.css. That is what keeps it
-   correct across themes: the retro family sizes the bar at 24px, not 26px, and
-   a second calc here would have to know that and would drift the day a theme
-   changes it. `.shell-body` reclaims exactly what its own theme gave the bar,
-   because it is still reading the same token — and the token stays the one
-   place the height is stated.
+   correct across themes: the retro family sizes the status bar at 24px, not
+   26px, and a second calc here would have to know that and would drift the day
+   a theme changes it. `.shell-body` reclaims exactly what its own theme gave
+   the bar, because it is still reading the same token — and the token stays
+   the one place the height is stated.
 
-   The `display` rule reaches through <html> deliberately: at that specificity
-   it beats files.css's `.status-bar` whatever the link order turns out to be. */
+   The `display` rules reach through <html> deliberately: at that specificity
+   they beat files.css's `.status-bar` and terminal.css's `.header` whatever
+   the link order turns out to be. With both bars hidden nothing is left to
+   right-click; the command palette's Customize bars is the way back in, and
+   edit mode shows every bar. */
+
+html[data-header-bar="hidden"]:not([data-bar-editing]) {
+  --wt-header-height: 0px;
+}
+
+html[data-header-bar="hidden"]:not([data-bar-editing]) .header {
+  display: none;
+}
 
 html[data-status-bar="hidden"]:not([data-bar-editing]) {
   --wt-status-bar-height: 0px;
@@ -123,6 +134,7 @@ html[data-status-bar="hidden"]:not([data-bar-editing]) .status-bar {
    <html> by bar-customize.js for exactly this reason — `body.bar-editing`
    cannot be reached from these two selectors. */
 
+html[data-header-bar="hidden"][data-bar-editing] .header,
 html[data-status-bar="hidden"][data-bar-editing] .status-bar {
   opacity: 0.7;
 }
@@ -154,16 +166,17 @@ html[data-status-bar="hidden"][data-bar-editing] .status-bar {
 
 /* ---- Layout shells ----
 
-   The operator's two spacing tools. Neither renders anything; both exist only
-   to push items apart, so both are the first thing to give up room.
+   The operator's two spacing tools. A space pushes items apart; a separator
+   draws a line between them. Neither is a control, and the space is the first
+   thing in a bar to give up room.
 
-   `space` takes a share of whatever is left over (weight comes from the item's
-   own flex-grow), down to a single gap's worth so a full bar still reads as
-   two groups rather than one run. `gap` is a fixed width the operator sets,
-   and it shrinks under pressure — the design of record pins it at `0 0 auto`,
-   but a fixed gap that refuses to yield clips content instead of closing
-   whitespace, which is the wrong trade in a bar that is already height-capped
-   and cannot wrap. */
+   A space at width 0 takes whatever is left over (the host stamps `flex: 1 1
+   0` from the catalog), down to a single gap's worth so a full bar still
+   reads as two groups rather than one run. A space the operator dragged to a
+   width holds it (`flex: 0 1 <width>px`, stamped the same way) and shrinks
+   under pressure — a fixed width that refuses to yield clips content instead
+   of closing whitespace, which is the wrong trade in a bar that is already
+   height-capped and cannot wrap. */
 
 .bar-item[data-bar-item="space"] {
   flex: 1 1 0;
@@ -171,9 +184,20 @@ html[data-status-bar="hidden"][data-bar-editing] .status-bar {
   align-self: stretch;
 }
 
-.bar-item[data-bar-item="gap"] {
-  flex: 0 1 auto;
-  align-self: stretch;
+/* A space's bodies are edit-mode furniture — the width it is set to and the
+   grip that sets it — so outside edit mode neither exists. */
+
+.bar-space,
+.bar-space-grip {
+  display: none;
+}
+
+/* A 1px rule, the height of the item row, in the bar's own hairline colour. */
+
+.bar-item[data-bar-item="separator"] {
+  width: 1px;
+  height: var(--bar-item-size);
+  background: var(--border-default);
 }
 
 /* ---- Baseline run ----
@@ -287,18 +311,13 @@ html[data-status-bar="hidden"][data-bar-editing] .status-bar {
    thing being edited, and every item becomes an OUTLINE of itself rather than
    a live control — a clock that opens its popover under a drag is a clock
    fighting the gesture. The items stay visible and in place; only their
-   interior stops answering the pointer.
-
-   Locked items outline SOLID and carry a lock mark: the deployment placed them
-   and they may be moved but never removed. `data-bar-locked` is stamped by the
-   same module for the duration of edit mode, because locked-ness is a catalog
-   fact the server-rendered shell does not carry. */
+   interior stops answering the pointer. */
 
 body.bar-editing {
-  /* How far outside its own box edit mode draws an item's decoration: the lock
-     badge, which is the widest of them (the dashed outline reaches 5px). Stated
-     once because two rules have to agree about it — the badge that draws there,
-     and the room a bar reserves for it below. */
+  /* How far outside its own box edit mode draws an item's decoration: the
+     dashed outline reaches 5px, rounded up. Stated once because two rules have
+     to agree about it — the outline that draws there, and the room a bar
+     reserves for it below. */
   --bar-edit-overhang: 7px;
 }
 
@@ -306,6 +325,37 @@ body.bar-editing .header,
 body.bar-editing .status-bar {
   background: var(--bg-secondary);
   box-shadow: inset 0 0 0 1px var(--border-accent);
+}
+
+/* EACH BAR SAYS WHICH ONE IT IS while editing. "Status bar" is the bottom
+   bar's name everywhere — config, docs, the sheet's checkbox — and an operator
+   looking at the top bar has no reason to know that. A pseudo-element on a
+   flex container is a flex item, so the tag is the run's first entry and the
+   items simply start after it; the flexible space gives the room back. */
+
+body.bar-editing [data-bar-host]::before {
+  flex: 0 0 auto;
+  align-self: center;
+  margin-right: var(--space-2);
+  padding: 1px 6px;
+  font-family: var(--font-display);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+}
+
+body.bar-editing [data-bar-host="header"]::before {
+  content: "Header";
+}
+
+body.bar-editing [data-bar-host="status"]::before {
+  content: "Status bar";
 }
 
 /* THE DECORATION MUST NOT ENLARGE THE HOST'S SCROLL EXTENT.
@@ -316,7 +366,7 @@ body.bar-editing .status-bar {
    ladder's probe is `scrollWidth - clientWidth` (bar-overflow.js), so a bar
    whose trailing item is decorated would report crowding it does not have and
    fold its lowest-priority item on the next reconcile. The shipped default
-   header ends with the locked `display` item, which made that every drop into
+   header ends with the `display` item, which made that every drop into
    the header: the item arrived and was immediately parked in the pool.
 
    So the bar reserves the room. A trailing flex spacer rather than padding on
@@ -355,24 +405,11 @@ body.bar-editing .bar-item:hover::before {
   opacity: 1;
 }
 
-body.bar-editing .bar-item[data-bar-locked]::before {
-  border-style: solid;
-  opacity: 1;
-}
-
-body.bar-editing .bar-item[data-bar-locked]::after {
-  content: "\1F512";
-  position: absolute;
-  top: -9px;
-  right: calc(-1 * var(--bar-edit-overhang));
-  font-size: var(--text-2xs);
-  line-height: var(--leading-none);
-  color: var(--text-muted);
-  pointer-events: none;
-}
-
-/* A flexible space renders nothing, so edit mode is the only time it can be
-   seen at all — without this the operator drags at empty air. */
+/* A space renders nothing, so edit mode is the only time it can be seen at
+   all — without this the operator drags at empty air. Its body (bar-items.js)
+   shows what it is set to — the fill glyph, or a width — and the grip on its
+   right edge is the one thing inside an item that still answers the pointer
+   while editing: a press on it resizes the space (bar-customize-drag.js). */
 body.bar-editing .bar-item[data-bar-item="space"]::before {
   border-style: dotted;
   opacity: 0.9;
@@ -380,14 +417,61 @@ body.bar-editing .bar-item[data-bar-item="space"]::before {
 
 body.bar-editing .bar-item[data-bar-item="space"] {
   justify-content: center;
-  color: var(--text-muted);
-  font-size: var(--text-lg);
 }
 
-body.bar-editing .bar-item[data-bar-item="space"]::after {
-  content: "\27F7";
+body.bar-editing .bar-space {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-size: var(--text-xs);
   color: var(--text-muted);
-  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* One at each end, hanging half outside the shell's edge in the gap before
+   the neighbouring item, so the pointer has a 6px target that is not also the
+   drag handle for the space itself. They are the one child of an item that
+   keeps answering the pointer while editing, and they show faintly the whole
+   time edit mode is on — a handle that appears only on hover is a handle
+   nobody finds. */
+
+body.bar-editing .bar-space-grip {
+  display: block;
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  width: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  opacity: 0.35;
+  cursor: ew-resize;
+  pointer-events: auto;
+  transition: opacity var(--wt-transition-fast);
+}
+
+body.bar-editing .bar-space-grip[data-edge="start"] {
+  left: -3px;
+}
+
+body.bar-editing .bar-space-grip[data-edge="end"] {
+  right: -3px;
+}
+
+body.bar-editing .bar-item[data-bar-item="space"]:hover .bar-space-grip {
+  opacity: 0.7;
+}
+
+.bar-space-grip:hover,
+body.bar-resizing .bar-space-grip {
+  opacity: 1;
+}
+
+body.bar-resizing {
+  cursor: ew-resize;
+  user-select: none;
 }
 
 /* ---- Dragging ----
@@ -514,9 +598,12 @@ body.bar-dragging {
   flex-wrap: wrap;
 }
 
-/* One tile per catalog type. A tile the operator cannot use is a DISABLED
-   button carrying its reason, not a hidden one — an item missing from the
-   sheet with no explanation is the failure this replaces. */
+/* One tile per catalog type: the item itself, at header density, over its
+   label. A tile the operator cannot use is a DISABLED button carrying its
+   reason, not a hidden one — an item missing from the sheet with no
+   explanation is the failure this replaces. A single-node item that is already
+   in a bar is dimmed instead: the sheet reads as an inventory, and where the
+   item sits is on hover. */
 
 .bar-tile {
   display: flex;
@@ -530,20 +617,54 @@ body.bar-dragging {
   background: var(--bg-panel);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
-  cursor: pointer;
+  cursor: grab;
   user-select: none;
   transition: border-color var(--wt-transition-fast), background var(--wt-transition-fast);
 }
 
-.bar-tile:hover:not(:disabled) {
+.bar-tile:hover:not(:disabled):not(.is-in-bar) {
   color: var(--text-primary);
   border-color: var(--border-accent);
   background: var(--bg-elevated);
 }
 
-.bar-tile:disabled {
+.bar-tile:disabled,
+.bar-tile.is-in-bar {
   opacity: 0.45;
   cursor: default;
+}
+
+/* The preview is the item's real body at the header's density, inert: it is
+   a picture of the control, and the tile around it is the control. The
+   header's density tokens are restated here because the tile is not in the
+   header, and the identity middot is a fact about order that a tile has no
+   order to state. */
+
+.bar-tile-body {
+  --bar-item-size: 28px;
+  --bar-item-pad: var(--space-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  max-width: 260px;
+  pointer-events: none;
+}
+
+.bar-tile-body .header-deployment::before {
+  content: none;
+}
+
+/* The feedback item's glyph: the rail's speech bubble, at the row's size. */
+
+.bar-feedback-icon {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .bar-tile-label {
@@ -566,6 +687,12 @@ body.bar-dragging {
   color: var(--text-secondary);
 }
 
+.bar-sheet-checks {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
 .bar-sheet-check {
   display: flex;
   align-items: center;
@@ -577,9 +704,6 @@ body.bar-dragging {
   accent-color: var(--color-accent);
 }
 
-.bar-sheet-note {
-  color: var(--text-muted);
-}
 
 /* The "Layout not saved" surface. It sits at the end of the foot and is empty
    until something has to be said, which is why it takes `margin-left: auto`
@@ -659,13 +783,18 @@ body.bar-dragging {
    it before a reconcile moves the item out from under it. It anchors to the
    side that keeps it on screen — `is-left` is stamped by the opener for an item
    in the left half of the window — and in the status bar it opens UPWARD,
-   because there is nothing below a 24–26 px bar at the bottom of the page. */
+   because there is nothing below a 24–26 px bar at the bottom of the page.
+
+   Above the sheet, deliberately: a header item's popover opens DOWN into the
+   exact strip the sheet occupies, and the sheet sits at the sticky layer
+   later in the document. At the same layer the sheet painted over every
+   header popover and the options looked like they never opened. */
 
 .bar-pop {
   position: absolute;
   top: calc(100% + var(--space-2));
   right: 0;
-  z-index: var(--z-sticky);
+  z-index: var(--z-overlay);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -835,4 +964,266 @@ body.bar-editing .bar-item > .bar-pop {
   margin: 4px 0;
   border: 0;
   border-top: 1px solid var(--border-default);
+}
+
+/* ---- Header chrome at status density ----
+
+   Every item may sit in either bar, so the five bodies that were designed for
+   the 44 px header have to render in the 26 px status bar too. Each one keeps
+   its own stylesheet and its own markup; these rules only restate the numbers
+   that differ at this density — height, type size, padding — the way
+   `.bar-item-btn` does for the JS-built chips. The control-target chip keeps
+   its dot and short name and drops the state phrase, which its title and its
+   popover still carry: at 20 px there is no room for a sentence. */
+
+.status-bar .header-logo {
+  font-size: var(--text-md);
+}
+
+.status-bar .header-deployment,
+.status-bar .header-identity-trigger {
+  height: var(--bar-item-size);
+  padding: 0 var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.status-bar .control-target-chip {
+  height: var(--bar-item-size);
+  gap: 5px;
+  padding: 0 7px 0 8px;
+  font-size: var(--text-sm);
+}
+
+.status-bar .control-target-chip .ctc-sep,
+.status-bar .control-target-chip .ctc-state {
+  display: none;
+}
+
+.status-bar .command-palette-trigger {
+  height: var(--bar-item-size);
+  min-width: 0;
+  padding: 0 var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.status-bar .command-palette-kbd {
+  display: none;
+}
+
+.status-bar osprey-display-menu .display-menu-trigger {
+  width: var(--bar-item-size);
+  height: var(--bar-item-size);
+}
+
+/* Their cards open UPWARD from the status bar, exactly as `.bar-pop` does:
+   there is nothing below a bar at the bottom of the page. The selectors
+   outrank each card's own placement rule (terminal.css, and the display
+   menu's stylesheet the component injects) by one class. */
+
+.status-bar .header-identity-menu,
+.status-bar .ctc-popover,
+.status-bar osprey-display-menu .display-menu-card {
+  top: auto;
+  bottom: calc(100% + var(--space-2));
+}
+
+/* ---- The plan-queue item ----
+
+   A dot, a word and a count; the popover hangs off the shell like the options
+   popover, so it moves with the item and flips upward in the status bar under
+   the same `.status-bar .bar-pop` rule. */
+
+.bar-queue {
+  gap: var(--space-1);
+}
+
+.bar-queue-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--text-muted);
+}
+
+.bar-queue-dot[data-tone="off"] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--text-muted);
+}
+
+.bar-queue-dot[data-tone="active"] {
+  background: var(--color-accent);
+}
+
+.bar-queue-dot[data-tone="warn"] {
+  background: var(--color-warning);
+}
+
+.bar-queue-dot[data-tone="err"] {
+  background: var(--color-error);
+}
+
+.bar-queue-count {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-queue-count[hidden] {
+  display: none;
+}
+
+.bar-queue-pop {
+  min-width: 260px;
+}
+
+/* `.bar-pop` sets display: flex, which outranks the user-agent [hidden] rule —
+   the same trap `.bar-item-btn[hidden]` guards against above. Without this the
+   closed card paints as an empty box over whatever sits beneath it. */
+
+.bar-queue-pop[hidden] {
+  display: none;
+}
+
+.bar-queue-pop-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.bar-queue-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bar-queue-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.bar-queue-row-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.bar-queue-row-aside {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.bar-queue-note {
+  color: var(--color-error);
+}
+
+/* ---- The system-health item ----
+
+   A dot for the worst outcome across the SYSTEM panel's checks, the panel's
+   name at the header's density, and the outcome in a word where the item's
+   `text` option asks for it. The card hangs off the shell like the queue's
+   and flips upward in the status bar under the same `.status-bar .bar-pop`
+   rule. */
+
+.bar-health {
+  gap: var(--space-1);
+}
+
+.bar-health-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--text-muted);
+}
+
+.bar-health-dot[data-tone="off"] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--text-muted);
+}
+
+.bar-health-dot[data-tone="ok"] {
+  background: var(--color-success);
+}
+
+.bar-health-dot[data-tone="warn"] {
+  background: var(--color-warning);
+}
+
+.bar-health-dot[data-tone="err"] {
+  background: var(--color-error);
+}
+
+.bar-health-text {
+  color: var(--text-muted);
+}
+
+.bar-health-text[hidden] {
+  display: none;
+}
+
+.bar-health-pop {
+  min-width: 280px;
+}
+
+.bar-health-pop[hidden] {
+  display: none;
+}
+
+.bar-health-pop-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px var(--space-2);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+/* The sidecar's own summary line, under the word and aligned with it (the
+   dot's width plus the gap). */
+
+.bar-health-pop-summary {
+  flex-basis: 100%;
+  padding-left: calc(8px + var(--space-2));
+  font-weight: var(--weight-regular);
+  color: var(--text-muted);
+}
+
+.bar-health-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.bar-health-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.bar-health-row-name {
+  flex-shrink: 0;
+  color: var(--text-primary);
+}
+
+.bar-health-row-count {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-health-row-aside {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
 }

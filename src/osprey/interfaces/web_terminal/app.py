@@ -46,7 +46,7 @@ from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
 from osprey.port_layout import default_port
-from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, BUILTIN_PANELS, UNIVERSAL_PANELS
+from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
 
 if TYPE_CHECKING:
@@ -340,21 +340,18 @@ BAR_HOSTS: tuple[str, ...] = ("header", "status")
 #: what used to be the ``.header-left`` / ``.header-right`` split — spacing an
 #: operator can see and move, instead of a wrapper they cannot.
 #:
-#: The status bar ships the CLEAN set instead: ``activity`` stretching from the
-#: left edge (it declares ``flex: 1 1 0`` in the catalog, so it *is* the
-#: stretch — a ``space`` beside it would split the slack and pull the cluster
-#: off the right edge) to a right-hand cluster of the panel dots, the
-#: documentation link and the clock. The connection dot and the terminal size
-#: stay in the catalog and are one click away in Customize, under the
-#: "Everything" preset; they are off the default bar because a screen an
-#: operator watches all day should carry what they read, not what the terminal
-#: knows about itself. ``panel-health`` renders only where a built-in panel
-#: this deployment enables declares a status-bar dot — :func:`bar_render_plan`
-#: drops it otherwise rather than painting an empty shell — so a deployment
-#: with no such panel gets ``activity · docs · clock``.
+#: The status bar ships almost empty: a space, so the rest sits at the right
+#: edge, then the system-health dot and the clock. Everything else the bar can
+#: show — the agent's activity line, the documentation link, the stopwatch —
+#: stays in the catalog and is one drag away in Customize; a screen an
+#: operator watches all day should start with what they read, not with what
+#: the terminal knows about itself. ``system-health`` renders only where this
+#: deployment enables the SYSTEM panel — :func:`bar_render_plan` drops it
+#: otherwise rather than painting an empty shell — so a deployment without
+#: that panel gets ``space · clock``.
 #:
-#: This is the ``clean`` preset in ``static/js/bar-layout.js``, which is the
-#: same arrangement written out with every option at its catalog default.
+#: ``web.bar_items`` overrides this per deployment, and the sheet's one preset,
+#: "Default", returns a user to whichever of the two applies.
 #:
 #: Every type here must exist in ``bar-catalog.js`` and declare the host it is
 #: placed in; the catalog is the authority and this list is validated against
@@ -372,11 +369,11 @@ DEFAULT_BAR_LAYOUT: dict = {
         {"type": "display"},
     ],
     "status": [
-        {"type": "activity"},
-        {"type": "panel-health"},
-        {"type": "docs"},
+        {"type": "space"},
+        {"type": "system-health"},
         {"type": "clock"},
     ],
+    "header_visible": True,
     "status_visible": True,
 }
 
@@ -385,8 +382,8 @@ DEFAULT_BAR_LAYOUT: dict = {
 #:
 #: These are the nodes other modules resolve **by id** — ``#activity-strip``,
 #: ``#docs-link``, ``#command-palette-btn``, ``#display-menu-settings``,
-#: ``#logout-btn``, the identity trigger and menu, the panel health dots. They
-#: are therefore rendered on EVERY request whether or not the layout places
+#: ``#logout-btn``, the identity trigger and menu. They are therefore
+#: rendered on EVERY request whether or not the layout places
 #: them: into their shell when placed, into ``#bar-item-pool`` when not. A
 #: layout that drops an item must never make an id go dark — the module that
 #: looks it up has no way to know the difference between "the operator removed
@@ -398,53 +395,50 @@ ADOPTED_BAR_ITEM_TYPES: tuple[str, ...] = (
     "display",
     "activity",
     "docs",
-    "panel-health",
 )
 
-#: Which host may hold which type — the Python mirror of every entry's
-#: ``hosts`` in ``static/js/bar-catalog.js``, where it is documented as "a HARD
-#: capability, not a default": ``logo``/``identity``/``control-target``/
-#: ``search``/``display`` are header-only because their bodies cannot render in
-#: a 24–26 px bar.
+#: Every item type this build renders — the Python mirror of the keys of
+#: ``BAR_CATALOG`` in ``static/js/bar-catalog.js``. Any type may sit in either
+#: bar; there is no placement axis on either side.
 #:
-#: The server needs its own copy because it renders first. ``bar-layout.js``
-#: drops a host-mismatched entry on the client, so without this the page would
-#: paint a 28 px wordmark inside the 20 px status bar and the client would then
-#: yank it back out — the flash the SSR exists to prevent. A type absent from
-#: this table is an unknown type and is dropped, exactly as the client's
-#: normalizer drops it; ``tests/interfaces/web_terminal/test_bar_items_ssr.py``
-#: pins the whole table against the JS catalog so the two cannot drift.
-_HEADER_ONLY: tuple[str, ...] = ("header",)
-_BOTH_HOSTS: tuple[str, ...] = ("header", "status")
-BAR_ITEM_HOSTS: dict[str, tuple[str, ...]] = {
-    "logo": _HEADER_ONLY,
-    "identity": _HEADER_ONLY,
-    "control-target": _HEADER_ONLY,
-    "search": _HEADER_ONLY,
-    "display": _HEADER_ONLY,
-    "connection": _BOTH_HOSTS,
-    "panel-health": _BOTH_HOSTS,
-    "activity": _BOTH_HOSTS,
-    "docs": _BOTH_HOSTS,
-    "feedback": _BOTH_HOSTS,
-    "clock": _BOTH_HOSTS,
-    "terminal-size": _BOTH_HOSTS,
-    "bluesky-queue": _BOTH_HOSTS,
-    "stopwatch": _BOTH_HOSTS,
-    "space": _BOTH_HOSTS,
-    "gap": _BOTH_HOSTS,
-    "separator": _BOTH_HOSTS,
-}
+#: The server needs its own copy because it renders first: a type this build
+#: does not know is dropped here exactly as the client's normalizer drops it,
+#: so the page never paints a shell the first reconcile takes away.
+#: ``tests/interfaces/web_terminal/test_bar_items_ssr.py`` pins the tuple
+#: against the JS catalog so the two cannot drift.
+BAR_ITEM_TYPES: tuple[str, ...] = (
+    "logo",
+    "identity",
+    "control-target",
+    "display",
+    "search",
+    "system-health",
+    "bluesky-queue",
+    "activity",
+    "docs",
+    "feedback",
+    "clock",
+    "stopwatch",
+    "space",
+    "separator",
+)
+
+#: The types a layout may place more than once — the Python mirror of every
+#: entry's ``multi`` in ``static/js/bar-catalog.js``. Every other type is one
+#: server-rendered node or one id-owning dot, and a second shell for it could
+#: only ever be empty: :func:`bar_render_plan` skips the duplicate, the store
+#: refuses it, and the browser's normalizer drops it, all from this one list.
+BAR_ITEM_MULTI: frozenset[str] = frozenset({"clock", "stopwatch", "space", "separator"})
 
 #: Each item type's option specs — the Python mirror of every entry's
 #: ``options`` in ``static/js/bar-catalog.js``, in the same three shapes its
 #: ``numberSpec`` / ``booleanSpec`` / ``enumSpec`` builders produce. Only the
-#: three types that declare options appear; every other entry is ``NO_OPTIONS``
+#: types that declare options appear; every other entry is ``NO_OPTIONS``
 #: there and is absent here, which :func:`bar_item_vocabulary` reads as "no
 #: options".
 #:
 #: The server needs its own copy for the same reason it mirrors
-#: :data:`BAR_ITEM_HOSTS`: the store validates a saved layout against these
+#: :data:`BAR_ITEM_TYPES`: the store validates a saved layout against these
 #: specs, and without them a bad option value would be written to disk and then
 #: refused by the browser on the next paint. ``step`` and ``unit`` are the
 #: catalog's, not the store's — the customize sheet renders them, so they are
@@ -452,39 +446,31 @@ BAR_ITEM_HOSTS: dict[str, tuple[str, ...]] = {
 #: frozen and shared across requests.
 BAR_ITEM_OPTIONS: dict[str, dict[str, dict]] = {
     "clock": {
-        "zone": {"kind": "enum", "values": ("local", "utc", "both"), "default": "local"},
+        "zone": {"kind": "enum", "values": ("none", "local", "utc", "both"), "default": "none"},
+        "format": {"kind": "enum", "values": ("24h", "12h"), "default": "24h"},
         "seconds": {"kind": "boolean", "default": False},
     },
+    # Width 0 is the flexible space; anything else is a fixed width the
+    # operator dragged the space to. The ceiling is the catalog's
+    # ``SPACE_MAX_WIDTH``.
     "space": {
-        "share": {"kind": "number", "min": 1, "max": 3, "step": 1, "unit": None, "default": 1},
+        "width": {"kind": "number", "min": 0, "max": 2000, "step": 1, "unit": "px", "default": 0},
     },
-    "gap": {
-        "size": {"kind": "number", "min": 4, "max": 400, "step": 1, "unit": "px", "default": 12},
+    "system-health": {
+        "text": {"kind": "enum", "values": ("none", "status"), "default": "none"},
+        "detail": {"kind": "enum", "values": ("categories", "checks"), "default": "categories"},
+    },
+    "bluesky-queue": {
+        "controls": {"kind": "enum", "values": ("none", "stop", "full"), "default": "none"},
+        "progress": {"kind": "boolean", "default": True},
+        "count": {"kind": "boolean", "default": True},
     },
 }
 
-#: Built-in panel id -> (status-bar item id, dot id) for the panels whose
-#: health writes into a status-bar dot. The Python mirror of the non-null
-#: ``statusBarId`` declarations in ``static/js/panel-catalog.js``; the label
-#: comes from :data:`~osprey.profiles.web_panels.BUILTIN_PANEL_LABELS` rather
-#: than being retyped here.
-#:
-#: ``channel-finder`` declares ``channel-finder-status`` in the JS catalog but
-#: has never had a node in the markup, so it is deliberately absent here: the
-#: pool's whole contract is that it holds exactly the nodes this deployment
-#: would render today, and seeding an id the terminal has never rendered would
-#: break that in the other direction. The stale declaration is retired on the
-#: JS side by the panel-health item task.
-_PANEL_STATUS_BAR_ITEMS: dict[str, tuple[str, str]] = {
-    "ariel": ("ariel-status", "ariel-dot"),
-}
-
-#: Every status-bar item id a built-in panel's health can write into — the
-#: Python mirror of ``PANEL_HEALTH_STATUS_BAR_IDS`` in ``bar-catalog.js``,
-#: derived from the mapping above rather than retyped.
-PANEL_HEALTH_STATUS_BAR_IDS: tuple[str, ...] = tuple(
-    item_id for item_id, _dot_id in _PANEL_STATUS_BAR_ITEMS.values()
-)
+#: The built-in panel the system-health item reads through: its ``/checks``
+#: report is proxied at ``/panel/system-health/`` exactly where the panel is
+#: enabled, so the panel's presence is the one fact the item depends on.
+SYSTEM_HEALTH_PANEL_ID = "system-health"
 
 #: Which item types are gated on a deployment fact, and how — the Python
 #: mirror of every catalog entry whose ``available`` is not ``ALWAYS``.
@@ -501,9 +487,7 @@ PANEL_HEALTH_STATUS_BAR_IDS: tuple[str, ...] = tuple(
 BAR_ITEM_AVAILABILITY: dict[str, Callable[[dict], bool]] = {
     "identity": lambda ctx: ctx.get("identityAvailable") is True,
     "bluesky-queue": lambda ctx: ctx.get("blueskyAvailable") is True,
-    "panel-health": lambda ctx: any(
-        item_id in PANEL_HEALTH_STATUS_BAR_IDS for item_id in ctx.get("statusBarIds") or ()
-    ),
+    "system-health": lambda ctx: ctx.get("systemHealthAvailable") is True,
 }
 
 
@@ -511,25 +495,26 @@ def bar_availability_context(
     *,
     identity_available: bool,
     bluesky_available: bool,
-    dots: list[dict],
+    system_health_available: bool,
 ) -> dict:
     """What this deployment offers, in the vocabulary the catalog asks in.
 
     One evaluation, two readers: :func:`bar_render_plan` renders from it, and
     ``root()`` stamps it on ``<html>`` for ``bar-sync.js`` to hand to
-    ``bar-layout.js``'s ``normalize()``. The browser used to infer all three
+    ``bar-layout.js``'s ``normalize()``. The browser used to infer these
     facts from the page instead — identity and the plan queue from whether a
-    shell had been rendered, panel health from the SHIPPED panel catalog — and
-    an inference that goes wrong in either direction costs something real: a
+    shell had been rendered — and an inference that goes wrong in either
+    direction costs something real: a
     false "unavailable" drops the item and latches the whole document
     read-only for the session, so saving dies silently, while a false
     "available" lets the client put back an item this deployment cannot render.
 
     Args:
         identity_available: Whether the deployment renders an identity block.
-        bluesky_available: Whether it opted into the Bluesky bridge.
-        dots: The panel health dots from :func:`panel_health_dots` — the dots
-            that are actually on this page, not the ones the build ships.
+        bluesky_available: Whether it declares the Bluesky panel, whose proxy
+            is where the plan-queue item reads the queue.
+        system_health_available: Whether it enables the SYSTEM panel, whose
+            proxy is where the system-health item reads the report.
 
     Returns:
         The context, JSON-serializable exactly as stamped.
@@ -537,36 +522,33 @@ def bar_availability_context(
     return {
         "identityAvailable": bool(identity_available),
         "blueskyAvailable": bool(bluesky_available),
-        "statusBarIds": [dot["id"] for dot in dots],
+        "systemHealthAvailable": bool(system_health_available),
     }
 
 
-def _bluesky_bridge_configured() -> bool:
-    """Whether this deployment opted into the Bluesky bridge.
+def bluesky_panel_declared(custom_panels: list[dict] | None) -> bool:
+    """Whether this deployment declares the Bluesky panel.
 
-    Opted INTO, not answering: the answer comes from configuration, so it says
-    the deployment leaves the bridge's server running, never that a bridge
-    process is up. The bar's plan-queue item shows that bridge's queue, so it
-    is the same fact as the bridge's own entitlement and not a second key.
+    The plan-queue item reads the queue through that panel's proxy
+    (``/panel/bluesky/queue`` and its event stream), so the panel's presence is
+    the one fact the item depends on: where the panel is declared the queue
+    can be reached, and where it is not there is nothing to reach. The panel
+    declaration is also the bridge entitlement itself (see
+    :data:`~osprey.deployment.web_terminals.personas.BLUESKY_PANEL_ID`), so
+    this asks no second key for the same fact.
 
-    Asked through :func:`~osprey.deployment.web_terminals.personas.bluesky_server_enabled`,
-    which is documented as "the one answer" to this question and resolves an
-    absent key from the registry's own ``default_enabled`` rather than
-    restating it. A hardcoded default here would be a third spelling of the
-    fact, agreeing with the registry only until the registry changes.
+    Args:
+        custom_panels: The config-declared panels (``app.state.custom_panels``),
+            or None before the lifespan has run.
 
     Returns:
-        False on any read failure — a deployment fact the server cannot
-        establish is one it must not claim.
+        True when a declared panel carries the Bluesky panel's id.
     """
-    try:
-        from osprey.deployment.web_terminals.personas import bluesky_server_enabled
-        from osprey.utils.workspace import load_osprey_config
+    # Lazy, like every other reach into the deployment package from here: the
+    # terminal app must not import deployment code to boot.
+    from osprey.deployment.web_terminals.personas import BLUESKY_PANEL_ID
 
-        return bool(bluesky_server_enabled(load_osprey_config()))
-    except Exception:  # noqa: BLE001 — an unreadable config is not a boot failure
-        logger.debug("Bluesky bridge availability: config load failed", exc_info=True)
-        return False
+    return any(panel.get("id") == BLUESKY_PANEL_ID for panel in custom_panels or ())
 
 
 class BarRenderPlan(NamedTuple):
@@ -577,44 +559,15 @@ class BarRenderPlan(NamedTuple):
         status: Ordered status-bar shells, same shape.
         pooled: Adopted types this deployment renders but this layout does not
             place — their nodes go into ``#bar-item-pool``.
+        header_visible: False ⇒ ``<html data-header-bar="hidden">``.
         status_visible: False ⇒ ``<html data-status-bar="hidden">``.
-        panel_health_dots: One ``{"id", "dot_id", "label"}`` per enabled
-            built-in panel that declares a status-bar dot.
     """
 
     header: list[dict]
     status: list[dict]
     pooled: list[str]
+    header_visible: bool
     status_visible: bool
-    panel_health_dots: list[dict]
-
-
-def panel_health_dots(enabled_panels: set[str] | None) -> list[dict]:
-    """The status-bar health dots this deployment renders.
-
-    A dot exists only where an ENABLED built-in panel declares one. A disabled
-    panel's dot is not hidden markup — it is absent, the same way its rail
-    entry is, because a dot for a panel this deployment does not serve could
-    only ever sit grey forever.
-
-    Args:
-        enabled_panels: Enabled built-in panel ids (``app.state.enabled_panels``),
-            or None before the lifespan has run.
-
-    Returns:
-        One dict per dot, in panel-id order, carrying the ids the markup uses
-        and the panel's canonical label.
-    """
-    enabled = enabled_panels or set()
-    return [
-        {
-            "id": item_id,
-            "dot_id": dot_id,
-            "label": BUILTIN_PANEL_LABELS.get(panel_id, panel_id.upper()),
-        }
-        for panel_id, (item_id, dot_id) in sorted(_PANEL_STATUS_BAR_ITEMS.items())
-        if panel_id in enabled
-    ]
 
 
 def effective_bar_layout(app: FastAPI) -> dict:
@@ -706,12 +659,7 @@ def _load_stored_bar_layout(
     return document if document["rev"] else None
 
 
-def bar_render_plan(
-    layout: dict,
-    *,
-    context: dict,
-    dots: list[dict],
-) -> BarRenderPlan:
+def bar_render_plan(layout: dict, *, context: dict) -> BarRenderPlan:
     """Turn a layout document into the two ordered runs plus the pool.
 
     Three rules do all the work here, and each one is a refusal the client's
@@ -726,8 +674,8 @@ def bar_render_plan(
     pick one), and never zero times.
 
     **An unavailable item is ABSENT, not empty.** An identity block needs
-    something to identify with, a health dot needs an enabled panel that
-    declares one, and a plan queue needs a Bluesky bridge to have a queue.
+    something to identify with, a plan queue needs a Bluesky bridge to have a
+    queue, and the system-health chip needs the SYSTEM panel to read from.
     Where the fact is absent, so is the shell — not just the body, and whether
     or not the item is one of the adopted ones. An empty shell is not free:
     ``bars.css``'s ``[data-follows="logo"]`` rule is keyed on the SHELL, so an
@@ -742,11 +690,14 @@ def bar_render_plan(
     catalog's own ``available()`` predicates. Server and browser therefore
     answer the question from the same facts instead of each guessing.
 
-    **A type only renders in a host that may hold it.** ``hosts`` is a hard
-    capability (see :data:`BAR_ITEM_HOSTS`); an entry in the wrong bar, or of a
-    type this build does not know, is skipped. Unlike an unavailable item it is
-    still POOLED, because the item exists — the client drops the entry and
-    parks the node in the pool, and the pool must never subtract an id.
+    **A type this build does not know is skipped.** Either bar may hold any
+    known type (see :data:`BAR_ITEM_TYPES`); an unknown one is dropped exactly
+    as the client's normalizer drops it.
+
+    **A single-node type renders once.** A second entry for a type outside
+    :data:`BAR_ITEM_MULTI` is skipped — the client's normalizer drops it, and
+    a shell rendered for it would be an empty box the first reconcile takes
+    away again.
 
     ``follows`` chains off the previous EMITTED item rather than the previous
     layout entry, so a skipped item cannot leave the middot stranded on a shell
@@ -755,7 +706,6 @@ def bar_render_plan(
     Args:
         layout: The effective layout document.
         context: The deployment context from :func:`bar_availability_context`.
-        dots: The panel health dots from :func:`panel_health_dots`.
 
     Returns:
         The render plan the template consumes.
@@ -774,11 +724,7 @@ def bar_render_plan(
             if not isinstance(raw, dict):
                 continue
             item_type = str(raw.get("type") or "")
-            hosts = BAR_ITEM_HOSTS.get(item_type)
-            if hosts is None or host not in hosts:
-                # Unknown to this build, or in a bar that cannot hold it. Not
-                # marked seen: an adopted node whose entry is in the wrong bar
-                # still exists, and belongs in the pool.
+            if item_type not in BAR_ITEM_TYPES:
                 continue
             adopted = item_type in ADOPTED_BAR_ITEM_TYPES
             if not _is_available(item_type):
@@ -789,10 +735,9 @@ def bar_render_plan(
                 # takes away again on the first reconcile.
                 seen.add(item_type)
                 continue
-            if adopted:
-                # A second entry for the same adopted type gets a shell but no
-                # body: one node, one home.
-                adopted = item_type not in seen
+            if item_type not in BAR_ITEM_MULTI:
+                if item_type in seen:
+                    continue
                 seen.add(item_type)
             shells.append({"type": item_type, "adopted": adopted, "follows": previous})
             previous = item_type
@@ -807,8 +752,8 @@ def bar_render_plan(
         header=runs["header"],
         status=runs["status"],
         pooled=pooled,
+        header_visible=bool(layout.get("header_visible", True)),
         status_visible=bool(layout.get("status_visible", True)),
-        panel_health_dots=dots,
     )
 
 
@@ -1380,26 +1325,16 @@ def bar_item_vocabulary() -> BarVocabulary:
     """
     return BarVocabulary(
         items={
-            item_type: {"hosts": hosts, "options": BAR_ITEM_OPTIONS.get(item_type, {})}
-            for item_type, hosts in BAR_ITEM_HOSTS.items()
+            item_type: {
+                "options": BAR_ITEM_OPTIONS.get(item_type, {}),
+                "multi": item_type in BAR_ITEM_MULTI,
+            }
+            for item_type in BAR_ITEM_TYPES
         },
         version=BAR_LAYOUT_VERSION,
         max_items_per_host=MAX_BAR_ITEMS_PER_HOST,
         hosts=BAR_HOSTS,
     )
-
-
-class _BarItemsConfig(NamedTuple):
-    """What ``web.bar_items`` resolves to at boot.
-
-    Two values because they answer two questions. ``layout`` is the order this
-    deployment renders when no user has saved one of their own; ``locked`` is
-    the deployment's addition to the catalog's own locked set — types a user
-    may move but never remove.
-    """
-
-    layout: dict
-    locked: list[str]
 
 
 def _coerce_bar_item(host: str, index: int, raw: object) -> dict | None:
@@ -1420,8 +1355,7 @@ def _coerce_bar_item(host: str, index: int, raw: object) -> dict | None:
 
     Returns:
         A ``{"type": ...}`` item, optionally carrying ``options``; ``None``
-        when the entry is malformed, names a type this build does not know, or
-        names one this bar cannot hold.
+        when the entry is malformed or names a type this build does not know.
     """
     where = f"web.bar_items.{host}[{index}]"
     options: object = None
@@ -1434,17 +1368,8 @@ def _coerce_bar_item(host: str, index: int, raw: object) -> dict | None:
         logger.warning("%s is not an item type or a mapping with one; dropping it.", where)
         return None
 
-    hosts = BAR_ITEM_HOSTS.get(item_type)
-    if hosts is None:
+    if item_type not in BAR_ITEM_TYPES:
         logger.warning("%s names unknown bar item %r; dropping it.", where, item_type)
-        return None
-    if host not in hosts:
-        logger.warning(
-            "%s places %r in a bar that cannot hold it (allowed: %s); dropping it.",
-            where,
-            item_type,
-            ", ".join(hosts),
-        )
         return None
 
     item: dict = {"type": item_type}
@@ -1456,7 +1381,7 @@ def _coerce_bar_item(host: str, index: int, raw: object) -> dict | None:
     return item
 
 
-def _load_bar_items(config_path: str | Path | None = None) -> _BarItemsConfig:
+def _load_bar_items(config_path: str | Path | None = None) -> dict:
     """Read ``web.bar_items`` into this deployment's default bar layout.
 
     The deployment's half of the bar-items contract: an operator's saved
@@ -1469,58 +1394,67 @@ def _load_bar_items(config_path: str | Path | None = None) -> _BarItemsConfig:
 
     * ``header`` / ``status`` — ordered lists of item types. A list that is not
       a list falls back to the shipped order for that bar; an entry that is
-      malformed, names an unknown type, or names a type the bar cannot hold is
-      warned about and dropped while its neighbours survive. An explicitly
+      malformed or names an unknown type is warned about and dropped while its
+      neighbours survive. An explicitly
       empty list means an empty bar and is honoured. A bar that is not
       configured at all keeps the shipped order, so naming one bar never
       silently empties the other.
-    * ``status_visible`` — hides the status bar without emptying it. Anything
-      that is not a boolean falls back to visible.
-    * ``locked`` — item types this deployment's users may move but never
-      remove, unioned with the catalog's own locked set in the browser.
-      Unknown ids are dropped with a warning, since locking an item that does
-      not exist would silently do nothing.
+    * ``header_visible`` / ``status_visible`` — hide a bar without emptying
+      it. Anything that is not a boolean falls back to visible.
 
     Args:
         config_path: Explicit ``config.yml`` to read; falls back to the
             ``CONFIG_FILE`` environment variable and then ``./config.yml``.
 
     Returns:
-        The resolved layout document and locked list. Falls open to
-        :data:`DEFAULT_BAR_LAYOUT` with no locked ids on any read error or when
-        the key is absent.
+        The resolved layout document. Falls open to :data:`DEFAULT_BAR_LAYOUT`
+        on any read error or when the key is absent.
     """
     try:
         raw = _load_web_ui_config(config_path).get("bar_items")
     except Exception:  # noqa: BLE001 — an unreadable config renders the shipped bars
         logger.warning("web.bar_items could not be read; using the default layout.")
-        return _BarItemsConfig(DEFAULT_BAR_LAYOUT, [])
+        return DEFAULT_BAR_LAYOUT
 
     if raw is None:
-        return _BarItemsConfig(DEFAULT_BAR_LAYOUT, [])
+        return DEFAULT_BAR_LAYOUT
     if not isinstance(raw, dict):
         logger.warning("web.bar_items is not a mapping; using the default layout.")
-        return _BarItemsConfig(DEFAULT_BAR_LAYOUT, [])
+        return DEFAULT_BAR_LAYOUT
 
     layout: dict = {"version": BAR_LAYOUT_VERSION, "rev": 0}
+    # Single-node types are counted across both bars, header first, exactly as
+    # the browser's normalizer counts them.
+    placed: set[str] = set()
     for host in BAR_HOSTS:
         configured = raw.get(host)
         if configured is None:
             layout[host] = list(DEFAULT_BAR_LAYOUT[host])
+            placed.update(item["type"] for item in layout[host])
             continue
         if not isinstance(configured, list):
             logger.warning(
                 "web.bar_items.%s is not a list of item types; using the default order.", host
             )
             layout[host] = list(DEFAULT_BAR_LAYOUT[host])
+            placed.update(item["type"] for item in layout[host])
             continue
-        items = [
-            item
-            for item in (
-                _coerce_bar_item(host, index, entry) for index, entry in enumerate(configured)
-            )
-            if item is not None
-        ]
+        items: list[dict] = []
+        for index, entry in enumerate(configured):
+            item = _coerce_bar_item(host, index, entry)
+            if item is None:
+                continue
+            if item["type"] not in BAR_ITEM_MULTI:
+                if item["type"] in placed:
+                    logger.warning(
+                        "web.bar_items.%s[%d] places %r a second time; dropping it.",
+                        host,
+                        index,
+                        item["type"],
+                    )
+                    continue
+                placed.add(item["type"])
+            items.append(item)
         if len(items) > MAX_BAR_ITEMS_PER_HOST:
             logger.warning(
                 "web.bar_items.%s holds %d items; keeping the first %d.",
@@ -1531,27 +1465,15 @@ def _load_bar_items(config_path: str | Path | None = None) -> _BarItemsConfig:
             items = items[:MAX_BAR_ITEMS_PER_HOST]
         layout[host] = items
 
-    status_visible = raw.get("status_visible", DEFAULT_BAR_LAYOUT["status_visible"])
-    if not isinstance(status_visible, bool):
-        logger.warning("web.bar_items.status_visible is not true or false; showing the status bar.")
-        status_visible = DEFAULT_BAR_LAYOUT["status_visible"]
-    layout["status_visible"] = status_visible
+    for host in BAR_HOSTS:
+        flag = f"{host}_visible"
+        visible = raw.get(flag, DEFAULT_BAR_LAYOUT[flag])
+        if not isinstance(visible, bool):
+            logger.warning("web.bar_items.%s is not true or false; showing the bar.", flag)
+            visible = DEFAULT_BAR_LAYOUT[flag]
+        layout[flag] = visible
 
-    locked: list[str] = []
-    raw_locked = raw.get("locked")
-    if raw_locked is not None:
-        if isinstance(raw_locked, list):
-            for entry in raw_locked:
-                if isinstance(entry, str) and entry in BAR_ITEM_HOSTS:
-                    locked.append(entry)
-                else:
-                    logger.warning(
-                        "web.bar_items.locked names unknown bar item %r; dropping it.", entry
-                    )
-        else:
-            logger.warning("web.bar_items.locked is not a list of item types; ignoring it.")
-
-    return _BarItemsConfig(layout, locked)
+    return layout
 
 
 def _load_claude_code_config(config_path: str | Path | None = None) -> dict:
@@ -2144,12 +2066,8 @@ def _create_lifespan(
 
         # The deployment's default bar arrangement (web.bar_items), resolved
         # once at boot. This is the document effective_bar_layout() renders
-        # until a user's saved layout is loaded ahead of it; app.state
-        # .bar_items_locked carries the types this deployment will not let a
-        # user remove.
-        bar_items = _load_bar_items(resolved_config_path)
-        app.state.bar_layout = bar_items.layout
-        app.state.bar_items_locked = bar_items.locked
+        # until a user's saved layout is loaded ahead of it.
+        app.state.bar_layout = _load_bar_items(resolved_config_path)
 
         # The per-user layer on top of that default, read from the store beside
         # the feedback records. Three pieces of state, and the layout routes
@@ -2169,15 +2087,14 @@ def _create_lifespan(
         app.state.bar_items_vocabulary = bar_item_vocabulary()
         app.state.bar_items_lock = asyncio.Lock()
         app.state.bar_items_effective = _load_stored_bar_layout(
-            bar_items_dir, app.state.bar_items_vocabulary, bar_items.layout
+            bar_items_dir, app.state.bar_items_vocabulary, app.state.bar_layout
         )
 
-        # Whether this deployment opted into the Bluesky bridge — the one
-        # bar-item availability fact that is neither an identity nor a panel,
-        # read once here rather than per render because it is a config read.
-        # It says the bridge's server is left running, not that a bridge is
-        # answering; the plan-queue item is offered on that basis.
-        app.state.bluesky_available = _bluesky_bridge_configured()
+        # Whether this deployment declares the Bluesky panel: the plan-queue
+        # item reads the queue through that panel's proxy, so the panel's
+        # presence is what makes the item offerable. It says nothing about
+        # whether the sidecar is answering; the item says that itself.
+        app.state.bluesky_available = bluesky_panel_declared(custom_panels)
 
         # ── Tour capabilities ──
         # The "Ask in plain language" tour card lists what THIS deployment's
@@ -2414,13 +2331,13 @@ def create_app(
         # the deployment cannot show, and the template stamps the same facts on
         # <html> so bar-sync.js hands the browser's normalizer the server's
         # answer instead of inferring one from the page it just received.
-        dots = panel_health_dots(getattr(request.app.state, "enabled_panels", None))
+        enabled_panels = getattr(request.app.state, "enabled_panels", None) or set()
         bar_context = bar_availability_context(
             identity_available=bool(terminal_user or app_name),
             bluesky_available=bool(getattr(request.app.state, "bluesky_available", False)),
-            dots=dots,
+            system_health_available=SYSTEM_HEALTH_PANEL_ID in enabled_panels,
         )
-        plan = bar_render_plan(effective_bar_layout(request.app), context=bar_context, dots=dots)
+        plan = bar_render_plan(effective_bar_layout(request.app), context=bar_context)
         return templates.TemplateResponse(
             request,
             "index.html",
@@ -2443,9 +2360,9 @@ def create_app(
                 "bar_header": plan.header,
                 "bar_status": plan.status,
                 "bar_pooled": plan.pooled,
+                "bar_header_visible": plan.header_visible,
                 "bar_status_visible": plan.status_visible,
                 "bar_context": bar_context,
-                "panel_health_dots": plan.panel_health_dots,
             },
         )
 

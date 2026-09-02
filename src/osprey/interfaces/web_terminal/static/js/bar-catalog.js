@@ -5,37 +5,34 @@
  * here answers the questions a host, the layout model and the customize UI all
  * ask about a type, so none of them carries a private table of its own:
  *
- *   hosts          which bar may hold it — a HARD capability, not a default.
- *                  `logo/identity/control-target/search/display` are header-only
- *                  because their bodies cannot render in a 24–26 px bar.
- *   densities      which render densities the body supports. One density per
- *                  host (see DENSITY_BY_HOST) — the axes are kept apart because
- *                  `hosts` is placement policy and `densities` is a rendering
- *                  fact about the body.
+ *   group          the heading the customize sheet files the tile under; the
+ *                  headings render in BAR_GROUPS order.
+ *   multi          true ⇒ a layout may place the type more than once. False
+ *                  for every item whose body is one server-rendered node or
+ *                  one id-owning dot: a second copy could only ever be empty.
+ *                  Every type may live in either bar: there is no placement
+ *                  axis. A host renders every body at its own density (see
+ *                  DENSITY_BY_HOST), and a body that looks wrong at one of the
+ *                  two densities is a CSS bug, never a reason to refuse a bar.
  *   options        per-type option spec: key, scalar kind, bounds, default.
  *                  bar-layout.js validates against this; the options popover
  *                  renders from it. Bounds live here so the client, the route
  *                  validator and the UI cannot disagree.
  *   priority       fold order for the overflow ladder — LOWEST folds first.
- *   locked         movable, never removable. Exactly four: logo, identity,
- *                  control-target, display. Deployments may lock more via
- *                  `web.bar_items.locked`; they may never unlock these.
  *   align          `baseline` items are wrapped in a shared baseline run by the
  *                  host so the wordmark and the identity text sit on one line.
  *   flex           hint stamped on the item SHELL. Spacing back-pressure is
- *                  CSS-owned: gaps and spaces shrink continuously through their
+ *                  CSS-owned: a space shrinks continuously through its
  *                  declared flex-shrink ahead of every JS ladder rung, so
- *                  locked chrome can never be clipped by a spacing item.
+ *                  the chrome beside it can never be clipped by a spacing item.
  *   overflowLabel  non-null ⇒ the item folds into the overflow popover under
  *                  this label. null ⇒ it NEVER folds. Exactly six fold.
- *   available      false ⇒ the item is absent from this deployment regardless
- *                  of lock, because the deployment does not render its body.
+ *   available      false ⇒ the item is absent from this deployment, because
+ *                  the deployment does not render its body.
  *
  * Pure data plus pure functions: no DOM, no storage, no network. The bodies
  * themselves are built elsewhere (bar-host.js), keyed by `type`.
  */
-
-import { PANELS } from './panel-catalog.js';
 
 /** @typedef {'header' | 'status'} BarHost */
 /** @typedef {'comfortable' | 'compact'} BarDensity */
@@ -69,10 +66,10 @@ import { PANELS } from './panel-catalog.js';
  * @property {BarHost} [host] - which bar the item is being considered for
  * @property {BarItemOptions} [options] - the placed item's own options
  * @property {boolean} [identityAvailable] - deployment renders the header identity block
- * @property {boolean} [blueskyAvailable] - deployment runs a bluesky bridge
- * @property {readonly string[]} [statusBarIds] - ids of the status dots this
- *   deployment actually renders, one per ENABLED built-in panel. A subset of
- *   {@link PANEL_HEALTH_STATUS_BAR_IDS}, which is every id that could appear.
+ * @property {boolean} [blueskyAvailable] - deployment declares the Bluesky panel,
+ *   whose proxy is where the plan queue is read
+ * @property {boolean} [systemHealthAvailable] - deployment enables the SYSTEM
+ *   panel, whose proxy is where the health report is read
  */
 
 /**
@@ -80,11 +77,10 @@ import { PANELS } from './panel-catalog.js';
  * @typedef {object} BarItemType
  * @property {string} type
  * @property {string} label - human name used by tiles and context menus
- * @property {readonly BarHost[]} hosts
- * @property {readonly BarDensity[]} densities
+ * @property {string} group - the sheet heading the tile sits under
+ * @property {boolean} multi - may be placed more than once per layout
  * @property {Readonly<Record<string, BarOptionSpec>>} options
  * @property {number} priority
- * @property {boolean} locked
  * @property {BarAlign} align
  * @property {(options: BarItemOptions) => BarFlexHint | null} flex
  * @property {(ctx: BarContext) => string | null} overflowLabel
@@ -94,19 +90,23 @@ import { PANELS } from './panel-catalog.js';
 /** The two hosts, in render order. */
 export const BAR_HOSTS = /** @type {readonly BarHost[]} */ (Object.freeze(['header', 'status']));
 
+/** The sheet's headings, in the order it renders them. */
+export const BAR_GROUPS = Object.freeze([
+  'Identity',
+  'Machine',
+  'Agent',
+  'Panels',
+  'System',
+  'Tools',
+  'Layout',
+]);
+
 /** Each host renders at exactly one density (`--bar-item-size`: 28 px / 20 px). */
 export const DENSITY_BY_HOST = Object.freeze(
   /** @type {Readonly<Record<BarHost, BarDensity>>} */ ({
     header: 'comfortable',
     status: 'compact',
   })
-);
-
-const HEADER_ONLY = /** @type {readonly BarHost[]} */ (Object.freeze(['header']));
-const BOTH_HOSTS = /** @type {readonly BarHost[]} */ (Object.freeze(['header', 'status']));
-const COMFORTABLE = /** @type {readonly BarDensity[]} */ (Object.freeze(['comfortable']));
-const BOTH_DENSITIES = /** @type {readonly BarDensity[]} */ (
-  Object.freeze(['comfortable', 'compact'])
 );
 
 /** @type {Readonly<Record<string, BarOptionSpec>>} */
@@ -118,21 +118,6 @@ const ALWAYS = () => true;
 const NEVER_FOLDS = () => null;
 /** @type {() => BarFlexHint | null} */
 const NO_FLEX = () => null;
-
-/**
- * The status-bar ids the panel-health item may own: a CLOSED set, derived from
- * the shipped panel catalog rather than retyped, so a panel that gains or loses
- * a `statusBarId` cannot leave a stale id behind here. Facility panels
- * registered at runtime are deliberately excluded — panel-health renders one
- * dot per enabled BUILT-IN panel.
- * @type {readonly string[]}
- */
-export const PANEL_HEALTH_STATUS_BAR_IDS = Object.freeze(
-  PANELS.reduce((ids, panel) => {
-    if (panel.statusBarId) ids.push(panel.statusBarId);
-    return ids;
-  }, /** @type {string[]} */ ([]))
-);
 
 /**
  * Build a bounded numeric option spec. A builder rather than a bare literal so
@@ -185,11 +170,10 @@ export const BAR_CATALOG = Object.freeze({
   logo: {
     type: 'logo',
     label: 'Logo',
-    hosts: HEADER_ONLY,
-    densities: COMFORTABLE,
+    group: 'Identity',
+    multi: false,
     options: NO_OPTIONS,
     priority: 100,
-    locked: true,
     align: 'baseline',
     flex: NO_FLEX,
     overflowLabel: NEVER_FOLDS,
@@ -199,27 +183,25 @@ export const BAR_CATALOG = Object.freeze({
   identity: {
     type: 'identity',
     label: 'Identity',
-    hosts: HEADER_ONLY,
-    densities: COMFORTABLE,
+    group: 'Identity',
+    multi: false,
     options: NO_OPTIONS,
     priority: 100,
-    locked: true,
     align: 'baseline',
     flex: NO_FLEX,
     overflowLabel: NEVER_FOLDS,
     // Single-user deployments render no identity block at all; the item is then
-    // absent rather than locked-but-empty.
+    // absent rather than empty.
     available: (ctx) => ctx.identityAvailable === true,
   },
 
   'control-target': {
     type: 'control-target',
     label: 'Control target',
-    hosts: HEADER_ONLY,
-    densities: COMFORTABLE,
+    group: 'Machine',
+    multi: false,
     options: NO_OPTIONS,
     priority: 100,
-    locked: true,
     align: 'center',
     flex: NO_FLEX,
     overflowLabel: NEVER_FOLDS,
@@ -229,11 +211,10 @@ export const BAR_CATALOG = Object.freeze({
   display: {
     type: 'display',
     label: 'Display',
-    hosts: HEADER_ONLY,
-    densities: COMFORTABLE,
+    group: 'Tools',
+    multi: false,
     options: NO_OPTIONS,
     priority: 100,
-    locked: true,
     align: 'center',
     flex: NO_FLEX,
     overflowLabel: NEVER_FOLDS,
@@ -243,11 +224,10 @@ export const BAR_CATALOG = Object.freeze({
   search: {
     type: 'search',
     label: 'Command palette',
-    hosts: HEADER_ONLY,
-    densities: COMFORTABLE,
+    group: 'Tools',
+    multi: false,
     options: NO_OPTIONS,
     priority: 90,
-    locked: false,
     align: 'center',
     flex: NO_FLEX,
     // Search collapses to its magnifier under pressure and stops there; it is
@@ -256,46 +236,60 @@ export const BAR_CATALOG = Object.freeze({
     available: ALWAYS,
   },
 
-  connection: {
-    type: 'connection',
-    label: 'Connection',
-    hosts: BOTH_HOSTS,
-    densities: BOTH_DENSITIES,
-    options: NO_OPTIONS,
-    priority: 80,
-    locked: false,
+  'system-health': {
+    type: 'system-health',
+    label: 'System health',
+    group: 'System',
+    multi: false,
+    // `text` is what the chip says beside its dot: nothing, or the suite's
+    // worst status in a word. `detail` is what the card lists: one row per
+    // category, or every check.
+    options: Object.freeze({
+      text: enumSpec(Object.freeze(['none', 'status']), 'none'),
+      detail: enumSpec(Object.freeze(['categories', 'checks']), 'categories'),
+    }),
+    priority: 55,
     align: 'center',
     flex: NO_FLEX,
-    overflowLabel: NEVER_FOLDS,
-    available: ALWAYS,
+    overflowLabel: () => 'System health',
+    // The report is read through the SYSTEM panel's proxy, so the item exists
+    // exactly where that panel is enabled.
+    available: (ctx) => ctx.systemHealthAvailable === true,
   },
 
-  'panel-health': {
-    type: 'panel-health',
-    label: 'Panel health',
-    hosts: BOTH_HOSTS,
-    densities: BOTH_DENSITIES,
-    options: NO_OPTIONS,
-    priority: 70,
-    locked: false,
+  'bluesky-queue': {
+    type: 'bluesky-queue',
+    label: 'Bluesky queue',
+    group: 'Panels',
+    multi: false,
+    // `controls` is what the popover may DO to the queue: nothing (it only
+    // opens the panel), the plain stop, or the panel's full set with the
+    // emergency abort. The chip itself never acts on a click — it opens.
+    // `progress` and `count` are what the chip SAYS beside its dot.
+    options: Object.freeze({
+      controls: enumSpec(['none', 'stop', 'full'], 'none'),
+      progress: booleanSpec(true),
+      count: booleanSpec(true),
+    }),
+    priority: 20,
     align: 'center',
     flex: NO_FLEX,
-    overflowLabel: NEVER_FOLDS,
-    available: (ctx) =>
-      (ctx.statusBarIds ?? []).some((id) => PANEL_HEALTH_STATUS_BAR_IDS.includes(id)),
+    overflowLabel: () => 'Bluesky queue',
+    // The queue is read through the Bluesky panel's proxy, so the item exists
+    // exactly where that panel is declared.
+    available: (ctx) => ctx.blueskyAvailable === true,
   },
 
   activity: {
     type: 'activity',
     label: 'Activity',
-    hosts: BOTH_HOSTS,
-    densities: BOTH_DENSITIES,
+    group: 'Agent',
+    multi: false,
     options: NO_OPTIONS,
     priority: 60,
-    locked: false,
     align: 'center',
     // The one item that absorbs the bar's spare space; `min-width: 0` lets its
-    // aria-live text ellipsize instead of pushing the locked chrome out.
+    // aria-live text ellipsize instead of pushing the chrome beside it out.
     flex: () => ({ flex: '1 1 0', minWidth: '0' }),
     overflowLabel: NEVER_FOLDS,
     available: ALWAYS,
@@ -304,11 +298,10 @@ export const BAR_CATALOG = Object.freeze({
   docs: {
     type: 'docs',
     label: 'Documentation',
-    hosts: BOTH_HOSTS,
-    densities: BOTH_DENSITIES,
+    group: 'Tools',
+    multi: false,
     options: NO_OPTIONS,
     priority: 50,
-    locked: false,
     align: 'center',
     flex: NO_FLEX,
     overflowLabel: () => 'Documentation',
@@ -318,11 +311,10 @@ export const BAR_CATALOG = Object.freeze({
   feedback: {
     type: 'feedback',
     label: 'Feedback',
-    hosts: BOTH_HOSTS,
-    densities: BOTH_DENSITIES,
+    group: 'Tools',
+    multi: false,
     options: NO_OPTIONS,
     priority: 45,
-    locked: false,
     align: 'center',
     flex: NO_FLEX,
     overflowLabel: () => 'Feedback',
@@ -332,104 +324,68 @@ export const BAR_CATALOG = Object.freeze({
   clock: {
     type: 'clock',
     label: 'Clock',
-    hosts: BOTH_HOSTS,
-    densities: BOTH_DENSITIES,
+    group: 'System',
+    multi: true,
+    // `none` is the plain clock: local time, no zone suffix anywhere. `local`
+    // is the same time with the zone's name beside it; `utc` and `both` say
+    // what they are. `format` is the hour cycle, 24h or 12h with AM/PM.
     options: Object.freeze({
-      zone: enumSpec(Object.freeze(['local', 'utc', 'both']), 'local'),
+      zone: enumSpec(Object.freeze(['none', 'local', 'utc', 'both']), 'none'),
+      format: enumSpec(Object.freeze(['24h', '12h']), '24h'),
       seconds: booleanSpec(false),
     }),
     priority: 40,
-    locked: false,
     align: 'center',
     flex: NO_FLEX,
     overflowLabel: () => 'Clock',
     available: ALWAYS,
   },
 
-  'terminal-size': {
-    type: 'terminal-size',
-    label: 'Terminal size',
-    hosts: BOTH_HOSTS,
-    densities: BOTH_DENSITIES,
-    options: NO_OPTIONS,
-    priority: 30,
-    locked: false,
-    align: 'center',
-    flex: NO_FLEX,
-    overflowLabel: () => 'Terminal size',
-    available: ALWAYS,
-  },
-
-  'bluesky-queue': {
-    type: 'bluesky-queue',
-    label: 'Plan queue',
-    hosts: BOTH_HOSTS,
-    densities: BOTH_DENSITIES,
-    options: NO_OPTIONS,
-    priority: 20,
-    locked: false,
-    align: 'center',
-    flex: NO_FLEX,
-    overflowLabel: () => 'Plan queue',
-    available: (ctx) => ctx.blueskyAvailable === true,
-  },
-
   stopwatch: {
     type: 'stopwatch',
     label: 'Stopwatch',
-    hosts: BOTH_HOSTS,
-    densities: BOTH_DENSITIES,
+    group: 'System',
+    multi: true,
     options: NO_OPTIONS,
     priority: 10,
-    locked: false,
     align: 'center',
     flex: NO_FLEX,
     overflowLabel: () => 'Stopwatch',
     available: ALWAYS,
   },
 
-  // --- Spacing. Never folds: these YIELD instead, shrinking continuously via
-  // the flex-shrink they declare below, which is why they carry a top priority
-  // the JS ladder never consults.
+  // --- Spacing. Never folds: a space YIELDS instead, shrinking continuously
+  // via the flex-shrink it declares below, which is why it carries a top
+  // priority the JS ladder never consults.
 
   space: {
     type: 'space',
-    label: 'Flexible space',
-    hosts: BOTH_HOSTS,
-    densities: BOTH_DENSITIES,
-    options: Object.freeze({ share: numberSpec(1, 3, 1) }),
+    label: 'Space',
+    group: 'Layout',
+    multi: true,
+    // `width` 0 is the flexible space: it takes whatever room is left over.
+    // Any other value is a fixed width the operator set by dragging the
+    // space's edge, held until the bar runs out of room and then given up
+    // before any real item is touched. The ceiling is wider than any bar.
+    options: Object.freeze({ width: numberSpec(0, 2000, 0, 'px') }),
     priority: 100,
-    locked: false,
     align: 'center',
-    flex: (options) => ({ flex: `${numberOption(options, 'share', 1)} 1 0` }),
+    flex: (options) => {
+      const width = numberOption(options, 'width', 0);
+      return width > 0 ? { flex: `0 1 ${width}px`, minWidth: '0' } : { flex: '1 1 0' };
+    },
     overflowLabel: NEVER_FOLDS,
     available: ALWAYS,
   },
 
-  gap: {
-    type: 'gap',
-    label: 'Fixed gap',
-    hosts: BOTH_HOSTS,
-    densities: BOTH_DENSITIES,
-    options: Object.freeze({ size: numberSpec(4, 400, 12, 'px') }),
-    priority: 100,
-    locked: false,
-    align: 'center',
-    // Basis is the requested width, shrink is 1: a gap holds its size until the
-    // bar runs out of room, then gives it up before any real item is touched.
-    flex: (options) => ({ flex: `0 1 ${numberOption(options, 'size', 12)}px`, minWidth: '0' }),
-    overflowLabel: NEVER_FOLDS,
-    available: ALWAYS,
-  },
 
   separator: {
     type: 'separator',
     label: 'Separator',
-    hosts: BOTH_HOSTS,
-    densities: BOTH_DENSITIES,
+    group: 'Layout',
+    multi: true,
     options: NO_OPTIONS,
     priority: 100,
-    locked: false,
     align: 'center',
     flex: NO_FLEX,
     overflowLabel: NEVER_FOLDS,
@@ -440,11 +396,6 @@ export const BAR_CATALOG = Object.freeze({
 /** Every declared type, in catalog order. @type {readonly string[]} */
 export const BAR_ITEM_TYPES = Object.freeze(Object.keys(BAR_CATALOG));
 
-/** Types that may never be removed from a layout. @type {readonly string[]} */
-export const LOCKED_BAR_ITEM_TYPES = Object.freeze(
-  BAR_ITEM_TYPES.filter((type) => BAR_CATALOG[type].locked)
-);
-
 /**
  * Look a type up. Returns null for an unknown type rather than throwing:
  * normalization drops unknown types silently, and a stale saved layout from a
@@ -454,17 +405,6 @@ export const LOCKED_BAR_ITEM_TYPES = Object.freeze(
  */
 export function barItemType(type) {
   return Object.prototype.hasOwnProperty.call(BAR_CATALOG, type) ? BAR_CATALOG[type] : null;
-}
-
-/**
- * Whether a type may be placed in a host. Unknown types are refused.
- * @param {string} type
- * @param {BarHost} host
- * @returns {boolean}
- */
-export function supportsHost(type, host) {
-  const entry = barItemType(type);
-  return entry ? entry.hosts.includes(host) : false;
 }
 
 /**

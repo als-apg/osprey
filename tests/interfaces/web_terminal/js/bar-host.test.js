@@ -55,11 +55,11 @@ const BARS_CSS = join(
 let cleanups = [];
 
 /**
- * A layout document. Only `header`, `status` and `status_visible` are read by
+ * A layout document. Only the two item lists and the two visibility flags are read by
  * the host; the schema fields are carried so the fixture is a real document.
  * @param {string[]} header
  * @param {string[]} status
- * @param {{statusVisible?: boolean, options?: Record<string, Record<string, string | number | boolean>>}} [extra]
+ * @param {{headerVisible?: boolean, statusVisible?: boolean, options?: Record<string, Record<string, string | number | boolean>>}} [extra]
  * @returns {BarLayout}
  */
 function layoutOf(header, status, extra = {}) {
@@ -70,6 +70,7 @@ function layoutOf(header, status, extra = {}) {
     rev: 0,
     header: header.map(item),
     status: status.map(item),
+    header_visible: extra.headerVisible ?? true,
     status_visible: extra.statusVisible ?? true,
   };
 }
@@ -297,10 +298,10 @@ describe('order and parking', () => {
   });
 
   test('repeated spacing types keep distinct shells', () => {
-    reconcile(layoutOf(['gap', 'clock', 'gap'], []));
+    reconcile(layoutOf(['separator', 'clock', 'separator'], []));
 
-    expect(typesIn('header')).toEqual(['gap', 'clock', 'gap']);
-    expect(shellForKey('gap')).not.toBe(shellForKey('gap#1'));
+    expect(typesIn('header')).toEqual(['separator', 'clock', 'separator']);
+    expect(shellForKey('separator')).not.toBe(shellForKey('separator#1'));
   });
 
   test('a non-item child of the host is left in place', () => {
@@ -336,6 +337,15 @@ describe('order and parking', () => {
     reconcile(layoutOf([], [], { statusVisible: true }));
     expect(document.documentElement.dataset.statusBar).toBe('visible');
   });
+
+  test('header_visible is mirrored the same way, independently', () => {
+    reconcile(layoutOf([], [], { headerVisible: false }));
+    expect(document.documentElement.dataset.headerBar).toBe('hidden');
+    expect(document.documentElement.dataset.statusBar).toBe('visible');
+
+    reconcile(layoutOf([], [], { headerVisible: true }));
+    expect(document.documentElement.dataset.headerBar).toBe('visible');
+  });
 });
 
 describe('catalog flex hints are stamped on the shell', () => {
@@ -346,14 +356,14 @@ describe('catalog flex hints are stamped on the shell', () => {
     expect(shell.style.getPropertyValue('min-width')).toBe('0');
   });
 
-  test('a space scales its grow factor by its share option', () => {
-    reconcile(layoutOf(['space'], [], { options: { space: { share: 3 } } }));
-    expect(flexOf(/** @type {HTMLElement} */ (shellForKey('space')))).toEqual(['3', '1', '0px']);
+  test('a space at width 0 fills the bar', () => {
+    reconcile(layoutOf(['space'], [], { options: { space: { width: 0 } } }));
+    expect(flexOf(/** @type {HTMLElement} */ (shellForKey('space')))).toEqual(['1', '1', '0px']);
   });
 
-  test('a gap holds its size until the bar runs out of room', () => {
-    reconcile(layoutOf(['gap'], [], { options: { gap: { size: 40 } } }));
-    const shell = /** @type {HTMLElement} */ (shellForKey('gap'));
+  test('a space at a width holds it until the bar runs out of room', () => {
+    reconcile(layoutOf(['space'], [], { options: { space: { width: 40 } } }));
+    const shell = /** @type {HTMLElement} */ (shellForKey('space'));
     expect(flexOf(shell)).toEqual(['0', '1', '40px']);
     expect(shell.style.getPropertyValue('min-width')).toBe('0');
   });
@@ -445,11 +455,11 @@ describe('one builder per type', () => {
 
   test('a builder re-runs when the item changes host or options', () => {
     const builder = vi.fn(() => document.createElement('span'));
-    useBuilder('gap', builder);
+    useBuilder('space', builder);
 
-    reconcile(layoutOf(['gap'], [], { options: { gap: { size: 12 } } }));
-    reconcile(layoutOf(['gap'], [], { options: { gap: { size: 40 } } }));
-    reconcile(layoutOf([], ['gap'], { options: { gap: { size: 40 } } }));
+    reconcile(layoutOf(['space'], [], { options: { space: { width: 12 } } }));
+    reconcile(layoutOf(['space'], [], { options: { space: { width: 40 } } }));
+    reconcile(layoutOf([], ['space'], { options: { space: { width: 40 } } }));
 
     expect(builder).toHaveBeenCalledTimes(3);
   });
@@ -625,12 +635,12 @@ describe('an item that hides its body collapses its shell', () => {
   });
 
   test('a rebuilt body takes the mirror over from the one it replaced', async () => {
-    useBuilder('gap', () => document.createElement('span'));
-    reconcile(layoutOf(['gap'], [], { options: { gap: { size: 12 } } }));
-    const shell = /** @type {HTMLElement} */ (shellForKey('gap'));
+    useBuilder('space', () => document.createElement('span'));
+    reconcile(layoutOf(['space'], [], { options: { space: { width: 12 } } }));
+    const shell = /** @type {HTMLElement} */ (shellForKey('space'));
     const first = /** @type {HTMLElement} */ (shell.firstElementChild);
 
-    reconcile(layoutOf(['gap'], [], { options: { gap: { size: 40 } } }));
+    reconcile(layoutOf(['space'], [], { options: { space: { width: 40 } } }));
     const second = /** @type {HTMLElement} */ (shell.firstElementChild);
     expect(second).not.toBe(first);
 
@@ -644,16 +654,16 @@ describe('an item that hides its body collapses its shell', () => {
     expect(shell.hidden).toBe(true);
   });
 
-  test('a shell of several dots collapses only once every dot is hidden', async () => {
-    // The panel-health shape: one `.status-item` per declaring panel, each
-    // revealed by panel-status-bar.js when that panel's own config lands.
+  test('a shell of several bodies collapses only once every body is hidden', async () => {
+    // A server-rendered shell may carry more than one body, each revealed on
+    // its own schedule; one live body is reason enough to keep the box.
     seedDom(
-      '<div class="bar-item" data-bar-item="panel-health">' +
+      '<div class="bar-item" data-bar-item="docs">' +
         '<div class="status-item" id="dot-a" hidden></div>' +
         '<div class="status-item" id="dot-b" hidden></div>' +
         '</div>'
     );
-    const shell = /** @type {HTMLElement} */ (shellForKey('panel-health'));
+    const shell = /** @type {HTMLElement} */ (shellForKey('docs'));
     expect(shell.hidden).toBe(true);
 
     const first = /** @type {HTMLElement} */ (document.getElementById('dot-a'));
@@ -667,8 +677,8 @@ describe('an item that hides its body collapses its shell', () => {
   });
 
   test('an empty shell keeps its own visibility', () => {
-    reconcile(layoutOf(['gap', 'space'], []));
-    expect(/** @type {HTMLElement} */ (shellForKey('gap')).hidden).toBe(false);
+    reconcile(layoutOf(['separator', 'space'], []));
+    expect(/** @type {HTMLElement} */ (shellForKey('separator')).hidden).toBe(false);
     expect(/** @type {HTMLElement} */ (shellForKey('space')).hidden).toBe(false);
   });
 });
@@ -801,12 +811,17 @@ describe('a shell this module builds is styled like one the server rendered', ()
     }
   });
 
-  test('a gap placed at runtime matches its stylesheet selectors too', () => {
-    reconcile(layoutOf(['gap'], []));
-    const shell = /** @type {HTMLElement} */ (shellForKey('gap'));
+  test('a separator placed at runtime matches its stylesheet selectors too', () => {
+    reconcile(layoutOf(['separator'], []));
+    const shell = /** @type {HTMLElement} */ (shellForKey('separator'));
 
-    for (const selector of styledBy('gap')) {
-      expect(shell.matches(selector), `a client-built gap does not match ${selector}`).toBe(true);
+    const selectors = styledBy('separator');
+    expect(selectors.length, 'bars.css styles no separator item').toBeGreaterThan(0);
+    for (const selector of selectors) {
+      expect(
+        shell.matches(selector),
+        `a client-built separator does not match ${selector}`
+      ).toBe(true);
     }
   });
 });

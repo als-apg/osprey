@@ -254,44 +254,28 @@ def test_web_terminal_status_readouts_are_live(
     monkeypatch,
     chromium_browser: Browser,
 ) -> None:
-    """The status bar's three readouts still say something on a live page.
+    """The status bar's clock still says something on a live page.
 
-    These three used to be hardcoded ``#ws-dot`` / ``#term-dims`` /
-    ``#status-clock`` nodes written by an ``initStatusBar()`` that no longer
-    exists: they are bar items now, built by ``bar-items.js`` into shells the
-    server emits from the effective layout. Every step of that hand-over is
+    It used to be a hardcoded ``#status-clock`` node written by an
+    ``initStatusBar()`` that no longer exists: it is a bar item now, built by
+    ``bar-items.js`` into a shell the server emits from the effective layout. Every step of that hand-over is
     unit-tested, and none of those unit tests can tell whether the chain
-    actually closes on a live page — a broken link anywhere in it leaves three
+    actually closes on a live page — a broken link anywhere in it leaves
     empty boxes in the corner of the screen and no failing test anywhere,
     because an empty box is what an item that never built looks like.
 
     So this asserts the VALUES, not the elements. A present-but-blank readout
-    is the failure being guarded against, which is why the size and the clock
-    are matched against their shapes rather than merely located:
-
-      * the connection dot exists and its item carries the ``WS`` label;
-      * the terminal size has resolved to a real ``cols×rows`` (``—`` is what
-        it shows while ``getTerminalDimensions()`` answers null, so a terminal
-        that never fitted fails here);
-      * the clock reads a real ``HH:MM``.
-
-    The shipped default places one of the three: the connection dot and the
-    terminal size are catalog items an operator brings back through Customize
-    (the "Everything" preset), not default furniture. What is under test is the
-    build chain, not the default set — ``test_bar_items_ssr.py`` pins that — so
-    this configures a deployment that places all three, which is exactly the
-    arrangement an operator who wants them back is served.
+    is the failure being guarded against, which is why the clock is matched
+    against its shape rather than merely located: it reads a real ``HH:MM``.
     """
     if not _PLAYWRIGHT_AVAILABLE:  # pragma: no cover - guarded by the fixture too
         pytest.skip("playwright package not installed")
 
-    from osprey.interfaces.web_terminal.app import DEFAULT_BAR_LAYOUT, _BarItemsConfig
+    from osprey.interfaces.web_terminal.app import DEFAULT_BAR_LAYOUT
 
-    places_all_three = {
+    places_clock = {
         **DEFAULT_BAR_LAYOUT,
         "status": [
-            {"type": "connection"},
-            {"type": "terminal-size"},
             {"type": "activity"},
             {"type": "clock"},
         ],
@@ -300,7 +284,7 @@ def test_web_terminal_status_readouts_are_live(
     with (
         patch(
             "osprey.interfaces.web_terminal.app._load_bar_items",
-            return_value=_BarItemsConfig(places_all_three, []),
+            return_value=places_clock,
         ),
         _launch_web_terminal(tmp_path, monkeypatch) as base_url,
     ):
@@ -309,15 +293,6 @@ def test_web_terminal_status_readouts_are_live(
 
         bar = page.locator('footer.status-bar[data-bar-host="status"]')
 
-        # The dot is 5px of background color, so `to_be_visible` is the wrong
-        # question to ask about it — that it was built inside its item is the
-        # claim, and the label beside it is what an operator actually reads.
-        expect(bar.locator(".bar-connection .status-dot")).to_have_count(1, timeout=15_000)
-        expect(bar.locator(".bar-connection")).to_contain_text("WS", timeout=15_000)
-
-        expect(bar.locator(".bar-terminal-size-value")).to_have_text(
-            re.compile(r"^\d+×\d+$"), timeout=15_000
-        )
         expect(bar.locator(".bar-clock-time")).to_have_text(
             re.compile(r"^\d{1,2}:\d{2}$"), timeout=15_000
         )

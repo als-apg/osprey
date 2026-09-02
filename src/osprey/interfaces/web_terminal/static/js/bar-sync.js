@@ -58,9 +58,7 @@
  * three facts where it already knows them and stamps them on `<html>` as
  * `data-bar-context`; this module only parses them. The inference this replaced
  * read identity and the plan queue off the shells the server had rendered — so a
- * deployment that OFFERED an item but did not PLACE it read as unavailable — and
- * panel health off `PANELS`, the full shipped catalog, which says `ariel-status`
- * on every build including deployments serving no such panel.
+ * deployment that OFFERED an item but did not PLACE it read as unavailable.
  *
  * A page carrying no stamp at all is not this build's render, and it gets no
  * guess: every gated item is refused, which renders what survived and refuses to
@@ -192,7 +190,7 @@ const NO_CONTEXT = Object.freeze(
   /** @type {BarLayoutContext} */ ({
     identityAvailable: false,
     blueskyAvailable: false,
-    statusBarIds: [],
+    systemHealthAvailable: false,
   })
 );
 
@@ -224,12 +222,7 @@ export function deploymentContext(root) {
     return {
       identityAvailable: parsed.identityAvailable === true,
       blueskyAvailable: parsed.blueskyAvailable === true,
-      statusBarIds: Array.isArray(parsed.statusBarIds)
-        ? parsed.statusBarIds.filter(
-            /** @param {unknown} id @returns {id is string} */
-            (id) => typeof id === 'string' && id.length > 0
-          )
-        : [],
+      systemHealthAvailable: parsed.systemHealthAvailable === true,
     };
   } catch {
     console.warn(`[bar-sync] ${CONTEXT_ATTR} is not readable JSON`, raw);

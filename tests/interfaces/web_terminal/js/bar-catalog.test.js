@@ -7,35 +7,26 @@
  * that states them, and each is pinned here as an EXACT set rather than a
  * membership check, so both directions of drift fail:
  *
- *   - the 17 types themselves;
- *   - `hosts` header-only — a status-bar shell is 24–26 px tall, and an item
- *     whose body cannot render there must be refused as a hard capability, not
- *     merely defaulted away from the footer;
- *   - `locked` — exactly the four ids a deployment may never let a user remove;
+ *   - the 14 types themselves;
+ *   - no placement axis — every type may sit in either bar, so no entry may
+ *     grow a `hosts` list that would quietly refuse one of them;
  *   - foldable — `overflowLabel(ctx) !== null` IS the ladder's fold domain, so
- *     an accidental label on a locked item silently makes it foldable.
+ *     an accidental label on a chrome item silently makes it foldable.
  *
- * Plus the panel-health status-bar id set, which is derived from the shipped
- * panel catalog: this suite asserts the derivation rather than a retyped list,
- * because a panel gaining or losing a `statusBarId` must move the item's set
- * with it and must never leave a dot the deployment cannot fill.
  */
 
 import { test, expect, describe } from 'vitest';
 
 import {
   BAR_CATALOG,
+  BAR_GROUPS,
   BAR_HOSTS,
   BAR_ITEM_TYPES,
   DENSITY_BY_HOST,
-  LOCKED_BAR_ITEM_TYPES,
-  PANEL_HEALTH_STATUS_BAR_IDS,
   barItemType,
   defaultOptions,
   densityForHost,
-  supportsHost,
 } from '../../../../src/osprey/interfaces/web_terminal/static/js/bar-catalog.js';
-import { PANELS } from '../../../../src/osprey/interfaces/web_terminal/static/js/panel-catalog.js';
 
 const EXPECTED_TYPES = [
   'logo',
@@ -47,13 +38,10 @@ const EXPECTED_TYPES = [
   'feedback',
   'activity',
   'clock',
-  'connection',
-  'terminal-size',
-  'panel-health',
+  'system-health',
   'bluesky-queue',
   'stopwatch',
   'space',
-  'gap',
   'separator',
 ];
 
@@ -101,9 +89,22 @@ function asEnumSpec(spec) {
 }
 
 describe('type set', () => {
-  test('declares exactly 17 types', () => {
-    expect(BAR_ITEM_TYPES).toHaveLength(17);
+  test('declares exactly 14 types', () => {
+    expect(BAR_ITEM_TYPES).toHaveLength(14);
     expect(sorted(BAR_ITEM_TYPES)).toEqual(sorted(EXPECTED_TYPES));
+  });
+
+  test('every type files under one of the sheet headings', () => {
+    for (const [, entry] of entries()) expect(BAR_GROUPS).toContain(entry.group);
+    expect(Object.isFrozen(BAR_GROUPS)).toBe(true);
+  });
+
+  test('exactly the types with a JS-built or empty body may be placed twice', () => {
+    // Everything else is one server-rendered node or one id-owning dot; a
+    // second shell for it could only ever be empty.
+    expect(typesWhere((entry) => entry.multi)).toEqual(
+      sorted(['clock', 'stopwatch', 'space', 'separator'])
+    );
   });
 
   test('every entry states its own type as its key', () => {
@@ -123,66 +124,25 @@ describe('type set', () => {
   });
 });
 
-describe('hosts', () => {
-  const HEADER_ONLY = ['logo', 'identity', 'control-target', 'search', 'display'];
-
-  test('exactly five types are header-only', () => {
-    const headerOnly = typesWhere(
-      (entry) => entry.hosts.includes('header') && !entry.hosts.includes('status')
-    );
-    expect(headerOnly).toEqual(sorted(HEADER_ONLY));
-  });
-
-  test('every other type is placeable in both bars', () => {
-    for (const [type, entry] of entries()) {
-      if (HEADER_ONLY.includes(type)) continue;
-      expect(sorted(entry.hosts)).toEqual(sorted(BAR_HOSTS));
-    }
-  });
-
-  test('no type declares a host outside the two bars, or none at all', () => {
+describe('placement', () => {
+  test('no entry declares a placement axis — every type may sit in either bar', () => {
+    // The axis used to exist and refused five types from the status bar; an
+    // entry that grows one back would refuse a bar the operator was promised.
     for (const [, entry] of entries()) {
-      expect(entry.hosts.length).toBeGreaterThan(0);
-      for (const host of entry.hosts) expect(BAR_HOSTS).toContain(host);
+      expect('hosts' in entry).toBe(false);
+      expect('densities' in entry).toBe(false);
     }
   });
 
-  test('supportsHost refuses header-only types in the status bar', () => {
-    expect(supportsHost('logo', 'header')).toBe(true);
-    expect(supportsHost('logo', 'status')).toBe(false);
-    expect(supportsHost('clock', 'status')).toBe(true);
-    expect(supportsHost('no-such-item', 'header')).toBe(false);
-  });
-
-  test('declared densities are exactly the densities of the declared hosts', () => {
-    for (const [, entry] of entries()) {
-      const fromHosts = entry.hosts.map((host) => DENSITY_BY_HOST[host]);
-      expect(sorted(entry.densities)).toEqual(sorted(fromHosts));
-    }
+  test('each host renders at exactly one density', () => {
+    expect(Object.keys(DENSITY_BY_HOST).sort()).toEqual(sorted(BAR_HOSTS));
     expect(densityForHost('header')).toBe('comfortable');
     expect(densityForHost('status')).toBe('compact');
   });
 });
 
-describe('locked', () => {
-  test('exactly four types are locked', () => {
-    expect(typesWhere((entry) => entry.locked)).toEqual(
-      sorted(['logo', 'identity', 'control-target', 'display'])
-    );
-    expect(sorted(LOCKED_BAR_ITEM_TYPES)).toEqual(
-      sorted(['logo', 'identity', 'control-target', 'display'])
-    );
-  });
-
-  test('no locked type folds — locked chrome must stay visible in the bar', () => {
-    for (const type of LOCKED_BAR_ITEM_TYPES) {
-      expect(BAR_CATALOG[type].overflowLabel({})).toBeNull();
-    }
-  });
-});
-
 describe('foldable set', () => {
-  const FOLDABLE = ['clock', 'terminal-size', 'docs', 'feedback', 'stopwatch', 'bluesky-queue'];
+  const FOLDABLE = ['bluesky-queue', 'clock', 'docs', 'feedback', 'stopwatch', 'system-health'];
 
   test('exactly six types return an overflow label', () => {
     expect(typesWhere((entry) => entry.overflowLabel({}) !== null)).toEqual(sorted(FOLDABLE));
@@ -201,36 +161,9 @@ describe('foldable set', () => {
   });
 
   test('spacing never folds — it yields through flex-shrink instead', () => {
-    for (const type of ['space', 'gap', 'separator']) {
+    for (const type of ['space', 'separator']) {
       expect(BAR_CATALOG[type].overflowLabel({})).toBeNull();
     }
-  });
-});
-
-describe('panel-health status bar ids', () => {
-  test('the set is exactly the built-in panels that declare a statusBarId', () => {
-    const declared = PANELS.map((panel) => panel.statusBarId).filter((id) => id !== null);
-    expect(sorted(PANEL_HEALTH_STATUS_BAR_IDS)).toEqual(sorted(declared));
-    expect(PANEL_HEALTH_STATUS_BAR_IDS.length).toBeGreaterThan(0);
-  });
-
-  test('the set is closed — no id from outside the panel catalog', () => {
-    // #ws-dot and #term-dims are catalog items of their own now, and
-    // #operator-status is dead markup; none is a panel-health dot.
-    for (const stray of ['ws-dot', 'term-dims', 'operator-status', 'status-clock']) {
-      expect(PANEL_HEALTH_STATUS_BAR_IDS).not.toContain(stray);
-    }
-  });
-
-  test('panel-health is unavailable when no enabled panel declares an id', () => {
-    expect(BAR_CATALOG['panel-health'].available({ statusBarIds: [] })).toBe(false);
-    expect(BAR_CATALOG['panel-health'].available({})).toBe(false);
-    expect(BAR_CATALOG['panel-health'].available({ statusBarIds: ['operator-status'] })).toBe(
-      false
-    );
-    expect(
-      BAR_CATALOG['panel-health'].available({ statusBarIds: [PANEL_HEALTH_STATUS_BAR_IDS[0]] })
-    ).toBe(true);
   });
 });
 
@@ -240,13 +173,14 @@ describe('available', () => {
     expect(BAR_CATALOG.identity.available({ identityAvailable: true })).toBe(true);
   });
 
-  test('bluesky-queue is absent without a bluesky bridge', () => {
-    expect(BAR_CATALOG['bluesky-queue'].available({})).toBe(false);
-    expect(BAR_CATALOG['bluesky-queue'].available({ blueskyAvailable: true })).toBe(true);
+  test('system-health is absent where the SYSTEM panel is not enabled', () => {
+    expect(BAR_CATALOG['system-health'].available({})).toBe(false);
+    expect(BAR_CATALOG['system-health'].available({ systemHealthAvailable: false })).toBe(false);
+    expect(BAR_CATALOG['system-health'].available({ systemHealthAvailable: true })).toBe(true);
   });
 
   test('every other type is available on a bare deployment', () => {
-    const gated = ['identity', 'bluesky-queue', 'panel-health'];
+    const gated = ['identity', 'bluesky-queue', 'system-health'];
     for (const [type, entry] of entries()) {
       if (gated.includes(type)) continue;
       expect(entry.available({})).toBe(true);
@@ -272,20 +206,17 @@ describe('flex hints', () => {
     expect(BAR_CATALOG.activity.flex({})).toEqual({ flex: '1 1 0', minWidth: '0' });
   });
 
-  test('space grows by its share', () => {
+  test('a space at width 0 fills, and at any other width holds that width', () => {
     expect(BAR_CATALOG.space.flex({})).toEqual({ flex: '1 1 0' });
-    expect(BAR_CATALOG.space.flex({ share: 3 })).toEqual({ flex: '3 1 0' });
+    expect(BAR_CATALOG.space.flex({ width: 0 })).toEqual({ flex: '1 1 0' });
+    // Held, but shrinking before any real item is touched.
+    expect(BAR_CATALOG.space.flex({ width: 400 })).toEqual({ flex: '0 1 400px', minWidth: '0' });
     // A non-numeric stored value falls back to the declared default.
-    expect(BAR_CATALOG.space.flex({ share: 'wide' })).toEqual({ flex: '1 1 0' });
-  });
-
-  test('gap holds its size but shrinks before any real item is touched', () => {
-    expect(BAR_CATALOG.gap.flex({})).toEqual({ flex: '0 1 12px', minWidth: '0' });
-    expect(BAR_CATALOG.gap.flex({ size: 400 })).toEqual({ flex: '0 1 400px', minWidth: '0' });
+    expect(BAR_CATALOG.space.flex({ width: 'wide' })).toEqual({ flex: '1 1 0' });
   });
 
   test('every other type stamps nothing on its shell', () => {
-    const stamped = ['activity', 'space', 'gap'];
+    const stamped = ['activity', 'space'];
     for (const [type, entry] of entries()) {
       if (stamped.includes(type)) continue;
       expect(entry.flex({})).toBeNull();
@@ -294,25 +225,22 @@ describe('flex hints', () => {
 });
 
 describe('option spec', () => {
-  test('gap size is bounded 4–400 px', () => {
-    const spec = asNumberSpec(BAR_CATALOG.gap.options.size);
-    expect(spec.min).toBe(4);
-    expect(spec.max).toBe(400);
+  test('space width is 0 (fill) to 2000 px', () => {
+    const spec = asNumberSpec(BAR_CATALOG.space.options.width);
+    expect(spec.min).toBe(0);
+    expect(spec.max).toBe(2000);
     expect(spec.unit).toBe('px');
-    expect(spec.default).toBeGreaterThanOrEqual(spec.min);
-    expect(spec.default).toBeLessThanOrEqual(spec.max);
+    expect(spec.default).toBe(0);
   });
 
-  test('space share is bounded 1–3', () => {
-    const spec = asNumberSpec(BAR_CATALOG.space.options.share);
-    expect(spec.min).toBe(1);
-    expect(spec.max).toBe(3);
-  });
-
-  test('clock offers local/UTC/both plus seconds', () => {
+  test('clock offers none/local/UTC/both, 24h/12h, plus seconds', () => {
     const zone = asEnumSpec(BAR_CATALOG.clock.options.zone);
-    expect(zone.values).toEqual(['local', 'utc', 'both']);
-    expect(zone.values).toContain(zone.default);
+    expect(zone.values).toEqual(['none', 'local', 'utc', 'both']);
+    // The plain clock is the default: no zone suffix until one is asked for.
+    expect(zone.default).toBe('none');
+    const format = asEnumSpec(BAR_CATALOG.clock.options.format);
+    expect(format.values).toEqual(['24h', '12h']);
+    expect(format.default).toBe('24h');
     expect(BAR_CATALOG.clock.options.seconds.kind).toBe('boolean');
   });
 
@@ -332,20 +260,44 @@ describe('option spec', () => {
     }
   });
 
-  test('only clock, space and gap take options', () => {
+  test('only clock, space, system health and the plan queue take options', () => {
     expect(typesWhere((entry) => Object.keys(entry.options).length > 0)).toEqual(
-      sorted(['clock', 'space', 'gap'])
+      sorted(['bluesky-queue', 'clock', 'space', 'system-health'])
     );
   });
 
+  test('system health is quiet by default: a dot alone, one row per category', () => {
+    const text = asEnumSpec(BAR_CATALOG['system-health'].options.text);
+    expect(text.values).toEqual(['none', 'status']);
+    expect(text.default).toBe('none');
+    const detail = asEnumSpec(BAR_CATALOG['system-health'].options.detail);
+    expect(detail.values).toEqual(['categories', 'checks']);
+    expect(detail.default).toBe('categories');
+  });
+
+  test('the plan queue offers its controls in three steps, quiet by default', () => {
+    const controls = asEnumSpec(BAR_CATALOG['bluesky-queue'].options.controls);
+    expect(controls.values).toEqual(['none', 'stop', 'full']);
+    expect(controls.default).toBe('none');
+    expect(BAR_CATALOG['bluesky-queue'].options.progress).toEqual({ kind: 'boolean', default: true });
+    expect(BAR_CATALOG['bluesky-queue'].options.count).toEqual({ kind: 'boolean', default: true });
+  });
+
+  test('the plan queue is offered exactly where the Bluesky panel is declared', () => {
+    const entry = BAR_CATALOG['bluesky-queue'];
+    expect(entry.available({ blueskyAvailable: true })).toBe(true);
+    expect(entry.available({ blueskyAvailable: false })).toBe(false);
+    expect(entry.available({})).toBe(false);
+  });
+
   test('defaultOptions returns a fresh, mutable object of the declared defaults', () => {
-    expect(defaultOptions('gap')).toEqual({ size: 12 });
-    expect(defaultOptions('clock')).toEqual({ zone: 'local', seconds: false });
+    expect(defaultOptions('space')).toEqual({ width: 0 });
+    expect(defaultOptions('clock')).toEqual({ zone: 'none', format: '24h', seconds: false });
     expect(defaultOptions('logo')).toEqual({});
     expect(defaultOptions('no-such-item')).toEqual({});
-    const first = defaultOptions('gap');
-    first.size = 99;
-    expect(defaultOptions('gap').size).toBe(12);
+    const first = defaultOptions('space');
+    first.width = 99;
+    expect(defaultOptions('space').width).toBe(0);
   });
 });
 

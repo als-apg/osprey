@@ -26,7 +26,6 @@ import { PANELS, TERMINAL_RAIL_ID, TERMINAL_RAIL_LABEL } from './panel-catalog.j
 import { startHealthPolling as startPolling } from './panel-health.js';
 import { railOptions, RAIL_MENU_HINT } from './panel-menu-policy.js';
 import { createRail, addEntry, setActive, setEntryEnabled } from './panel-rail.js';
-import { updateStatusBar } from './panel-status-bar.js';
 
 /** @typedef {import('./panel-catalog.js').Panel} Panel */
 /** @typedef {import('./panel-manager.js').PanelState} PanelState */
@@ -148,7 +147,6 @@ export function addPanel(spec) {
     label: spec.label || spec.id.toUpperCase(),
     configEndpoint: null,
     healthEndpoint: spec.healthEndpoint || null,
-    statusBarId: null,
     path: spec.path || '/',
   };
   PANELS.push(normalized);
@@ -214,17 +212,16 @@ export async function initPanel(panel) {
 // ---- Health Polling ----
 
 /**
- * Poll-settle hook handed to panel-health.js's timing machinery: reflect the
- * new health on the status bar, and on the FIRST healthy settle enable the
- * entry and let the shared policy decide whether the newly-healthy panel
- * should take an empty slot. The rail itself shows no per-poll readout — the
- * SYSTEM panel's `web_panels` category is where liveness is reported.
+ * Poll-settle hook handed to panel-health.js's timing machinery: on the FIRST
+ * healthy settle enable the entry and let the shared policy decide whether the
+ * newly-healthy panel should take an empty slot. The rail itself shows no
+ * per-poll readout — the SYSTEM panel's `web_panels` category is where
+ * liveness is reported.
  * @param {Panel} panel
  * @param {boolean} wasHealthy
  */
 function onHealthSettled(panel, wasHealthy) {
   const c = ctx();
-  updateStatusBar(panel, c.panelState[panel.id]);
   if (c.panelState[panel.id].healthy && !wasHealthy) {
     setEntryEnabled(c.getRailEl(), panel.id, true);
     c.ensureActive();

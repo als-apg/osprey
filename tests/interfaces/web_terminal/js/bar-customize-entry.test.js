@@ -184,7 +184,13 @@ describe('a teardown while the display menu is still upgrading', () => {
     vi.spyOn(window.customElements, 'whenDefined').mockReturnValue(upgraded);
     const entry = await import(ENTRY_PATH);
     entry.initEntryPoints(
-      { isEditing: () => false, enterEditMode() {}, exitEditMode() {} },
+      {
+        isEditing: () => false,
+        enterEditMode() {},
+        exitEditMode() {},
+        barVisible: () => true,
+        setBarVisible: async () => true,
+      },
       document
     );
     // What the component's own connectedCallback builds: the card, and the

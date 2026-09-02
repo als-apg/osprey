@@ -8,20 +8,19 @@
  *
  * ---- The lifecycle problem this module owns ----
  *
- * A bar item is not a static body. The connection dot listens, the clock and
- * the terminal-size readout run intervals, the stopwatch counts while it runs.
+ * A bar item is not a static body. The clock runs an interval, the stopwatch
+ * counts while it runs, the system-health chip follows its poll.
  * Every one of them is ATTACH-SCOPED: it must stop the moment its shell leaves
  * the bar, because the host does not destroy a folded item — it parks the node
  * in the hidden pool, alive, where a live subscription would keep updating a
  * body nobody can see, for the rest of the page's life.
  *
- * So the house rule, established with the connection item and binding on every
- * item added after it: EVERY ATTACH-SCOPED SUBSCRIPTION COMES FROM A
- * DISPOSER-RETURNING API. A builder does not register a listener and hope
- * something later remembers it; it is handed the way to stop at the moment it
- * starts (`api.js`'s `onConnectionStateChange`), and it returns that disposer
- * with its body. An item that cannot hand back a disposer has not finished
- * being written.
+ * So the house rule, binding on every item: EVERY ATTACH-SCOPED SUBSCRIPTION
+ * COMES FROM A DISPOSER-RETURNING API. A builder does not register a listener
+ * or arm a timer and hope something later remembers it; it is handed the way
+ * to stop at the moment it starts, and it returns that disposer with its
+ * body. An item that cannot hand back a disposer has not finished being
+ * written.
  *
  * `defineBarItem()` is the seam that enforces it: a factory returns
  * `{node, dispose}` rather than a bare node, and this module runs `dispose`
@@ -55,16 +54,11 @@
  */
 
 import { isLive, poolElement, registerItemBuilder } from './bar-host.js';
-import { PANEL_HEALTH_STATUS_BAR_IDS } from './bar-catalog.js';
-import { PANELS } from './panel-catalog.js';
-import { getConnectionState, onConnectionStateChange } from './api.js';
-import { getTerminalDimensions } from './terminal.js';
+import { defaultOptions } from './bar-catalog.js';
 
 /** @typedef {import('./bar-host.js').BarBuildContext} BarBuildContext */
 /** @typedef {import('./bar-host.js').BarRoot} BarRoot */
 /** @typedef {import('./bar-catalog.js').BarItemOptions} BarItemOptions */
-/** @typedef {import('./api.js').ConnState} ConnState */
-/** @typedef {import('./api.js').ConnectionState} ConnectionState */
 
 /**
  * What an item factory returns. `node` is the body (null renders an empty
@@ -79,6 +73,10 @@ import { getTerminalDimensions } from './terminal.js';
 
 /** Live items, by the shell they are mounted in. @type {Map<HTMLElement, () => void>} */
 const instances = new Map();
+
+/** Every registered factory, by type — what {@link previewBarItem} builds from. */
+/** @type {Map<string, BarItemFactory>} */
+const factories = new Map();
 
 /** The pool currently under observation, so re-arming is idempotent. */
 /** @type {Element | null} */
@@ -97,6 +95,7 @@ let poolObserver = null;
  * @returns {() => void} unregister
  */
 export function defineBarItem(type, factory) {
+  factories.set(type, factory);
   const unregister = registerItemBuilder(type, (ctx) => {
     disposeShell(ctx.shell);
     const instance = factory(ctx);
@@ -106,10 +105,38 @@ export function defineBarItem(type, factory) {
   });
   return () => {
     unregister();
+    if (factories.get(type) === factory) factories.delete(type);
     for (const shell of Array.from(instances.keys())) {
       if (shell.dataset.barItem === type) disposeShell(shell);
     }
   };
+}
+
+/**
+ * Build one type's body OUTSIDE the bars, for the customize sheet's tiles: the
+ * same factory, at the type's default options, so a tile shows the item as it
+ * will look rather than a name for it. The instance is the caller's — it is
+ * not registered against a shell, so the pool watcher never sees it, and the
+ * returned `dispose` is the only thing that stops it.
+ * @param {string} type
+ * @param {Document} doc
+ * @param {import('./bar-catalog.js').BarDensity} density
+ * @returns {BarItemInstance | null} null when no factory renders the type
+ */
+export function previewBarItem(type, doc, density) {
+  const factory = factories.get(type);
+  if (!factory) return null;
+  const shell = doc.createElement('div');
+  shell.className = 'bar-item';
+  shell.dataset.barItem = type;
+  const instance = factory({
+    type,
+    key: `preview:${type}`,
+    density,
+    options: defaultOptions(type),
+    shell,
+  });
+  return { node: instance.node, dispose: instance.dispose ?? (() => {}) };
 }
 
 /**
@@ -179,137 +206,6 @@ function watchPool(root) {
   watchedPool = pool;
 }
 
-/* ---- connection ---- */
-
-/**
- * The dot's modifier per connection state. `connecting` is the bare dot: it is
- * neither healthy nor failed, and the muted default says exactly that.
- * @type {Readonly<Record<ConnState, string>>}
- */
-const CONNECTION_DOT_CLASS = Object.freeze({
-  connected: ' live',
-  connecting: '',
-  disconnected: ' error',
-});
-
-/**
- * The WebSocket health dot, moved out of the hardcoded status bar and into the
- * catalog. Passive by design: it reports, it is not a control, so it carries
- * no `.bar-item-btn` — a button that does nothing on click is a worse lie than
- * a dot. The skin is the status bar's own `.status-dot` (files.css), unchanged,
- * so the item reads identically wherever the operator puts it and the two
- * densities are handled entirely by the host.
- *
- * Seeds SYNCHRONOUSLY from `getConnectionState()`. A dot that waited for the
- * next transition would sit grey on a healthy session — every reconnect the
- * item missed while folded is a transition that will never be repeated.
- * @param {BarBuildContext} ctx
- * @returns {BarItemInstance}
- */
-function buildConnection(ctx) {
-  const doc = ctx.shell.ownerDocument;
-  const body = doc.createElement('span');
-  body.className = 'status-item bar-connection';
-  body.setAttribute('role', 'status');
-  const dot = doc.createElement('span');
-  dot.className = 'status-dot';
-  const label = doc.createElement('span');
-  label.textContent = 'WS';
-  body.append(dot, label);
-
-  /** @param {ConnectionState} state */
-  const render = (state) => {
-    dot.className = `status-dot${CONNECTION_DOT_CLASS[state.ws]}`;
-    body.title = `WebSocket: ${state.ws}`;
-    body.setAttribute('aria-label', `WebSocket ${state.ws}`);
-  };
-
-  render(getConnectionState());
-  return { node: body, dispose: onConnectionStateChange(render) };
-}
-
-defineBarItem('connection', buildConnection);
-
-/* ---- panel health ---- */
-
-/**
- * One health dot, built to be indistinguishable from the server's.
- *
- * `index.html` renders these dots itself for every deployment that serves a
- * declaring panel, and bar-host ADOPTS that body — so this builder runs only
- * where the server rendered no body to adopt (a second panel-health entry in
- * one layout, or a document assembled without the SSR). Both bodies therefore
- * have to be the same body: same `.status-item` skin, same id, same label, and
- * `hidden` until a health poll settles. `panel-status-bar.js` resolves the dot
- * by ITS id and nothing resolves the inner span, so the inner span carries no
- * id of its own — the same call the connection item made about `#ws-dot`.
- * @param {Document} doc
- * @param {string} id - the panel's `statusBarId`
- * @param {string} label
- * @param {HTMLElement | null} previous - the outgoing dot for this id, if any
- * @returns {HTMLElement}
- */
-function healthDot(doc, id, label, previous) {
-  const item = doc.createElement('div');
-  item.className = 'status-item';
-  item.id = id;
-  // Seeded from the body being replaced, for the reason the connection item
-  // seeds from `getConnectionState()`: panel-health.js settles a healthy panel
-  // once and then polls every 10 s, and it exposes no state to read back. A
-  // rebuilt dot that started from scratch would go dark for up to ten seconds
-  // after a host move, on a panel that never stopped being healthy.
-  item.hidden = previous ? previous.hidden : true;
-  const dot = doc.createElement('span');
-  dot.className = previous?.querySelector('.status-dot')?.className ?? 'status-dot';
-  const text = doc.createElement('span');
-  text.textContent = label;
-  item.append(dot, text);
-  return item;
-}
-
-/**
- * One dot per ENABLED built-in panel that declares a `statusBarId`.
- *
- * "Enabled" needs no fetch of its own: `panel-manager.js` filters `PANELS` in
- * place against `/api/panels` at init, so the live array IS this deployment's
- * panels. A disabled panel has no dot at all rather than a grey one — a dot for
- * a panel nobody serves could only ever sit dark. The catalog's CLOSED id set
- * is the second half: it is frozen from the SHIPPED catalog at import time, so
- * a panel registered at runtime cannot mint a dot even if it declares an id.
- *
- * Ids are unique per document, so a dot whose id is already owned by another
- * shell is SKIPPED rather than duplicated — the client half of the server's
- * "one node, one home" rule for adopted chrome, and what keeps a layout naming
- * panel-health twice from leaving `getElementById` pointing at the wrong dot.
- * An item left with nothing to show returns a hidden body rather than an empty
- * one, so bar-host's mirror collapses the shell and the bar spends no gap on
- * it.
- *
- * No subscription, and so no disposer: the dots are written from OUTSIDE, by
- * `panel-status-bar.js`, off the health poll the rail already runs. There is no
- * per-item timer to leak, and nothing this item starts has to stop when the
- * shell is parked.
- * @param {BarBuildContext} ctx
- * @returns {BarItemInstance}
- */
-function buildPanelHealth(ctx) {
-  const doc = ctx.shell.ownerDocument;
-  const body = doc.createDocumentFragment();
-  for (const panel of PANELS) {
-    const id = panel.statusBarId;
-    if (!id || !PANEL_HEALTH_STATUS_BAR_IDS.includes(id)) continue;
-    const existing = doc.getElementById(id);
-    if (existing && !ctx.shell.contains(existing)) continue;
-    body.appendChild(healthDot(doc, id, panel.label, existing));
-  }
-  if (body.firstChild) return { node: body };
-  const empty = doc.createElement('span');
-  empty.hidden = true;
-  return { node: empty };
-}
-
-defineBarItem('panel-health', buildPanelHealth);
-
 /* ---- shared formatting ---- */
 
 /**
@@ -333,20 +229,31 @@ const CLOCK_TICK_MS = 1000;
 
 /** What the readout is, in one phrase, per zone. */
 const CLOCK_TITLE = Object.freeze({
+  none: 'Local time',
   local: 'Local time',
   utc: 'UTC',
   both: 'Local · UTC',
 });
 
 /**
- * The zone option, narrowed. An unknown or absent value is local time — the
- * catalog default, and the only answer that is never actively wrong.
+ * The zone option, narrowed. An unknown or absent value is the plain local
+ * clock — the catalog default, and the only answer that is never actively
+ * wrong. `none` and `local` show the same time; `local` adds the zone's name.
  * @param {BarItemOptions} options
- * @returns {'local' | 'utc' | 'both'}
+ * @returns {'none' | 'local' | 'utc' | 'both'}
  */
 function clockZone(options) {
   const zone = options.zone;
-  return zone === 'utc' || zone === 'both' ? zone : 'local';
+  return zone === 'local' || zone === 'utc' || zone === 'both' ? zone : 'none';
+}
+
+/**
+ * The format option, narrowed: 12-hour with AM/PM only when asked for.
+ * @param {BarItemOptions} options
+ * @returns {boolean} whether to render the 12-hour cycle
+ */
+function clockHour12(options) {
+  return options.format === '12h';
 }
 
 /**
@@ -366,17 +273,22 @@ function localZoneLabel() {
 }
 
 /**
- * `HH:MM`, or `HH:MM:SS` with the seconds option on.
+ * `HH:MM`, or `HH:MM:SS` with the seconds option on; `H:MM AM` on the
+ * 12-hour cycle, where the hour drops its leading zero the way a wall clock
+ * does and the meridiem carries what the missing 13–23 would have said.
  * @param {Date} now
  * @param {boolean} utc
  * @param {boolean} seconds
+ * @param {boolean} hour12
  * @returns {string}
  */
-function formatClock(now, utc, seconds) {
+function formatClock(now, utc, seconds, hour12) {
   const hours = utc ? now.getUTCHours() : now.getHours();
   const minutes = utc ? now.getUTCMinutes() : now.getMinutes();
   const secs = utc ? now.getUTCSeconds() : now.getSeconds();
-  return `${pad2(hours)}:${pad2(minutes)}${seconds ? `:${pad2(secs)}` : ''}`;
+  const hour = hour12 ? String(hours % 12 || 12) : pad2(hours);
+  const meridiem = hour12 ? (hours < 12 ? ' AM' : ' PM') : '';
+  return `${hour}:${pad2(minutes)}${seconds ? `:${pad2(secs)}` : ''}${meridiem}`;
 }
 
 /**
@@ -384,16 +296,18 @@ function formatClock(now, utc, seconds) {
  * into the catalog, where it gains the zone and seconds options that interval
  * could not express.
  *
- * `role="timer"` rather than the connection item's `role="status"`: both are
+ * `role="timer"` rather than `role="status"`: both are
  * live regions, but `timer` is implicitly `aria-live="off"`, and a status
  * region that re-announced the time once a second would make a screen reader
  * unusable. The value stays in the body's TEXT, with no `aria-label` over it,
  * so the accessible name is the readout itself (`14:32 UTC`) rather than a
  * description of it.
  *
- * Density is the zone suffix. A local clock in the 20 px status bar is just
- * "the time" and the suffix is noise; a UTC or dual clock keeps its label at
- * both densities, because an unmarked UTC readout is not terse, it is wrong.
+ * The suffix follows the zone option. `none`, the default, is the plain
+ * clock and never carries one. `local` names the zone, but only at
+ * comfortable density: in the 20 px status bar a local clock is just "the
+ * time" and the name is noise. A UTC or dual clock keeps its label at both
+ * densities, because an unmarked UTC readout is not terse, it is wrong.
  * @param {BarBuildContext} ctx
  * @returns {BarItemInstance}
  */
@@ -401,6 +315,7 @@ function buildClock(ctx) {
   const doc = ctx.shell.ownerDocument;
   const zone = clockZone(ctx.options);
   const seconds = ctx.options.seconds === true;
+  const hour12 = clockHour12(ctx.options);
 
   const body = doc.createElement('span');
   body.className = 'status-item bar-clock';
@@ -410,7 +325,7 @@ function buildClock(ctx) {
   time.className = 'bar-clock-time';
   body.appendChild(time);
 
-  const zoneLabel = zone === 'local' ? localZoneLabel() : 'UTC';
+  const zoneLabel = zone === 'none' ? '' : zone === 'local' ? localZoneLabel() : 'UTC';
   if (zoneLabel && (zone !== 'local' || ctx.density === 'comfortable')) {
     const label = doc.createElement('span');
     label.className = 'bar-clock-zone';
@@ -422,8 +337,8 @@ function buildClock(ctx) {
     const now = new Date();
     const text =
       zone === 'both'
-        ? `${formatClock(now, false, seconds)} · ${formatClock(now, true, seconds)}`
-        : formatClock(now, zone === 'utc', seconds);
+        ? `${formatClock(now, false, seconds, hour12)} · ${formatClock(now, true, seconds, hour12)}`
+        : formatClock(now, zone === 'utc', seconds, hour12);
     if (time.textContent !== text) time.textContent = text;
   };
 
@@ -433,74 +348,6 @@ function buildClock(ctx) {
 }
 
 defineBarItem('clock', buildClock);
-
-/* ---- terminal size ---- */
-
-/**
- * The old `initStatusBar()` cadence, kept. `terminal.js` owns xterm's
- * `onResize` and exposes no subscription — only `getTerminalDimensions()` —
- * so a poll is the whole of what is on offer today. Half a second is fast
- * enough to look live while a panel is dragged and slow enough to be free.
- *
- * Task 1.13 adds the `getTerminalDimensions` WINDOW seam (for
- * `docs/screenshots/contact_sheet.py`, which reads the fitted size out of the
- * now-deleted `#term-dims`). That is a second reader of the same getter, not a
- * replacement for this import: when a real resize subscription appears on
- * `terminal.js`, this poll becomes `onTerminalResize(render)` and the disposer
- * it hands back goes where `clearInterval` is now.
- */
-const TERMINAL_SIZE_POLL_MS = 500;
-
-/**
- * The fitted `cols×rows` readout.
- *
- * No live region at all, unlike the clock and the connection dot: the value
- * changes on every frame of a panel drag, and an `aria-live` region would turn
- * one resize into a burst of announcements. The size is a fact to be read, not
- * an event to be told about, so it sits in plain text with the spelled-out
- * form in `title`.
- *
- * An em dash before the terminal is up. The item may legitimately be placed on
- * a page whose terminal never initialises, and a blank body would read as a
- * broken item rather than as "nothing to report".
- * @param {BarBuildContext} ctx
- * @returns {BarItemInstance}
- */
-function buildTerminalSize(ctx) {
-  const doc = ctx.shell.ownerDocument;
-  const body = doc.createElement('span');
-  body.className = 'status-item bar-terminal-size';
-
-  // Density is the standing label: 28 px of header has room to say what the
-  // number is, 20 px of status bar does not, and `80x24` is self-describing.
-  if (ctx.density === 'comfortable') {
-    const label = doc.createElement('span');
-    label.className = 'bar-terminal-size-label';
-    label.textContent = 'Term';
-    body.appendChild(label);
-  }
-  const value = doc.createElement('span');
-  value.className = 'bar-terminal-size-value';
-  body.appendChild(value);
-
-  let shown = '';
-  const render = () => {
-    const dims = getTerminalDimensions();
-    const text = dims ? `${dims.cols}×${dims.rows}` : '—';
-    if (text === shown) return;
-    shown = text;
-    value.textContent = text;
-    body.title = dims
-      ? `Terminal size: ${dims.cols} columns × ${dims.rows} rows`
-      : 'Terminal size: not ready';
-  };
-
-  render();
-  const timer = setInterval(render, TERMINAL_SIZE_POLL_MS);
-  return { node: body, dispose: () => clearInterval(timer) };
-}
-
-defineBarItem('terminal-size', buildTerminalSize);
 
 /* ---- stopwatch ---- */
 
@@ -642,3 +489,109 @@ function buildStopwatch(ctx) {
 }
 
 defineBarItem('stopwatch', buildStopwatch);
+
+/* ---- feedback ---- */
+
+/** The rail's own feedback control, which feedback-boot.js binds the dialog to. */
+const FEEDBACK_RAIL_BUTTON_ID = 'panel-feedback-btn';
+
+/** The rail's speech-bubble glyph, so the item and the rail read as one control. */
+const FEEDBACK_ICON_PATH =
+  'M4.6 2.7H11.4A2.1 2.1 0 0 1 13.5 4.8V9.3A2.1 2.1 0 0 1 11.4 11.4H7.0L3.5 14.1' +
+  'L4.4 11.4A2.1 2.1 0 0 1 2.5 9.3V4.8A2.1 2.1 0 0 1 4.6 2.7Z';
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/**
+ * The feedback button.
+ *
+ * The dialog belongs to the rail's `#panel-feedback-btn` — feedback-boot.js
+ * binds it there and nowhere else, and the rail control is on every page
+ * whether or not the rail shows it. So this item is a second way to press
+ * that button, not a second dialog: a click here is forwarded to the rail.
+ *
+ * Icon and label at header density; the label alone in the status bar, where
+ * the docs link beside it is a bare word too.
+ * @param {BarBuildContext} ctx
+ * @returns {BarItemInstance}
+ */
+function buildFeedback(ctx) {
+  const doc = ctx.shell.ownerDocument;
+  const chip = doc.createElement('button');
+  chip.type = 'button';
+  chip.className = 'bar-item-btn bar-feedback';
+  chip.title = 'Send feedback';
+  if (ctx.density === 'comfortable') {
+    const svg = doc.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('class', 'bar-feedback-icon');
+    svg.setAttribute('viewBox', '0 0 16 16');
+    svg.setAttribute('aria-hidden', 'true');
+    const path = doc.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', FEEDBACK_ICON_PATH);
+    svg.appendChild(path);
+    chip.appendChild(svg);
+  }
+  const label = doc.createElement('span');
+  label.textContent = 'Feedback';
+  chip.appendChild(label);
+  chip.addEventListener('click', () => {
+    doc.getElementById(FEEDBACK_RAIL_BUTTON_ID)?.click();
+  });
+  return { node: chip };
+}
+
+defineBarItem('feedback', buildFeedback);
+
+/* ---- space ---- */
+
+/**
+ * The space's edit-mode furniture: what it is set to, and the grip that sets
+ * it. Nothing shows outside edit mode — bars.css hides both there, and a
+ * space is then exactly the empty stretch it always was. The width is
+ * rendered from the option so a rebuild after a resize shows the stored
+ * value; the drag gesture (bar-customize-drag.js) writes the label live while
+ * the pointer is down and commits through the option when it lifts.
+ *
+ * Three bodies, not one: the label's box clips its own overflow (a narrow
+ * space must not spill "1200 px" over its neighbour), and the two grips hang
+ * half outside the shell's edges — so they cannot live inside that clipped
+ * box, or the half the pointer reaches for would be cut away with them. A
+ * grip at EACH end, because which end reads as "the edge of the space"
+ * depends on what the space sits next to: an operator narrowing the gap
+ * before the search bar reaches for the end nearest the items they are
+ * moving. Either end sets the same width.
+ * @param {BarBuildContext} ctx
+ * @returns {BarItemInstance}
+ */
+function buildSpace(ctx) {
+  const doc = ctx.shell.ownerDocument;
+  const width = ctx.options.width;
+  const body = doc.createDocumentFragment();
+  const readout = doc.createElement('span');
+  readout.className = 'bar-space';
+  const label = doc.createElement('span');
+  label.className = 'bar-space-label';
+  label.textContent = spaceLabel(typeof width === 'number' ? width : 0);
+  readout.appendChild(label);
+  body.appendChild(readout);
+  for (const edge of ['start', 'end']) {
+    const grip = doc.createElement('span');
+    grip.className = 'bar-space-grip';
+    grip.dataset.edge = edge;
+    grip.title = 'Drag to set the width';
+    grip.setAttribute('aria-hidden', 'true');
+    body.appendChild(grip);
+  }
+  return { node: body };
+}
+
+/**
+ * How a space names its setting: the fill glyph, or a width.
+ * @param {number} width - 0 for the flexible space
+ * @returns {string}
+ */
+export function spaceLabel(width) {
+  return width > 0 ? `${Math.round(width)} px` : '⟷';
+}
+
+defineBarItem('space', buildSpace);

@@ -11,7 +11,7 @@
  *
  * What is pinned here is the POLICY, which is the part a browser cannot
  * assert cheaply: fold order follows the catalog's priority, only the six
- * foldable types ever fold, locked chrome and search never do, spacing is
+ * foldable types ever fold, the header chrome and search never do, spacing is
  * untouched by any rung, an unfolded item is the SAME node object it was
  * before (a rebuild would silently drop the adopted chrome the host exists to
  * protect), and a folded item is reachable by name from the overflow menu.
@@ -50,6 +50,7 @@ function layoutOf(header, status = []) {
     rev: 0,
     header: header.map(item),
     status: status.map(item),
+    header_visible: true,
     status_visible: true,
   };
 }
@@ -152,18 +153,18 @@ describe('rung 3 — foldable items fold, lowest priority first', () => {
   });
 
   test('only the six overflowLabel types are candidates', () => {
-    // activity, connection and panel-health all declare a null overflowLabel:
+    // activity and search both declare a null overflowLabel:
     // a bar of nothing but those has no rung 3 at all, however crowded it is.
-    reconcile(layoutOf(['activity', 'connection', 'panel-health']));
+    reconcile(layoutOf(['activity', 'search']));
     crowdingAtCapacity(1);
     applyOverflow(document);
 
-    expect(typesIn('header')).toEqual(['activity', 'connection', 'panel-health']);
+    expect(typesIn('header')).toEqual(['activity', 'search']);
     expect(typesInPool()).toEqual([]);
     expect(trigger()).toBeNull();
   });
 
-  test('locked chrome never folds, however narrow the bar gets', () => {
+  test('the header chrome never folds, however narrow the bar gets', () => {
     reconcile(layoutOf(['logo', 'identity', 'control-target', 'display', 'clock']));
     crowdingAtCapacity(0);
     applyOverflow(document);
@@ -254,18 +255,18 @@ describe('rung 2 — search collapses but never folds', () => {
 });
 
 describe('spacing is never touched by the ladder', () => {
-  test('gaps and spaces stay put and keep their declared flex hints', () => {
+  test('spaces and separators stay put and keep their declared flex hints', () => {
     // Spacing yields continuously through CSS flex-shrink, ahead of every JS
-    // rung. A ladder that folded a gap would be racing CSS for those pixels.
-    reconcile(layoutOf(['logo', 'gap', 'space', 'separator', 'clock']));
-    const gap = shellOf('gap');
-    const before = gap.style.getPropertyValue('flex-basis');
+    // rung. A ladder that folded a space would be racing CSS for those pixels.
+    reconcile(layoutOf(['logo', 'space', 'separator', 'clock']));
+    const space = shellOf('space');
+    const before = space.style.getPropertyValue('flex-basis');
     crowdingAtCapacity(0);
     applyOverflow(document);
 
-    expect(typesIn('header')).toEqual(['logo', 'gap', 'space', 'separator']);
+    expect(typesIn('header')).toEqual(['logo', 'space', 'separator']);
     expect(typesInPool()).toEqual(['clock']);
-    expect(gap.style.getPropertyValue('flex-basis')).toBe(before);
+    expect(space.style.getPropertyValue('flex-basis')).toBe(before);
   });
 });
 

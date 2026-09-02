@@ -470,23 +470,34 @@ class TestBarItemVocabulary:
     """The vocabulary app.py hands the store is built from the tables the SSR
     pin already guards, so the store cannot become a second authority."""
 
-    def test_every_known_type_carries_its_hosts(self):
-        from osprey.interfaces.web_terminal.app import BAR_ITEM_HOSTS, bar_item_vocabulary
+    def test_every_known_type_is_in_the_vocabulary_with_no_placement_axis(self):
+        from osprey.interfaces.web_terminal.app import BAR_ITEM_TYPES, bar_item_vocabulary
 
         vocabulary = bar_item_vocabulary()
 
-        assert set(vocabulary.items) == set(BAR_ITEM_HOSTS)
-        assert vocabulary.items["logo"]["hosts"] == BAR_ITEM_HOSTS["logo"]
+        assert set(vocabulary.items) == set(BAR_ITEM_TYPES)
+        assert "hosts" not in vocabulary.items["logo"]
+        assert vocabulary.items["logo"]["multi"] is False
 
-    def test_the_three_types_with_options_carry_their_specs(self):
+    def test_the_types_with_options_carry_their_specs(self):
         from osprey.interfaces.web_terminal.app import bar_item_vocabulary
 
         items = bar_item_vocabulary().items
 
-        assert items["clock"]["options"]["zone"]["values"] == ("local", "utc", "both")
+        assert items["clock"]["options"]["zone"]["values"] == ("none", "local", "utc", "both")
+        assert items["bluesky-queue"]["options"]["controls"]["default"] == "none"
         assert items["clock"]["options"]["seconds"]["default"] is False
-        assert items["space"]["options"]["share"]["max"] == 3
-        assert items["gap"]["options"]["size"]["default"] == 12
+        assert items["space"]["options"]["width"]["default"] == 0
+        assert items["space"]["options"]["width"]["max"] == 2000
+
+    def test_every_type_says_whether_it_may_repeat(self):
+        from osprey.interfaces.web_terminal.app import BAR_ITEM_MULTI, bar_item_vocabulary
+
+        items = bar_item_vocabulary().items
+
+        assert {name for name, spec in items.items() if spec["multi"]} == set(BAR_ITEM_MULTI)
+        assert items["docs"]["multi"] is False
+        assert items["space"]["multi"] is True
 
     def test_every_other_type_declares_no_options(self):
         from osprey.interfaces.web_terminal.app import bar_item_vocabulary

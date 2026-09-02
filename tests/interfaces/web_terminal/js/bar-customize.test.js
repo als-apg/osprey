@@ -40,7 +40,7 @@ const realFetch = globalThis.fetch;
  * A layout document, as the server serves it.
  * @param {(string | {type: string, options: Record<string, unknown>})[]} header
  * @param {(string | {type: string, options: Record<string, unknown>})[]} status
- * @param {{rev?: number, version?: number, statusVisible?: boolean}} [extra]
+ * @param {{rev?: number, version?: number, headerVisible?: boolean, statusVisible?: boolean}} [extra]
  * @returns {Record<string, unknown>}
  */
 function doc(header, status, extra = {}) {
@@ -51,6 +51,7 @@ function doc(header, status, extra = {}) {
     rev: extra.rev ?? 0,
     header: header.map(item),
     status: status.map(item),
+    header_visible: extra.headerVisible ?? true,
     status_visible: extra.statusVisible ?? true,
   };
 }
@@ -158,13 +159,13 @@ afterEach(() => {
 describe('what the sheet may offer is the SERVED deployment context', () => {
   test('the edit context is the stamp, parsed, and nothing else', async () => {
     await boot({
-      context: { identityAvailable: true, blueskyAvailable: true, statusBarIds: ['ariel-status'] },
+      context: { identityAvailable: true, blueskyAvailable: true, systemHealthAvailable: true },
     });
 
     expect(customize.editContext()).toEqual({
       identityAvailable: true,
       blueskyAvailable: true,
-      statusBarIds: ['ariel-status'],
+      systemHealthAvailable: true,
     });
   });
 
@@ -176,13 +177,13 @@ describe('what the sheet may offer is the SERVED deployment context', () => {
     // operator's save dies as `readonly` with nothing said.
     await boot({
       fetch: endpoint({ get: doc(['logo'], []) }),
-      context: { identityAvailable: false, blueskyAvailable: true, statusBarIds: [] },
+      context: { identityAvailable: true, blueskyAvailable: false, systemHealthAvailable: false },
     });
     customize.enterEditMode();
 
-    expect(document.querySelector('[data-bar-item="bluesky-queue"]')).toBe(null);
-    expect(customize.refusalFor('bluesky-queue', 'header')).toBe(null);
-    expect(tile('bluesky-queue').disabled).toBe(false);
+    expect(document.querySelector('[data-bar-item="identity"]')).toBe(null);
+    expect(customize.refusalFor('identity', 'header')).toBe(null);
+    expect(tile('identity').disabled).toBe(false);
   });
 });
 
@@ -263,17 +264,13 @@ describe('entering and leaving edit mode', () => {
     expect(sheet()).toBe(null);
   });
 
-  test('locked items are marked while editing and unmarked after', async () => {
+  test('every item can be removed, the wordmark included', async () => {
     await boot({ fetch: endpoint({ get: doc(['logo', 'clock'], []) }) });
 
     customize.enterEditMode();
-    const logo = /** @type {any} */ (document.querySelector('[data-bar-item="logo"]'));
-    const clock = /** @type {any} */ (document.querySelector('[data-bar-item="clock"]'));
-    expect(logo.dataset.barLocked).toBe('true');
-    expect(clock.dataset.barLocked).toBe(undefined);
+    expect(await customize.removeAt('header', 0)).toBe(true);
 
-    customize.exitEditMode();
-    expect(logo.dataset.barLocked).toBe(undefined);
+    expect(putBodies()[0].header.map((/** @type {any} */ i) => i.type)).toEqual(['clock']);
   });
 });
 
@@ -295,20 +292,21 @@ describe('Simple mode refuses edit mode', () => {
 });
 
 describe('a tile names why it cannot be added', () => {
-  test('a header-only type is refused by the status bar', async () => {
+  test('any type may be added to either bar', async () => {
     await boot();
 
-    expect(customize.refusalFor('logo', 'status')).toBe('Header only');
+    expect(customize.refusalFor('logo', 'status')).toBe(null);
     expect(customize.refusalFor('logo', 'header')).toBe(null);
+    expect(customize.refusalFor('search', 'status')).toBe(null);
   });
 
-  test('a type the deployment does not render is refused in both hosts', async () => {
+  test('a type the deployment does not render is refused', async () => {
     await boot();
     customize.enterEditMode();
 
-    expect(customize.refusalFor('bluesky-queue', 'header')).toBe('Not in this deployment');
-    expect(tile('bluesky-queue').disabled).toBe(true);
-    expect(tileReason('bluesky-queue')).toBe('Not in this deployment');
+    expect(customize.refusalFor('identity', 'header')).toBe('Not in this deployment');
+    expect(tile('identity').disabled).toBe(true);
+    expect(tileReason('identity')).toBe('Not in this deployment');
   });
 
   test('a renderable type carries no reason and is enabled', async () => {
@@ -317,6 +315,66 @@ describe('a tile names why it cannot be added', () => {
 
     expect(tile('clock').disabled).toBe(false);
     expect(tileReason('clock')).toBe('');
+  });
+
+  test('a single-node type already in a bar is refused, and its tile dims', async () => {
+    // Its body is one server-rendered node; a second shell could only be empty.
+    await boot({ fetch: endpoint({ get: doc(['logo', 'docs'], ['clock']) }) });
+    customize.enterEditMode();
+
+    expect(customize.refusalFor('docs', 'status')).toBe('Already in the header');
+    expect(tile('docs').classList.contains('is-in-bar')).toBe(true);
+    expect(tile('docs').title).toBe('Already in the header');
+    expect(tileReason('docs')).toBe('');
+    tile('docs').click();
+    await settle();
+    expect(
+      fetchSpy.mock.calls.filter((/** @type {any} */ c) => c[1]?.method === 'PUT')
+    ).toHaveLength(0);
+
+    // A type that may be placed twice is offered again.
+    expect(customize.refusalFor('clock', 'header')).toBe(null);
+    expect(tile('clock').classList.contains('is-in-bar')).toBe(false);
+  });
+});
+
+describe('a tile shows the item', () => {
+  test('a JS-built type previews through its own builder', async () => {
+    await boot();
+    customize.enterEditMode();
+
+    expect(tile('clock').querySelector('.bar-tile-body .bar-clock')).not.toBe(null);
+    expect(tile('clock').querySelector('.bar-tile-label')?.textContent).toBe('Clock');
+  });
+
+  test('an adopted type previews as a copy of its live node, ids stripped', async () => {
+    await boot();
+    document.querySelector('[data-bar-host="header"]')?.insertAdjacentHTML(
+      'beforeend',
+      '<div class="bar-item" data-bar-item="docs"><a class="status-item" id="docs-link" hidden>Docs</a></div>'
+    );
+    const host = await import('../../../../src/osprey/interfaces/web_terminal/static/js/bar-host.js');
+    host.hydrate(document);
+    customize.enterEditMode();
+
+    const copy = tile('docs').querySelector('.bar-tile-body a');
+    expect(copy?.textContent).toBe('Docs');
+    expect(copy?.id).toBe('');
+    expect(copy?.hasAttribute('hidden')).toBe(false);
+    expect(document.querySelectorAll('#docs-link')).toHaveLength(1);
+  });
+
+  test('tiles sit under the catalog headings, in catalog order', async () => {
+    await boot();
+    customize.enterEditMode();
+
+    const headings = Array.from(document.querySelectorAll('.bar-sheet-group-heading')).map(
+      (h) => h.textContent
+    );
+    expect(headings).toEqual(['Identity', 'Machine', 'Agent', 'Panels', 'System', 'Tools', 'Layout']);
+    expect(
+      Array.from(document.querySelectorAll('.bar-tile')).map((t) => /** @type {any} */ (t).dataset.barTile)
+    ).toHaveLength(14);
   });
 
   test('a full host refuses the tile by name', async () => {
@@ -389,7 +447,11 @@ describe('every edit goes through saveLayout', () => {
 
     await customize.addItem('clock', 'header');
 
-    expect(putBodies()[0].header[0].options).toEqual({ zone: 'local', seconds: false });
+    expect(putBodies()[0].header[0].options).toEqual({
+      zone: 'none',
+      format: '24h',
+      seconds: false,
+    });
   });
 
   test('the client supplies the revision, never the caller', async () => {
@@ -423,10 +485,26 @@ describe('every edit goes through saveLayout', () => {
     const check = /** @type {any} */ (document.querySelector('.bar-sheet-status-visible'));
     expect(check.checked).toBe(false);
 
-    await customize.setStatusVisible(true);
+    await customize.setBarVisible('status', true);
     expect(
       /** @type {any} */ (document.querySelector('.bar-sheet-status-visible')).checked
     ).toBe(true);
+  });
+
+  test('the header has a toggle of its own, and it round-trips the same way', async () => {
+    await boot({ fetch: endpoint({ get: doc(['logo'], ['clock']) }) });
+    customize.enterEditMode();
+
+    const check = /** @type {any} */ (document.querySelector('.bar-sheet-header-visible'));
+    expect(check.checked).toBe(true);
+    check.checked = false;
+    check.dispatchEvent(new Event('change'));
+    await settle();
+
+    expect(putBodies()[0].header_visible).toBe(false);
+    expect(putBodies()[0].status_visible).toBe(true);
+    expect(sync.currentLayout()?.header_visible).toBe(false);
+    expect(document.documentElement.dataset.headerBar).toBe('hidden');
   });
 });
 

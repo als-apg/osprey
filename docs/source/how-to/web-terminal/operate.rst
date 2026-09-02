@@ -70,9 +70,18 @@ The window has three working areas plus a header:
   (a small dot holding the light/dark, Expert/Simple, and theme controls — see
   :doc:`theming`), a settings drawer, and an optional name badge to tell one
   deployment from another.
-- **Status bar** — a thin strip along the bottom: what the agent is doing right
-  now, a **Docs** link, a clock, and a health dot for each panel that reports
-  one. Both bars are yours to rearrange — see :ref:`web-terminal-bars`.
+- **Status bar** — a thin strip along the bottom: a clock at the right, and
+  before it, where the deployment runs the SYSTEM panel, a **System health**
+  dot for the health checks that panel runs. Both bars are yours to rearrange
+  — see :ref:`web-terminal-bars`. The dot is the worst outcome across the
+  checks; click it for a card with one row per check category, and **Open
+  SYSTEM** for the full dashboard. Its options add the outcome in a word beside
+  the dot and switch the card to one row per check.
+  Where a deployment runs the Bluesky panel, a **Bluesky queue** item is on offer
+  for either bar: a dot and a word for what the queue is doing, the running
+  plan and how far it is, and a card with the queued plans, **Open Bluesky**
+  and — if you switch them on in its options — the panel's own Start, Stop and
+  Abort.
 
 The settings drawer lets you read and edit the project's ``config.yml`` — and
 the agent's own setup and memory files — from the browser, so you rarely need
@@ -353,43 +362,54 @@ Both bars are built the same way: each holds one ordered list of small items,
 drawn from one catalog. The header starts with the wordmark, the identity block
 where the deployment renders one, the
 :ref:`control-target chip <web-terminal-session-posture>`, the command palette
-button and the display menu. The status bar starts with the
-agent's activity line, a health dot for each panel that reports one, the
-**Docs** link and a clock. Which items sit in which bar, and in what order, is
-yours to change.
+button and the display menu. The status bar starts nearly bare: a space, the
+**System health** dot where the SYSTEM panel is enabled, and a clock at the
+right. The agent's activity line, the **Docs** link and the rest of the catalog
+are one drag away. Which items sit in which bar, and in what order, is yours
+to change.
 
 Rearranging the bars
 ~~~~~~~~~~~~~~~~~~~~
 
 Open **Customize bars** in any of three ways: right-click either bar, pick it
-from the display menu, or run it from the command palette. The bars tint, every
-item in them picks up a dashed outline, and a sheet opens carrying a tile for
-every item there is. From there:
+from the display menu, or run it from the command palette. The bars tint and
+name themselves (**Header** at the top, **Status bar** at the bottom), every
+item in them picks up a dashed outline, and a sheet opens showing every item
+there is, drawn as it will look in the bar. From there:
 
-- **Drag a tile onto a bar** to add that item. Drag an item already in a bar to
-  move it, within its own bar or across to the other one.
+- **Drag a tile onto a bar** to add that item, or click it to add it to the
+  header. Drag an item already in a bar to move it, within its own bar or
+  across to the other one.
 - **Drag an item off both bars** to take it away.
-- **Click an item** to open its options — the clock's time zone and seconds,
-  the width of a fixed gap, the share of the room a flexible space claims —
-  along with **Move to status bar** (or back to the header) and **Remove**,
-  where the item allows them.
-- **Presets** sit at the foot of the sheet: *Clean*, *Everything* and
-  *Minimal*, each one replacing both bars in a single step.
-- **Hide status bar** in that same right-click menu, or the checkbox in the
-  sheet, withdraws the bottom bar and brings it back. The items you put there
-  are still there when it returns.
-- **Reset to default**, on the bar's right-click menu while you are editing,
-  throws your arrangement away and puts back the one the deployment ships.
+- **Click an item** to open its options — the clock's zone, 24- or 12-hour
+  format and seconds, a space's width, what the Bluesky queue shows and which
+  of its controls it offers, what the system-health chip says and lists — along
+  with **Move to status bar** (or back to the
+  header) and **Remove**. Every item can go in either bar: the control-target
+  chip, the command palette button and the display menu work from the status
+  bar exactly as they do from the header, drawn smaller, and their cards open
+  upward from there.
+- **Drag either end of a space** to set its width. A space at width 0 takes
+  whatever room is left in the bar; that is what pushes the items after it to
+  the right.
+- **Hide header** and **Hide status bar**, on that bar's own right-click menu
+  or as the checkboxes in the sheet, withdraw a bar and bring it back. The
+  items you put there are still there when it returns. A hidden bar has
+  nothing left to right-click, so **Show header** and **Show status bar**
+  appear on the right-click menu of every panel's title bar, the terminal's
+  included, in Simple mode as well. **Customize bars** in the command palette
+  is another way back in; editing shows every bar.
+- **Default**, at the foot of the sheet, throws your arrangement away and puts
+  back the one this deployment ships (``web.bar_items``).
 
 **Done** or **Esc** ends customizing. Every change applies as you make it.
 
-Some edits are refused, and the sheet says why rather than failing quietly. The
-wordmark, the identity block, the control-target chip and the display menu can
-be reordered but never removed, and a deployment can lock more items the same
-way. An item the header alone can hold — the command palette button, say — is
-refused by the status bar. A tile for something this deployment does not render
-is disabled and carries the reason. If an arrangement cannot be saved the sheet
-reads **Layout not saved**, and your edit was not stored.
+Some edits are refused, and the sheet says why rather than failing quietly.
+Most items go in once: a tile that is already in a bar is dimmed, and says
+where it is on hover. A tile for something this
+deployment does not render is disabled and carries the reason. If an
+arrangement cannot be saved the sheet reads **Layout not saved**, and your edit
+was not stored.
 
 Customizing is an Expert-mode affordance. Simple mode renders the arrangement
 you saved but offers no way into the sheet; switch to Expert from the display
