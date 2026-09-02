@@ -105,7 +105,7 @@ def test_write_record_puts_the_context_on_disk_before_the_header(
         destinations.append(Path(dst).name)
         return real_replace(src, dst, *args, **kwargs)
 
-    monkeypatch.setattr(feedback_store.os, "replace", spy_replace)
+    monkeypatch.setattr(os, "replace", spy_replace)
 
     record_id = feedback_store.write_record(feedback_dir, {"channel": "local"}, {"context": {}})
 
@@ -131,7 +131,7 @@ def test_write_record_temp_files_never_match_the_record_globs(
         temp_names.append(Path(name).name)
         return fd, name
 
-    monkeypatch.setattr(feedback_store.tempfile, "mkstemp", spy_mkstemp)
+    monkeypatch.setattr(tempfile, "mkstemp", spy_mkstemp)
     real_replace = os.replace
     mid_write_listings: list[list[str]] = []
 
@@ -141,7 +141,7 @@ def test_write_record_temp_files_never_match_the_record_globs(
         mid_write_listings.append(sorted(p.name for p in Path(dst).parent.iterdir()))
         return real_replace(src, dst, *args, **kwargs)
 
-    monkeypatch.setattr(feedback_store.os, "replace", spy_replace)
+    monkeypatch.setattr(os, "replace", spy_replace)
 
     feedback_store.write_record(feedback_dir, {"channel": "local"}, {"context": {}})
 
@@ -436,7 +436,7 @@ def test_prune_store_rewrites_headers_through_the_temp_file_path(
         replacements.append((Path(src).name, Path(dst).name))
         return real_replace(src, dst, *args, **kwargs)
 
-    monkeypatch.setattr(feedback_store.os, "replace", spy_replace)
+    monkeypatch.setattr(os, "replace", spy_replace)
 
     feedback_store.prune_store(feedback_dir, ceiling)
 
@@ -464,7 +464,7 @@ def test_prune_store_deletes_an_orphan_context_without_writing_a_header(
     def refuse_replace(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
         raise AssertionError("an orphan context has no header to rewrite")
 
-    monkeypatch.setattr(feedback_store.os, "replace", refuse_replace)
+    monkeypatch.setattr(os, "replace", refuse_replace)
 
     assert feedback_store.prune_store(feedback_dir, ceiling) == [orphan_id]
 

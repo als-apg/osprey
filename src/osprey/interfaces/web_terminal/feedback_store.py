@@ -15,12 +15,11 @@ Both documents carry the record id *inside* the document as well as in their
 filename, because the CLI reads a whole store by concatenating files
 (``find … -exec cat {} +``) and filenames do not survive concatenation.
 
-Writes go through :func:`_atomic_write`: serialize into a hidden temporary file
-in the same directory, then ``os.replace``. ``os.replace`` is atomic per file on
-POSIX, so a concurrent reader sees a complete document or no document — never a
-truncation. It is *not* atomic across the two files, which is exactly why the
-ordering above matters. Temporary names are dot-prefixed and ``.tmp``-suffixed
-so they can never be matched by :data:`HEADER_GLOB` or :data:`CONTEXT_GLOB`.
+Writes and reads go through :mod:`._json_store`, which states the atomicity and
+never-raise contracts in full: a document is replaced whole or not at all, and
+an unreadable one reads back as nothing rather than raising. Atomicity is per
+file, which is exactly why the ordering above matters — the pair of documents
+is not written atomically, only each document is.
 
 The store is bounded by a byte ceiling (see :func:`prune_store`). Only bulk is
 ever reclaimed: context documents are deleted oldest-first and their headers are
@@ -34,15 +33,17 @@ scope, and reuses the naming contract defined here.
 
 from __future__ import annotations
 
-import json
 import logging
-import os
-import tempfile
 import time
 import uuid
-from contextlib import suppress
 from pathlib import Path
 from typing import Any
+
+# Aliased to the store's own long-standing spelling: the module's prose, its
+# tests, and the two neighbouring stores that mirror the pattern all name
+# ``feedback_store._atomic_write``.
+from ._json_store import read_json_object
+from ._json_store import write_json_atomic as _atomic_write
 
 logger = logging.getLogger(__name__)
 
@@ -97,28 +98,6 @@ def header_filename(record_id: str) -> str:
 def context_filename(record_id: str) -> str:
     """Return the context-document filename paired with *record_id*."""
     return f"{CONTEXT_PREFIX}{record_id.removeprefix(HEADER_PREFIX)}.json"
-
-
-def _atomic_write(path: Path, data: dict[str, Any]) -> None:
-    """Serialize *data* to *path* as JSON, atomically.
-
-    Writes a hidden ``.<name>.…​.tmp`` file in ``path.parent``, flushes and
-    fsyncs it, then ``os.replace``s it over *path*. On any failure the
-    temporary file is removed and the error re-raised, so a broken write never
-    leaves debris behind. ``path.parent`` must already exist.
-    """
-    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w") as handle:
-            json.dump(data, handle, indent=2, default=str)
-            handle.flush()
-            with suppress(OSError):
-                os.fsync(handle.fileno())
-        os.replace(tmp_name, path)
-    except BaseException:
-        with suppress(OSError):
-            os.unlink(tmp_name)
-        raise
 
 
 def write_record(
@@ -203,19 +182,11 @@ def _mark_context_pruned(header_path: Path) -> int:
 
     A header that is absent (the deleted context was an orphan), unreadable, or
     not a JSON object is left alone and reports a delta of ``0`` — pruning must
-    reclaim space even when a neighbouring file is damaged.
+    reclaim space even when a neighbouring file is damaged. Those cases are the
+    ``None`` that :func:`~._json_store.read_json_object` answers with.
     """
-    try:
-        document = json.loads(header_path.read_text())
-    except FileNotFoundError:
-        return 0
-    except (OSError, ValueError):
-        logger.debug(
-            "feedback store: not flagging unreadable header %s", header_path, exc_info=True
-        )
-        return 0
-    if not isinstance(document, dict):
-        logger.debug("feedback store: not flagging non-object header %s", header_path)
+    document = read_json_object(header_path)
+    if document is None:
         return 0
 
     before = _file_size(header_path)
@@ -293,13 +264,8 @@ def list_headers(feedback_dir: Path) -> list[dict[str, Any]]:
 
     headers: list[dict[str, Any]] = []
     for path in sorted(directory.glob(HEADER_GLOB)):
-        try:
-            document = json.loads(path.read_text())
-        except (OSError, ValueError):
-            logger.debug("feedback store: skipping unreadable header %s", path, exc_info=True)
-            continue
-        if not isinstance(document, dict):
-            logger.debug("feedback store: skipping non-object header %s", path)
+        document = read_json_object(path)
+        if document is None:
             continue
         document.setdefault("id", path.stem)
         headers.append(document)
