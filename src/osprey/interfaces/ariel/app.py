@@ -103,10 +103,15 @@ def load_ariel_config_with_path(
                 # overrides itself, so the panel does no surgery on the result:
                 # a project that wrote its own `uri` pointing at a database it
                 # does not run keeps reaching that one.
+                from osprey.port_layout import resolve_port_base
                 from osprey.services.ariel_search.config import resolve_ariel_dsn
 
                 database = ariel_config.get("database") or {}
-                database["uri"] = resolve_ariel_dsn(ariel_config, services.get("postgresql") or {})
+                database["uri"] = resolve_ariel_dsn(
+                    ariel_config,
+                    services.get("postgresql") or {},
+                    base=resolve_port_base(config),
+                )
                 ariel_config["database"] = database
 
             return ariel_config, path

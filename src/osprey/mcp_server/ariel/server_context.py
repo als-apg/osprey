@@ -88,16 +88,20 @@ class ARIELContext:
             self._initialized = True
             return
 
+        from osprey.port_layout import resolve_port_base
         from osprey.services.ariel_search.config import ARIELConfig
 
         services = self._raw_config.get("services") or {}
         # A relative ariel.vocabulary.path resolves against the directory of the
         # config file this process actually loaded — never the CWD the MCP
-        # server happens to be started in.
+        # server happens to be started in. The base comes from that same config
+        # for the same reason: a derived DSN must dial the Postgres of the
+        # deployment this server belongs to, not the default block's.
         config = ARIELConfig.from_dict(
             ariel_section,
             services.get("postgresql") or {},
             config_dir=self._config_path.parent,
+            base=resolve_port_base(self._raw_config),
         )
         self._validate_or_refuse(config)
 

@@ -138,6 +138,33 @@ def _postgresql_services() -> dict:
         return {}
 
 
+def _port_base() -> int:
+    """Return the port base of the deployment this CLI is running against.
+
+    The Postgres block read by :func:`_postgresql_services` names a port only
+    when the project pinned one; otherwise the DSN is derived from the layout,
+    and the layout needs this deployment's base or it lands in the default
+    block — somebody else's Postgres.
+
+    The ``deployment`` subtree is re-wrapped as ``{"deployment": ...}`` because
+    :func:`~osprey.port_layout.resolve_port_base` takes one input shape, and
+    the re-wrap is what keeps a base that arrives here range-checked by the
+    same code that checks one read from a rendered config.
+
+    A caller with no project on disk gets the layout default, matching
+    :func:`_postgresql_services`: an operation run outside a project resolves
+    the shipped defaults rather than crashing about a missing config.yml.
+    """
+    from osprey.port_layout import resolve_port_base
+    from osprey.utils.config import get_config_value
+
+    try:
+        deployment = get_config_value("deployment", {})
+    except FileNotFoundError:
+        deployment = {}
+    return resolve_port_base({"deployment": deployment})
+
+
 def _ariel_config(config_dict: dict) -> ARIELConfig:
     """Build an :class:`ARIELConfig` from a CLI-supplied ``ariel`` section.
 
@@ -146,7 +173,7 @@ def _ariel_config(config_dict: dict) -> ARIELConfig:
     """
     from osprey.services.ariel_search import ARIELConfig
 
-    return ARIELConfig.from_dict(config_dict, _postgresql_services())
+    return ARIELConfig.from_dict(config_dict, _postgresql_services(), base=_port_base())
 
 
 def check_vocabulary(
@@ -257,7 +284,9 @@ def vocabulary_status(config_dict: dict, config_dir: Path | None = None) -> dict
     try:
         # Not ``_ariel_config``: this is the one caller that must resolve a
         # relative vocabulary path against the config file's own directory.
-        config = ARIELConfig.from_dict(config_dict, _postgresql_services(), config_dir=config_dir)
+        config = ARIELConfig.from_dict(
+            config_dict, _postgresql_services(), config_dir=config_dir, base=_port_base()
+        )
         if not config.vocabulary.enabled:
             return {"status": "disabled", "concepts": 0, "errors": []}
         # validate() is the single source of truth for what is wrong with the

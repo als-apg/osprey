@@ -32,6 +32,7 @@ async def get_ariel_search_service() -> ARIELSearchService:
     global _ariel_service_instance
 
     if _ariel_service_instance is None:
+        from osprey.port_layout import resolve_port_base
         from osprey.services.ariel_search import ARIELConfig, ConfigurationError
         from osprey.services.ariel_search.service import create_ariel_service
 
@@ -44,7 +45,14 @@ async def get_ariel_search_service() -> ARIELSearchService:
                 config_key="ariel",
             )
 
-        ariel_config = ARIELConfig.from_dict(config, get_config_value("services.postgresql", {}))
+        # The base is re-wrapped as {"deployment": ...} because resolve_port_base
+        # takes one input shape; without it a derived DSN would dial the default
+        # block's Postgres rather than this deployment's.
+        ariel_config = ARIELConfig.from_dict(
+            config,
+            get_config_value("services.postgresql", {}),
+            base=resolve_port_base({"deployment": get_config_value("deployment", {})}),
+        )
         _ariel_service_instance = await create_ariel_service(ariel_config)
 
     return _ariel_service_instance

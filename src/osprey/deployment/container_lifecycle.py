@@ -4802,6 +4802,7 @@ def _ariel_store_config(config: dict, project_dir: Path) -> dict:
     means the migration and the seed that follows are pinned to one DSN, so they
     cannot disagree about which database this deploy is talking to.
     """
+    from osprey.port_layout import resolve_port_base
     from osprey.services.ariel_search.config import resolve_ariel_dsn
     from osprey.utils.dotenv import parse_dotenv_file
 
@@ -4810,7 +4811,7 @@ def _ariel_store_config(config: dict, project_dir: Path) -> dict:
 
     ariel = dict(config.get("ariel") or {})
     services = (config.get("services") or {}).get(_ARIEL_STORE_SERVICE) or {}
-    dsn = resolve_ariel_dsn(ariel, services, env=env)
+    dsn = resolve_ariel_dsn(ariel, services, env=env, base=resolve_port_base(config))
     ariel["database"] = {**(ariel.get("database") or {}), "uri": dsn}
     return ariel
 
