@@ -892,12 +892,13 @@ check still produces a row (an eligible pending check becomes an <code class="do
 <code class="docutils literal notranslate"><span class="pre">skip</span></code>), so the report always accounts for every declared check.</p>
 </section>
 </section>
-<section id="web-documentation-feedback-and-the-chat-pool">
-<span id="config-web"></span><h2><code class="docutils literal notranslate"><span class="pre">web:</span></code> — documentation, feedback and the chat pool<a class="headerlink" href="#web-documentation-feedback-and-the-chat-pool" title="Link to this heading">#</a></h2>
+<section id="web-documentation-feedback-the-bars-and-the-chat-pool">
+<span id="config-web"></span><h2><code class="docutils literal notranslate"><span class="pre">web:</span></code> — documentation, feedback, the bars and the chat pool<a class="headerlink" href="#web-documentation-feedback-the-bars-and-the-chat-pool" title="Link to this heading">#</a></h2>
 <p>The top-level <code class="docutils literal notranslate"><span class="pre">web:</span></code> section configures the browser UI the Web Terminal
 renders — not the terminal process itself, which has its own <code class="docutils literal notranslate"><span class="pre">web_terminal:</span></code>
 section. The keys below aim the rail’s two utility controls, bound the feedback
-store, name the deployment, and size the Simple-mode operator-chat pool.</p>
+store, name the deployment, arrange the header and status bar, and size the
+Simple-mode operator-chat pool.</p>
 <section id="documentation-and-feedback-keys">
 <span id="feedback-configuration"></span><h3>Documentation and feedback keys<a class="headerlink" href="#documentation-and-feedback-keys" title="Link to this heading">#</a></h3>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -1029,6 +1030,40 @@ The feedback dialog’s Local channel is always available and needs no
 configuration at all.</p>
 <p>A build profile overrides any of these keys from its <code class="docutils literal notranslate"><span class="pre">config:</span></code> block in the
 dotted form, e.g. <code class="docutils literal notranslate"><span class="pre">web.feedback.max_store_bytes:</span> <span class="pre">536870912</span></code>.</p>
+</section>
+<section id="the-header-and-status-bar">
+<span id="config-bar-items"></span><h3>The header and status bar<a class="headerlink" href="#the-header-and-status-bar" title="Link to this heading">#</a></h3>
+<p>The terminal’s header and its status bar are both <em>item hosts</em>: each renders
+one ordered list of small items — the wordmark, the control-target chip, the
+connection light, a clock, the documentation link — drawn from one catalog.
+<code class="docutils literal notranslate"><span class="pre">web.bar_items</span></code> sets the arrangement this deployment starts from. A user who
+rearranges their own bars overrides it for themselves; everyone else, and every
+new browser, gets what you write here.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">bar_items</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">header</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">logo</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">identity</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">space</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">control-target</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">search</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">display</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">status</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">connection</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">panel-health</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">terminal-size</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">activity</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">docs</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">clock</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">status_visible</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">locked</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">connection</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">header</span></code> and <code class="docutils literal notranslate"><span class="pre">status</span></code> are the two bars, top to bottom in the browser and
+left to right in each list. Omit one and it keeps the shipped order, so
+arranging the header never silently empties the status bar. Write an empty
+list for a bar you want left bare.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">status_visible</span></code> hides the status bar without emptying it. A user can bring
+it back; the items you listed are still there when they do.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">locked</span></code> names items a user may move but never remove. The wordmark, the
+identity block, the control-target chip and the display menu are always
+locked and cannot be unlocked here.</p></li>
+</ul>
+<p>An item that needs an option takes a mapping instead of a bare name, for
+example <code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">{type:</span> <span class="pre">clock,</span> <span class="pre">options:</span> <span class="pre">{zone:</span> <span class="pre">utc}}</span></code>.</p>
+<p>Nothing here can stop the terminal from booting. An item name the build does
+not know, an item placed in a bar that cannot hold it, or a line that is not an
+item at all is reported in the log and skipped; the rest of the bar is
+rendered. Twenty items per bar is the ceiling, and extras past it are dropped.</p>
 </section>
 <section id="dangerously-allow-bash-waiving-the-bash-launch-token-refusal">
 <span id="config-dangerously-allow-bash"></span><h3><code class="docutils literal notranslate"><span class="pre">dangerously_allow_bash</span></code> — waiving the Bash/launch-token refusal<a class="headerlink" href="#dangerously-allow-bash-waiving-the-bash-launch-token-refusal" title="Link to this heading">#</a></h3>
@@ -1362,10 +1397,11 @@ recorded in <a class="reference internal" href="../contracts/audit-trail.html#re
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#suite-timing">Suite timing</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#web-documentation-feedback-and-the-chat-pool"><code class="docutils literal notranslate"><span class="pre">web:</span></code> — documentation, feedback and the chat pool</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#web-documentation-feedback-the-bars-and-the-chat-pool"><code class="docutils literal notranslate"><span class="pre">web:</span></code> — documentation, feedback, the bars and the chat pool</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#documentation-and-feedback-keys">Documentation and feedback keys</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#issue-trackers">Issue trackers</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#blank-absent-and-written-with-no-value">Blank, absent, and written-with-no-value</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-header-and-status-bar">The header and status bar</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dangerously-allow-bash-waiving-the-bash-launch-token-refusal"><code class="docutils literal notranslate"><span class="pre">dangerously_allow_bash</span></code> — waiving the Bash/launch-token refusal</a></li>
 </ul>
 </li>

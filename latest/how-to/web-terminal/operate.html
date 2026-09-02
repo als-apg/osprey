@@ -577,6 +577,9 @@ terminal report a problem without leaving it. See
 (a small dot holding the light/dark, Expert/Simple, and theme controls — see
 <a class="reference internal" href="theming.html"><span class="doc">Theming</span></a>), a settings drawer, and an optional name badge to tell one
 deployment from another.</p></li>
+<li><p><strong>Status bar</strong> — a thin strip along the bottom: what the agent is doing right
+now, a <strong>Docs</strong> link, a clock, and a health dot for each panel that reports
+one. Both bars are yours to rearrange — see <a class="reference internal" href="#web-terminal-bars"><span class="std std-ref">The header and status bar</span></a>.</p></li>
 </ul>
 <p>The settings drawer lets you read and edit the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — and
 the agent’s own setup and memory files — from the browser, so you rarely need
@@ -850,12 +853,68 @@ record fields in <a class="reference internal" href="../../reference/contracts/a
 </div>
 </details></section>
 </section>
+<section id="the-header-and-status-bar">
+<span id="web-terminal-bars"></span><h2>The header and status bar<a class="headerlink" href="#the-header-and-status-bar" title="Link to this heading">#</a></h2>
+<p>Both bars are built the same way: each holds one ordered list of small items,
+drawn from one catalog. The header starts with the wordmark, the identity block
+where the deployment renders one, the
+<a class="reference internal" href="#web-terminal-session-posture"><span class="std std-ref">control-target chip</span></a>, the command palette
+button and the display menu. The status bar starts with the
+agent’s activity line, a health dot for each panel that reports one, the
+<strong>Docs</strong> link and a clock. Which items sit in which bar, and in what order, is
+yours to change.</p>
+<section id="rearranging-the-bars">
+<h3>Rearranging the bars<a class="headerlink" href="#rearranging-the-bars" title="Link to this heading">#</a></h3>
+<p>Open <strong>Customize bars</strong> in any of three ways: right-click either bar, pick it
+from the display menu, or run it from the command palette. The bars tint, every
+item in them picks up a dashed outline, and a sheet opens carrying a tile for
+every item there is. From there:</p>
+<ul class="simple">
+<li><p><strong>Drag a tile onto a bar</strong> to add that item. Drag an item already in a bar to
+move it, within its own bar or across to the other one.</p></li>
+<li><p><strong>Drag an item off both bars</strong> to take it away.</p></li>
+<li><p><strong>Click an item</strong> to open its options — the clock’s time zone and seconds,
+the width of a fixed gap, the share of the room a flexible space claims —
+along with <strong>Move to status bar</strong> (or back to the header) and <strong>Remove</strong>,
+where the item allows them.</p></li>
+<li><p><strong>Presets</strong> sit at the foot of the sheet: <em>Clean</em>, <em>Everything</em> and
+<em>Minimal</em>, each one replacing both bars in a single step.</p></li>
+<li><p><strong>Hide status bar</strong> in that same right-click menu, or the checkbox in the
+sheet, withdraws the bottom bar and brings it back. The items you put there
+are still there when it returns.</p></li>
+<li><p><strong>Reset to default</strong>, on the bar’s right-click menu while you are editing,
+throws your arrangement away and puts back the one the deployment ships.</p></li>
+</ul>
+<p><strong>Done</strong> or <strong>Esc</strong> ends customizing. Every change applies as you make it.</p>
+<p>Some edits are refused, and the sheet says why rather than failing quietly. The
+wordmark, the identity block, the control-target chip and the display menu can
+be reordered but never removed, and a deployment can lock more items the same
+way. An item the header alone can hold — the command palette button, say — is
+refused by the status bar. A tile for something this deployment does not render
+is disabled and carries the reason. If an arrangement cannot be saved the sheet
+reads <strong>Layout not saved</strong>, and your edit was not stored.</p>
+<p>Customizing is an Expert-mode affordance. Simple mode renders the arrangement
+you saved but offers no way into the sheet; switch to Expert from the display
+menu to change it.</p>
+</section>
+<section id="where-the-arrangement-lives">
+<h3>Where the arrangement lives<a class="headerlink" href="#where-the-arrangement-lives" title="Link to this heading">#</a></h3>
+<p>Your bar arrangement is kept on the server, so it follows you to any browser
+you sign in from. It is the only web terminal preference that does: the theme,
+Expert or Simple mode, and the panel layout are each remembered by the browser
+you set them in, so a different browser or a different machine starts those
+from the deployment’s own defaults.</p>
+<p>With nothing saved yet you get the deployment’s arrangement, which an operator
+sets with <code class="docutils literal notranslate"><span class="pre">web.bar_items</span></code>. The keys, and what each one does, are in
+<a class="reference internal" href="../../reference/configuration/config.html#config-bar-items"><span class="std std-ref">The header and status bar</span></a>.</p>
+</section>
+</section>
 <section id="documentation-and-feedback-settings">
 <h2>Documentation and feedback settings<a class="headerlink" href="#documentation-and-feedback-settings" title="Link to this heading">#</a></h2>
 <p>Five <code class="docutils literal notranslate"><span class="pre">web</span></code> keys aim the rail’s <strong>Documentation</strong> link and <strong>Feedback</strong> button
 — including the issue trackers the dialog offers — and bound the feedback
 store. The table, the shipped defaults, and what a blank value means are in
-<a class="reference internal" href="../../reference/configuration/config.html#config-web"><span class="std std-ref">web: — documentation, feedback and the chat pool</span></a>.</p>
+<a class="reference internal" href="../../reference/configuration/config.html#config-web"><span class="std std-ref">web: — documentation, feedback, the bars and the chat pool</span></a>.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-gear" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0a8.2 8.2 0 0 1 .701.031C9.444.095 9.99.645 10.16 1.29l.288 1.107c.018.066.079.158.212.224.231.114.454.243.668.386.123.082.233.09.299.071l1.103-.303c.644-.176 1.392.021 1.82.63.27.385.506.792.704 1.218.315.675.111 1.422-.364 1.891l-.814.806c-.049.048-.098.147-.088.294.016.257.016.515 0 .772-.01.147.038.246.088.294l.814.806c.475.469.679 1.216.364 1.891a7.977 7.977 0 0 1-.704 1.217c-.428.61-1.176.807-1.82.63l-1.102-.302c-.067-.019-.177-.011-.3.071a5.909 5.909 0 0 1-.668.386c-.133.066-.194.158-.211.224l-.29 1.106c-.168.646-.715 1.196-1.458 1.26a8.006 8.006 0 0 1-1.402 0c-.743-.064-1.289-.614-1.458-1.26l-.289-1.106c-.018-.066-.079-.158-.212-.224a5.738 5.738 0 0 1-.668-.386c-.123-.082-.233-.09-.299-.071l-1.103.303c-.644.176-1.392-.021-1.82-.63a8.12 8.12 0 0 1-.704-1.218c-.315-.675-.111-1.422.363-1.891l.815-.806c.05-.048.098-.147.088-.294a6.214 6.214 0 0 1 0-.772c.01-.147-.038-.246-.088-.294l-.815-.806C.635 6.045.431 5.298.746 4.623a7.92 7.92 0 0 1 .704-1.217c.428-.61 1.176-.807 1.82-.63l1.102.302c.067.019.177.011.3-.071.214-.143.437-.272.668-.386.133-.066.194-.158.211-.224l.29-1.106C6.009.645 6.556.095 7.299.03 7.53.01 7.764 0 8 0Zm-.571 1.525c-.036.003-.108.036-.137.146l-.289 1.105c-.147.561-.549.967-.998 1.189-.173.086-.34.183-.5.29-.417.278-.97.423-1.529.27l-1.103-.303c-.109-.03-.175.016-.195.045-.22.312-.412.644-.573.99-.014.031-.021.11.059.19l.815.806c.411.406.562.957.53 1.456a4.709 4.709 0 0 0 0 .582c.032.499-.119 1.05-.53 1.456l-.815.806c-.081.08-.073.159-.059.19.162.346.353.677.573.989.02.03.085.076.195.046l1.102-.303c.56-.153 1.113-.008 1.53.27.161.107.328.204.501.29.447.222.85.629.997 1.189l.289 1.105c.029.109.101.143.137.146a6.6 6.6 0 0 0 1.142 0c.036-.003.108-.036.137-.146l.289-1.105c.147-.561.549-.967.998-1.189.173-.086.34-.183.5-.29.417-.278.97-.423 1.529-.27l1.103.303c.109.029.175-.016.195-.045.22-.313.411-.644.573-.99.014-.031.021-.11-.059-.19l-.815-.806c-.411-.406-.562-.957-.53-1.456a4.709 4.709 0 0 0 0-.582c-.032-.499.119-1.05.53-1.456l.815-.806c.081-.08.073-.159.059-.19a6.464 6.464 0 0 0-.573-.989c-.02-.03-.085-.076-.195-.046l-1.102.303c-.56.153-1.113.008-1.53-.27a4.44 4.44 0 0 0-.501-.29c-.447-.222-.85-.629-.997-1.189l-.289-1.105c-.029-.11-.101-.143-.137-.146a6.6 6.6 0 0 0-1.142 0ZM11 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM9.5 8a1.5 1.5 0 1 0-3.001.001A1.5 1.5 0 0 0 9.5 8Z"></path></svg></span><span class="sd-summary-text">Under the hood</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
@@ -869,7 +928,7 @@ watch for live files, how many background conversations to keep alive —
 and command-line flags override those for a single run. <code class="docutils literal notranslate"><span class="pre">web:</span></code> is the
 browser <strong>UI</strong> the process renders, including the header name badge and
 the bounds on the Simple-mode chat pool; those keys are catalogued in
-<a class="reference internal" href="../../reference/configuration/config.html#config-web"><span class="std std-ref">web: — documentation, feedback and the chat pool</span></a>.</p>
+<a class="reference internal" href="../../reference/configuration/config.html#config-web"><span class="std std-ref">web: — documentation, feedback, the bars and the chat pool</span></a>.</p>
 <p class="sd-card-text">One key sits outside both, in the multi-user <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code>
 block: <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.auth.session_lifetime</span></code> sets how long a
 login cookie stays valid, in whole seconds, and defaults to <code class="docutils literal notranslate"><span class="pre">43200</span></code>
@@ -902,7 +961,7 @@ codebase can wire against them without a hand-maintained list here.</p>
 <dt><a class="reference internal" href="send-feedback.html"><span class="doc">Send and Retrieve Feedback</span></a></dt><dd><p>The feedback dialog these settings configure, and the <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">feedback</span></code>
 verbs that read the results back.</p>
 </dd>
-<dt><a class="reference internal" href="../../reference/configuration/config.html#config-web"><span class="std std-ref">web: — documentation, feedback and the chat pool</span></a></dt><dd><p>Every <code class="docutils literal notranslate"><span class="pre">web</span></code> key, with its default and what a blank value means.</p>
+<dt><a class="reference internal" href="../../reference/configuration/config.html#config-web"><span class="std std-ref">web: — documentation, feedback, the bars and the chat pool</span></a></dt><dd><p>Every <code class="docutils literal notranslate"><span class="pre">web</span></code> key, with its default and what a blank value means.</p>
 </dd>
 </dl>
 </div>
@@ -963,6 +1022,11 @@ verbs that read the results back.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#switch-this-session-to-another-machine">Switch this session to another machine</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-write-state-lives">Where the write state lives</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-refuses-a-write-and-how-firmly">What refuses a write, and how firmly</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-header-and-status-bar">The header and status bar</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#rearranging-the-bars">Rearranging the bars</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-arrangement-lives">Where the arrangement lives</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#documentation-and-feedback-settings">Documentation and feedback settings</a></li>
