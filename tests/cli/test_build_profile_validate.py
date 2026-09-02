@@ -407,7 +407,7 @@ def test_unknown_default_panel_is_rejected(tmp_path: Path) -> None:
     profile = BuildProfile(name="x", default_panel="areil")
     (error,) = _errors(profile, tmp_path)
     assert error.startswith("Unknown default_panel 'areil'")
-    assert "'web.panels.areil.url' config override" in error
+    assert "not in web_panels" in error
 
 
 def test_default_panel_declared_in_web_panels_is_known(tmp_path: Path) -> None:
@@ -422,18 +422,48 @@ def test_default_panel_declared_in_web_panels_is_known(tmp_path: Path) -> None:
     assert profile._is_known_panel_id("ops") is True
 
 
-def test_is_known_panel_id_accepts_builtin_and_rejects_typo() -> None:
-    """The shared membership predicate takes built-ins and rejects unbacked ids."""
-    profile = BuildProfile(name="x")
-    assert profile._is_known_panel_id("ariel") is True
+def test_is_known_panel_id_means_a_tab_this_render_shows() -> None:
+    """The shared membership predicate: selected, or universal — not merely
+    built-in. A built-in the profile does not select renders no tab, so a
+    ``default_panel`` naming it would fall back to the workspace silently."""
+    profile = BuildProfile(name="x", web_panels=["okf"])
+    assert profile._is_known_panel_id("okf") is True
+    assert profile._is_known_panel_id("artifacts") is True
+    assert profile._is_known_panel_id("ariel") is False
     assert profile._is_known_panel_id("areil") is False
+
+
+def test_default_panel_naming_an_unselected_builtin_is_rejected(tmp_path: Path) -> None:
+    profile = BuildProfile(name="x", web_panels=["okf"], default_panel="ariel")
+    (error,) = _errors(profile, tmp_path)
+    assert error.startswith("Unknown default_panel 'ariel'")
+    assert "not in web_panels" in error
 
 
 def test_unknown_panel_presets_member_is_rejected(tmp_path: Path) -> None:
     """Preset members resolve through the same predicate as default_panel."""
-    profile = BuildProfile(name="x", panel_presets={"Ops": ["ariel", "areil"]})
+    profile = BuildProfile(
+        name="x", web_panels=["ariel"], panel_presets={"Ops": ["ariel", "areil"]}
+    )
     (error,) = _errors(profile, tmp_path)
     assert error.startswith("Unknown panel_presets['Ops'] member 'areil'")
+
+
+def test_an_authored_enabled_contradicting_the_selection_is_rejected(tmp_path: Path) -> None:
+    """``web_panels`` is the selection; a ``config:`` line that says otherwise
+    is two spellings of one fact disagreeing, refused like any other."""
+    profile = BuildProfile(
+        name="x", web_panels=["okf"], config={"web.panels.lattice.enabled": True}
+    )
+    (error,) = _errors(profile, tmp_path)
+    assert "web.panels.lattice.enabled: True" in error
+    assert "not in web_panels" in error
+
+
+def test_an_authored_enabled_agreeing_with_the_selection_validates(tmp_path: Path) -> None:
+    BuildProfile(name="x", web_panels=["okf"], config={"web.panels.okf.enabled": True}).validate(
+        tmp_path
+    )
 
 
 def test_non_list_panel_presets_entry_is_rejected(tmp_path: Path) -> None:

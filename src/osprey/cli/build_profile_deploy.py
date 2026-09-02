@@ -362,7 +362,7 @@ def limits_block_errors(config: Mapping[str, Any]) -> list[str]:
 
     Mixed spellings are otherwise legal and are not judged here: a profile is
     free to write a leaf flat, as a dotted prefix over a mapping, or fully
-    nested (:func:`osprey.cli.build_profile_reach._spelled_values` reads all of
+    nested (:func:`osprey.cli.build_profile_reach.spelled_values` reads all of
     them), and two dotted keys at different depths below ``control_system``
     merge at render. The one exception is a bare top-level ``control_system:``
     mapping beside flat ``control_system.*`` keys, which does not merge and
@@ -397,9 +397,9 @@ def limits_block_errors(config: Mapping[str, Any]) -> list[str]:
         return []
 
     # Imported in-function: this module sits on `BuildProfile`'s import chain,
-    # and the reach registry behind `_spelled_values` pulls the whole
+    # and the reach registry behind `spelled_values` pulls the whole
     # service-resolution package in with it.
-    from .build_profile_reach import _spelled_values
+    from .build_profile_reach import spelled_values
 
     errors: list[str] = []
     named_types: set[str] = set()
@@ -432,13 +432,13 @@ def limits_block_errors(config: Mapping[str, Any]) -> list[str]:
     errors.extend(_mixed_depth_control_system_errors(config))
 
     candidates = set(SET_CONTROL_SYSTEM_TYPES) | named_types
-    for _spelling, value in _spelled_values(config, _CONNECTOR_PREFIX):
+    for _spelling, value in spelled_values(config, _CONNECTOR_PREFIX):
         if isinstance(value, dict):
             candidates.update(key for key in value if isinstance(key, str))
 
     for connector_type in sorted(candidates):
         spelled = {
-            leaf: _spelled_values(
+            leaf: spelled_values(
                 config, f"{_CONNECTOR_PREFIX}.{connector_type}.{LIMITS_CHECKING_LEAF}.{leaf}"
             )
             for leaf in LIMITS_LEAVES
@@ -472,7 +472,7 @@ def _rendered_leaf_paths(config: Mapping[str, Any]) -> list[tuple[str, list[str]
         One entry per non-mapping value reachable in the block:
         ``(spelling, rendered path, value)``. The spelling is the chain of map
         keys as written, joined ``key: key`` the way
-        :func:`osprey.cli.build_profile_reach._spelled_values` names a line.
+        :func:`osprey.cli.build_profile_reach.spelled_values` names a line.
         The rendered path is the top-level key split on dots followed by every
         deeper map key *unsplit* — which is what
         :func:`osprey.utils.config_writer.config_update_fields` produces.

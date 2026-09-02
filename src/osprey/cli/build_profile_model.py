@@ -34,7 +34,7 @@ from osprey.deployment.qmd_service import (
 )
 from osprey.errors import BuildProfileError
 from osprey.port_layout import LAYOUT, WORKER_MAX, PortSlot, default_port, resolve_port_base
-from osprey.profiles.web_panels import BUILTIN_PANELS
+from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
 
 from .build_profile_archiver import (
     VAArchiverConfig,
@@ -441,20 +441,17 @@ class BuildProfile:
         return (profile_dir / self.data).resolve()
 
     def _is_known_panel_id(self, pid: str) -> bool:
-        """Return True if ``pid`` names a panel this profile could render.
+        """Return True if ``pid`` names a tab this profile's render shows.
 
-        A panel id is known when it is a framework built-in, a declared
-        ``web_panels`` entry, or a custom panel backed by a
-        ``web.panels.<id>.url`` config override. Shared by the ``default_panel``
-        and ``panel_presets`` member validation so both reject the same typos
-        with the same predicate (a single source of truth, not two drifting
-        membership checks).
+        A panel is shown when the profile selects it (``web_panels``) or it is
+        universal (always served). Not "built-in": a built-in the profile does
+        not select renders no tab, and a ``default_panel`` naming one would fall
+        back to the workspace silently. Shared by the ``default_panel`` and
+        ``panel_presets`` member validation so both reject the same ids with the
+        same predicate (a single source of truth, not two drifting membership
+        checks).
         """
-        if pid in BUILTIN_PANELS:
-            return True
-        if pid in self.web_panels:
-            return True
-        return f"web.panels.{pid}.url" in self.config
+        return pid in UNIVERSAL_PANELS or pid in self.web_panels
 
     def _validate_environment(self) -> list[str]:
         """Return validation errors for the ``environment:`` block (empty when clean).
@@ -1509,21 +1506,29 @@ class BuildProfile:
                 f"({sorted(BUILTIN_PANELS)}) and no '{url_key}' config override"
             )
 
-        # Validate default_panel: must be a built-in, a declared web_panels
-        # entry, or a custom panel backed by a `web.panels.<id>.url` override.
-        # Catches typos like `default_panel: areil` that would otherwise
+        # An authored `web.panels.<id>.enabled` that contradicts the selection:
+        # `web_panels` is what shows a tab, and the build writes `enabled` onto
+        # every rendered block from it, so a `config:` line saying otherwise is
+        # two spellings of one fact disagreeing.
+        from .build_profile_panels import panel_selection_errors
+
+        errors.extend(panel_selection_errors(self.config, self.web_panels))
+
+        # Validate default_panel: must be a tab this render shows — selected in
+        # web_panels, or universal. Catches typos like `default_panel: areil`,
+        # and a built-in the profile never selected, both of which would
         # silently fall back to the frontend DEFAULT_PANEL_FALLBACK at runtime.
         if self.default_panel is not None and not self._is_known_panel_id(self.default_panel):
             errors.append(
-                f"Unknown default_panel {self.default_panel!r}: not in BUILTIN_PANELS "
-                f"({sorted(BUILTIN_PANELS)}), not in web_panels, and no "
-                f"'web.panels.{self.default_panel}.url' config override"
+                f"Unknown default_panel {self.default_panel!r}: not in web_panels "
+                f"(the selection is what shows a tab) and not universal "
+                f"({sorted(UNIVERSAL_PANELS)})"
             )
 
         # Validate panel_presets: each member id must resolve the same way a
-        # default_panel does (built-in, declared web_panels, or url-backed
-        # custom). Catches typos in a preset's member list at build time so a
-        # facility author gets the same fail-fast feedback as default_panel.
+        # default_panel does (selected, or universal). Catches typos in a
+        # preset's member list at build time so a facility author gets the same
+        # fail-fast feedback as default_panel.
         for preset_name, members in self.panel_presets.items():
             if not isinstance(members, list):
                 errors.append(
@@ -1535,8 +1540,8 @@ class BuildProfile:
                 if not self._is_known_panel_id(member):
                     errors.append(
                         f"Unknown panel_presets[{preset_name!r}] member {member!r}: not in "
-                        f"BUILTIN_PANELS ({sorted(BUILTIN_PANELS)}), not in web_panels, and no "
-                        f"'web.panels.{member}.url' config override"
+                        f"web_panels (the selection is what shows a tab) and not universal "
+                        f"({sorted(UNIVERSAL_PANELS)})"
                     )
 
         # Validate the artifact_server override block (gallery server settings

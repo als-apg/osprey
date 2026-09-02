@@ -42,7 +42,12 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 import httpx
 
 from osprey.health.models import CheckResult, Status
-from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, BUILTIN_PANELS, UNIVERSAL_PANELS
+from osprey.profiles.web_panels import (
+    BUILTIN_PANEL_LABELS,
+    BUILTIN_PANELS,
+    UNIVERSAL_PANELS,
+    panel_spec_enabled,
+)
 from osprey.registry.web import (
     PANEL_ID_TO_REGISTRY_KEY,
     WebServerConfigDepthError,
@@ -116,11 +121,11 @@ def web_panels(
 def _resolve_targets(cfg: Mapping[str, Any]) -> tuple[list[_Target], list[CheckResult]]:
     """Enumerate the enabled panels and the URL each should be probed at.
 
-    Mirrors ``web_terminal.app._load_panel_config``'s read of ``web.panels``:
-    a built-in id is enabled by ``true`` or by a mapping without
-    ``enabled: false``; anything else is a custom panel carrying its own url.
-    Universal panels (``artifacts``) are always on, exactly as the terminal
-    treats them.
+    Reads ``web.panels`` through the same predicate as
+    ``web_terminal.app._load_panel_config`` (:func:`panel_spec_enabled`): a
+    block is on unless it says ``enabled: false``, builtin or custom alike;
+    an enabled non-builtin is a custom panel carrying its own url. Universal
+    panels (``artifacts``) are always on, exactly as the terminal treats them.
 
     Returns:
         ``(targets, config_rows)`` — the panels to probe, plus ready-made rows
@@ -139,9 +144,10 @@ def _resolve_targets(cfg: Mapping[str, Any]) -> tuple[list[_Target], list[CheckR
     config_rows: list[CheckResult] = []
 
     for panel_id, spec in panels_cfg.items():
+        if not panel_spec_enabled(spec):
+            continue
         if panel_id in BUILTIN_PANELS:
-            if spec is True or (isinstance(spec, dict) and spec.get("enabled", True)):
-                enabled_builtin.add(panel_id)
+            enabled_builtin.add(panel_id)
             continue
         if not isinstance(spec, dict):
             continue
