@@ -86,25 +86,59 @@ def test_load_ariel_config_not_found(tmp_path: Path, monkeypatch):
         load_ariel_config(nonexistent)
 
 
-def test_load_ariel_config_db_host_override(tmp_path: Path, mock_ariel_config, monkeypatch):
-    """Test database host override via environment variable."""
+def test_load_ariel_config_leaves_an_explicit_uri_alone(
+    tmp_path: Path, mock_ariel_config, monkeypatch
+):
+    """ARIEL_DATABASE_HOST addresses the derived DSN, never an authored one.
+
+    The panel used to run a regex over whatever DSN it ended up holding, so a
+    project pointing at a database it does not run was redirected too. The
+    override now applies in the resolver's derived rung alone.
+    """
     from osprey.interfaces.ariel.app import load_ariel_config
 
-    # Set environment variable
     monkeypatch.setenv("ARIEL_DATABASE_HOST", "postgresql-service")
+    monkeypatch.setenv("ARIEL_DATABASE_PORT", "5432")
 
-    # Create temp config file
     config_file = tmp_path / "config.yml"
     import yaml
 
     config_file.write_text(yaml.dump({"ariel": mock_ariel_config}))
 
-    # Load config
     result = load_ariel_config(config_file)
 
-    # Check that localhost was replaced
-    assert "postgresql-service" in result["database"]["uri"]
-    assert "localhost" not in result["database"]["uri"]
+    assert result["database"]["uri"] == mock_ariel_config["database"]["uri"]
+
+
+def test_load_ariel_config_db_host_override(tmp_path: Path, monkeypatch):
+    """The container override reaches a DERIVED DSN, host and port together."""
+    from osprey.interfaces.ariel.app import load_ariel_config
+
+    monkeypatch.delenv("ARIEL_DB_PASSWORD", raising=False)
+    monkeypatch.setenv("ARIEL_DATABASE_HOST", "postgresql-service")
+    monkeypatch.setenv("ARIEL_DATABASE_PORT", "5432")
+
+    config_file = tmp_path / "config.yml"
+    import yaml
+
+    config_file.write_text(
+        yaml.dump(
+            {
+                "ariel": {"search_modules": {}},
+                "services": {
+                    "postgresql": {
+                        "username": "ariel",
+                        "database_name": "ariel",
+                        "port_host": 15432,
+                    }
+                },
+            }
+        )
+    )
+
+    result = load_ariel_config(config_file)
+
+    assert result["database"]["uri"] == "postgresql://ariel:ariel@postgresql-service:5432/ariel"
 
 
 def test_static_dir_exists():
