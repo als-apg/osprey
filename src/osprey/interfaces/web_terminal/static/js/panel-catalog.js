@@ -49,7 +49,7 @@ export const PANELS = [
     id: 'channel-finder',
     label: 'CHANNELS',
     configEndpoint: '/api/channel-finder-server',
-    statusBarId: 'channel-finder-status',
+    statusBarId: null,
   },
   {
     id: 'lattice',

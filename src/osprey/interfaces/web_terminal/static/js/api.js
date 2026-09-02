@@ -28,14 +28,42 @@ let sseState = 'disconnected';
 const stateListeners = [];
 
 function notifyStateChange() {
-  for (const fn of stateListeners) fn({ ws: wsState, sse: sseState });
+  // Iterate a COPY: a listener is allowed to unsubscribe itself (or another
+  // listener) from inside the callback, and splicing the live array mid-`for`
+  // silently skips the next entry. Bar items dispose on detach, so this is a
+  // reachable path, not a hypothetical one.
+  for (const fn of Array.from(stateListeners)) fn({ ws: wsState, sse: sseState });
 }
 
-/** @param {StateListener} fn */
+/**
+ * Subscribe to connection-state changes.
+ *
+ * Returns its own unsubscribe, which is the house rule for every
+ * attach-scoped subscription in this interface: a subscriber that lives only
+ * as long as a mounted piece of UI must be handed the way to stop, at the
+ * moment it starts, by the API it subscribed to. The bar items are the reason
+ * — an item folded into the overflow pool has to stop listening or it keeps a
+ * dead node updating forever — but the rule is not theirs alone.
+ *
+ * Idempotent: calling the returned function more than once is a no-op, and
+ * callers that ignore the return value behave exactly as before.
+ * @param {StateListener} fn
+ * @returns {() => void} unsubscribe
+ */
 export function onConnectionStateChange(fn) {
   stateListeners.push(fn);
+  return () => {
+    const at = stateListeners.indexOf(fn);
+    if (at !== -1) stateListeners.splice(at, 1);
+  };
 }
 
+/**
+ * The current state of both channels, readable without waiting for a
+ * transition. A subscriber that starts mid-session would otherwise render
+ * nothing until the next reconnect; this is what lets it paint on attach.
+ * @returns {ConnectionState}
+ */
 export function getConnectionState() {
   return { ws: wsState, sse: sseState };
 }

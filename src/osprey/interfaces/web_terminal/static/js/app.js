@@ -1,7 +1,7 @@
 /* OSPREY Web Terminal — Application Entry Point */
 
-import { initTerminal, focusTerminal, getTerminalDimensions, pasteToTerminal, clearStoredSessionId, getCurrentSessionId, getTerminalInstance } from './terminal.js';
-import { onConnectionStateChange, withPrefix } from './api.js';
+import { initTerminal, focusTerminal, pasteToTerminal, clearStoredSessionId, getCurrentSessionId, getTerminalInstance } from './terminal.js';
+import { withPrefix } from './api.js';
 import { initPanelManager, broadcastMode, handleUiModeFlip, navigateAndActivatePanel } from './panel-manager.js';
 import '/design-system/js/components/osprey-drawer.js';
 import { initSettings } from './settings.js';
@@ -21,6 +21,17 @@ import { initControlTargetChip } from './control-target-chip.js';
 import { initControlTargetPopover } from './control-target-popover.js';
 import { followThemeFamily, getRailPosition, setRailPosition } from './rail-position.js';
 import { initFeedback } from './feedback-boot.js';
+// The bar stack, in the order its own contract requires. bar-host.js hydrates
+// the server-rendered shells SYNCHRONOUSLY at import time (no fetch, no await),
+// and bar-items.js — which imports it — registers the body builder for every
+// non-adopted item; registering fills any already-hydrated shell of that type,
+// so import order between the two cannot leave an item blank. Both are bare
+// imports because their whole contribution is that side effect. What is left
+// for boot to do is the ladder, which needs a laid-out page (see initBars).
+import './bar-items.js';
+import './bar-sync.js';
+import './bar-customize.js';
+import { watchCrowding } from './bar-overflow.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme({ role: 'hub' });
@@ -47,7 +58,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initHeaderContrib();
   initPanelManager('right-panel');
   initSessionSelector('session-selector');
-  initStatusBar();
   // Dock the terminal + workspace panels into the dockview shell (replaces the
   // old fixed resize-handle split). Guarded so a dock init failure can't break
   // the rest of boot — the source subtrees stay in the page if it no-ops.
@@ -72,6 +82,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // writes. Mounts under the chip's own positioning context, so it has to
   // follow the chip's init and no-ops on a page that renders no chip.
   initControlTargetPopover();
+  // Last of the bar wiring, and deliberately after the chip: the ladder's first
+  // pass MEASURES the bars, and a bar measured before its widest item mounted
+  // would report room it does not have.
+  initBars();
   initRailPosition();
   initFeedbackDialog();
   initDrawerTriggerHighlight();
@@ -367,32 +381,43 @@ function initDrawerTriggerHighlight() {
   document.addEventListener('drawer:close', setActive(false));
 }
 
-/* ---- Status Bar ---- */
+/* ---- Item bars (header + status) ---- */
 
-function initStatusBar() {
-  const wsDot = document.getElementById('ws-dot');
-  const dimsEl = document.getElementById('term-dims');
-
-  onConnectionStateChange(({ ws }) => {
-    if (wsDot) {
-      wsDot.className = 'status-dot' + (ws === 'connected' ? ' live' : ws === 'disconnected' ? ' error' : '');
-    }
-  });
-
-  // Update terminal dimensions display
-  setInterval(() => {
-    const dims = getTerminalDimensions();
-    if (dims && dimsEl) {
-      dimsEl.textContent = `${dims.cols}\u00D7${dims.rows}`;
-    }
-  }, 500);
-
-  // Live clock
-  const clockEl = document.getElementById('status-clock');
-  if (clockEl) {
-    setInterval(() => {
-      clockEl.textContent = new Date().toLocaleTimeString('en-US', { hour12: false });
-    }, 1000);
+/**
+ * The last step of standing the two item bars up.
+ *
+ * This replaces `initStatusBar()`, which wrote the WS dot, the terminal
+ * dimensions and the clock into three hardcoded ids. All three are bar ITEMS
+ * now (`connection`, `terminal-size`, `clock` in bar-items.js), which is not
+ * just a move: each owns its own subscription and hands back a disposer, so an
+ * item the operator folds away stops working instead of writing forever into a
+ * pooled node. The retired function armed two bare `setInterval`s at boot, kept
+ * no handle to either, and \u2014 on any layout that did not render those ids \u2014 ran
+ * them against `null` for the life of the page.
+ *
+ * Everything the bars need at first paint has already happened by the time this
+ * runs, at IMPORT time and with no network in the path (see the bar imports at
+ * the top of this file). What is left is the overflow ladder, which is the one
+ * part that cannot run early: it measures.
+ *
+ * bar-overflow.js's wiring contract is two calls, and this is the first of
+ * them \u2014 `watchCrowding(document)` ONCE, which runs a first pass itself and
+ * re-runs it whenever a host changes width. The second, `applyOverflow(document)`
+ * after every `reconcile()`, has no site yet: nothing reconciles in this phase,
+ * because the layout each deployment gets is the one the server rendered. The
+ * saved-layout store that lands next owns its own reconcile and calls
+ * `applyOverflow()` there \u2014 a fold decided against the previous layout's widths
+ * is a stale fold.
+ *
+ * Guarded like the other boot steps: a throw here would cost the operator the
+ * rail position, the feedback dialog, settings and both galleries, which is a
+ * far worse trade than a bar that does not fold.
+ */
+function initBars() {
+  try {
+    watchCrowding(document);
+  } catch (err) {
+    console.error('Failed to watch bar crowding:', err);
   }
 }
 

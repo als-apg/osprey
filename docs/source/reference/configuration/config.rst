@@ -424,13 +424,14 @@ check still produces a row (an eligible pending check becomes an ``error``
 
 .. _config-web:
 
-``web:`` — documentation, feedback and the chat pool
-----------------------------------------------------
+``web:`` — documentation, feedback, the bars and the chat pool
+--------------------------------------------------------------
 
 The top-level ``web:`` section configures the browser UI the Web Terminal
 renders — not the terminal process itself, which has its own ``web_terminal:``
 section. The keys below aim the rail's two utility controls, bound the feedback
-store, name the deployment, and size the Simple-mode operator-chat pool.
+store, name the deployment, arrange the header and status bar, and size the
+Simple-mode operator-chat pool.
 
 .. _feedback-configuration:
 
@@ -556,6 +557,45 @@ configuration at all.
 
 A build profile overrides any of these keys from its ``config:`` block in the
 dotted form, e.g. ``web.feedback.max_store_bytes: 536870912``.
+
+.. _config-bar-items:
+
+The header and status bar
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The terminal's header and its status bar are both *item hosts*: each renders
+one ordered list of small items — the wordmark, the control-target chip, the
+connection light, a clock, the documentation link — drawn from one catalog.
+``web.bar_items`` sets the arrangement this deployment starts from. A user who
+rearranges their own bars overrides it for themselves; everyone else, and every
+new browser, gets what you write here.
+
+.. code-block:: yaml
+
+   web:
+     bar_items:
+       header: [logo, identity, space, control-target, search, display]
+       status: [connection, panel-health, terminal-size, activity, docs, clock]
+       status_visible: true
+       locked: [connection]
+
+- ``header`` and ``status`` are the two bars, top to bottom in the browser and
+  left to right in each list. Omit one and it keeps the shipped order, so
+  arranging the header never silently empties the status bar. Write an empty
+  list for a bar you want left bare.
+- ``status_visible`` hides the status bar without emptying it. A user can bring
+  it back; the items you listed are still there when they do.
+- ``locked`` names items a user may move but never remove. The wordmark, the
+  identity block, the control-target chip and the display menu are always
+  locked and cannot be unlocked here.
+
+An item that needs an option takes a mapping instead of a bare name, for
+example ``- {type: clock, options: {zone: utc}}``.
+
+Nothing here can stop the terminal from booting. An item name the build does
+not know, an item placed in a bar that cannot hold it, or a line that is not an
+item at all is reported in the log and skipped; the rest of the bar is
+rendered. Twenty items per bar is the ceiling, and extras past it are dropped.
 
 .. _config-dangerously-allow-bash:
 

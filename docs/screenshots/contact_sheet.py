@@ -644,22 +644,37 @@ def _assert_fits_columns(fitted_cols: int) -> None:
         )
 
 
-def _read_fitted_cols(page) -> int | None:
-    """Read the terminal's fitted column count from the ``#term-dims`` readout.
+#: The window seam ``terminal.js`` publishes ``getTerminalDimensions()`` on.
+#: Deliberately a global rather than a DOM readout: the terminal size is a bar
+#: ITEM now, so it can be moved, folded into the overflow menu or removed
+#: entirely, and none of that changes the size xterm actually fitted to. Reading
+#: it from the page's markup would make this guard depend on a layout choice.
+TERMINAL_DIMS_SEAM = "window.__OSPREY_TERMINAL_DIMS__"
 
-    The status bar shows ``<cols>×<rows>`` (updated by app.js); returns the column
-    count, or ``None`` when the terminal is not the visible surface so the wrap
-    guard is skipped. In Simple mode the terminal card hosts the operator CHAT
-    (the xterm container is CSS-hidden), so ``.xterm`` measures zero wide and
-    xterm reports its ``10×4`` zero-container fallback rather than a real fitted
-    width — reading that as a fit would spuriously fail the guard. Expert mode
-    renders the terminal at its real (narrow) width and still enforces the guard,
-    so the transcript width stays protected where it is actually shown.
+
+def _read_fitted_cols(page) -> int | None:
+    """Read the terminal's fitted column count through the ``terminal.js`` seam.
+
+    Returns the column count, or ``None`` when the terminal is not the visible
+    surface so the wrap guard is skipped. In Simple mode the terminal card hosts
+    the operator CHAT (the xterm container is CSS-hidden), so ``.xterm`` measures
+    zero wide and xterm reports its ``10×4`` zero-container fallback rather than a
+    real fitted width — reading that as a fit would spuriously fail the guard.
+    Expert mode renders the terminal at its real (narrow) width and still enforces
+    the guard, so the transcript width stays protected where it is actually shown.
+
+    ``None`` and a number are not interchangeable here and the caller acts on the
+    difference: a number runs :func:`_assert_fits_columns`, ``None`` skips it. A
+    reader that answered ``None`` on every path would therefore turn the wrap
+    guard off without failing anything, which is the one failure mode this
+    function must not have — hence the explicit ``cols`` validation on the way
+    out rather than a bare ``.get()``.
     """
     try:
         page.wait_for_function(
-            "() => { const e = document.getElementById('term-dims');"
-            " return !!e && /\\d/.test(e.textContent || ''); }",
+            f"() => {{ const f = {TERMINAL_DIMS_SEAM};"
+            " const d = typeof f === 'function' ? f() : null;"
+            " return !!d && d.cols > 0; }",
             timeout=10_000,
         )
     except Exception:
@@ -673,9 +688,9 @@ def _read_fitted_cols(page) -> int | None:
     )
     if not term_width:
         return None
-    text = page.locator("#term-dims").inner_text()
-    match = re.match(r"\s*(\d+)", text)
-    return int(match.group(1)) if match else None
+    dims = page.evaluate(f"() => {TERMINAL_DIMS_SEAM}()")
+    cols = dims.get("cols") if isinstance(dims, dict) else None
+    return cols if isinstance(cols, int) and not isinstance(cols, bool) and cols > 0 else None
 
 
 # ---------------------------------------------------------------------------

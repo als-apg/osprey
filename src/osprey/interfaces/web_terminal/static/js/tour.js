@@ -30,12 +30,16 @@
  * in facility-configured free text.
  *
  * Steps whose anchor is absent on this page (panel not enabled, simple UI
- * mode, no chip) drop out and the step count adjusts. Esc closes at any
+ * mode, no chip) drop out and the step count adjusts — and so do steps whose
+ * anchor is a bar item the operator removed, which is a different fact from
+ * absence: a removed item is parked in the hidden pool, not deleted, so it
+ * still answers `querySelector`. See `liveAnchor()`. Esc closes at any
  * point; arrows/Enter navigate; focus is trapped inside the card.
  */
 
 import { installFocusTrap, removeFocusTrap } from '/design-system/js/focus-trap.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
+import { isLive } from './bar-host.js';
 
 /**
  * Insert a prompt into the terminal — inserted, not sent; the visitor
@@ -203,6 +207,33 @@ const listPhrase = (items) =>
  * @property {string[]} [chips]
  */
 
+/**
+ * A step's anchor, but only when it is somewhere the operator can see.
+ *
+ * Four anchors are now bar ITEMS — the control-target chip, the display menu,
+ * the command-palette button and (through the rail) the feedback control — and
+ * a bar item the layout does not name is MOVED into the hidden
+ * `#bar-item-pool`, never removed. So `querySelector` keeps answering for
+ * chrome that is off screen, and a presence check alone would spotlight a
+ * zero-rect node inside a hidden container: an empty highlight, a card
+ * positioned against nothing, and a step count that lies.
+ *
+ * `isLive()` is bar-host.js's own answer to "is this node in a bar or in the
+ * pool", so the tour and the bars cannot disagree about it. It is deliberately
+ * the whole test — measuring the anchor instead would drop live chrome that
+ * happens to measure zero at the moment the tour starts (an item mid-transition,
+ * a bar not yet laid out), which is the opposite failure and a much quieter one.
+ * A non-bar anchor (`.terminal-card`, a rail button) is never inside the pool,
+ * so it behaves exactly as before.
+ *
+ * @param {TourStep} step
+ * @returns {Element | null}
+ */
+const liveAnchor = (step) => {
+  const node = step.anchor();
+  return node && isLive(node) ? node : null;
+};
+
 /** @type {TourStep[]} */
 const STEPS = [
   {
@@ -342,7 +373,7 @@ const tour = {
 
   /** @param {boolean} [withInvite] start at the invite card (default) or step 0 */
   start(withInvite = true) {
-    this.steps = STEPS.filter((s) => s.anchor());
+    this.steps = STEPS.filter((s) => liveAnchor(s));
     if (this.steps.length === 0) return;
     this.open = true;
     this.i = withInvite ? -1 : 0;
@@ -433,7 +464,11 @@ const tour = {
     this.drop('veil');
 
     const step = this.steps[this.i];
-    const target = step.anchor();
+    // Re-resolved every render, and through the same liveness test start()
+    // used: a step's anchor can be parked mid-tour — the overflow ladder folds
+    // an item the moment the window narrows past it — and spotlighting a node
+    // that has since moved into the pool is exactly what liveAnchor prevents.
+    const target = liveAnchor(step);
     if (!target) return this.next();
 
     if (this.activatedStep !== this.i) {

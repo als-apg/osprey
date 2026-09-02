@@ -13,21 +13,6 @@
   flex-shrink: 0;
 }
 
-.header-left {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-}
-
-.header-right {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-}
-
 .header-logo {
   font-family: var(--font-display);
   font-weight: var(--weight-semibold);
@@ -147,8 +132,7 @@ osprey-display-menu .display-menu-logout-icon {
  * The deployment chip in the header is the trigger for a small session popover
  * (who you are, Log out). Operators read the name in the corner as "who am I"
  * and reach for it to leave, so leaving lives behind it rather than inside the
- * display card. Anchored LEFT, unlike the display card: it hangs under a
- * header-left chip, not a header-right action. */
+ * display card. Anchored LEFT, unlike the display card, which anchors right. */
 .header-identity {
   position: relative;
   display: flex;
@@ -568,8 +552,8 @@ osprey-display-menu .display-menu-logout-icon {
 
 /* ---- The popover ----
 
-   Right-anchored, unlike the identity menu: it hangs under a header-right
-   action. Same --z-sticky reasoning as that menu — header chrome outranks a
+   Right-anchored, unlike the identity menu, which anchors left. Same
+   --z-sticky reasoning as that menu — header chrome outranks a
    body-level callout — and the confirm overlay sits a full layer above it
    (--z-modal, at the bottom of this file), so a confirm never hides the rows
    it is about and the popover can stay open beneath it. */

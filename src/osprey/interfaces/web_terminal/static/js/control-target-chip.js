@@ -153,8 +153,9 @@ const KIND_ATTR = {
 
 /**
  * The chip and the popover travel together inside one positioning context —
- * the popover is `position: absolute` under its trigger (terminal.css
- * `.ctc-anchor`), and `.header-actions` is not itself positioned.
+ * the popover is `position: absolute` under its trigger and `.ctc-anchor` is
+ * `position: relative` (terminal.css), so the pair keeps its own anchoring
+ * wherever the layout parks the item's shell.
  * @type {HTMLElement|null}
  */
 let anchor = null;
@@ -212,9 +213,23 @@ let sessionSubscribed = false;
 /* ---- mount ---- */
 
 /**
- * Mount the chip into the global header and keep it current.
+ * Mount the chip into its bar-item shell in the global header and keep it
+ * current.
  *
- * Idempotent: a second call re-renders rather than mounting a second chip.
+ * WHERE the chip sits is the layout's answer, not this module's: the header is
+ * a bar-item host, and the `control-target` item has a `.bar-item` shell that
+ * the server renders and bar-host.js reconciles into the operator's order. So
+ * the chip only ever APPENDS into that shell. It does not position itself
+ * relative to any neighbour — the palette trigger it used to sit in front of
+ * now lives inside a shell of its own and is no longer a child of the host, so
+ * a positional insert against it would both misplace the chip and throw.
+ *
+ * `.header-actions` remains as a fallback host for a header rendered without
+ * shells; appending there degrades to "somewhere in the action run", which is
+ * strictly better than not mounting the chip at all.
+ *
+ * Idempotent: a second call re-renders rather than mounting a second chip, and
+ * re-homes the existing anchor if the shell turned up after a fallback mount.
  * Safe to call before any session exists — the chip stays hidden until the
  * terminal reports one, because a roster is a fact about a session and there
  * is nothing honest to show without one.
@@ -224,21 +239,27 @@ let sessionSubscribed = false;
  *   `wireActivityStrip` injects it — happy-dom has no EventSource.
  */
 export function initControlTargetChip({ eventSourceFactory = createEventSource } = {}) {
-  const actions = document.querySelector('.header-actions');
-  if (!actions) return;
+  const host = /** @type {HTMLElement|null} */ (
+    document.querySelector('[data-bar-item="control-target"]') ??
+      document.querySelector('.header-actions')
+  );
+  if (!host) return;
 
   mounted = true;
 
-  if (!chip || !actions.contains(chip)) {
+  if (!chip || !anchor || !anchor.isConnected) {
     anchor = document.createElement('div');
     anchor.className = 'ctc-anchor';
     anchor.hidden = true;
     chip = buildChip();
     anchor.appendChild(chip);
-    // Before the palette trigger: the chip answers "where am I standing",
-    // which is read before anything is looked up. insertBefore with a null
-    // reference node appends, so a header without the palette still mounts it.
-    actions.insertBefore(anchor, actions.querySelector('#command-palette-btn'));
+    host.appendChild(anchor);
+  } else if (anchor.parentElement !== host) {
+    // A shell that arrived after a fallback mount. Move the whole positioning
+    // context rather than rebuilding it: the popover, the click listener and
+    // the chip's current paint all ride along, and a rebuild would leave the
+    // old chip orphaned in the header.
+    host.appendChild(anchor);
   }
 
   if (!sessionSubscribed) {
@@ -625,9 +646,9 @@ export function getChipElement() {
 
 /**
  * The positioning context the popover mounts into (`.ctc-anchor`, the chip's
- * own parent). The popover is `position: absolute` under its trigger, and
- * `.header-actions` is not positioned — appending the popover anywhere else
- * would anchor it to the page.
+ * own parent). The popover is `position: absolute` under its trigger and only
+ * `.ctc-anchor` is guaranteed `position: relative` — appending the popover
+ * anywhere else would anchor it to whatever ancestor happens to be positioned.
  */
 export function getAnchorElement() {
   return anchor;

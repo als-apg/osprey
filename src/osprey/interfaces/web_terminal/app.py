@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import os
 from collections import deque
+from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
@@ -29,6 +30,11 @@ from osprey.interfaces.common_middleware import (
     forwarded_identity,
 )
 from osprey.interfaces.vendor import vendor_url
+from osprey.interfaces.web_terminal.bar_items_store import (
+    BarVocabulary,
+    layout_path,
+    load_layout,
+)
 from osprey.interfaces.web_terminal.file_watcher import (
     FileEventBroadcaster,
     WorkspaceWatcher,
@@ -40,7 +46,7 @@ from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
 from osprey.port_layout import default_port
-from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
+from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, BUILTIN_PANELS, UNIVERSAL_PANELS
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
 
 if TYPE_CHECKING:
@@ -307,6 +313,503 @@ DEFAULT_FEEDBACK_MAX_STORE_BYTES = 256 * 1024 * 1024
 #: renders nothing at all: an unrecognised source is a source this build
 #: cannot name, and a chip that named it anyway would be guessing.
 _ROLE_SOURCE_LABELS: dict[str, str] = {"roster": "roster", "claim": "ID token"}
+
+
+# ── Bar items: the server side of the two item hosts ──────────────────────
+#
+# The global header and the status bar are item HOSTS: each renders one
+# ordered run of ``.bar-item`` shells, and ``root()`` emits that run from the
+# *effective layout* so the operator's order is on the page before any module
+# script runs. Everything in this section is the SSR half of the contract the
+# browser catalog (``static/js/bar-catalog.js``) and the layout normalizer
+# (``static/js/bar-layout.js``) own on the client.
+
+#: Schema version of the layout document. Mirrors ``BAR_LAYOUT_VERSION`` in
+#: ``static/js/bar-layout.js``: the browser refuses a document whose version
+#: it cannot read, so the two constants move together or not at all.
+BAR_LAYOUT_VERSION = 1
+
+#: The two hosts, in render order. Mirrors ``BAR_HOSTS`` in ``bar-catalog.js``.
+BAR_HOSTS: tuple[str, ...] = ("header", "status")
+
+#: The deployment's default layout — the order every request renders until a
+#: saved document says otherwise.
+#:
+#: The header is the header as it stood before the bars became hosts: this
+#: build moves nothing an operator already reaches for. Its ``space`` item is
+#: what used to be the ``.header-left`` / ``.header-right`` split — spacing an
+#: operator can see and move, instead of a wrapper they cannot.
+#:
+#: The status bar ships the CLEAN set instead: ``activity`` stretching from the
+#: left edge (it declares ``flex: 1 1 0`` in the catalog, so it *is* the
+#: stretch — a ``space`` beside it would split the slack and pull the cluster
+#: off the right edge) to a right-hand cluster of the panel dots, the
+#: documentation link and the clock. The connection dot and the terminal size
+#: stay in the catalog and are one click away in Customize, under the
+#: "Everything" preset; they are off the default bar because a screen an
+#: operator watches all day should carry what they read, not what the terminal
+#: knows about itself. ``panel-health`` renders only where a built-in panel
+#: this deployment enables declares a status-bar dot — :func:`bar_render_plan`
+#: drops it otherwise rather than painting an empty shell — so a deployment
+#: with no such panel gets ``activity · docs · clock``.
+#:
+#: This is the ``clean`` preset in ``static/js/bar-layout.js``, which is the
+#: same arrangement written out with every option at its catalog default.
+#:
+#: Every type here must exist in ``bar-catalog.js`` and declare the host it is
+#: placed in; the catalog is the authority and this list is validated against
+#: it by the client on every load, so a type removed there simply stops
+#: rendering rather than breaking the page.
+DEFAULT_BAR_LAYOUT: dict = {
+    "version": BAR_LAYOUT_VERSION,
+    "rev": 0,
+    "header": [
+        {"type": "logo"},
+        {"type": "identity"},
+        {"type": "space"},
+        {"type": "control-target"},
+        {"type": "search"},
+        {"type": "display"},
+    ],
+    "status": [
+        {"type": "activity"},
+        {"type": "panel-health"},
+        {"type": "docs"},
+        {"type": "clock"},
+    ],
+    "status_visible": True,
+}
+
+#: The ADOPTED item types: the ones whose body is a literal block in
+#: ``index.html`` rather than a JS-built one.
+#:
+#: These are the nodes other modules resolve **by id** — ``#activity-strip``,
+#: ``#docs-link``, ``#command-palette-btn``, ``#display-menu-settings``,
+#: ``#logout-btn``, the identity trigger and menu, the panel health dots. They
+#: are therefore rendered on EVERY request whether or not the layout places
+#: them: into their shell when placed, into ``#bar-item-pool`` when not. A
+#: layout that drops an item must never make an id go dark — the module that
+#: looks it up has no way to know the difference between "the operator removed
+#: this item" and "this build is broken".
+ADOPTED_BAR_ITEM_TYPES: tuple[str, ...] = (
+    "logo",
+    "identity",
+    "search",
+    "display",
+    "activity",
+    "docs",
+    "panel-health",
+)
+
+#: Which host may hold which type — the Python mirror of every entry's
+#: ``hosts`` in ``static/js/bar-catalog.js``, where it is documented as "a HARD
+#: capability, not a default": ``logo``/``identity``/``control-target``/
+#: ``search``/``display`` are header-only because their bodies cannot render in
+#: a 24–26 px bar.
+#:
+#: The server needs its own copy because it renders first. ``bar-layout.js``
+#: drops a host-mismatched entry on the client, so without this the page would
+#: paint a 28 px wordmark inside the 20 px status bar and the client would then
+#: yank it back out — the flash the SSR exists to prevent. A type absent from
+#: this table is an unknown type and is dropped, exactly as the client's
+#: normalizer drops it; ``tests/interfaces/web_terminal/test_bar_items_ssr.py``
+#: pins the whole table against the JS catalog so the two cannot drift.
+_HEADER_ONLY: tuple[str, ...] = ("header",)
+_BOTH_HOSTS: tuple[str, ...] = ("header", "status")
+BAR_ITEM_HOSTS: dict[str, tuple[str, ...]] = {
+    "logo": _HEADER_ONLY,
+    "identity": _HEADER_ONLY,
+    "control-target": _HEADER_ONLY,
+    "search": _HEADER_ONLY,
+    "display": _HEADER_ONLY,
+    "connection": _BOTH_HOSTS,
+    "panel-health": _BOTH_HOSTS,
+    "activity": _BOTH_HOSTS,
+    "docs": _BOTH_HOSTS,
+    "feedback": _BOTH_HOSTS,
+    "clock": _BOTH_HOSTS,
+    "terminal-size": _BOTH_HOSTS,
+    "bluesky-queue": _BOTH_HOSTS,
+    "stopwatch": _BOTH_HOSTS,
+    "space": _BOTH_HOSTS,
+    "gap": _BOTH_HOSTS,
+    "separator": _BOTH_HOSTS,
+}
+
+#: Each item type's option specs — the Python mirror of every entry's
+#: ``options`` in ``static/js/bar-catalog.js``, in the same three shapes its
+#: ``numberSpec`` / ``booleanSpec`` / ``enumSpec`` builders produce. Only the
+#: three types that declare options appear; every other entry is ``NO_OPTIONS``
+#: there and is absent here, which :func:`bar_item_vocabulary` reads as "no
+#: options".
+#:
+#: The server needs its own copy for the same reason it mirrors
+#: :data:`BAR_ITEM_HOSTS`: the store validates a saved layout against these
+#: specs, and without them a bad option value would be written to disk and then
+#: refused by the browser on the next paint. ``step`` and ``unit`` are the
+#: catalog's, not the store's — the customize sheet renders them, so they are
+#: carried rather than dropped. ``values`` is a tuple because the vocabulary is
+#: frozen and shared across requests.
+BAR_ITEM_OPTIONS: dict[str, dict[str, dict]] = {
+    "clock": {
+        "zone": {"kind": "enum", "values": ("local", "utc", "both"), "default": "local"},
+        "seconds": {"kind": "boolean", "default": False},
+    },
+    "space": {
+        "share": {"kind": "number", "min": 1, "max": 3, "step": 1, "unit": None, "default": 1},
+    },
+    "gap": {
+        "size": {"kind": "number", "min": 4, "max": 400, "step": 1, "unit": "px", "default": 12},
+    },
+}
+
+#: Built-in panel id -> (status-bar item id, dot id) for the panels whose
+#: health writes into a status-bar dot. The Python mirror of the non-null
+#: ``statusBarId`` declarations in ``static/js/panel-catalog.js``; the label
+#: comes from :data:`~osprey.profiles.web_panels.BUILTIN_PANEL_LABELS` rather
+#: than being retyped here.
+#:
+#: ``channel-finder`` declares ``channel-finder-status`` in the JS catalog but
+#: has never had a node in the markup, so it is deliberately absent here: the
+#: pool's whole contract is that it holds exactly the nodes this deployment
+#: would render today, and seeding an id the terminal has never rendered would
+#: break that in the other direction. The stale declaration is retired on the
+#: JS side by the panel-health item task.
+_PANEL_STATUS_BAR_ITEMS: dict[str, tuple[str, str]] = {
+    "ariel": ("ariel-status", "ariel-dot"),
+}
+
+#: Every status-bar item id a built-in panel's health can write into — the
+#: Python mirror of ``PANEL_HEALTH_STATUS_BAR_IDS`` in ``bar-catalog.js``,
+#: derived from the mapping above rather than retyped.
+PANEL_HEALTH_STATUS_BAR_IDS: tuple[str, ...] = tuple(
+    item_id for item_id, _dot_id in _PANEL_STATUS_BAR_ITEMS.values()
+)
+
+#: Which item types are gated on a deployment fact, and how — the Python
+#: mirror of every catalog entry whose ``available`` is not ``ALWAYS``.
+#:
+#: The context these read is the one :func:`bar_availability_context` builds
+#: and ``root()`` stamps on ``<html>``, in the catalog's own spelling, so the
+#: server's answer and the browser's are the same answer rather than two
+#: guesses at it. A type absent from this table is available everywhere, which
+#: is what ``ALWAYS`` means in the catalog.
+#:
+#: ``tests/interfaces/web_terminal/test_bar_items_ssr.py`` pins the key set
+#: against the catalog's declarations, so an item that grows a condition there
+#: cannot quietly stay unconditional here.
+BAR_ITEM_AVAILABILITY: dict[str, Callable[[dict], bool]] = {
+    "identity": lambda ctx: ctx.get("identityAvailable") is True,
+    "bluesky-queue": lambda ctx: ctx.get("blueskyAvailable") is True,
+    "panel-health": lambda ctx: any(
+        item_id in PANEL_HEALTH_STATUS_BAR_IDS for item_id in ctx.get("statusBarIds") or ()
+    ),
+}
+
+
+def bar_availability_context(
+    *,
+    identity_available: bool,
+    bluesky_available: bool,
+    dots: list[dict],
+) -> dict:
+    """What this deployment offers, in the vocabulary the catalog asks in.
+
+    One evaluation, two readers: :func:`bar_render_plan` renders from it, and
+    ``root()`` stamps it on ``<html>`` for ``bar-sync.js`` to hand to
+    ``bar-layout.js``'s ``normalize()``. The browser used to infer all three
+    facts from the page instead — identity and the plan queue from whether a
+    shell had been rendered, panel health from the SHIPPED panel catalog — and
+    an inference that goes wrong in either direction costs something real: a
+    false "unavailable" drops the item and latches the whole document
+    read-only for the session, so saving dies silently, while a false
+    "available" lets the client put back an item this deployment cannot render.
+
+    Args:
+        identity_available: Whether the deployment renders an identity block.
+        bluesky_available: Whether it opted into the Bluesky bridge.
+        dots: The panel health dots from :func:`panel_health_dots` — the dots
+            that are actually on this page, not the ones the build ships.
+
+    Returns:
+        The context, JSON-serializable exactly as stamped.
+    """
+    return {
+        "identityAvailable": bool(identity_available),
+        "blueskyAvailable": bool(bluesky_available),
+        "statusBarIds": [dot["id"] for dot in dots],
+    }
+
+
+def _bluesky_bridge_configured() -> bool:
+    """Whether this deployment opted into the Bluesky bridge.
+
+    Opted INTO, not answering: the answer comes from configuration, so it says
+    the deployment leaves the bridge's server running, never that a bridge
+    process is up. The bar's plan-queue item shows that bridge's queue, so it
+    is the same fact as the bridge's own entitlement and not a second key.
+
+    Asked through :func:`~osprey.deployment.web_terminals.personas.bluesky_server_enabled`,
+    which is documented as "the one answer" to this question and resolves an
+    absent key from the registry's own ``default_enabled`` rather than
+    restating it. A hardcoded default here would be a third spelling of the
+    fact, agreeing with the registry only until the registry changes.
+
+    Returns:
+        False on any read failure — a deployment fact the server cannot
+        establish is one it must not claim.
+    """
+    try:
+        from osprey.deployment.web_terminals.personas import bluesky_server_enabled
+        from osprey.utils.workspace import load_osprey_config
+
+        return bool(bluesky_server_enabled(load_osprey_config()))
+    except Exception:  # noqa: BLE001 — an unreadable config is not a boot failure
+        logger.debug("Bluesky bridge availability: config load failed", exc_info=True)
+        return False
+
+
+class BarRenderPlan(NamedTuple):
+    """Everything ``index.html`` needs to render both hosts and the pool.
+
+    Attributes:
+        header: Ordered header shells, each ``{"type", "adopted", "follows"}``.
+        status: Ordered status-bar shells, same shape.
+        pooled: Adopted types this deployment renders but this layout does not
+            place — their nodes go into ``#bar-item-pool``.
+        status_visible: False ⇒ ``<html data-status-bar="hidden">``.
+        panel_health_dots: One ``{"id", "dot_id", "label"}`` per enabled
+            built-in panel that declares a status-bar dot.
+    """
+
+    header: list[dict]
+    status: list[dict]
+    pooled: list[str]
+    status_visible: bool
+    panel_health_dots: list[dict]
+
+
+def panel_health_dots(enabled_panels: set[str] | None) -> list[dict]:
+    """The status-bar health dots this deployment renders.
+
+    A dot exists only where an ENABLED built-in panel declares one. A disabled
+    panel's dot is not hidden markup — it is absent, the same way its rail
+    entry is, because a dot for a panel this deployment does not serve could
+    only ever sit grey forever.
+
+    Args:
+        enabled_panels: Enabled built-in panel ids (``app.state.enabled_panels``),
+            or None before the lifespan has run.
+
+    Returns:
+        One dict per dot, in panel-id order, carrying the ids the markup uses
+        and the panel's canonical label.
+    """
+    enabled = enabled_panels or set()
+    return [
+        {
+            "id": item_id,
+            "dot_id": dot_id,
+            "label": BUILTIN_PANEL_LABELS.get(panel_id, panel_id.upper()),
+        }
+        for panel_id, (item_id, dot_id) in sorted(_PANEL_STATUS_BAR_ITEMS.items())
+        if panel_id in enabled
+    ]
+
+
+def effective_bar_layout(app: FastAPI) -> dict:
+    """The layout document this request renders.
+
+    THE seam, and now with both its sources wired: the operator's own saved
+    arrangement (``app.state.bar_items_effective``) is read ahead of the
+    deployment default (``app.state.bar_layout``), and neither ``root()`` nor
+    the template learns that anything changed.
+
+    The cache is populated once at startup and refreshed by the layout routes
+    after every accepted save, so a render never touches the disk. ``None``
+    there is the honest reading of "this operator has saved nothing" — a reset
+    puts it back — and the deployment default is then what renders.
+
+    ``app.state.bar_layout`` is honoured when present, which is what lets a
+    test hand a document in without reaching into the renderer.
+
+    A document whose ``version`` this build cannot read is refused here, for
+    the same reason ``bar-layout.js`` refuses it on the client: a document
+    written by a newer build that the server rendered and the client discarded
+    would paint one arrangement and hydrate into another — and the server's
+    pool membership would have been computed from a layout the client no
+    longer holds, so an adopted node could be parked on the page while the
+    client believes it is placed. Refusing in both halves keeps first paint and
+    hydration talking about the same document.
+
+    Args:
+        app: The application whose state may carry a stored document.
+
+    Returns:
+        A readable layout document. Never None; falls back to
+        :data:`DEFAULT_BAR_LAYOUT`. It is the shared cache itself, not a copy,
+        so callers must treat it as immutable — a route that normalized or
+        annotated it in place would corrupt every later render in the process.
+        The writers are already safe: ``save_layout`` returns its own copy.
+    """
+    for candidate in (
+        getattr(app.state, "bar_items_effective", None),
+        getattr(app.state, "bar_layout", None),
+    ):
+        if isinstance(candidate, dict) and candidate.get("version") == BAR_LAYOUT_VERSION:
+            return candidate
+    return DEFAULT_BAR_LAYOUT
+
+
+def _load_stored_bar_layout(
+    store_dir: Path, vocabulary: BarVocabulary, default: dict
+) -> dict | None:
+    """This operator's saved arrangement, or ``None`` when they have none.
+
+    ``None`` rather than a copy of *default*, because "nothing saved" and
+    "saved something that happens to match the deployment" are different
+    states: only the first one follows the deployment when an operator edits
+    ``web.bar_items``, and only the first one is what a reset returns to.
+    :func:`effective_bar_layout` reads it exactly that way.
+
+    The existence check is what keeps a first-ever boot from paying for a read
+    and a fallback copy. A document that exists but cannot be read — truncated,
+    not JSON, or written at a schema version this build does not know — answers
+    ``None`` too: the store hands back *default* there, and a cache holding a
+    copy of the deployment default would say "this operator saved something"
+    about a file nothing can read. Rendering the deployment's own arrangement
+    is the right outcome for a damaged file, and it is what ``None`` already
+    means. The store's revisions are what make the two cases separable: every
+    accepted save lands at 1 or above, so ``rev 0`` is precisely "nothing
+    readable was stored".
+
+    Args:
+        store_dir: The bar-items store directory, which need not exist.
+        vocabulary: The facts the stored envelope is checked against.
+        default: This deployment's configured layout, used when a document is
+            present but unreadable.
+
+    Returns:
+        The stored document, or ``None`` when nothing readable is stored.
+        ``None`` also covers a store that could not be reached at all, so it
+        does not prove the mount is writable — the routes must treat a failure
+        from ``save_layout`` as authoritative rather than inferring anything
+        from what the boot managed to read.
+    """
+    try:
+        if not layout_path(store_dir).exists():
+            return None
+    except OSError:  # pragma: no cover — an unreadable mount is not a boot failure
+        logger.warning("Could not reach the bar-items store at %s", store_dir, exc_info=True)
+        return None
+    document = load_layout(store_dir, vocabulary=vocabulary, default=default)
+    return document if document["rev"] else None
+
+
+def bar_render_plan(
+    layout: dict,
+    *,
+    context: dict,
+    dots: list[dict],
+) -> BarRenderPlan:
+    """Turn a layout document into the two ordered runs plus the pool.
+
+    Three rules do all the work here, and each one is a refusal the client's
+    normalizer (``bar-layout.js``) already makes. The SSR is the first paint of
+    what that normalizer will produce, so anything it renders that the client
+    would drop is a rearrangement the operator watches happen.
+
+    **Adopted nodes are conserved.** Every adopted type this deployment would
+    render is emitted exactly once — in its shell if the layout places it, in
+    the pool if it does not. Never twice (a layout naming ``docs`` twice would
+    otherwise emit ``#docs-link`` twice, and ``getElementById`` would silently
+    pick one), and never zero times.
+
+    **An unavailable item is ABSENT, not empty.** An identity block needs
+    something to identify with, a health dot needs an enabled panel that
+    declares one, and a plan queue needs a Bluesky bridge to have a queue.
+    Where the fact is absent, so is the shell — not just the body, and whether
+    or not the item is one of the adopted ones. An empty shell is not free:
+    ``bars.css``'s ``[data-follows="logo"]`` rule is keyed on the SHELL, so an
+    empty identity shell paints a dangling middot after the wordmark on every
+    single-user deployment, and each empty shell costs the run another gap. An
+    adopted node is left out of the pool too, because seeding an id this
+    deployment never renders would tell every reader it exists.
+
+    Availability is asked of *context* — the deployment facts
+    :func:`bar_availability_context` evaluates once and ``root()`` stamps on
+    the page — through :data:`BAR_ITEM_AVAILABILITY`, which mirrors the
+    catalog's own ``available()`` predicates. Server and browser therefore
+    answer the question from the same facts instead of each guessing.
+
+    **A type only renders in a host that may hold it.** ``hosts`` is a hard
+    capability (see :data:`BAR_ITEM_HOSTS`); an entry in the wrong bar, or of a
+    type this build does not know, is skipped. Unlike an unavailable item it is
+    still POOLED, because the item exists — the client drops the entry and
+    parks the node in the pool, and the pool must never subtract an id.
+
+    ``follows`` chains off the previous EMITTED item rather than the previous
+    layout entry, so a skipped item cannot leave the middot stranded on a shell
+    that is no longer next to the logo.
+
+    Args:
+        layout: The effective layout document.
+        context: The deployment context from :func:`bar_availability_context`.
+        dots: The panel health dots from :func:`panel_health_dots`.
+
+    Returns:
+        The render plan the template consumes.
+    """
+
+    def _is_available(item_type: str) -> bool:
+        predicate = BAR_ITEM_AVAILABILITY.get(item_type)
+        return True if predicate is None else predicate(context)
+
+    seen: set[str] = set()
+    runs: dict[str, list[dict]] = {}
+    for host in BAR_HOSTS:
+        shells: list[dict] = []
+        previous = ""
+        for raw in layout.get(host) or []:
+            if not isinstance(raw, dict):
+                continue
+            item_type = str(raw.get("type") or "")
+            hosts = BAR_ITEM_HOSTS.get(item_type)
+            if hosts is None or host not in hosts:
+                # Unknown to this build, or in a bar that cannot hold it. Not
+                # marked seen: an adopted node whose entry is in the wrong bar
+                # still exists, and belongs in the pool.
+                continue
+            adopted = item_type in ADOPTED_BAR_ITEM_TYPES
+            if not _is_available(item_type):
+                # Absent, not empty. An adopted type is marked seen as well, so
+                # the pool does not put back a node this deployment never
+                # renders; a JS-built one has no node to pool in the first
+                # place, and an empty shell would only be a box the client
+                # takes away again on the first reconcile.
+                seen.add(item_type)
+                continue
+            if adopted:
+                # A second entry for the same adopted type gets a shell but no
+                # body: one node, one home.
+                adopted = item_type not in seen
+                seen.add(item_type)
+            shells.append({"type": item_type, "adopted": adopted, "follows": previous})
+            previous = item_type
+        runs[host] = shells
+
+    pooled = [
+        item_type
+        for item_type in ADOPTED_BAR_ITEM_TYPES
+        if item_type not in seen and _is_available(item_type)
+    ]
+    return BarRenderPlan(
+        header=runs["header"],
+        status=runs["status"],
+        pooled=pooled,
+        status_visible=bool(layout.get("status_visible", True)),
+        panel_health_dots=dots,
+    )
 
 
 def coerce_config_str(key: str, value: object, default: str) -> str:
@@ -849,6 +1352,208 @@ def _load_web_ui_config(config_path: str | Path | None = None) -> dict:
     return _load_config_section("web", config_path)
 
 
+#: Most items one host may hold. The Python mirror of ``MAX_ITEMS_PER_HOST``
+#: in ``static/js/bar-layout.js``: the client drops everything past this
+#: number, so a deployment that configured more would paint a bar the browser
+#: immediately shortens — the first-paint flash the SSR exists to prevent. Per
+#: host, not per document, for the reason stated there: two capped lists
+#: already bound the total, and one shared cap would make a legal header edit
+#: fail because of the status bar.
+MAX_BAR_ITEMS_PER_HOST = 20
+
+
+def bar_item_vocabulary() -> BarVocabulary:
+    """The deployment facts :mod:`.bar_items_store` validates a layout against.
+
+    Assembled from the tables above rather than restated: the store takes its
+    vocabulary as a parameter precisely so it cannot become a second authority
+    on item names, the schema version or the per-host cap, and so that
+    ``tests/interfaces/web_terminal/test_bar_items_ssr.py``'s pin against
+    ``bar-catalog.js`` guards the store's answers too.
+
+    This is also where the cap's direction is settled: the store never imports
+    :data:`MAX_BAR_ITEMS_PER_HOST`, it is handed it. ``app.py`` imports the
+    store; a constant travelling the other way would close the cycle.
+
+    Returns:
+        A vocabulary describing every type this build can render.
+    """
+    return BarVocabulary(
+        items={
+            item_type: {"hosts": hosts, "options": BAR_ITEM_OPTIONS.get(item_type, {})}
+            for item_type, hosts in BAR_ITEM_HOSTS.items()
+        },
+        version=BAR_LAYOUT_VERSION,
+        max_items_per_host=MAX_BAR_ITEMS_PER_HOST,
+        hosts=BAR_HOSTS,
+    )
+
+
+class _BarItemsConfig(NamedTuple):
+    """What ``web.bar_items`` resolves to at boot.
+
+    Two values because they answer two questions. ``layout`` is the order this
+    deployment renders when no user has saved one of their own; ``locked`` is
+    the deployment's addition to the catalog's own locked set — types a user
+    may move but never remove.
+    """
+
+    layout: dict
+    locked: list[str]
+
+
+def _coerce_bar_item(host: str, index: int, raw: object) -> dict | None:
+    """One configured entry as a layout item, or ``None`` if it cannot be one.
+
+    Two spellings are accepted, because both read naturally in YAML: a bare
+    string (``- clock``) for an item with no options, and a mapping
+    (``- {type: clock, options: {zone: utc}}``) for one with them. Option
+    VALUES are not validated here — the catalog owns each type's option spec
+    and the browser applies it — but a non-mapping ``options`` is dropped,
+    since nothing downstream could read it.
+
+    Args:
+        host: The bar the entry was written under, for the warning text.
+        index: The entry's position in the raw list, so a warning points at
+            the config the operator wrote rather than at the result.
+        raw: The entry, exactly as YAML produced it.
+
+    Returns:
+        A ``{"type": ...}`` item, optionally carrying ``options``; ``None``
+        when the entry is malformed, names a type this build does not know, or
+        names one this bar cannot hold.
+    """
+    where = f"web.bar_items.{host}[{index}]"
+    options: object = None
+    if isinstance(raw, str):
+        item_type = raw
+    elif isinstance(raw, dict) and isinstance(raw.get("type"), str):
+        item_type = raw["type"]
+        options = raw.get("options")
+    else:
+        logger.warning("%s is not an item type or a mapping with one; dropping it.", where)
+        return None
+
+    hosts = BAR_ITEM_HOSTS.get(item_type)
+    if hosts is None:
+        logger.warning("%s names unknown bar item %r; dropping it.", where, item_type)
+        return None
+    if host not in hosts:
+        logger.warning(
+            "%s places %r in a bar that cannot hold it (allowed: %s); dropping it.",
+            where,
+            item_type,
+            ", ".join(hosts),
+        )
+        return None
+
+    item: dict = {"type": item_type}
+    if options is not None:
+        if isinstance(options, dict):
+            item["options"] = dict(options)
+        else:
+            logger.warning("%s has non-mapping options; dropping them.", where)
+    return item
+
+
+def _load_bar_items(config_path: str | Path | None = None) -> _BarItemsConfig:
+    """Read ``web.bar_items`` into this deployment's default bar layout.
+
+    The deployment's half of the bar-items contract: an operator's saved
+    layout wins over this, and this wins over :data:`DEFAULT_BAR_LAYOUT`. It is
+    the same fail-open coercion :func:`_load_panel_presets` performs for
+    ``web.presets``, and for the same reason — there is no config schema
+    anywhere, so a typo must cost the operator one item and never the boot.
+
+    Four keys, each degrading on its own:
+
+    * ``header`` / ``status`` — ordered lists of item types. A list that is not
+      a list falls back to the shipped order for that bar; an entry that is
+      malformed, names an unknown type, or names a type the bar cannot hold is
+      warned about and dropped while its neighbours survive. An explicitly
+      empty list means an empty bar and is honoured. A bar that is not
+      configured at all keeps the shipped order, so naming one bar never
+      silently empties the other.
+    * ``status_visible`` — hides the status bar without emptying it. Anything
+      that is not a boolean falls back to visible.
+    * ``locked`` — item types this deployment's users may move but never
+      remove, unioned with the catalog's own locked set in the browser.
+      Unknown ids are dropped with a warning, since locking an item that does
+      not exist would silently do nothing.
+
+    Args:
+        config_path: Explicit ``config.yml`` to read; falls back to the
+            ``CONFIG_FILE`` environment variable and then ``./config.yml``.
+
+    Returns:
+        The resolved layout document and locked list. Falls open to
+        :data:`DEFAULT_BAR_LAYOUT` with no locked ids on any read error or when
+        the key is absent.
+    """
+    try:
+        raw = _load_web_ui_config(config_path).get("bar_items")
+    except Exception:  # noqa: BLE001 — an unreadable config renders the shipped bars
+        logger.warning("web.bar_items could not be read; using the default layout.")
+        return _BarItemsConfig(DEFAULT_BAR_LAYOUT, [])
+
+    if raw is None:
+        return _BarItemsConfig(DEFAULT_BAR_LAYOUT, [])
+    if not isinstance(raw, dict):
+        logger.warning("web.bar_items is not a mapping; using the default layout.")
+        return _BarItemsConfig(DEFAULT_BAR_LAYOUT, [])
+
+    layout: dict = {"version": BAR_LAYOUT_VERSION, "rev": 0}
+    for host in BAR_HOSTS:
+        configured = raw.get(host)
+        if configured is None:
+            layout[host] = list(DEFAULT_BAR_LAYOUT[host])
+            continue
+        if not isinstance(configured, list):
+            logger.warning(
+                "web.bar_items.%s is not a list of item types; using the default order.", host
+            )
+            layout[host] = list(DEFAULT_BAR_LAYOUT[host])
+            continue
+        items = [
+            item
+            for item in (
+                _coerce_bar_item(host, index, entry) for index, entry in enumerate(configured)
+            )
+            if item is not None
+        ]
+        if len(items) > MAX_BAR_ITEMS_PER_HOST:
+            logger.warning(
+                "web.bar_items.%s holds %d items; keeping the first %d.",
+                host,
+                len(items),
+                MAX_BAR_ITEMS_PER_HOST,
+            )
+            items = items[:MAX_BAR_ITEMS_PER_HOST]
+        layout[host] = items
+
+    status_visible = raw.get("status_visible", DEFAULT_BAR_LAYOUT["status_visible"])
+    if not isinstance(status_visible, bool):
+        logger.warning("web.bar_items.status_visible is not true or false; showing the status bar.")
+        status_visible = DEFAULT_BAR_LAYOUT["status_visible"]
+    layout["status_visible"] = status_visible
+
+    locked: list[str] = []
+    raw_locked = raw.get("locked")
+    if raw_locked is not None:
+        if isinstance(raw_locked, list):
+            for entry in raw_locked:
+                if isinstance(entry, str) and entry in BAR_ITEM_HOSTS:
+                    locked.append(entry)
+                else:
+                    logger.warning(
+                        "web.bar_items.locked names unknown bar item %r; dropping it.", entry
+                    )
+        else:
+            logger.warning("web.bar_items.locked is not a list of item types; ignoring it.")
+
+    return _BarItemsConfig(layout, locked)
+
+
 def _load_claude_code_config(config_path: str | Path | None = None) -> dict:
     """Load claude_code config section from config.yml.
 
@@ -1355,31 +2060,36 @@ def _create_lifespan(
         )
         app.state.feedback_max_store_bytes = coerce_store_ceiling(raw_max_store_bytes)
 
-        # The feedback store is sited on the CONFIGURED agent-data root and
-        # deliberately NOT on workspace_dir: with web_terminal.watch_dir set,
-        # the watched tree is somewhere else entirely and records written
+        # The server-side stores are sited on the CONFIGURED agent-data root
+        # and deliberately NOT on workspace_dir: with web_terminal.watch_dir
+        # set, the watched tree is somewhere else entirely and anything written
         # there would land outside the {user}-agent-data volume, where
-        # `osprey feedback` on the host cannot reach them. Never
+        # `osprey feedback` on the host cannot reach it. Never
         # resolve_agent_data_root() either — that appends sessions/<id>, and
-        # the store spans sessions.
+        # both stores span sessions. They are siblings under one root: feedback
+        # records, and the per-user bar arrangement.
         try:
             from osprey.utils.workspace import resolve_shared_data_root
 
-            feedback_dir = resolve_shared_data_root() / "feedback"
+            shared_data_root = resolve_shared_data_root()
         except Exception:  # noqa: BLE001 — never let config load block startup
-            feedback_dir = workspace_dir / "feedback"
+            shared_data_root = workspace_dir
             logger.warning(
-                "Could not resolve the shared data root for the feedback store; falling back to %s",
-                feedback_dir,
+                "Could not resolve the shared data root; siting the feedback and "
+                "bar-items stores under %s",
+                shared_data_root,
                 exc_info=True,
             )
+        feedback_dir = shared_data_root / "feedback"
+        bar_items_dir = shared_data_root / "bar_items"
         app.state.feedback_dir = feedback_dir
-        # Workspace-relative form of the store: the *file watcher's* form, used
-        # below to drop change events for feedback writes. The file browser is
-        # not a consumer — routes/files.py derives its own predicate from
-        # ``feedback_dir``, because it must also handle symlink aliases and
+        app.state.bar_items_dir = bar_items_dir
+        # Workspace-relative form of each store: the *file watcher's* form,
+        # used below to drop change events for writes into them. The file
+        # browser is not a consumer — routes/files.py derives its own predicate
+        # from ``feedback_dir``, because it must also handle symlink aliases and
         # session-scoped roots that a single relative path cannot express.
-        # ``None`` when the store lies outside the watched tree (the watch_dir
+        # ``None`` when a store lies outside the watched tree (the watch_dir
         # case above) — nothing to conceal there, and a bare relative_to()
         # would raise and abort startup. The derivation is case-folded on a
         # case-insensitive filesystem, where the store root and watch_dir can
@@ -1394,9 +2104,23 @@ def _create_lifespan(
         with suppress(OSError):
             workspace_dir.mkdir(parents=True, exist_ok=True)
         app.state.feedback_rel = resolve_store_rel(feedback_dir, workspace_dir)
+        app.state.bar_items_rel = resolve_store_rel(bar_items_dir, workspace_dir)
+        # One collection, in the order the stores are resolved above. Saving a
+        # bar arrangement must be as silent as filing feedback: a layout PUT
+        # writes one file, and an unconcealed store would push an SSE change
+        # frame to every connected browser the moment anyone rearranged a bar.
+        # This seam does that and only that. It does NOT hide either store from
+        # the file panel — routes/files.py filters the listing and the content
+        # read through its own predicate, which knows about the feedback store
+        # alone — so bar_items/layout.json is still listed on a refresh. That is
+        # deliberate for now: a layout is the operator's own preference, not
+        # submitted session context, so it is clutter rather than disclosure.
+        app.state.concealed_store_rels = tuple(
+            rel for rel in (app.state.feedback_rel, app.state.bar_items_rel) if rel is not None
+        )
 
         app.state.watcher = WorkspaceWatcher(
-            workspace_dir, app.state.broadcaster, feedback_rel=app.state.feedback_rel
+            workspace_dir, app.state.broadcaster, concealed=app.state.concealed_store_rels
         )
         app.state.watcher.start()
 
@@ -1417,6 +2141,43 @@ def _create_lifespan(
         # human applies in one click. Immutable config-derived state. Empty
         # (the default) → the "+" menu renders no presets section.
         app.state.panel_presets = _load_panel_presets(enabled_panels, custom_panels)
+
+        # The deployment's default bar arrangement (web.bar_items), resolved
+        # once at boot. This is the document effective_bar_layout() renders
+        # until a user's saved layout is loaded ahead of it; app.state
+        # .bar_items_locked carries the types this deployment will not let a
+        # user remove.
+        bar_items = _load_bar_items(resolved_config_path)
+        app.state.bar_layout = bar_items.layout
+        app.state.bar_items_locked = bar_items.locked
+
+        # The per-user layer on top of that default, read from the store beside
+        # the feedback records. Three pieces of state, and the layout routes
+        # need all three:
+        #
+        # * ``bar_items_vocabulary`` — the deployment facts a saved document is
+        #   validated against, built once here so every request validates
+        #   against the same tables the SSR renders from.
+        # * ``bar_items_effective`` — the cache ``effective_bar_layout()``
+        #   reads. The store is touched once, at boot; a render never goes to
+        #   disk. ``None`` means this operator has saved nothing, so the
+        #   deployment default renders — which is also what a reset restores.
+        # * ``bar_items_lock`` — taken by the routes around load-validate-save,
+        #   so two tabs saving at once serialize rather than interleaving a
+        #   read with the other's write. It guards the cache as well as the
+        #   file, so the two cannot disagree about what is stored.
+        app.state.bar_items_vocabulary = bar_item_vocabulary()
+        app.state.bar_items_lock = asyncio.Lock()
+        app.state.bar_items_effective = _load_stored_bar_layout(
+            bar_items_dir, app.state.bar_items_vocabulary, bar_items.layout
+        )
+
+        # Whether this deployment opted into the Bluesky bridge — the one
+        # bar-item availability fact that is neither an identity nor a panel,
+        # read once here rather than per render because it is a config read.
+        # It says the bridge's server is left running, not that a bridge is
+        # answering; the plan-queue item is offered on that basis.
+        app.state.bluesky_available = _bluesky_bridge_configured()
 
         # ── Tour capabilities ──
         # The "Ask in plain language" tour card lists what THIS deployment's
@@ -1642,6 +2403,24 @@ def create_app(
         if auth_role_source == UNSAFE_FORWARDED_VALUE:
             auth_role_source = None
         auth_role_source_label = _ROLE_SOURCE_LABELS.get(auth_role_source or "", "")
+        # The two bars, rendered from the effective layout. Server-rendered
+        # rather than fetched: the order is chrome, and chrome that arrives a
+        # frame late is chrome the operator watches rearrange itself on every
+        # load. `identityAvailable` is the same condition the identity block
+        # itself renders under (a user to name, or a deployment name to show),
+        # stated once so the item and its body can never disagree.
+        #
+        # The context is evaluated once and used twice: this render drops what
+        # the deployment cannot show, and the template stamps the same facts on
+        # <html> so bar-sync.js hands the browser's normalizer the server's
+        # answer instead of inferring one from the page it just received.
+        dots = panel_health_dots(getattr(request.app.state, "enabled_panels", None))
+        bar_context = bar_availability_context(
+            identity_available=bool(terminal_user or app_name),
+            bluesky_available=bool(getattr(request.app.state, "bluesky_available", False)),
+            dots=dots,
+        )
+        plan = bar_render_plan(effective_bar_layout(request.app), context=bar_context, dots=dots)
         return templates.TemplateResponse(
             request,
             "index.html",
@@ -1661,6 +2440,12 @@ def create_app(
                 "auth_role": auth_role or "",
                 "auth_role_source_label": auth_role_source_label,
                 "url_prefix": url_prefix,
+                "bar_header": plan.header,
+                "bar_status": plan.status,
+                "bar_pooled": plan.pooled,
+                "bar_status_visible": plan.status_visible,
+                "bar_context": bar_context,
+                "panel_health_dots": plan.panel_health_dots,
             },
         )
 

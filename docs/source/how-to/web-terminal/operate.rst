@@ -70,6 +70,9 @@ The window has three working areas plus a header:
   (a small dot holding the light/dark, Expert/Simple, and theme controls — see
   :doc:`theming`), a settings drawer, and an optional name badge to tell one
   deployment from another.
+- **Status bar** — a thin strip along the bottom: what the agent is doing right
+  now, a **Docs** link, a clock, and a health dot for each panel that reports
+  one. Both bars are yours to rearrange — see :ref:`web-terminal-bars`.
 
 The settings drawer lets you read and edit the project's ``config.yml`` — and
 the agent's own setup and memory files — from the browser, so you rarely need
@@ -340,6 +343,70 @@ says nothing about the chip.
    ``posture_source=spawn`` --- the trail's way of saying the write state was
    fixed when the session started rather than read from a live setting; see the
    record fields in :ref:`the audit trail contract <audit-trail-record>`.
+
+.. _web-terminal-bars:
+
+The header and status bar
+-------------------------
+
+Both bars are built the same way: each holds one ordered list of small items,
+drawn from one catalog. The header starts with the wordmark, the identity block
+where the deployment renders one, the
+:ref:`control-target chip <web-terminal-session-posture>`, the command palette
+button and the display menu. The status bar starts with the
+agent's activity line, a health dot for each panel that reports one, the
+**Docs** link and a clock. Which items sit in which bar, and in what order, is
+yours to change.
+
+Rearranging the bars
+~~~~~~~~~~~~~~~~~~~~
+
+Open **Customize bars** in any of three ways: right-click either bar, pick it
+from the display menu, or run it from the command palette. The bars tint, every
+item in them picks up a dashed outline, and a sheet opens carrying a tile for
+every item there is. From there:
+
+- **Drag a tile onto a bar** to add that item. Drag an item already in a bar to
+  move it, within its own bar or across to the other one.
+- **Drag an item off both bars** to take it away.
+- **Click an item** to open its options — the clock's time zone and seconds,
+  the width of a fixed gap, the share of the room a flexible space claims —
+  along with **Move to status bar** (or back to the header) and **Remove**,
+  where the item allows them.
+- **Presets** sit at the foot of the sheet: *Clean*, *Everything* and
+  *Minimal*, each one replacing both bars in a single step.
+- **Hide status bar** in that same right-click menu, or the checkbox in the
+  sheet, withdraws the bottom bar and brings it back. The items you put there
+  are still there when it returns.
+- **Reset to default**, on the bar's right-click menu while you are editing,
+  throws your arrangement away and puts back the one the deployment ships.
+
+**Done** or **Esc** ends customizing. Every change applies as you make it.
+
+Some edits are refused, and the sheet says why rather than failing quietly. The
+wordmark, the identity block, the control-target chip and the display menu can
+be reordered but never removed, and a deployment can lock more items the same
+way. An item the header alone can hold — the command palette button, say — is
+refused by the status bar. A tile for something this deployment does not render
+is disabled and carries the reason. If an arrangement cannot be saved the sheet
+reads **Layout not saved**, and your edit was not stored.
+
+Customizing is an Expert-mode affordance. Simple mode renders the arrangement
+you saved but offers no way into the sheet; switch to Expert from the display
+menu to change it.
+
+Where the arrangement lives
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Your bar arrangement is kept on the server, so it follows you to any browser
+you sign in from. It is the only web terminal preference that does: the theme,
+Expert or Simple mode, and the panel layout are each remembered by the browser
+you set them in, so a different browser or a different machine starts those
+from the deployment's own defaults.
+
+With nothing saved yet you get the deployment's arrangement, which an operator
+sets with ``web.bar_items``. The keys, and what each one does, are in
+:ref:`config-bar-items`.
 
 Documentation and feedback settings
 -----------------------------------

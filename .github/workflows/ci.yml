@@ -1004,6 +1004,10 @@ jobs:
           tests/interfaces/web_terminal/test_feedback_rail_browser.py \
           tests/interfaces/web_terminal/test_feedback_modal_browser.py \
           tests/interfaces/web_terminal/test_posture_toggle_browser.py \
+          tests/interfaces/web_terminal/test_bar_items_browser.py \
+          tests/interfaces/web_terminal/test_ui_mode_browser.py \
+          tests/interfaces/web_terminal/test_osprey_drawer.py \
+          tests/interfaces/web_terminal/test_scaffold_detail.py \
           tests/interfaces/bluesky_web/test_channel_combobox_browser.py \
           tests/interfaces/ariel/test_embedded_nav.py \
           tests/interfaces/ariel/test_display_menu.py \

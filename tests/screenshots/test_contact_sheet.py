@@ -22,6 +22,7 @@ from docs.screenshots.contact_sheet import (
     DEMO_TRANSCRIPT_PATH,
     EXTRA_VARIANTS,
     MAX_CARD_LINE_WIDTH,
+    TERMINAL_DIMS_SEAM,
     TRANSCRIPT_SENTINEL,
     VARIANTS,
     CapturedVariant,
@@ -31,6 +32,7 @@ from docs.screenshots.contact_sheet import (
     _assert_fits_columns,
     _effective_variants,
     _fake_session_line,
+    _read_fitted_cols,
     _replay_shell_command,
     _variant_filename,
     _variant_label,
@@ -296,6 +298,88 @@ def test_capture_line_width_guard() -> None:
     _assert_fits_columns(widest + 10)  # comfortably fits
     with pytest.raises(RuntimeError, match="wrap"):
         _assert_fits_columns(widest - 1)
+
+
+class _FakePage:
+    """A stand-in Playwright page, so the fitted-cols reader is testable headless.
+
+    Records every script it is handed, so a test can assert WHAT the reader asks
+    the page for and not merely what it answers.
+    """
+
+    def __init__(self, *, dims: object, term_width: int = 370, ready: bool = True) -> None:
+        self.dims = dims
+        self.term_width = term_width
+        self.ready = ready
+        self.scripts: list[str] = []
+
+    def wait_for_function(self, expression: str, timeout: int | None = None) -> None:
+        self.scripts.append(expression)
+        if not self.ready:
+            raise TimeoutError("the seam never reported a fitted size")
+
+    def evaluate(self, expression: str) -> object:
+        self.scripts.append(expression)
+        return self.term_width if ".xterm" in expression else self.dims
+
+
+def test_fitted_cols_reader_distinguishes_none_from_a_number() -> None:
+    """``None`` (skip the wrap guard) and a number (enforce it) must stay distinct.
+
+    :func:`capture_contact_sheet`'s per-variant check is
+    ``if fitted_cols is not None: _assert_fits_columns(fitted_cols)``. That makes
+    ``None`` a silent OFF switch for the whole wrap guard: a reader that drifted
+    into answering ``None`` on the live path too would turn the guard off and
+    nothing anywhere would go red — the contact sheet would just start rendering
+    wrapped transcripts. So the live path is pinned to a real ``int`` and every
+    skip path to ``None``, and the two cannot collapse into one another.
+    """
+    live = _read_fitted_cols(_FakePage(dims={"cols": 96, "rows": 24}))
+    assert live == 96
+    assert isinstance(live, int) and not isinstance(live, bool)
+
+    # The three legitimate skips, each for a different reason.
+    #  - the seam never reports a fitted size (no terminal on this page)
+    assert _read_fitted_cols(_FakePage(dims=None, ready=False)) is None
+    #  - a zero-width .xterm: Simple mode's hidden terminal, whose dims are
+    #    xterm's 10x4 fallback rather than a fit
+    assert _read_fitted_cols(_FakePage(dims={"cols": 96, "rows": 24}, term_width=0)) is None
+    #  - the seam answers null (getTerminalDimensions() before initTerminal())
+    assert _read_fitted_cols(_FakePage(dims=None)) is None
+    #  - and a payload without a usable column count is a skip, never a guess
+    assert _read_fitted_cols(_FakePage(dims={"rows": 24})) is None
+    assert _read_fitted_cols(_FakePage(dims={"cols": 0, "rows": 24})) is None
+
+
+def test_fitted_cols_reader_asks_the_window_seam_not_the_status_bar() -> None:
+    """The size comes from ``terminal.js``, not from a status-bar readout.
+
+    ``#term-dims`` is gone: the terminal size is a bar ITEM now, so it can be
+    moved, folded into the overflow menu, or removed. Scraping the bar would make
+    the wrap guard depend on a layout choice and go quiet the first time an
+    operator's saved layout dropped the item.
+    """
+    page = _FakePage(dims={"cols": 96, "rows": 24})
+    assert _read_fitted_cols(page) == 96
+    asked = " ".join(page.scripts)
+    assert TERMINAL_DIMS_SEAM in asked
+    assert "term-dims" not in asked
+
+
+def test_terminal_js_publishes_the_window_seam() -> None:
+    """The JS side of the seam exists, under the exact name this module reads.
+
+    The two halves live in different languages and neither import nor type-check
+    the other, so a rename in ``terminal.js`` would otherwise surface only as a
+    wrap guard that had quietly stopped guarding.
+    """
+    terminal_js = (
+        Path(__file__).resolve().parents[2]
+        / "src/osprey/interfaces/web_terminal/static/js/terminal.js"
+    )
+    source = terminal_js.read_text(encoding="utf-8")
+    assert TERMINAL_DIMS_SEAM.removeprefix("window.") in source
+    assert "getTerminalDimensions" in source
 
 
 def test_capture_plot_artifact_id_is_seeded(tmp_path: Path) -> None:

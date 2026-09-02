@@ -119,8 +119,17 @@ def _launch_web_terminal(tmp_path, monkeypatch) -> Iterator[str]:
             yield base_url
 
 
+#: Seeded into every page before load: marks the onboarding tour as already
+#: dismissed. Under the default `once` policy the invite card (scrim + modal)
+#: would otherwise overlay the shell on the fresh profile these tests run
+#: under and intercept the drawer clicks they drive. The tour has its own
+#: dedicated coverage (tour.test.mjs).
+_DISMISS_TOUR = "try { localStorage.setItem('osprey-tour-dismissed-v1', '1') } catch (e) {}"
+
+
 def _goto(page: Page, base_url: str) -> None:
-    """Navigate to the hub."""
+    """Navigate to the hub, with the tour invite already dismissed."""
+    page.add_init_script(_DISMISS_TOUR)
     page.goto(base_url, wait_until="domcontentloaded")
 
 

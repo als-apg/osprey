@@ -10,6 +10,7 @@ import asyncio
 import logging
 import threading
 import time
+from collections.abc import Sequence
 from pathlib import Path, PurePath
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
@@ -97,8 +98,12 @@ def filesystem_is_case_insensitive(directory: Path) -> bool:
         return False
 
 
-def resolve_store_rel(feedback_dir: Path, workspace_dir: Path) -> PurePath | None:
-    """Workspace-relative location of the feedback store, for the watcher.
+def resolve_store_rel(store_dir: Path, workspace_dir: Path) -> PurePath | None:
+    """Workspace-relative location of one server-side store, for the watcher.
+
+    Called once per store the watched tree may contain — the feedback records
+    and the per-user bar layout both land under the agent-data root — and the
+    results are handed to the watcher together as ``concealed``.
 
     ``None`` when the store lies outside the watched tree — the
     ``web_terminal.watch_dir`` case — where the watcher has nothing to conceal.
@@ -114,13 +119,13 @@ def resolve_store_rel(feedback_dir: Path, workspace_dir: Path) -> PurePath | Non
     handler would drop every event and silently black out the file panel.
     There is no meaningful concealment to do in that configuration.
     """
-    if feedback_dir.is_relative_to(workspace_dir):
-        store_rel = feedback_dir.relative_to(workspace_dir)
+    if store_dir.is_relative_to(workspace_dir):
+        store_rel = store_dir.relative_to(workspace_dir)
     else:
         if not filesystem_is_case_insensitive(workspace_dir):
             return None
         workspace_parts = tuple(part.casefold() for part in workspace_dir.parts)
-        store_parts = feedback_dir.parts
+        store_parts = store_dir.parts
         head = tuple(part.casefold() for part in store_parts[: len(workspace_parts)])
         if head != workspace_parts:
             return None
@@ -128,9 +133,9 @@ def resolve_store_rel(feedback_dir: Path, workspace_dir: Path) -> PurePath | Non
 
     if not store_rel.parts:
         logger.warning(
-            "The feedback store (%s) is the watched workspace itself; concealing it "
+            "The store (%s) is the watched workspace itself; concealing it "
             "would drop every file event, so the watcher is left unfiltered",
-            feedback_dir,
+            store_dir,
         )
         return None
     return store_rel
@@ -139,16 +144,24 @@ def resolve_store_rel(feedback_dir: Path, workspace_dir: Path) -> PurePath | Non
 class _WorkspaceHandler(FileSystemEventHandler):
     """Watchdog handler that filters and debounces file events.
 
-    ``feedback_rel`` is the workspace-relative location of the feedback
-    store, or ``None`` when the store lies outside the watched tree (nothing
-    to conceal). Events at or below it are dropped, so filing feedback never
-    announces itself to every connected browser.
+    ``concealed`` holds the workspace-relative location of every server-side
+    store the watched tree contains — the feedback records and the per-user bar
+    layout today — and is empty when they all lie outside it (nothing to
+    conceal). Events at or below any member are dropped, so neither filing
+    feedback nor saving a bar arrangement announces itself to every connected
+    browser.
+
+    A collection rather than one path because the stores are siblings under one
+    agent-data root and grow by addition: each is resolved by
+    :func:`resolve_store_rel` and the results are passed here together.
 
     The check is deliberately anchored at the workspace root and compares
     whole path segments: a ``sessions/<id>/feedback/`` directory elsewhere in
     the tree is ordinary workspace content and still broadcasts. That is also
-    why the store is not spelled into ``_IGNORE_PATTERNS``, which matches any
-    segment at any depth.
+    why the stores are not spelled into ``_IGNORE_PATTERNS``, which matches any
+    segment at any depth. A member with no segments — a store that *is* the
+    watched tree — is discarded rather than honoured: every path trivially
+    starts with it, so it would black out the file panel entirely.
 
     On a case-insensitive filesystem those segments are compared case-folded,
     probed once here at construction. ``mkdir(exist_ok=True)`` against
@@ -164,15 +177,15 @@ class _WorkspaceHandler(FileSystemEventHandler):
         workspace_dir: Path,
         broadcaster: FileEventBroadcaster,
         *,
-        feedback_rel: PurePath | None = None,
+        concealed: Sequence[PurePath] = (),
     ) -> None:
         self._workspace_dir = workspace_dir
         self._broadcaster = broadcaster
-        self._feedback_rel = feedback_rel
-        self._fold_case = feedback_rel is not None and filesystem_is_case_insensitive(workspace_dir)
-        store_parts = feedback_rel.parts if feedback_rel is not None else ()
-        self._store_parts = (
-            tuple(part.casefold() for part in store_parts) if self._fold_case else store_parts
+        self._concealed = tuple(rel for rel in concealed if rel.parts)
+        self._fold_case = bool(self._concealed) and filesystem_is_case_insensitive(workspace_dir)
+        self._concealed_parts = tuple(
+            tuple(part.casefold() for part in rel.parts) if self._fold_case else rel.parts
+            for rel in self._concealed
         )
         self._last_event: dict[str, float] = {}
         self._debounce_seconds = 0.1
@@ -211,13 +224,14 @@ class _WorkspaceHandler(FileSystemEventHandler):
         except ValueError:
             return
 
-        # Conceal the feedback store: drop the event rather than broadcast it.
-        if self._feedback_rel is not None:
-            head = relative.parts[: len(self._store_parts)]
+        # Conceal the server-side stores: drop the event rather than broadcast it.
+        if self._concealed_parts:
+            parts = relative.parts
             if self._fold_case:
-                head = tuple(part.casefold() for part in head)
-            if head == self._store_parts:
-                return
+                parts = tuple(part.casefold() for part in parts)
+            for store_parts in self._concealed_parts:
+                if parts[: len(store_parts)] == store_parts:
+                    return
 
         self._broadcaster.broadcast(
             {
@@ -231,9 +245,9 @@ class _WorkspaceHandler(FileSystemEventHandler):
 class WorkspaceWatcher:
     """Watches a workspace directory for file changes using watchdog.
 
-    ``feedback_rel`` is passed through to the handler: the workspace-relative
-    path of the feedback store, whose events are dropped, or ``None`` when
-    the store sits outside the watched tree and nothing needs concealing.
+    ``concealed`` is passed through to the handler: the workspace-relative
+    paths of the server-side stores whose events are dropped, empty when they
+    all sit outside the watched tree and nothing needs concealing.
     """
 
     def __init__(
@@ -241,11 +255,11 @@ class WorkspaceWatcher:
         workspace_dir: Path,
         broadcaster: FileEventBroadcaster,
         *,
-        feedback_rel: PurePath | None = None,
+        concealed: Sequence[PurePath] = (),
     ) -> None:
         self._workspace_dir = workspace_dir
         self._broadcaster = broadcaster
-        self._feedback_rel = feedback_rel
+        self._concealed = tuple(concealed)
         self._observer: Observer | None = None
 
     def start(self) -> None:
@@ -254,7 +268,7 @@ class WorkspaceWatcher:
             self._workspace_dir.mkdir(parents=True, exist_ok=True)
 
         handler = _WorkspaceHandler(
-            self._workspace_dir, self._broadcaster, feedback_rel=self._feedback_rel
+            self._workspace_dir, self._broadcaster, concealed=self._concealed
         )
         self._observer = Observer()
         self._observer.schedule(handler, str(self._workspace_dir), recursive=True)

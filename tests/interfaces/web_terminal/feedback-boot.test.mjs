@@ -73,18 +73,55 @@ function railRegionMarkup() {
 }
 
 /**
- * The `<footer class="status-bar">…</footer>` element, verbatim. The status bar
- * nests no further footer, so the first closing tag is the matching one.
+ * One branch of the template's `bar_body(type)` macro — the body an ADOPTED
+ * bar item renders, sliced from the shipped source rather than retyped.
+ *
+ * Only branches that are plain markup can be sliced this way, which the guard
+ * below states: a branch that grows a Jinja conditional has to be rendered,
+ * not read, and this helper must fail loudly rather than paste `{% if %}` into
+ * the fixture.
+ *
+ * @param {string} type
+ * @returns {string}
+ */
+function barBodyMarkup(type) {
+  const open = `{%- elif type == '${type}' -%}`;
+  const start = indexHtml.indexOf(open);
+  expect(start, `bar_body() has no '${type}' branch`).toBeGreaterThan(-1);
+  const rest = indexHtml.slice(start + open.length);
+  const end = rest.search(/\{%-?\s*(?:elif|endif)\b/);
+  expect(end, `unterminated '${type}' branch in bar_body()`).toBeGreaterThan(-1);
+  const body = rest.slice(0, end);
+  expect(body, `'${type}' branch is not plain markup`).not.toMatch(/\{[%{]/);
+  return body;
+}
+
+/**
+ * The status bar as the server renders it for this suite.
+ *
+ * The bar is a bar-item HOST now: the template emits its items from the
+ * effective layout, so the footer's own source is a Jinja loop and cannot be
+ * sliced out whole. What IS shipped markup — the footer's opening tag with
+ * whatever host attributes it carries, and the docs link's body — is read from
+ * index.html; only the `.bar-item` shell between them is composed here, in the
+ * shape app.py's render plan emits (see test_bar_items_ssr.py, which pins that
+ * shape against the server).
+ *
+ * Matched on a PREFIX deliberately: these tests care that the docs link boots,
+ * not which host attributes the bar grew this release.
  *
  * @returns {string}
  */
 function statusBarMarkup() {
-  const open = '<footer class="status-bar">';
-  const start = indexHtml.indexOf(open);
-  expect(start, 'index.html has no .status-bar footer').toBeGreaterThan(-1);
-  const end = indexHtml.indexOf('</footer>', start);
-  expect(end, 'unterminated .status-bar footer').toBeGreaterThan(-1);
-  return indexHtml.slice(start, end + '</footer>'.length);
+  const openTag = /<footer class="status-bar"[^>]*>/.exec(indexHtml);
+  expect(openTag, 'index.html has no .status-bar footer').not.toBeNull();
+  expect(openTag?.[0], 'status-bar tag is not plain markup').not.toMatch(/\{[%{]/);
+  const docs = barBodyMarkup('docs');
+  return (
+    `${openTag?.[0]}` +
+    `<div class="bar-item" data-bar-item="docs">${docs}</div>` +
+    `</footer>`
+  );
 }
 
 /** A `Response` slice with a JSON body, as the transport reads it. */

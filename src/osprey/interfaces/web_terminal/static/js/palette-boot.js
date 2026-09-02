@@ -38,6 +38,7 @@ import { startNewSession } from './sessions.js';
 import { setRailPosition } from './rail-position.js';
 import { startTour } from './tour.js';
 import { openPalette, closePalette, isOpen } from './palette.js';
+import { enterEditMode } from './bar-customize.js';
 import { isFeedbackModalOpen } from './feedback-modal.js';
 
 /** True on macOS/iPadOS, where the palette hotkey is Cmd+K instead of Ctrl+K. */
@@ -102,6 +103,15 @@ function buildPaletteDeps() {
     label: `Switch to ${simple ? 'Expert' : 'Simple'} mode`,
     run: () => document.querySelector(`osprey-display-menu .display-menu-view .display-seg-option[data-mode="${otherMode}"]`)?.dispatchEvent(new MouseEvent('click', { bubbles: true })),
   });
+
+  // Rearranging the bars is one of the three Expert-only entry points (the
+  // other two are a right-click on either bar and the display menu's projected
+  // row). The saved arrangement still RENDERS in simple mode — the bars are the
+  // operator's chrome, not the mode's — so what is withheld here is the way to
+  // change it, not the thing itself.
+  if (!simple) {
+    actions.push({ label: 'Customize bars', run: () => enterEditMode() });
+  }
 
   // Both rail directions are always offered (the palette is searched, not
   // browsed) — flipping to the current position is a harmless no-op.

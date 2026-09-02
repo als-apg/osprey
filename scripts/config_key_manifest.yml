@@ -1416,6 +1416,23 @@ keys:
       sessions, handed to the OperatorRegistry alongside the idle timeout;
       default 5. Third of the trio, same lifespan block and same `\s*` rule as
       `web.chat_turn_timeout_s`.
+  web.bar_items:
+    rendered: false
+    evidence: '_load_web_ui_config\(\s*config_path\s*\)\.get\(\s*"bar_items"\s*\)'
+    note: >-
+      `rendered: false` because the project template carries it COMMENTED and
+      the other four templates not at all — the shipped bars are the default,
+      so there is nothing for a template to render live. The deployment's
+      default arrangement of the web terminal's two item hosts (header and
+      status bar), with four sub-keys — header, status, status_visible,
+      locked. The whole block is unpacked by one reader,
+      `_load_bar_items()` in the web terminal's app factory, so the evidence
+      anchors on that single read and the sub-keys carry no entries of their
+      own: they are documented in a code block in
+      reference/configuration/config.rst rather than as inline literals,
+      which is what keeps them out of the docs cross-check. The `\s*` between
+      the call's parts is load-bearing for the same reason `web.app_name`
+      carries it — the formatter wraps a call across lines on length alone.
   cli: {evidence: 'get_config_value\("cli\.theme", "default", config_path\)'}
   cli.theme: {evidence: 'get_config_value\("cli\.theme", "default", config_path\)'}
 
