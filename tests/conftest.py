@@ -694,6 +694,24 @@ def _has_any_provider_api_key() -> bool:
     )
 
 
+def _has_openai_api_key() -> bool:
+    import os as _os
+
+    return bool(_os.environ.get("OPENAI_API_KEY"))
+
+
+def _has_google_api_key() -> bool:
+    import os as _os
+
+    return bool(_os.environ.get("GOOGLE_API_KEY"))
+
+
+def _has_cborg_api_key() -> bool:
+    import os as _os
+
+    return bool(_os.environ.get("CBORG_API_KEY"))
+
+
 def _is_ollama_available() -> bool:
     """True if a local Ollama server responds at localhost:11434."""
     try:
@@ -713,6 +731,9 @@ _RESOURCE_CHECKS: dict[str, tuple[callable, str]] = {
         "AMSC_I2_API_KEY / ANTHROPIC_API_KEY)",
     ),
     "requires_ollama": (_is_ollama_available, "Ollama not reachable at localhost:11434"),
+    "requires_openai": (_has_openai_api_key, "OPENAI_API_KEY not set"),
+    "requires_google": (_has_google_api_key, "GOOGLE_API_KEY not set"),
+    "requires_cborg": (_has_cborg_api_key, "CBORG_API_KEY not set"),
 }
 
 
