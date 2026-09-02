@@ -518,14 +518,19 @@
   <section id="plans-and-the-queue">
 <h1>Plans and the Queue<a class="headerlink" href="#plans-and-the-queue" title="Link to this heading">#</a></h1>
 <p>Three sentences carry everything on this page. Plans live in a <strong>queue
-server</strong> that survives restarts — not in the agent, not in the panels. Adding
-a plan to the queue and starting the queue are <strong>two separate, deliberate
-steps</strong>, and only starting is guarded. <strong>Stopping is never locked</strong> — no
-token, no switch, no state can take the stop and abort buttons away.</p>
+server</strong> that survives restarts — not in the agent, not in the panels. The
+queue is either <strong>armed</strong> — a plan you add runs at once, and so does every
+plan added after it — or <strong>stopped</strong>, where plans wait until someone starts
+it; sending a plan toward the machine is the guarded step, whichever click
+does it. <strong>Stopping is never locked</strong> — no token, no switch, no state can
+take the stop and abort buttons away.</p>
+<p>A project built from the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset comes up armed
+(<code class="docutils literal notranslate"><span class="pre">bluesky.queue_autostart</span></code>), so the everyday flow is one click: <strong>Run</strong>.
+Stop or Abort leaves the queue stopped until the next <strong>Start</strong>.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 240" role="img" aria-labelledby="bluesky-queue-title bluesky-queue-desc">
   <title id="bluesky-queue-title">Scans and the queue</title>
-  <desc id="bluesky-queue-desc">A shared draft is added to the durable, ordered queue; starting the queue is the armed, deliberate step that sends plans to the machine one at a time, while stop and abort remain available in every state.</desc>
+  <desc id="bluesky-queue-desc">A shared draft is added to the durable, ordered queue; an armed queue sends plans to the machine one at a time, and starting a stopped queue is the armed step that makes it so, while stop and abort remain available in every state.</desc>
   <defs>
     <marker id="bluesky-queue-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -567,18 +572,29 @@ work in.</p>
 <input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-0">
 Panels</label><div class="sd-tab-content docutils">
-<p>The <strong>PLAN</strong> tab composes; the <strong>BLUESKY</strong> tab runs and watches.</p>
+<p>The <strong>PLAN</strong> tab composes; the <strong>BLUESKY</strong> tab runs and watches. A
+badge in BLUESKY’s status strip names the queue’s state on every tab —
+<em>ready</em>, <em>running</em>, <em>stopped</em>, <em>stopping after current</em> — and a <strong>?</strong>
+beside it explains the buttons.</p>
 <ul class="simple">
-<li><p><strong>Add to queue</strong> (PLAN) — queues exactly the draft on your screen,
-after a confirming click. Nothing moves.</p></li>
-<li><p><strong>Start queue</strong> (BLUESKY) — one click; drains every queued item, in
-order.</p></li>
-<li><p><strong>Stop after current item</strong> and <strong>Abort running plan</strong> (BLUESKY) —
-never disabled, and on screen whenever the queue runs or its state
-is in doubt; a provably idle queue folds them behind <strong>Queue
-controls</strong>. Abort asks for a second, confirming click.</p></li>
+<li><p><strong>Run</strong> (PLAN) — on an armed queue, queues exactly the draft on your
+screen after a confirming click, and it runs now. On a stopped queue
+the same button reads <strong>Add to queue</strong>: the plan waits.</p></li>
+<li><p><strong>Start</strong> (BLUESKY, Queue tab) — arms a stopped queue: it runs
+everything waiting, in order, and whatever is added later.</p></li>
+<li><p><strong>Stop</strong> and <strong>Abort</strong> (BLUESKY) — never disabled. Stop lets the
+current plan finish; Abort stops it right now, after a second,
+confirming click. Both leave the queue stopped. They sit on the Queue
+tab always, quiet while nothing moves, and appear on the other tabs
+whenever a plan is moving or the state is in doubt.</p></li>
+<li><p><strong>Clear</strong> (BLUESKY, Queue tab) — drops every waiting plan, after a
+confirming click. The running plan is Abort’s.</p></li>
 <li><p>Every queued row has reorder (↑ ↓) and remove (✕) buttons — the queue
 is editable right up until it runs.</p></li>
+<li><p><strong>History</strong> lists finished runs. Each row’s ✕ removes that run from
+the list, and the card’s <strong>Clear</strong> removes them all after a
+confirming click; the Results view offers <strong>Remove from history</strong> for
+the run on screen. Run data is kept — see <em>Where the data lives</em>.</p></li>
 <li><p>A <strong>Simple mode</strong> hides the expert details and leaves the essentials:
 the form, the queue, the results, and the halts.</p></li>
 </ul>
@@ -593,7 +609,8 @@ small set of tools:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">get_draft</span></code> / <code class="docutils literal notranslate"><span class="pre">set_draft</span></code> — compose the shared draft you see in
 BLUESKY’s Plans view.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">queue_add</span></code> / <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> — the two steps. Both ask for your
+<li><p><code class="docutils literal notranslate"><span class="pre">queue_add</span></code> — queues the pinned draft; on an armed queue that runs
+it. <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> — arms a stopped queue. Both ask for your
 approval, and both are switched off entirely while the project’s
 control-system writes are disabled.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">queue_stop</span></code> / <code class="docutils literal notranslate"><span class="pre">stop_run</span></code> — the two halts. Never switched off.</p></li>
@@ -610,13 +627,17 @@ flow, so you rarely need to name a tool yourself.</p>
 HTTP API</label><div class="sd-tab-content docutils">
 <p>The panels and the agent both talk to the <strong>Bluesky bridge</strong>, and your
 own tooling can too:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>POST /queue/items          add the current draft revision
-POST /queue/start          start draining (needs the launch token)
-POST /queue/stop           stop after the running item
-POST /queue/abort          abort the running plan — never gated
-GET  /queue                what is queued and running
-GET  /runs                 recent runs; /runs/&lt;id&gt;/data for the numbers,
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>POST   /queue/items        add the current draft revision (runs at once
+                           on an armed queue — then needs the launch token)
+POST   /queue/start        arm the queue (needs the launch token)
+POST   /queue/stop         stop after the running item, and disarm
+POST   /queue/abort        abort the running plan, and disarm — never gated
+DELETE /queue/items        drop every waiting item
+GET    /queue              what is queued and running
+GET    /runs               recent runs; /runs/&lt;id&gt;/data for the numbers,
                            /runs/&lt;id&gt;/figure for the plotted view
+DELETE /runs/&lt;id&gt;          remove one finished run from the list
+DELETE /history            remove every finished run from the list
 </pre></div>
 </div>
 <p>Every refusal comes back with a <code class="docutils literal notranslate"><span class="pre">detail</span></code> object of the form
@@ -658,15 +679,15 @@ exactly the operations that send work toward hardware.</p>
 <tr class="row-even"><td><p class="sd-card-text">Compose or edit the shared draft</p></td>
 <td><p class="sd-card-text">Nothing — composing never touches hardware.</p></td>
 </tr>
-<tr class="row-odd"><td><p class="sd-card-text">Add to an <strong>idle</strong> queue</p></td>
-<td><p class="sd-card-text">Nothing — the item just waits. (One exception: a queue server
-configured to start itself — never OSPREY’s setup — makes every
-add an armed one.)</p></td>
+<tr class="row-odd"><td><p class="sd-card-text">Add to a <strong>stopped</strong> queue</p></td>
+<td><p class="sd-card-text">Nothing — the item just waits.</p></td>
 </tr>
-<tr class="row-even"><td><p class="sd-card-text">Add while the queue is <strong>running</strong></p></td>
-<td><p class="sd-card-text">The launch token — this hands work straight to a moving machine.</p></td>
+<tr class="row-even"><td><p class="sd-card-text">Add to an <strong>armed</strong> or <strong>running</strong> queue</p></td>
+<td><p class="sd-card-text">The launch token — this hands work straight to the machine. On the
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset the queue is armed by default, so this
+is the everyday case.</p></td>
 </tr>
-<tr class="row-odd"><td><p class="sd-card-text">Start the queue</p></td>
+<tr class="row-odd"><td><p class="sd-card-text">Start (arm) the queue</p></td>
 <td><p class="sd-card-text">The launch token.</p></td>
 </tr>
 <tr class="row-even"><td><p class="sd-card-text">Stop the queue / abort the running plan</p></td>
@@ -696,13 +717,13 @@ for the live one. Where it is granted, the agent’s
 <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> arms the queue itself, and your approval of that tool call
 is the arming decision. Where it is not, <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> is refused with
 <code class="docutils literal notranslate"><span class="pre">launch_token_required</span></code> and the start stays with you, from the BLUESKY
-queue panel’s own <strong>Start queue</strong> button.</p>
+queue panel’s own <strong>Start</strong> button.</p>
 <p class="sd-card-text">On a two-lane deployment the BLUESKY panel carries a <strong>lane picker</strong> in its
 status strip, labelled by the machine each lane drives. The panel is bound
 to one lane at a time — plans, shared draft, queue and results all follow
-the picked lane, and its Start queue button arms with that lane’s own
-token — so what you see and what a click starts can never belong to two
-different machines.</p>
+the picked lane, and its Start button arms with that lane’s own token —
+so what you see and what a click starts can never belong to two different
+machines.</p>
 </div>
 </details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
@@ -760,6 +781,10 @@ bridge restart changes nothing about what is queued. The one gap: live
 rows of a run that is happening <em>during</em> a bridge restart are missing
 from the live view until the next run starts — the run itself keeps
 going and its data still lands in Tiled.</p></li>
+<li><p class="sd-card-text"><strong>Removing a run from History</strong> forgets the list entry, not the data.
+Clearing the history clears the queue server’s own record; removing one
+run hides it from OSPREY’s list — the panel and the agent alike — and the
+bridge remembers that across its own restarts.</p></li>
 </ul>
 </div>
 </details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
@@ -775,7 +800,9 @@ preset’s default control system), and — when enabled — <strong>Tiled</stro
 time and stored in the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>.</p>
 <p class="sd-card-text">The build profile’s <code class="docutils literal notranslate"><span class="pre">bluesky:</span></code> block can pin those ports, and sets the
 Tiled store, which plans the catalog carries, and the device file plans may
-drive or record — see <a class="reference internal" href="../../reference/configuration/profile.html"><span class="doc">Build Profile — profile.yml</span></a>.</p>
+drive or record — see <a class="reference internal" href="../../reference/configuration/profile.html"><span class="doc">Build Profile — profile.yml</span></a>. Whether the
+queue comes up armed is <code class="docutils literal notranslate"><span class="pre">bluesky.queue_autostart</span></code>: on in the
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset, off unless a deployment says so.</p>
 <p class="sd-card-text">Whether a deployment can execute plans at all is decided by its control
 system: <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> and <code class="docutils literal notranslate"><span class="pre">epics</span></code> can, <code class="docutils literal notranslate"><span class="pre">mock</span></code> is
 browse-only. The panels and the agent both surface this as a capability

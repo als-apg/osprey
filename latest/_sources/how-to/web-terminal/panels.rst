@@ -127,20 +127,19 @@ The Bluesky panel
 
 One tab covers a plan end to end, served by the ``bluesky-web`` sidecar.
 **BLUESKY** (``/bluesky/``) has three views, and the queue's state stays on
-screen across all three — with **Stop after current item** and **Abort
-running plan** beside it whenever the queue is running or its state is in
-doubt (a provably idle queue folds the two behind a **Queue controls**
-disclosure):
+screen across all three as a badge in the status strip — with **Stop** and
+**Abort** beside it whenever a plan is moving or the state is in doubt:
 
 **Plans** is where a plan is composed. It binds to the same shared draft the
 OSPREY agent edits, so a field the agent sets glows in the form as it lands,
-and a field you change by hand flows back to the agent. **Add to queue** puts
-the exact revision on screen into the plan queue.
+and a field you change by hand flows back to the agent. **Run** puts the
+exact revision on screen into the plan queue, and on an armed queue that runs
+it at once; on a stopped queue the button reads **Add to queue**.
 
-**Queue** lists what the queue server is holding, with **Start queue** and the
-reorder/remove controls, plus the runs that have finished. Picking any run
-opens it under Results. :doc:`/how-to/bluesky/queue` covers what those controls
-do.
+**Queue** is the control panel: **Start**, **Stop**, **Abort** and **Clear**
+in the strip, the waiting plans with their reorder/remove controls, and the
+runs that have finished, each removable. Picking any run opens it under
+Results. :doc:`/how-to/bluesky/queue` covers what those controls do.
 
 **Results** shows the selected run's record and its live figure, with the raw
 data table collapsed underneath and a one-click CSV export.

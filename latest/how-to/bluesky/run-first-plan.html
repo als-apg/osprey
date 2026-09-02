@@ -518,7 +518,7 @@
   <section id="run-your-first-plan">
 <h1>Run Your First Plan<a class="headerlink" href="#run-your-first-plan" title="Link to this heading">#</a></h1>
 <p>Ask the agent for a plan in plain words, watch the form fill itself in, press
-two buttons, and watch the points land — all against the Virtual Accelerator,
+one button, and watch the points land — all against the Virtual Accelerator,
 a simulated machine, so nothing real can move.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
@@ -526,7 +526,7 @@ a simulated machine, so nothing real can move.</p>
 <ul class="simple">
 <li><p class="sd-card-text">Asking for a grid scan the way an operator would say it</p></li>
 <li><p class="sd-card-text">Reviewing and adjusting the plan in the <strong>PLAN</strong> panel</p></li>
-<li><p class="sd-card-text">Why running takes two clicks — <strong>Add to queue</strong>, then <strong>Start queue</strong></p></li>
+<li><p class="sd-card-text">What <strong>Run</strong> does, and when it reads <strong>Add to queue</strong> instead</p></li>
 <li><p class="sd-card-text">Where the results appear, and how to stop a plan at any moment</p></li>
 </ul>
 <p class="sd-card-text"><strong>Prerequisites:</strong> the Control Assistant tutorial project
@@ -559,26 +559,33 @@ because there is only one draft. That also means the <strong>Discard shared draf
 button deletes it for everyone — the agent included — so save it for a real
 fresh start.</p>
 </section>
-<section id="step-3-add-it-to-the-queue">
-<h2>Step 3: Add it to the queue<a class="headerlink" href="#step-3-add-it-to-the-queue" title="Link to this heading">#</a></h2>
-<p>Click <strong>Add to queue</strong>, then confirm. This puts <em>exactly the plan on your
-screen</em> into the plan queue — if anyone changed the draft in the meantime,
-the panel refuses and shows you the current version to review instead.</p>
-<p>Nothing is running yet. The plan just got in line — and the panel offers an
-<strong>Open BLUESKY</strong> button that takes you straight to it.</p>
-</section>
-<section id="step-4-start-the-queue">
-<h2>Step 4: Start the queue<a class="headerlink" href="#step-4-start-the-queue" title="Link to this heading">#</a></h2>
-<p>Click that button, or switch to the <strong>BLUESKY</strong> tab. Your plan is listed under <strong>Queue</strong>. Click
-<strong>Start queue</strong> — <em>this</em> is the moment things move, and it runs everything in
-the queue, in order, not only your item. Glance at the list before you click.</p>
+<section id="step-3-run-it">
+<h2>Step 3: Run it<a class="headerlink" href="#step-3-run-it" title="Link to this heading">#</a></h2>
+<p>Click <strong>Run</strong>, then confirm. This puts <em>exactly the plan on your screen</em> into
+the plan queue — if anyone changed the draft in the meantime, the panel
+refuses and shows you the current version to review instead — and, because
+the tutorial project’s queue comes up armed, the plan starts right away. A
+line under the button says so: <em>Runs now.</em> The panel offers an <strong>Open
+BLUESKY</strong> button that takes you straight to it.</p>
+<p>If the button reads <strong>Add to queue</strong> instead, the queue is stopped — someone
+pressed Stop or Abort earlier — and your plan waits in line. Switch to the
+<strong>BLUESKY</strong> tab and press <strong>Start</strong> there: it runs everything in the queue,
+in order, not only your item, so glance at the list first.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Starting is the guarded step. On a deployment that has not been armed for
-execution, the start is refused with a plain-language explanation in the
-panel — composing and queueing stay free precisely because starting is
-not. <a class="reference internal" href="queue.html"><span class="doc">Plans and the Queue</span></a> explains what “armed” means here.</p>
+<p>Sending a plan toward the machine is the guarded step, whichever button
+does it. On a deployment that has not been armed for execution, the run is
+refused with a plain-language explanation in the panel — composing stays
+free precisely because running is not. <a class="reference internal" href="queue.html"><span class="doc">Plans and the Queue</span></a> explains what “armed”
+means here.</p>
 </div>
+</section>
+<section id="step-4-follow-it">
+<h2>Step 4: Follow it<a class="headerlink" href="#step-4-follow-it" title="Link to this heading">#</a></h2>
+<p>On the <strong>BLUESKY</strong> tab the badge in the status strip reads <em>running</em>, and
+the plan sits at the top of the <strong>Queue</strong> view with its progress. When it
+finishes it moves to <strong>History</strong> below, and the badge reads <em>ready</em> again:
+the queue is still armed, and the next plan you run goes straight through.</p>
 </section>
 <section id="step-5-watch-the-results">
 <h2>Step 5: Watch the results<a class="headerlink" href="#step-5-watch-the-results" title="Link to this heading">#</a></h2>
@@ -617,15 +624,14 @@ have on screen, so you are both describing one picture rather than two.</p>
 <section id="if-you-need-to-stop">
 <h2>If you need to stop<a class="headerlink" href="#if-you-need-to-stop" title="Link to this heading">#</a></h2>
 <p>Two buttons on the BLUESKY tab, and they always work — no permission, no
-token, no switch can disable them. Whenever anything runs (or the panel
-cannot tell), both sit in the strip at the top; only a provably idle queue
-folds them behind the <strong>Queue controls</strong> disclosure there:</p>
+token, no switch can disable them. They sit in the strip at the top: on the
+Queue tab always, and on every tab whenever anything runs or the panel cannot
+tell. Both leave the queue stopped, so the next plan waits until <strong>Start</strong>.</p>
 <ul class="simple">
-<li><p><strong>Stop after current item</strong> — gentle. The running plan finishes, then the
-queue stops.</p></li>
-<li><p><strong>Abort running plan</strong> — immediate. It takes a second, confirming click,
-because its cost is real: the rest of the plan is discarded, and the data
-already taken is kept. Whether the hardware comes back is the plan’s own
+<li><p><strong>Stop</strong> — gentle. The running plan finishes, then the queue stops.</p></li>
+<li><p><strong>Abort</strong> — immediate. It takes a second, confirming click, because its
+cost is real: the rest of the plan is discarded, and the data already
+taken is kept. Whether the hardware comes back is the plan’s own
 business — <code class="docutils literal notranslate"><span class="pre">orm</span></code> and <code class="docutils literal notranslate"><span class="pre">orbit_bump_sweep</span></code> put their correctors back on
 every exit path, an abort included, while a plan that makes no such promise
 leaves the machine <strong>wherever the plan left it</strong> — nothing is driven back
@@ -638,17 +644,19 @@ to a starting position.</p></li>
 <li><p class="sd-card-text">The draft you watched lives on the <strong>Bluesky bridge</strong>, a small service in
 your project. The agent edits it with its drafting tools; the Plans view
 is a live view of the same object.</p></li>
-<li><p class="sd-card-text"><strong>Add to queue</strong> pinned the exact draft revision you saw. A revision can
-be queued only once, so a double-click cannot queue a duplicate.</p></li>
+<li><p class="sd-card-text"><strong>Run</strong> pinned the exact draft revision you saw. A revision can be
+queued only once, so a double-click cannot queue a duplicate.</p></li>
 <li><p class="sd-card-text">The queue itself is held by a dedicated <strong>queue server</strong> — a separate
 process with its own copy of the devices. That is why the queue survives
-restarts of everything around it.</p></li>
-<li><p class="sd-card-text"><strong>Start queue</strong> is checked against a <strong>launch token</strong> the deployment
-holds. Whether the agent holds one too is the deployment’s choice: where
-it grants the token, asking the agent to start a plan starts the plan —
-your approval of that one tool call is the decision. Where it does not,
-the agent’s start is refused and it tells you so; you start it from the
-queue panel yourself. For the agent, starting is additionally switched
+restarts of everything around it. The tutorial project brings it up
+armed (<code class="docutils literal notranslate"><span class="pre">bluesky.queue_autostart</span></code>), which is why one click ran the plan.</p></li>
+<li><p class="sd-card-text">Sending a plan toward the machine — <strong>Run</strong> on an armed queue, or
+<strong>Start</strong> on a stopped one — is checked against a <strong>launch token</strong> the
+deployment holds. Whether the agent holds one too is the deployment’s
+choice: where it grants the token, asking the agent to run a plan runs
+the plan — your approval of that one tool call is the decision. Where it
+does not, the agent’s request is refused and it tells you so; you run it
+from the panel yourself. For the agent, running is additionally switched
 off entirely whenever the project’s control-system writes are disabled.</p></li>
 </ul>
 </div>
@@ -662,7 +670,7 @@ refuses to hold them. The banner names the exact command that switches
 to the Virtual Accelerator; see
 <a class="reference internal" href="../control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p>
 </dd>
-<dt><strong>Start queue is refused.</strong></dt><dd><p class="sd-card-text">The refusal in the panel says why, in a sentence. The common causes: the
+<dt><strong>Run or Start is refused.</strong></dt><dd><p class="sd-card-text">The refusal in the panel says why, in a sentence. The common causes: the
 deployment is not armed (no launch token), the queue still holds a plan
 someone stopped earlier (remove it first — see <a class="reference internal" href="queue.html"><span class="doc">Plans and the Queue</span></a>), or the
 queue server is still starting up (wait a moment and try again).</p>
@@ -735,8 +743,8 @@ happens after an emergency stop.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-1-ask">Step 1: Ask</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-2-watch-it-fill">Step 2: Watch it fill</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-add-it-to-the-queue">Step 3: Add it to the queue</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-4-start-the-queue">Step 4: Start the queue</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-run-it">Step 3: Run it</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-4-follow-it">Step 4: Follow it</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-5-watch-the-results">Step 5: Watch the results</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#if-you-need-to-stop">If you need to stop</a></li>
 </ul>

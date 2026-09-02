@@ -624,18 +624,17 @@ callers that way cannot be driven as a panel, themed or not.</p></li>
 <h2>The Bluesky panel<a class="headerlink" href="#the-bluesky-panel" title="Link to this heading">#</a></h2>
 <p>One tab covers a plan end to end, served by the <code class="docutils literal notranslate"><span class="pre">bluesky-web</span></code> sidecar.
 <strong>BLUESKY</strong> (<code class="docutils literal notranslate"><span class="pre">/bluesky/</span></code>) has three views, and the queue’s state stays on
-screen across all three — with <strong>Stop after current item</strong> and <strong>Abort
-running plan</strong> beside it whenever the queue is running or its state is in
-doubt (a provably idle queue folds the two behind a <strong>Queue controls</strong>
-disclosure):</p>
+screen across all three as a badge in the status strip — with <strong>Stop</strong> and
+<strong>Abort</strong> beside it whenever a plan is moving or the state is in doubt:</p>
 <p><strong>Plans</strong> is where a plan is composed. It binds to the same shared draft the
 OSPREY agent edits, so a field the agent sets glows in the form as it lands,
-and a field you change by hand flows back to the agent. <strong>Add to queue</strong> puts
-the exact revision on screen into the plan queue.</p>
-<p><strong>Queue</strong> lists what the queue server is holding, with <strong>Start queue</strong> and the
-reorder/remove controls, plus the runs that have finished. Picking any run
-opens it under Results. <a class="reference internal" href="../bluesky/queue.html"><span class="doc">Plans and the Queue</span></a> covers what those controls
-do.</p>
+and a field you change by hand flows back to the agent. <strong>Run</strong> puts the
+exact revision on screen into the plan queue, and on an armed queue that runs
+it at once; on a stopped queue the button reads <strong>Add to queue</strong>.</p>
+<p><strong>Queue</strong> is the control panel: <strong>Start</strong>, <strong>Stop</strong>, <strong>Abort</strong> and <strong>Clear</strong>
+in the strip, the waiting plans with their reorder/remove controls, and the
+runs that have finished, each removable. Picking any run opens it under
+Results. <a class="reference internal" href="../bluesky/queue.html"><span class="doc">Plans and the Queue</span></a> covers what those controls do.</p>
 <p><strong>Results</strong> shows the selected run’s record and its live figure, with the raw
 data table collapsed underneath and a one-click CSV export.</p>
 </section>
