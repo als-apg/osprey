@@ -1031,6 +1031,17 @@ your shadowing copy, and the still-selected built-in renders again.</p>
 <code class="docutils literal notranslate"><span class="pre">output_styles</span></code>, <code class="docutils literal notranslate"><span class="pre">web_panels</span></code> and <code class="docutils literal notranslate"><span class="pre">dependencies</span></code>; qualified exclusion
 accepts any convention directory. Excluding something that is not there is a
 silent no-op.</p>
+<p>An excluded <code class="docutils literal notranslate"><span class="pre">web_panels</span></code> entry renders no tab, whatever the persona still
+inherits about that panel under <code class="docutils literal notranslate"><span class="pre">config:</span></code>. <code class="docutils literal notranslate"><span class="pre">exclude:</span></code> never reaches inside
+<code class="docutils literal notranslate"><span class="pre">config:</span></code> — a <code class="docutils literal notranslate"><span class="pre">web.panels.lattice.label</span></code> or a custom panel’s
+<code class="docutils literal notranslate"><span class="pre">web.panels.&lt;id&gt;.url</span></code> the base profile set is still in the persona’s render —
+but <code class="docutils literal notranslate"><span class="pre">web_panels</span></code> is what shows a tab: the build writes <code class="docutils literal notranslate"><span class="pre">enabled</span></code> onto every
+<code class="docutils literal notranslate"><span class="pre">web.panels.&lt;id&gt;</span></code> block a render carries, <code class="docutils literal notranslate"><span class="pre">true</span></code> for a selected panel and
+<code class="docutils literal notranslate"><span class="pre">false</span></code> for any other, and the web terminal, the health probe and the
+credential grants all read that one flag. The facts stay so the Reach Contract
+can keep copying a host’s addresses into the personas that <em>do</em> select the tab.
+A <code class="docutils literal notranslate"><span class="pre">config:</span></code> line that says <code class="docutils literal notranslate"><span class="pre">web.panels.&lt;id&gt;.enabled</span></code> and contradicts the
+selection is refused at validation, as two spellings of one fact disagreeing.</p>
 <p>Excluding a <strong>declared hook</strong> takes one more line: the same delta has to unwire
 it with <code class="docutils literal notranslate"><span class="pre">claude_code.hooks.&lt;Event&gt;:</span> <span class="pre">null</span></code>, or the build refuses the wiring
 that now points at a file the persona dropped. See <a class="reference internal" href="#profile-unwire-hook"><span class="std std-ref">Unwiring a hook in a persona</span></a>.</p>
