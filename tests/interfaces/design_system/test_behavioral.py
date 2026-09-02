@@ -175,8 +175,25 @@ def _hub_live_server(
 # ---------------------------------------------------------------------------
 
 
+#: Seeded before every navigation below: the onboarding tour is already
+#: dismissed. Under the default `once` policy its invite card puts a
+#: `.tour-veil` scrim over the shell on the fresh profile these tests run
+#: under, and that veil intercepts every pointer event — the panel tabs and
+#: the display-menu trigger these tests click included. The tour has its own
+#: coverage (tour.test.mjs); the same seed is carried by the web_terminal
+#: browser suites for the same reason.
+_DISMISS_TOUR = "try { localStorage.setItem('osprey-tour-dismissed-v1', '1') } catch (e) {}"
+
+
 def _open_hub(page: Page, base_url: str, first_tab_id: str = "artifacts") -> None:
-    """Navigate to the hub and wait for its first tab to render."""
+    """Navigate to the hub and wait for its first tab to render.
+
+    The one navigation entry point in this module — ``_goto_with_seeded_theme``
+    goes through it too — so the tour seed belongs here rather than repeated at
+    six call sites. Init scripts outlive a reload, so the theme-seeding reload
+    keeps it.
+    """
+    page.add_init_script(_DISMISS_TOUR)
     page.goto(base_url, wait_until="domcontentloaded")
     expect(page.locator(f'button[data-panel-id="{first_tab_id}"]')).to_be_attached(timeout=10_000)
 
