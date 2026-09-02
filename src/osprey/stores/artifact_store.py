@@ -284,6 +284,16 @@ def _artifact_type_from_mime(mime: str) -> str:
     return "file"
 
 
+EXAMPLE_ORIGIN = "demo"
+"""``origin`` of an artifact shipped with OSPREY rather than produced in a
+run: the example the gallery seeds into an empty workspace. Listed by the
+gallery, hidden from every agent-facing listing (``exclude_examples``)."""
+
+EXAMPLE_REMOVED_SENTINEL = ".example-removed"
+"""File in the artifact directory written when an example is deleted, so no
+later launch seeds it again. Removing the file brings the example back."""
+
+
 class ArtifactStore(BaseStore[ArtifactEntry]):
     """Manages artifact files and the artifacts.json index."""
 
@@ -315,6 +325,15 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
     def artifact_dir(self) -> Path:
         return self._store_dir
 
+    @property
+    def example_removed(self) -> bool:
+        """Whether someone deleted the shipped example from this store."""
+        return (self._store_dir / EXAMPLE_REMOVED_SENTINEL).exists()
+
+    def _mark_example_removed(self) -> None:
+        with suppress(OSError):
+            (self._store_dir / EXAMPLE_REMOVED_SENTINEL).touch()
+
     # ---- public API --------------------------------------------------------
 
     def save_file(
@@ -330,6 +349,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         category: str = "",
         run_id: str | None = None,
         origin: str = "",
+        session_id: str | None = None,
     ) -> ArtifactEntry:
         """Low-level save: write raw bytes to disk and register in the index.
 
@@ -337,8 +357,11 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         dispatched agent's own tools tag their output). A caller that writes on
         behalf of a run whose id is not in its environment — e.g. the worker
         ingesting input files before the agent starts — passes it explicitly.
+        ``session_id`` likewise defaults to ``OSPREY_SESSION_ID``; pass ``""``
+        for an entry that belongs to no session (the shipped example).
         ``origin`` tags the entry's provenance within the run (``"input"`` for
-        an ingested caller file; empty for produced output)."""
+        an ingested caller file, :data:`EXAMPLE_ORIGIN` for the shipped
+        example; empty for produced output)."""
         if category:
             from osprey.stores.type_registry import valid_category_keys
 
@@ -364,7 +387,11 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 tool_source=tool_source,
                 metadata=metadata or {},
                 category=category,
-                session_id=os.environ.get("OSPREY_SESSION_ID", ""),
+                session_id=(
+                    session_id
+                    if session_id is not None
+                    else os.environ.get("OSPREY_SESSION_ID", "")
+                ),
                 run_id=(
                     run_id if run_id is not None else os.environ.get("OSPREY_DISPATCH_RUN_ID", "")
                 ),
@@ -664,15 +691,23 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         session_filter: str | None = None,
         run_filter: str | None = None,
         last_n: int | None = None,
+        exclude_examples: bool = False,
     ) -> list[ArtifactEntry]:
         """Return artifact entries, optionally filtered.
 
         ``run_filter`` is the strict dispatch-run isolation boundary — see the
         note on its clause below. ``session_filter`` is deliberately NOT such a
         boundary (it also matches untagged artifacts).
+
+        ``exclude_examples`` drops the shipped example (``origin ==
+        EXAMPLE_ORIGIN``). Every listing the agent reads passes it: the
+        example is for the person at the gallery, never something the agent
+        produced or may cite.
         """
         self._refresh_if_stale()
         entries = list(self._entries)
+        if exclude_examples:
+            entries = [e for e in entries if e.origin != EXAMPLE_ORIGIN]
         if type_filter:
             entries = [e for e in entries if e.artifact_type == type_filter]
         if category_filter:
@@ -789,6 +824,10 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         if data_file is not None:
             with suppress(OSError):
                 data_file.unlink()
+        if entry.origin == EXAMPLE_ORIGIN:
+            # Every delete path (single, category, whole store) comes through
+            # here, so a removed example stays removed whichever one ran.
+            self._mark_example_removed()
 
     def _delete_entry_locked(
         self, artifact_id: str, *, persist: bool = True

@@ -1,12 +1,12 @@
-# control-assistant-ariel.yml
-# ARIEL logbook terminal — the standalone-service tier of the control-assistant
-# multi-user stack.
+# control-assistant-logbook.yml
+# Logbook research terminal — one of the two standalone personas of the
+# control-assistant multi-user stack, the ARIEL logbook assistant.
 #
-# The other two tiers are people: a read-only analyst and a write-armed
-# operator, differing on whether they can move hardware. This one is not a
-# person at all. It is a whole second product running beside them — the ARIEL
-# logbook research assistant — reached from its own card on the landing page,
-# with no control system behind it.
+# The operator tiers are people: a read-only analyst, a write-armed operator
+# and an admin, differing on what they may change. This one is not a person
+# at all. It is a whole second product running beside them — the ARIEL
+# logbook research assistant — reached from its own shared card on the
+# landing page, with no control system behind it.
 #
 # It is the same agent the bundled `ariel-standalone` preset builds, with one
 # difference that matters: it does not deploy a stack of its own. It shares the
@@ -14,10 +14,11 @@
 # is one logbook and the operators and the research terminal are looking at it
 # together.
 #
-# The control-system tiers are `control-assistant-readonly` and
-# `control-assistant-readwrite`.
+# The control-system tiers are `control-assistant-readonly`,
+# `control-assistant-readwrite` and `control-assistant-admin`; the other
+# standalone persona is `control-assistant-knowledge`.
 
-name: Control Assistant (ARIEL Logbook)
+name: Control Assistant (Logbook Research)
 
 extends: control-assistant
 
@@ -113,6 +114,9 @@ config:
   # it needs the panel area. Pinned rather than left to the server default for
   # the same reason the other two tiers pin theirs.
   web.ui_mode: expert
+  # No shipped example plot in this WORKSPACE: the example invites the reader
+  # to ask the agent for a live plot, which this persona cannot produce.
+  artifact_server.example_artifact: false
   # The hosting deployment owns the web-terminal tier (nginx, landing, per-user
   # containers). Without this override the inherited roster would make this
   # render try to host a second web tier on the same host ports.

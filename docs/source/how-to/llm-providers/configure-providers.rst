@@ -267,6 +267,43 @@ translation proxy:
 (The unmapped ``opus`` tier here falls back to the default model at build
 time, with a warning — map it to silence the substitution.)
 
+Spend Attribution on a LiteLLM Gateway
+--------------------------------------
+
+A deployment authenticates to its gateway with one key, so without help the
+gateway's spend logs book every terminal, the dispatch worker and every
+headless run to that single key. When the provider is a `LiteLLM proxy
+<https://docs.litellm.ai/docs/proxy/cost_tracking>`_, OSPREY stamps the acting
+identity onto every request instead:
+
+* ``x-litellm-end-user-id`` — who asked: the terminal's roster user
+  (``OSPREY_TERMINAL_USER``), a service container's framework identity such as
+  ``dispatch-worker-0``, or the local account of an ``osprey chat`` session.
+* ``x-litellm-tags`` — ``osprey,surface:<terminal|dispatch|service|local>``.
+
+The agent carries them through Claude Code's ``ANTHROPIC_CUSTOM_HEADERS``
+(merged into any corporate-proxy headers you already set there), and the
+LiteLLM SDK path used by MCP servers sets the same identity as the OpenAI
+``user`` field. Nothing is sent to a direct vendor.
+
+The built-in ``als-apg`` and ``cborg`` providers are LiteLLM proxies and get
+this automatically. A custom gateway declares it:
+
+.. code-block:: yaml
+
+   api:
+     providers:
+       my-litellm-gateway:
+         api_key: ${MY_GATEWAY_KEY}
+         base_url: https://my-gateway.example.com/v1
+         api_protocol: anthropic   # or omit it for the OpenAI route
+         gateway: litellm
+
+On the gateway, read the result per person with ``/customer/info?end_user_id=``
+or from the ``end_user`` and ``request_tags`` columns of ``/spend/logs``. Both
+need the gateway to run with a database (virtual keys enabled); a stateless
+LiteLLM ignores the headers.
+
 Verifying Connectivity
 ----------------------
 

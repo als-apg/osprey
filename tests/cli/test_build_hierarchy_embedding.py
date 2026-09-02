@@ -40,6 +40,21 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
+def _pin_hierarchical(repo: Path) -> None:
+    """Point the exemplar at its hierarchical channel database.
+
+    The preset ships the graph channel finder; what this module exercises is
+    the database-backed paradigm, so the profile is switched before the build.
+    """
+    profile = repo / "profile.yml"
+    profile.write_text(
+        profile.read_text(encoding="utf-8").replace(
+            "channel_finder_mode: graph", "channel_finder_mode: hierarchical"
+        ),
+        encoding="utf-8",
+    )
+
+
 def _build(runner: CliRunner, repo: Path):
     """Run ``osprey build`` from *repo*, as an operator standing there would."""
     previous = Path.cwd()
@@ -111,6 +126,7 @@ class TestTheReferenceDeploymentEmbedsItsHierarchy:
         This fails the moment the exemplar ships a database the loader rejects,
         which is the failure the build itself only ever warned about.
         """
+        _pin_hierarchical(lifecycle_repo)
         assert _build(runner, lifecycle_repo).exit_code == 0
 
         agent = lifecycle_repo / "build" / ".claude" / "agents" / "channel-finder.md"
@@ -134,6 +150,7 @@ class TestTheReferenceDeploymentEmbedsItsHierarchy:
         mid-build leaves ``result.output`` completely unchanged. Asserting on
         it would pass forever.
         """
+        _pin_hierarchical(lifecycle_repo)
         with caplog.at_level(logging.WARNING):
             result = _build(runner, lifecycle_repo)
 

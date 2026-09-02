@@ -246,6 +246,11 @@ credential:
            persona: readonly
            access: any                # any roster login opens this card
 
+The ``control-assistant`` preset ships its two standalone cards this way —
+``logbook`` and ``knowledge``, each ``access: any`` under ``password`` — so
+the logbook research and facility knowledge terminals are opened with any
+roster login's own password and carry no credential of their own.
+
 Who can open it: anyone this deployment can authenticate. Under ``password``
 that is every roster entry with a provisioned password; under ``oidc``, every
 entry that carries an ``oidc_subject:``, the shared card itself included when

@@ -328,11 +328,14 @@ export function artifactPath(a) {
  * Whether an artifact was created during the current gallery session.
  * `sessionStart` is passed in explicitly (gallery.js's `_sessionStart`, set
  * once at page load) rather than held here, keeping this module stateless.
- * @param {{timestamp?: string}} a
+ * @param {{timestamp?: string, origin?: string}} a
  * @param {string} sessionStart
  * @returns {boolean}
  */
 export function isNewThisSession(a, sessionStart) {
+  // A shipped example is written when the gallery first starts, which is
+  // "this session" for whoever opened it; it is never news.
+  if (a.origin === "demo") return false;
   return !!(a.timestamp && a.timestamp >= sessionStart);
 }
 

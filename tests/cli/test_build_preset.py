@@ -707,7 +707,7 @@ def test_attached_profile_built_alone_may_name_its_host_by_hand(
     Beside a host the same spelling is refused as a second home for one fact;
     alone there is no first home, so the hand-spelled value IS the projection.
     """
-    preset = "control-assistant-ariel"
+    preset = "control-assistant-logbook"
     repo = tmp_path / "alone"
     created = runner.invoke(init, [str(repo), "--preset", preset, "--no-git"])
     assert created.exit_code == 0, created.output

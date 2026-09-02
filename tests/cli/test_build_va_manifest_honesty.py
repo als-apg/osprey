@@ -584,6 +584,14 @@ def test_a_va_deploying_repo_with_no_channel_databases_fails_the_build(tmp_path_
     from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
     repo = build_exemplar_repo(tmp_path_factory.mktemp("dbless") / EXEMPLAR_DIRNAME, seed_env=True)
+    # The refusal under test is the database paradigms' — the graph paradigm
+    # the preset ships answers from its corpus and stages no database.
+    profile = repo / "profile.yml"
+    profile.write_text(
+        profile.read_text().replace(
+            "channel_finder_mode: graph", "channel_finder_mode: hierarchical"
+        )
+    )
     _shutil.rmtree(repo / "data" / "channel_databases")
 
     previous = Path.cwd()

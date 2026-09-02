@@ -652,3 +652,64 @@ class TestProxyEnvWarning:
 
         assert environ["HTTPS_PROXY"] == "socks5://127.0.0.1:1080"  # load ran
         assert self._records(caplog) == []
+
+
+# ── Spend attribution through a LiteLLM gateway ──────────────────
+
+
+class TestSpendAttributionEnv:
+    """``inject_provider_env`` stamps the acting identity onto the agent's
+    requests when the provider is fronted by a LiteLLM gateway, and leaves
+    ``ANTHROPIC_CUSTOM_HEADERS`` alone otherwise."""
+
+    def test_builtin_litellm_providers_carry_gateway(self):
+        assert ClaudeCodeModelResolver.resolve({"provider": "als-apg"}).gateway == "litellm"
+        assert ClaudeCodeModelResolver.resolve({"provider": "cborg"}).gateway == "litellm"
+
+    def test_direct_provider_has_no_gateway(self):
+        assert ClaudeCodeModelResolver.resolve({"provider": "anthropic"}).gateway is None
+
+    def test_custom_provider_declares_gateway(self):
+        providers = {
+            "my-gw": {
+                "base_url": "https://gw.example/v1",
+                "gateway": "litellm",
+                "models": {"haiku": "h", "sonnet": "s", "opus": "o"},
+            }
+        }
+        spec = ClaudeCodeModelResolver.resolve({"provider": "my-gw"}, providers)
+        assert spec.gateway == "litellm"
+
+    def test_inject_sets_identity_headers_for_gateway(self, monkeypatch):
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", "thellert")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"})
+        environ = {"ALS_APG_API_KEY": "sk-secret"}
+
+        inject_provider_env(environ, spec)
+
+        assert environ["ANTHROPIC_CUSTOM_HEADERS"] == (
+            "x-litellm-end-user-id: thellert\nx-litellm-tags: osprey,surface:terminal"
+        )
+
+    def test_inject_keeps_operator_headers(self, monkeypatch):
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", "thellert")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
+        environ = {
+            "CBORG_API_KEY": "sk-secret",
+            "ANTHROPIC_CUSTOM_HEADERS": "X-Corp-Trace: abc123",
+        }
+
+        inject_provider_env(environ, spec)
+
+        lines = environ["ANTHROPIC_CUSTOM_HEADERS"].splitlines()
+        assert lines[0] == "X-Corp-Trace: abc123"
+        assert "x-litellm-end-user-id: thellert" in lines
+
+    def test_inject_leaves_direct_provider_alone(self, monkeypatch):
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", "thellert")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        environ = {"ANTHROPIC_API_KEY": "secret-123"}
+
+        inject_provider_env(environ, spec)
+
+        assert "ANTHROPIC_CUSTOM_HEADERS" not in environ

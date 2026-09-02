@@ -74,7 +74,6 @@ class LazyGroup(click.Group):
             "theme-lab": "osprey.cli.theme_lab_cmd",  # Design-system theme workbench
             "scaffold": "osprey.cli.scaffold_cmd",  # Build artifact overrides
             "audit": "osprey.cli.audit_cmd",  # Safety auditor
-            "skills": "osprey.cli.skills_cmd",  # Bundled skill management
             "vendor": "osprey.cli.vendor_cmd",  # Vendor asset management
             "knowledge": "osprey.cli.knowledge_cmd",  # OKF facility knowledge
             "query": "osprey.cli.query_cmd",  # Headless agent query
@@ -142,7 +141,6 @@ class LazyGroup(click.Group):
             "theme-lab",
             "scaffold",
             "audit",
-            "skills",
             "vendor",
             "knowledge",
             "query",

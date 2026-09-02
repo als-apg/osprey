@@ -409,18 +409,16 @@ starts as usual, and the graph tools keep answering from the store.
 Multi-User Operator Terminals
 =============================
 
-The ``control-assistant-readonly`` and ``control-assistant-readwrite`` personas
-(:doc:`../web-terminal/multi-user/index`) get the same facility-knowledge-graph agent and its tools,
-reading the hosting deployment's store. They are attached renders — they deploy no services of their own — so
-they have to be told which port that store is published on. Per-user web
-terminal containers run with ``network_mode: host``, so a container's
-``localhost`` *is* the deployment host, and both presets pin the bolt port
-directly:
-
-.. code-block:: yaml
-
-   config:
-     services.graphdb.port_host: 7687
+The ``control-assistant-readonly``, ``control-assistant-readwrite`` and
+``control-assistant-admin`` personas (:doc:`../web-terminal/multi-user/index`)
+get the same facility-knowledge-graph agent and its tools, reading the hosting
+deployment's store, and — the preset runs ``channel_finder_mode: graph`` — a
+channel finder that answers from it too. They are attached renders — they
+deploy no services of their own — so they have to be told which port that
+store is published on. Per-user web terminal containers run with
+``network_mode: host``, so a container's ``localhost`` *is* the deployment
+host, and the build copies the bolt port from the hosting deployment's own
+render into each persona.
 
 Two consequences worth knowing before you move anything:
 
@@ -439,8 +437,12 @@ Two consequences worth knowing before you move anything:
 The read-only persona receives ``GRAPHDB_PASSWORD`` as well. The store has a
 single write-capable account, so read-only-ness here is enforced by the graph
 server's read transaction rather than by the credential — the same posture the
-ARIEL database credential already takes. ``control-assistant-ariel`` has no
-control surface and no graph tools by design.
+ARIEL database credential already takes. ``control-assistant-logbook`` has no
+control surface and no graph tools by design. ``control-assistant-knowledge``
+is the persona built around the graph: it keeps the facility-knowledge-graph
+agent, the graph-backed channel finder and the KNOWLEDGE panel, and nothing
+that reads or writes the machine — the standalone card for "how is the
+machine put together" questions.
 
 
 .. seealso::

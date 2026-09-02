@@ -62,23 +62,26 @@ is cut.
 - Open a Pull Request with a clear description
 - Address review feedback
 
-## Claude Code Workflow Skill (Optional but Recommended)
+## Claude Code Skills (Optional but Recommended)
 
 If you use [Claude Code](https://docs.claude.com/en/docs/claude-code), install
-the bundled `osprey-contribute` skill to get guided help with this workflow:
+the `osprey` plugin to get guided help with this workflow:
 
 ```bash
-uv run osprey skills install osprey-contribute
+claude plugin marketplace add als-apg/osprey --sparse .claude-plugin plugins
+claude plugin install osprey@osprey
 ```
 
-It walks you through branching, commits, push, PR, and CI iteration following
-the conventions on this page — including the protected-branch reality on
-`main` (no direct pushes; required CI checks that admins cannot bypass). Once
-installed, just open Claude Code in the repo and describe what you want to
-contribute; the skill picks up wherever you are in the journey.
+Its `/osprey:contribute` skill walks you through branching, commits, push, PR,
+and CI iteration following the conventions on this page — including the
+protected-branch reality on `main` (no direct pushes; required CI checks that
+admins cannot bypass). Open Claude Code in the repo and describe what you want
+to contribute; the skill picks up wherever you are in the journey.
 
-Other available skills (`osprey skills install --help` lists them all):
-`osprey-build-interview`, `osprey-pre-commit`, `osprey-release`.
+The same plugin carries `/osprey:design-philosophy`, `/osprey:pre-commit`,
+`/osprey:release`, `/osprey:build-interview`, and `/osprey:panel`. The full
+list, the Codex commands, and how to update are in the
+[Agent Skills guide](https://als-apg.github.io/osprey/contributing/agent-skills.html).
 
 ## Branch Strategy
 

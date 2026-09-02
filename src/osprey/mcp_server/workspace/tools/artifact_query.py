@@ -65,6 +65,8 @@ async def artifact_list(
             last_n=last_n,
             source_agent_filter=source_agent,
             type_filter=artifact_type,
+            # The shipped example is the person's, never the agent's to list.
+            exclude_examples=True,
         )
 
         return json.dumps(

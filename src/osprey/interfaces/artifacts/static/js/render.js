@@ -156,10 +156,12 @@ export function createSidebarRenderer(callbacks) {
                   <span class="tree-item-icon">${typeIcon(a.artifact_type)}</span>
                   <span class="tree-item-name" title="${escapeHtml(a.title)}">${escapeHtml(a.title)}</span>
                   ${isNewThisSession(a, _sessionStart) ? '<span class="tree-item-badge new">new</span>' : ""}
+                  ${a.origin === "demo" ? '<span class="tree-item-badge demo">example</span>' : ""}
                   <span class="tree-item-size">${formatSize(a.size_bytes)}</span>
                 </div>`;
   }
 
+  const exampleSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>';
   const pinSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 17v5"/><path d="M9 10.76V7a2 2 0 00-1-1.73l-.5-.27A2 2 0 016.5 3.27V3h11v.27a2 2 0 01-1 1.73l-.5.27A2 2 0 0015 7v3.76a2 2 0 001 1.74l.5.27a2 2 0 011 1.73V15H6.5v-.5a2 2 0 011-1.73l.5-.27a2 2 0 001-1.74z"/></svg>';
 
   /**
@@ -198,8 +200,12 @@ export function createSidebarRenderer(callbacks) {
 
     // Pinned artifacts are PROMOTED into their own top section (they do not
     // repeat inside their type groups) — the type groups hold the rest.
-    const pinnedItems = items.filter((a) => a.pinned);
-    const unpinned = items.filter((a) => !a.pinned);
+    // Shipped examples (`origin: "demo"`) sit in their own section at the
+    // bottom, outside pinning and the type groups: real work first.
+    const exampleItems = items.filter((a) => a.origin === "demo");
+    const ownItems = items.filter((a) => a.origin !== "demo");
+    const pinnedItems = ownItems.filter((a) => a.pinned);
+    const unpinned = ownItems.filter((a) => !a.pinned);
 
     /** @type {Record<string, any[]>} */
     const groups = {};
@@ -234,6 +240,13 @@ export function createSidebarRenderer(callbacks) {
       });
     });
 
+    if (exampleItems.length > 0) {
+      html += treeSectionHtml({
+        type: "examples", icon: exampleSvg, label: "Examples",
+        items: exampleItems, isGallery, itemHtml,
+      });
+    }
+
     sidebarBody.innerHTML = html;
     attachSidebarHandlers();
   }
@@ -248,10 +261,17 @@ export function createSidebarRenderer(callbacks) {
     /** @type {Record<string, any[]>} */
     const dateGroups = {};
     items.forEach((a) => {
-      const label = formatDate(a.timestamp);
+      // A shipped example carries the day the gallery first started, which
+      // is nobody's activity: it gets its own trailing group instead.
+      const label = a.origin === "demo" ? "Examples" : formatDate(a.timestamp);
       if (!dateGroups[label]) dateGroups[label] = [];
       dateGroups[label].push(a);
     });
+    if (dateGroups.Examples) {
+      const examples = dateGroups.Examples;
+      delete dateGroups.Examples;
+      dateGroups.Examples = examples;
+    }
 
     const isGallery = sidebarLayout === "gallery";
     let html = "";
@@ -280,6 +300,7 @@ export function createSidebarRenderer(callbacks) {
                 </div>
                 <div class="timeline-item-meta">
                   <span class="timeline-item-type">${typeBadge(a.category || a.artifact_type)}</span>
+                  ${a.origin === "demo" ? '<span class="tree-item-badge demo">example</span>' : ""}
                   <span class="timeline-item-time">${formatTime(a.timestamp)}</span>
                 </div>
               </div>

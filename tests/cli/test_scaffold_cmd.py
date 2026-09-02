@@ -898,7 +898,7 @@ class TestWebTerminalsRetiredConfigOption:
         assert "--config is no longer supported" in reported
         assert "osprey scaffold ci" in reported
         assert "`deploy:` block" in reported
-        assert "/osprey-build-interview" in reported
+        assert "/osprey:build-interview" in reported
 
     def test_refusal_is_unconditional_for_a_readable_config(self, tmp_path, caplog):
         """A file that parses cleanly is refused just the same — no fallback read."""

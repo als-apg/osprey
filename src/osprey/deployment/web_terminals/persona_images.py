@@ -385,7 +385,7 @@ def _persona_delta_remedy(persona_name: str, profile_root: Path) -> str:
     Names both spellings the operator needs — the catalog value to write and the
     file it has to resolve to — from one place, so the several ways an entry can
     be wrong cannot end up recommending different fixes. Ends by naming
-    ``/osprey-build-interview``, because the operator most likely to read this is
+    ``/osprey:build-interview``, because the operator most likely to read this is
     one whose project predates the persona-delta layout: they have a variant
     build in some older shape and need it converted, which is a bigger job than
     editing one catalog value.
@@ -397,7 +397,7 @@ def _persona_delta_remedy(persona_name: str, profile_root: Path) -> str:
         f"'{reference}' — the delta at {delta} — which is what "
         "`osprey init` writes for every persona in the catalog. If this "
         "deployment has no such delta because its variant build predates the layout, "
-        "run /osprey-build-interview: it converts an existing variant into a persona "
+        "run /osprey:build-interview: it converts an existing variant into a persona "
         "delta over the profile this project is built from."
     )
 
@@ -464,7 +464,7 @@ def _resolve_persona_profile(build_profile: str, persona_name: str, profile_root
                 f"modules.web_terminals.personas.{persona_name} from the catalog and the "
                 "roster entries that reference it. If the delta was never written because "
                 "this deployment's variant build predates the layout, run "
-                "/osprey-build-interview: it converts an existing variant into a persona "
+                "/osprey:build-interview: it converts an existing variant into a persona "
                 "delta over the profile this repo is built from."
             )
         raise ValueError(

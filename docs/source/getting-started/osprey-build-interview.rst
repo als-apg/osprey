@@ -3,7 +3,7 @@ Guided Project Setup
 ====================
 
 If you're setting up OSPREY for a specific detector, beamline, or accelerator
-subsystem, the ``/osprey-build-interview`` skill turns a guided conversation
+subsystem, the ``/osprey:build-interview`` skill turns a guided conversation
 into a working deployment repository tailored to your system — created up
 front from a curated preset, then refined with you piece by piece.
 
@@ -18,7 +18,7 @@ and you can stop, build, and resume at any point.
 
    * **OSPREY installed** — follow :doc:`installation` if you haven't yet.
    * **The Osprey agent CLI** — the interview runs inside an Osprey agent session via the
-     ``/osprey-build-interview`` command. Install it from
+     ``/osprey:build-interview`` command. Install it from
      `claude.ai/code <https://claude.ai/code>`_ and make sure ``claude --version``
      works in your terminal.
    * **An Anthropic API key** (or any provider the Osprey agent is configured to use) —
@@ -38,16 +38,19 @@ and you can stop, build, and resume at any point.
 Install the interview skill
 ===========================
 
-Install the interview skill with the OSPREY CLI:
+The interview ships in the ``osprey`` plugin. Register the marketplace, then
+install the plugin:
 
 .. code-block:: bash
 
-   osprey skills install osprey-build-interview
+   # skip-ci
+   claude plugin marketplace add als-apg/osprey --sparse .claude-plugin plugins
+   claude plugin install osprey@osprey
 
-This copies the skill into ``~/.claude/skills/osprey-build-interview`` and makes the
-``/osprey-build-interview`` command available in any Osprey agent session. Re-running
-the command preserves your previous copy under
-``~/.claude/skills/osprey-build-interview.bak.<timestamp>``.
+``/osprey:build-interview`` is then available in any Osprey agent session. The
+same plugin carries the other Osprey skills; how to update it, install it into
+a deployment repository, or run it from a checkout is on
+:doc:`/contributing/agent-skills`.
 
 Run the interview
 =================
@@ -65,7 +68,7 @@ In the Osprey agent session, type:
 
 .. code-block:: text
 
-   /osprey-build-interview
+   /osprey:build-interview
 
 The interview creates your **deployment repository first** — one ``osprey
 init`` from a working preset, in the first minutes of the conversation — and

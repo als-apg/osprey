@@ -116,11 +116,12 @@ stack than Demo Facility runs, so the first edit is subtraction. Delete:
   and ``bluesky-plans``.
 * from ``agents:`` — ``logbook-search`` and ``logbook-deep-research``. Both
   query a logbook database at runtime, and this facility does not deploy one.
-* for the same reason, the ``ariel`` entries under ``modules.web_terminals``
-  in ``config:`` — the roster entry (``- name: ariel``) and the ``ariel:``
-  persona — plus the ``personas/ariel.yml`` delta they point at. That login is
-  the standalone ARIEL logbook terminal, and it needs the logbook database
-  this facility does not run.
+* for the same reason, the ``logbook`` entries under ``modules.web_terminals``
+  in ``config:`` — the roster entry (``- name: logbook``) and the ``logbook:``
+  persona — plus the ``personas/logbook.yml`` delta they point at. That card
+  is the standalone ARIEL logbook terminal, and it needs the logbook database
+  this facility does not run. The ``knowledge`` card stays: it reads the graph
+  store this facility keeps.
 * from ``web_panels:`` — ``ariel``, ``events`` and ``bluesky``.
 * from ``config:`` — the ``claude_code.servers.bluesky.enabled`` line and every
   ``web.panels.events.*`` and ``web.panels.bluesky.*`` override. The panels they

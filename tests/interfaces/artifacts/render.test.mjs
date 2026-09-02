@@ -166,6 +166,61 @@ describe('activity-mode chronological ordering', () => {
   });
 });
 
+describe('shipped example (origin "demo")', () => {
+  const example = {
+    id: 'ex', title: 'Example: an interactive plot', filename: 'example.html',
+    artifact_type: 'plot_html', category: '', pinned: false, origin: 'demo',
+    // Newer than everything else: seeded at gallery start. Must still sort last.
+    timestamp: '2026-07-09T10:00:00Z', size_bytes: 50000,
+  };
+
+  test('tree mode lists it in a trailing "Examples" section, outside pinning and the type groups, with an "example" badge and no "new" badge', () => {
+    setArtifacts([...makeFixtureArtifacts(), { ...example, pinned: true }]);
+    const sidebarRenderer = createSidebarRenderer(makeCallbacks());
+    sidebarRenderer.renderSidebar();
+
+    const sections = document.querySelectorAll('#sidebar-body .tree-section');
+    expect(Array.from(sections).map((s) => /** @type {HTMLElement} */ (s).dataset.type)).toEqual([
+      'pinned', 'visualization', 'examples',
+    ]);
+    const pinned = qs(document, '.tree-section[data-type="pinned"]');
+    expect(pinned.querySelector('.tree-item[data-id="ex"]')).toBeNull();
+
+    const examples = qs(document, '.tree-section[data-type="examples"]');
+    expect(examples.textContent).toContain('Examples');
+    const item = qs(examples, '.tree-item[data-id="ex"]');
+    expect(qs(item, '.tree-item-badge.demo').textContent).toBe('example');
+    expect(item.querySelector('.tree-item-badge.new')).toBeNull();
+  });
+
+  test('no "Examples" section renders when the store holds none', () => {
+    setArtifacts(makeFixtureArtifacts());
+    createSidebarRenderer(makeCallbacks()).renderSidebar();
+    expect(document.querySelector('.tree-section[data-type="examples"]')).toBeNull();
+  });
+
+  test('an example alone still renders the tree, not the empty state', () => {
+    setArtifacts([example]);
+    createSidebarRenderer(makeCallbacks()).renderSidebar();
+    expect(document.querySelector('.sidebar-empty')).toBeNull();
+    expect(document.querySelectorAll('.tree-section[data-type="examples"] .tree-item').length).toBe(1);
+  });
+
+  test('activity mode puts it in a trailing "Examples" group instead of the day it was seeded', () => {
+    setArtifacts([...makeFixtureArtifacts(), example]);
+    const sidebarRenderer = createSidebarRenderer(makeCallbacks());
+    sidebarRenderer.setBrowseMode('activity');
+    sidebarRenderer.renderSidebar();
+
+    const labels = Array.from(document.querySelectorAll('.timeline-group-label')).map((el) => el.textContent);
+    expect(labels.at(-1)).toBe('Examples');
+    expect(labels.filter((l) => l === 'Examples').length).toBe(1);
+    const last = /** @type {HTMLElement} */ (document.querySelectorAll('.timeline-group')[labels.length - 1]);
+    expect(Array.from(last.querySelectorAll('.timeline-item')).map((el) => /** @type {HTMLElement} */ (el).dataset.id)).toEqual(['ex']);
+    expect(qs(last, '.tree-item-badge.demo').textContent).toBe('example');
+  });
+});
+
 describe('shared item handlers (click/dblclick/drag-to-terminal)', () => {
   test('clicking an item selects it, invokes onSelect, and invokes onPreviewNeeded only on a real selection change', () => {
     setArtifacts(makeFixtureArtifacts());

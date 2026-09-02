@@ -308,7 +308,14 @@ def _web_terminal_group(
         if persona:
             rights.append(persona)
             rights.extend(_write_rights(profile, persona_deltas, persona))
-        auth_cell: Cell = [(str(auth_method), Styles.DIM)] if auth_method else []
+        if auth_method and user.get("access") == "any":
+            # A shared card: behind the wall, opened with any roster login's
+            # own credential rather than one of its own.
+            auth_cell: Cell = _dotted_list([str(auth_method), "shared"])
+        elif auth_method:
+            auth_cell = [(str(auth_method), Styles.DIM)]
+        else:
+            auth_cell = []
         index = user.get("index", position)
         # The allocator the render itself uses, rather than `base + index` spelled
         # again: it is what falls a family back to its layout band when the

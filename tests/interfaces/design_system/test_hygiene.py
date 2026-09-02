@@ -107,6 +107,10 @@ _EXCLUDED_GENERATED_FILES = frozenset(
         _INTERFACES_ROOT / "design_system" / "static" / "css" / "tokens.css",
         _INTERFACES_ROOT / "design_system" / "static" / "js" / "tokens.js",
         _INTERFACES_ROOT / "design_system" / "static" / "js" / "theme-boot.js",
+        # Not a UI asset: the artifact the gallery seeds into an empty
+        # workspace. Plotly's to_html() bakes its default template into the
+        # page; the gallery re-themes it from the tokens at view time.
+        _INTERFACES_ROOT / "artifacts" / "examples" / "interactive-plot.html",
     }
 )
 

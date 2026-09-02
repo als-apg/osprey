@@ -54,12 +54,9 @@ Before designing a new connector, MCP server, provider, capability, or any
 non-trivial feature, consult OSPREY's design and architecture principles -- the
 safe-state default, facility-neutral core, measured symmetry with peer
 subsystems, swappable components, and discoverable user-facing features.
-Install the bundled skill so the Osprey agent applies them as you design and
-review:
-
-.. code-block:: bash
-
-   uv run osprey skills install osprey-design-philosophy
+The ``/osprey:design-philosophy`` skill applies them as the Osprey agent
+designs and reviews with you. It ships in the ``osprey`` plugin; installing it
+is on :doc:`agent-skills`.
 
 The principles guide decisions; they are not mechanical rules. When a change
 feels wrong but the reason is hard to name, they help you name the drift and

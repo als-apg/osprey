@@ -230,11 +230,12 @@ class TestShippedPresetPrivileges:
             "control-assistant",
             "control-assistant-readonly",
             "control-assistant-readwrite",
-            "control-assistant-ariel",
+            "control-assistant-logbook",
+            "control-assistant-knowledge",
         ],
     )
     def test_unprivileged_tiers(self, preset: str):
-        """Everything the base floors — including the shared `ariel` tier."""
+        """Everything the base floors — including the shared `logbook` card."""
         resolved, _dir = resolve_build_profile(None, preset)
         assert persona_privileges(resolved.config) == ()
 
@@ -374,7 +375,7 @@ class TestPersonaProfileTextsGuard:
     def test_shipped_catalog_materializes(self):
         """The stack ships safe: privileged tier behind a login, default unprivileged."""
         texts = _persona_texts(_shipped_host_config())
-        assert set(texts) == {"admin", "ariel", "readonly", "readwrite"}
+        assert set(texts) == {"admin", "knowledge", "logbook", "readonly", "readwrite"}
 
     def test_privileged_default_persona_refuses_with_the_remedy(self):
         import click
@@ -400,11 +401,11 @@ class TestPersonaProfileTextsGuard:
         assert "'carol'" in message
         assert "access: own" in message
 
-    def test_an_unprivileged_persona_may_still_be_shared(self):
-        """`ariel` keeps its shared card — the guard is about privilege, not sharing."""
+    def test_an_unprivileged_persona_may_be_shared(self):
+        """`logbook` keeps its shared card — the guard is about privilege, not sharing."""
         config = _shipped_host_config()
         texts = _persona_texts(config)
-        assert "ariel" in texts
+        assert {"logbook", "knowledge"} <= set(texts)
 
     def test_a_floorless_host_preset_refuses_the_shared_card_too(self):
         """This guard used to be fed one baseline-RELATIVE map for both its
@@ -432,7 +433,8 @@ class TestPersonaProfileTextsGuard:
         offence. Nothing here is served openly, so nothing is refused."""
         assert set(_persona_texts(_floorless(_shipped_host_config()))) == {
             "admin",
-            "ariel",
+            "knowledge",
+            "logbook",
             "readonly",
             "readwrite",
         }

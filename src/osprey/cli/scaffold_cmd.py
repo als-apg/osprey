@@ -1462,7 +1462,7 @@ def _reject_retired_config_option(config_path: str | None) -> None:
         "config.yml, emitted from the profile's `config:` block — run this verb "
         "with --repo DIR, or from inside the repo. Its deployment artifacts "
         "come from `osprey scaffold ci`, driven by the profile's `deploy:` "
-        "block. Run /osprey-build-interview to author both blocks."
+        "block. Run /osprey:build-interview to author both blocks."
     )
     logger.error("%s", message)
     raise SystemExit(1)

@@ -1,5 +1,5 @@
 ---
-name: osprey-contribute
+name: contribute
 description: >
   Guides a contributor through the OSPREY GitHub Flow contribution journey from
   a working-tree change to a merged PR on main. Use when someone says "I want
@@ -7,9 +7,10 @@ description: >
   for a PR", "open a PR", "my CI is failing on this branch", "rebase onto
   main", or wants help following the contributing workflow. Auto-detects
   whether they have push access to als-apg/osprey or are contributing from a
-  fork. Composes with the osprey-pre-commit, commit-organize, and
-  osprey-release skills — invoke this whenever someone is contributing code to
-  OSPREY, even if they haven't named the workflow explicitly.
+  fork. Composes with /osprey:pre-commit and /osprey:release, and with the
+  external commit-organize skill when it is installed — invoke this whenever
+  someone is contributing code to OSPREY, even if they haven't named the
+  workflow explicitly.
 allowed-tools: Read, Glob, Grep, Bash, Edit
 ---
 
@@ -27,9 +28,9 @@ The skill enters at whichever phase fits the contributor's current state. Run
 
 | For | Use |
 | --- | --- |
-| Splitting a messy working tree into clean, atomic commits | `commit-organize` |
-| Just running pre-commit checks without the full journey | `osprey-pre-commit` |
-| Cutting a release / tagging a version | `osprey-release` |
+| Splitting a messy working tree into clean, atomic commits | `commit-organize` (optional, external) |
+| Just running pre-commit checks without the full journey | `/osprey:pre-commit` |
+| Cutting a release / tagging a version | `/osprey:release` |
 | Designing a new feature or capability | `feature-dev` / brainstorming |
 
 ## Two Contributor Modes
@@ -146,7 +147,8 @@ The contributor edits code; the skill is mostly absent. Two reminders:
   file. `changelog.d/README.md` has the full rules.
 - Keep the change focused. If the working tree starts to span unrelated
   concerns (e.g., "fix bug X" plus an unrelated refactor), suggest invoking
-  `commit-organize` to split it before committing.
+  the external `commit-organize` skill, if installed, to split it before
+  committing.
 
 ## Phase 3: Commit
 

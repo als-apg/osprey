@@ -1,0 +1,20 @@
+{
+  "name": "osprey",
+  "version": "2026.9.0",
+  "description": "Agent skills for developing and deploying OSPREY, the agentic control-room interface for accelerators and beamlines.",
+  "author": {
+    "name": "ALS Accelerator Physics Group",
+    "url": "https://github.com/als-apg"
+  },
+  "homepage": "https://als-apg.github.io/osprey",
+  "repository": "https://github.com/als-apg/osprey",
+  "license": "BSD-3-Clause",
+  "keywords": [
+    "osprey",
+    "accelerator",
+    "control-system",
+    "epics",
+    "mcp",
+    "skills"
+  ]
+}

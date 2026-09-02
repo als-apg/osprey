@@ -1301,6 +1301,10 @@ artifact_server:
   host: "127.0.0.1"
   port: {{ osprey_ports.artifact }}
   auto_launch: true
+  # Seed one shipped example (an interactive plot, synthetic data) into an
+  # empty WORKSPACE on the gallery's first start. Listed under "Examples",
+  # never shown to the agent. Deleting it in the gallery is permanent.
+  example_artifact: true
 
 # osprey:panel-port lattice_dashboard
 # LATTICE tab. No `lattice_dashboard:` section ships here, so the dashboard
@@ -1648,5 +1652,5 @@ web:
 #       line underneath.
 #
 # See docs/how-to/web-terminal/multi-user.rst for the full schema. The build
-# interview (/osprey-build-interview) fills these in when you tell it the
+# interview (/osprey:build-interview) fills these in when you tell it the
 # deployment serves several operators.

@@ -39,9 +39,13 @@ model: haiku   # tier (haiku/sonnet/opus), or any model ID the provider serves
 #     sonnet: claude-sonnet-4-6
 #     opus: claude-opus-4-6
 
-# How the agent searches for channels. `osprey set channel_finder_mode=...`
-# also accepts in_context, middle_layer, or graph (the knowledge graph store).
-channel_finder_mode: hierarchical
+# How the agent searches for channels: `graph` answers from the facility
+# knowledge graph this deployment runs (`services.graphdb`), the same store
+# the facility-knowledge-graph agent reads, so channels, devices and their
+# addresses have one source. `osprey set channel_finder_mode=...` also
+# accepts hierarchical, in_context or middle_layer, each reading a channel
+# database file from data/ instead; every persona inherits the mode.
+channel_finder_mode: graph
 
 # ── What the agent can do ────────────────────────────────────────────────────
 # Each entry is a name from the OSPREY artifact library. Delete what you do not
@@ -88,7 +92,7 @@ skills:
   - bluesky-plans  # Browse which plans this deployment can run
 
 agents:
-  - channel-finder          # Semantic search over channel databases (hierarchical)
+  - channel-finder          # Finds channel addresses (the mode above decides how)
   - data-visualizer         # Produce strip charts and correlation plots
   - logbook-search          # Search facility logbook for historical entries
   - logbook-deep-research   # Multi-hop logbook research with synthesis
@@ -329,7 +333,7 @@ config:
       footer: OSPREY multi-user web terminal stack. Experimental system. Proceed with caution.
       groups:
         # `users` renders the roster. It also SPLITS it: any entry whose
-        # persona declares a `landing_group` (see `ariel` below) moves into a
+        # persona declares a `landing_group` (see `logbook` and `knowledge` below) moves into a
         # section of its own, drawn as an accent-edged panel underneath it.
         # So the page reads people first, services after.
         - type: users
@@ -349,11 +353,22 @@ config:
       # Not a person: a second product running beside them. Same machinery as
       # any other entry — its own container, ports and volumes — but what is
       # behind the card is the ARIEL logbook assistant, not a control terminal.
-      - name: ariel
+      - name: logbook
         index: 2
-        persona: ariel
-        display_name: "ARIEL Logbook Research"
-        # A shared card: any roster login opens it with their own credential.
+        persona: logbook
+        display_name: "Logbook Research"
+        # A shared card: everyone on this roster opens it with their own
+        # password. It has no password of its own, so none is set in .env.
+        access: any
+      # The second product beside them: the facility knowledge layer — the
+      # knowledge graph, the graph channel finder and the knowledge bundle —
+      # read-only, with no control system behind it. Shared like the card
+      # above. Index 4 rather than 3 so carol's ports below stay where they
+      # were; the page follows roster order, so it sits with its sibling.
+      - name: knowledge
+        index: 4
+        persona: knowledge
+        display_name: "Facility Knowledge"
         access: any
       # The one login that can change this deployment's configuration — the web
       # Config panel, the scaffold gallery's editors, and the agent's own setup
@@ -379,13 +394,18 @@ config:
         project: control-assistant-admin
         project_path: build/control-assistant-admin
         build_profile: control-assistant-admin
-      ariel:
-        project: control-assistant-ariel
-        project_path: build/control-assistant-ariel
-        build_profile: control-assistant-ariel
+      logbook:
+        project: control-assistant-logbook
+        project_path: build/control-assistant-logbook
+        build_profile: control-assistant-logbook
         # Puts this persona's users under their own landing-page heading
         # instead of in with the people. Presentation only — it changes
         # nothing about the container, its ports, or what it can do.
+        landing_group: Standalone deployments
+      knowledge:
+        project: control-assistant-knowledge
+        project_path: build/control-assistant-knowledge
+        build_profile: control-assistant-knowledge
         landing_group: Standalone deployments
 
 # ── Answering webhooks (optional) ────────────────────────────────────────────

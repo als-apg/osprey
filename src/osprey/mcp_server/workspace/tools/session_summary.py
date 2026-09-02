@@ -54,7 +54,8 @@ async def session_summary() -> str:
     from osprey.stores.artifact_store import get_artifact_store
 
     store = get_artifact_store()
-    all_entries = store.list_entries()
+    # The shipped example is not session output; a report must never cite it.
+    all_entries = store.list_entries(exclude_examples=True)
 
     entries = []
     total_bytes = 0

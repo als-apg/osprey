@@ -832,7 +832,7 @@ export function chartTheme() {
  * underneath it. Trace colors are never touched.
  *
  * @param {any} gd - the plotted Plotly graph div
- * @returns {Record<string, string>}
+ * @returns {Record<string, string | string[]>}
  */
 export function chartRelayout(gd) {
   const styles = _computedStyles();
@@ -844,11 +844,17 @@ export function chartRelayout(gd) {
   const line = _readVar(styles, '--chart-axis-line');
   const pane = _readVar(styles, '--chart-pane-bg');
 
-  /** @type {Record<string, string>} */
+  /** @type {Record<string, string | string[]>} */
   const update = {
     paper_bgcolor: paper,
     plot_bgcolor: plot,
     'font.color': text,
+    // The theme's data palette and type: a trace that names no color of its
+    // own follows the colorway on every relayout (supplyDefaults re-runs), so
+    // an author who leaves colors unset gets the same series colors the native
+    // time-series viewer draws with, in all eight themes.
+    colorway: chartSeries(),
+    'font.family': _readVar(styles, '--font-mono') || "'JetBrains Mono', monospace",
     'legend.bgcolor': paper,
     'legend.bordercolor': line,
   };

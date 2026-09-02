@@ -2385,7 +2385,7 @@ def _check_one_persona_project_path(
                         "delta `osprey init` writes in this repo's personas/ directory, "
                         "which is what `osprey build` renders the persona project from. "
                         "A variant build that predates the delta layout has no such file "
-                        "to point at yet; run /osprey-build-interview to convert it into one"
+                        "to point at yet; run /osprey:build-interview to convert it into one"
                     ),
                 )
             ]

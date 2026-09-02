@@ -165,7 +165,7 @@ class TestBlueskyPlansPresetWiring:
         """The ARIEL preset ships without the Bluesky server, so it drops the
         routing skill explicitly rather than inheriting it."""
         profile = yaml.safe_load(
-            (PRESETS_DIR / "control-assistant-ariel.yml").read_text(encoding="utf-8")
+            (PRESETS_DIR / "control-assistant-logbook.yml").read_text(encoding="utf-8")
         )
         assert "bluesky-plans" in profile["exclude"]["skills"]
         assert "bluesky-plans" not in profile.get("skills", [])
