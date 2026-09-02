@@ -404,15 +404,15 @@ Open ``http://127.0.0.1:10000``. The landing page groups the users into cards,
 each labelled with the persona it resolves to:
 
 .. figure:: /_static/resources/multi_user_landing.png
-   :alt: The multi-user landing page — alice's and bob's cards under a Users
-         heading, and the logbook and knowledge terminals in a Standalone
-         deployments panel beneath them
+   :alt: The multi-user landing page — alice's, bob's and carol's cards under
+         a Users heading, and the logbook and knowledge terminals in a
+         Standalone deployments panel beneath them
    :align: center
    :width: 100%
 
    The grouped landing page: alice resolves to the readwrite persona, bob to
-   readonly, and the logbook and knowledge cards open the two standalone
-   terminals. Click a card to open that session.
+   readonly, carol to admin, and the logbook and knowledge cards open the two
+   standalone terminals. Click a card to open that session.
 
 Each operator card names its persona explicitly — alice the readwrite tier,
 bob the readonly one; the preset's roster adds carol on the admin tier, last
