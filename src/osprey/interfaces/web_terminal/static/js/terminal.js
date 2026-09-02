@@ -625,12 +625,37 @@ export function notifySessionChange(sessionId) {
 }
 
 /**
- * Get current terminal dimensions.
+ * The fitted size xterm settled on, or null before `initTerminal()` has run.
+ * The in-page reader is the `terminal-size` bar item, which imports this
+ * directly.
  */
 export function getTerminalDimensions() {
   if (!term) return null;
   return { cols: term.cols, rows: term.rows };
 }
+
+/**
+ * The same getter, published on `window` — a DELIBERATE new production global,
+ * and the only one this module adds. It exists for exactly one caller, and the
+ * constraint that forces it is worth stating rather than rediscovering:
+ *
+ *   `docs/screenshots/contact_sheet.py` reads the fitted COLUMN count before
+ *   every capture, to prove the demo transcript will not wrap at the terminal's
+ *   real width. It used to scrape the `#term-dims` status-bar readout. That
+ *   element is gone: the size is now a bar ITEM the operator can move, fold or
+ *   remove, so any DOM scrape would become a guard that silently reads nothing
+ *   and passes. Playwright evaluates in page scope and cannot import an ES
+ *   module, so the getter has to be reachable from `window` or not at all.
+ *
+ * It is a TEST SEAM, not a second public API: nothing in the page may read it.
+ * Anything running inside the module graph imports `getTerminalDimensions`
+ * above — reaching through `window` for a value that can be imported is
+ * strictly worse, and would let this global grow readers that pin it in place.
+ *
+ * `Object.assign` rather than a bare property write because the property is
+ * not on the DOM `Window` type and this file carries no ambient declaration.
+ */
+Object.assign(window, { __OSPREY_TERMINAL_DIMS__: getTerminalDimensions });
 
 /**
  * The live xterm instance, or null before `initTerminal()` has run (or after a

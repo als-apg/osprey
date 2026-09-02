@@ -11,8 +11,12 @@
  *
  * What these tests pin down, in the order a reviewer would ask about it:
  *
- * - the chip mounts once, into `.header-actions`, ahead of the palette trigger,
- *   and a second init re-renders rather than mounting a second chip;
+ * - the chip mounts once, into the `control-target` `.bar-item` shell the
+ *   layout placed in the header host — never against a neighbour, because the
+ *   palette trigger it used to sit in front of is now inside a shell of its own
+ *   and is no longer a child of the host. A second init re-renders rather than
+ *   mounting a second chip, and re-homes the same node if the shell shows up
+ *   after a fallback mount;
  * - the full state matrix reaches the DOM as data attributes and words: four
  *   kinds (live / stand-in / virtual accelerator / simulated) × three states
  *   (writes / sandbox / read-only). Not one colour is decided here — the
@@ -189,18 +193,47 @@ function stubFetch() {
   );
 }
 
-/** The global header the chip mounts into (index.html's shape). */
+/**
+ * The global header the chip mounts into, in index.html's shape: a bar-item
+ * HOST (`.header-actions[data-bar-host="header"]`) whose direct children are
+ * all `.bar-item` shells, one per item in the effective layout.
+ *
+ * The shape matters to this suite and is not decoration. The palette trigger
+ * is no longer a child of the host — it sits inside its own `search` shell —
+ * so a mount that positioned itself against `actions.querySelector('#command
+ * -palette-btn')` would find the button (a descendant query) and then throw on
+ * `insertBefore`, taking every later line of app.js's DOMContentLoaded with it.
+ * A fixture that kept the button as a direct child would have gone on passing
+ * through exactly that breakage.
+ *
+ * `control-target` is a JS-built item, so its shell is emitted EMPTY and the
+ * chip is what fills it.
+ */
 function mountFixture() {
   document.body.innerHTML = `
     <header class="header">
-      <div class="header-left"></div>
-      <div class="header-right">
-        <div class="header-actions">
+      <div class="header-actions" data-bar-host="header">
+        <div class="bar-item" data-bar-item="logo"><span class="header-logo">OSPREY</span></div>
+        <div class="bar-item" data-bar-item="space"></div>
+        <div class="bar-item" data-bar-item="control-target"></div>
+        <div class="bar-item" data-bar-item="search">
           <button id="command-palette-btn" class="command-palette-trigger" type="button"></button>
+        </div>
+        <div class="bar-item" data-bar-item="display">
           <osprey-display-menu id="display-menu"></osprey-display-menu>
         </div>
       </div>
     </header>`;
+}
+
+/**
+ * The same header with the `control-target` item absent from the layout — the
+ * fallback path, and also the shape of any host rendered before the shells
+ * existed.
+ */
+function mountFixtureWithoutShell() {
+  mountFixture();
+  document.querySelector('[data-bar-item="control-target"]')?.remove();
 }
 
 /** The injected SSE factory: records what was subscribed, drives it by hand. */
@@ -265,19 +298,55 @@ afterEach(() => {
 /* ---- mount -------------------------------------------------------------- */
 
 describe('mount', () => {
-  test('mounts into .header-actions immediately before the palette trigger', async () => {
+  test('mounts into the control-target shell the layout placed', async () => {
     await boot();
     const actions = /** @type {HTMLElement} */ (document.querySelector('.header-actions'));
+    const shell = /** @type {HTMLElement} */ (
+      document.querySelector('[data-bar-item="control-target"]')
+    );
     const anchor = /** @type {HTMLElement} */ (document.querySelector('.ctc-anchor'));
     const chip = chipEl();
     expect(chip).not.toBeNull();
     // The chip lives inside its own positioning context (the popover is
-    // absolute under it), and that context is what sits in the action cluster.
+    // absolute under it), and that context is what fills the item's shell.
     expect(chip?.parentElement).toBe(anchor);
-    expect(anchor.parentElement).toBe(actions);
-    expect(actions.firstElementChild).toBe(anchor);
-    expect(anchor.nextElementSibling?.id).toBe('command-palette-btn');
+    expect(anchor.parentElement).toBe(shell);
+    expect(shell.parentElement).toBe(actions);
     expect(chipModule.getAnchorElement()).toBe(anchor);
+  });
+
+  test('takes its position from the layout, never from the palette trigger', async () => {
+    await boot();
+    const actions = /** @type {HTMLElement} */ (document.querySelector('.header-actions'));
+    const palette = /** @type {HTMLElement} */ (document.querySelector('#command-palette-btn'));
+    // The regression this pins: the palette button is a DESCENDANT of the host
+    // but not a child of it, so any `actions.insertBefore(anchor, palette)`
+    // throws NotFoundError — and this init runs inside app.js's
+    // DOMContentLoaded body, where a throw takes every later boot step with it.
+    expect(actions.contains(palette)).toBe(true);
+    expect(palette.parentElement).not.toBe(actions);
+    // The chip sits where the layout put its shell — third of five — and the
+    // shells around it are untouched.
+    const order = [...actions.children].map((el) => el.getAttribute('data-bar-item'));
+    expect(order).toEqual(['logo', 'space', 'control-target', 'search', 'display']);
+    const shell = /** @type {HTMLElement} */ (
+      document.querySelector('[data-bar-item="control-target"]')
+    );
+    expect(shell.children).toHaveLength(1);
+    expect(shell.firstElementChild).toBe(anchorEl());
+  });
+
+  test('falls back to the host itself when the layout places no shell', async () => {
+    mountFixtureWithoutShell();
+    await boot();
+    const actions = /** @type {HTMLElement} */ (document.querySelector('.header-actions'));
+    const anchor = /** @type {HTMLElement} */ (anchorEl());
+    expect(chipEl()).not.toBeNull();
+    expect(anchor.parentElement).toBe(actions);
+    // Degrading to "somewhere in the action run" beats not mounting the chip
+    // at all: the answer to "where would a write land" is worth more than its
+    // position in the bar.
+    expect(anchor.hidden).toBe(false);
   });
 
   test('is idempotent — a second init re-renders rather than mounting twice', async () => {
@@ -286,6 +355,28 @@ describe('mount', () => {
     await flush();
     expect(document.querySelectorAll('.control-target-chip')).toHaveLength(1);
     expect(document.querySelectorAll('.ctc-anchor')).toHaveLength(1);
+  });
+
+  test('re-homes the SAME chip into a shell that arrives after a fallback mount', async () => {
+    mountFixtureWithoutShell();
+    await boot();
+    const first = chipEl();
+    const anchor = anchorEl();
+    const actions = /** @type {HTMLElement} */ (document.querySelector('.header-actions'));
+
+    const shell = document.createElement('div');
+    shell.className = 'bar-item';
+    shell.dataset.barItem = 'control-target';
+    actions.prepend(shell);
+    chipModule.initControlTargetChip({ eventSourceFactory: fakeEventSourceFactory() });
+    await flush();
+
+    // Moved, not rebuilt: the popover hangs its listeners on this exact node
+    // and the chip's current paint rides along with it.
+    expect(document.querySelectorAll('.control-target-chip')).toHaveLength(1);
+    expect(chipEl()).toBe(first);
+    expect(anchorEl()).toBe(anchor);
+    expect(anchor?.parentElement).toBe(shell);
   });
 
   test('carries the popover trigger ARIA and the four spans the stylesheet keys on', async () => {

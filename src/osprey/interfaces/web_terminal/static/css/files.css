@@ -301,11 +301,13 @@
 
 /* ---- Status Bar ---- */
 
+/* The bar's own skin. Layout beyond this — the item gap, and packing from the
+   start so a flexible-space item is what pushes the trailing items right — is
+   bars.css's, which owns the status bar as a bar-item host. */
 .status-bar {
   height: var(--wt-status-bar-height);
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 0 12px;
   background: var(--bg-primary);
   border-top: 1px solid var(--border-default);
@@ -314,13 +316,6 @@
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
-}
-
-.status-left,
-.status-right {
-  display: flex;
-  align-items: center;
-  gap: 14px;
 }
 
 .status-item {
@@ -364,13 +359,6 @@
 
 .status-dot.error {
   background: var(--color-error);
-}
-
-/* Simple mode (frame 2b): drop the terminal-dimensions readout from the footer;
-   the WS health dot and clock stay. Pure display gating so expert restores it on
-   a live toggle-back. */
-html[data-ui-mode="simple"] #term-dims {
-  display: none;
 }
 
 /* ---- Responsive ---- */

@@ -9,7 +9,21 @@
     storage sites read this attribute and never parse the URL. Its absence
     means single-user: keys stay unscoped, exactly as they were. Never emit
     it empty. See resolve_storage_scope() in app.py. -#}
-<html lang="en" data-theme="{{ web_theme_id }}"{% if web_theme_mode %} data-theme-mode="{{ web_theme_mode }}"{% endif %} data-ui-mode="{{ web_ui_mode }}" data-rail-position="{{ web_rail_position }}"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}>
+{#- data-status-bar is present ONLY as "hidden", when the effective bar layout
+    hides the status bar. It is stamped here, with the other pre-paint layout
+    facts, because it changes .shell-body's height: a page that learned it from
+    JS would paint a 26px bar and then reflow the whole shell under it on every
+    single load. Absence means the bar is shown. -#}
+{#- data-bar-context is what this deployment OFFERS, in the vocabulary
+    bar-catalog.js's available(ctx) predicates ask in — always present, and the
+    only place the browser learns these facts. bar-sync.js reads it and hands
+    it to bar-layout.js's normalize(); it used to infer the same three answers
+    from the page, which made a deployment that offers an item but does not
+    place it look like one that cannot render it, and that drop latches the
+    stored layout read-only for the session. JSON in an attribute, exactly as
+    the shells carry data-bar-options; SINGLE-quoted because Jinja's tojson
+    escapes ' (and < > &) but leaves " alone. -#}
+<html lang="en" data-bar-context='{{ bar_context|tojson }}' data-theme="{{ web_theme_id }}"{% if web_theme_mode %} data-theme-mode="{{ web_theme_mode }}"{% endif %} data-ui-mode="{{ web_ui_mode }}" data-rail-position="{{ web_rail_position }}"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}{% if not bar_status_visible %} data-status-bar="hidden"{% endif %}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -79,6 +93,11 @@
   <!-- OSPREY styles -->
   <link rel="stylesheet" href="{{ prefixed('/static/css/terminal.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/files.css') }}">
+  <!-- Bar items: the shell layer both bars are built from. After terminal.css
+       and files.css, which own the two bars' own boxes — every rule in here is
+       either more specific than what it adjusts or !important where it has to
+       beat a user-agent rule, so the order is for readers, not the cascade. -->
+  <link rel="stylesheet" href="{{ prefixed('/static/css/bars.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/operator.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/md-rendered.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/drawer.css') }}">
@@ -94,16 +113,37 @@
 </head>
 <body>
 
-  <!-- Header -->
-  <header class="header">
-    <div class="header-left">
+{#- ===== Bar items: the adopted chrome =====================================
+
+    Both bars are item HOSTS: an ordered run of `.bar-item` shells, emitted
+    below from the effective layout (app.py's bar_render_plan()). Most item
+    bodies are built by JS, keyed by type, so the same code runs at first paint
+    and when the operator drags the item in later.
+
+    These seven are the exception. Every one of them is resolved BY ID by some
+    other module — #activity-strip, #docs-link, #command-palette-btn,
+    #display-menu-settings, #logout-btn, the identity trigger and menu, the
+    panel health dots — so they are rendered on EVERY request whichever way the
+    layout falls: into their shell when the layout places them, into
+    #bar-item-pool at the end of this document when it does not. A removed item
+    must never make an id go dark; the module looking it up cannot tell "the
+    operator took this out of the bar" from "this build is broken".
+
+    That is why they live in one macro rather than inline: the shell run and
+    the pool render the same block from the same place, so the two can never
+    drift into rendering different markup for the same item. -#}
+{% macro bar_body(type) -%}
+{%- if type == 'logo' -%}
       <span class="header-logo">OSPREY</span>
-      <!-- Deployment identity (web.app_name / OSPREY_WEB_APP_NAME) sits with the
-           product name it qualifies, not in the action cluster: it says WHICH
-           deployment this is, the same kind of fact as the product name itself,
-           whereas everything on the right is something you can DO. It used to
-           render as a second grey chip beside the user name, where the two read
-           as a pair of unrelated badges. -->
+{%- elif type == 'identity' -%}
+      <!-- Deployment identity (web.app_name / OSPREY_WEB_APP_NAME): WHICH
+           deployment this is, the same kind of fact as the product name it
+           qualifies. It used to render as a second grey chip beside the user
+           name, where the two read as a pair of unrelated badges.
+           Its middot separator is a fact about ORDER, not about the item, so
+           bars.css draws it from the `data-follows="logo"` the shell carries
+           and neuters the unconditional ::before inside a shell — move the
+           item away from the logo and the middot goes with it. -->
       {#- Where the deployment knows a user, this chip is the identity menu's
           trigger: operators read the name in the corner as "who am I / where am
           I" and reach for it to leave. It opens a popover holding the identity
@@ -153,12 +193,12 @@
         </div>
       </div>
       {% elif app_name %}<span class="header-deployment" title="{{ app_name }}">{{ app_name }}</span>{% endif %}
-    </div>
-    <div class="header-right">
-      <div class="header-actions">
-        <!-- Command palette trigger (frame). Reads as a search bar; behaviour
-             (Cmd/Ctrl+K, filtering, keyboard nav) is wired by a later JS task.
-             CSS-hidden in simple UI mode. -->
+{%- elif type == 'search' -%}
+        <!-- Command palette trigger. Reads as a search bar; Cmd/Ctrl+K,
+             filtering and keyboard nav are wired by palette-boot.js, which
+             resolves this button by id. Present in BOTH ui modes — palette.css
+             says so deliberately, and simple mode trims the palette REGISTRY
+             (palette-boot.js) rather than taking the way in away. -->
         <button id="command-palette-btn" class="command-palette-trigger" type="button"
                 aria-label="Open command palette"
                 title="Search settings, panels &amp; actions (Cmd/Ctrl+K)">
@@ -166,6 +206,7 @@
           <span class="command-palette-trigger-label">Search</span>
           <span class="command-palette-kbd" aria-hidden="true">&#8984;K</span>
         </button>
+{%- elif type == 'display' -%}
         <!-- Display menu: the header sliders button. The shared
              <osprey-display-menu> component (design_system) collapses the
              Expert/Simple view toggle and both theme axes (light/dark +
@@ -206,7 +247,63 @@
           </button>
           {% endif %}
         </osprey-display-menu>
-      </div>
+{%- elif type == 'activity' -%}
+        <!-- Agent activity strip: most recent agent action ("agent wrote …").
+             Populated by activity-strip.js via panel-manager's
+             setActivityStripHandler seam, which finds it by id. The item is
+             the one that absorbs its bar's spare room (the catalog's flex
+             hint), so entries appear inside reserved space rather than
+             shifting whatever sits after them. -->
+        <div class="status-activity" id="activity-strip" role="status" aria-live="polite"></div>
+{%- elif type == 'docs' -%}
+        <!-- Same destination as the rail's Documentation control, under the
+             same rule and in the same shape: href-less and hidden until boot
+             fills in this deployment's web.docs_url from GET /api/panels
+             (feedback-boot.js). A deployment that blanks the key keeps it
+             hidden, so neither affordance can flash a dead link.
+             `.status-item[hidden]` in files.css is load-bearing — that class's
+             display:flex would otherwise beat the user-agent [hidden] rule. -->
+        <a class="status-item status-link" id="docs-link"
+           target="_blank" rel="noopener" hidden>Docs</a>
+{%- elif type == 'panel-health' -%}
+        {#- One dot per ENABLED built-in panel that declares a status-bar id
+            (app.py's panel_health_dots(), the Python mirror of panel-catalog.js's
+            statusBarId). A disabled panel has no dot at all rather than a grey
+            one: panel-status-bar.js reveals a dot only once that panel's config
+            has loaded, so a dot for a panel this deployment does not serve
+            could only ever sit dark forever.
+
+            Ships `hidden`, the ATTRIBUTE — never an inline display style.
+            panel-status-bar.js clears the attribute to reveal the dot, and
+            bar-host.js mirrors that same attribute onto the surrounding shell
+            so a dot that never reveals costs the bar no shell and no gap. An
+            inline `display: none` would leave the mirror watching an attribute
+            nothing sets, and the dot could never appear at all. Same contract
+            the docs link follows; `.status-item[hidden]` in files.css is what
+            makes it beat that class's display:flex. -#}
+        {% for dot in panel_health_dots %}<div class="status-item" id="{{ dot.id }}" hidden>
+          <span class="status-dot" id="{{ dot.dot_id }}"></span><span>{{ dot.label }}</span>
+        </div>{% endfor %}
+{%- endif -%}
+{%- endmacro %}
+
+  <!-- Global header — a bar-item host. `.header-actions` is the host class
+       (bars.css turns it from a right-hugging action cluster into the full
+       width run); the old .header-left / .header-right wrappers are gone,
+       because the left/right split they encoded is now an item the operator
+       can see and move: the `space` item in the default layout.
+       Each shell carries `data-bar-item` — the item's type, and the ONE
+       spelling of it: the JS hook items and mounts query by, and what bars.css
+       keys the spacing shells off. A shell the client builds for an item
+       dragged in at runtime carries the same attribute and therefore the same
+       rules. Plus `data-follows`, naming the preceding item's type — the one
+       thing a bar item is allowed to know about its neighbours, and the reason
+       no rule in bars.css uses a sibling combinator. -->
+  <header class="header">
+    <div class="header-actions" data-bar-host="header">
+      {%- for item in bar_header %}
+      <div class="bar-item" data-bar-item="{{ item.type }}"{% if item.follows %} data-follows="{{ item.follows }}"{% endif %}>{% if item.adopted %}{{ bar_body(item.type) }}{% endif %}</div>
+      {%- endfor %}
     </div>
   </header>
 
@@ -329,38 +426,19 @@
 
   </div><!-- /.shell-body -->
 
-  <!-- Status Bar -->
-  <footer class="status-bar">
-    <div class="status-left">
-      <div class="status-item">
-        <span class="status-dot" id="ws-dot"></span>
-        <span>WS</span>
-      </div>
-      <div class="status-item" id="operator-status" style="display: none;">
-        <span class="status-dot" id="operator-dot"></span><span>OP</span>
-      </div>
-      <div class="status-item" id="ariel-status" style="display: none;">
-        <span class="status-dot" id="ariel-dot"></span><span>ARIEL</span>
-      </div>
-      <div class="status-item" id="term-dims">--x--</div>
-    </div>
-    <!-- Agent activity strip: most recent agent action ("agent wrote …").
-         Flexible middle region of this fixed-height bar, so entries appear
-         inside reserved space and never shift the layout. Populated by
-         activity-strip.js via panel-manager's setActivityStripHandler seam. -->
-    <div class="status-activity" id="activity-strip" role="status" aria-live="polite"></div>
-    <div class="status-right">
-      <!-- Same destination as the rail's Documentation control, under the same
-           rule and in the same shape: href-less and hidden until boot fills in
-           this deployment's web.docs_url from GET /api/panels
-           (feedback-boot.js). A deployment that blanks the key keeps it hidden,
-           so neither affordance can flash a dead link. `.status-item[hidden]`
-           in files.css is load-bearing — that class's display:flex would
-           otherwise beat the user-agent [hidden] rule. -->
-      <a class="status-item status-link" id="docs-link"
-         target="_blank" rel="noopener" hidden>Docs</a>
-      <div class="status-item" id="status-clock">--:--:--</div>
-    </div>
+  <!-- Status bar — the second bar-item host. It holds its items directly
+       rather than through wrappers: the old .status-left / .status-right
+       groups (and the space-between that spread them to the two edges) are
+       gone, so every item sits on the bar's one uniform gap and the `activity`
+       item is what pushes the trailing items right — spacing an operator can
+       see and move, instead of a layout mode they cannot.
+       Hidden by html[data-status-bar="hidden"], stamped on <html> above, so
+       .shell-body can reclaim the height before the first paint rather than
+       reflowing after it. -->
+  <footer class="status-bar" data-bar-host="status">
+    {%- for item in bar_status %}
+    <div class="bar-item" data-bar-item="{{ item.type }}"{% if item.follows %} data-follows="{{ item.follows }}"{% endif %}>{% if item.adopted %}{{ bar_body(item.type) }}{% endif %}</div>
+    {%- endfor %}
   </footer>
 
   <!-- Drawer Backdrop -->
@@ -459,6 +537,28 @@
       </div>
     </div>
   </osprey-drawer>
+
+  <!-- Adopted-node pool: every adopted item this deployment renders but this
+       layout does not place. The nodes are HERE, in the document, on every
+       request — hidden, but resolvable — so that removing an item from a bar
+       can never make a getElementById() consumer go dark. bar-host.js moves
+       nodes between the two hosts and this pool (they are moved, never
+       rebuilt, so a node keeps its identity, its listeners and its focus), and
+       reads membership of this element as "not live".
+       A parked item is a SHELL, exactly as it is in a bar — bar-host.js indexes
+       `.bar-item[data-bar-item]` and nothing else, so a bare body parked here
+       would be invisible to the reconcile: placing the item back would build a
+       fresh empty shell while the real node stayed orphaned in this element,
+       with every id it owns pointing at a node no bar contains.
+       Empty on a deployment whose layout places everything, which is the
+       default — but the element itself is always here, because a pool that
+       appears only when something is missing is a pool the code has to check
+       for before it can use it. -->
+  <div id="bar-item-pool" hidden>
+    {%- for type in bar_pooled %}
+    <div class="bar-item" data-bar-item="{{ type }}">{{ bar_body(type) }}</div>
+    {%- endfor %}
+  </div>
 
   <!-- App entry point -->
   <script type="module" src="{{ prefixed('/static/js/app.js') }}"></script>
