@@ -45,8 +45,8 @@ class TestGoogleMetadata:
         assert GoogleProviderAdapter.default_base_url is None
 
     def test_default_and_health_models(self):
-        assert GoogleProviderAdapter.default_model_id == "gemini-2.5-flash"
-        assert GoogleProviderAdapter.health_check_model_id == "gemini-2.5-flash-lite"
+        assert GoogleProviderAdapter.default_model_id == "gemini-3.8-flash"
+        assert GoogleProviderAdapter.health_check_model_id == "gemini-3.5-flash-lite"
 
     def test_available_models_include_default_and_health(self):
         models = GoogleProviderAdapter.available_models
@@ -149,7 +149,7 @@ class TestGoogleCheckHealth:
     def test_model_id_defaults_to_health_check_model(self):
         with patch(HEALTH, return_value=(True, "ok")) as mock_health:
             GoogleProviderAdapter().check_health(api_key="key", base_url=None)
-        assert mock_health.call_args.kwargs["model_id"] == "gemini-2.5-flash-lite"
+        assert mock_health.call_args.kwargs["model_id"] == "gemini-3.5-flash-lite"
 
     def test_explicit_model_id_overrides_default(self):
         with patch(HEALTH, return_value=(True, "ok")) as mock_health:
