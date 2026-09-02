@@ -21,7 +21,7 @@
   },
   "high-contrast-dark": {
     "lat-led": {
-      "ready": { "$value": "{color.mono.400}", "$type": "color" },
+      "ready": { "$value": "{color.mono.300}", "$type": "color", "$description": "Follows status.success: one step above text.muted, so a ready LED and a muted label never share a grey." },
       "computing": { "$value": "{color.mono.150}", "$type": "color" },
       "error": { "$value": "{color.mono.0}", "$type": "color" },
       "stale": { "$value": "{color.mono.200}", "$type": "color" },
@@ -30,7 +30,7 @@
   },
   "high-contrast-light": {
     "lat-led": {
-      "ready": { "$value": "{color.mono.600}", "$type": "color" },
+      "ready": { "$value": "{color.mono.700}", "$type": "color", "$description": "Follows status.success: one step above text.muted, so a ready LED and a muted label never share a grey." },
       "computing": { "$value": "{color.mono.850}", "$type": "color" },
       "error": { "$value": "{color.mono.1000}", "$type": "color" },
       "stale": { "$value": "{color.mono.800}", "$type": "color" },

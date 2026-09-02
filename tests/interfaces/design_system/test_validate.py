@@ -1111,3 +1111,26 @@ def test_real_tokens_tree_currently_validates_clean() -> None:
     errors = validate_token_tree(tree)
 
     assert errors == [], "\n".join(str(error) for error in errors)
+
+
+@pytest.mark.skipif(not REAL_TOKENS_DIR.is_dir(), reason="real tokens/ tree not present yet")
+def test_real_tokens_status_success_never_shares_a_colour_with_text_muted() -> None:
+    """A healthy status dot must not be drawn in the inactive-label grey.
+
+    The monochrome high-contrast themes carry state by lightness alone, so the
+    one way for ``status.success`` and ``text.muted`` to become
+    indistinguishable is to resolve to the same ramp step -- which they once
+    did. Pinned for every theme, because a chromatic theme that aliased the
+    two would lose the distinction just the same.
+    """
+    tree = load_token_tree(REAL_TOKENS_DIR)
+
+    collisions = {
+        stem: tokens["status.success"].value
+        for stem, tokens in tree.themes.items()
+        if tokens["status.success"].value == tokens["text.muted"].value
+    }
+
+    assert collisions == {}, (
+        f"status.success resolves to the same colour as text.muted in: {collisions}"
+    )

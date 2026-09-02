@@ -512,7 +512,7 @@
   --color-accent-secondary: #d9d9d9;
   --color-accent-secondary-light: #f2f2f2;
   --color-accent-secondary-hover: #b3b3b3;
-  --color-success: #999999;
+  --color-success: #b3b3b3;
   --color-warning: #cccccc;
   --color-error: #ffffff;
   --color-error-hover: #d9d9d9;
@@ -608,7 +608,7 @@
   --ariel-score-high-bg: rgba(255, 255, 255, 0.15);
   --ariel-score-medium: #cccccc;
   --ariel-score-medium-bg: rgba(255, 255, 255, 0.12);
-  --ariel-score-low: #999999;
+  --ariel-score-low: #b3b3b3;
   --ariel-score-low-bg: rgba(255, 255, 255, 0.08);
   --art-violet-base: #cccccc;
   --art-violet-light: #e6e6e6;
@@ -618,7 +618,7 @@
   --art-panel-gap: 8px;
   --art-browser-band-height: 210px;
   --cf-font-pv: 'Syne Mono', 'JetBrains Mono', monospace;
-  --lat-led-ready: #999999;
+  --lat-led-ready: #b3b3b3;
   --lat-led-computing: #d9d9d9;
   --lat-led-error: #ffffff;
   --lat-led-stale: #cccccc;
@@ -660,7 +660,7 @@
   --color-accent-secondary: #333333;
   --color-accent-secondary-light: #4d4d4d;
   --color-accent-secondary-hover: #000000;
-  --color-success: #666666;
+  --color-success: #4d4d4d;
   --color-warning: #333333;
   --color-error: #000000;
   --color-error-hover: #1a1a1a;
@@ -756,7 +756,7 @@
   --ariel-score-high-bg: rgba(0, 0, 0, 0.12);
   --ariel-score-medium: #333333;
   --ariel-score-medium-bg: rgba(0, 0, 0, 0.09);
-  --ariel-score-low: #666666;
+  --ariel-score-low: #4d4d4d;
   --ariel-score-low-bg: rgba(0, 0, 0, 0.06);
   --art-violet-base: #333333;
   --art-violet-light: #666666;
@@ -766,7 +766,7 @@
   --art-panel-gap: 8px;
   --art-browser-band-height: 210px;
   --cf-font-pv: 'Syne Mono', 'JetBrains Mono', monospace;
-  --lat-led-ready: #666666;
+  --lat-led-ready: #4d4d4d;
   --lat-led-computing: #262626;
   --lat-led-error: #000000;
   --lat-led-stale: #333333;
