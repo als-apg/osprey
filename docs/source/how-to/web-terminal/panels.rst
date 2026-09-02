@@ -126,9 +126,11 @@ The Bluesky panel
 -----------------
 
 One tab covers a plan end to end, served by the ``bluesky-web`` sidecar.
-**BLUESKY** (``/bluesky/``) has three views, and the queue's state — with
-**Stop after current item** and **Abort running plan** — stays on screen across
-all three:
+**BLUESKY** (``/bluesky/``) has three views, and the queue's state stays on
+screen across all three — with **Stop after current item** and **Abort
+running plan** beside it whenever the queue is running or its state is in
+doubt (a provably idle queue folds the two behind a **Queue controls**
+disclosure):
 
 **Plans** is where a plan is composed. It binds to the same shared draft the
 OSPREY agent edits, so a field the agent sets glows in the form as it lands,
@@ -187,12 +189,9 @@ explicit ``osprey build``.
 Adding your own panel
 ---------------------
 
-The easy path is the guided skill — a coding agent follows it to produce a
-panel that already meets every rule:
-
-.. code-block:: bash
-
-   osprey skills install creating-an-osprey-panel
+The easy path is the guided ``/osprey:panel`` skill — a coding agent follows it
+to produce a panel that already meets every rule. It ships in the ``osprey``
+plugin; installing it is on :doc:`/contributing/agent-skills`.
 
 What the skill produces, and the test that pins panel discovery, are the panel
 seam in :doc:`/contributing/extending-osprey`.
@@ -270,9 +269,8 @@ like "set up for machine setup."
    :icon: package
 
    You only need this to write a panel by hand or wire a new one into the hub;
-   the ``creating-an-osprey-panel`` skill and the source (which the panel
-   validator and its browser test suite back) are the real reference. The rough
-   idea:
+   the ``/osprey:panel`` skill and the source (which the panel validator and its
+   browser test suite back) are the real reference. The rough idea:
 
    .. tab-set::
 

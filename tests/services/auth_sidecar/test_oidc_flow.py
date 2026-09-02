@@ -740,11 +740,11 @@ def test_a_shared_card_with_its_own_identity_admits_any_mapped_entry(
 
 
 def test_an_entry_that_never_logs_into_its_own_card_can_open_a_shared_one(idp: MockIdP) -> None:
-    """A ``login: false`` roster entry keeps its mapped identity.
+    """A mapped roster entry that never opens its own card is still an opener.
 
-    From this service's side such an entry is simply a mapped roster user with
-    no card of its own on the landing page — dave here — and its identity
-    participates in the reverse match like every other entry's.
+    From this service's side such an entry is simply a mapped roster user —
+    dave here — and its identity participates in the reverse match like every
+    other entry's, whether or not its own card is ever clicked.
     """
     idp.subject = "idp|dave"
     app = _sidecar(

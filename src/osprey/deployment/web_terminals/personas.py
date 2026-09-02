@@ -14,9 +14,9 @@ Port arithmetic lives separately in :mod:`osprey.deployment.web_terminals.ports`
 One rule about the roster is *not* about identity at all and still lives here:
 which personas can edit the deployment they run in (:func:`persona_privileges`),
 and who may be handed one — the ``default_persona`` rule
-(:func:`privileged_default_persona_problem`) and the login rule
-(:func:`unauthenticated_privileged_terminal_problems`). Two guards ask those
-questions on three different surfaces —
+(:func:`privileged_default_persona_problem`) and the shared-card rule
+(:func:`shared_card_privileged_problems`). Two guards ask those questions on
+three different surfaces —
 :func:`osprey.cli.profile_cmd._privileged_persona_problems` at ``osprey init``,
 and the lint belt in :mod:`osprey.deployment.web_terminals.lint` at profile and
 rendered altitude (the second of which ``osprey up`` gates on) — and this is the
@@ -1019,15 +1019,6 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
     persona helper reads as "the deployment's default persona". A ``role`` that
     names no declared role, and a non-string one, are reported by lint.
 
-    An object entry's optional ``login`` (whether this entry sits behind the
-    deployment's login wall when authentication is enabled) is carried through
-    only when it is the literal boolean ``False`` — the one value that changes
-    anything. ``true``, absence, and every malformed spelling all mean "login
-    required", so dropping them is both the fail-closed reading and what keeps
-    a config typo from silently opening an entry to the world (lint reports
-    the typo separately). See :func:`entry_requires_login` for the single
-    consumer-side reading of the carried key.
-
     An object entry's optional ``access`` (whether this entry is a shared card
     any authenticated roster user may open, rather than one owned by a single
     user) is carried through only when it is the literal string ``"any"`` — the
@@ -1055,8 +1046,8 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
     Returns:
         New ``{"name": str, "index": int}`` dicts (plus optional
         ``"display_name"``, ``"theme"``, ``"oidc_subject"`` and ``"role"`` string
-        keys, a ``"login": False`` marker and an ``"access": "any"`` marker
-        when the entry carried them) in config-declaration order. Input dicts are never mutated or returned by
+        keys and an ``"access": "any"`` marker when the entry carried them) in
+        config-declaration order. Input dicts are never mutated or returned by
         reference.
     """
     if not isinstance(users_raw, list):
@@ -1094,13 +1085,6 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
                 role = entry.get("role")
                 if isinstance(role, str) and role:
                     normalized_entry["role"] = role
-                # Only the literal boolean False is carried: absent or True both
-                # mean "login required", and any other value is a config typo
-                # (reported by lint) whose safe reading is the same. Carrying
-                # only the exempting value keeps the gate fail-closed — a typo
-                # can never open an entry to the world.
-                if entry.get("login") is False:
-                    normalized_entry["login"] = False
                 # Only the literal string "any" is carried: absence and "own"
                 # both mean "owner only", and any other value is a config typo
                 # (reported by lint) whose safe reading is the same. Carrying
@@ -1110,25 +1094,6 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
                     normalized_entry["access"] = "any"
                 normalized.append(normalized_entry)
     return normalized
-
-
-def entry_requires_login(entry: dict[str, Any]) -> bool:
-    """Whether this normalized roster entry sits behind the login wall.
-
-    ``login: false`` on a roster entry opts it out of authentication: with
-    ``auth.method`` enabled, nginx still gates every other entry but proxies
-    this one without an ``auth_request``, and no password is provisioned for
-    it. The single reading of that key, shared by the render (which decides
-    whether to emit the gate), credential provisioning (which decides whether a
-    password exists) and the ``users passwd`` verb (which refuses to rotate a
-    password that cannot exist) — three call sites that must never disagree
-    about who has a login.
-
-    Reads the *normalized* entry, so only the literal ``False``
-    :func:`normalize_users` carries through exempts; every malformed spelling
-    already normalized back to "login required".
-    """
-    return entry.get("login") is not False
 
 
 def entry_is_shared(entry: dict[str, Any]) -> bool:
@@ -1458,16 +1423,14 @@ def privileges_beyond_baseline(held: Sequence[str], baseline: Sequence[str]) -> 
       grant — so the finding is about an authoring mistake inside a declared
       split, and a legacy profile with no split has no better default to be
       pointed at.
-    * :func:`unauthenticated_privileged_terminal_problems` reads
-      :func:`persona_privileges` directly, the ABSOLUTE answer. ``login: false``
-      is not inherited from anything: it is a key somebody typed, on one entry,
-      claiming that terminal may be served to anyone. Whether the deployment
-      declared a tier split has no bearing on what that terminal hands out —
-      a floorless deployment serving it hands out BOTH surfaces to the whole
-      internet — so exempting the floorless case is exactly the fail-open this
-      belt exists to prevent. The remedy is the half that changes: with no
-      split to point at, the message says how to floor the base tier rather
-      than naming a tier that does not exist.
+    * :func:`shared_card_privileged_problems` reads :func:`persona_privileges`
+      directly, the ABSOLUTE answer. ``access: any`` is not inherited from
+      anything: it is a key somebody typed, on one entry, claiming that
+      terminal may be opened by every login the deployment has. Whether the
+      deployment declared a tier split has no bearing on what that terminal
+      hands out — a floorless deployment sharing it hands out BOTH surfaces to
+      the whole roster — so exempting the floorless case is exactly the
+      fail-open this belt exists to prevent.
 
     :func:`persona_privileges` answers an absolute question — can this document
     reach the setup tool, is the Config panel live — and every way of not having
@@ -1537,17 +1500,17 @@ def privileged_default_persona_problem(
     this key. So the default is the tier the deployment hands out by accident,
     and it has to be the one it is safe to hand out by accident.
 
-    **Baseline-RELATIVE, unlike the ``login: false`` rule beside it.** Callers
-    pass :func:`privileges_beyond_baseline`' output here and
+    **Baseline-RELATIVE, unlike the shared-card rule beside it.** Callers pass
+    :func:`privileges_beyond_baseline`' output here and
     :func:`persona_privileges`' raw output to
-    :func:`unauthenticated_privileged_terminal_problems`, and the asymmetry is
-    the point: this key is inherited rather than chosen. A profile written
-    before the base tier's deny floor existed has a ``default_persona`` nobody
-    picked as a privilege grant, and no unprivileged tier to be re-pointed at,
-    so refusing it would refuse the migration itself. ``login: false`` is the
-    opposite — typed deliberately, on one entry, about that entry — so it is
-    judged on what the persona actually holds. See
-    :func:`privileges_beyond_baseline` for the full statement of the split.
+    :func:`shared_card_privileged_problems`, and the asymmetry is the point:
+    this key is inherited rather than chosen. A profile written before the
+    base tier's deny floor existed has a ``default_persona`` nobody picked as a
+    privilege grant, and no unprivileged tier to be re-pointed at, so refusing
+    it would refuse the migration itself. ``access: any`` is the opposite —
+    typed deliberately, on one entry, about that entry — so it is judged on
+    what the persona actually holds. See :func:`privileges_beyond_baseline`
+    for the full statement of the split.
 
     Args:
         default_persona: ``modules.web_terminals.default_persona``. A missing or
@@ -1578,9 +1541,9 @@ def auth_is_enforced(web_terminals: Any) -> bool:
     The render context's ``walled`` boolean: ``password``/``oidc`` stand a
     sidecar in front of the roster; ``token`` (the default, and what an absent
     ``auth`` stanza means) and ``none`` (open) do not, so under either no entry
-    has a login — which makes every terminal what ``login: false`` makes one,
-    and is why :func:`unauthenticated_privileged_terminal_problems` takes this
-    as a parameter rather than reading ``login`` alone.
+    has a login — which is why the privileged-persona guards report the
+    deployment-wide exposure (:func:`deployment_wide_privileged_exposure_problems`)
+    there instead of a per-entry one.
 
     Routed through render's parsed auth context rather than re-reading
     ``auth.method`` here, so the guards cannot disagree with the nginx seam
@@ -1621,162 +1584,37 @@ def _privileged_entries(
     return entries
 
 
-def _floor_the_base_tier_remedy(name: Any, unfloored: Sequence[str]) -> str:
-    """The remedy for an open privileged terminal where the base tier floors too little.
-
-    The other remedy ("point it at a persona that holds neither") presupposes
-    such a persona exists. Every persona holds whatever the base tier hands out,
-    so on a deployment that floors nothing there is nothing to be re-pointed at
-    — and on one that floors only ONE of the two surfaces there may equally be
-    nothing, since a persona that holds neither has to disable the remaining
-    surface itself. Either way the sentence would name a fix the operator cannot
-    carry out. This one names the keys that create the split, in the spellings
-    the profile's ``config:`` block takes them in, for exactly the surfaces this
-    deployment leaves open, and keeps ``login: true`` as the one-key way out.
-
-    No square brackets anywhere in the sentence, deliberately: ``osprey build``
-    renders its refusals through rich, which reads ``[...]`` as a style tag and
-    silently ate the tool name out of an earlier draft of this remedy. The
-    entry is named in prose instead.
-
-    Args:
-        name: The roster user the open terminal belongs to.
-        unfloored: The privileges the deployment's BASE tier still holds — a
-            non-empty subset of :data:`ALL_PRIVILEGES`, in its order. A caller
-            with nothing here has a fully floored base and wants the tier
-            remedy instead.
-    """
-    from osprey.cli.profile_conventions import SETUP_PATCH_TOOL
-
-    add: list[str] = []
-    lift: list[str] = []
-    if PRIVILEGE_SETUP_TOOL in unfloored:
-        add.append(f"`{_DENY_KEY}` with the entry `{SETUP_PATCH_TOOL}`")
-        lift.append(f"`{_REMOVE_DENY_KEY}`")
-    if PRIVILEGE_CONFIG_PANEL in unfloored:
-        add.append(f"`{_CONFIG_PANEL_KEY}: false`")
-        lift.append(f"`{_CONFIG_PANEL_KEY}: true`")
-    if len(add) > 1:
-        opening = "This deployment floors neither surface, so every persona holds them."
-        additions = f"{', and '.join(add)},"
-        lifting = f"lift them only in the persona meant to hold them ({', '.join(lift)})"
-    else:
-        opening = (
-            f"This deployment does not floor {privilege_phrase(unfloored)} for its base tier, so "
-            f"every persona holds it."
-        )
-        additions = add[0]
-        lifting = f"lift it only in the persona meant to hold it ({lift[0]})"
-    return (
-        f"{opening} Add {additions} to this profile's `config:` block, and {lifting} — or "
-        f"set `login: true` for {name!r}"
-    )
-
-
-def unauthenticated_privileged_terminal_problems(
-    resolved_entries: Iterable[Mapping[str, Any]],
-    privileges_by_persona: Mapping[str, Sequence[str]],
-    *,
-    baseline_privileges: Sequence[str] = (),
-) -> list[str]:
-    """Every roster entry that OPTED OUT of the login wall and can edit the deployment.
-
-    The exposure is not subtle: a card on the landing page that opens straight
-    into a terminal, with the Config panel live inside it or the setup tool in
-    the agent's hands. Anyone who reaches the page edits the deployment.
-
-    Scoped to ``login: false`` (see :func:`entry_requires_login`) — an authored
-    claim that *this* terminal is public — because that is a claim about one
-    entry, made deliberately, that the author can act on. A deployment with no
-    authentication at all is the wider version of the same exposure and is
-    reported separately and advisorily by
-    :func:`deployment_wide_privileged_exposure_problems`; see that function for
-    why the two are not one rule.
-
-    **Judged on what the persona ABSOLUTELY holds**, not on what it holds beyond
-    its deployment's baseline. A deployment that floors neither surface hands
-    both of them to every persona it has, so a ``login: false`` entry there is
-    the most exposed version of this, not an exempt one — and reading it
-    relatively made it silent at every altitude. The baseline decides only which
-    REMEDY is honest; see :func:`privileges_beyond_baseline` for why the
-    ``default_persona`` rule beside this one goes the other way.
-
-    Args:
-        resolved_entries: :func:`resolve_personas`' output (or anything with the
-            same ``name``/``persona``/``login`` keys).
-        privileges_by_persona: Persona name → :func:`persona_privileges` —
-            the ABSOLUTE answer; see :func:`_privileged_entries` for what a
-            missing persona means.
-        baseline_privileges: :func:`persona_privileges` for the deployment
-            itself, read only to choose the remedy. The default ``()`` is a
-            fully floored base, which is the deployment shape that has a tier to
-            be pointed at, so a caller that does not pass it gets the tier
-            remedy rather than an instruction to floor a base it may already
-            have floored.
-
-    Returns:
-        One message per offending entry, in roster order, each naming the user,
-        the persona, what it holds and the remedy.
-    """
-    # What the BASE tier still hands to every persona. Empty is the shape that
-    # has an unprivileged tier to point at; anything else means a persona that
-    # holds neither surface exists only if it disables what the base leaves
-    # open, so the honest remedy names the surface instead of the tier.
-    unfloored = tuple(privilege for privilege in ALL_PRIVILEGES if privilege in baseline_privileges)
-    problems: list[str] = []
-    for entry, persona, privileges in _privileged_entries(resolved_entries, privileges_by_persona):
-        # The `login: false` filter lives HERE and not in `_privileged_entries`:
-        # the deployment-wide rule below deliberately ignores the key, because
-        # with no wall standing it means nothing.
-        if entry_requires_login(dict(entry)):
-            continue
-        name = entry.get("name")
-        remedy = (
-            f"Set login: true for {name!r} — or drop the key, since a login is the "
-            f"default — or point {name!r} at a persona that holds neither (the bundled "
-            f"stack's {UNPRIVILEGED_TIER_EXAMPLE!r})"
-            if not unfloored
-            else _floor_the_base_tier_remedy(name, unfloored)
-        )
-        problems.append(
-            f"modules.web_terminals user {name!r} is served without a login (login: false), "
-            f"but resolves to persona {persona!r}, which holds {privilege_phrase(privileges)}. "
-            f"Anyone who opens that terminal's page edits this deployment. {remedy}"
-        )
-    return problems
-
-
 def deployment_wide_privileged_exposure_problems(
     resolved_entries: Iterable[Mapping[str, Any]],
     privileges_by_persona: Mapping[str, Sequence[str]],
 ) -> list[str]:
-    """The same exposure, reached through ``auth.method: none`` instead of one key.
+    """Every privileged terminal of a deployment that stands no login wall.
 
-    With no authentication configured there is no login wall for any entry to be
-    exempt from, so every privileged terminal is as open as a ``login: false``
-    one — the real exposure, and worth naming, which is why this exists at all.
+    With no authentication configured every privileged terminal is served to
+    whoever can reach the deployment — the real exposure, and worth naming,
+    which is why this exists at all.
 
-    It is reported ADVISORILY where the ``login: false`` rule is an error, and
-    the difference is what the config *claims*. ``login: false`` singles one
-    entry out as public while the rest of the roster sits behind a wall: the
-    author asked for that entry to be reachable and can act on the finding.
-    ``auth.method: none`` is a whole-deployment posture — the shipped default,
-    and a deliberate one for a stack bound to a loopback address — and failing
-    a build over it would reject deployments that were never exposed to anyone,
-    with no remedy but to configure authentication they do not need. Lint
-    already says the narrower version of this (``user_login_inert``: a
-    ``login: false`` under ``auth.method: none`` changes nothing).
+    It is reported ADVISORILY where the shared-card rule is an error, and the
+    difference is what the config *claims*. ``access: any`` singles one entry
+    out as open to the whole roster: the author asked for that and can act on
+    the finding. ``auth.method: none`` is a whole-deployment posture — the
+    shipped default, and a deliberate one for a stack bound to a loopback
+    address — and failing a build over it would reject deployments that were
+    never exposed to anyone, with no remedy but to configure authentication
+    they do not need.
 
     Callers reach this only when :func:`auth_is_enforced` is ``False``, and when
-    they do they use it INSTEAD of
-    :func:`unauthenticated_privileged_terminal_problems`, not alongside it: with
-    no wall standing, an entry's own ``login`` key is inert, so reporting both
-    would name one exposure twice and disagree with itself about severity.
+    they do they use it INSTEAD of :func:`shared_card_privileged_problems`, not
+    alongside it: with no wall standing there is no authenticated identity for
+    sharing to widen, so reporting both would name one exposure twice and
+    disagree with itself about severity.
 
     Args:
-        resolved_entries: See
-            :func:`unauthenticated_privileged_terminal_problems`.
-        privileges_by_persona: Likewise.
+        resolved_entries: :func:`resolve_personas`' output (or anything with
+            the same ``name``/``persona`` keys).
+        privileges_by_persona: Persona name → :func:`persona_privileges` —
+            the ABSOLUTE answer; see :func:`_privileged_entries` for what a
+            missing persona means.
 
     Returns:
         One message per privileged entry, in roster order.
@@ -1809,8 +1647,8 @@ def shared_card_privileged_problems(
     the setup tool or the Config panel was lifted for named people behind their
     own cards, and the one key hands it to every login the deployment has.
 
-    **Judged on what the persona ABSOLUTELY holds**, like the ``login: false``
-    rule above and for the same reason: sharing is an authored claim about one
+    **Judged on what the persona ABSOLUTELY holds**, not on what it holds
+    beyond its deployment's baseline: sharing is an authored claim about one
     entry, made deliberately, and a deployment that floors neither surface
     hands both of them through the shared card — the widest version of this
     exposure, not an exempt one. See :func:`privileges_beyond_baseline` for the
@@ -2119,11 +1957,9 @@ def resolve_personas(
         existed. An optional ``"oidc_subject"`` key rides through on the same
         terms, so the auth sidecar's roster→identity mapping is read off the same
         resolved entry as everything else rather than re-derived from the raw
-        roster. An optional ``"login": False`` marker rides through likewise —
-        present only when the roster entry opted out of the login wall (see
-        :func:`entry_requires_login`). An optional ``"access": "any"`` marker
-        rides through on the same terms — present only when the roster entry is
-        a shared card (see :func:`entry_is_shared`). An optional ``"landing_group"`` key — the catalog entry's own
+        roster. An optional ``"access": "any"`` marker rides through likewise —
+        present only when the roster entry is a shared card (see
+        :func:`entry_is_shared`). An optional ``"landing_group"`` key — the catalog entry's own
         ``landing_group``, present only for a non-empty string — names the
         landing-page section this entry's card belongs in; it is read by
         :func:`osprey.deployment.web_terminals.render._build_groups` and affects
@@ -2190,11 +2026,8 @@ def resolve_personas(
             value = source.get(field)
             if isinstance(value, str) and value:
                 entry[field] = value
-        # `login: False` rides through on the same present-only-when-set terms;
+        # `access: "any"` rides through on the same present-only-when-set terms;
         # normalize_users already reduced every other spelling to absence.
-        if source.get("login") is False:
-            entry["login"] = False
-        # `access: "any"` likewise: only the sharing value is ever present.
         if source.get("access") == "any":
             entry["access"] = "any"
         return entry

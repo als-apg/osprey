@@ -469,6 +469,14 @@ PROTECTED_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
         "file_paths.*",
         "artifacts.*",
         "services.*.devices_file",
+        # The roster a plan may drive is enumerated from these two: the
+        # knowledge graph a deployment builds against, or the channel-finder
+        # pipeline database that stands in for it. Repointing either swaps
+        # the corpus the bluesky device namespace is derived from. Trailing
+        # ``*`` for the same reason as the scalar keys above: a block planted
+        # where the path goes must not slip past the gate as a child key.
+        "services.graphdb.ttl_path.*",
+        "channel_finder.pipelines.*.database.path.*",
         *RUNTIME_WRITE_PATH_KEYS,
     ),
     ".mcp.json": (
@@ -1018,7 +1026,7 @@ def is_setup_patch_capable(config: Any) -> bool:
     **Parity is the criterion, not conservatism**, because the two consumers
     pull in opposite directions. The container's Dockerfile *grants* the
     ``build/config.yml`` chown on ``True``; the persona-roster guard *refuses*
-    a ``default_persona`` or ``login: false`` on ``True``. So there is no safe
+    a ``default_persona`` or a shared card on ``True``. So there is no safe
     direction to lean: an answer biased toward ``False`` waves a capable
     persona past the roster guard, and one biased toward ``True`` hands an
     image's ``config.yml`` to an agent that cannot in fact patch it. The only

@@ -71,6 +71,23 @@ def web_terminal_url() -> str:
     return f"http://{host}:{port}"
 
 
+def phoebus_bridge_default(config: dict) -> str:
+    """The bridge URL ``phoebus.host``/``phoebus.port`` configure.
+
+    Stock ``http://127.0.0.1:7979`` when the config carries neither key
+    (matches ``bridge_preferences.properties``). This is the ONE spelling of
+    the config half of :func:`phoebus_bridge_url`, shared with the render
+    (``config_derived_context``'s ``phoebus_bridge_default`` context key) so
+    the ``.mcp.json`` fallback the build emits and the resolution the running
+    server performs cannot fork — a fallback rendered from anything else pins
+    the client to a port the backend does not serve (#829).
+    """
+    ph = config.get("phoebus", {}) or {}
+    host = ph.get("host", "127.0.0.1")
+    port = ph.get("port", 7979)
+    return f"http://{host}:{port}"
+
+
 def phoebus_bridge_url() -> str:
     """Build the Phoebus agent-bridge base URL from env or config.
 
@@ -78,9 +95,12 @@ def phoebus_bridge_url() -> str:
     (default ``http://127.0.0.1:7979``). Resolution order:
 
     1. ``PHOEBUS_BRIDGE_URL`` env var (full URL) — set by the framework server
-       definition; wins outright.
+       definition; wins outright. The definition's rendered fallback is
+       :func:`phoebus_bridge_default`, so on a rendered project this step
+       already answers with the configured host/port.
     2. ``PHOEBUS_BRIDGE_PORT`` env var overrides only the port.
-    3. ``phoebus.host`` / ``phoebus.port`` in config.yml.
+    3. ``phoebus.host`` / ``phoebus.port`` in config.yml
+       (:func:`phoebus_bridge_default`).
     4. ``127.0.0.1:7979`` default (matches ``bridge_preferences.properties``).
     """
     import os
@@ -92,10 +112,12 @@ def phoebus_bridge_url() -> str:
         return full.rstrip("/")
 
     config = load_osprey_config()
-    ph = config.get("phoebus", {})
-    host = ph.get("host", "127.0.0.1")
-    port = int(os.environ.get("PHOEBUS_BRIDGE_PORT", ph.get("port", 7979)))
-    return f"http://{host}:{port}"
+    port_env = os.environ.get("PHOEBUS_BRIDGE_PORT")
+    if port_env:
+        ph = config.get("phoebus", {}) or {}
+        host = ph.get("host", "127.0.0.1")
+        return f"http://{host}:{int(port_env)}"
+    return phoebus_bridge_default(config)
 
 
 _PANEL_TOKEN_LATCH: str | None = None
@@ -127,13 +149,20 @@ def _panel_auth_headers() -> dict[str, str]:
     inherit them.  Without the latch every panel call after that point would
     go out with no bearer and be refused.  The environment is still consulted
     first, so a value published after import (or rotated) wins over the latch.
-    The latch is never fed from the credential holder: in a process that
-    never held a carrier, ``get_web_credentials()`` would *mint* a token the
-    terminal does not recognise.
+    When neither the carrier nor the latch holds a value, the credentials this
+    process already holds are consulted last: a gallery auto-launched
+    in-thread was built from that same holder and verifies exactly its panel
+    token, so it is the right bearer by construction — and without it the
+    process would be refused by its own gallery.  The holder is only *peeked*
+    (:func:`~osprey.interfaces.web_auth.peek_web_credentials`), never
+    populated: in a process that never held a carrier,
+    ``get_web_credentials()`` would *mint* a token the terminal does not
+    recognise.
 
     Returns:
-        ``{"Authorization": "Bearer <token>"}`` when the carrier (or the
-        latch) holds a non-blank value, otherwise ``{}``.  Blank counts as
+        ``{"Authorization": "Bearer <token>"}`` when the carrier, the latch,
+        or this process's own credential holder yields a non-blank value,
+        otherwise ``{}``.  Blank counts as
         absent — an uninterpolated compose variable arrives as ``""`` — and a
         bare ``"Bearer "`` would be a credential-shaped lie the route has to
         reject.
@@ -141,13 +170,15 @@ def _panel_auth_headers() -> dict[str, str]:
     global _PANEL_TOKEN_LATCH
     import os
 
-    from osprey.interfaces.web_auth import PANEL_TOKEN_ENV
+    from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, peek_web_credentials
 
     token = os.environ.get(PANEL_TOKEN_ENV, "").strip()
     if token:
         _PANEL_TOKEN_LATCH = token
     elif _PANEL_TOKEN_LATCH:
         token = _PANEL_TOKEN_LATCH
+    elif (held := peek_web_credentials()) is not None:
+        token = held.panel_token
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 

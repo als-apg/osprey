@@ -830,8 +830,20 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
         # worker registered, and a change in that derivation show up here as a
         # real failure rather than a silently-diverging second copy of the logic.
         correctors, bpms = _orm_stack.staged_devices(repo)
-        assert correctors, "the build staged no settable device -- nothing to drive"
-        assert bpms, "the build staged no readable device -- nothing to read"
+        # Narrowed to the pyat-coupled partition, in the file's own order. The
+        # stages drive the FIRST settable and read the FIRST readable, and the
+        # staged file's order is the derivation's, not a contract: derived from
+        # the knowledge graph it leads with booster and transfer-line devices,
+        # which the accelerator model does not couple -- a setpoint echo and a
+        # static monitor -- so a sweep of one drains in seconds and the ~1 s
+        # liveness sampling test_3 rests on never sees a row count advance. The
+        # grid sizes above are calibrated against modelled devices.
+        correctors = {
+            name: pair for name, pair in correctors.items() if _orm_stack.pyat_coupled(pair[0])
+        }
+        bpms = {name: pv for name, pv in bpms.items() if _orm_stack.pyat_coupled(pv)}
+        assert correctors, "the build staged no modelled settable device -- nothing to drive"
+        assert bpms, "the build staged no modelled readable device -- nothing to read"
 
         # The repo's own copy, which the build copies into build/data verbatim:
         # same bytes, same channels the deployed containers see.
@@ -1429,11 +1441,34 @@ def _session_plan_args(stack: QueueStack) -> dict[str, Any]:
     One place, used by BOTH the validation dry run and the enqueue, so the
     bytes that were validated are exercised with the parameters they will
     actually run with.
+
+    The plan body sweeps ``-span_a .. span_a`` absolutely and restores to 0.0,
+    so the device must be one whose own ``channel_limits.json`` band contains
+    that range -- a bipolar corrector. The staged device set is the whole
+    roster (dipoles and all), so the first settable is not that device; pick
+    the first one whose limits prove it is.
     """
+    span_a = 1.0
+    corrector = next(
+        (
+            name
+            for name, (sp_address, _rb) in stack.correctors.items()
+            if isinstance(entry := stack.limits.get(sp_address), dict)
+            and "min_value" in entry
+            and "max_value" in entry
+            and float(entry["min_value"]) <= -span_a
+            and float(entry["max_value"]) >= span_a
+        ),
+        None,
+    )
+    assert corrector is not None, (
+        f"no staged settable has a channel_limits band covering "
+        f"[-{span_a}, {span_a}] -- the session sweep needs a bipolar corrector"
+    )
     return {
-        "correctors": [next(iter(stack.correctors))],
+        "correctors": [corrector],
         "readbacks": [next(iter(stack.bpms))],
-        "span_a": 1.0,
+        "span_a": span_a,
         "num": 3,
     }
 

@@ -578,57 +578,30 @@ def test_lint_string_display_name_reports_no_error() -> None:
     assert not any(f.code == "web_terminals.invalid_display_name" for f in findings)
 
 
-def test_lint_non_boolean_user_login_is_an_error() -> None:
-    """A non-boolean `login` deploys fail-closed as "login required", which is
-    the opposite of what the author who wrote it believes — so the typo is an
-    ERROR here rather than a silent lock-out."""
+@pytest.mark.parametrize("method", ["token", "none", "password", "oidc"])
+def test_lint_has_no_rule_about_the_retired_login_key(method: str) -> None:
+    """`login:` is no longer a roster key, and lint owns no rule about it.
+
+    Roster keys are linted one check per key rather than against a list of
+    known names, so a retired key draws no finding at all — the same silence
+    any other unknown key gets — and the normalizer projects it away so the
+    entry deploys behind the wall. What must not survive is a code that reads
+    the key: a finding that names `login: false` would be a rule that still
+    believes the exemption exists."""
     # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
+    config = _auth_config({"method": method, "allow_insecure_http": True}, tls=False, fqdn=None)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "login": "false"}
-    ]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert any(f.code == "web_terminals.invalid_user_login" for f in _errors(findings))
-
-
-def test_lint_login_false_without_auth_is_an_inert_key_warning() -> None:
-    """`login: false` under the default `auth.method: token` changes nothing —
-    that method puts neither a login wall nor an injected operator secret in
-    front of the entry — and the config should not claim otherwise. Under
-    `none` the key is meaningful and no warning is due."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0, "login": False}]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert any(f.code == "web_terminals.user_login_inert" for f in _warnings(findings))
-
-
-def test_lint_login_false_with_auth_on_reports_nothing() -> None:
-    """The intended use — a public entry in an authenticated deployment — is
-    clean; and explicit `login: true` is a well-formed (default) spelling."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    web_terminals = config["modules"]["web_terminals"]
-    web_terminals["auth"] = {"method": "password", "allow_insecure_http": True}
-    web_terminals["users"] = [
         {"name": "thellert", "index": 0, "login": True},
         {"name": "ariel", "index": 1, "login": False},
+        {"name": "kiosk", "index": 2, "login": "false"},
     ]
 
     # Act
     findings = lint_web_terminals(config)
 
     # Assert
-    assert not any(f.code == "web_terminals.invalid_user_login" for f in findings)
-    assert not any(f.code == "web_terminals.user_login_inert" for f in findings)
+    assert [f.code for f in findings if "login" in f.code] == []
+    assert not any("login: false" in f.message for f in findings)
 
 
 def test_lint_non_literal_user_access_is_an_error() -> None:
@@ -693,10 +666,12 @@ def test_lint_user_access_skips_non_dict_entries() -> None:
     assert not any(f.code == "web_terminals.user_access_inert" for f in findings)
 
 
-def test_lint_access_any_without_sidecar_is_an_inert_key_warning() -> None:
+def test_lint_access_any_without_sidecar_is_silent() -> None:
     """`access: any` under the default `auth.method: token` changes nothing —
-    no sidecar stands a login wall, so every terminal is already as reachable
-    as the key promises to make this one."""
+    no sidecar stands a login wall — but it is a carried roster key, not a
+    mistake: overlays concatenate the roster list, so a passive base that a
+    host variant arms with `password`/`oidc` has to carry the key on the base
+    entry, exactly where `oidc_subject` already sits silently."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
@@ -707,13 +682,12 @@ def test_lint_access_any_without_sidecar_is_an_inert_key_warning() -> None:
     findings = lint_web_terminals(config)
 
     # Assert
-    assert any(f.code == "web_terminals.user_access_inert" for f in _warnings(findings))
+    assert not any(f.code == "web_terminals.user_access_inert" for f in findings)
 
 
-def test_lint_access_any_under_auth_none_is_an_inert_key_warning() -> None:
-    """Under `auth.method: none` the key is inert too: `login: false` still
-    means something there (it withholds the injected secret), but `access`
-    reads the sidecar-established identity, and there is none."""
+def test_lint_access_any_under_auth_none_is_silent() -> None:
+    """Under `auth.method: none` the same carried-key reading holds: the open,
+    tunnel-only posture is the usual passive base an `sso` variant arms."""
     # Arrange
     config = _auth_config({"method": "none"}, tls=False, fqdn=None)
     config["modules"]["web_terminals"]["users"] = [
@@ -724,13 +698,15 @@ def test_lint_access_any_under_auth_none_is_an_inert_key_warning() -> None:
     findings = lint_web_terminals(config)
 
     # Assert
-    assert any(f.code == "web_terminals.user_access_inert" for f in _warnings(findings))
+    assert not any(f.code == "web_terminals.user_access_inert" for f in findings)
 
 
-def test_lint_access_any_on_a_login_exempt_entry_is_an_inert_key_warning() -> None:
-    """`access: any` together with `login: false` under a walled deployment:
-    nginx proxies the login-exempt entry with no auth_request, so there is no
-    authenticated identity for `access` to widen."""
+def test_lint_access_any_beside_the_retired_login_key_is_not_inert() -> None:
+    """`login: false` used to make a shared card inert (nginx proxied the entry
+    with no auth_request, so there was no identity for `access` to widen). The
+    key is gone, so a shared card beside it is a plain shared card behind the
+    wall, and the inert-key warning must not fire for a cause that no longer
+    exists."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     web_terminals = config["modules"]["web_terminals"]
@@ -743,7 +719,7 @@ def test_lint_access_any_on_a_login_exempt_entry_is_an_inert_key_warning() -> No
     findings = lint_web_terminals(config)
 
     # Assert
-    assert any(f.code == "web_terminals.user_access_inert" for f in _warnings(findings))
+    assert not any(f.code == "web_terminals.user_access_inert" for f in findings)
 
 
 def test_lint_access_any_under_walled_auth_reports_nothing() -> None:
@@ -3230,7 +3206,7 @@ def test_lint_duplicate_subject_with_a_shared_card_is_an_error() -> None:
     config["modules"]["web_terminals"]["users"] = [
         {"name": "thellert", "index": 0, "oidc_subject": "thorsten@example.org"},
         {"name": "thellert-admin", "index": 1, "oidc_subject": " thorsten@example.org "},
-        {"name": "control", "index": 2, "access": "any", "oidc_subject": "svc@example.org"},
+        {"name": "control", "index": 2, "access": "any"},
     ]
 
     # Act
@@ -3282,6 +3258,68 @@ def test_lint_distinct_subjects_with_a_shared_card_report_nothing() -> None:
 
     # Assert
     assert not any(f.code == "web_terminals.shared_card_duplicate_subject" for f in findings)
+
+
+def test_lint_shared_card_with_a_subject_is_a_warning() -> None:
+    """`access: any` beside a non-empty `oidc_subject`, under `oidc`: a shared
+    card is opened with the OPENER's identity, so the card's own subject only
+    lets that one identity open it as itself. The hazard is the other
+    reading — `access: any` typo'd onto a personal card, which hands the
+    terminal to every mapped roster identity the moment `oidc` is in force —
+    so the finding names the entry and both ways out."""
+    # Arrange
+    config = _auth_config({"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}})
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "access": "any", "oidc_subject": "thorsten@example.org"},
+        {"name": "gmartino", "index": 1, "oidc_subject": "gmartino@example.org"},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = [f for f in _warnings(findings) if f.code == "web_terminals.shared_card_subject"]
+    assert len(offenders) == 1
+    assert "'thellert'" in offenders[0].message
+    assert "'gmartino'" not in offenders[0].message
+    assert "thorsten@example.org" not in offenders[0].message
+    assert "access: any" in offenders[0].message
+    assert "oidc_subject" in offenders[0].message
+
+
+def test_lint_shared_card_with_a_blank_subject_reports_nothing() -> None:
+    """An empty or whitespace-only `oidc_subject` maps no identity — there is
+    nothing on the card for the finding to be about."""
+    # Arrange
+    config = _auth_config({"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}})
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "control", "index": 0, "access": "any", "oidc_subject": "  "},
+        {"name": "gmartino", "index": 1, "oidc_subject": "gmartino@example.org"},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.shared_card_subject" for f in findings)
+
+
+def test_lint_shared_card_subject_check_is_mode_gated() -> None:
+    """Only `oidc` reads the subject mapping. On a passive `none` base that an
+    `oidc` variant arms, both keys are carried base-entry state (see the
+    `access: any` carried-key tests above); the finding belongs to the merged
+    render where the wall stands, not to every build of the base."""
+    # Arrange
+    config = _auth_config({"method": "none"}, tls=False, fqdn=None)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "access": "any", "oidc_subject": "thorsten@example.org"},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.shared_card_subject" for f in findings)
 
 
 def test_lint_duplicate_subject_check_is_mode_gated() -> None:

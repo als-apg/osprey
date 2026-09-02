@@ -5,7 +5,7 @@
  * the deployment's configuration only ever meet here, so the properties pinned
  * below are the ones no single-module suite can see.
  *
- *   1. ORDER. For GitHub and Email the clipboard write and the browser handoff
+ *   1. ORDER. For the trackers and Email the clipboard write and the browser handoff
  *      must both be issued inside the click turn, before the POST settles.
  *      Asserted with ZERO awaits after the click — one microtask is already
  *      too late for Safari's transient user activation.
@@ -39,6 +39,15 @@ const indexHtml = readFileSync(join(STATIC_DIR, 'index.html'), 'utf8');
 const DOCS_URL = 'https://docs.example.org/osprey';
 const REPO = 'acme/osprey';
 const EMAIL = 'maintainers@example.org';
+const GITLAB_URL = 'https://git.example.org/controls/osprey';
+
+/** `/api/panels` tracker entries, as the server resolves them. */
+const GH_TRACKER = { kind: 'github', label: 'GitHub', repo: REPO };
+const GL_TRACKER = { kind: 'gitlab', label: 'Facility GitLab', url: GITLAB_URL };
+
+/** The radio values boot derives for them. */
+const GH = `github:${REPO}`;
+const GL = `gitlab:${GITLAB_URL}`;
 const SESSION = '11111111-2222-3333-4444-555555555555';
 
 /**
@@ -164,13 +173,15 @@ function fakeTerm(rows) {
  * @param {any} [over.clipboard]
  * @param {boolean} [over.settle] - false leaves the config reads hanging
  * @param {boolean} [over.hangHealth] - hang `/health` only
+ * @param {Promise<any>} [over.panelsGate] - a promise the `/api/panels` read
+ *   waits on before resolving with `over.panels`
  */
 async function boot(over = {}) {
   document.body.innerHTML = railRegionMarkup() + statusBarMarkup();
 
   const panels =
     over.panels === undefined
-      ? { docs_url: DOCS_URL, feedback_github_repo: REPO, feedback_email: EMAIL }
+      ? { docs_url: DOCS_URL, feedback_trackers: [GH_TRACKER], feedback_email: EMAIL }
       : over.panels;
   const health = over.health === undefined ? { version: '9.9.9' } : over.health;
 
@@ -179,7 +190,9 @@ async function boot(over = {}) {
       if (over.settle === false) return new Promise(() => {});
       if (over.hangHealth === true && path === '/health') return new Promise(() => {});
       const body = path === '/health' ? health : panels;
-      return body === null ? Promise.reject(new Error('HTTP 503')) : Promise.resolve(body);
+      if (body === null) return Promise.reject(new Error('HTTP 503'));
+      if (over.panelsGate !== undefined && path !== '/health') return over.panelsGate.then(() => body);
+      return Promise.resolve(body);
     }
   );
   const fetchSpy = vi.fn(() =>
@@ -204,7 +217,7 @@ async function boot(over = {}) {
   // The boot is synchronous by contract; every test that cares about the
   // deployment's configuration waits for it here instead. `ready` covers both
   // reads, so a test that deliberately hangs one waits on its own signal.
-  if (over.settle !== false && over.hangHealth !== true) await ready;
+  if (over.settle !== false && over.hangHealth !== true && over.panelsGate === undefined) await ready;
   return { modal, ready, loadJSON, fetch: fetchSpy, clipboard, windowOpen, navigate };
 }
 
@@ -225,11 +238,25 @@ function typeReport(value) {
   area.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
-/** Select a delivery channel. @param {string} channel */
+/** Select a delivery channel — `local`, `email` or a tracker's radio value. @param {string} channel */
 function pickChannel(channel) {
   const radio = qs(document, `input[name="feedback-channel"][value="${channel}"]`, HTMLInputElement);
   radio.checked = true;
   radio.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+/** @returns {string[]} the channel radio values, in render order */
+function channelValues() {
+  return Array.from(document.querySelectorAll('input[name="feedback-channel"]')).map((node) =>
+    node instanceof HTMLInputElement ? node.value : ''
+  );
+}
+
+/** @returns {string[]} the channel radio captions, in render order */
+function channelCaptions() {
+  return Array.from(document.querySelectorAll('.feedback-channel-label')).map(
+    (node) => node.textContent ?? ''
+  );
 }
 
 /** Tick the session-context checkbox. */
@@ -274,7 +301,7 @@ describe('documentation affordances', () => {
   });
 
   test('a blank docs_url leaves both links hidden and href-less', async () => {
-    booted = await boot({ panels: { docs_url: '   ', feedback_github_repo: REPO } });
+    booted = await boot({ panels: { docs_url: '   ', feedback_trackers: [GH_TRACKER] } });
 
     for (const id of ['#panel-docs-link', '#docs-link']) {
       expect(qs(document, id).hidden, `${id} still visible`).toBe(true);
@@ -397,13 +424,32 @@ describe('rail button', () => {
   test('an outbound channel says the config is still loading, and opens nothing', async () => {
     booted = await boot({ settle: false });
     clickFeedbackButton();
-    pickChannel('github');
+    pickChannel('email');
 
     qs(document, '.feedback-open-channel').click();
     await vi.waitFor(() => expect(noticeText()).not.toBe(''));
 
     expect(noticeText()).toContain('Still reading');
-    expect(booted.windowOpen).not.toHaveBeenCalled();
+    expect(booted.navigate).not.toHaveBeenCalled();
+  });
+
+  test('no tracker radio is offered before the config lands, and they appear in place once it does', async () => {
+    // A tracker the page does not know yet cannot be rendered — there is no
+    // label to caption it with — so the dialog opens with Local and Email and
+    // grows the trackers the moment the read lands, without a reopen.
+    /** @type {() => void} */
+    let release = () => {};
+    const panelsGate = new Promise((resolve) => {
+      release = () => resolve(undefined);
+    });
+    booted = await boot({ panels: { feedback_trackers: [GL_TRACKER, GH_TRACKER] }, panelsGate });
+    clickFeedbackButton();
+    expect(channelValues()).toEqual(['local', 'email']);
+
+    release();
+    await booted.ready;
+
+    expect(channelValues()).toEqual(['local', GL, GH, 'email']);
   });
 
   test('a hung /health does not withhold the outbound channels', async () => {
@@ -417,7 +463,7 @@ describe('rail button', () => {
     booted.fetch.mockImplementation(() => new Promise(() => {}));
     clickFeedbackButton();
     typeReport('a report');
-    pickChannel('github');
+    pickChannel(GH);
 
     qs(document, '.feedback-open-channel').click();
 
@@ -567,7 +613,7 @@ describe('session context', () => {
     });
     clickFeedbackButton();
     typeReport('nötes');
-    pickChannel('github');
+    pickChannel(GH);
     tickContext();
 
     qs(document, '.feedback-copy-context').click();
@@ -587,7 +633,7 @@ describe('outbound channels', () => {
   test('the clipboard write and the issue tab are issued in the click turn', async () => {
     // A POST that never settles: everything asserted below therefore happened
     // before any response could have arrived.
-    booted = await boot({ panels: { feedback_github_repo: REPO } });
+    booted = await boot({ panels: { feedback_trackers: [GH_TRACKER] } });
     booted.fetch.mockImplementation(() => new Promise(() => {}));
     vi.stubGlobal(
       'ClipboardItem',
@@ -600,7 +646,7 @@ describe('outbound channels', () => {
     );
     clickFeedbackButton();
     typeReport('crash on resize');
-    pickChannel('github');
+    pickChannel(GH);
     tickContext();
 
     qs(document, '.feedback-open-channel').click();
@@ -617,10 +663,10 @@ describe('outbound channels', () => {
   });
 
   test('a full-mode send opens the draft without touching the clipboard', async () => {
-    booted = await boot({ panels: { feedback_github_repo: REPO } });
+    booted = await boot({ panels: { feedback_trackers: [GH_TRACKER] } });
     clickFeedbackButton();
     typeReport('crash on resize');
-    pickChannel('github');
+    pickChannel(GH);
 
     qs(document, '.feedback-open-channel').click();
     await vi.waitFor(() => expect(noticeText()).toContain('fb-1'));
@@ -649,7 +695,7 @@ describe('outbound channels', () => {
     booted.fetch.mockImplementation(() => new Promise(() => {}));
     clickFeedbackButton();
     typeReport('a report');
-    pickChannel('github');
+    pickChannel(GH);
 
     qs(document, '.feedback-open-channel').click();
 
@@ -658,19 +704,56 @@ describe('outbound channels', () => {
     expect(body).toContain('9.9.9');
   });
 
-  test('a channel this deployment never configured refuses instead of 404ing', async () => {
-    booted = await boot({ panels: { docs_url: DOCS_URL, feedback_github_repo: '' } });
+  test('a deployment with no trackers offers no tracker radio at all', async () => {
+    // The blank-`github_repo` posture: the server resolves it to an empty
+    // list, and an empty list is not a channel that refuses — it is no
+    // channel, so nothing can aim a report at the upstream tracker.
+    booted = await boot({ panels: { docs_url: DOCS_URL, feedback_trackers: [] } });
     clickFeedbackButton();
-    pickChannel('github');
+
+    expect(channelValues()).toEqual(['local', 'email']);
+    expect(document.querySelector('.feedback-open-channel')).toBeNull();
+  });
+
+  test('a tracker radio is captioned by the facility-authored label', async () => {
+    booted = await boot({ panels: { feedback_trackers: [GL_TRACKER, GH_TRACKER] } });
+    clickFeedbackButton();
+
+    expect(channelValues()).toEqual(['local', GL, GH, 'email']);
+    expect(channelCaptions()).toEqual(['Local', 'Facility GitLab', 'GitHub', 'Email']);
+  });
+
+  test('a GitLab tracker opens its /-/issues/new form and names itself in the record', async () => {
+    booted = await boot({ panels: { feedback_trackers: [GL_TRACKER] } });
+    clickFeedbackButton();
+    typeReport('crash on resize');
+    pickChannel(GL);
 
     qs(document, '.feedback-open-channel').click();
 
-    // A microtask later, not this turn: the live region has just been created,
-    // and a region written in the turn it is created is never announced.
-    expect(noticeText()).toBe('');
-    await vi.waitFor(() => expect(noticeText()).toContain('no feedback repository configured'));
-    expect(booted.windowOpen).not.toHaveBeenCalled();
-    expect(booted.fetch).not.toHaveBeenCalled();
+    expect(booted.windowOpen).toHaveBeenCalledTimes(1);
+    const [url, target, features] = booted.windowOpen.mock.calls[0];
+    expect(url.startsWith(`${GITLAB_URL}/-/issues/new?issue[title]=`)).toBe(true);
+    expect(url).toContain('crash%20on%20resize');
+    expect(target).toBe('_blank');
+    expect(features).toBe('noopener');
+    expect(postedBody(booted.fetch)).toMatchObject({ channel: 'gitlab', tracker: GITLAB_URL });
+  });
+
+  test('a malformed tracker entry from the server is skipped, the rest stand', async () => {
+    booted = await boot({
+      panels: {
+        feedback_trackers: [
+          { kind: 'github', label: 'no repo' },
+          { kind: 'bitbucket', label: 'x', url: 'https://x' },
+          'not an object',
+          GL_TRACKER,
+        ],
+      },
+    });
+    clickFeedbackButton();
+
+    expect(channelValues()).toEqual(['local', GL, 'email']);
   });
 
   test('an unreadable config says so, rather than asserting a blank posture', async () => {
@@ -710,7 +793,7 @@ describe('outbound channels', () => {
     typeReport('a report');
 
     qs(document, '.feedback-send').click();
-    pickChannel('github');
+    pickChannel(GH);
     qs(document, '.feedback-open-channel').click();
 
     expect(booted.fetch).toHaveBeenCalledTimes(1);
@@ -735,7 +818,7 @@ describe('outbound channels', () => {
     booted = await boot({ sessionId: null });
     clickFeedbackButton();
     typeReport('a report');
-    pickChannel('github');
+    pickChannel(GH);
 
     qs(document, '.feedback-open-channel').click();
     await vi.waitFor(() =>
@@ -749,7 +832,7 @@ describe('outbound channels', () => {
     booted = await boot({ clipboard: {} });
     clickFeedbackButton();
     typeReport('a report');
-    pickChannel('github');
+    pickChannel(GH);
     tickContext();
 
     qs(document, '.feedback-open-channel').click();
@@ -769,7 +852,7 @@ describe('outbound channels', () => {
     booted = await boot({ clipboard: {} });
     clickFeedbackButton();
     typeReport('a report');
-    pickChannel('github');
+    pickChannel(GH);
     tickContext();
     qs(document, '.feedback-open-channel').click();
     await vi.waitFor(() =>

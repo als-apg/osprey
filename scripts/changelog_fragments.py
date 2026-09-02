@@ -103,7 +103,8 @@ RENDERED_TYPES = TYPES[:6]
 # order, for free; one that renders nothing never gets either.
 HEADING_FOR = {type_: type_.capitalize() for type_ in RENDERED_TYPES}
 HEADING_ORDER = tuple(HEADING_FOR.values())
-GATED_PREFIXES = ("src/", "packages/")
+# plugins/ holds the shipped skills.
+GATED_PREFIXES = ("src/", "packages/", "plugins/")
 FRAGMENT_DIR = "changelog.d"
 KEEP = "README.md"
 REPO_ROOT = Path(__file__).resolve().parents[1]

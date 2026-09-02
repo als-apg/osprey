@@ -186,6 +186,29 @@ class TestDockerfileContent:
         assert 'npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}"' in cli_bodies[0]
         assert "nodejs" not in cli_bodies[0], "the CLI pin shares a RUN with the apt install"
 
+    def test_cli_autoupdater_is_off(self, hello_project):
+        """The pinned CLI must not self-update: a successful background update
+        would silently replace the pin, and a failed one (always, here — npm
+        installed the CLI as root, the agent runs as ``osprey``) surfaces as a
+        red "Auto-update failed" line under the prompt on every session.
+        ``DISABLE_AUTOUPDATER`` is a plain ``ENV`` so it survives the launch
+        paths' ``CLAUDE_CODE_*`` strip and reaches the agent."""
+        text = (hello_project / "Dockerfile").read_text()
+        assert re.search(r"^ENV DISABLE_AUTOUPDATER=1$", text, flags=re.MULTILINE), text
+
+    def test_dispatcher_image_cli_autoupdater_is_off(self):
+        """The event-dispatcher image pins the CLI the same way and gets the
+        same switch — the service Dockerfile is static, not rendered."""
+        from importlib import resources
+
+        text = (
+            resources.files("osprey")
+            .joinpath("templates/services/event_dispatcher/Dockerfile")
+            .read_text()
+        )
+        assert "npm install -g @anthropic-ai/claude-code@" in text
+        assert re.search(r"^ENV DISABLE_AUTOUPDATER=1$", text, flags=re.MULTILINE), text
+
     @classmethod
     def _ca_run_body(cls, text: str) -> str:
         """The single site-CA RUN body: installs the staged CA gated on
@@ -1093,7 +1116,7 @@ class TestTieredPresetConfigChown:
         project = f"{tiered_render.parent.name}-admin"
         assert self._chown_line(project) in self._dockerfile(tiered_render, project)
 
-    @pytest.mark.parametrize("persona", ["readonly", "readwrite", "ariel"])
+    @pytest.mark.parametrize("persona", ["readonly", "readwrite", "logbook", "knowledge"])
     def test_no_other_persona_hands_over_config_yml(self, tiered_render, persona):
         """Every tier the base preset's floor still applies to renders the image
         WITHOUT the chown: it cannot rewrite the file that says what it may do,

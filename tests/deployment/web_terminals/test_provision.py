@@ -418,11 +418,12 @@ def test_preflight_mints_credentials_then_secrets_for_the_roster(
     assert calls[1][1] == str(tmp_path)
 
 
-def test_preflight_mints_no_credential_for_a_login_false_entry(monkeypatch, tmp_path):
-    """A roster entry with `login: false` is left out of the password mint: no
-    gate ever asks the sidecar about it, so a hash for it would be a credential
-    nothing checks — and a minted password printed for it would tell the
-    operator the opposite of the truth."""
+def test_preflight_mints_a_credential_for_an_entry_carrying_the_retired_login_key(
+    monkeypatch, tmp_path
+):
+    """`login: false` used to leave an entry out of the password mint. The key
+    is retired, so an entry still carrying it is behind the wall like its
+    neighbours and gets its password minted with them."""
     calls: list[list[str]] = []
     env_auth = tmp_path / AUTH_ENV_FILENAME
 
@@ -445,7 +446,7 @@ def test_preflight_mints_no_credential_for_a_login_false_entry(monkeypatch, tmp_
     )
     _run_preflight(monkeypatch, tmp_path, config)
 
-    assert calls == [["alice", "bob"]]
+    assert calls == [["alice", "ariel", "bob"]]
 
 
 def test_preflight_mints_no_credential_for_a_shared_entry(monkeypatch, tmp_path):
@@ -532,10 +533,10 @@ def test_an_auth_off_deploy_refuses_a_bad_roster_name_without_naming_auth(monkey
     assert not (tmp_path / ENV_LOCAL_FILENAME).exists()
 
 
-def test_preflight_provisions_a_terminal_secret_for_a_login_false_entry(monkeypatch, tmp_path):
-    """The opposite of the password mint's rule, and deliberately so: opting out
-    of the login wall does not opt a terminal out of needing a front door, so
-    every roster entry is passed to the terminal mint."""
+def test_preflight_provisions_a_terminal_secret_for_a_shared_entry(monkeypatch, tmp_path):
+    """The opposite of the password mint's rule, and deliberately so: a card
+    opened with somebody else's credential is still a terminal needing a front
+    door, so every roster entry is passed to the terminal mint."""
     calls: list[list[str]] = []
 
     def _fake_terminal(project_root, usernames):
@@ -556,8 +557,8 @@ def test_preflight_provisions_a_terminal_secret_for_a_login_false_entry(monkeypa
         "password",
         users=[
             "alice",
-            {"name": "ariel", "index": 1, "login": False},
-            {"name": "bob", "index": 2, "login": True},
+            {"name": "ariel", "index": 1, "access": "any"},
+            {"name": "bob", "index": 2},
         ],
     )
     _run_preflight(monkeypatch, tmp_path, config)
@@ -957,7 +958,6 @@ def _stub_web_stack(monkeypatch, tmp_path):
     monkeypatch.setattr(provision, "build_persona_images", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "build_auth_sidecar_image", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "_reconcile_web_stack_recreates", lambda *a, **kw: None)
-    monkeypatch.setattr(provision, "reload_nginx_config", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "enable_linger", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "seed_user_containers", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "run_verify_script", lambda *a, **kw: None)
@@ -975,6 +975,21 @@ def test_local_mode_web_stack_never_pulls_the_local_auth_image(monkeypatch, tmp_
 
     assert not any("pull" in cmd for cmd in recorded)
     assert any(cmd[-2:] == ["up", "-d"] for cmd in recorded)
+
+
+def test_deploy_up_force_recreates_nginx(monkeypatch, tmp_path):
+    """The build stage regenerates ``build/`` from scratch (rmtree + render),
+    so a running nginx's file bind mounts (nginx.conf, landing.html) point at
+    the PREVIOUS render's inodes. ``nginx -s reload`` re-reads the dead inode
+    (native Linux) or fails outright (Docker Desktop's VirtioFS unlinks it, so
+    the landing page 404s and the healthcheck flips unhealthy) — only a
+    recreate rebinds the mounts to the fresh files. Scoped to the nginx
+    service: the rest of the stack is `up -d`'s to reconcile."""
+    recorded = _stub_web_stack(monkeypatch, tmp_path)
+
+    provision.deploy_up_web_terminals(_sidecar_config("local"), [], False, {}, [])
+
+    assert any(cmd[-4:] == ["up", "-d", "--force-recreate", "nginx"] for cmd in recorded), recorded
 
 
 def test_registry_mode_web_stack_still_pulls(monkeypatch, tmp_path):

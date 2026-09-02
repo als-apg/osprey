@@ -28,7 +28,7 @@ import { FeedbackModal } from './feedback-modal.js';
 import { applyDocsLink, initRailUtility, onFeedbackClick } from './rail-utility.js';
 import { captureScrollback } from './scrollback-capture.js';
 
-/** Deployment config: rail/status docs target and the two outbound channels. */
+/** Deployment config: rail/status docs target and the outbound channels. */
 const PANELS_PATH = '/api/panels';
 
 /** Carries `osprey.__version__`, the one metadata fact the page cannot know. */
@@ -43,9 +43,13 @@ const NOTICE_CLASS = 'feedback-notice';
 /** Class of the read-only textarea offered when the clipboard refuses. */
 const MANUAL_COPY_CLASS = 'feedback-manual-copy';
 
-/** Shown when the GitHub channel is picked on a deployment that blanked the repo. */
-const NO_GITHUB_REPO =
-  'This deployment has no feedback repository configured — use Local instead.';
+/**
+ * Shown when a tracker channel is actioned without a tracker behind it. The
+ * radios are rendered from the configured list, so this is a belt-and-braces
+ * guard for a list that changed under an open dialog, not a posture a
+ * deployment can configure into.
+ */
+const NO_TRACKER = 'This deployment has no such feedback tracker configured — use Local instead.';
 
 /** Shown when the Email channel is picked on a deployment that blanked the address. */
 const NO_EMAIL = 'This deployment has no feedback address configured — use Local instead.';
@@ -73,7 +77,11 @@ const CONFIG_TIMEOUT_MS = 8000;
 
 /**
  * @typedef {import('./feedback-modal.js').FeedbackFormState} FeedbackFormState
+ * @typedef {import('./feedback-modal.js').FeedbackTracker} FeedbackTracker
  */
+
+/** Tracker kinds the page knows how to open; anything else is dropped. */
+const TRACKER_KINDS = Object.freeze({ github: 'GitHub', gitlab: 'GitLab' });
 
 /**
  * @typedef {object} FeedbackBootOptions
@@ -97,9 +105,10 @@ const CONFIG_TIMEOUT_MS = 8000;
 /**
  * @typedef {object} FeedbackConfig
  * @property {'pending'|'ok'|'unreadable'} status - how the config read went.
- * @property {string} githubRepo - `owner/name`, or "" when this deployment
+ * @property {FeedbackTracker[]} trackers - the issue trackers on offer, in
+ *   render order; empty when this deployment configured none.
+ * @property {string} email - maintainer address, or "" when this deployment
  *   retired the channel.
- * @property {string} email - maintainer address, or "" as above.
  * @property {string} version - `osprey.__version__`, for the metadata block.
  */
 
@@ -124,7 +133,7 @@ const CONFIG_TIMEOUT_MS = 8000;
  */
 export function initFeedback(options = {}) {
   /** @type {FeedbackConfig} */
-  const config = { status: 'pending', githubRepo: '', email: '', version: '' };
+  const config = { status: 'pending', trackers: [], email: '', version: '' };
 
   const modal = createFeedbackModal(config, options);
   onFeedbackClick(() => modal.open());
@@ -143,8 +152,11 @@ export function initFeedback(options = {}) {
   // reading" for up to the timeout because a version line had not arrived.
   const panelsApplied = read(PANELS_PATH).then((panels) => {
     config.status = panels === null ? 'unreadable' : 'ok';
-    config.githubRepo = trimmedString(panels == null ? undefined : panels.feedback_github_repo);
+    config.trackers = normalizeTrackers(panels == null ? undefined : panels.feedback_trackers);
     config.email = trimmedString(panels == null ? undefined : panels.feedback_email);
+    // Handed to the dialog as well as kept here: the radios are built from
+    // the list, and the dialog may already be open when it lands.
+    modal.setTrackers(config.trackers);
     initRailUtility(panels);
     applyStatusDocsLink(panels);
   });
@@ -230,7 +242,7 @@ function createFeedbackModal(config, options) {
   // One action at a time, held as STATE rather than as the disabled buttons.
   // Disabling the row cannot be the guard on its own: the channel radios are
   // not part of it, and switching channel mid-flight makes the dialog rebuild
-  // the action row with fresh, enabled buttons — Send, switch to GitHub, click
+  // the action row with fresh, enabled buttons — Send, switch to a tracker, click
   // and the deployment has two submissions in flight for one report.
   let inFlight = false;
 
@@ -271,21 +283,20 @@ function createFeedbackModal(config, options) {
     // looking at when they pressed the button — and only when it will be sent.
     scrollback: state.contextOn ? captureScrollback(getTerminal()) : '',
     metadata: buildMetadata(config),
-    githubRepo: config.githubRepo,
     email: config.email,
     showSelectableText: (payload) => showManualCopy(modal, payload),
     onNotice: (notice) => showNotice(modal, notice),
   });
 
   /**
-   * The Send / "Open GitHub issue" / "Open email draft" buttons.
+   * The Send / "Open … issue" / "Open email draft" buttons.
    *
    * @param {FeedbackFormState} state
    * @returns {void}
    */
   const submit = (state) => {
     if (inFlight) return;
-    const unavailable = channelGuard(state.channel, config);
+    const unavailable = channelGuard(state, config);
     if (unavailable !== null) {
       startAction(modal);
       // A microtask, not this turn: `startAction` has only just created the
@@ -327,29 +338,64 @@ function createFeedbackModal(config, options) {
 }
 
 /**
- * Whether a channel can be reached at all on this deployment.
+ * Whether an outbound channel can be reached at all on this deployment.
  *
- * Three different answers, deliberately: a blanked `web.feedback.github_repo`
- * / `web.feedback.email` is a legitimate configuration (the same posture as a
- * blanked `web.docs_url`) and reads as "not available here"; a config the page
- * could not read reads as "I do not know"; and the window before the reads
- * land says so rather than guessing. What none of them may do is let the click
- * through, which would open an issue tab on `https://github.com//issues/new`.
+ * Three different answers, deliberately: a blanked `web.feedback.email` is a
+ * legitimate configuration (the same posture as a blanked `web.docs_url`) and
+ * reads as "not available here"; a config the page could not read reads as
+ * "I do not know"; and the window before the reads land says so rather than
+ * guessing. What none of them may do is let the click through, which would
+ * open a `mailto:` with no recipient — or, for a tracker channel whose tracker
+ * is no longer on the list, an issue tab on a URL built from nothing.
+ *
+ * The trackers themselves need no "not configured" answer: a tracker that is
+ * not configured is not rendered, so it cannot be picked.
  *
  * Local is never guarded — it needs no configuration, which is exactly why
  * every one of these notices points at it.
  *
- * @param {string} channel
+ * @param {FeedbackFormState} state
  * @param {FeedbackConfig} config
  * @returns {string|null} the notice to show, or null when the channel is usable.
  */
-function channelGuard(channel, config) {
-  if (channel !== 'github' && channel !== 'email') return null;
+function channelGuard(state, config) {
+  const channel = state.channel;
+  if (channel === 'local') return null;
   if (config.status === 'pending') return CONFIG_PENDING;
   if (config.status === 'unreadable') return CONFIG_UNREADABLE;
-  if (channel === 'github' && config.githubRepo === '') return NO_GITHUB_REPO;
-  if (channel === 'email' && config.email === '') return NO_EMAIL;
+  if (channel === 'email') return config.email === '' ? NO_EMAIL : null;
+  const tracker = state.tracker;
+  if (tracker === null || !config.trackers.some((known) => known.id === tracker.id)) {
+    return NO_TRACKER;
+  }
   return null;
+}
+
+/**
+ * The `/api/panels` tracker list as the dialog wants it: one entry per usable
+ * server entry, in order, with a radio value derived from what it opens.
+ *
+ * The server already validated the list, so a malformed entry here means a
+ * server/page version skew; it is dropped rather than rendered as a radio
+ * that opens nothing.
+ *
+ * @param {unknown} value - `panels.feedback_trackers`
+ * @returns {FeedbackTracker[]}
+ */
+function normalizeTrackers(value) {
+  if (!Array.isArray(value)) return [];
+  /** @type {FeedbackTracker[]} */
+  const trackers = [];
+  for (const entry of value) {
+    if (entry === null || typeof entry !== 'object') continue;
+    const kind = trimmedString(entry.kind);
+    if (kind !== 'github' && kind !== 'gitlab') continue;
+    const target = trimmedString(kind === 'github' ? entry.repo : entry.url);
+    if (target === '') continue;
+    const label = trimmedString(entry.label) || TRACKER_KINDS[kind];
+    trackers.push({ id: `${kind}:${target}`, kind, label, target });
+  }
+  return trackers;
 }
 
 /**

@@ -377,6 +377,17 @@ keys:
     rendered: false
     evidence: 'OSPREY_GCHAT_BRIDGE_IMAGE:-\{\{ services\.gchat_bridge\.image'
     note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+  services.ariel_sync.image:
+    rendered: false
+    evidence: 'OSPREY_WORKER_IMAGE:-\{\{ svc\.image \| default\(osprey_images\.worker\)'
+    note: >-
+      OSPREY-built image, same layering as `services.event_dispatcher.image`.
+      Runs the bare project image, so it shares `OSPREY_WORKER_IMAGE` with
+      `services.dispatch_worker.image` by design. The compose template reads
+      it through `svc = services.ariel_sync | default({}, true)` — the block
+      may be absent on a deploy that selects the service without authoring
+      it — so the evidence anchors on that alias plus the worker default,
+      which is what distinguishes it from the dispatch worker's line.
   services.bluesky.image:
     rendered: false
     evidence: 'OSPREY_BLUESKY_BRIDGE_IMAGE:-\{\{ svc\.image'
@@ -1232,6 +1243,8 @@ keys:
   artifact_server.host: {covered-by: artifact_server}
   artifact_server.port: {covered-by: artifact_server}
   artifact_server.auto_launch: {evidence: 'auto_launch'}
+  artifact_server.example_artifact:
+    evidence: 'get_config_value\("artifact_server\.example_artifact"'
 
   # ── Health suite ────────────────────────────────────────────────────
   # The `health:` section is unset in all five templates — the built-in checks
@@ -1352,6 +1365,12 @@ keys:
       last of them rather than outliving them all.
   web.feedback.github_repo:
     evidence: 'get_config_value\(\s*"web\.feedback\.github_repo",\s*DEFAULT_FEEDBACK_GITHUB_REPO\s*\)'
+  web.feedback.trackers:
+    # Documented in every template as a commented example beside github_repo,
+    # never rendered as a live key: the shipped posture is the github_repo
+    # shorthand alone, and a facility adds trackers by hand.
+    rendered: false
+    evidence: 'get_config_value\(\s*"web\.feedback\.trackers",\s*None\s*\)'
   web.feedback.email:
     evidence: 'get_config_value\(\s*"web\.feedback\.email",\s*DEFAULT_FEEDBACK_EMAIL\s*\)'
   web.feedback.max_store_bytes:

@@ -137,6 +137,20 @@ def worker_id() -> str:
     return os.environ.get("PYTEST_XDIST_WORKER", "main")
 
 
+def worker_index() -> int:
+    """This process's xdist worker number — ``gw3`` → 3 — or 0 when unparallelised.
+
+    For anything a worker has to own exclusively while its siblings run: a
+    port block, a container name, a scratch directory. ``main`` (no xdist)
+    takes 0, the same slot as ``gw0``, which is fine because the two never
+    coexist in one run.
+    """
+    worker = worker_id()
+    if worker.startswith("gw") and worker[2:].isdigit():
+        return int(worker[2:])
+    return 0
+
+
 class DiagnosticsRecorder:
     """Writes the event log and arms the stack dumper for one process."""
 

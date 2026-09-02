@@ -16,8 +16,9 @@ Contract:
   no base prepend — the shared base is opt-out per persona (default on).
 * ``skills/`` is idempotent and non-destructive via a ``.deploy-managed``
   sentinel dropped inside the container: only sentinel-bearing skill dirs are
-  ever touched. A user's live-installed skill (e.g. ``osprey skills install``,
-  no sentinel) always survives a reseed. Every overlay-shipped skill dir gets
+  ever touched. A skill dir that arrived some other way (hand-placed under
+  ``skills/``, no sentinel) always survives a reseed. Every overlay-shipped
+  skill dir gets
   re-stamped; a previously-managed skill the overlay no longer ships is
   removed.
 * A user whose container isn't up yet is skipped (logged), not fatal — the

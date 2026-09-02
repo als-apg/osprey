@@ -165,9 +165,11 @@ def _create_dispatch_dashboard_app() -> FastAPI:
 # serving the genuine render output — so the baseline exercises the real
 # deploy render path, not a hand-built HTML fixture. Two users with distinct
 # personas (alice->operator, bob->physicist) so both persona sublabels appear,
-# plus a third whose persona declares a ``landing_group`` — so the baseline
-# also covers the labelled users section and the standalone-deployments tray
-# (accent-edged panel, badge suppressed because roster name == persona name).
+# plus the two shared standalone cards the control-assistant preset ships
+# (logbook research and facility knowledge), whose personas declare a
+# ``landing_group`` — so the baseline also covers the labelled users section
+# and the standalone-deployments tray (accent-edged panel, badges suppressed
+# because roster name == persona name).
 # ---------------------------------------------------------------------------
 
 _MULTI_USER_LANDING_CONFIG = {
@@ -186,8 +188,12 @@ _MULTI_USER_LANDING_CONFIG = {
             "personas": {
                 "operator": {"project": "demo-operator"},
                 "physicist": {"project": "demo-physicist"},
-                "ariel": {
-                    "project": "demo-ariel",
+                "logbook": {
+                    "project": "demo-logbook",
+                    "landing_group": "Standalone deployments",
+                },
+                "knowledge": {
+                    "project": "demo-knowledge",
                     "landing_group": "Standalone deployments",
                 },
             },
@@ -195,10 +201,18 @@ _MULTI_USER_LANDING_CONFIG = {
                 {"name": "alice", "index": 0, "persona": "operator"},
                 {"name": "bob", "index": 1, "persona": "physicist"},
                 {
-                    "name": "ariel",
+                    "name": "logbook",
                     "index": 2,
-                    "persona": "ariel",
-                    "display_name": "ARIEL Logbook Research",
+                    "persona": "logbook",
+                    "display_name": "Logbook Research",
+                    "access": "any",
+                },
+                {
+                    "name": "knowledge",
+                    "index": 3,
+                    "persona": "knowledge",
+                    "display_name": "Facility Knowledge",
+                    "access": "any",
                 },
             ],
         }
@@ -589,7 +603,7 @@ def test_visual_multi_user_landing(tmp_path, chromium_browser, theme, pytestconf
             page.goto(base_url, wait_until="domcontentloaded", timeout=15_000)
             # Both persona-badged user cards must be present before the shot, so
             # the baseline is guaranteed to show the operator/physicist sublabels
-            # (ariel's is suppressed: roster name == persona name), and the
+            # (the standalone cards' are suppressed: roster name == persona name), and the
             # standalone-deployments tray must be on screen so every baseline
             # shows the grouped layout, not just the flat roster.
             expect(page.locator(".landing-card-sublabel")).to_have_count(2, timeout=10_000)

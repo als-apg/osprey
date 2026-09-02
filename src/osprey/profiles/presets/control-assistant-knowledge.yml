@@ -1,0 +1,123 @@
+# control-assistant-knowledge.yml
+# Facility knowledge terminal — one of the two standalone personas of the
+# control-assistant multi-user stack.
+#
+# The operator tiers are people: a read-only analyst, a write-armed operator
+# and an admin, differing on what they may change. This one is not a person
+# at all. It is the deployment's knowledge layer reached from its own shared
+# card on the landing page: the facility knowledge graph, the graph-backed
+# channel finder, and the facility knowledge bundle — every fact about how
+# the machine is put together, with no control system behind it.
+#
+# It does not deploy a stack of its own. It reads the hosting deployment's
+# graph store and its data tree, so the operators and this terminal answer
+# from one graph. What it cannot do is read a channel, move hardware, run
+# Python, or search the logbook — those are the operator tiers' and the
+# logbook persona's.
+#
+# The control-system tiers are `control-assistant-readonly`,
+# `control-assistant-readwrite` and `control-assistant-admin`; the other
+# standalone persona is `control-assistant-logbook`.
+
+name: Control Assistant (Facility Knowledge)
+
+extends: control-assistant
+
+# Attached render: this persona builds a per-user terminal image only and
+# connects to the shared web tier the hosting deployment runs on the same host.
+# No services are scaffolded — the graph store it reads is the hosting
+# deployment's, already declared there.
+deploy_services: false
+
+# The knowledge persona instead of the control-room operator one: the agent's
+# brief is written for answering "how is the machine built" from three
+# read-only sources and citing which one answered.
+claude_md_template: CLAUDE.knowledge.md.j2
+
+# Open on the KNOWLEDGE tab rather than the always-on Workspace tab. The
+# CHANNELS tab is the other one this persona keeps.
+default_panel: okf
+
+# ── What this persona drops ──────────────────────────────────────────────────
+# A persona can only add to an inherited list, never subtract from it, so
+# everything the control-room agent carries and a knowledge terminal has no
+# use for is removed here by name. What stays: the channel-finder,
+# facility-knowledge and facility-knowledge-graph agents, the KNOWLEDGE and
+# CHANNELS panels, and the channel-finder feedback hook (it captures
+# channel-finder results and needs no control system).
+exclude:
+  hooks:
+    - writes-check        # No hardware writes to pre-check
+    - limits              # No per-channel limits to enforce
+  rules:
+    - workflows           # Scan, ramp and restore patterns: operator work
+    - python-execution    # The Python sandbox is off (see config: below)
+    - data-visualization  # Plotting needs the sandbox this persona does not run
+    - control-system-safety  # EPICS PV rules, with no EPICS behind them
+    - test-ioc-safety     # Test-IOC port isolation, likewise
+  skills:
+    - diagnose            # Fault diagnosis is control-room work
+    - session-report      # Writes to the logbook, which this persona cannot reach
+    - demo-gallery
+    - demo-ui
+    - writing-bluesky-plans    # Plan authoring needs the Bluesky server
+    - operating-bluesky-plans  # and so does running one
+    - bluesky-plans            # and so does listing them
+  agents:
+    - data-visualizer
+    - logbook-search          # The logbook is the logbook persona's
+    - logbook-deep-research
+    - pyat-specialist         # Lattice computation needs the Python sandbox
+  web_panels:
+    - ariel
+    - system-health
+# The `safety` rule is deliberately NOT excluded. Its tools are gone, so the
+# rule governs nothing today and costs a few lines of prompt. It stays because
+# this agent runs inside a deployment that does move hardware: if anyone ever
+# turns a control server back on here, the rule should already be in place.
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# Dotted keys ONLY — see the base profile's block.
+config:
+  # The axis this persona is defined by: knowledge tools and nothing else.
+  # Each line switches off a tool server the base turns on. The graph server,
+  # the channel finder (graph mode, see `channel_finder_mode` in the base) and
+  # the facility knowledge server are the three left on.
+  claude_code.servers.controls.enabled: false
+  claude_code.servers.python.enabled: false
+  claude_code.servers.bluesky.enabled: false
+  claude_code.servers.health.enabled: false
+  claude_code.servers.ariel.enabled: false
+  # Read-only, stated at the one tool that would write: drafting a knowledge
+  # concept edits the shared bundle, which is curation work for a login that
+  # can edit the deployment. Deny lists UNION across `extends`, so this adds to
+  # the base's floor.
+  claude_code.permissions.deny:
+    - mcp__osprey_facility_knowledge__draft_concept
+  # Pinned even though every server that would honour it is gone, for the
+  # same reason the read-only tier pins it: this key is the write boundary,
+  # and it must not drift if the base's default ever changes. Three keys, not
+  # one — see the read-only preset for why.
+  control_system.writes_enabled: false
+  control_system.connector.epics.writes_enabled: false
+  control_system.connector.virtual_accelerator.writes_enabled: false
+  # Full split-pane layout: the KNOWLEDGE panel is the point of this persona,
+  # so it needs the panel area. Pinned rather than left to the server default,
+  # like the other tiers pin theirs.
+  web.ui_mode: expert
+  # No shipped example plot in this WORKSPACE: the example invites the reader
+  # to ask the agent for a live plot, which this persona cannot produce.
+  artifact_server.example_artifact: false
+  # The hosting deployment owns the web-terminal tier (nginx, landing, per-user
+  # containers). Without this override the inherited roster would make this
+  # render try to host a second web tier on the same host ports.
+  modules.web_terminals.enabled: false
+  # Nothing here says where the hosting deployment's services are — the graph
+  # store's bolt port above all. This persona is an attached render
+  # (`services: {}` of its own) built beside that deployment, and the build
+  # copies every such fact from the deployment's own render into it (the
+  # Reach Contract, `osprey.deployment.reach`). Per-user web-terminal
+  # containers run `network_mode: host`, so container `localhost` IS the
+  # deployment host and the copied ports are dialed there. Built alone, with
+  # no hosting deployment in the repo, the build copies what the app template
+  # deploys at its defaults instead — and a host that differs is named here.

@@ -39,10 +39,16 @@ The one thing this file must do that compose would otherwise have done is
 :func:`_resolved_env_flags` replays that substitution against the deployment's
 env chain before either service is started.
 
-PASSWORD MODE ONLY, deliberately. The OIDC handshake is proven in process
-against a real signing provider in ``tests/services/auth_sidecar/test_oidc_flow.py``;
-an IdP container would have to live inside this shared namespace to be
-reachable at all, and would re-prove nothing.
+PASSWORD MODE by default. The OIDC handshake is proven in process against a
+real signing provider in ``tests/services/auth_sidecar/test_oidc_flow.py`` and
+is not re-proved here. What password mode cannot show is the one thing that
+differs under OIDC — the roster account and the login subject arriving at the
+upstream as two *different* values — so :func:`serving_stack` takes
+``oidc=True`` and then also runs that same stub provider as a fourth container
+inside the shared namespace, with its port published from the namespace owner
+like nginx's. One ``http://127.0.0.1:<port>`` issuer thereby resolves
+identically for the sidecar dialling discovery from inside and for a client
+walking the redirect from the host. ``test_auth_serving_oidc.py`` drives it.
 
 WHAT THE SIDECAR IMAGE HERE IS, AND IS NOT
 ------------------------------------------
@@ -73,7 +79,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import shutil
 import socket
 import subprocess
 import textwrap
@@ -103,6 +108,10 @@ from osprey.deployment.web_terminals.auth_credentials import (
 from osprey.deployment.web_terminals.personas import env_var_suffix
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.interfaces._serving import free_port
+from osprey.services.auth_sidecar.app import (
+    DEFAULT_OIDC_CLIENT_ID_ENV,
+    DEFAULT_OIDC_CLIENT_SECRET_ENV,
+)
 from osprey.services.auth_sidecar.passwords import generation_tag, hash_password
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME, SessionCodec
 from osprey.utils.dotenv import (
@@ -111,6 +120,8 @@ from osprey.utils.dotenv import (
     merge_chain,
     parse_dotenv_file,
 )
+from tests._container_support import docker_cli_unavailable_reason
+from tests.services.auth_sidecar.mock_idp import DEFAULT_CLIENT_ID, DEFAULT_CLIENT_SECRET
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SRC_DIR = _REPO_ROOT / "src"
@@ -119,6 +130,7 @@ _SRC_DIR = _REPO_ROOT / "src"
 # mount and the PYTHONPATH — the distribution is not yet installable from
 # PyPI inside the harness image.
 _CONNECTORS_SRC_DIR = _REPO_ROOT / "packages" / "osprey-connectors" / "src"
+_MOCK_IDP_PATH = _REPO_ROOT / "tests" / "services" / "auth_sidecar" / "mock_idp.py"
 
 _USERS = ("alice", "bob", "carol")
 """The roster. ``carol`` exists so the throttle test can burn a user's attempt
@@ -126,6 +138,10 @@ window without locking out the user every other test logs in as — the throttle
 is per-user and process-local, and the stack is shared across this module."""
 
 _PASSWORDS = {"alice": "alice-pw-correct", "bob": "bob-pw-correct", "carol": "carol-pw-correct"}
+OIDC_SUBJECTS = {user: f"idp|{user}" for user in _USERS}
+"""Each roster user's mapped IdP identity under ``oidc=True``. ``alice``'s is the
+subject the stub provider asserts after :meth:`MockIdP.reset`, so hers is the
+login the OIDC module walks; the others are mapped so the roster is complete."""
 
 _SHARED_PROXY = "http://proxy.invalid:3128"
 """A site-wide egress proxy, written into ``.env.shared`` by the stack below.
@@ -165,18 +181,14 @@ and registry packages behind it. The *versions* are never named here — see
 """
 
 
-def _docker_available() -> bool:
-    if shutil.which("docker") is None:
-        return False
-    try:
-        return subprocess.run(["docker", "info"], capture_output=True, timeout=10).returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-
+# Probed once at import, where the module-level skip needs the answer. The
+# reason carries the cause: a probe that timed out on a loaded host must read
+# differently from a host with no engine (#820).
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
 
 pytestmark = [
     pytest.mark.dockerbuild,
-    pytest.mark.skipif(not _docker_available(), reason="docker not available"),
+    pytest.mark.skipif(_DOCKER_UNAVAILABLE is not None, reason=_DOCKER_UNAVAILABLE or ""),
 ]
 
 
@@ -330,6 +342,27 @@ servers[0].serve_forever()
 '''
 
 
+_IDP_SERVER = '''\
+"""Serve the stub OpenID provider inside the perimeter's network namespace.
+
+Bound to every interface, not loopback: a published port forwards to the
+container's own interface, so this is what lets the host reach the provider,
+while the sidecar dials it on the namespace loopback — one listener, one issuer
+string, for both.
+"""
+import sys
+
+sys.path.insert(0, "/")
+import uvicorn
+from mock_idp import MockIdP
+
+port = int(sys.argv[1])
+provider = MockIdP()
+provider.issuer = f"http://127.0.0.1:{port}"
+uvicorn.run(provider.app, host="0.0.0.0", port=port, log_level="warning")
+'''
+
+
 # ---------------------------------------------------------------------------
 # The composed stack
 # ---------------------------------------------------------------------------
@@ -347,6 +380,9 @@ class Stack:
     deployment_root: Path
     auth_container: str
     auth_run_argv: list[str]
+    auth_method: str = "password"
+    idp_issuer: str | None = None
+    """The stub provider's origin under ``oidc=True``; ``None`` in password mode."""
 
     @property
     def env_auth_path(self) -> Path:
@@ -374,6 +410,7 @@ class Stack:
             f"{self.base_url}/auth/login?user=alice",
             names=[self.auth_container],
             what="the recreated auth sidecar",
+            ok=_login_page_status(self.auth_method),
         )
 
     def codec(self) -> SessionCodec:
@@ -394,10 +431,22 @@ class Stack:
         on ``/auth``, the session cookie on ``/``); a hand-assembled ``Cookie``
         header sends the wrong one and reports a confident false green.
         """
-        return httpx.Client(base_url=self.base_url, follow_redirects=False, timeout=15, **kwargs)
+        # A login POST derives an scrypt key inside the container; on a
+        # saturated host that alone has exceeded a short client timeout, so
+        # the timeout is sized to outlast the load, not the request (#822).
+        return httpx.Client(base_url=self.base_url, follow_redirects=False, timeout=60, **kwargs)
 
 
-def _config(nginx_port: int) -> dict[str, Any]:
+def _login_page_status(auth_method: str) -> tuple[int, ...]:
+    """What ``/auth/login?user=<u>`` answers once the sidecar is up.
+
+    A page under ``password``; under ``oidc`` the same route hands the browser
+    straight on to the provider, so readiness is the 302 rather than a 200.
+    """
+    return (302,) if auth_method == "oidc" else (200,)
+
+
+def _config(nginx_port: int, *, oidc_issuer: str | None = None) -> dict[str, Any]:
     """The deployment this module serves.
 
     ``deploy.fqdn`` is the loopback address on purpose: the rendered
@@ -409,7 +458,20 @@ def _config(nginx_port: int) -> dict[str, Any]:
     ``allow_insecure_http`` is the shape a facility behind its own TLS
     terminator deploys — one server block, no certificate fixture, and the same
     gated surface.
+
+    With ``oidc_issuer`` the method is ``oidc`` against that issuer and every
+    roster entry carries its mapped identity, the object-entry shape a facility
+    writes; the client credentials are *not* here — they live in ``.env.auth``
+    under the sidecar's default variable names, where the operator puts them.
     """
+    auth: dict[str, Any] = {"method": "password", "allow_insecure_http": True}
+    users: list[Any] = list(_USERS)
+    if oidc_issuer is not None:
+        auth = {"method": "oidc", "allow_insecure_http": True, "oidc": {"issuer": oidc_issuer}}
+        users = [
+            {"name": user, "index": index, "oidc_subject": OIDC_SUBJECTS[user]}
+            for index, user in enumerate(_USERS)
+        ]
     return {
         "facility": {"name": "Demo Light Source", "prefix": "dls", "timezone": "UTC"},
         "registry": {"url": "git.dls.example.org:5050/physics/production/dls-profiles"},
@@ -418,8 +480,8 @@ def _config(nginx_port: int) -> dict[str, Any]:
             "web_terminals": {
                 "enabled": True,
                 "nginx_port": nginx_port,
-                "users": list(_USERS),
-                "auth": {"method": "password", "allow_insecure_http": True},
+                "users": users,
+                "auth": auth,
             }
         },
     }
@@ -447,7 +509,23 @@ def _docker_logs(name: str) -> str:
     return f"--- {name} ---\n{result.stdout}\n{result.stderr}"
 
 
-def _wait_for(url: str, *, names: list[str], what: str, timeout: float = 60.0) -> None:
+def _wait_for(
+    url: str,
+    *,
+    names: list[str],
+    what: str,
+    timeout: float = 240.0,
+    ok: tuple[int, ...] = (200,),
+) -> None:
+    """Poll ``url`` until it answers with an ``ok`` status, else fail with the logs.
+
+    The default deadline is sized for a saturated host, not an idle one: the
+    sidecar's ``docker run`` returns long before uvicorn is listening, and with
+    an image build running alongside that gap has been observed past a minute
+    (#822). A generous deadline costs nothing on a healthy start — the poll
+    returns on the first good answer — and on a dead one the logs, not the
+    deadline, are the diagnosis.
+    """
     deadline = time.monotonic() + timeout
     last = "no attempt made"
     while time.monotonic() < deadline:
@@ -456,7 +534,7 @@ def _wait_for(url: str, *, names: list[str], what: str, timeout: float = 60.0) -
         except httpx.HTTPError as exc:  # not up yet
             last = repr(exc)
         else:
-            if response.status_code == 200:
+            if response.status_code in ok:
                 return
             last = f"HTTP {response.status_code}"
         time.sleep(0.5)
@@ -533,7 +611,7 @@ def _resolved_env_flags(service: dict[str, Any], chain_env: Mapping[str, str]) -
 
 
 @contextmanager
-def serving_stack(tmp_path: Path) -> Iterator[Stack]:
+def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
     """Bring the rendered perimeter up, and take it down again.
 
     A context manager rather than a fixture so the browser suite in
@@ -541,8 +619,15 @@ def serving_stack(tmp_path: Path) -> Iterator[Stack]:
     same stack: it needs exactly this perimeter (real nginx, real sidecar, real
     rendered config) with a Chromium page pointed at it instead of httpx, and a
     second implementation of it would be a second thing to keep true.
+
+    ``oidc=True`` renders the deployment in ``oidc`` mode against the stub
+    provider from ``tests/services/auth_sidecar/mock_idp.py``, run as a fourth
+    container in the shared namespace (module docstring). Same image, same
+    rendered artifacts, same replay; the only additions are the provider, its
+    published port, and the two client-credential lines in ``.env.auth``.
     """
     image = _build_harness_image(tmp_path)
+    auth_method = "oidc" if oidc else "password"
 
     # `.env.auth` is written by the production credential functions, not
     # hand-rolled: `ensure_auth_session_secrets` is what a deploy preflight
@@ -558,6 +643,16 @@ def serving_stack(tmp_path: Path) -> Iterator[Stack]:
     ensure_auth_session_secrets(deployment_root)
     for user in _USERS:
         set_auth_password(user, _PASSWORDS[user], deployment_root)
+    if oidc:
+        # The one thing in `.env.auth` OSPREY never writes: the OIDC client
+        # credentials, appended by the operator under the default variable
+        # names the rendered `*_ENV` indirection points at. Appended after the
+        # minting calls so nothing rewrites them away.
+        with (deployment_root / AUTH_ENV_FILENAME).open("a", encoding="utf-8") as handle:
+            handle.write(
+                f"{DEFAULT_OIDC_CLIENT_ID_ENV}={DEFAULT_CLIENT_ID}\n"
+                f"{DEFAULT_OIDC_CLIENT_SECRET_ENV}={DEFAULT_CLIENT_SECRET}\n"
+            )
 
     # The per-user operator secret nginx stamps onto every proxied request, minted
     # into the deploy `.env` by the same preflight function `osprey up` calls — not
@@ -593,6 +688,11 @@ def serving_stack(tmp_path: Path) -> Iterator[Stack]:
         f"osprey-authserving-stub-{token}",
     ]
     nginx_name, auth_name, stub_name = names
+    idp_name = f"osprey-authserving-idp-{token}"
+    if oidc:
+        names.append(idp_name)
+    idp_port: int | None = None
+    idp_issuer: str | None = None
 
     try:
         # A port free a moment ago can be taken before docker binds it (the
@@ -601,7 +701,12 @@ def serving_stack(tmp_path: Path) -> Iterator[Stack]:
         # fresh port rather than turning a lost race into a red test.
         for attempt in range(3):
             nginx_port = free_port()
-            artifacts = render_web_terminals(_config(nginx_port), terminal_secrets=terminal_secrets)
+            if oidc:
+                idp_port = free_port()
+                idp_issuer = f"http://127.0.0.1:{idp_port}"
+            artifacts = render_web_terminals(
+                _config(nginx_port, oidc_issuer=idp_issuer), terminal_secrets=terminal_secrets
+            )
             # Lay the rendered artifacts out the way the real writer does —
             # under the repo's build/ zone — while `project` below plays the
             # pinned compose project directory the mount sources resolve
@@ -612,13 +717,18 @@ def serving_stack(tmp_path: Path) -> Iterator[Stack]:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(content)
             (project / "stub_upstream.py").write_text(_STUB_UPSTREAM)
+            (project / "mock_idp_server.py").write_text(_IDP_SERVER)
 
             upstream_ports = _rendered_upstream_ports(artifacts["nginx/nginx.conf"])
             assert set(upstream_ports) == set(_USERS), upstream_ports
 
-            # The stub owns the namespace and the published port; nginx and the
-            # sidecar join it, which is what makes the rendered loopback
-            # `proxy_pass` targets resolve.
+            # The stub owns the namespace and the published ports; nginx, the
+            # sidecar and (under OIDC) the provider join it, which is what makes
+            # the rendered loopback `proxy_pass` targets resolve — and what
+            # makes the provider's issuer one string for inside and outside.
+            published = ["-p", f"127.0.0.1:{nginx_port}:{nginx_port}"]
+            if idp_port is not None:
+                published += ["-p", f"127.0.0.1:{idp_port}:{idp_port}"]
             started = subprocess.run(
                 [
                     "docker",
@@ -626,8 +736,7 @@ def serving_stack(tmp_path: Path) -> Iterator[Stack]:
                     "-d",
                     "--name",
                     stub_name,
-                    "-p",
-                    f"127.0.0.1:{nginx_port}:{nginx_port}",
+                    *published,
                     "-v",
                     f"{project / 'stub_upstream.py'}:/stub_upstream.py:ro",
                     image,
@@ -644,6 +753,31 @@ def serving_stack(tmp_path: Path) -> Iterator[Stack]:
             subprocess.run(["docker", "rm", "-f", stub_name], capture_output=True, timeout=60)
         else:
             raise AssertionError(f"the stub upstream never started:\n{started.stderr}")
+
+        if idp_port is not None:
+            idp_started = subprocess.run(
+                [
+                    "docker",
+                    "run",
+                    "-d",
+                    "--name",
+                    idp_name,
+                    "--network",
+                    f"container:{stub_name}",
+                    "-v",
+                    f"{_MOCK_IDP_PATH}:/mock_idp.py:ro",
+                    "-v",
+                    f"{project / 'mock_idp_server.py'}:/mock_idp_server.py:ro",
+                    image,
+                    "python",
+                    "/mock_idp_server.py",
+                    str(idp_port),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            assert idp_started.returncode == 0, idp_started.stderr
 
         compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
         nginx_service = compose["services"]["nginx"]
@@ -742,7 +876,22 @@ def serving_stack(tmp_path: Path) -> Iterator[Stack]:
         # The landing page is nginx's own healthcheck target and needs no
         # session; the login page is the first thing that requires the sidecar.
         _wait_for(f"{base_url}/", names=names, what="nginx")
-        _wait_for(f"{base_url}/auth/login?user=alice", names=names, what="the auth sidecar")
+        _wait_for(
+            f"{base_url}/auth/login?user=alice",
+            names=names,
+            what="the auth sidecar",
+            ok=_login_page_status(auth_method),
+        )
+        if idp_issuer is not None:
+            # Reached the way the client will reach it: from the host, through
+            # the published port. The sidecar fetches discovery at the first
+            # login, so a provider that is not up yet would surface there as a
+            # 502 with nothing to say about why.
+            _wait_for(
+                f"{idp_issuer}/.well-known/openid-configuration",
+                names=names,
+                what="the stub OpenID provider",
+            )
 
         yield Stack(
             port=nginx_port,
@@ -753,6 +902,8 @@ def serving_stack(tmp_path: Path) -> Iterator[Stack]:
             deployment_root=deployment_root,
             auth_container=auth_name,
             auth_run_argv=auth_run_argv,
+            auth_method=auth_method,
+            idp_issuer=idp_issuer,
         )
     finally:
         # Unconditionally, and by name: a `docker run` that fails to set up
@@ -1183,9 +1334,14 @@ def test_expired_entry_no_longer_authorizes(stack: Stack) -> None:
     # Arrange
     codec = stack.codec()
     now = codec.now()
+    # An hour in the past, not a second: the sidecar checks the entry against
+    # the container's clock, and on a loaded Docker Desktop VM that clock has
+    # lagged the host by more than a second, which left a one-second-old
+    # expiry still in the future (#822). The property is "lapsed", and any
+    # past instant proves it.
     state = codec.new_state().with_user(
         "alice",
-        expires_at=now - 1,
+        expires_at=now - 3600,
         generation_tag=generation_tag(stack.stored_hashes["alice"]),
     )
 

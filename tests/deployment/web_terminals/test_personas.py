@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from osprey.deployment.web_terminals import personas as personas_module
 from osprey.deployment.web_terminals.personas import (
     EVENTS_PANEL_ID,
     UnresolvedRoleError,
@@ -20,7 +21,6 @@ from osprey.deployment.web_terminals.personas import (
     config_needs_launch_token_for,
     effective_persona,
     entry_is_shared,
-    entry_requires_login,
     env_var_suffix,
     env_var_suffix_collisions,
     freeze_user_indices,
@@ -1224,36 +1224,29 @@ def test_normalize_users_oidc_subject_is_independent_of_the_cosmetic_fields() ->
     ]
 
 
-def test_normalize_users_carries_login_false_through() -> None:
-    """`login: false` — the one value that changes anything — rides onto the
-    normalized entry."""
-    # Act
-    result = normalize_users([{"name": "ariel", "index": 2, "login": False}])
-
-    # Assert
-    assert result == [{"name": "ariel", "index": 2, "login": False}]
-
-
-def test_normalize_users_drops_every_other_login_spelling() -> None:
-    """`true`, absence, and every malformed spelling all normalize to "login
-    required" — a typo can lock an entry down, never open it up."""
-    # Act / Assert — explicit true and non-boolean spellings alike leave the
-    # plain two-key shape, so downstream reads them all as gated
-    for spelling in (True, "false", "no", 0, None, ["false"]):
+def test_normalize_users_drops_the_retired_login_key() -> None:
+    """`login:` is no longer a roster key. Every spelling — the literal `false`
+    that once opted an entry out of the login wall included — is projected away
+    like any other unknown key, so a profile still carrying it deploys with the
+    entry behind the wall rather than served ungated."""
+    # Act / Assert
+    for spelling in (False, True, "false", "no", 0, None, ["false"]):
         result = normalize_users([{"name": "ariel", "index": 2, "login": spelling}])
         assert result == [{"name": "ariel", "index": 2}], repr(spelling)
 
 
-def test_entry_requires_login_reads_only_the_literal_false() -> None:
-    """The shared predicate: one reading of the key for render, provisioning,
-    and the `users passwd` refusal."""
-    assert entry_requires_login({"name": "alice", "index": 0}) is True
-    assert entry_requires_login({"name": "ariel", "index": 2, "login": False}) is False
+def test_no_reader_of_the_retired_login_key_survives() -> None:
+    """`entry_requires_login` was the single reading of the key that render,
+    provisioning and the `users passwd` refusal shared. With the key gone it has
+    no question left to answer, and a surviving predicate would be an invitation
+    to grow the key back."""
+    assert not hasattr(personas_module, "entry_requires_login")
+    assert not hasattr(personas_module, "unauthenticated_privileged_terminal_problems")
 
 
-def test_resolve_personas_threads_login_false_through_both_branches() -> None:
-    """The exemption survives resolution on the zero-migration path and the
-    persona-catalog path alike, and stays absent when never declared."""
+def test_resolve_personas_carries_no_login_marker() -> None:
+    """Neither resolution path — zero-migration or persona catalog — lets the
+    retired key ride through onto a resolved entry."""
     # Act
     zero_migration = resolve_personas(
         {"users": [{"name": "ariel", "index": 0, "login": False}]}, _REGISTRY, "als"
@@ -1266,12 +1259,10 @@ def test_resolve_personas_threads_login_false_through_both_branches() -> None:
         _REGISTRY,
         "als",
     )
-    undeclared = resolve_personas({"users": ["alice"]}, _REGISTRY, "als")
 
     # Assert
-    assert zero_migration[0]["login"] is False
-    assert persona_branch[0]["login"] is False
-    assert "login" not in undeclared[0]
+    assert "login" not in zero_migration[0]
+    assert "login" not in persona_branch[0]
 
 
 def test_normalize_users_carries_access_any_through() -> None:

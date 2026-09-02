@@ -3031,6 +3031,79 @@ def _preflight_pinned_overrides(repo_root: Path | str) -> list[str]:
     )
 
 
+#: The proxy names the login service is handed from the chain, in their
+#: lowercase spelling — the one curl honours and site documentation hands out.
+_LOWERCASE_PROXY_NAMES = ("http_proxy", "https_proxy", "no_proxy")
+
+
+def _warn_lowercase_proxy_names(repo_root: Path | str, config: dict) -> list[tuple[str, str]]:
+    """Warn (never rewrite) when the chain spells a proxy name the login service cannot see.
+
+    The login service receives exactly three names from the chain —
+    ``HTTP_PROXY``, ``HTTPS_PROXY``, ``NO_PROXY`` — interpolated one by one into
+    its compose ``environment:``; every other container reads the whole chain
+    through ``env_file:``. A chain spelling one of them in lowercase therefore
+    reaches every container except the one that has to reach the identity
+    provider, and nothing notices: the stack starts, the health check is green,
+    and every login fails at the discovery fetch. ``no_proxy`` is the sharp
+    case — a lowercase bypass list beside an uppercase proxy hands the sidecar
+    a proxy with no exceptions, and an on-site issuer is then asked for through
+    a relay that refuses internal hosts.
+
+    Passing the lowercase names through as well is not the fix: ``${var:-}``
+    renders an empty lowercase name beside a set uppercase one on every host
+    that sets only uppercase, and ``urllib.request.getproxies_environment``
+    pops a scheme whose lowercase spelling is present and empty. So the
+    uppercase-only passthrough stays, and this is the check the rule was
+    missing — at the one moment the operator can still fix it.
+
+    Advisory, and the value is left as written, on the same grounds as
+    ``_warn_on_invalid_proxy_env`` in the resolver: a rename the operator did
+    not make would surprise every other consumer of the name. Scoped to a
+    deployment that renders the login service and sends it out to an identity
+    provider — web terminals on, ``auth.method: oidc`` — because that is the
+    one container the lowercase spelling misses. **Names only, never values.**
+
+    :param repo_root: The deployment repo holding the chain.
+    :param config: The rendered config, for the web-terminal and auth gates.
+    :return: ``(file, name)`` per lowercase name whose uppercase twin nothing
+        in the chain sets, naming the file that set it — the local file when
+        both do, since that is the line that wins. Empty when there is nothing
+        to say.
+    """
+    if not _web_terminals_enabled(config):
+        return []
+    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+    auth = web_terminals.get("auth") or {}
+    if not isinstance(auth, dict) or auth.get("method") != "oidc":
+        return []
+
+    root = Path(repo_root).expanduser().absolute()
+    shared_path = root / ENV_SHARED_FILENAME
+    local_path = root / COMPOSE_ENV_FILENAME
+    shared = parse_dotenv_file(shared_path) if shared_path.is_file() else {}
+    local = parse_dotenv_file(local_path) if local_path.is_file() else {}
+    chain = {**shared, **local}
+
+    findings: list[tuple[str, str]] = []
+    for lower in _LOWERCASE_PROXY_NAMES:
+        if lower not in chain or lower.upper() in chain:
+            continue
+        where = COMPOSE_ENV_FILENAME if lower in local else ENV_SHARED_FILENAME
+        findings.append((where, lower))
+        logger.warning(
+            "%s sets %s, and nothing in the chain sets %s. The login service is handed "
+            "the three uppercase proxy names and nothing else, so its identity-provider "
+            "fetches will not see this value: the stack will start, and every login will "
+            "fail at the discovery fetch. Rename it to %s. The value is left as written.",
+            where,
+            lower,
+            lower.upper(),
+            lower.upper(),
+        )
+    return findings
+
+
 def _deploy_written_env_vars() -> set[str]:
     """Every variable name a deploy-time writer can put into ``.env``.
 
@@ -4729,6 +4802,7 @@ def _ariel_store_config(config: dict, project_dir: Path) -> dict:
     means the migration and the seed that follows are pinned to one DSN, so they
     cannot disagree about which database this deploy is talking to.
     """
+    from osprey.port_layout import resolve_port_base
     from osprey.services.ariel_search.config import resolve_ariel_dsn
     from osprey.utils.dotenv import parse_dotenv_file
 
@@ -4737,7 +4811,7 @@ def _ariel_store_config(config: dict, project_dir: Path) -> dict:
 
     ariel = dict(config.get("ariel") or {})
     services = (config.get("services") or {}).get(_ARIEL_STORE_SERVICE) or {}
-    dsn = resolve_ariel_dsn(ariel, services, env=env)
+    dsn = resolve_ariel_dsn(ariel, services, env=env, base=resolve_port_base(config))
     ariel["database"] = {**(ariel.get("database") or {}), "uri": dsn}
     return ariel
 
@@ -5644,6 +5718,12 @@ def _start_stack(
     # than about the ones the mint below is going to append, and so a deploy
     # doomed by a contradicted pin aborts having provisioned nothing.
     _preflight_pinned_overrides(repo_root)
+    # Advisory sibling on the same chain: a proxy name spelled in lowercase
+    # reaches every container but the login service, which is handed the
+    # uppercase three and nothing else. Warned here, beside the refusals that
+    # read the same two files, so the file and the variable are named while
+    # the operator still has them in front of them.
+    _warn_lowercase_proxy_names(repo_root, config)
 
     # Self-provision fail-closed service tokens into .env (before the --env-file
     # check below) so a fresh deploy is secure by default. The dispatch worker
@@ -6532,6 +6612,64 @@ def _repo_label_filter(repo_root: Path) -> str:
     spelling of that identity, shared with the render that baked it in.
     """
     return f"label={REPO_ID_LABEL}={repo_identity(repo_root)}"
+
+
+def unhealthy_containers(repo_root: Path | str) -> list[str]:
+    """This checkout's containers whose healthcheck reports ``unhealthy``, by name.
+
+    What the closing line of a detached start reads before it says everything
+    is running. ``compose up -d`` returns once every ``depends_on`` edge is
+    satisfied, and a container nothing depends on is free to fail its own
+    healthcheck after that — the verb has already succeeded, and a card that
+    says everything is running is then describing a stack that is not.
+
+    Selected by the repo label the render bakes into every container, the same
+    filter :func:`_down_by_label` stops by, so a second project on the host is
+    never reported here. Read through ``ps --format json`` and the health
+    probe's parsers, so Docker's NDJSON and podman's array are one answer.
+
+    Advisory by contract: a runtime that will not answer, a listing that will
+    not parse, or a render that cannot be read all yield the empty list. The
+    card is the last thing a successful verb prints, and it must not be what
+    fails it.
+
+    :param repo_root: The deployment repo whose containers are asked after.
+    :return: Container names as the runtime reports them, sorted; empty when
+        nothing is unhealthy or nothing could be asked.
+    """
+    from osprey.health.probes.container import _extract_health, _parse_ps_json
+
+    root = Path(repo_root)
+    try:
+        config_path = as_built_config_path(root)
+        config = (
+            load_project_config(str(config_path), wrap_errors=True)
+            if config_path.is_file()
+            else None
+        )
+        runtime = get_runtime_command(config)[0]
+        listing = subprocess.run(
+            [runtime, "ps", "-a", "--filter", _repo_label_filter(root), "--format", "json"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+        if listing.returncode != 0:
+            logger.debug("Container health skipped: `%s ps` exited %s", runtime, listing.returncode)
+            return []
+        names: list[str] = []
+        for container in _parse_ps_json(listing.stdout or ""):
+            if _extract_health(container) != "unhealthy":
+                continue
+            raw = container.get("Names", "")
+            name = str(raw[0]) if isinstance(raw, list) and raw else str(raw)
+            if name:
+                names.append(name)
+    except Exception as exc:  # noqa: BLE001 - advisory: the card must not fail the verb
+        logger.debug("Container health skipped: %s", exc)
+        return []
+    return sorted(names)
 
 
 def _down_by_label(config: dict | None, repo_root: Path) -> None:

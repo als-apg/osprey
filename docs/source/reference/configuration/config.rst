@@ -449,10 +449,17 @@ Documentation and feedback keys
      - ``https://als-apg.github.io/osprey``
      - Where the **Documentation** control — in the rail and in the status bar
        — points. Set it to your own hosted copy of the docs.
+   * - ``web.feedback.trackers``
+     - unset (no list)
+     - Issue trackers the feedback dialog offers, one channel each. A list of
+       ``{kind, repo | url, label}`` entries: ``kind: github`` with an
+       ``owner/repo``, or ``kind: gitlab`` with the project's base URL
+       (gitlab.com or self-hosted). ``label`` captions the channel; it defaults
+       to the kind's name. See :ref:`feedback-trackers` below.
    * - ``web.feedback.github_repo``
      - ``als-apg/osprey``
-     - ``owner/repo`` the feedback dialog's GitHub channel opens a prefilled
-       new issue against.
+     - ``owner/repo`` of one more GitHub tracker, captioned **GitHub** —
+       shorthand for a ``github`` entry in ``trackers``.
    * - ``web.feedback.email``
      - ``thellert@lbl.gov``
      - Recipient of the prefilled mail draft the dialog's Email channel opens.
@@ -481,18 +488,54 @@ Documentation and feedback keys
    web:
      docs_url: https://docs.example-facility.org/osprey
      feedback:
-       github_repo: example-facility/controls
+       trackers:
+         - kind: gitlab
+           url: https://git.example-facility.org/controls/osprey
+           label: Facility GitLab
+         - kind: github
+           repo: als-apg/osprey
+           label: OSPREY upstream
+       github_repo: ""
        email: controls-support@example.org
        max_store_bytes: 268435456
 
 The last four keys are unset in every shipped template: they are read straight
 from ``config.yml`` when present and fall back to the defaults above when not.
 
+.. _feedback-trackers:
+
+Issue trackers
+~~~~~~~~~~~~~~
+
+The dialog renders one channel per tracker, between **Local** and **Email**,
+in the order listed — ``trackers`` first, then the ``github_repo`` shorthand.
+Every tracker channel works the same way the GitHub channel always has: the
+report is recorded on the deployment, and the browser opens the tracker's
+new-issue form prefilled with it (or with a one-line pointer to the clipboard
+when session context is attached). Nothing is posted on the sender's behalf.
+
+- ``kind: github`` needs ``repo`` (``owner/name``); the form is
+  ``https://github.com/<repo>/issues/new``.
+- ``kind: gitlab`` needs ``url``, the project's base URL; the form is
+  ``<url>/-/issues/new``. The shape is the same on gitlab.com and on a
+  self-hosted instance.
+
+An entry that fits neither — an unknown ``kind``, a GitHub entry with no
+``owner/name``, a GitLab entry whose ``url`` is not ``http(s)://`` — is
+reported in the log and skipped; the rest of the list stands. Two entries
+naming the same target collapse to the first, so listing the upstream
+repository under your own label does not render it twice beside the shorthand.
+
+With no ``trackers`` and no ``github_repo`` written, the one tracker on offer
+is the shipped default, so a bare deployment still reaches the OSPREY
+maintainers. A facility that wants only its own tracker lists it and blanks
+``github_repo``, as in the example above.
+
 Blank, absent, and written-with-no-value
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Three ways of writing one of the three **string** keys mean three different
-things:
+Three ways of writing one of the three **string** keys (``docs_url``,
+``github_repo``, ``email``) mean three different things:
 
 - **Leave the key out** and the deployment uses the shipped default above.
 - **Set it to an explicitly blank value** (``docs_url: ""``) and the deployment
@@ -507,8 +550,10 @@ things:
   "there is none" — so you get the default. Write ``""`` when you mean none.
 
 ``max_store_bytes`` takes a positive byte count; anything else — blank
-included — is reported in the log and the default is used. The feedback
-dialog's Local channel is always available and needs no configuration at all.
+included — is reported in the log and the default is used. ``trackers`` has
+no blank posture of its own: an empty list, or none, simply adds no channel.
+The feedback dialog's Local channel is always available and needs no
+configuration at all.
 
 A build profile overrides any of these keys from its ``config:`` block in the
 dotted form, e.g. ``web.feedback.max_store_bytes: 536870912``.
@@ -593,7 +638,7 @@ Overriding Service Images
 
 Every service image resolves through the same three-layer chain — an
 environment variable wins, then a ``config.yml`` key, then the packaged
-default. Thirteen images, one row each:
+default. Fifteen images, one row each:
 
 .. list-table::
    :header-rows: 1
@@ -615,6 +660,10 @@ default. Thirteen images, one row each:
      - ``OSPREY_MONGODB_IMAGE``
      - ``services.mongodb.image``
      - upstream pin
+   * - graphdb
+     - ``OSPREY_GRAPHDB_IMAGE``
+     - ``services.graphdb.image``
+     - upstream pin
    * - event_dispatcher
      - ``OSPREY_DISPATCH_IMAGE``
      - ``services.event_dispatcher.image``
@@ -631,6 +680,10 @@ default. Thirteen images, one row each:
      - ``OSPREY_GCHAT_BRIDGE_IMAGE``
      - ``services.gchat_bridge.image``
      - ``<project>-gchat-bridge``
+   * - ariel_sync
+     - ``OSPREY_WORKER_IMAGE``
+     - ``services.ariel_sync.image``
+     - ``<project>``
    * - bluesky
      - ``OSPREY_BLUESKY_BRIDGE_IMAGE``
      - ``services.bluesky.image``
@@ -660,10 +713,14 @@ Point either of the first two layers at an internal registry mirror or a
 pinned digest when your deployment host cannot (or should not) pull public
 images.
 
-Five of the thirteen are **upstream pins** — images somebody else publishes,
-named exactly as they publish them. The other eight are **built by OSPREY**
+Six of the fifteen are **upstream pins** — images somebody else publishes,
+named exactly as they publish them. The other nine are **built by OSPREY**
 from your project, and their default reference is assembled rather than
 fixed: a project name, a per-service suffix, and the two axes below.
+
+``dispatch_worker`` and ``ariel_sync`` share one row value on purpose: both run
+the bare project image, so both read ``OSPREY_WORKER_IMAGE``. Set that variable
+and both services move to the image you name.
 
 .. _deployment-image-axes:
 
@@ -676,7 +733,7 @@ An OSPREY-built default is always spelled the same way::
 
 Two stack-wide settings supply the ends of that name, so an entire deployment
 can be moved to a registry — or to a different tag — without touching any of
-the thirteen rows above:
+the fifteen rows above:
 
 .. list-table::
    :header-rows: 1
@@ -730,7 +787,7 @@ Two things about *when* and *where* this applies are worth having straight:
   is what it always was — ``<project>:local`` and its siblings — so a
   deployment that never heard of them is unaffected.
 
-The axes never touch the five upstream pins. Prefixing ``mongo:7`` with your
+The axes never touch the six upstream pins. Prefixing ``mongo:7`` with your
 registry would name an image that exists in no registry; mirror those through
 their own row instead.
 

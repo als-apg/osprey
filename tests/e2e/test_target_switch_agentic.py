@@ -307,20 +307,41 @@ def _va_answers(port: int) -> bool:
 
 
 @contextlib.contextmanager
-def _virtual_accelerator(port: int, simulation_dir: Path) -> Iterator[str]:
-    """Boot one virtual accelerator on *port* and yield its container name.
+def _virtual_accelerator(port: int, repo: Path) -> Iterator[str]:
+    """Boot one virtual accelerator for the render at *repo* on *port*.
 
-    The published port and the server's own port are the same number by
-    construction — a Channel Access search reply carries the server's port, so a
-    remap would hand every client a port it cannot reach, with no useful error —
-    and that number also names the container.
+    Yields the container name. The published port and the server's own port are
+    the same number by construction — a Channel Access search reply carries the
+    server's port, so a remap would hand every client a port it cannot reach,
+    with no useful error — and that number also names the container.
 
-    *simulation_dir* is the RENDER's ``data/simulation``, not the packaged
-    template's. Same lattice either way, but pointing the container at the same
-    tree the agent's own config names means a future edit to one cannot leave
-    the machine the agent reasons about and the machine it talks to describing
-    different accelerators.
+    The mount is the RENDER's ``data/simulation``, not the packaged template's.
+    Same lattice either way, but pointing the container at the same tree the
+    agent's own config names means a future edit to one cannot leave the machine
+    the agent reasons about and the machine it talks to describing different
+    accelerators.
+
+    The channel source comes from the deployment's own ``.env`` rather than from
+    constants here. The IOC has no default namespace — it refuses to boot
+    without ``VA_CHANNELS_FILE`` rather than serving the framework's bundled
+    demo namespace under this project's name — and ``osprey build`` writes that
+    pointer, together with the ``VA_LATTICE`` it derived from the generated
+    manifest, into the repo-root ``.env`` compose is handed. Reading them back
+    boots this container exactly as ``osprey up`` would, and fails loudly here
+    if the build ever stops writing them.
     """
+    from osprey.deployment.compose_generator import COMPOSE_ENV_FILENAME
+    from osprey.utils.dotenv import VA_LATTICE_KEY, parse_dotenv_file
+
+    env_path = repo / COMPOSE_ENV_FILENAME
+    build_env = parse_dotenv_file(env_path) if env_path.is_file() else {}
+    channels_file = build_env.get("VA_CHANNELS_FILE", "")
+    lattice = build_env.get(VA_LATTICE_KEY, "")
+    assert channels_file and lattice, (
+        f"osprey build wrote no VA_CHANNELS_FILE/{VA_LATTICE_KEY} into {env_path}; "
+        "the virtual accelerator has no namespace to serve and will refuse to boot"
+    )
+
     name = f"{VA_CONTAINER_PREFIX}-{port}"
     # Stale cleanup only. The port belongs to this run, so this can name nothing
     # a concurrent run is using — which is the point of the suffix.
@@ -333,10 +354,14 @@ def _virtual_accelerator(port: int, simulation_dir: Path) -> Iterator[str]:
         name,
         "-e",
         f"EPICS_CA_SERVER_PORT={port}",
+        "-e",
+        f"VA_CHANNELS_FILE={channels_file}",
+        "-e",
+        f"{VA_LATTICE_KEY}={lattice}",
         "-p",
         f"127.0.0.1:{port}:{port}/tcp",
         "-v",
-        f"{simulation_dir}:/data/simulation:ro",
+        f"{render_dir(repo) / 'data' / 'simulation'}:/data/simulation:ro",
         VA_IMAGE,
     )
     if started.returncode != 0:
@@ -636,7 +661,7 @@ def switch_deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Swit
 
     with bench_ioc(prefix="osprey-target-switch-agentic-bench") as bench:
         repo = _init_and_build(workspace, bench_port=bench.port, va_port=va_port)
-        with _virtual_accelerator(va_port, render_dir(repo) / "data" / "simulation") as va_name:
+        with _virtual_accelerator(va_port, repo) as va_name:
             yield SwitchDeployment(
                 repo=repo,
                 bench=bench,

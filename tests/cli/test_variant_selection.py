@@ -668,6 +668,47 @@ class TestValidateHonorsTheVariant:
 
         assert result.exit_code != 0
 
+    def test_the_merged_roster_is_what_is_linted(
+        self, runner: CliRunner, lifecycle_repo: Path
+    ) -> None:
+        """Roster keys that only mean something under the variant's auth method
+        are judged on the merged document. The exemplar's tracked roster is
+        under ``password``; the overlay arms ``oidc``, which is the one method
+        that reads ``oidc_subject`` — so a card carrying both ``access: any``
+        and a subject draws its advisory only once the variant is selected."""
+        profile = lifecycle_repo / PROFILE_FILENAME
+        text = profile.read_text(encoding="utf-8")
+        marker = '        display_name: "Control Room (Alice)"\n'
+        assert text.count(marker) == 1
+        profile.write_text(
+            text.replace(
+                marker,
+                marker + "        access: any\n        oidc_subject: alice@example.org\n",
+            ),
+            encoding="utf-8",
+        )
+        _write_variant(
+            lifecycle_repo,
+            "sso",
+            "config:\n"
+            "  modules.web_terminals:\n"
+            "    auth:\n"
+            "      method: oidc\n"
+            "      allow_insecure_http: true\n"
+            "      oidc:\n"
+            "        issuer: https://idp.example.org\n",
+        )
+
+        tracked = _run_validate(runner, lifecycle_repo)
+        write_setting(lifecycle_repo, f"{VARIANT_SETTING_KEY}=sso\n")
+        merged = _run_validate(runner, lifecycle_repo)
+
+        assert tracked.exit_code == 0, tracked.output
+        assert merged.exit_code == 0, merged.output
+        assert "'alice'" not in tracked.output
+        assert "access: any" in merged.output
+        assert "'alice'" in merged.output
+
     def test_a_persona_delta_has_no_variant(self, runner: CliRunner, lifecycle_repo: Path) -> None:
         """A delta named directly is a file, not a deployment — nothing overlays it."""
         personas = sorted((lifecycle_repo / "personas").glob("*.yml"))

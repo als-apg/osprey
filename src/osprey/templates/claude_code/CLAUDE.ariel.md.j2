@@ -40,11 +40,14 @@ own tools:
 
 ## ARIEL Tool Surface
 
-You have access to the 11 ARIEL MCP tools for logbook search:
+You have access to the 12 ARIEL MCP tools for logbook search:
 
 **Search**
 - `keyword_search` — Full-text keyword search (exact matching, operators)
 - `semantic_search` — Embedding similarity search (conceptual matching)
+- `hybrid_search` — Keyword and semantic ranking combined, with optional
+  query expansion and reranking; the strongest single search when the
+  deployment runs the hybrid module (check `capabilities`)
 - `sql_query` — Read-only SQL for structural queries (counting, grouping, JSONB)
 
 **Browse & Discovery**
@@ -68,6 +71,8 @@ Plus workspace MCP tools for artifact handoff (`mcp__osprey_workspace__*`).
 - **Keyword first** for known terms, channel names, identifiers, exact phrases.
 - **Broaden with semantic** when the user's wording may not match the entry's
   vocabulary (e.g. "beam loss" vs "lost beam" vs "trip").
+- **Hybrid** when both matter at once — a known term plus a fuzzy
+  description — and `capabilities` reports the hybrid module is on.
 - **SQL** for structural questions — counts, date ranges, group-by-author,
   group-by-source, JSONB metadata filters.
 - **Browse** for chronological exploration of a date range.

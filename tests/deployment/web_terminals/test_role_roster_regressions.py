@@ -36,8 +36,8 @@ artifact, this still fails.
 Three regressions, in the order a deployment meets them:
 
 * the twins render, lint, provision and print identically (:class:`TestRoleOnlyRosterIsIndistinguishable`);
-* a ``login: false`` entry that reaches a deployment-editing persona through a
-  role still hits the existing guard, at lint and at materialization
+* a shared card (``access: any``) that reaches a deployment-editing persona
+  through a role still hits the existing guard, at lint and at materialization
   (:class:`TestRoleBoundPrivilegeStillTripsTheGuard`) — a role must not be a
   way around a refusal a pin cannot get around;
 * ``osprey users remove`` rewrites a role-only roster without touching the
@@ -47,7 +47,7 @@ Three regressions, in the order a deployment meets them:
 
 The bundled ``control-assistant`` preset is the exemplar throughout: its roster
 is already the shape this matters for — a privileged ``admin`` tier, an
-unprivileged ``ariel`` tier served with no login, and a ``default_persona``
+unprivileged ``logbook`` card shared with the roster, and a ``default_persona``
 some entries inherit — so a regression that let the two spellings diverge shows
 up in a real deployment's artifacts rather than in a fixture built to show it.
 """
@@ -72,7 +72,7 @@ from osprey.deployment.web_terminals.lint import lint_profile_config, lint_web_t
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.services.auth_sidecar.routes.recheck import ENV_ROSTER_ROLE_PREFIX
 
-UNAUTHENTICATED_CODE = "web_terminals.unauthenticated_privileged_terminal"
+SHARED_CARD_CODE = "web_terminals.shared_card_privileged"
 
 #: The one artifact key the twins are allowed to differ in, and only by the lines
 #: below.
@@ -268,9 +268,10 @@ class TestRoleOnlyRosterIsIndistinguishable:
         allowance cannot quietly widen into "the compose file may differ by any
         line whose name starts with the prefix". One line per role-carrying
         entry, in roster order, each naming that user's variable and that
-        user's role — including ``ariel``, whose entry is opted out of the login
-        wall and whose role is therefore inert but still rendered, because the
-        roster the sidecar keys this table from lists it.
+        user's role — including ``logbook``, the shared card that is opened
+        with other users' credentials and whose own role is therefore inert
+        but still rendered, because the roster the sidecar keys this table
+        from lists it.
         """
         # Arrange
         role_bound = _deploy_config(_role_bound(exemplar_web_terminals))
@@ -282,7 +283,8 @@ class TestRoleOnlyRosterIsIndistinguishable:
         assert _session_role_lines(overlay) == [
             f'      - "{_ROLE_VAR_PREFIX}ALICE=readwrite-role"',
             f'      - "{_ROLE_VAR_PREFIX}BOB=readonly-role"',
-            f'      - "{_ROLE_VAR_PREFIX}ARIEL=ariel-role"',
+            f'      - "{_ROLE_VAR_PREFIX}LOGBOOK=logbook-role"',
+            f'      - "{_ROLE_VAR_PREFIX}KNOWLEDGE=knowledge-role"',
             f'      - "{_ROLE_VAR_PREFIX}CAROL=admin-role"',
         ]
 
@@ -356,8 +358,8 @@ class TestRoleOnlyRosterIsIndistinguishable:
     def test_the_profile_altitude_lint_report_is_identical(self) -> None:
         """``osprey profile validate`` / ``osprey build`` must read the twins the same.
 
-        Run over a roster with a real finding in it — carol's tier served
-        without a login — so the two reports are compared on their content
+        Run over a roster with a real finding in it — carol's tier shared with
+        the whole roster — so the two reports are compared on their content
         rather than on their emptiness.
         """
         # Arrange
@@ -365,14 +367,14 @@ class TestRoleOnlyRosterIsIndistinguishable:
         for config in (pinned, role_bound):
             for entry in config[_PROFILE_WEB_KEY]["users"]:
                 if entry["name"] == "carol":
-                    entry["login"] = False
+                    entry["access"] = "any"
 
         # Act
         findings_pinned = lint_profile_config(pinned)
         findings_role_bound = lint_profile_config(role_bound)
 
         # Assert
-        assert [f.code for f in findings_pinned] == [UNAUTHENTICATED_CODE]
+        assert [f.code for f in findings_pinned] == [SHARED_CARD_CODE]
         assert findings_role_bound == findings_pinned
 
     def test_env_provisioning_writes_a_byte_identical_env_users(self, tmp_path: Path) -> None:
@@ -547,41 +549,42 @@ def _generate_env_users(root: Path, config: dict[str, Any]) -> str:
 
 
 class TestRoleBoundPrivilegeStillTripsTheGuard:
-    """``login: false`` plus a role that reaches a deployment-editing persona.
+    """``access: any`` plus a role that reaches a deployment-editing persona.
 
-    The exposure the guard exists for is a card on the landing page that opens
-    straight into a terminal holding the setup tool and the Config panel. It is
+    The exposure the guard exists for is a card on the landing page that every
+    roster login opens into a terminal holding the setup tool and the Config
+    panel. It is
     judged on the persona the entry RESOLVES to, so a binding the guard could
     not follow would be a way to ship exactly that terminal past a refusal the
     equivalent ``persona:`` pin cannot get past.
     """
 
     @staticmethod
-    def _carol_open_via_role() -> dict[str, Any]:
+    def _carol_shared_via_role() -> dict[str, Any]:
         """The exemplar profile with carol reaching ``admin`` through a role,
-        and opted out of the login wall."""
+        and shared with the whole roster."""
         _pinned, role_bound = _profile_twins()
         for entry in role_bound[_PROFILE_WEB_KEY]["users"]:
             if entry["name"] == "carol":
-                entry["login"] = False
+                entry["access"] = "any"
         return role_bound
 
     def test_lint_refuses_it_and_names_the_user_and_the_persona(self) -> None:
         """The lint belt behind ``osprey profile validate`` and ``osprey build``."""
         # Arrange
-        config = self._carol_open_via_role()
+        config = self._carol_shared_via_role()
 
         # Act
         findings = lint_profile_config(config)
 
         # Assert
-        errors = [f for f in findings if f.severity == "error" and f.code == UNAUTHENTICATED_CODE]
+        errors = [f for f in findings if f.severity == "error" and f.code == SHARED_CARD_CODE]
         assert len(errors) == 1
         # The message speaks of the persona, not the role: the role is how the
         # entry got there, the persona is what it holds.
         assert "'carol'" in errors[0].message
         assert "'admin'" in errors[0].message
-        assert "login: true" in errors[0].message
+        assert "access: own" in errors[0].message
 
     def test_materialization_refuses_it_before_the_repo_exists(self) -> None:
         """``osprey init``'s own half of the guard, where the tiers have just resolved.
@@ -591,7 +594,7 @@ class TestRoleBoundPrivilegeStillTripsTheGuard:
         still let ``init`` write it out.
         """
         # Arrange
-        profile = _profile_for(self._carol_open_via_role())
+        profile = _profile_for(self._carol_shared_via_role())
 
         # Act / Assert
         with pytest.raises(click.UsageError) as excinfo:

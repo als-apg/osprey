@@ -11,6 +11,7 @@ import asyncio
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from osprey.utils.logger import get_logger
@@ -20,6 +21,19 @@ if TYPE_CHECKING:
     from osprey.services.ariel_search.database.repository import ARIELRepository
 
 logger = get_logger("ariel.scheduler")
+
+
+class StopReason(StrEnum):
+    """Why the scheduler's poll loop returned.
+
+    Attributes:
+        SIGNAL: The loop was asked to stop via ``stop()``.
+        FAILURE_CAP: The loop gave up after ``max_consecutive_failures``
+            failed poll cycles in a row.
+    """
+
+    SIGNAL = "signal"
+    FAILURE_CAP = "failure_cap"
 
 
 @dataclass
@@ -62,14 +76,20 @@ class IngestionScheduler:
         self._stop_event = asyncio.Event()
         self._consecutive_failures = 0
 
-    async def run_forever(self) -> None:
+    async def run_forever(self) -> StopReason:
         """Run the poll loop until stopped -- this blocks; it is not a handle.
 
         Each iteration calls poll_once(), then sleeps for the configured
         interval (with backoff on failures). Returns when stop() is called or
         after ``max_consecutive_failures`` failed cycles in a row.
+
+        Returns:
+            ``StopReason.SIGNAL`` when stop() ended the loop,
+            ``StopReason.FAILURE_CAP`` when the consecutive-failure cap did.
         """
         logger.info("Ingestion scheduler started")
+
+        stop_reason = StopReason.SIGNAL
 
         while not self._stop_event.is_set():
             try:
@@ -94,6 +114,7 @@ class IngestionScheduler:
                     logger.error(
                         f"Stopping scheduler after {self._consecutive_failures} consecutive failures"
                     )
+                    stop_reason = StopReason.FAILURE_CAP
                     break
 
             interval = self._get_current_interval()
@@ -106,6 +127,7 @@ class IngestionScheduler:
                 continue  # Timeout means it's time to poll again
 
         logger.info("Ingestion scheduler stopped")
+        return stop_reason
 
     async def poll_once(
         self, dry_run: bool = False, limit: int | None = None

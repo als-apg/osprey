@@ -19,6 +19,7 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from unittest import mock
@@ -27,6 +28,7 @@ import pytest
 import yaml
 from ruamel.yaml import YAML
 
+import osprey.channel_roster as channel_roster
 from osprey.cli.build_cmd import _copy_service_templates
 from osprey.deployment.compose_generator import (
     prepare_compose_files,
@@ -1649,16 +1651,17 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
     # The plan devices are authored BETWEEN `init` and `build`: the build copies
     # <repo>/data into the build zone and stages the device file it finds there
     # into the bluesky service context, so a set written after the build would
-    # never reach a worker. Derived from the deployment's own
-    # channel_limits.json, never a hardcoded preset channel.
+    # never reach a worker. Chosen from the deployment's own channel roster --
+    # the facility's knowledge graph or channel-finder database -- never a
+    # hardcoded preset channel.
     authored_correctors: dict[str, tuple[str, str]] = {}
 
     def author_devices(repo: Path) -> None:
         nonlocal authored_correctors
-        limits = _orm_stack.channel_limits(repo)
-        authored_correctors = _orm_stack.select_correctors(limits)
+        records = _orm_stack.roster_records(repo)
+        authored_correctors = _orm_stack.select_correctors(records)
         _orm_stack.write_devices_file(
-            repo, correctors=authored_correctors, bpms=_orm_stack.select_bpms(limits)
+            repo, correctors=authored_correctors, bpms=_orm_stack.select_bpms(records)
         )
 
     project_dir = _orm_stack.build_via_cli_runner(runner, tmp_path, pre_build=author_devices)
@@ -6356,16 +6359,132 @@ def test_inject_project_metadata_passes_limits_mount_through(tmp_path: Path) -> 
 
 
 # ---------------------------------------------------------------------------
+# The ARIEL qmd mirror, as the injected render context spells it
+# (``osprey_ariel_mirror_source`` / ``osprey_container_ariel_mirror_dir``)
+#
+# One configured value -- ``ariel.enhancement_modules.qmd_export.mirror_path``
+# -- names one directory, and a compose template that mounts it needs both
+# halves: the HOST bind source compose resolves against the pinned project
+# directory, and the CONTAINER target the exporter inside actually writes to.
+# Deriving both here, from the one reader every other consumer uses, is what
+# keeps the directory the exporter fills and the directory the mount covers
+# provably the same string.
+#
+# ``None`` on both when no export writes a mirror: a template gates its whole
+# mount on that, and an empty-string sentinel would render a bind with a
+# missing source instead.
+# ---------------------------------------------------------------------------
+
+
+def _mirror_config(tmp_path: Path, mirror_path: str) -> dict:
+    """A minimal config whose qmd export writes *mirror_path*."""
+    return {
+        "project_name": "mirror-fixture",
+        "project_root": str(tmp_path),
+        "ariel": {
+            "enhancement_modules": {
+                "qmd_export": {"enabled": True, "mirror_path": mirror_path},
+            }
+        },
+    }
+
+
+def test_inject_project_metadata_mirror_keys_none_without_qmd_export(tmp_path: Path) -> None:
+    """No enabled export means no mirror keys with a value.
+
+    A deployment that writes no mirror has no directory to mount, and the
+    template's mount is gated on exactly this. Both halves must read falsy --
+    absent or ``None`` -- rather than a path that points at nothing.
+    """
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    base = {"project_name": "mirror-fixture", "project_root": str(tmp_path)}
+
+    for config in (
+        base,
+        # Present but disabled: the exporter never runs, so nothing writes.
+        {**base, "ariel": {"enhancement_modules": {"qmd_export": {"enabled": False}}}},
+        # Enabled with no path: a config error the exporter itself refuses at
+        # runtime, and nothing this render can mount.
+        {**base, "ariel": {"enhancement_modules": {"qmd_export": {"enabled": True}}}},
+    ):
+        injected = _inject_project_metadata(dict(config))
+        assert injected.get("osprey_ariel_mirror_source") is None
+        assert injected.get("osprey_container_ariel_mirror_dir") is None
+
+
+def test_inject_project_metadata_carries_mirror_keys_with_qmd_export(tmp_path: Path) -> None:
+    """A relative ``mirror_path`` becomes a repo-relative source and a project target.
+
+    The source carries the explicit ``./`` every bind source in a rendered
+    compose file needs; the target is anchored under this project's
+    in-container root, which is where the exporter resolves the same relative
+    path.
+    """
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    injected = _inject_project_metadata(_mirror_config(tmp_path, "var/ariel_mirror"))
+
+    assert injected["osprey_ariel_mirror_source"] == "./var/ariel_mirror"
+    assert injected["osprey_container_ariel_mirror_dir"] == "/app/mirror-fixture/var/ariel_mirror"
+
+
+def test_inject_project_metadata_mirror_reads_settings_over_module_block(tmp_path: Path) -> None:
+    """``settings.mirror_path`` wins, exactly as ARIEL's own loader merges them.
+
+    Read through ``configured_ariel_mirror_path`` rather than re-spelled here,
+    so the mount cannot follow a key the exporter does not write to.
+    """
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    config = _mirror_config(tmp_path, "var/module_block")
+    config["ariel"]["enhancement_modules"]["qmd_export"]["settings"] = {
+        "mirror_path": "var/settings_wins"
+    }
+
+    injected = _inject_project_metadata(config)
+
+    assert injected["osprey_ariel_mirror_source"] == "./var/settings_wins"
+    assert injected["osprey_container_ariel_mirror_dir"] == "/app/mirror-fixture/var/settings_wins"
+
+
+def test_inject_project_metadata_mirror_absolute_path_is_not_reanchored(tmp_path: Path) -> None:
+    """An operator-owned absolute path names the same directory on both sides.
+
+    Inside the repo it is still spelled repo-relative so the rendered file
+    survives the repo being moved; outside it, it stays absolute -- and the
+    container target is never re-anchored under the project directory, because
+    the exporter inside resolves an absolute path to itself.
+    """
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    inside = _inject_project_metadata(_mirror_config(tmp_path, str(tmp_path / "var" / "mirror")))
+    assert inside["osprey_ariel_mirror_source"] == "./var/mirror"
+    assert inside["osprey_container_ariel_mirror_dir"] == str(tmp_path / "var" / "mirror")
+
+    outside = _inject_project_metadata(_mirror_config(tmp_path, "/srv/ariel_mirror"))
+    assert outside["osprey_ariel_mirror_source"] == "/srv/ariel_mirror"
+    assert outside["osprey_container_ariel_mirror_dir"] == "/srv/ariel_mirror"
+
+
+# ---------------------------------------------------------------------------
 # Bluesky plan-device staging (``_stage_bluesky_devices``)
 #
 # The build decides ONCE per render which devices the queueserver worker can
 # drive, and writes that decision twice: as the staged
 # ``bluesky_devices.yml`` and as the ``bluesky_devices`` render-context key the
 # compose template gates its mount on. These tests pin the decision order (mock
-# first, authored file next, derivation last), the refusal an authored file
-# earns, and the two properties that are easy to lose in a re-render: a stale
-# file is removed when nothing is staged, and the two-lane double render lands
-# on identical bytes.
+# first, authored file next, a roster-derived set last), the refusal an
+# authored file earns, the honest browse-only line each roster absence earns,
+# and the two properties that are easy to lose in a re-render: a stale file is
+# removed when nothing is staged, and the two-lane double render lands on
+# identical bytes.
+#
+# What the derived set is derived FROM is the point of the feature: this
+# facility's own channel roster -- the knowledge graph or the channel-finder
+# database ``detect_pipeline_config`` selects -- and never
+# ``channel_limits.json``, which gates a subset of the channels a facility has
+# and had a build reporting 144 devices for a 2908-channel machine.
 # ---------------------------------------------------------------------------
 
 DEVICES_KEY = "bluesky.devices_file"
@@ -6374,21 +6493,28 @@ DEVICES_KEY = "bluesky.devices_file"
 #: about the path operators actually deploy rather than a fixture-only one.
 DEFAULT_DEVICES_RELPATH = "data/bluesky_devices.yml"
 
-#: A channel_limits.json-shaped dict yielding exactly two pyat-coupled SR
-#: corrector pairs and four SR BPM readbacks; the same synthetic shape
-#: ``tests/services/bluesky_bridge/test_substrate_devices.py`` derives from, so
-#: the counts a fact reports here are the counts that module already pins.
-_DEVICE_LIMITS = {
-    "SR:MAG:HCM:01:CURRENT:SP": {"min": -10, "max": 10},
-    "SR:MAG:HCM:01:CURRENT:RB": {"min": -10, "max": 10},
-    "SR:MAG:VCM:02:CURRENT:SP": {"min": -10, "max": 10},
-    "SR:MAG:VCM:02:CURRENT:RB": {"min": -10, "max": 10},
-    "SR:DIAG:BPM:01:POSITION:X": {"min": -5, "max": 5},
-    "SR:DIAG:BPM:01:POSITION:Y": {"min": -5, "max": 5},
-    "SR:DIAG:BPM:02:POSITION:X": {"min": -5, "max": 5},
-    "SR:DIAG:BPM:02:POSITION:Y": {"min": -5, "max": 5},
-    "_meta": {"ignored": True},
-}
+#: The demo machine OSPREY ships, described twice from one source: as the
+#: knowledge-graph corpus the ``graph`` paradigm reads, and as the tier-3
+#: hierarchical database every other paradigm reads. That is what lets the two
+#: paradigm tests below be checked against ONE address set.
+_DEMO_DATA = _REPO_ROOT / "src" / "osprey" / "templates" / "apps" / "control_assistant" / "data"
+_DEMO_CORPUS_RELPATH = "demo_machine.ttl"
+_DEMO_HIERARCHICAL = _DEMO_DATA / "channel_databases" / "tiers" / "tier3" / "hierarchical.json"
+
+#: What the shipped demo machine holds, pinned alongside
+#: ``tests/channel_roster/`` and
+#: ``tests/services/facility_knowledge/test_demo_ttl_consistency.py``. These are
+#: the numbers this feature exists for: the build it replaced reported ``144
+#: settable / 144 readable`` because it enumerated the write-limits projection.
+DEMO_WRITES = 396
+DEMO_READS = 2512
+
+#: Prefix every hand-written corpus below carries, as the knowledge-graph
+#: seeder mints them.
+_CORPUS_PREAMBLE = """\
+@prefix narad_p: <https://narad.example.org/property/> .
+@prefix narad_sem: <https://narad.example.org/schema/shared_semantics/> .
+"""
 
 #: A device document the worker loads in full — one settable, one readable.
 _VALID_DEVICE_DOCUMENT = {
@@ -6404,7 +6530,20 @@ _VALID_DEVICE_DOCUMENT = {
 
 
 @pytest.fixture
-def devices_facts(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+def cold_roster_cache() -> Iterator[None]:
+    """Start and leave every device test with an empty roster cache.
+
+    The roster memoizes per source file across the whole build process, which
+    is what makes a two-lane render read the corpus once. That cache outlives a
+    test, so one left populated would hand its answer to whatever runs next.
+    """
+    channel_roster._roster_cache.clear()
+    yield
+    channel_roster._roster_cache.clear()
+
+
+@pytest.fixture
+def devices_facts(monkeypatch: pytest.MonkeyPatch, cold_roster_cache: None) -> list[str]:
     """Collect the operator-facing facts the staging step reports.
 
     Patched on the module, the way ``test_stage_graphdb_store`` reads facts:
@@ -6433,7 +6572,9 @@ def _devices_config(
     devices_file: str | None = DEFAULT_DEVICES_RELPATH,
     control_system_type: str = "virtual_accelerator",
     deployed_services: tuple[str, ...] = ("bluesky",),
-    database_path: str | None = "data/channel_limits.json",
+    limits_database: str | None = None,
+    channel_finder: dict | None = None,
+    graphdb: dict | None = None,
     lanes: tuple[str, ...] = ("bluesky",),
     project_root: Path | None = None,
 ) -> dict:
@@ -6441,7 +6582,10 @@ def _devices_config(
 
     ``devices_file`` is written per LANE because that is where the build
     injector puts it (``_facility_plan_keys``); ``lanes`` exists so the
-    two-lane shape can be spelled without restating the whole block.
+    two-lane shape can be spelled without restating the whole block. A config
+    built here names no roster source at all, which is a real deployment state
+    (and the one the browse-only tests below use) -- the two builders under it
+    add the two shapes a facility ships.
     """
     services: dict[str, dict] = {}
     for lane in lanes:
@@ -6449,10 +6593,12 @@ def _devices_config(
         if devices_file is not None:
             block["devices_file"] = devices_file
         services[lane] = block
+    if graphdb is not None:
+        services["graphdb"] = graphdb
     control_system: dict = {"type": control_system_type, "writes_enabled": False}
-    if database_path is not None:
-        control_system["limits_checking"] = {"enabled": True, "database_path": database_path}
-    return {
+    if limits_database is not None:
+        control_system["limits_checking"] = {"enabled": True, "database_path": limits_database}
+    config: dict = {
         "project_name": "hwt-fixture",
         "config_dir": str(config_dir),
         "project_root": str(project_root if project_root is not None else config_dir),
@@ -6460,6 +6606,50 @@ def _devices_config(
         "deployed_services": list(deployed_services),
         "control_system": control_system,
     }
+    if channel_finder is not None:
+        config["channel_finder"] = channel_finder
+    return config
+
+
+def _graph_devices_config(
+    config_dir: Path, *, ttl_path: str | None = "data/demo_machine.ttl", **kwargs
+) -> dict:
+    """A graph-paradigm project: the roster is the corpus at ``ttl_path``.
+
+    ``ttl_path`` is render-relative -- resolved against the loaded config's own
+    directory -- so it is spelled the way a project spells it rather than as an
+    absolute fixture path.
+    """
+    graphdb: dict = {} if ttl_path is None else {"ttl_path": ttl_path}
+    return _devices_config(
+        config_dir, channel_finder={"pipeline_mode": "graph"}, graphdb=graphdb, **kwargs
+    )
+
+
+def _database_devices_config(
+    config_dir: Path,
+    *,
+    path: Path,
+    pipeline_mode: str = "hierarchical",
+    db_type: str | None = None,
+    **kwargs,
+) -> dict:
+    """A database-paradigm project: the roster is that paradigm's own database.
+
+    ``database.path`` is anchored on the working directory rather than the
+    render, so these fixtures hand it an absolute path.
+    """
+    database: dict = {"path": str(path)}
+    if db_type is not None:
+        database["type"] = db_type
+    return _devices_config(
+        config_dir,
+        channel_finder={
+            "pipeline_mode": pipeline_mode,
+            "pipelines": {pipeline_mode: {"database": database}},
+        },
+        **kwargs,
+    )
 
 
 def _write_device_file(path: Path, document: object) -> Path:
@@ -6469,17 +6659,125 @@ def _write_device_file(path: Path, document: object) -> Path:
     return path
 
 
-def _write_limits_file(path: Path, limits: dict | None = None) -> Path:
-    """Write a channel-limits database the derivation can read."""
+def _corpus(path: Path, addresses: dict[str, str]) -> Path:
+    """Write a knowledge-graph corpus binding each address to its direction.
+
+    ``addresses`` maps a channel address to the predicate its binding carries
+    (``writesSignal`` / ``readsSignal``), which is what makes the graph a
+    roster: the corpus STATES which channels are settable rather than leaving
+    it to be inferred from address grammar.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(_DEVICE_LIMITS if limits is None else limits), encoding="utf-8")
+    bindings = "".join(
+        f'<https://narad.example.org/binding/b{index}> narad_p:fullPv "{address}" ;\n'
+        f"    narad_p:{predicate} narad_sem:s{index} .\n"
+        for index, (address, predicate) in enumerate(addresses.items())
+    )
+    path.write_text(_CORPUS_PREAMBLE + bindings, encoding="utf-8")
     return path
+
+
+def _flat_database(path: Path, addresses: list[str]) -> Path:
+    """Write an in-context flat channel database enumerating ``addresses``."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps([{"channel": address, "address": address} for address in addresses]),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _staged_document(out_dir: Path) -> dict:
+    """The device document the staging step wrote into ``out_dir``."""
+    return yaml.safe_load((out_dir / "bluesky_devices.yml").read_text(encoding="utf-8"))
 
 
 def _stage_devices(config: dict, out_dir: Path, source_dir: str = "services/bluesky") -> bool:
     from osprey.deployment.compose_generator import _stage_bluesky_devices
 
     return _stage_bluesky_devices(config, source_dir, str(out_dir))
+
+
+# ---------------------------------------------------------------------------
+# The derivation predicate itself (``_plan_derived_devices``)
+#
+# One decision, two callers: the staging step below acts on it, and the
+# per-lane limits-posture gate refuses the build on it before any service
+# directory is written. A gate reading a different predicate than the stager
+# would either refuse a browse-only build or wave a derived one through, so the
+# answer is pinned on its own here.
+# ---------------------------------------------------------------------------
+
+
+def _plan(config: dict):
+    from osprey.deployment.compose_generator import _plan_derived_devices
+
+    return _plan_derived_devices(config)
+
+
+def test_the_predicate_derives_for_a_relative_absent_file_with_a_roster(
+    tmp_path: Path, cold_roster_cache: None
+) -> None:
+    """The whole predicate in its true case: a facility that says which
+    channels it has, and a deployment that authored no device file."""
+    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
+
+    plan = _plan(_graph_devices_config(tmp_path))
+
+    assert plan.derives is True
+    assert plan.authored_present is False
+    assert plan.roster is not None and plan.roster.source is not None
+
+
+def test_the_predicate_never_reads_a_roster_for_a_mock_control_system(
+    tmp_path: Path, cold_roster_cache: None
+) -> None:
+    """A mock drives no channels, so the corpus is not parsed for it at all."""
+    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
+
+    plan = _plan(_graph_devices_config(tmp_path, control_system_type="mock"))
+
+    assert (plan.derives, plan.is_mock) == (False, True)
+    assert plan.roster is None, "the mock decision is made before any source is read"
+
+
+def test_the_predicate_never_reads_a_roster_when_a_file_is_authored(
+    tmp_path: Path, cold_roster_cache: None
+) -> None:
+    """An authored file wins, and the build does not second-guess it."""
+    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
+    _write_device_file(tmp_path / DEFAULT_DEVICES_RELPATH, _VALID_DEVICE_DOCUMENT)
+
+    plan = _plan(_graph_devices_config(tmp_path))
+
+    assert (plan.derives, plan.authored_present) == (False, True)
+    assert plan.roster is None
+
+
+def test_the_predicate_refuses_to_derive_around_an_absolute_path(
+    tmp_path: Path, cold_roster_cache: None
+) -> None:
+    """An absolute path is operator-owned: absent means "not staged yet"."""
+    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
+
+    plan = _plan(
+        _graph_devices_config(tmp_path, devices_file=str(tmp_path / "facility" / "devices.yml"))
+    )
+
+    assert (plan.derives, plan.authored_present) == (False, False)
+    assert plan.roster is None
+
+
+def test_the_predicate_does_not_derive_without_a_roster_source(
+    tmp_path: Path, cold_roster_cache: None
+) -> None:
+    """No source, no derivation -- and the absence travels with the answer,
+    so the caller reporting it does not have to re-derive why."""
+    plan = _plan(_devices_config(tmp_path))
+
+    assert plan.derives is False
+    assert plan.roster is not None
+    assert plan.roster.absence is not None
 
 
 def test_devices_are_staged_for_the_bluesky_service_only(
@@ -6757,8 +7055,8 @@ def test_an_empty_authored_file_is_valid_and_stages(
     authored = tmp_path / DEFAULT_DEVICES_RELPATH
     authored.parent.mkdir(parents=True, exist_ok=True)
     authored.write_text("# no devices yet\n", encoding="utf-8")
-    config = _devices_config(tmp_path, deployed_services=("bluesky", "virtual_accelerator"))
-    _write_limits_file(tmp_path / "data" / "channel_limits.json")
+    config = _graph_devices_config(tmp_path)
+    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
     out_dir = _devices_out_dir(tmp_path)
 
     staged = _stage_devices(config, out_dir)
@@ -6772,31 +7070,282 @@ def test_an_empty_authored_file_is_valid_and_stages(
     ]
 
 
-def test_co_deployed_virtual_accelerator_derives_the_device_file(
+def test_the_shipped_demo_machine_is_derived_from_its_knowledge_graph(
     tmp_path: Path, devices_facts: list[str]
 ) -> None:
-    """No authored file plus a VA in the stack means a turn-key device set.
+    """FR1: the whole machine reaches the worker, and the fact names the corpus.
 
-    Derived from the deployed project's OWN channel-limits database — never a
-    hardcoded preset — through the one producer the e2e harness also uses, so
-    the build and the harness cannot drift on what the worker is handed.
+    396 settables and 2512 readables is what the demo facility has. Every
+    settable whose ``:RB`` sibling the corpus enumerates carries it as its
+    readback, so a plan that sets a corrector reads back the channel the
+    facility pairs with it rather than its own setpoint.
     """
-    _write_limits_file(tmp_path / "data" / "channel_limits.json")
-    config = _devices_config(tmp_path, deployed_services=("bluesky", "virtual_accelerator"))
+    config = _graph_devices_config(_DEMO_DATA, ttl_path=_DEMO_CORPUS_RELPATH)
     out_dir = _devices_out_dir(tmp_path)
 
     staged = _stage_devices(config, out_dir)
 
-    document = yaml.safe_load((out_dir / "bluesky_devices.yml").read_text(encoding="utf-8"))
+    document = _staged_document(out_dir)
     assert staged is True
-    assert [entry["name"] for entry in document["settables"]] == [
-        "SR:MAG:HCM:01:CURRENT:SP",
-        "SR:MAG:VCM:02:CURRENT:SP",
-    ], "the device name IS the channel address the agent discovers"
-    assert len(document["readables"]) == 4
+    assert len(document["settables"]) == DEMO_WRITES
+    assert len(document["readables"]) == DEMO_READS
+    assert sum("readback" in entry for entry in document["settables"]) == DEMO_WRITES
     assert devices_facts == [
-        "bluesky plan devices: 2 settable / 4 readable derived from the channel-limits database"
-    ], "the derived fact names what it was derived from, not the file it wrote"
+        f"bluesky plan devices: {DEMO_WRITES} settable / {DEMO_READS} readable derived "
+        f"from the facility knowledge graph ({_DEMO_CORPUS_RELPATH})"
+    ], (
+        "the fact names the artifact the device set is a projection of, spelled the "
+        "way the config spells it — a build resolves a relative corpus into its own "
+        "staging tree, and a `build/.tmp/...` path is not a thing an operator edits"
+    )
+
+
+def test_the_same_demo_tree_in_hierarchical_mode_derives_the_same_machine(
+    tmp_path: Path, devices_facts: list[str]
+) -> None:
+    """FR2: the paradigm decides which file is read, never which machine it is.
+
+    The demo tree ships the same facility twice -- as the corpus and as the
+    tier-3 hierarchical database -- so a project that switches
+    ``pipeline_mode`` gets the same addresses out, with the fact naming the
+    database it actually read rather than the ``.ttl`` sitting beside it.
+    """
+    graph_dir = _devices_out_dir(tmp_path / "graph")
+    database_dir = _devices_out_dir(tmp_path / "database")
+
+    _stage_devices(_graph_devices_config(_DEMO_DATA, ttl_path=_DEMO_CORPUS_RELPATH), graph_dir)
+    _stage_devices(_database_devices_config(_DEMO_DATA, path=_DEMO_HIERARCHICAL), database_dir)
+
+    from_graph = _staged_document(graph_dir)
+    from_database = _staged_document(database_dir)
+    assert {entry["name"] for entry in from_database["settables"]} == {
+        entry["name"] for entry in from_graph["settables"]
+    }
+    assert {entry["name"] for entry in from_database["readables"]} == {
+        entry["name"] for entry in from_graph["readables"]
+    }
+    assert devices_facts[1] == (
+        f"bluesky plan devices: {DEMO_WRITES} settable / {DEMO_READS} readable derived "
+        f"from the channel finder database ({_DEMO_HIERARCHICAL})"
+    )
+
+
+def test_a_settable_the_roster_could_not_pair_carries_no_readback_key(
+    tmp_path: Path, devices_facts: list[str]
+) -> None:
+    """A readback is emitted only where the roster actually found a sibling.
+
+    Restating the setpoint as its own readback would claim a pairing the
+    facility never described, and the worker already reads the setpoint back
+    when the key is absent -- so the honest document says nothing at all.
+    """
+    _corpus(
+        tmp_path / "data" / "demo_machine.ttl",
+        {
+            "SR:MAG:HCM:01:CURRENT:SP": "writesSignal",
+            "SR:MAG:HCM:01:CURRENT:RB": "readsSignal",
+            "SR:MAG:VCM:02:CURRENT:SP": "writesSignal",
+        },
+    )
+    out_dir = _devices_out_dir(tmp_path)
+
+    assert _stage_devices(_graph_devices_config(tmp_path), out_dir) is True
+    assert _staged_document(out_dir)["settables"] == [
+        {
+            "name": "SR:MAG:HCM:01:CURRENT:SP",
+            "setpoint": "SR:MAG:HCM:01:CURRENT:SP",
+            "readback": "SR:MAG:HCM:01:CURRENT:RB",
+        },
+        {"name": "SR:MAG:VCM:02:CURRENT:SP", "setpoint": "SR:MAG:VCM:02:CURRENT:SP"},
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Staging: channels whose direction the source could not state
+#
+# A record with no direction becomes no device (``devices_document`` emits
+# neither a settable nor a readable for it), so these cases decide whether a
+# drifted source can shrink the worker's namespace without saying so: a corpus
+# binding carrying neither -- or both -- of writesSignal/readsSignal is how it
+# happens in practice.
+# ---------------------------------------------------------------------------
+
+
+def _directionless_corpus(path: Path, addresses: dict[str, str], *, unstated: list[str]) -> Path:
+    """A corpus whose ``unstated`` bindings carry no direction predicate.
+
+    Written out here rather than through :func:`_corpus`: a binding that names a
+    ``fullPv`` and neither ``writesSignal`` nor ``readsSignal`` is the drifted
+    shape, and there is no way to spell it in a table of address -> predicate.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    bindings = "".join(
+        f'<https://narad.example.org/binding/b{index}> narad_p:fullPv "{address}" ;\n'
+        f"    narad_p:{predicate} narad_sem:s{index} .\n"
+        for index, (address, predicate) in enumerate(addresses.items())
+    )
+    bindings += "".join(
+        f'<https://narad.example.org/binding/u{index}> narad_p:fullPv "{address}" .\n'
+        for index, address in enumerate(unstated)
+    )
+    path.write_text(_CORPUS_PREAMBLE + bindings, encoding="utf-8")
+    return path
+
+
+def test_a_healthy_roster_omits_nothing_and_says_nothing_about_omissions(
+    tmp_path: Path, devices_facts: list[str]
+) -> None:
+    """The control case: every channel points somewhere, so the fact is the
+    counts and nothing else."""
+    _corpus(
+        tmp_path / "data" / "demo_machine.ttl",
+        {"A:B:C:SP": "writesSignal", "A:B:C:RB": "readsSignal"},
+    )
+    out_dir = _devices_out_dir(tmp_path)
+
+    assert _stage_devices(_graph_devices_config(tmp_path), out_dir) is True
+    assert devices_facts == [
+        "bluesky plan devices: 1 settable / 1 readable derived from the facility "
+        "knowledge graph (data/demo_machine.ttl)"
+    ]
+
+
+def test_channels_with_no_direction_are_counted_into_the_fact_not_dropped(
+    tmp_path: Path, devices_facts: list[str]
+) -> None:
+    """A partly directionless source stages a SMALLER machine, and says so.
+
+    The counts alone cannot show it: ``1 settable / 1 readable`` from a
+    four-channel facility reads as a small machine rather than as a source that
+    could not say which way half of it points. Naming the shortfall is what
+    turns a silent drop into something an operator can go and fix.
+    """
+    _directionless_corpus(
+        tmp_path / "data" / "demo_machine.ttl",
+        {"A:B:C:SP": "writesSignal", "A:B:C:RB": "readsSignal"},
+        unstated=["A:B:D:SP", "A:B:D:RB"],
+    )
+    out_dir = _devices_out_dir(tmp_path)
+
+    staged = _stage_devices(_graph_devices_config(tmp_path), out_dir)
+
+    document = _staged_document(out_dir)
+    assert staged is True, "the channels that DO point somewhere are still a device set"
+    assert [entry["name"] for entry in document["settables"]] == ["A:B:C:SP"]
+    assert [entry["name"] for entry in document["readables"]] == ["A:B:C:RB"]
+    assert devices_facts == [
+        "bluesky plan devices: 1 settable / 1 readable derived from the facility "
+        "knowledge graph (data/demo_machine.ttl); 2 channels whose direction the "
+        "source could not state were omitted"
+    ]
+
+
+def test_one_omitted_channel_is_named_in_the_singular(
+    tmp_path: Path, devices_facts: list[str]
+) -> None:
+    """The shortfall clause is a sentence an operator reads, not a counter."""
+    _directionless_corpus(
+        tmp_path / "data" / "demo_machine.ttl",
+        {"A:B:C:SP": "writesSignal"},
+        unstated=["A:B:D:SP"],
+    )
+    out_dir = _devices_out_dir(tmp_path)
+
+    _stage_devices(_graph_devices_config(tmp_path), out_dir)
+
+    assert devices_facts[0].endswith(
+        "; 1 channel whose direction the source could not state was omitted"
+    )
+
+
+def test_a_roster_that_states_no_direction_at_all_stages_nothing(
+    tmp_path: Path, devices_facts: list[str]
+) -> None:
+    """All-directionless is browse-only, never an empty device file.
+
+    Every record would become no device, so the staged document would carry an
+    empty settables list and an empty readables list -- which the worker, the
+    agent and every later reader take as "this facility has no channels", over
+    the top of a facility that has four. The build refuses to say that: nothing
+    is staged, and the fact names the source and the count it could not place.
+    """
+    _directionless_corpus(
+        tmp_path / "data" / "demo_machine.ttl",
+        {},
+        unstated=["A:B:C:SP", "A:B:C:RB", "A:B:D:SP", "A:B:D:RB"],
+    )
+    out_dir = _devices_out_dir(tmp_path)
+
+    staged = _stage_devices(_graph_devices_config(tmp_path), out_dir)
+
+    assert staged is False
+    assert not (out_dir / "bluesky_devices.yml").exists(), (
+        "a settable-free device file is the one thing this must never stage"
+    )
+    assert devices_facts == [
+        "bluesky plans browse-only: the facility knowledge graph (data/demo_machine.ttl) "
+        "enumerates 4 channels and states a direction for none of them"
+    ]
+
+
+def test_a_directionless_roster_removes_a_file_an_earlier_render_derived(
+    tmp_path: Path, devices_facts: list[str]
+) -> None:
+    """And the stale file goes with it, as for every other non-staging decision."""
+    _directionless_corpus(tmp_path / "data" / "demo_machine.ttl", {}, unstated=["A:B:C:SP"])
+    out_dir = _devices_out_dir(tmp_path)
+    (out_dir / "bluesky_devices.yml").write_text("settables: []\n", encoding="utf-8")
+
+    assert _stage_devices(_graph_devices_config(tmp_path), out_dir) is False
+    assert not (out_dir / "bluesky_devices.yml").exists()
+
+
+def test_a_live_target_lane_derives_from_the_roster_too(
+    tmp_path: Path, devices_facts: list[str]
+) -> None:
+    """Deriving for a live lane is deliberate, not an oversight.
+
+    No virtual accelerator is required, and this step never asks which target a
+    lane points at. A device in the worker's namespace is a name a plan MAY
+    reference, never a write that has happened: the gates that decide whether a
+    write lands sit on the write path, and the build refuses per lane when a
+    target has writes enabled without an enabled limits posture. Withholding
+    the machine's own channels here would add no gate -- it would only hide the
+    channels an agent is allowed to READ.
+    """
+    _corpus(
+        tmp_path / "data" / "demo_machine.ttl",
+        {"A:B:C:SP": "writesSignal", "A:B:C:RB": "readsSignal"},
+    )
+    out_dir = _devices_out_dir(tmp_path)
+
+    staged = _stage_devices(
+        _graph_devices_config(
+            tmp_path, control_system_type="epics", deployed_services=("bluesky",)
+        ),
+        out_dir,
+    )
+
+    assert staged is True, "no virtual accelerator is required to enumerate a facility"
+    assert [entry["name"] for entry in _staged_document(out_dir)["settables"]] == ["A:B:C:SP"]
+
+
+def test_the_derived_file_names_its_source_in_its_own_header(
+    tmp_path: Path, devices_facts: list[str]
+) -> None:
+    """A reader of the staged file can see what it is a projection of."""
+    corpus = _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
+    out_dir = _devices_out_dir(tmp_path)
+
+    _stage_devices(_graph_devices_config(tmp_path), out_dir)
+
+    header = (out_dir / "bluesky_devices.yml").read_text(encoding="utf-8")
+    assert "the facility knowledge graph" in header
+    assert "data/demo_machine.ttl" in header, "the header credits the configured corpus"
+    assert str(corpus.parent) not in header, (
+        "not the resolved path: staged into a build tree, that names a directory the "
+        "reader of this file cannot open"
+    )
 
 
 def test_an_absent_absolute_devices_file_is_never_derived_around(
@@ -6805,18 +7354,14 @@ def test_an_absent_absolute_devices_file_is_never_derived_around(
     """An absolute path is operator-owned: used if present, never substituted.
 
     It names a file outside the repo, so its absence means the operator has not
-    staged it yet — not that OSPREY should decide the device set for them. A
+    staged it yet -- not that OSPREY should decide the device set for them. A
     derivation here would mount generated devices under a path the deployment
     says an operator owns, and go on doing it silently once they DO author the
     file at a path the build was never re-pointed at.
     """
-    _write_limits_file(tmp_path / "data" / "channel_limits.json")
+    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
     absolute = tmp_path / "facility" / "devices.yml"
-    config = _devices_config(
-        tmp_path,
-        devices_file=str(absolute),
-        deployed_services=("bluesky", "virtual_accelerator"),
-    )
+    config = _graph_devices_config(tmp_path, devices_file=str(absolute))
     out_dir = _devices_out_dir(tmp_path)
 
     staged = _stage_devices(config, out_dir)
@@ -6824,7 +7369,7 @@ def test_an_absent_absolute_devices_file_is_never_derived_around(
     assert staged is False
     assert not absolute.exists(), "the operator's path must not be created by the build"
     assert not (out_dir / "bluesky_devices.yml").exists(), (
-        "the limits database is right there and would derive a device set — an "
+        "the facility's roster is right there and would derive a device set -- an "
         "absolute devices_file is what says not to"
     )
     assert devices_facts == [
@@ -6844,14 +7389,15 @@ def test_an_absolute_devices_file_that_exists_is_staged(
     assert (out_dir / "bluesky_devices.yml").read_bytes() == absolute.read_bytes()
 
 
-def test_no_authored_file_and_no_virtual_accelerator_stages_nothing(
+def test_no_roster_source_at_all_is_browse_only_not_a_refusal(
     tmp_path: Path, devices_facts: list[str]
 ) -> None:
-    """A live-target lane with no device file is browse-only, and says so.
+    """A live-target lane whose project enumerates no channels still builds.
 
-    Nothing is derived here: the derivation reads a VA's own channel model, and
-    there is no VA. The worker comes up able to browse plans and run none, which
-    the operator has to be told rather than discover from an empty device list.
+    Absence is fail-soft: nothing is derived because nothing describes this
+    facility, and the worker comes up able to browse plans and run none --
+    which the operator is told in the roster's own words rather than left to
+    infer from an empty device list.
     """
     config = _devices_config(tmp_path, control_system_type="epics")
     out_dir = _devices_out_dir(tmp_path)
@@ -6861,8 +7407,8 @@ def test_no_authored_file_and_no_virtual_accelerator_stages_nothing(
     assert staged is False
     assert not (out_dir / "bluesky_devices.yml").exists()
     assert devices_facts == [
-        f"bluesky plans browse-only: {DEVICES_KEY} is {DEFAULT_DEVICES_RELPATH!r} and no "
-        "file is there"
+        "bluesky plans browse-only: No channel roster source is configured, so the set "
+        "of channels this facility has is unknown."
     ]
 
 
@@ -6884,18 +7430,42 @@ def test_a_stale_device_file_is_removed_when_nothing_is_staged(
     assert not (out_dir / "bluesky_devices.yml").exists()
 
 
-def test_derivation_without_a_limits_database_is_browse_only_not_a_refusal(
+def test_graph_mode_naming_no_corpus_names_both_keys_that_would_declare_one(
     tmp_path: Path, devices_facts: list[str]
 ) -> None:
-    """A read-only stack with nothing to derive from still builds.
+    """The remedy is a config edit, so the fact names the keys to edit.
 
-    The one unsafe combination — writes enabled with no readable limits file —
-    is already a refusal in ``resolve_limits_mount``, so what reaches the
-    derivation is a deployment whose devices simply cannot be derived. Refusing
-    the build there would turn a browse-only posture into a failure.
+    The store is never dialed to find out: the corpus on disk is what the
+    deploy seeds it from, and an unreachable store would be reported as an
+    empty facility rather than as the configuration gap it is.
     """
-    config = _devices_config(
-        tmp_path, deployed_services=("bluesky", "virtual_accelerator"), database_path=None
+    out_dir = _devices_out_dir(tmp_path)
+
+    staged = _stage_devices(_graph_devices_config(tmp_path, ttl_path=None), out_dir)
+
+    assert staged is False
+    assert not (out_dir / "bluesky_devices.yml").exists()
+    assert devices_facts == [
+        "bluesky plans browse-only: Graph mode is configured but names no readable "
+        "knowledge-graph corpus, so the set of channels this facility has is unknown; "
+        "the corpus is declared by services.graphdb.ttl_path and services.graphdb.uri."
+    ]
+
+
+def test_a_database_whose_directions_cannot_be_derived_stages_nothing(
+    tmp_path: Path, devices_facts: list[str]
+) -> None:
+    """Membership without direction is browse-only, never a settable-free file.
+
+    A paradigm database carrying no ``:SP`` addresses, on a deployment with no
+    limits file, leaves no rule that could tell a settable channel from a
+    readable one. Staging the readables alone would be indistinguishable,
+    everywhere downstream, from a facility that genuinely has nothing settable
+    -- so nothing is staged and the fact names the database to fix.
+    """
+    database = _flat_database(tmp_path / "channels.json", ["FAC:BPM:01:X", "FAC:BPM:01:Y"])
+    config = _database_devices_config(
+        tmp_path, path=database, pipeline_mode="in_context", db_type="flat"
     )
     out_dir = _devices_out_dir(tmp_path)
 
@@ -6904,23 +7474,82 @@ def test_derivation_without_a_limits_database_is_browse_only_not_a_refusal(
     assert staged is False
     assert not (out_dir / "bluesky_devices.yml").exists()
     assert devices_facts == [
-        f"bluesky plans browse-only: {DEVICES_KEY} is {DEFAULT_DEVICES_RELPATH!r} and no "
-        "file is there"
+        f"bluesky plans browse-only: The channels in {database} are known, but which of "
+        "them are settable is not: that source carries no write-limits database and no "
+        "':SP' addresses to derive a direction from."
     ]
 
 
-def test_derivation_from_an_unreadable_limits_database_is_browse_only(
+def test_a_roster_source_that_enumerates_nothing_is_browse_only(
     tmp_path: Path, devices_facts: list[str]
 ) -> None:
-    """Same posture when the limits file is there but unparseable."""
-    limits = tmp_path / "data" / "channel_limits.json"
-    limits.parent.mkdir(parents=True, exist_ok=True)
-    limits.write_text("{not json", encoding="utf-8")
-    config = _devices_config(tmp_path, deployed_services=("bluesky", "virtual_accelerator"))
+    """A source that parsed cleanly and declares nothing stages nothing.
+
+    Reported in the roster's words -- a staging or seeding gap -- rather than
+    staged as an empty device file, which would tell the worker this facility
+    has no channels.
+    """
+    _corpus(tmp_path / "data" / "demo_machine.ttl", {})
     out_dir = _devices_out_dir(tmp_path)
 
-    assert _stage_devices(config, out_dir) is False
+    staged = _stage_devices(_graph_devices_config(tmp_path), out_dir)
+
+    assert staged is False
     assert not (out_dir / "bluesky_devices.yml").exists()
+    assert devices_facts == [
+        "bluesky plans browse-only: The channel roster source at data/demo_machine.ttl "
+        "was read and declares no channels, which is a staging or seeding gap rather "
+        "than a facility with none."
+    ]
+
+
+def test_a_corpus_that_is_there_and_unreadable_refuses_the_render(
+    tmp_path: Path, devices_facts: list[str]
+) -> None:
+    """Fail-closed on a corrupt source -- the other half of the three-way rule.
+
+    An absent source is a facility this project did not describe. One that is
+    there and cannot be parsed is a facility it meant to describe and got
+    wrong, and deriving past it would hand the worker a namespace nobody
+    authored while the build reported success.
+    """
+    corpus = tmp_path / "data" / "demo_machine.ttl"
+    corpus.parent.mkdir(parents=True, exist_ok=True)
+    corpus.write_text("this is not turtle at all <<<", encoding="utf-8")
+    out_dir = _devices_out_dir(tmp_path)
+
+    with pytest.raises(DeploymentPreconditionError) as excinfo:
+        _stage_devices(_graph_devices_config(tmp_path), out_dir)
+
+    assert "data/demo_machine.ttl" in excinfo.value.reason, (
+        "the refusal names the file to repair, as the config spells it"
+    )
+    assert DEVICES_KEY in excinfo.value.remedy, (
+        "the remedy names the way out that does not need the source"
+    )
+    assert not (out_dir / "bluesky_devices.yml").exists()
+
+
+def test_a_configured_corpus_that_is_simply_absent_is_browse_only(
+    tmp_path: Path, devices_facts: list[str]
+) -> None:
+    """ "Not there" is fail-soft; only "there and unreadable" refuses.
+
+    A tree whose corpus has not been staged yet must not become a build
+    failure -- the same distinction the virtual-accelerator manifest draws
+    between a namespace a project did not ship and one it shipped broken.
+    """
+    out_dir = _devices_out_dir(tmp_path)
+
+    staged = _stage_devices(_graph_devices_config(tmp_path), out_dir)
+
+    assert staged is False
+    assert not (out_dir / "bluesky_devices.yml").exists()
+    assert devices_facts == [
+        "bluesky plans browse-only: The channel roster source at data/demo_machine.ttl "
+        "is not there, so the set of channels this facility has is unknown; it is "
+        "declared by services.graphdb.ttl_path and services.graphdb.uri."
+    ], "the roster says absent rather than broken, and this seam stays fail-soft on it"
 
 
 def test_a_lane_carrying_no_devices_file_key_reports_the_unconfigured_fact(
@@ -6949,8 +7578,11 @@ def test_the_two_lane_double_render_stages_identical_bytes(
     that happens, so the second pass has to land on the same decision and the
     same bytes rather than briefly removing or rewriting them differently.
     """
-    _write_limits_file(tmp_path / "data" / "channel_limits.json")
-    config = _devices_config(
+    _corpus(
+        tmp_path / "data" / "demo_machine.ttl",
+        {"A:B:C:SP": "writesSignal", "A:B:C:RB": "readsSignal"},
+    )
+    config = _graph_devices_config(
         tmp_path,
         lanes=("bluesky", "bluesky_va"),
         deployed_services=("bluesky", "bluesky_va", "virtual_accelerator"),
@@ -6979,6 +7611,44 @@ def test_the_double_render_is_idempotent_for_an_authored_file(
     assert (out_dir / "bluesky_devices.yml").read_bytes() == authored.read_bytes()
     assert list((out_dir).iterdir()) == [out_dir / "bluesky_devices.yml"], (
         "the atomic write must leave no temp file behind in the build context"
+    )
+
+
+def test_the_roster_source_is_read_once_across_both_lanes_and_the_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, devices_facts: list[str]
+) -> None:
+    """One build, one parse of the facility's corpus.
+
+    A two-lane deploy stages this directory twice and the channel snapshot asks
+    the same question a third time, against a corpus that is multiple megabytes
+    at a real facility. Reading it once is what makes one authoritative roster
+    affordable -- and every consumer then answers from the same read, so they
+    cannot disagree about which channels exist.
+    """
+    from osprey.deployment.channel_snapshot import compute_channel_snapshot
+
+    _corpus(
+        tmp_path / "data" / "demo_machine.ttl",
+        {"A:B:C:SP": "writesSignal", "A:B:C:RB": "readsSignal"},
+    )
+    real_reader = channel_roster.read_graph_roster
+    parses: list[Path] = []
+
+    def counting_reader(source):
+        parses.append(source.path)
+        return real_reader(source)
+
+    monkeypatch.setattr(channel_roster, "read_graph_roster", counting_reader)
+    config = _graph_devices_config(tmp_path, lanes=("bluesky", "bluesky_va"))
+    out_dir = _devices_out_dir(tmp_path)
+
+    _stage_devices(config, out_dir)
+    _stage_devices(config, out_dir)
+    snapshot = compute_channel_snapshot(config)
+
+    assert len(parses) == 1, f"the corpus was parsed {len(parses)} times in one build"
+    assert snapshot.channels == ["A:B:C:RB", "A:B:C:SP"], (
+        "the snapshot and the device file must be two views of one roster"
     )
 
 
@@ -7018,9 +7688,17 @@ def _devices_render_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pat
 
 
 def _devices_render_config(repo: Path) -> dict:
-    config = _devices_config(repo, deployed_services=("bluesky", "virtual_accelerator"))
+    config = _graph_devices_config(repo, deployed_services=("bluesky", "virtual_accelerator"))
     config.update({"build_dir": "./build", "deployment": {}, "system": {"timezone": "UTC"}})
     return config
+
+
+def _render_repo_corpus(repo: Path) -> Path:
+    """Give the render repo a roster to derive its device set from."""
+    return _corpus(
+        repo / "data" / "demo_machine.ttl",
+        {"A:B:C:SP": "writesSignal", "A:B:C:RB": "readsSignal"},
+    )
 
 
 #: The stand-in service template both entry points render, relative to the repo
@@ -7063,7 +7741,7 @@ def test_both_render_paths_stage_the_file_and_carry_the_gate(
     and the flag are staged in the same place in both.
     """
     repo = _devices_render_repo(tmp_path, monkeypatch)
-    _write_limits_file(repo / "data" / "channel_limits.json")
+    _render_repo_corpus(repo)
     out_dir = _render_devices_service(entry_point, repo, _devices_render_config(repo))
 
     assert (out_dir / "bluesky_devices.yml").is_file()
@@ -7101,7 +7779,7 @@ def test_the_real_render_context_carries_the_gate_key(
     from osprey.deployment import compose_generator
 
     repo = _devices_render_repo(tmp_path, monkeypatch)
-    _write_limits_file(repo / "data" / "channel_limits.json")
+    _render_repo_corpus(repo)
     contexts: list[dict] = []
     real = compose_generator.render_template
 
@@ -7113,3 +7791,445 @@ def test_the_real_render_context_carries_the_gate_key(
     compose_generator.setup_build_dir(_DEVICES_SERVICE_TEMPLATE, _devices_render_config(repo), {})
 
     assert contexts[0]["bluesky_devices"] is True
+
+
+class TestImagePinVersion:
+    """The deps-layer pin `_inject_project_metadata` hands service Dockerfiles.
+
+    Production renders pin the running version (the deps install IS the shipped
+    code). Dev renders — context dev_mode True, i.e. a wheel actually staged —
+    pin the BASE RELEASE: cache-stable across commits (the running dev version
+    changes per commit and busted every image's dependency layer), and the
+    lineage the checkout actually descends from (the old fallback primed with
+    *latest*). See osprey.version.get_image_pin_version.
+    """
+
+    def test_production_render_pins_the_running_version(self):
+        from osprey.deployment.compose_generator import _inject_project_metadata
+        from osprey.version import get_running_version
+
+        out = _inject_project_metadata({"project_name": "p"})
+        assert out["osprey_version"] == get_running_version()
+
+    def test_dev_render_pins_the_base_release(self):
+        from osprey.deployment.compose_generator import _inject_project_metadata
+        from osprey.version import get_release_version
+
+        out = _inject_project_metadata({"project_name": "p", "dev_mode": True})
+        assert out["osprey_version"] == get_release_version()
+
+    def test_failed_wheel_staging_keeps_the_fail_loud_running_pin(self):
+        # setup_build_dir writes dev_mode into the context as (flag AND wheel
+        # staged), so a --dev run whose staging failed reaches this function
+        # with dev_mode False — and must keep the running-version pin that
+        # makes the Dockerfile fail loudly instead of building released code.
+        from osprey.deployment.compose_generator import _inject_project_metadata
+        from osprey.version import get_running_version
+
+        out = _inject_project_metadata({"project_name": "p", "dev_mode": False})
+        assert out["osprey_version"] == get_running_version()
+
+
+# ---------------------------------------------------------------------------
+# The per-lane limits gate (``_refuse_lane_writes_without_limits``)
+#
+# A derived device set is OSPREY's own list of what the queueserver worker may
+# move, so the build that chose that list refuses to hand it to a lane that
+# arms writes with limits checking off for its target. Per LANE-TARGET
+# throughout: a deployment can arm its simulator and leave its live machine
+# read-only, and a deployment-wide fold would let the one vouch for the other.
+# ---------------------------------------------------------------------------
+
+
+def _gate(config: dict) -> None:
+    from osprey.deployment.compose_generator import _refuse_lane_writes_without_limits
+
+    _refuse_lane_writes_without_limits(config)
+
+
+def _arm_writes(config: dict, *, limits_enabled: bool | None) -> dict:
+    """Arm the deployment-wide write posture, with ``limits_checking`` as given.
+
+    The single-lane shape: no per-connector block, so the baseline target reads
+    the deployment-wide keys — which is what a facility that has never had a
+    second machine has always had.
+    """
+    control_system = config["control_system"]
+    control_system["writes_enabled"] = True
+    limits: dict = {"database_path": "data/channel_limits.json"}
+    if limits_enabled is not None:
+        limits["enabled"] = limits_enabled
+        limits["allow_unlisted_channels"] = False
+    control_system["limits_checking"] = limits
+    return config
+
+
+def test_the_gate_refuses_an_armed_lane_whose_target_checks_no_limits(
+    tmp_path: Path, cold_roster_cache: None
+) -> None:
+    """The refusal names the lane and the key that has to be set.
+
+    An operator handed this line has to be able to act on it without going
+    looking: which lane came up armed, and the config key whose value made it
+    unsafe -- not "the build", and not a key some other block overrides.
+    """
+    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
+    config = _arm_writes(_graph_devices_config(tmp_path), limits_enabled=False)
+
+    with pytest.raises(DeploymentPreconditionError) as excinfo:
+        _gate(config)
+
+    message = str(excinfo.value)
+    assert "control_system.limits_checking.enabled" in message, (
+        f"the refusal must name the leaf's own key, got: {message}"
+    )
+    assert "'bluesky'" in message, f"the refusal must name the lane, got: {message}"
+    assert "'va'" in message, f"the refusal must name the target the lane serves: {message}"
+
+
+def test_the_gate_refuses_a_lane_whose_target_states_no_limits_posture_at_all(
+    tmp_path: Path, cold_roster_cache: None
+) -> None:
+    """Silence is not permission: an unstated ``enabled`` refuses like a false one.
+
+    ``None`` is a deployment that never configured limits checking, which the
+    validator reads as no validator at all -- the same unbounded worker a
+    ``false`` gives, so the gate cannot treat the two differently.
+    """
+    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
+    config = _arm_writes(_graph_devices_config(tmp_path), limits_enabled=None)
+
+    with pytest.raises(DeploymentPreconditionError) as excinfo:
+        _gate(config)
+
+    assert "limits_checking.enabled" in str(excinfo.value)
+
+
+def test_the_gate_lets_the_shipped_demo_posture_build(
+    tmp_path: Path, cold_roster_cache: None
+) -> None:
+    """The preset every demo deploys keeps building.
+
+    ``allow_unlisted_channels: true`` beside ``enabled: true`` is what the
+    control-assistant preset ships for its simulator: a deliberate facility
+    choice about channels the limits database does not list, and NOT the leaf
+    this gate reads. A gate that folded it in would refuse the one deployment
+    shape everybody starts from.
+
+    The posture is READ OUT of the preset rather than restated here, because
+    the value of this test is drift protection on that file: a preset edit that
+    turned the simulator's ``enabled`` off has to fail here rather than ship a
+    demo the gate refuses at build time.
+    """
+    from osprey.cli.build_profile_presets import _presets_dir
+
+    preset = yaml.safe_load((_presets_dir() / "control-assistant.yml").read_text(encoding="utf-8"))[
+        "config"
+    ]
+    prefix = "control_system.connector.virtual_accelerator.limits_checking"
+    assert preset[f"{prefix}.enabled"] is True, (
+        "the demo's simulator must ship with limits checking on -- if this preset "
+        "changed deliberately, the gate now refuses the shipped demo"
+    )
+
+    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
+    config = _graph_devices_config(tmp_path)
+    config["control_system"]["writes_enabled"] = True
+    config["control_system"]["limits_checking"] = {
+        "database_path": "data/channel_limits.json",
+        "enabled": preset[f"{prefix}.enabled"],
+        "allow_unlisted_channels": preset[f"{prefix}.allow_unlisted_channels"],
+    }
+
+    _gate(config)
+
+
+def test_the_gate_lets_a_read_only_lane_derive_without_limits(
+    tmp_path: Path, cold_roster_cache: None
+) -> None:
+    """Writes off is the other half of the condition, and it builds.
+
+    A browse-only lane holds no settable it may move, so a derived device set
+    behind an unconfigured ``limits_checking`` is not the unbounded worker this
+    gate exists for. Dropping the write-posture leaf and refusing on the
+    derivation alone would take every read-only deployment offline over a
+    validator none of them needs.
+    """
+    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
+    config = _graph_devices_config(tmp_path)
+    assert _plan(config).derives is True, "the gate is only about a DERIVED device set"
+    assert config["control_system"]["writes_enabled"] is False, "the lane must be browse-only"
+    assert "limits_checking" not in config["control_system"], "and state no limits posture"
+
+    _gate(config)
+
+
+def test_the_gate_reads_the_baseline_target_for_a_lane_that_names_none(
+    tmp_path: Path, cold_roster_cache: None
+) -> None:
+    """A single-lane render writes no ``target``, and still gets gated.
+
+    The build injector writes a lane target only where the lane is a sibling
+    (or a stand-in baseline), so the common deployment has a lane block with no
+    target key at all. Falling back to anything but the deployment's own
+    baseline would gate a machine this lane does not serve -- here the VA block
+    is the one that decides, and it is the one that must answer.
+    """
+    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
+    config = _graph_devices_config(tmp_path)
+    assert "target" not in config["services"]["bluesky"], "the fixture must spell no target"
+    config["control_system"]["connector"] = {
+        "virtual_accelerator": {
+            "writes_enabled": True,
+            "limits_checking": {"enabled": False, "allow_unlisted_channels": False},
+        }
+    }
+
+    with pytest.raises(DeploymentPreconditionError) as excinfo:
+        _gate(config)
+
+    assert "control_system.connector.virtual_accelerator.limits_checking.enabled" in str(
+        excinfo.value
+    )
+
+
+def test_the_gate_reads_the_baseline_target_for_a_non_string_target() -> None:
+    """A target that is not a non-empty string is a lane that declares none.
+
+    The worker applies exactly that test to the same key
+    (``_declared_lane_target``), and a hand-edited config is where the two
+    readers meet: anything looser here would gate the lane on the deployment
+    baseline resolved from a target the worker never sees, while the worker
+    comes up on the baseline's own block. The gate has to fall back where the
+    runtime falls back.
+    """
+    from osprey.deployment.compose_generator import _lane_target
+    from osprey_connectors.types import baseline_target
+
+    control_system = {"type": "virtual_accelerator"}
+
+    assert _lane_target({"target": 123}, control_system) == baseline_target(control_system)
+    assert _lane_target({"target": ""}, control_system) == baseline_target(control_system)
+    assert _lane_target({"target": "live"}, control_system) == "live"
+
+
+def test_the_gate_does_not_apply_to_a_mock_deployment(
+    tmp_path: Path, cold_roster_cache: None
+) -> None:
+    """A mock control system derives nothing, so an armed one still builds.
+
+    Nothing a mock lane writes reaches a machine, and the build stages no
+    derived device set for it at all -- so the condition this gate reads is
+    never met there. Pinned because the mock is the shape every contributor
+    develops against, and a gate that folded it in would refuse the one
+    deployment that cannot be unsafe.
+    """
+    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
+    config = _arm_writes(
+        _graph_devices_config(tmp_path, control_system_type="mock"), limits_enabled=False
+    )
+    assert _plan(config).derives is False, "a mock deployment derives no device set"
+
+    _gate(config)
+
+
+def test_the_gate_names_the_stand_ins_own_block_for_a_stand_in_lane(
+    tmp_path: Path, cold_roster_cache: None
+) -> None:
+    """The stand-in is a third machine, and it answers from its own block.
+
+    ``standin`` resolves to the ``live_standin`` connector rather than to the
+    VA's or the live machine's, so a lane bound to it must be gated on
+    ``control_system.connector.live_standin`` -- naming either of the other two
+    would hand an operator a key that does not govern the lane that refused.
+    """
+    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
+    config = _graph_devices_config(
+        tmp_path, lanes=("bluesky_standin",), deployed_services=("bluesky_standin",)
+    )
+    config["services"]["bluesky_standin"]["target"] = "standin"
+    config["control_system"]["connector"] = {
+        "live_standin": {
+            "writes_enabled": True,
+            "limits_checking": {"enabled": False, "allow_unlisted_channels": False},
+        }
+    }
+
+    with pytest.raises(DeploymentPreconditionError) as excinfo:
+        _gate(config)
+
+    message = str(excinfo.value)
+    assert "control_system.connector.live_standin.limits_checking.enabled" in message, (
+        f"the stand-in's own block is the one that governs this lane, got: {message}"
+    )
+    assert "'standin'" in message, f"the refusal must name the target the lane serves: {message}"
+
+
+def test_the_gate_does_not_apply_to_an_authored_device_set(
+    tmp_path: Path, cold_roster_cache: None
+) -> None:
+    """An authored file is the operator's own list, armed lane or not.
+
+    The gate exists because a DERIVED set is OSPREY's choice of what the worker
+    may move. A file the operator wrote is theirs, and refusing it would be the
+    build second-guessing a device list it did not choose -- so the same config
+    that refuses above builds here.
+    """
+    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
+    _write_device_file(tmp_path / DEFAULT_DEVICES_RELPATH, _VALID_DEVICE_DOCUMENT)
+    config = _arm_writes(_graph_devices_config(tmp_path), limits_enabled=False)
+
+    _gate(config)
+
+
+def test_the_gate_does_not_apply_when_nothing_is_derived(
+    tmp_path: Path, cold_roster_cache: None
+) -> None:
+    """No roster, no derived device set, nothing for this gate to be about.
+
+    A facility that never described its channels leaves the worker honestly
+    browse-only; refusing that build would turn an absence into an error on
+    exactly the deployments that have no settables to bound.
+    """
+    config = _arm_writes(_devices_config(tmp_path), limits_enabled=False)
+
+    _gate(config)
+
+
+def _two_lane_config(tmp_path: Path, *, live_limits_enabled: bool) -> dict:
+    """A VA-baseline deployment with a second lane on the live machine.
+
+    The VA target is armed AND checks limits; the live target is armed and
+    checks limits only as asked. That is the shape a deployment-wide fold gets
+    wrong: ``any()`` over the two targets sees the VA's ``enabled: true`` and
+    reports a deployment that checks limits.
+    """
+    config = _graph_devices_config(
+        tmp_path,
+        lanes=("bluesky", "bluesky_live"),
+        deployed_services=("bluesky", "bluesky_live"),
+    )
+    config["services"]["bluesky_live"]["target"] = "live"
+    config["control_system"]["connector"] = {
+        "virtual_accelerator": {
+            "writes_enabled": True,
+            "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+        },
+        "epics": {
+            "writes_enabled": True,
+            "limits_checking": {
+                "enabled": live_limits_enabled,
+                "allow_unlisted_channels": False,
+            },
+        },
+    }
+    return config
+
+
+def test_the_gate_names_the_live_lane_when_only_the_simulator_checks_limits(
+    tmp_path: Path, cold_roster_cache: None
+) -> None:
+    """The any()-fold mask, refused: an enabled VA does not vouch for the live lane.
+
+    ``most_restrictive_limits_posture`` folds every reachable target into one
+    answer, and its ``enabled`` is true when ANY target has it on -- so a
+    deployment whose simulator checks limits and whose live machine does not
+    reads as checked. Per lane-target, the live lane is the one that refuses,
+    and the refusal has to name IT rather than the deployment.
+    """
+    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
+
+    with pytest.raises(DeploymentPreconditionError) as excinfo:
+        _gate(_two_lane_config(tmp_path, live_limits_enabled=False))
+
+    message = str(excinfo.value)
+    assert "'bluesky_live'" in message, f"the LIVE lane is the failing one, got: {message}"
+    assert "'bluesky'" not in message.replace("'bluesky_live'", ""), (
+        f"the VA lane checks limits and must not be named as failing: {message}"
+    )
+    assert "control_system.connector.epics.limits_checking.enabled" in message, (
+        f"the key named must be the live target's own, got: {message}"
+    )
+
+
+def test_the_gate_passes_a_two_lane_deployment_where_both_targets_check_limits(
+    tmp_path: Path, cold_roster_cache: None
+) -> None:
+    """Both lanes armed and both checking limits is a build, not a refusal."""
+    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
+
+    _gate(_two_lane_config(tmp_path, live_limits_enabled=True))
+
+
+def test_the_gate_ignores_a_lane_block_that_is_not_deployed(
+    tmp_path: Path, cold_roster_cache: None
+) -> None:
+    """A lane left out of ``deployed_services`` runs no container to be unsafe.
+
+    The build writes a block per lane it injected, and an operator can drop one
+    from ``deployed_services`` without rebuilding. Refusing on the block alone
+    would gate a bridge nobody starts.
+    """
+    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
+    config = _two_lane_config(tmp_path, live_limits_enabled=False)
+    config["deployed_services"] = ["bluesky"]
+
+    _gate(config)
+
+
+def test_prepare_compose_files_refuses_before_it_writes_any_build_context(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cold_roster_cache: None
+) -> None:
+    """The gate runs in the render entry point, ahead of the service loop.
+
+    A refusal that arrived mid-loop would leave a half-written build zone
+    behind -- some service contexts rendered against a posture the build has
+    just decided it will not ship. Asserting on the absence of the output tree
+    is what pins the ordering rather than only the wording.
+    """
+    repo = tmp_path / "repo"
+    (repo / "services" / "bluesky").mkdir(parents=True)
+    (repo / "services" / "bluesky" / "docker-compose.yml.j2").write_text(
+        _DEVICES_GATE_TEMPLATE, encoding="utf-8"
+    )
+    _corpus(repo / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
+    # Staged so the earlier mount precondition (`resolve_limits_mount`) is
+    # satisfied: what this test is about is the lane gate behind it.
+    (repo / "data" / "channel_limits.json").write_text("{}", encoding="utf-8")
+    config_path = repo / "config.yml"
+    yaml_writer = YAML()
+    with open(config_path, "w") as fh:
+        yaml_writer.dump(
+            {
+                "project_name": "hwt-fixture",
+                "build_dir": "./build",
+                "deployed_services": ["bluesky"],
+                "services": {
+                    "bluesky": {
+                        "path": "./services/bluesky",
+                        "devices_file": DEFAULT_DEVICES_RELPATH,
+                    },
+                    "graphdb": {"ttl_path": "data/demo_machine.ttl"},
+                },
+                "channel_finder": {"pipeline_mode": "graph"},
+                "control_system": {
+                    "type": "virtual_accelerator",
+                    "writes_enabled": True,
+                    "limits_checking": {
+                        "enabled": False,
+                        "allow_unlisted_channels": False,
+                        "database_path": "data/channel_limits.json",
+                    },
+                },
+            },
+            fh,
+        )
+    monkeypatch.chdir(repo)
+
+    with pytest.raises(DeploymentPreconditionError) as excinfo:
+        prepare_compose_files(str(config_path))
+
+    assert "'bluesky'" in str(excinfo.value)
+    assert not (repo / "build").exists(), (
+        "the refusal must land before any build context is written"
+    )

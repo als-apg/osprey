@@ -19,6 +19,7 @@ import io
 import logging
 import os
 import re
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -31,10 +32,21 @@ from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 
 
 class _Capture(logging.Handler):
-    """Every record the build emits, kept whole so level and text stay paired."""
+    """Every record the build emits, kept whole so level and text stay paired.
+
+    Only records from the thread the capture was made on — the one the build
+    runs on under ``CliRunner``. It hangs off the root logger for the run, and
+    on a shared xdist worker the root also hears whatever an earlier test's
+    background thread is still saying: a server-context probe warning
+    ``Config file not found: <cwd>/config.yml`` while the build has the
+    exemplar (which has no root ``config.yml``) as its cwd put the build path
+    into "INFO" records the build never emitted. Scoping by thread keeps that
+    out by construction rather than by naming the loggers to ignore.
+    """
 
     def __init__(self) -> None:
         super().__init__(level=logging.DEBUG)
+        self._thread = threading.get_ident()
         self.records: list[logging.LogRecord] = []
         #: The repo the captured run built, for assertions about paths it named.
         self.repo: Path | None = None
@@ -43,6 +55,8 @@ class _Capture(logging.Handler):
         self.lines: list[str] = []
 
     def emit(self, record: logging.LogRecord) -> None:
+        if record.thread != self._thread:
+            return
         self.records.append(record)
 
     def messages(self, *, at_least: int) -> list[str]:
@@ -117,6 +131,35 @@ DEMOTED_NEEDLES = {
     "Rendering persona": "the per-persona render announcement",
     "satisfies": "the OSPREY-version check confirming it passed",
 }
+
+
+class TestTheCapture:
+    """The handler every assertion below reads through."""
+
+    def test_capture_hears_only_the_thread_it_was_made_on(self) -> None:
+        """A record logged from another thread is not the build's.
+
+        The build runs on the test's own thread, so anything that reaches the
+        root logger from elsewhere during the run is another test's leftover
+        background work — a server-context health probe warning ``Config file
+        not found: <cwd>/config.yml`` while the build has the exemplar as its
+        cwd, which is how the path assertion below went red on shared xdist
+        workers. The capture keeps that out by construction.
+        """
+        capture = _Capture()
+        log = logging.getLogger(f"{__name__}.capture-probe")
+        log.setLevel(logging.DEBUG)
+        log.propagate = False
+        log.addHandler(capture)
+        try:
+            log.info("from the build's thread")
+            other = threading.Thread(target=log.warning, args=("from somewhere else",))
+            other.start()
+            other.join()
+        finally:
+            log.removeHandler(capture)
+
+        assert capture.messages(at_least=logging.DEBUG) == ["from the build's thread"]
 
 
 class TestLoggerDemotions:

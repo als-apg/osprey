@@ -1,5 +1,5 @@
 """Unit tests for `contribution.py` (task 2.9): the thin glue that hands a
-validated session-tier plan off to the existing `osprey-contribute` skill for
+validated session-tier plan off to the existing `/osprey:contribute` skill for
 a contribution PR/MR.
 
 `prepare_contribution`/`stage_contribution` never open a PR themselves and never

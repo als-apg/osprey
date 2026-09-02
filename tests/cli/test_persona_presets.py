@@ -19,18 +19,22 @@ live on the same landing page:
   channel writes pass the ordinary safety chain (writes-check, limits, human
   approval); declares the EVENTS/BLUESKY panels.
 * ``control-assistant-admin`` — deployment-editing tier; readwrite's write
-  posture over the MACHINE (``writes_enabled``, ``ui_mode``) but NOT its
+  posture over the MACHINE (``writes_enabled``, ``ui_mode``) and its
   operator panels, plus the privileges the base floors off: the
   ``setup_patch`` tool, the web Config panel, the scaffold gallery's editors,
   and the ``setup-mode`` skill that drives them.
-* ``control-assistant-ariel`` — not a tier: the standalone logbook-research
+* ``control-assistant-logbook`` — not a tier: the standalone logbook-research
   deployment, filed under its own landing-page heading.
+* ``control-assistant-knowledge`` — not a tier either: the standalone facility
+  knowledge terminal (graph, graph channel finder, knowledge bundle), filed
+  under the same heading.
 
 The tier contract therefore has two halves, and both are asserted wholesale
 below rather than key-by-key. The MACHINE axes separate readonly from
 readwrite: enforcement (``control_system.writes_enabled``), surface
 (``web.ui_mode``), and the write-oriented panel declarations (EVENTS +
-BLUESKY, readwrite-only). The DEPLOYMENT axes separate admin from both:
+BLUESKY, declared by every write-armed tier and absent from readonly). The
+DEPLOYMENT axes separate admin from both:
 ``claude_code.permissions.remove_deny`` for the ``setup_patch`` tool,
 ``web.config_panel.enabled``, ``web.scaffold_gallery.write_enabled``, and the
 ``setup-mode`` skill. The base pins the restricted side of every deployment
@@ -100,13 +104,14 @@ GALLERY_WRITE_KEY = "web.scaffold_gallery.write_enabled"
 ADMIN_LIFTED_FLOOR_KEYS = (CONFIG_PANEL_KEY, GALLERY_WRITE_KEY)
 # The skill that drives those surfaces from the agent side.
 ADMIN_ONLY_SKILL = "setup-mode"
-# The write-oriented panels: declared only in the readwrite persona's
-# `web_panels` list, so the readonly build genuinely lacks them (a persona
-# delta can only add; `enabled: false` is inert for URL panels). Their URL,
-# path and label are NOT preset config — the build projects them from the
-# hosting deployment's render (osprey.deployment.reach), which is asserted on
-# a real build in test_readwrite_is_told_its_panel_urls.
-READWRITE_PANELS = ("events", "bluesky")
+# The write-oriented panels: declared by every write-armed persona's
+# `web_panels` list (readwrite, va-readwrite, admin) and by none other, so the
+# readonly build genuinely lacks them (a persona delta can only add;
+# `enabled: false` is inert for URL panels). Their URL, path and label are NOT
+# preset config — the build projects them from the hosting deployment's render
+# (osprey.deployment.reach), which is asserted on a real build in
+# test_readwrite_is_told_its_panel_urls.
+WRITE_TIER_PANELS = ("events", "bluesky")
 
 # The literal dotted key the hosting preset must carry: the whole web-terminals
 # module subtree addressed as one leaf so config_writer sets only this leaf and
@@ -367,42 +372,54 @@ class TestControlAssistantWebTier:
             "persona": "readonly",
             "display_name": "Read-Only View (Bob)",
         }
-        # The standalone research tier is public by design: `login: false`
-        # keeps its card outside the login wall the preset ships enabled.
+        # The standalone research card is shared: `access: any` opens it to
+        # every roster login, each with their own password, behind the wall
+        # the preset ships enabled. No `login: false` anywhere on the roster.
         assert wt["users"][2] == {
-            "name": "ariel",
+            "name": "logbook",
             "index": 2,
-            "persona": "ariel",
-            "display_name": "ARIEL Logbook Research",
-            "login": False,
+            "persona": "logbook",
+            "display_name": "Logbook Research",
+            "access": "any",
         }
-        # The admin login carries NO `login: false`: the one account that can
-        # rewrite the deployment must sit behind the login wall, unlike the
-        # deliberately-public research card above it.
+        # The second shared card sits beside the first in roster order (the
+        # page follows the roster) but takes index 4, so carol's ports below
+        # do not move.
         assert wt["users"][3] == {
+            "name": "knowledge",
+            "index": 4,
+            "persona": "knowledge",
+            "display_name": "Facility Knowledge",
+            "access": "any",
+        }
+        # The admin login is neither shared nor public: the one account that
+        # can rewrite the deployment sits behind its own login.
+        assert wt["users"][4] == {
             "name": "carol",
             "index": 3,
             "persona": "admin",
             "display_name": "Deployment Admin (Carol)",
         }
-        assert len(wt["users"]) == 4
+        assert len(wt["users"]) == 5
 
         personas = wt["personas"]
-        assert set(personas) == {"readonly", "readwrite", "admin", "ariel"}
+        assert set(personas) == {"readonly", "readwrite", "admin", "logbook", "knowledge"}
         for name, profile in (
             ("readonly", "control-assistant-readonly"),
             ("readwrite", "control-assistant-readwrite"),
             ("admin", "control-assistant-admin"),
-            ("ariel", "control-assistant-ariel"),
+            ("logbook", "control-assistant-logbook"),
+            ("knowledge", "control-assistant-knowledge"),
         ):
             entry = personas[name]
             # Name invariant: project == basename(project_path).
             assert entry["project"] == os.path.basename(entry["project_path"])
             assert entry["build_profile"] == profile
 
-        # Only the standalone tier declares a landing section of its own; the
-        # three operator tiers stay in the roster's default section.
-        assert personas["ariel"]["landing_group"] == "Standalone deployments"
+        # Only the standalone personas declare a landing section of their own;
+        # the three operator tiers stay in the roster's default section.
+        assert personas["logbook"]["landing_group"] == "Standalone deployments"
+        assert personas["knowledge"]["landing_group"] == "Standalone deployments"
         for tier in ("readonly", "readwrite", "admin"):
             assert "landing_group" not in personas[tier]
 
@@ -445,12 +462,12 @@ class TestControlAssistantWebTier:
         The referenced persona projects do not exist yet at build time. For the
         personas nobody is exposed by, the lint demotes those not-yet-rendered
         paths to WARNINGS (they carry a ``build_profile`` naming the delta
-        ``osprey build`` renders them from). For a persona a ``login: false``
-        entry resolves to, the absent render is an ERROR
+        ``osprey build`` renders them from). For a persona a shared card
+        (``access: any``) resolves to, the absent render is an ERROR
         (``persona_privileges_unknown``): its privileges cannot be read, so
-        "holds nothing" would be a guess about the one terminal that is served
-        to anyone — and `osprey up` now gates on this belt, where that guess
-        would be fail-open on the deploy path itself.
+        "holds nothing" would be a guess about the one terminal every login
+        opens — and `osprey up` gates on this belt, where that guess would be
+        fail-open on the deploy path itself.
 
         Both findings name the same remedy and it is the command that comes
         next anyway: ``osprey build``. What this test pins is that nothing ELSE
@@ -468,9 +485,11 @@ class TestControlAssistantWebTier:
         assert {finding.code for finding in errors} <= {"web_terminals.persona_privileges_unknown"}
         for finding in errors:
             assert "osprey build" in finding.message
-        # And the exposed entry is the one it is about: the shipped stack serves
-        # `ariel` without a login, which is why its unread render is refused.
-        assert any("'ariel'" in finding.message for finding in errors)
+        # And the shared entries are the ones it is about: the shipped stack
+        # shares `logbook` and `knowledge` with the whole roster, which is why
+        # their unread renders are refused.
+        for card in ("logbook", "knowledge"):
+            assert any(f"'{card}'" in finding.message for finding in errors)
 
     def test_ships_companion_panels_multi_user(self) -> None:
         """Feature parity: multi-user must not shed single-user companion panels.
@@ -525,7 +544,7 @@ class TestControlAssistantPersonas:
 
     Over the MACHINE, readonly and readwrite differ on enforcement
     (``writes_enabled``), surface (``ui_mode``) and the write-oriented panel
-    declarations (readwrite-only). Over the DEPLOYMENT, admin differs from
+    declarations (write-armed tiers only). Over the DEPLOYMENT, admin differs from
     readwrite on the three keys the base floors off — ``remove_deny`` for
     ``setup_patch``, the Config panel, the gallery's write surfaces — plus the
     ``setup-mode`` skill that drives them.
@@ -570,6 +589,11 @@ class TestControlAssistantPersonas:
         assert profile.config.get(CONFIG_PANEL_KEY) is True
         assert profile.config.get(GALLERY_WRITE_KEY) is True
 
+        # A full operator desk plus editing: the admin tier declares the same
+        # write-oriented panels the readwrite tier does, on top of the base's.
+        base = resolve_preset("control-assistant")
+        assert set(profile.web_panels) == set(base.web_panels) | set(WRITE_TIER_PANELS)
+
     def test_base_floors_the_deployment_privileges(self) -> None:
         """The base ships the restricted side of every deployment axis.
 
@@ -603,11 +627,12 @@ class TestControlAssistantPersonas:
         deployment editing. Asserted wholesale so a fourth difference cannot
         creep in unnoticed.
 
-        Two deliberate asymmetries are subtracted before the comparison. The
-        deployment axes are the point of the tier. The EVENTS/BLUESKY panel
-        declarations are not: they belong to the OPERATOR tier, and the admin
-        persona is an editing surface rather than a second control desk, so it
-        is built without them exactly as readonly is."""
+        The deployment axes — subtracted before the comparison — are the whole
+        difference. The EVENTS/BLUESKY panel declarations are deliberately NOT
+        among them: the admin tier is a full operator desk plus deployment
+        editing, so it declares the same write-oriented panels readwrite does
+        (asserted with the artifact lists — ``web_panels`` is a list, not
+        config, so it never appears in the config comparison below)."""
         readwrite = resolve_preset("control-assistant-readwrite")
         admin = resolve_preset("control-assistant-admin")
 
@@ -627,10 +652,10 @@ class TestControlAssistantPersonas:
         for key in ADMIN_LIFTED_FLOOR_KEYS:
             assert rw_cfg.pop(key) is False, f"readwrite persona must not enable {key}"
             assert ad_cfg.pop(key) is True
-        # The operator-only panels ride the readwrite persona's `web_panels`
-        # list, not its config: their URLs are projected by the build, so
+        # The write-oriented panels ride both personas' `web_panels` lists,
+        # not their config: their URLs are projected by the build, so
         # neither tier may spell one.
-        for panel in READWRITE_PANELS:
+        for panel in WRITE_TIER_PANELS:
             for cfg in (rw_cfg, ad_cfg):
                 assert not any(key.startswith(f"web.panels.{panel}.") for key in cfg), (
                     f"no persona preset may pin web.panels.{panel}.* — the build projects it"
@@ -685,11 +710,11 @@ class TestControlAssistantPersonas:
         assert ro_cfg.pop(UI_MODE_KEY) == "simple"
         assert rw_cfg.pop(UI_MODE_KEY) == "expert"
         # Axis 3 — write-oriented panels — is not a config axis at all: the
-        # tabs ride the readwrite persona's `web_panels` list (asserted in
+        # tabs ride the write-armed personas' `web_panels` lists (asserted in
         # test_personas_share_every_artifact_list_except_panels_and_the_admin_skill), and their
         # URLs are projected from the hosting deployment's render rather than
         # spelled in any preset.
-        for panel in READWRITE_PANELS:
+        for panel in WRITE_TIER_PANELS:
             for cfg in (ro_cfg, rw_cfg):
                 assert not any(key.startswith(f"web.panels.{panel}.") for key in cfg), (
                     f"no persona preset may pin web.panels.{panel}.* — the build projects it"
@@ -705,9 +730,9 @@ class TestControlAssistantPersonas:
         boundary is enforcement, not a stripped-down agent). Exactly two lists
         are allowed to differ, and both differ by ADDITION:
 
-        * panels — the readwrite persona adds the write-oriented EVENTS/BLUESKY
-          tabs (their URLs are projected by the build, not declared), and the
-          readonly persona is built without them;
+        * panels — the write-armed readwrite and admin personas add the
+          write-oriented EVENTS/BLUESKY tabs (their URLs are projected by the
+          build, not declared), and the readonly persona is built without them;
         * skills — the admin persona adds ``setup-mode``, the guided workflow
           that edits config.yml and .mcp.json, which is the agent-side half of
           the privilege its config keys turn on.
@@ -730,8 +755,8 @@ class TestControlAssistantPersonas:
         assert admin.skills == [*base.skills, ADMIN_ONLY_SKILL]
         assert ADMIN_ONLY_SKILL not in base.skills
         assert readonly.web_panels == base.web_panels
-        assert admin.web_panels == base.web_panels
-        assert set(readwrite.web_panels) == set(base.web_panels) | {"events", "bluesky"}
+        for tier in (readwrite, admin):
+            assert set(tier.web_panels) == set(base.web_panels) | {"events", "bluesky"}
 
     def test_safety_chain_hooks_are_shipped(self) -> None:
         """The write-capable tier is supervised, not unguarded: the hooks that
@@ -778,7 +803,8 @@ class TestControlAssistantPersonas:
             "control-assistant-readonly",
             "control-assistant-readwrite",
             "control-assistant-admin",
-            "control-assistant-ariel",
+            "control-assistant-logbook",
+            "control-assistant-knowledge",
         ):
             profile = resolve_preset(name)
             pinned = sorted(
@@ -919,7 +945,7 @@ class TestControlAssistantPersonas:
         assert "events" not in readonly["web"]["panels"]
         assert "bluesky" not in readonly["web"]["panels"]
 
-    @pytest.mark.parametrize("persona", ("readonly", "readwrite", "ariel"))
+    @pytest.mark.parametrize("persona", ("readonly", "readwrite", "logbook"))
     def test_attached_personas_resolve_the_qmd_sidecar(
         self, built_persona_stack: Path, persona: str
     ) -> None:
@@ -945,10 +971,10 @@ class TestControlAssistantPersonas:
         assert resolved.port == QMD_DEFAULT_PORT
         assert resolved.base_url == f"http://127.0.0.1:{QMD_DEFAULT_PORT}"
 
-    def test_ariel_persona_renders_no_graph_surface(self, built_persona_stack: Path) -> None:
+    def test_logbook_persona_renders_no_graph_surface(self, built_persona_stack: Path) -> None:
         """The logbook tier is graph-less, and by veto rather than by omission.
 
-        ``control-assistant-ariel`` switches off every control-surface tool
+        ``control-assistant-logbook`` switches off every control-surface tool
         server explicitly (``claude_code.servers.<name>.enabled: false``), the
         graph server among them. The line is load-bearing now: the build tells
         every attached render where the hosting deployment's services are, and
@@ -956,12 +982,12 @@ class TestControlAssistantPersonas:
         so only a server switched off is told nothing about the store
         (``osprey.deployment.reach``, the graphdb contract's gate).
         """
-        project = built_persona_stack / "build" / f"{built_persona_stack.name}-ariel"
-        assert project.is_dir(), "the ariel persona was never rendered"
+        project = built_persona_stack / "build" / f"{built_persona_stack.name}-logbook"
+        assert project.is_dir(), "the logbook persona was never rendered"
 
         config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
         assert (config.get("services") or {}).get("graphdb") is None
-        preset = resolve_preset("control-assistant-ariel").config
+        preset = resolve_preset("control-assistant-logbook").config
         assert preset.get("claude_code.servers.graph.enabled") is False
 
         hits = sorted(
@@ -972,6 +998,38 @@ class TestControlAssistantPersonas:
         )
         assert hits == [], f"the logbook tier configures no graph store but rendered {hits}"
         assert "graph" not in json.loads((project / ".mcp.json").read_text())["mcpServers"]
+
+    def test_knowledge_persona_renders_the_knowledge_surface_and_nothing_else(
+        self, built_persona_stack: Path
+    ) -> None:
+        """The knowledge persona is the graph, the graph channel finder and the
+        knowledge bundle — and no control system, sandbox or logbook.
+
+        Asserted on the real render: the servers in ``.mcp.json`` are the
+        three knowledge servers plus the workspace, the channel finder runs in
+        graph mode, the three knowledge agents are rendered, the KNOWLEDGE
+        panel is the default, and the one bundle-writing tool is denied.
+        """
+        project = built_persona_stack / "build" / f"{built_persona_stack.name}-knowledge"
+        assert project.is_dir(), "the knowledge persona was never rendered"
+
+        servers = json.loads((project / ".mcp.json").read_text())["mcpServers"]
+        assert set(servers) == {
+            "graph",
+            "channel-finder",
+            "osprey_facility_knowledge",
+            "osprey_workspace",
+        }
+        config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
+        assert config["channel_finder"]["pipeline_mode"] == "graph"
+        assert config["web"]["default_panel"] == "okf"
+        assert "ariel" not in config["web"]["panels"]
+
+        agents = sorted(p.stem for p in (project / ".claude" / "agents").glob("*.md"))
+        assert agents == ["channel-finder", "facility-knowledge", "facility-knowledge-graph"]
+
+        settings = json.loads((project / ".claude" / "settings.json").read_text())
+        assert "mcp__osprey_facility_knowledge__draft_concept" in settings["permissions"]["deny"]
 
 
 # ---------------------------------------------------------------------------
@@ -1017,7 +1075,11 @@ PINNED_TARGET_WRITE_POSTURE: dict[str, dict[str, bool]] = {
     "control-assistant-readwrite": {"live": True, "va": True, "standin": True},
     # The standalone logbook tier pins the flat key off and writes no per-type
     # block, so every target inherits the off.
-    "control-assistant-ariel": {"live": False, "va": False, "standin": False},
+    "control-assistant-logbook": {"live": False, "va": False, "standin": False},
+    # The standalone knowledge persona pins the flat key off AND the epics and
+    # virtual_accelerator blocks, like the read-only tier: it has no control
+    # surface at all, and the boundary is stated the same way everywhere.
+    "control-assistant-knowledge": {"live": False, "va": False, "standin": False},
     # The read-only tier: off on the flat key AND pinned off on the epics and
     # virtual_accelerator blocks, so no per-type ``true`` inherited from
     # anywhere can arm those two over it. The stand-in has no block to pin and
@@ -1126,7 +1188,7 @@ class TestWritePostureMatrix:
         assert profile.config.get("modules.web_terminals.enabled") is False
         assert profile.config.get(UI_MODE_KEY) == "expert"
         assert set(profile.web_panels) == set(resolve_preset("control-assistant").web_panels) | set(
-            READWRITE_PANELS
+            WRITE_TIER_PANELS
         )
         assert [key for key in profile.config if str(key).startswith("services.")] == []
 

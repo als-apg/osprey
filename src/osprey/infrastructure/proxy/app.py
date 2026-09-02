@@ -92,6 +92,11 @@ def create_proxy_app(
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
+        # Carry the gateway's attribution headers (x-litellm-end-user-id,
+        # x-litellm-tags — set via ANTHROPIC_CUSTOM_HEADERS) through to the
+        # upstream, so an OpenAI-protocol LiteLLM gateway books the spend to
+        # the acting identity exactly as the Anthropic-native path does.
+        headers.update(_attribution_headers(request.headers))
 
         if is_stream:
             return StreamingResponse(
@@ -248,6 +253,18 @@ async def _stream_proxy(
                 "error": {"type": "api_error", "message": str(exc)},
             },
         )
+
+
+_ATTRIBUTION_HEADER_PREFIX = "x-litellm-"
+
+
+def _attribution_headers(incoming) -> dict[str, str]:
+    """The ``x-litellm-*`` headers of an incoming request, to forward verbatim."""
+    return {
+        name: value
+        for name, value in incoming.items()
+        if name.lower().startswith(_ATTRIBUTION_HEADER_PREFIX)
+    }
 
 
 def _translate_error(response: httpx.Response) -> JSONResponse:

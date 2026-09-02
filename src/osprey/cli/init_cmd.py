@@ -195,6 +195,8 @@ def _repo_env_shared(name: str, seeded: tuple[str, ...] = ()) -> str:
 # HTTPS_PROXY=http://proxy.example.com:8080
 
 # Site CA bundle — uncomment if a proxy re-signs TLS with a site CA.
+# The login service does not receive it (nothing mounts a CA into that image),
+# so an identity-provider fetch behind such a proxy still fails there.
 # On RHEL-family hosts the system bundle lives here:
 # SSL_CERT_FILE=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
 # REQUESTS_CA_BUNDLE=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem

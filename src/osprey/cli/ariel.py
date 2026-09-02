@@ -259,6 +259,7 @@ def status_command(output_json: bool) -> None:
                 {
                     "Database": result["database"]["uri"],
                     "Total entries": result["entries"],
+                    "Last ingestion": result.get("last_ingestion") or "never",
                 },
             )
             output.report("")
@@ -284,24 +285,59 @@ def migrate_command() -> None:
         raise
 
 
+def _sync_watch_forever(config_dict: dict) -> None:
+    """Run the sync-then-watch daemon and translate how it ended into an exit code.
+
+    Stopping on the scheduler's consecutive-failure cap is a failure the
+    supervisor running this process must see; a signal and the cancellation it
+    causes are an ordinary shutdown.
+    """
+    from osprey.services.ariel_search.cli_operations import run_sync_watch
+    from osprey.services.ariel_search.ingestion.scheduler import StopReason
+
+    try:
+        reason = asyncio.run(run_sync_watch(config_dict, progress=output.report))
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        reason = StopReason.SIGNAL
+
+    if reason is StopReason.FAILURE_CAP:
+        output.fail("Watch stopped: too many consecutive ingestion failures.")
+        raise SystemExit(1)
+
+    output.report("")
+    output.report("Stopping the watcher.")
+
+
 @ariel_group.command("sync")
 @click.option("--limit", type=int, help="Maximum entries to ingest per run")
-def sync_command(limit: int | None) -> None:
+@click.option("--watch", is_flag=True, help="Keep polling the source after the sync.")
+def sync_command(limit: int | None, watch: bool) -> None:
     """Sync ARIEL database: migrate, incremental ingest, enhance.
 
     Idempotent — safe to run on every build. Only fetches new entries
     since the last successful ingest run. On a fresh database, runs
     a full ingest.
 
+    With --watch the process stays up and keeps polling after the sync, and a
+    sync that fails is logged rather than fatal: the first poll that reaches the
+    source does the full ingest. --limit applies to the one-shot sync only.
+
     Example:
         osprey ariel sync                # Full sync
         osprey ariel sync --limit 1000   # Limit ingest to 1000 entries
+        osprey ariel sync --watch        # Sync, then keep polling
     """
     from osprey.services.ariel_search.cli_operations import run_sync
     from osprey.services.ariel_search.exceptions import DatabaseQueryError
 
     config_dict = _load_ariel_config()
     try:
+        if watch:
+            # The failure cap leaves through SystemExit, which is a
+            # BaseException and so passes both handlers below untranslated.
+            _sync_watch_forever(config_dict)
+            return
+
         result = asyncio.run(run_sync(config_dict, limit=limit, progress=output.report))
         output.report("")
         output.report(

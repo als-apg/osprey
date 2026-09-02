@@ -84,7 +84,8 @@ FLOOR_PRESETS = [
     "control-assistant",
     "control-assistant-readonly",
     "control-assistant-readwrite",
-    "control-assistant-ariel",
+    "control-assistant-logbook",
+    "control-assistant-knowledge",
 ]
 
 
@@ -349,15 +350,15 @@ class TestControlAssistantAdminPreset:
         assert entry["project"] == Path(entry["project_path"]).name
 
     def test_admin_roster_user_carol_is_authenticated(self) -> None:
-        """Carol is a person, not a public service. The ARIEL card ships
-        ``login: false`` deliberately; an admin card doing the same would hand
-        the Config panel and the setup tool to anyone who opens the landing
-        page, so the absence of that key here is the assertion."""
+        """Carol is a person, not a shared service. The ARIEL card ships
+        ``access: any`` deliberately; an admin card doing the same would hand
+        the Config panel and the setup tool to every roster login, so the
+        absence of that key here is the assertion."""
         wt = resolve_preset("control-assistant").config[WEB_TERMINALS_KEY]
         carol = next(u for u in wt["users"] if u["name"] == "carol")
         assert carol["persona"] == "admin"
         assert carol["index"] == 3
-        assert "login" not in carol
+        assert "access" not in carol
         assert carol["display_name"]
 
     def test_admin_tier_is_not_the_default_persona(self) -> None:
@@ -401,11 +402,11 @@ class TestControlAssistantRenderedAdmin:
     def test_init_emits_a_persona_delta_for_every_tier_including_admin(
         self, rendered_preset_repo: Path
     ) -> None:
-        """FOUR deltas, not three. ``personas/`` is what ``osprey build``
+        """FIVE deltas, not three. ``personas/`` is what ``osprey build``
         renders a project per, so a catalog entry with no file here is a tier
         that exists on the landing page and in nothing else."""
         deltas = sorted(p.stem for p in (rendered_preset_repo / "personas").glob("*.yml"))
-        assert deltas == ["admin", "ariel", "readonly", "readwrite"]
+        assert deltas == ["admin", "knowledge", "logbook", "readonly", "readwrite"]
 
     def test_admin_render_leaves_setup_patch_out_of_the_deny_list(
         self, rendered_admin_settings: dict

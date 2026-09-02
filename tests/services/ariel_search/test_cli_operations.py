@@ -31,6 +31,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from osprey.services.ariel_search import cli_operations as ops
+from osprey.services.ariel_search.exceptions import DatabaseQueryError
 
 # A minimal config dict accepted by ARIELConfig.from_dict.
 _DB = {"database": {"uri": "postgresql://localhost/test"}}
@@ -123,6 +124,23 @@ def _embedding_table(name="text_embeddings_nomic", count=5, dim=768, active=True
     return SimpleNamespace(table_name=name, entry_count=count, dimension=dim, is_active=active)
 
 
+def _status_repo(stats=None, tables=(), last_ingestion=None):
+    """Repository double answering the three queries ``get_status`` makes.
+
+    Args:
+        stats: ``get_enhancement_stats`` payload; an empty store by default.
+        tables: ``get_embedding_tables`` payload.
+        last_ingestion: ``get_last_ingestion`` result.
+    """
+    repo = MagicMock()
+    repo.get_enhancement_stats = AsyncMock(
+        return_value={"total_entries": 0} if stats is None else stats
+    )
+    repo.get_embedding_tables = AsyncMock(return_value=list(tables))
+    repo.get_last_ingestion = AsyncMock(return_value=last_ingestion)
+    return repo
+
+
 # ---------------------------------------------------------------------------
 # _entry_summary — pure projection
 # ---------------------------------------------------------------------------
@@ -184,9 +202,7 @@ class TestGetStatus:
         }
 
     async def test_healthy_status_assembles_full_report(self, monkeypatch):
-        repo = MagicMock()
-        repo.get_enhancement_stats = AsyncMock(return_value={"total_entries": 42})
-        repo.get_embedding_tables = AsyncMock(return_value=[_embedding_table()])
+        repo = _status_repo(stats={"total_entries": 42}, tables=[_embedding_table()])
         service = _StubService(repository=repo, health=(True, "connected"))
         _patch_service(monkeypatch, service)
 
@@ -202,9 +218,7 @@ class TestGetStatus:
         assert "search_modules" in out
 
     async def test_unhealthy_flag_when_health_check_fails(self, monkeypatch):
-        repo = MagicMock()
-        repo.get_enhancement_stats = AsyncMock(return_value={})
-        repo.get_embedding_tables = AsyncMock(return_value=[])
+        repo = _status_repo(stats={})
         service = _StubService(repository=repo, health=(False, "no schema"))
         _patch_service(monkeypatch, service)
 
@@ -216,9 +230,7 @@ class TestGetStatus:
         assert out["entries"] == 0
 
     async def test_uri_with_credentials_is_masked(self, monkeypatch):
-        repo = MagicMock()
-        repo.get_enhancement_stats = AsyncMock(return_value={"total_entries": 0})
-        repo.get_embedding_tables = AsyncMock(return_value=[])
+        repo = _status_repo()
         _patch_service(monkeypatch, _StubService(repository=repo))
 
         out = await ops.get_status({"database": {"uri": "postgresql://u:p@dbhost:5432/ariel"}})
@@ -226,9 +238,7 @@ class TestGetStatus:
         assert out["database"]["uri"] == "dbhost:5432/ariel"
 
     async def test_uri_without_credentials_passes_through(self, monkeypatch):
-        repo = MagicMock()
-        repo.get_enhancement_stats = AsyncMock(return_value={"total_entries": 0})
-        repo.get_embedding_tables = AsyncMock(return_value=[])
+        repo = _status_repo()
         _patch_service(monkeypatch, _StubService(repository=repo))
 
         out = await ops.get_status({"database": {"uri": "postgresql://localhost/ariel"}})
@@ -250,6 +260,36 @@ class TestGetStatus:
             "vocabulary": _DISABLED_VOCABULARY,
         }
 
+    async def test_last_ingestion_is_the_repository_timestamp_in_iso_form(self, monkeypatch):
+        repo = _status_repo(
+            stats={"total_entries": 1},
+            last_ingestion=datetime(2026, 3, 4, 5, 6, 7, tzinfo=UTC),
+        )
+        _patch_service(monkeypatch, _StubService(repository=repo))
+
+        out = await ops.get_status(dict(_DB))
+
+        assert out["last_ingestion"] == "2026-03-04T05:06:07+00:00"
+
+    async def test_last_ingestion_is_null_when_nothing_has_been_ingested(self, monkeypatch):
+        repo = _status_repo()
+        _patch_service(monkeypatch, _StubService(repository=repo))
+
+        out = await ops.get_status(dict(_DB))
+
+        assert out["status"] == "healthy"
+        assert out["last_ingestion"] is None
+
+    async def test_last_ingestion_query_failure_lands_in_the_error_branch(self, monkeypatch):
+        repo = _status_repo()
+        repo.get_last_ingestion = AsyncMock(side_effect=DatabaseQueryError("boom-ingestion"))
+        _patch_service(monkeypatch, _StubService(repository=repo))
+
+        out = await ops.get_status(dict(_DB))
+
+        assert out["status"] == "error"
+        assert "boom-ingestion" in out["message"]
+
 
 class TestGetStatusVocabulary:
     """The ``vocabulary`` block rides on every path out of ``get_status``."""
@@ -267,9 +307,7 @@ class TestGetStatusVocabulary:
         assert "ariel.pipelines section is no longer supported" in out["vocabulary"]["errors"][0]
 
     async def test_missing_file_reports_invalid_naming_the_key(self, monkeypatch, tmp_path):
-        repo = MagicMock()
-        repo.get_enhancement_stats = AsyncMock(return_value={"total_entries": 0})
-        repo.get_embedding_tables = AsyncMock(return_value=[])
+        repo = _status_repo()
         _patch_service(monkeypatch, _StubService(repository=repo))
 
         config = dict(_DB)
@@ -281,9 +319,7 @@ class TestGetStatusVocabulary:
         assert "ariel.vocabulary.path" in out["vocabulary"]["errors"][0]
 
     async def test_valid_file_reports_ok_with_concept_count(self, monkeypatch, tmp_path):
-        repo = MagicMock()
-        repo.get_enhancement_stats = AsyncMock(return_value={"total_entries": 0})
-        repo.get_embedding_tables = AsyncMock(return_value=[])
+        repo = _status_repo()
         _patch_service(monkeypatch, _StubService(repository=repo))
 
         path = _write_vocabulary(tmp_path, _AMBIGUOUS)
@@ -294,9 +330,7 @@ class TestGetStatusVocabulary:
         assert out["vocabulary"] == {"status": "ok", "concepts": 2, "errors": []}
 
     async def test_enabled_without_path_reports_invalid(self, monkeypatch):
-        repo = MagicMock()
-        repo.get_enhancement_stats = AsyncMock(return_value={"total_entries": 0})
-        repo.get_embedding_tables = AsyncMock(return_value=[])
+        repo = _status_repo()
         _patch_service(monkeypatch, _StubService(repository=repo))
 
         config = dict(_DB)
@@ -318,9 +352,7 @@ class TestGetStatusVocabulary:
         assert out["vocabulary"] == {"status": "ok", "concepts": 2, "errors": []}
 
     async def test_relative_path_resolves_against_config_dir(self, monkeypatch, tmp_path):
-        repo = MagicMock()
-        repo.get_enhancement_stats = AsyncMock(return_value={"total_entries": 0})
-        repo.get_embedding_tables = AsyncMock(return_value=[])
+        repo = _status_repo()
         _patch_service(monkeypatch, _StubService(repository=repo))
 
         _write_vocabulary(tmp_path, _AMBIGUOUS)

@@ -225,3 +225,61 @@ def test_re_authored_session_plan_re_reflects_unvalidated_after_edit(
     body = resp.json()
     assert body["validated"] is False
     assert body["source"] == edited
+
+
+class _ExternalBackendStub:
+    """A queue backend whose worker is external and owns one plan."""
+
+    external_worker = True
+
+    async def external_plan_catalog(self):
+        return [{"name": "geecs_scan_request_plan"}]
+
+
+class _ExternalBackendUnreachable:
+    external_worker = True
+
+    async def external_plan_catalog(self):
+        from osprey.services.bluesky_bridge.queue_backend import QueueUnavailableError
+
+        raise QueueUnavailableError("manager down")
+
+
+def test_external_plan_source_is_an_honest_answer_not_a_404(client: TestClient) -> None:
+    """A manager-owned plan has no local file BY DESIGN; the panel must not
+    treat that as a failed selection (it tears the parameter form down)."""
+    from osprey.services.bluesky_bridge.app import set_queue_backend
+
+    set_queue_backend(_ExternalBackendStub())
+    try:
+        response = client.get("/plans/geecs_scan_request_plan/source")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["external"] is True
+        assert payload["provenance"] == "facility"
+        assert payload["validated"] is True
+        assert "facility worker" in payload["source"]
+    finally:
+        set_queue_backend(None)
+
+
+def test_external_unknown_plan_still_404s(client: TestClient) -> None:
+    from osprey.services.bluesky_bridge.app import set_queue_backend
+
+    set_queue_backend(_ExternalBackendStub())
+    try:
+        assert client.get("/plans/not_a_plan/source").status_code == 404
+    finally:
+        set_queue_backend(None)
+
+
+def test_external_source_with_unreachable_manager_404s_rather_than_guessing(
+    client: TestClient,
+) -> None:
+    from osprey.services.bluesky_bridge.app import set_queue_backend
+
+    set_queue_backend(_ExternalBackendUnreachable())
+    try:
+        assert client.get("/plans/geecs_scan_request_plan/source").status_code == 404
+    finally:
+        set_queue_backend(None)

@@ -33,7 +33,8 @@ import pytest
 #: ones.
 RETIRED_NAME = re.compile(r"env[.-]production")
 
-ROOTS = ("src/osprey", "docs/source")
+# plugins/ holds the shipped skills.
+ROOTS = ("src/osprey", "docs/source", "plugins")
 SCAN_SUFFIXES = (
     ".py",
     ".md",

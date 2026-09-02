@@ -8,7 +8,6 @@ for scientific logbook data.
 from __future__ import annotations
 
 import os
-import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,8 +54,12 @@ def load_ariel_config_with_path(
     3. CONFIG_FILE environment variable
     4. Current directory config.yml
 
-    Environment variable overrides:
-    - ARIEL_DATABASE_HOST: Override database host (for Docker networking)
+    The DSN is resolved by
+    :func:`osprey.services.ariel_search.config.resolve_ariel_dsn`, which reads
+    the ``ARIEL_DATABASE_HOST`` and ``ARIEL_DATABASE_PORT`` overrides for
+    Docker networking — but only where the DSN is derived from
+    ``services.postgresql``. A DSN written out in ``ariel.database.uri`` is
+    loaded verbatim.
 
     The path matters as much as the dictionary: a relative
     ``ariel.vocabulary.path`` resolves against the directory of the file that
@@ -95,30 +98,21 @@ def load_ariel_config_with_path(
                 services = config.get("services") or {}
 
             if ariel_config:
-                # Resolve the DSN before the host override below rewrites it:
-                # with `ariel.database.uri` unset the DSN is derived from
-                # `services.postgresql`, and the derived host is `localhost` —
-                # exactly what the container override has to replace.
+                # One rung owns the store address. `resolve_ariel_dsn` derives
+                # the DSN from `services.postgresql` and applies the container
+                # overrides itself, so the panel does no surgery on the result:
+                # a project that wrote its own `uri` pointing at a database it
+                # does not run keeps reaching that one.
+                from osprey.port_layout import resolve_port_base
                 from osprey.services.ariel_search.config import resolve_ariel_dsn
 
                 database = ariel_config.get("database") or {}
-                database["uri"] = resolve_ariel_dsn(ariel_config, services.get("postgresql") or {})
+                database["uri"] = resolve_ariel_dsn(
+                    ariel_config,
+                    services.get("postgresql") or {},
+                    base=resolve_port_base(config),
+                )
                 ariel_config["database"] = database
-
-            # Apply environment variable overrides for Docker networking
-            db_host_override = os.environ.get("ARIEL_DATABASE_HOST")
-            if db_host_override and "database" in ariel_config:
-                uri = ariel_config["database"].get("uri", "")
-                if uri:
-                    # Replace localhost or 127.0.0.1 with the override host
-                    new_uri = re.sub(
-                        r"@(localhost|127\.0\.0\.1):",
-                        f"@{db_host_override}:",
-                        uri,
-                    )
-                    if new_uri != uri:
-                        logger.info(f"Overriding database host with {db_host_override}")
-                        ariel_config["database"]["uri"] = new_uri
 
             return ariel_config, path
 

@@ -44,6 +44,7 @@ the type to an HTTP status and puts the code on the wire.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -61,6 +62,63 @@ logger = logging.getLogger("osprey.services.bluesky_bridge.queue_backend")
 # different — and differently actionable — failure than a deployed manager that
 # will not answer.
 QSERVER_CONTROL_ADDRESS_ENV = "QSERVER_ZMQ_CONTROL_ADDRESS"
+
+EXTERNAL_WORKER_ENV = "BLUESKY_EXTERNAL_WORKER"
+"""Set (to ``"1"``) by the compose render when this lane fronts a facility-run
+RE Manager (``bluesky.external:`` in the profile). Environment ownership
+follows the flag: an external worker's environment is opened, closed, and
+rebuilt by whoever runs it — never by this bridge, whose role there is a
+client of the manager, not its supervisor."""
+
+
+def _external_worker_from_env() -> bool:
+    """Whether the compose render declared this lane's worker external."""
+    return os.environ.get(EXTERNAL_WORKER_ENV, "").strip() not in ("", "0")
+
+
+EXTERNAL_PARAM_SCHEMAS_ENV = "BLUESKY_EXTERNAL_PARAM_SCHEMAS"
+"""JSON mapping ``"<plan>.<parameter>"`` → in-container path of a
+facility-published JSON Schema file, written by the compose render from
+``bluesky.external.parameter_schemas``. Consumed by
+:meth:`QueueBackend.external_plan_catalog` to graft each schema onto its
+parameter, so a document-shaped parameter (a GEECS ``ScanRequest``, say)
+reaches the panel as a real nested form rather than one opaque field."""
+
+
+def _external_parameter_schemas() -> dict[str, dict[str, Any]]:
+    """The grafted-schema documents, keyed ``"<plan>.<parameter>"``.
+
+    Read from :data:`EXTERNAL_PARAM_SCHEMAS_ENV` and loaded per call — the
+    files are small, mounted read-only, and a catalog fetch is rare. Fail-open
+    per entry: a missing or unparseable file is logged and skipped, and the
+    catalog serves that parameter un-grafted — a degraded form is honest, a
+    missing plan is not. (The build validates these files exist and parse, so
+    a failure here means the mount itself moved underneath the container.)
+    """
+    raw = os.environ.get(EXTERNAL_PARAM_SCHEMAS_ENV, "").strip()
+    if not raw:
+        return {}
+    try:
+        mapping = json.loads(raw)
+    except ValueError:
+        logger.warning(
+            "%s is not valid JSON; serving un-grafted schemas", EXTERNAL_PARAM_SCHEMAS_ENV
+        )
+        return {}
+    schemas: dict[str, dict[str, Any]] = {}
+    for key, path in mapping.items() if isinstance(mapping, dict) else []:
+        try:
+            with open(path) as fh:
+                document = json.load(fh)
+            if isinstance(document, dict):
+                schemas[str(key)] = document
+            else:
+                raise ValueError("top level is not a JSON object")
+        except Exception as exc:
+            logger.warning("parameter schema for %r unreadable (%s); serving un-grafted", key, exc)
+    return schemas
+
+
 QSERVER_PUBLIC_KEY_ENV = "QSERVER_ZMQ_PUBLIC_KEY"
 
 # The item-metadata key carrying OSPREY's own run id through queueserver and
@@ -557,8 +615,10 @@ class QueueBackend:
         abort_poll_interval: float = 0.5,
         function_timeout: float = FUNCTION_TIMEOUT_S,
         function_poll_interval: float = FUNCTION_POLL_INTERVAL_S,
+        external_worker: bool = False,
     ) -> None:
         self._manager = manager
+        self._external_worker = external_worker
         self._env_open_attempts = env_open_attempts
         self._env_open_polls = env_open_polls
         self._env_poll_interval = env_poll_interval
@@ -577,6 +637,8 @@ class QueueBackend:
         no queue server at all. The address and CurveZMQ public key are read by
         ``REManagerAPI`` itself from the environment.
         """
+        kwargs.setdefault("external_worker", _external_worker_from_env())
+
         if not os.environ.get(QSERVER_CONTROL_ADDRESS_ENV):
             logger.info(
                 "%s unset - queue backend running without a manager (browse-only)",
@@ -586,6 +648,13 @@ class QueueBackend:
 
         from bluesky_queueserver_api.zmq.aio import REManagerAPI
 
+        if kwargs.get("external_worker"):
+            logger.info(
+                "%s set - fronting an externally-run RE Manager at %s; this bridge "
+                "will not open, close, or rebuild its worker environment",
+                EXTERNAL_WORKER_ENV,
+                os.environ.get(QSERVER_CONTROL_ADDRESS_ENV),
+            )
         return cls(REManagerAPI(), **kwargs)
 
     # ---------------------------------------------------------------- plumbing
@@ -618,6 +687,79 @@ class QueueBackend:
         """Release the client's transport. Safe to call with no manager."""
         if self._manager is not None:
             await self._manager.close()
+
+    @property
+    def external_worker(self) -> bool:
+        """Whether this backend fronts an externally-run RE Manager."""
+        return self._external_worker
+
+    async def external_plan_catalog(self) -> list[dict[str, Any]]:
+        """The external manager's ``plans_allowed``, in ``GET /plans``' dict shape.
+
+        The facility's startup profile — not this deployment's plan
+        directories — decides what an external worker runs, so the catalog the
+        panel composes against is downloaded from the manager rather than
+        scanned from disk. Upstream *describes* parameters (name, default,
+        per-parameter docs) but publishes no typed model, so the schema here
+        is derived: an object whose properties carry those descriptions, with
+        a parameter that declares no default listed as required. Provenance is
+        ``"facility"`` — the facility authored these plans, whatever host they
+        run on.
+
+        Sorted by name so the catalog is stable across calls; entries the
+        manager describes with anything other than a mapping are carried
+        name-only rather than dropped — the name is the part an enqueue needs.
+        """
+        result = await self._call("plans_allowed")
+        allowed = result.get("plans_allowed") or {}
+        grafts = _external_parameter_schemas()
+        catalog: list[dict[str, Any]] = []
+        for name in sorted(allowed):
+            desc = allowed[name] if isinstance(allowed[name], dict) else {}
+            properties: dict[str, Any] = {}
+            required: list[str] = []
+            for param in desc.get("parameters") or []:
+                if not isinstance(param, dict) or not param.get("name"):
+                    continue
+                pname = str(param["name"])
+                prop: dict[str, Any] = {"title": pname}
+                if param.get("description"):
+                    prop["description"] = str(param["description"])
+                if "default" in param:
+                    prop["default"] = param["default"]
+                else:
+                    required.append(pname)
+                properties[pname] = prop
+            schema: dict[str, Any] = {"title": name, "type": "object", "properties": properties}
+            if required:
+                schema["required"] = required
+            for pname in list(properties):
+                graft = grafts.get(f"{name}.{pname}")
+                if graft is None:
+                    continue
+                # The facility-published schema replaces the derived property,
+                # keeping the manager's description when the artifact carries
+                # none. Its ``$defs`` are hoisted to the top level: internal
+                # ``$ref``\s are root-anchored ("#/$defs/..."), so leaving
+                # them nested under the property would break every reference.
+                grafted = dict(graft)
+                hoisted = grafted.pop("$defs", None)
+                grafted.setdefault("title", properties[pname].get("title", pname))
+                if "description" not in grafted and properties[pname].get("description"):
+                    grafted["description"] = properties[pname]["description"]
+                properties[pname] = grafted
+                if hoisted:
+                    schema.setdefault("$defs", {}).update(hoisted)
+            catalog.append(
+                {
+                    "name": name,
+                    "description": str(desc.get("description") or ""),
+                    "schema": schema,
+                    "metadata": None,
+                    "provenance": "facility",
+                }
+            )
+        return catalog
 
     # ------------------------------------------------------------- queue reads
 
@@ -1005,7 +1147,18 @@ class QueueBackend:
 
         Refused while the queue is active: closing the environment mid-plan
         would abort work the operator is watching. Stop the queue first.
+
+        Refused outright on an external worker: environment ownership belongs
+        to whoever runs the manager, and every caller — the session uploader's
+        reload cycle included — is refused here rather than each carrying its
+        own copy of the rule.
         """
+        if self._external_worker:
+            raise QueueRequestRejectedError(
+                "Refusing to close the worker environment: this bridge fronts an "
+                "externally-run RE Manager, whose environment is owned and cycled "
+                "on the facility side."
+            )
         status = await self.status(reload=True)
         if is_queue_active(status):
             raise QueueRequestRejectedError(
@@ -1039,6 +1192,20 @@ class QueueBackend:
                 capability.detail,
             )
             return False
+
+        if self._external_worker:
+            # Environment ownership stays with whoever runs the manager: an
+            # external worker's environment is never opened from here. Report
+            # the state as it stands — a closed environment is the facility's
+            # to open, and the armed path's guard says so to the operator.
+            status = await self.status(reload=True)
+            open_now = is_environment_open(status)
+            if not open_now:
+                logger.info(
+                    "external worker environment is closed; waiting for the "
+                    "facility side to open it (this bridge never will)"
+                )
+            return open_now
 
         for attempt in range(1, self._env_open_attempts + 1):
             status = await self.status(reload=True)
@@ -1079,6 +1246,13 @@ class QueueBackend:
         if not capability.can_execute:
             raise ExecutionUnavailableError(capability)
         if not await self.ensure_environment():
+            if self._external_worker:
+                raise EnvironmentUnavailableError(
+                    "The external worker's environment is not open. This bridge "
+                    "fronts a facility-run RE Manager and never opens its "
+                    "environment — open it on the facility side (e.g. `qserver "
+                    "environment open` against that manager) and retry."
+                )
             raise EnvironmentUnavailableError("The worker environment is not open.")
 
     async def _await_environment(self) -> bool:

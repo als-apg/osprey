@@ -47,6 +47,8 @@ import {
   createQueueStream,
   describeProgress,
   describeQueueStatus,
+  finishedRunId,
+  haltsCollapsible,
   historyChanged,
   historyEmptyState,
   historyRecords,
@@ -105,6 +107,7 @@ export function createQueueView({ root, api, onSelectRun }) {
   const queueBanner = byId('queue-banner');
   const startBtn = /** @type {HTMLButtonElement} */ (byId('start-btn'));
   const stopBtn = /** @type {HTMLButtonElement} */ (byId('stop-btn'));
+  const haltsToggle = /** @type {HTMLButtonElement} */ (byId('halts-toggle'));
   const stopNote = byId('stop-note');
   const abortBtn = /** @type {HTMLButtonElement} */ (byId('abort-btn'));
   const abortNote = byId('abort-note');
@@ -162,6 +165,16 @@ export function createQueueView({ root, api, onSelectRun }) {
    * second click, it never fires an abort nobody asked for.
    */
   let abortConfirmArmed = false;
+
+  /**
+   * The operator opened the folded halts by hand — panel-local UI state, like
+   * the two confirm flags above. Only consulted while `haltsCollapsible` says
+   * folding is allowed at all: an active or unreadable queue shows the halts
+   * regardless, and this flag then records nothing but the operator's resting
+   * preference for the next time the queue goes dormant. Never persisted — a
+   * fresh document starts folded, which is the calm default this exists for.
+   */
+  let haltsManualOpen = false;
 
   // -------------------------------------------------------------------------
   // Banner
@@ -288,6 +301,20 @@ export function createQueueView({ root, api, onSelectRun }) {
     abortBtn.className = abortButtonClass(abortConfirmArmed);
     abortBtn.title = abort.note || '';
     setNote(abortNote, abortConfirmArmed ? abort.note : null);
+
+    // Fold the halts only while the panel affirmatively knows they are
+    // dormant (`haltsCollapsible`); every doubtful state pins them open and
+    // hides the toggle, so an active queue's halts cannot be folded at all.
+    // This is `hidden`, never `disabled` — a visible halt is always live, and
+    // the states that permit folding are a subset of the states that already
+    // cleared both confirm-armed flags, so no half-armed confirm can vanish.
+    const collapsible = haltsCollapsible(queue);
+    const haltsShown = !collapsible || haltsManualOpen;
+    stopBtn.hidden = !haltsShown;
+    abortBtn.hidden = !haltsShown;
+    haltsToggle.hidden = !collapsible;
+    haltsToggle.textContent = haltsManualOpen ? 'Queue controls ▾' : 'Queue controls ▸';
+    haltsToggle.setAttribute('aria-expanded', haltsManualOpen ? 'true' : 'false');
 
     renderRunningItem();
     renderPendingItems();
@@ -549,6 +576,11 @@ export function createQueueView({ root, api, onSelectRun }) {
     if (runningSelect.dataset.runId) onSelectRun(runningSelect.dataset.runId, true);
   });
 
+  haltsToggle.addEventListener('click', () => {
+    haltsManualOpen = !haltsManualOpen;
+    renderQueue();
+  });
+
   startBtn.addEventListener('click', () => {
     if (startBtn.disabled) return;
     void queueWrite(
@@ -625,6 +657,7 @@ export function createQueueView({ root, api, onSelectRun }) {
   createQueueStream(api('/queue/events'), {
     onFrame(frame) {
       const previousStatus = state.queue.status;
+      const previousRunning = state.queue.runningItem;
       const next = reduceQueueFrame(state.queue, frame);
       if (next === state.queue) return;
       state.queue = next;
@@ -640,6 +673,18 @@ export function createQueueView({ root, api, onSelectRun }) {
       // than on a timer: the SSE summary is the change detector, so a settled
       // queue costs no polling at all.
       if (historyChanged(previousStatus, next.status)) void refreshHistory();
+      // A run the operator just watched finish must not vanish silently into
+      // the Completed-runs card: on a fast machine the whole run fits between
+      // two glances, and with nothing selected the Results view would sit on
+      // "Select a queued or completed run" while the finished run's row waits
+      // one tab away. So when the running item leaves the slot and NOTHING is
+      // selected yet — in either UI mode — the finished run is followed.
+      // `activate: false`, exactly like the Simple-mode auto-pick below: this
+      // is the panel's own housekeeping, so it fills the Results view without
+      // moving anyone off the tab they chose. A manual pick or deep link
+      // (state.selected non-null) always wins.
+      const finished = finishedRunId(previousRunning, next.runningItem);
+      if (finished !== null && state.selected === null) onSelectRun(finished, false);
       maybeAutoSelectLatest();
     },
     onConnectionChange(connected) {

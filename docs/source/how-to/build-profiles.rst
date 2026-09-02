@@ -593,9 +593,11 @@ those plans may drive or record.
 That default puts the file inside the project, so it is built and shipped with
 the deployment. An absolute path is yours instead — the build reads it where it
 is and never rewrites or relocates it. A malformed entry fails the build, and a
-deployment running the Virtual Accelerator with no file yet at a project path
-gets one written for it from the project's own channel-limits database. The
-file's format and the three cases are in :doc:`bluesky/write-plans`.
+deployment on a real control system with no file yet at a project path gets one
+written for it, derived from the same description of the facility the channel
+finder reads: its knowledge graph corpus in graph mode, its channel-finder
+database otherwise. The file's format and the three cases are in
+:doc:`bluesky/write-plans`.
 
 
 .. _profile-host-variants:

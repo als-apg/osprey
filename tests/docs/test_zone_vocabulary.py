@@ -50,7 +50,8 @@ _PERMITTED_PHRASE = "three ignored zones"
 #: to still be live somewhere in the shipped text.
 _FOUR_ZONES_PATTERN = re.compile(r"\bfour[\s-]+zones?\b", re.IGNORECASE)
 
-ROOTS = ("src/osprey", "docs/source")
+# plugins/ holds the shipped skills.
+ROOTS = ("src/osprey", "docs/source", "plugins")
 SCAN_SUFFIXES = (
     ".py",
     ".md",

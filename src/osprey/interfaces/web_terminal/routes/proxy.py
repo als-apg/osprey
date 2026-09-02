@@ -530,6 +530,20 @@ def _rewrite_redirect_location(
     if not location:
         return location
 
+    def _already_prefixed(path: str) -> bool:
+        # A prefix-AWARE backend — one that honors the ``X-Forwarded-Prefix``
+        # this proxy sends on every request — emits Locations that already
+        # live inside the panel namespace. Prepending again would double the
+        # prefix (``/u/a/panel/x/u/a/panel/x/...``) and 404 on the terminal,
+        # so the re-base is idempotent: a path already carrying the prefix is
+        # relayed as it stands. Segment-boundary comparison, so a panel id
+        # that is a prefix of another (``x`` vs ``x-2``) is never conflated.
+        return (
+            path == panel_prefix
+            or path.startswith(panel_prefix + "/")
+            or path.startswith(panel_prefix + "?")
+        )
+
     try:
         parsed = urlparse(location)
     except ValueError:
@@ -541,12 +555,16 @@ def _rewrite_redirect_location(
         if _same_origin(parsed, backend_url):
             # Re-base onto the panel namespace, keeping query and fragment.
             remainder = urlunsplit(("", "", parsed.path, parsed.query, parsed.fragment))
+            if _already_prefixed(remainder):
+                return remainder
             return panel_prefix + remainder
         if _same_origin(parsed, terminal_origin):
             return location
         return None
 
     if location.startswith("/"):
+        if _already_prefixed(location):
+            return location
         return panel_prefix + location
     return urljoin(base_path, location)
 

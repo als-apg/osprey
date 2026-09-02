@@ -785,6 +785,7 @@ def mock_repository() -> MagicMock:
     repo.complete_ingestion_run = AsyncMock()
     repo.fail_ingestion_run = AsyncMock()
     repo.get_last_successful_run = AsyncMock(return_value=None)
+    repo.get_last_ingestion = AsyncMock(return_value=None)
     return repo
 
 

@@ -80,13 +80,11 @@ from osprey.deployment.web_terminals.persona_images import (
 from osprey.deployment.web_terminals.personas import (
     effective_image_source,
     entry_is_shared,
-    entry_requires_login,
     normalize_users,
     resolve_personas,
 )
 from osprey.deployment.web_terminals.postup_hooks import (
     enable_linger,
-    reload_nginx_config,
     run_verify_script,
     warn_if_web_stack_unreachable,
 )
@@ -261,14 +259,14 @@ def persona_render_problem(config: dict, repo_root: Path | str) -> str | None:
 #: `up` owns one question the authoring verbs cannot answer for it: is a door
 #: about to be opened. These two codes are that question.
 #:
-#: * ``unauthenticated_privileged_terminal`` — a terminal served with no login
-#:   whose persona can edit this deployment. The exposure itself.
-#: * ``persona_privileges_unknown`` — the same terminal, with the persona's
-#:   document unreadable. "Cannot tell" is not "harmless" on the one path where
-#:   the answer is about to become a running container.
+#: * ``shared_card_privileged`` — a card every roster login may open whose
+#:   persona can edit this deployment. The exposure itself.
+#: * ``persona_privileges_unknown`` — a persona whose document is unreadable
+#:   where the answer would decide something. "Cannot tell" is not "harmless"
+#:   on the one path where the answer is about to become a running container.
 _UP_BLOCKING_LINT_CODES = frozenset(
     {
-        "web_terminals.unauthenticated_privileged_terminal",
+        "web_terminals.shared_card_privileged",
         "web_terminals.persona_privileges_unknown",
     }
 )
@@ -277,9 +275,8 @@ _UP_BLOCKING_LINT_CODES = frozenset(
 #:
 #: * ``privileged_default_persona`` — an authoring mistake, not an open door:
 #:   the entries that inherit it are still behind whatever wall the deployment
-#:   has, and any that are not are named by the blocking rule above. Refusing
-#:   the start of a running stack over roster shape would stop a shift to fix a
-#:   profile.
+#:   has. Refusing the start of a running stack over roster shape would stop a
+#:   shift to fix a profile.
 #: * ``unauthenticated_privileged_deployment`` — the ``auth.method: none``
 #:   version of the exposure, which is the shipped default and a legitimate
 #:   loopback posture; see
@@ -337,9 +334,9 @@ def web_terminal_preflight_problems(
     scaffold web-terminals lint`` and the ``render`` pre-render gate read the
     rendered altitude; ``osprey up`` read none of it, so a hand-edited
     ``build/config.yml`` — a file no build fingerprint covers, since
-    ``profile.yml`` is untouched — could set ``login: false`` on a privileged
-    persona and start containers with the lint screaming into a terminal nobody
-    ran. Only the open-door codes block here; see
+    ``profile.yml`` is untouched — could share a privileged persona's card
+    (``access: any``) and start containers with the lint screaming into a
+    terminal nobody ran. Only the open-door codes block here; see
     :data:`_UP_BLOCKING_LINT_CODES`.
 
     Deliberately NOT the whole of :func:`preflight_web_terminals`:
@@ -446,9 +443,9 @@ def _provision_terminal_secrets(web_terminals: dict, repo_root: str) -> None:
     the front door, not whether the back ones are open. A deployment with no
     login wall is precisely the one with nothing else in the way.
 
-    The whole roster is provisioned, ``login: false`` entries included — unlike
-    the auth credentials, where such an entry has no login for a password to
-    belong to. Every entry has a terminal, so every entry has a front door.
+    The whole roster is provisioned, shared cards included — unlike the auth
+    credentials, where a shared card has no password of its own. Every entry
+    has a terminal, so every entry has a front door.
 
     Mint first, then gate, for the reason
     :func:`_provision_auth_secrets` spells out: the question is not "was a
@@ -552,17 +549,15 @@ def _provision_auth_secrets(web_terminals: dict, repo_root: str) -> None:
 
     credentials = None
     if auth_method == "password":
-        # `login: false` entries are left out on purpose: no gate ever asks the
-        # sidecar about them, so a hash here would be a credential nothing
-        # checks — and a minted password printed for an entry that has no login
-        # would tell the operator the opposite of the truth. Shared entries
-        # (`access: any`) are left out for the same reason: a shared card holds
-        # no password of its own — verify checks the opener's credential — so a
-        # hash minted under its name would likewise be one nothing ever checks.
+        # Shared entries (`access: any`) are left out on purpose: a shared card
+        # holds no password of its own — verify checks the opener's credential
+        # — so a hash minted under its name would be one nothing ever checks,
+        # and a minted password printed for it would tell the operator the
+        # opposite of the truth.
         usernames = [
             entry["name"]
             for entry in normalize_users(web_terminals.get("users"))
-            if entry_requires_login(entry) and not entry_is_shared(entry)
+            if not entry_is_shared(entry)
         ]
         credentials = ensure_auth_credentials(usernames, repo_root, echo=_mint_echo())
         _report_unshown_mints(credentials)
@@ -823,7 +818,7 @@ def _require_auth_sidecar_image(web_terminals: dict) -> None:
     )
 
 
-def _materialize_auth_build_context(repo_root: Path, dev_mode: bool) -> Path:
+def _materialize_auth_build_context(repo_root: Path, dev_mode: bool) -> tuple[Path, bool]:
     """Write the bundled sidecar Dockerfile into this project's build tree.
 
     The sidecar has no rendered project of its own (unlike a persona) and no
@@ -832,7 +827,13 @@ def _materialize_auth_build_context(repo_root: Path, dev_mode: bool) -> Path:
     holds no operator-owned content, only the bundled files plus whatever
     ``--dev`` stages beside them.
 
-    :returns: The build-context directory.
+    :returns: ``(build-context directory, effective dev mode)`` — the second
+        element is True only when ``dev_mode`` was requested AND the wheel
+        actually landed, the same fail-closed gating ``setup_build_dir``
+        applies to compose-rendered services. The caller keys both the
+        ``OSPREY_DEV`` build arg and the deps-layer version pin on it, so a
+        --dev run whose wheel staging failed keeps the fail-loud pinned
+        install rather than silently building released code.
     """
     context_dir = repo_root / AUTH_BUILD_CONTEXT
     context_dir.mkdir(parents=True, exist_ok=True)
@@ -844,8 +845,8 @@ def _materialize_auth_build_context(repo_root: Path, dev_mode: bool) -> Path:
     # the locally-built wheel lands beside the Dockerfile and its optional COPY
     # glob picks it up. Fail-loud rather than silently deploying the pinned PyPI
     # release under a flag that means "run my local code".
-    _stage_dev_wheel_for_context(str(context_dir), dev_mode)
-    return context_dir
+    wheel_staged = _stage_dev_wheel_for_context(str(context_dir), dev_mode)
+    return context_dir, bool(dev_mode and wheel_staged)
 
 
 def build_auth_sidecar_image(
@@ -902,9 +903,14 @@ def build_auth_sidecar_image(
     # to the capture would anchor the spool on the working directory whenever
     # the caller handed nothing down.
     root = _resolved_repo_root(config, repo_root)
-    context_dir = _materialize_auth_build_context(root, dev_mode)
+    context_dir, effective_dev = _materialize_auth_build_context(root, dev_mode)
 
-    from osprey import __version__ as osprey_version
+    # Base release under effective dev (cache-stable deps layer; the staged
+    # wheel overlays the code), running version otherwise — see
+    # `osprey.version.get_image_pin_version` for the full rationale.
+    from osprey.version import get_image_pin_version
+
+    osprey_version = get_image_pin_version(effective_dev)
 
     tag = auth_sidecar_local_tag(config)
     project_label = resolve_project_name(config)
@@ -924,7 +930,11 @@ def build_auth_sidecar_image(
         "--build-arg",
         f"OSPREY_VERSION={osprey_version}",
     ]
-    if dev_mode:
+    if effective_dev:
+        # Keyed on the EFFECTIVE dev mode (wheel actually staged), not the
+        # flag: OSPREY_DEV=1 relaxes the Dockerfile's fail-loud pin, and
+        # relaxing it with no wheel to overlay would silently build released
+        # code under a flag that means "run my local code".
         cmd.extend(["--build-arg", "OSPREY_DEV=1"])
     with_plain_build_progress(cmd)
     cmd.append(str(context_dir))
@@ -1236,8 +1246,9 @@ def _force_recreate_services(
 
     The single place that argv is built. Always service-scoped: a bare
     ``up -d --force-recreate`` would bounce every live terminal in the stack,
-    which is exactly what both callers (the post-``up`` reconcile and
-    :func:`force_recreate_auth_sidecar`) exist to avoid.
+    which is exactly what every caller (the post-``up`` reconcile, the deploy
+    path's nginx rebind, and :func:`force_recreate_auth_sidecar`) exists to
+    avoid.
 
     :param repo_root: The deployment repo whose ``var/logs/`` holds this
         recreate's spooled output. Both callers already resolved it.
@@ -1622,12 +1633,18 @@ def deploy_up_web_terminals(
     # already recreated the sidecar on any content change.
     _reconcile_web_stack_recreates(config, web_cmd, run_env, repo_root=repo_root)
 
-    # Hot-reload nginx: `up -d` never restarts a running nginx whose
-    # bind-mounted nginx.conf/landing.html CONTENT changed — the container
-    # definition is unchanged, so compose reconciles nothing and the freshly
-    # rendered routes silently never take effect. `nginx -s reload` is
-    # zero-downtime and a no-op when the config is unchanged.
-    reload_nginx_config(web_cmd, run_env)
+    # Recreate nginx, never merely reload it: the build stage regenerates
+    # `build/` from scratch (rmtree + re-render), so a running nginx's FILE
+    # bind mounts (nginx.conf, landing.html) still point at the previous
+    # render's inodes. Through an orphaned mount `nginx -s reload` re-reads
+    # the dead inode (native Linux) or fails outright (Docker Desktop's
+    # VirtioFS propagates the unlink, so the landing page 404s and the
+    # healthcheck flips unhealthy) — either way the freshly rendered config
+    # can never reach the running container. A service-scoped recreate is the
+    # one verb that rebinds the mounts. Reload remains correct only where the
+    # render rewrites the files IN PLACE (same inode) — the roster verbs, via
+    # write_web_terminal_artifacts — and that call site keeps it.
+    _force_recreate_services(web_cmd, run_env, ["nginx"], repo_root=repo_root)
 
     # -----------------------------------------------------------------------
     # POST-UP HOOK — web-terminal reconcile complete (`compose up -d`

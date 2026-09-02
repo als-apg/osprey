@@ -65,8 +65,8 @@ REPO_FREE_COMMANDS: frozenset[str] = frozenset(
 #: rather than left unmentioned so that "no ``--repo`` here" reads as a recorded
 #: decision instead of an oversight.
 #:
-#: Two different reasons live here. ``skills``, ``knowledge``, ``ariel`` and
-#: ``artifacts`` predate the lifecycle surface and were not rewired onto it.
+#: Two different reasons live here. ``knowledge``, ``ariel`` and ``artifacts``
+#: predate the lifecycle surface and were not rewired onto it.
 #: ``health`` and ``channel-finder`` are here because a deployment repo is not
 #: the only subject they accept: both also act on a RENDERED project directory,
 #: which holds a ``config.yml`` at its own root and no ``profile.yml`` anywhere
@@ -79,7 +79,6 @@ REPO_FREE_COMMANDS: frozenset[str] = frozenset(
 #: machine or the installed framework, and that claim was simply false.
 SELF_DISCOVERING_COMMANDS: frozenset[str] = frozenset(
     {
-        "skills",
         "knowledge",
         "channel-finder",
         "ariel",

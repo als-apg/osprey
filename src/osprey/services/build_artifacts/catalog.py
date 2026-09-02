@@ -60,6 +60,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             description="CLAUDE.md project instructions (ARIEL logbook research persona)",
         ),
         BuildArtifact(
+            canonical_name="claude-md-knowledge",
+            template_path="CLAUDE.knowledge.md.j2",
+            output_path="CLAUDE.md",
+            description="CLAUDE.md project instructions (facility knowledge persona)",
+        ),
+        BuildArtifact(
             canonical_name="claude-md-channel-finder",
             template_path="CLAUDE.channel-finder.md.j2",
             output_path="CLAUDE.md",
@@ -423,6 +429,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="gchat_bridge",
             output_path="services/gchat_bridge",
             description="Google Chat bridge compose template + image context",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
+            canonical_name="services/ariel_sync",
+            template_path="ariel_sync",
+            output_path="services/ariel_sync",
+            description="ARIEL logbook mirror compose template",
             template_root="services",
             is_directory=True,
         ),

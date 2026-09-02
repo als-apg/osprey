@@ -148,13 +148,15 @@ def test_collect_material_reads_each_source_exactly_once():
 
 
 def test_collect_material_does_not_use_store_session_filter():
-    """Filtering is the composer's job — the store's OR-empty filter ignores the window."""
+    """Filtering is the composer's job — the store's OR-empty filter ignores the window.
+
+    The only thing asked of the store is to leave out the shipped example."""
     reader = _reader()
     store = _store()
 
     collect_material(reader, store, SESSION_ID, scrollback="", metadata={})
 
-    assert store.list_entries.call_args == call()
+    assert store.list_entries.call_args == call(exclude_examples=True)
 
 
 def test_collect_material_dead_session_marks_status_and_stops_reading():

@@ -3,8 +3,9 @@
 Mirrors ``test_session_report_skill.py``'s registry/template/content pattern,
 plus a real ``TemplateManager.create_project`` build (the standard
 skill-install path for the ``templates/claude_code/claude/skills/`` family --
-these skills are NOT installed via the ``osprey skills install`` CLI, which
-only serves the separate ``templates/skills/`` global-skill family) to verify
+these skills are rendered into the project by the build, not shipped via the
+``osprey`` plugin marketplace, which only serves the separate
+``plugins/osprey/skills/`` family) to verify
 the skill actually lands on disk end to end.
 
 The content assertions pin the session-plan flow as it actually runs: author
@@ -339,8 +340,8 @@ class TestWritingBlueskyPlansInstall:
 
     ``templates/claude_code/claude/skills/`` artifacts are installed by
     ``osprey build`` / ``TemplateManager.create_project`` (BuildArtifactCatalog
-    + preset artifact resolution), not by the ``osprey skills install`` CLI
-    (that command only serves ``templates/skills/`` global skills).
+    + preset artifact resolution), not by the ``osprey`` plugin marketplace
+    (that only serves the separate ``plugins/osprey/skills/`` family).
     """
 
     def test_control_assistant_build_installs_the_skill(self, tmp_path):

@@ -819,12 +819,7 @@ class ARIELSearchService:
 
                     embedding_tables = await self.repository.get_embedding_tables()
 
-                    await cur.execute(
-                        "SELECT MAX(completed_at) FROM ingestion_runs WHERE status = 'success'"
-                    )
-                    row = await cur.fetchone()
-                    if row and row[0]:
-                        last_ingestion = row[0]
+                    last_ingestion = await self.repository.get_last_ingestion()
 
         except Exception as e:
             errors.append(f"Database error: {e}")

@@ -1,0 +1,1 @@
+The panel proxy's redirect re-base is now idempotent: a prefix-aware backend (one that honors the `X-Forwarded-Prefix` the proxy sends) no longer gets its `Location` double-prefixed into a terminal 404. Prefix-naive backends re-base exactly as before.

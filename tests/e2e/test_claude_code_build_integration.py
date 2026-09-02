@@ -36,7 +36,12 @@ from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
-from tests.e2e.sdk_helpers import agent_data_dir, provider_env_for_project, render_dir
+from tests.e2e.sdk_helpers import (
+    agent_data_dir,
+    e2e_port_base,
+    provider_env_for_project,
+    render_dir,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -110,7 +115,9 @@ def init_project(
     ``virtual_accelerator.live_standin`` for the third time the same reason
     holds: the preset ships a live stand-in on, and the build points the
     ``epics`` gateways at that never-started container and turns limits
-    checking strict to meet it.
+    checking strict to meet it. The channel finder is pinned to the
+    hierarchical database for the fourth: the preset's graph mode answers
+    from a ``graphdb`` container this harness never starts.
     """
     runner = CliRunner()
     repo = tmp_path / name
@@ -125,6 +132,8 @@ def init_project(
         f"model={model}",
         "--set",
         "connector=mock",
+        "--set",
+        "channel_finder_mode=hierarchical",
     ]
     preset_pins = tmp_path / "_archiver-pin.yml"
     preset_pins.write_text(
@@ -132,6 +141,7 @@ def init_project(
         encoding="utf-8",
     )
     init_args.extend(["-O", str(preset_pins)])
+    init_args.extend(["--set", f"port_base={e2e_port_base()}"])
     init_result = runner.invoke(init, init_args)
     assert init_result.exit_code == 0, f"osprey init failed: {init_result.output}"
     build_result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])

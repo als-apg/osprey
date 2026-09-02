@@ -71,6 +71,15 @@ services:
 {%- set launch_token_ref = '${' ~ lane_env ~ '_LAUNCH_TOKEN}' %}
 {%- set qserver_private_ref = '${' ~ lane_env ~ '_QSERVER_ZMQ_PRIVATE_KEY:?minted by `osprey up`; deploy through it rather than running compose directly}' %}
 {%- set qserver_public_ref = '${' ~ lane_env ~ '_QSERVER_ZMQ_PUBLIC_KEY:?minted by `osprey up`; deploy through it rather than running compose directly}' %}
+{#- External-worker mode (`bluesky.external:` in the profile): this lane's
+    bridge fronts a facility-run RE Manager instead of one this file deploys.
+    Everything the mode changes hangs off this one flag — the manager address
+    and its operator-supplied key replace the minted control-plane pair, and
+    the queueserver/Redis/document-plane machinery is simply not rendered.
+    Falsy on every deploy that does not author the block, which is what keeps
+    such deployments' rendered files byte-for-byte what they always were. #}
+{%- set external = svc.external | default(false) %}
+{%- set ext_public_ref = '${' ~ external.zmq_public_key_env ~ ':?operator-supplied CURVE public key of the external RE Manager (bluesky.external.zmq_public_key_env)}' if external and external.zmq_public_key_env else '' %}
   {{ lane }}-bridge:
     image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-{{ svc.image | default(osprey_images.bluesky_bridge) }}}
 {#- LANE 1 ONLY owns the build, for the same reason the queueserver below
@@ -107,11 +116,15 @@ services:
     # `qserver ping` to answer removes that race rather than betting on the
     # manager's import of the bluesky/ophyd stack finishing first.
     #
-    # Unconditional, because `queueserver` is rendered by THIS template and so
-    # is always defined. Not in tension with the rule that a Tiled outage must
+    # Not quite unconditional any more: `queueserver` is rendered by THIS
+    # template on every deploy EXCEPT an external-worker lane, whose manager
+    # runs outside compose entirely — there is no service to order against,
+    # and the bridge's own capability probing carries the "manager not up yet"
+    # case instead. Not in tension with the rule that a Tiled outage must
     # never block the bridge (FR4): Tiled is the read path's durable store,
     # while the manager is the execution plane the bridge is a facade over —
     # the same reason the VA is depended on below.
+{%- if not external %}
     depends_on:
       {{ qserver }}:
         condition: service_healthy
@@ -148,6 +161,7 @@ services:
       live-standin:
         condition: service_healthy
 {% endif %}
+{%- endif %}
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy the bridge on one host without colliding
     # on one name. In-network consumers reach this service by its compose service
@@ -211,6 +225,42 @@ services:
       # deployment's rendered file byte-for-byte what it was.
       OSPREY_BLUESKY_LANE: "{{ lane_key }}"
 {%- endif %}
+{%- if external %}
+      # ── queue control plane (client side, EXTERNAL worker) ───────────────
+      # This lane fronts a facility-run RE Manager (`bluesky.external:` in the
+      # profile): the address is the operator's own declaration, and the CURVE
+      # public key — when the facility manager runs encryption — arrives
+      # through the operator-named `.env` variable with a `:?` guard, so an
+      # unset key fails the deploy rather than silently downgrading the
+      # control socket. With `insecure_plaintext: true` acknowledged in the
+      # profile, no key variable is referenced at all and the manager's own
+      # transport posture governs. Ownership follows the address: the flag
+      # below tells the bridge the worker environment is NOT its to open,
+      # close, or rebuild — the facility's startup profile owns the RunEngine
+      # and every device behind it.
+      QSERVER_ZMQ_CONTROL_ADDRESS: "{{ external.zmq_control_addr }}"
+{%- if ext_public_ref %}
+      QSERVER_ZMQ_PUBLIC_KEY: {{ ext_public_ref }}
+{%- endif %}
+      BLUESKY_EXTERNAL_WORKER: "1"
+{%- if external.parameter_schemas_env %}
+      # Facility-published parameter schemas (bluesky.external.parameter_schemas):
+      # a JSON mapping "<plan>.<parameter>" -> in-container schema path. The
+      # bridge grafts each onto that parameter in GET /plans, so a
+      # document-shaped parameter renders as a real form instead of one opaque
+      # field. Paths match the read-only mounts below.
+      BLUESKY_EXTERNAL_PARAM_SCHEMAS: '{{ external.parameter_schemas_env }}'
+{%- endif %}
+{%- if external.tiled_uri %}
+      # The facility's own Tiled, for the durable read path (`GET
+      # /runs/{id}/data`): the external worker persists documents there, so
+      # this deployment reads the same store rather than running a second one.
+      BLUESKY_TILED_URI: "{{ external.tiled_uri }}"
+{%- if external.tiled_api_key_env %}
+      BLUESKY_TILED_API_KEY: ${{ '{' }}{{ external.tiled_api_key_env }}{{ '}' }}
+{%- endif %}
+{%- endif %}
+{%- else %}
       # ── queue control plane (client side) ────────────────────────────────
       # The bridge is the ONLY authenticated route to the RE Manager: panels
       # and MCP never see the qserver API. These two names are read directly
@@ -282,6 +332,7 @@ services:
       # Binding an unauthenticated document socket is never the fallback.
       BLUESKY_ZMQ_CURVE_SECRET_KEY: /app/curve/proxy.key_secret
       BLUESKY_ZMQ_CURVE_CLIENT_PUBLIC_KEYS: /app/curve/clients
+{%- endif %}
 {% if svc.plan_dir %}
       # Facility plan directory: the plan loader
       # (plan_loader.py) reads BLUESKY_PLAN_DIRS as an os.pathsep-separated
@@ -375,11 +426,23 @@ services:
       # config.yml to resolve control_system settings regardless of which
       # optional services are co-deployed.
       - ./build/services/bluesky/config.yml:/app/project/config.yml:ro
+{%- if external and external.parameter_schema_mounts %}
+{%- for m in external.parameter_schema_mounts %}
+      # Facility-published parameter schema (see BLUESKY_EXTERNAL_PARAM_SCHEMAS
+      # above): sources are computed by _inject_bluesky, targets are fixed and
+      # key-derived, and the file is read-only — the bridge only grafts it.
+      - {{ m.source }}:{{ m.target }}:ro
+{%- endfor %}
+{%- endif %}
+{%- if not external %}
       # Document-plane CURVE certificates (see the env block above). This side
       # holds the proxy's secret certificate plus a `clients/` directory of the
       # publisher public keys it will accept — and never the publisher's
-      # secret, which lives only in the queueserver's own mount.
+      # secret, which lives only in the queueserver's own mount. An external
+      # lane mounts none of this: it runs no document-plane proxy, so there is
+      # no binding element to hold certificates for.
       - ./data/.runtime/{{ lane_key }}_curve/bridge:/app/curve:ro
+{%- endif %}
 {% if svc.plan_dir %}
       # Facility plan directory: operator-supplied host path via
       # services.{{ lane_key }}.plan_dir in config.yml, mounted read-only — the
@@ -417,10 +480,17 @@ services:
       - {{ limits_mount.source }}:{{ limits_mount.target }}:ro
 {% endif %}
     networks:
+{%- if external %}
+      # Single-homed: the external RE Manager lives outside compose and is
+      # reached through ordinary egress, so there is no lane-internal network
+      # to join — and none is rendered for this lane.
+      - osprey-network
+{%- else %}
       # Dual-homed: osprey-network for the bluesky-web sidecar and Tiled,
       # {{ lane }}-internal to reach the RE Manager's control socket.
       - osprey-network
       - {{ lane }}-internal
+{%- endif %}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:{{ svc.port | default(osprey_ports.bluesky, true) }}/health').status==200 else 1)\""]
       interval: 10s
@@ -431,6 +501,7 @@ services:
       # dependencies at build time, not at container start) take a few seconds.
       start_period: 15s
 
+{%- if not external %}
   # The bluesky-queueserver RE Manager: the process that actually executes
   # plans. It spawns and supervises its own RunEngine worker at
   # environment-open — upstream's own shape, not an OSPREY invention — so
@@ -439,6 +510,9 @@ services:
   # The queue and its recent history live in Redis, which is what makes them
   # survive a bridge restart. The bridge holds no queue state: it is a facade
   # over this manager, and the only authenticated route to it.
+  #
+  # An external-worker lane renders neither this service nor Redis below: the
+  # facility runs the manager, and its queue store is the facility's own.
   {{ qserver }}:
     # Same image as the bridge, and deliberately NO `build:` block: two
     # services building the same tag race each other (the dispatch worker
@@ -757,6 +831,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+{%- endif %}
 {%- endfor %}
 {% if services.bluesky.tiled_enabled | default(false) %}
 
@@ -851,25 +926,42 @@ networks:
     lane's bridge reach the other's manager control socket, which is the
     isolation this whole axis exists to keep. #}
 {%- for lane_key in lane_keys %}
+{%- if not (services[lane_key].external | default(false)) %}
 {%- set lane = lane_key | replace('_', '-') %}
   # Holds the bridge, the RE Manager and Redis. `internal: true` cuts the
   # network off from the host and the outside world, which is what keeps
   # Redis — attached to nothing else — unreachable from anywhere but the
   # manager. The manager and the bridge are also on osprey-network for the
   # things that genuinely live there (VA, Tiled, the bluesky-web sidecar).
+  # An external-worker lane renders no internal network: it deploys no
+  # manager and no Redis to hold one around.
   {{ lane }}-internal:
     internal: true
+{%- endif %}
 {%- endfor %}
 
-volumes:
 {#- One queue store per LANE. Sharing it would merge two machines' queues and
     histories into one keyspace, so a plan queued for one target would be
-    visible — and startable — on the other. #}
+    visible — and startable — on the other. An external lane deploys no Redis
+    and so claims no volume — and when NO lane claims one (a single external
+    lane, Tiled external too), the `volumes:` header itself must not render:
+    compose refuses a null mapping ("volumes must be a mapping"). #}
+{%- set vol_ns = namespace(any=false) %}
 {%- for lane_key in lane_keys %}
+{%- if not (services[lane_key].external | default(false)) %}{% set vol_ns.any = true %}{% endif %}
+{%- endfor %}
+{%- if services.bluesky.tiled_enabled | default(false) %}{% set vol_ns.any = true %}{% endif %}
+{%- if vol_ns.any %}
+
+volumes:
+{%- for lane_key in lane_keys %}
+{%- if not (services[lane_key].external | default(false)) %}
   {{ lane_key }}_queueserver_redis:
     labels:
       com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
+{%- endif %}
 {%- endfor %}
+{%- endif %}
 {% if services.bluesky.tiled_enabled | default(false) %}
   bluesky_tiled_catalog:
     labels:

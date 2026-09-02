@@ -2930,7 +2930,6 @@ class DeployedScanStack:
     repo: Path
     correctors: dict[str, tuple[str, str]]
     bpms: dict[str, str]
-    limits: dict[str, Any]
     token: str
 
 
@@ -2978,21 +2977,21 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
     # for the queueserver worker, so a set written after the build would never
     # reach a container.
     #
-    # Correctors and BPMs come from the deployment repo's own
-    # channel_limits.json — the same bytes the build copies to build/data, and
-    # never a hardcoded preset channel. The default 4+4 slice is deliberate:
+    # Correctors and BPMs come from the deployment repo's own channel roster —
+    # the same channel database the build materializes for the deployed channel
+    # finder, and never a hardcoded preset channel. The default 4+4 slice is
+    # deliberate:
     # these scenarios ask for a measurement on a healthy stack, so no particular
     # device has to be in range, and a small device count keeps a real run to
     # seconds rather than minutes.
-    limits: dict[str, Any] = {}
     correctors: dict[str, tuple[str, str]] = {}
     bpms: dict[str, str] = {}
 
     def author_devices(repo: Path) -> None:
-        nonlocal limits, correctors, bpms
-        limits = _orm_stack.channel_limits(repo)
-        correctors = _orm_stack.select_correctors(limits)
-        bpms = _orm_stack.select_bpms(limits)
+        nonlocal correctors, bpms
+        records = _orm_stack.roster_records(repo)
+        correctors = _orm_stack.select_correctors(records)
+        bpms = _orm_stack.select_bpms(records)
         _orm_stack.write_devices_file(repo, correctors=correctors, bpms=bpms)
 
     repo = _orm_stack.build_project_subprocess(
@@ -3075,7 +3074,6 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
             repo=repo,
             correctors=correctors,
             bpms=bpms,
-            limits=limits,
             token=_orm_stack.minted_launch_token(repo),
         )
     finally:
@@ -3895,10 +3893,29 @@ def _long_grid_args(stack: DeployedScanStack, num_points: int) -> dict[str, Any]
     half of the corrector's OWN ``channel_limits.json`` entry, so nothing here
     hardcodes a facility channel or asks the reference monitor for a value
     outside its band.
+
+    The corrector NAMES come from the roster (``stack.correctors``); the limit
+    VALUES come from ``channel_limits.json``, which gates a subset of those
+    channels and enumerates none of them (see ``_orm_stack.channel_limits``).
+    So the axis is the first staged corrector the limits file actually bounds,
+    not simply the first one staged.
     """
-    axis_name = next(iter(stack.correctors))
-    sp_address, _rb = stack.correctors[axis_name]
-    entry = stack.limits[sp_address]
+    limits = _orm_stack.channel_limits(stack.repo)
+    axis = next(
+        (
+            (name, entry)
+            for name, (sp_address, _rb) in stack.correctors.items()
+            if isinstance(entry := limits.get(sp_address), dict)
+            and "min_value" in entry
+            and "max_value" in entry
+        ),
+        None,
+    )
+    assert axis is not None, (
+        "no staged corrector has a channel_limits band -- the long grid needs "
+        "a bounded axis to size its sweep"
+    )
+    axis_name, entry = axis
     lo, hi = float(entry["min_value"]), float(entry["max_value"])
     return {
         "readbacks": [next(iter(stack.bpms))],

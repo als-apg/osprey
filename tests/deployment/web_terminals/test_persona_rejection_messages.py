@@ -5,7 +5,7 @@ the deploy path, ``test_lint.py`` for the gate). What these tests pin is the
 remedy, on both paths at once: the operator most likely to hit either
 rejection is one whose variant build predates the persona-delta layout, so
 "set this value to ``personas/<name>.yml``" is advice about a file they do not
-have. Both messages must therefore also name ``/osprey-build-interview``, the
+have. Both messages must therefore also name ``/osprey:build-interview``, the
 thing that converts an old variant into that file — and they must keep saying
 the same thing as each other, since a config can be rejected by whichever path
 the operator happens to reach first.
@@ -23,7 +23,7 @@ from osprey.deployment.web_terminals.lint import lint_web_terminals
 #: A pre-delta value: the bundled preset name a facility used to write here.
 _LEGACY_VALUE = "control-assistant"
 
-_INTERVIEW = "/osprey-build-interview"
+_INTERVIEW = "/osprey:build-interview"
 
 
 def _profile_root(tmp_path: Path) -> Path:

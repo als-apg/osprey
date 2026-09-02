@@ -332,8 +332,21 @@ const spawned = [];
  * @param {ConstructorParameters<typeof FeedbackModal>[0]} [options]
  * @returns {InstanceType<typeof FeedbackModal>}
  */
+/** @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/feedback-modal.js').FeedbackTracker} FeedbackTracker */
+
+/** The deployment's GitHub tracker, as boot hands it to the dialog. @type {FeedbackTracker} */
+const GH = { id: 'github:als-apg/osprey', kind: 'github', label: 'GitHub', target: 'als-apg/osprey' };
+
+/** A self-hosted GitLab tracker with a facility-authored caption. @type {FeedbackTracker} */
+const GL = {
+  id: 'gitlab:https://git.example.org/controls/osprey',
+  kind: 'gitlab',
+  label: 'Facility GitLab',
+  target: 'https://git.example.org/controls/osprey',
+};
+
 function openForm(options = {}) {
-  const m = new FeedbackModal({ getSessionId: () => 'session-abc', ...options });
+  const m = new FeedbackModal({ getSessionId: () => 'session-abc', trackers: [GH], ...options });
   spawned.push(m);
   m.open();
   return m;
@@ -365,9 +378,10 @@ function setChecked(el, checked) {
 }
 
 /**
- * Select a delivery channel through its radio.
+ * Select a delivery channel through its radio — `local`, `email`, or a
+ * tracker's id.
  *
- * @param {'local'|'github'|'email'} channel
+ * @param {string} channel
  */
 function pickChannel(channel) {
   setChecked(input(`input[name="feedback-channel"][value="${channel}"]`), true);
@@ -377,6 +391,20 @@ function pickChannel(channel) {
 function copyButton() {
   const el = document.querySelector('.feedback-copy-context');
   return el instanceof HTMLButtonElement ? el : null;
+}
+
+/** @returns {string[]} the radio values, in render order */
+function channelValues() {
+  return Array.from(document.querySelectorAll('input[name="feedback-channel"]')).map((node) =>
+    node instanceof HTMLInputElement ? node.value : ''
+  );
+}
+
+/** @returns {string[]} the radio captions, in render order */
+function channelCaptions() {
+  return Array.from(document.querySelectorAll('.feedback-channel-label')).map(
+    (node) => node.textContent ?? ''
+  );
 }
 
 /** @returns {string[]} the visible two-step statement, [] while hidden */
@@ -404,10 +432,80 @@ describe('feedback modal state — defaults and channel switching', () => {
     expect(m.formState()).toEqual({
       text: '',
       channel: 'local',
+      tracker: null,
       metadataOn: true,
       contextOn: false,
       sessionId: 'session-abc',
     });
+  });
+
+  test('state: one radio per configured tracker, captioned by its label, between Local and Email', () => {
+    openForm({ trackers: [GL, GH] });
+
+    expect(channelValues()).toEqual(['local', GL.id, GH.id, 'email']);
+    expect(channelCaptions()).toEqual(['Local', 'Facility GitLab', 'GitHub', 'Email']);
+  });
+
+  test('state: no trackers means Local and Email only', () => {
+    openForm({ trackers: [] });
+    expect(channelValues()).toEqual(['local', 'email']);
+  });
+
+  test('state: picking a tracker reports its kind as the channel and the tracker itself', () => {
+    const m = openForm({ trackers: [GL, GH] });
+
+    pickChannel(GL.id);
+    expect(m.formState()).toMatchObject({ channel: 'gitlab', tracker: GL });
+
+    pickChannel(GH.id);
+    expect(m.formState()).toMatchObject({ channel: 'github', tracker: GH });
+
+    pickChannel('email');
+    expect(m.formState()).toMatchObject({ channel: 'email', tracker: null });
+  });
+
+  test('state: the GitLab row opens an issue and warns about the account', () => {
+    openForm({ trackers: [GL] });
+    pickChannel(GL.id);
+
+    expect(qs(document, '.feedback-open-channel').textContent).toBe('Open GitLab issue');
+    expect(qs(document, '.feedback-channel-hint').textContent).toBe(CHANNEL_HINTS.gitlab);
+    expect(CHANNEL_HINTS.gitlab).toBe('Requires a GitLab account');
+  });
+
+  test('state: trackers arriving while the dialog is open are rendered in place', () => {
+    // The dialog exists before the deployment's configuration does, and the
+    // operator may well open it in between.
+    const m = openForm({ trackers: [] });
+    expect(channelValues()).toEqual(['local', 'email']);
+
+    m.setTrackers([GL]);
+
+    expect(channelValues()).toEqual(['local', GL.id, 'email']);
+    expect(input('input[name="feedback-channel"][value="local"]').checked).toBe(true);
+    pickChannel(GL.id);
+    expect(m.formState()).toMatchObject({ channel: 'gitlab', tracker: GL });
+  });
+
+  test('state: a selected tracker that disappears falls back to Local', () => {
+    const m = openForm({ trackers: [GH] });
+    pickChannel(GH.id);
+
+    m.setTrackers([GL]);
+
+    expect(m.formState()).toMatchObject({ channel: 'local', tracker: null });
+    expect(input('input[name="feedback-channel"][value="local"]').checked).toBe(true);
+    expect(document.querySelector('.feedback-send')).not.toBeNull();
+  });
+
+  test('state: a selected tracker survives a re-render that keeps it', () => {
+    const m = openForm({ trackers: [GH] });
+    pickChannel(GH.id);
+
+    m.setTrackers([GL, GH]);
+
+    expect(m.formState()).toMatchObject({ channel: 'github', tracker: GH });
+    expect(input(`input[name="feedback-channel"][value="${GH.id}"]`).checked).toBe(true);
   });
 
   test('state: the local action row is a single Send button', () => {
@@ -421,7 +519,7 @@ describe('feedback modal state — defaults and channel switching', () => {
     openForm();
     // A utility beside the checkbox, never a step of sending — so it must not
     // sit in the action row, and it must not vanish on the Local channel.
-    for (const channel of /** @type {const} */ (['local', 'github', 'email'])) {
+    for (const channel of ['local', GH.id, 'email']) {
       pickChannel(channel);
       const copy = copyButton();
       expect(copy?.textContent).toBe('Copy');
@@ -434,7 +532,7 @@ describe('feedback modal state — defaults and channel switching', () => {
 
   test('state: the GitHub row opens an issue and warns about the account', () => {
     openForm();
-    pickChannel('github');
+    pickChannel(GH.id);
 
     expect(document.querySelector('.feedback-send')).toBeNull();
     expect(document.querySelector('.feedback-actions .feedback-copy-context')).toBeNull();
@@ -461,7 +559,7 @@ describe('feedback modal state — defaults and channel switching', () => {
     setChecked(input('.feedback-metadata-check'), false);
     setChecked(input('.feedback-context-check'), true);
 
-    pickChannel('github');
+    pickChannel(GH.id);
     pickChannel('email');
     pickChannel('local');
 
@@ -471,6 +569,7 @@ describe('feedback modal state — defaults and channel switching', () => {
     expect(m.formState()).toEqual({
       text: 'the rail button does not respond',
       channel: 'local',
+      tracker: null,
       metadataOn: false,
       contextOn: true,
       sessionId: 'session-abc',
@@ -481,13 +580,13 @@ describe('feedback modal state — defaults and channel switching', () => {
     const m = openForm();
     textBox().value = 'half-written report';
     textBox().dispatchEvent(new Event('input', { bubbles: true }));
-    pickChannel('github');
+    pickChannel(GH.id);
 
     m.close();
     m.open();
 
     expect(textBox().value).toBe('half-written report');
-    expect(input('input[name="feedback-channel"][value="github"]').checked).toBe(true);
+    expect(input(`input[name="feedback-channel"][value="${GH.id}"]`).checked).toBe(true);
   });
 });
 
@@ -504,7 +603,7 @@ describe('feedback modal state — context availability', () => {
     setChecked(input('.feedback-context-check'), false);
     expect(copyButton()?.disabled).toBe(false);
 
-    pickChannel('github');
+    pickChannel(GH.id);
     expect(copyButton()?.disabled).toBe(false);
   });
 
@@ -530,7 +629,7 @@ describe('feedback modal state — context availability', () => {
     setChecked(input('.feedback-context-check'), true);
     expect(pasteSteps()).toEqual([PASTE_STEP_COPY, PASTE_STEP_OPEN.email]);
 
-    pickChannel('github');
+    pickChannel(GH.id);
     expect(pasteSteps()).toEqual([PASTE_STEP_COPY, PASTE_STEP_OPEN.github]);
 
     // Local sends the context inline with the record — nothing to paste.
@@ -547,6 +646,9 @@ describe('feedback modal state — context availability', () => {
     expect(PASTE_STEP_OPEN.github).toBe(
       'A GitHub issue draft opens — paste the report into the issue body.'
     );
+    expect(PASTE_STEP_OPEN.gitlab).toBe(
+      'A GitLab issue draft opens — paste the report into the issue body.'
+    );
     expect(PASTE_STEP_OPEN.email).toBe(
       'An email draft opens — paste the report into the message body.'
     );
@@ -554,7 +656,7 @@ describe('feedback modal state — context availability', () => {
 
   test('state: no session means no two-step statement, whatever was ticked', () => {
     openForm({ getSessionId: () => null });
-    pickChannel('github');
+    pickChannel(GH.id);
     // Force the flag past the disabled control — there is still no session to
     // compose context from, so promising a copy would be false.
     setChecked(input('.feedback-context-check'), true);
@@ -564,7 +666,7 @@ describe('feedback modal state — context availability', () => {
 
   test('state: Copy is disabled with no session even if context was ticked', () => {
     const m = openForm({ getSessionId: () => null });
-    pickChannel('github');
+    pickChannel(GH.id);
     setChecked(input('.feedback-context-check'), true);
 
     expect(copyButton()?.disabled).toBe(true);
@@ -583,6 +685,7 @@ describe('feedback modal state — context availability', () => {
     expect(onSubmit.mock.calls[0][0]).toEqual({
       text: 'no session but still worth reporting',
       channel: 'local',
+      tracker: null,
       metadataOn: true,
       contextOn: false,
       sessionId: null,
@@ -667,6 +770,7 @@ describe('feedback modal state — action events', () => {
     expect(onSubmit.mock.calls[0][0]).toEqual({
       text: 'terminal freezes on resume',
       channel: 'local',
+      tracker: null,
       metadataOn: true,
       contextOn: true,
       sessionId: 'session-abc',
@@ -676,7 +780,7 @@ describe('feedback modal state — action events', () => {
   test('state: Copy emits copy with the current state', () => {
     const onCopy = vi.fn();
     openForm({ onCopy });
-    pickChannel('github');
+    pickChannel(GH.id);
     setChecked(input('.feedback-context-check'), true);
 
     copyButton()?.click();

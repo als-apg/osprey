@@ -44,12 +44,14 @@ mode serves one by design.
 
 Two halves, matching the seam's two promises:
 
-* **The historical path is unchanged.** With none of the source env vars
-  set, the entrypoint resolves to exactly the pre-seam behaviour: built-in
-  generated manifest, PyAT lattice, bundled drive-limit/boot-value data.
-  (The deep guarantee is the rest of ``tests/va`` -- every pre-seam test
-  still runs against the default path -- so this half only pins the
-  resolution itself.)
+* **The tutorial machine is still reachable, by name.** There is no longer
+  an unconfigured path to it: a boot that names no channel source is refused
+  rather than served the framework's bundled demo namespace. The demo is a
+  committed manifest like any other, and asking for it -- the packaged file
+  plus ``VA_LATTICE=builtin``, which is what ``scripts/va/run_va.sh`` does --
+  resolves to the pre-seam behaviour: that namespace, the PyAT lattice.
+  (The deep guarantee is the rest of ``tests/va``, which runs against the
+  generated manifest directly, so this half only pins the resolution.)
 
 * **A file-backed facility boots without PyAT.** A manifest of three-part
   addresses (identity carried in the hierarchy keys, not the address text)
@@ -153,6 +155,7 @@ from osprey.services.virtual_accelerator.manifest import (  # noqa: E402
     RECORD_TYPE_ANALOG,
     RECORD_TYPE_LONG_STRING,
 )
+from osprey.services.virtual_accelerator.manifest.paths import MANIFEST_OUTPUT  # noqa: E402
 
 # A three-part-address facility: the address text carries no six-level
 # grammar; identity (SP<->RB pairing) rides entirely in the hierarchy keys.
@@ -208,15 +211,24 @@ _SEAM_CHANNELS = [
 ]
 
 
-class TestDefaultResolutionIsThePreSeamPath:
-    """ALS half: no env vars -> built-in manifest + built-in lattice."""
+class TestTheTutorialMachineIsNamedNotAssumed:
+    """ALS half: the built-in namespace and lattice, asked for rather than
+    fallen into."""
 
-    def test_no_env_resolves_to_builtin_manifest_and_lattice(self, monkeypatch, tmp_path):
+    def test_no_channel_source_is_refused(self, monkeypatch, tmp_path):
+        # The path that used to lead here silently. A boot told nothing has
+        # no facility to serve, and the bundled demo namespace is not an
+        # answer to that question -- it is one particular facility's
+        # addresses wearing whatever name the deployment gave the container.
         monkeypatch.delenv("VA_CHANNELS_FILE", raising=False)
-        monkeypatch.delenv("VA_LATTICE", raising=False)
-        channels_file = entrypoint._resolve_channels_file(tmp_path)
-        assert channels_file is None
-        assert entrypoint._resolve_lattice_mode(channels_file) == entrypoint.LATTICE_BUILTIN
+        with pytest.raises(SystemExit, match="VA_CHANNELS_FILE"):
+            entrypoint._resolve_channels_file(tmp_path)
+
+    def test_naming_the_packaged_manifest_gives_the_pre_seam_path(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("VA_CHANNELS_FILE", str(MANIFEST_OUTPUT))
+        monkeypatch.setenv("VA_LATTICE", entrypoint.LATTICE_BUILTIN)
+        assert entrypoint._resolve_channels_file(tmp_path) == MANIFEST_OUTPUT
+        assert entrypoint._resolve_lattice_mode() == entrypoint.LATTICE_BUILTIN
 
 
 class TestSetpointEchoEngineSync:

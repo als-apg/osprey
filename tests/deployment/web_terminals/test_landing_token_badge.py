@@ -67,10 +67,10 @@ def _hint_of(landing_html: str, label: str) -> str:
 
 
 def _password_config() -> dict:
-    """A password-walled roster with exactly one login-exempt entry.
+    """A password-walled roster, one entry still carrying the retired `login: false`.
 
-    The shipped control-assistant shape in miniature: operators sign in, and the
-    standalone research service beside them (`login: false`) does not.
+    The key used to put that entry outside the wall; it puts nobody there now,
+    so the roster is gated whole.
     """
     config = copy.deepcopy(
         _config([{"name": "alice", "index": 0}, {"name": "ariel", "index": 1, "login": False}])
@@ -82,33 +82,20 @@ def _password_config() -> dict:
     return config
 
 
-def test_only_the_login_exempt_card_is_badged_behind_a_password_wall() -> None:
-    """Exactly the entry nginx does not vouch for gets the marks.
+def test_no_card_is_badged_behind_a_password_wall() -> None:
+    """Behind a wall every entry signs in, so no card gets the marks — the
+    retired `login: false` included.
 
-    Badging the signed-in card too would make the page say every terminal needs
-    a URL nobody has, which is the same failure this badge exists to fix, only
+    Badging a signed-in card would make the page say a terminal needs a URL
+    nobody has, which is the same failure this badge exists to fix, only
     inverted.
     """
     # Act
     landing_html = render_web_terminals(_password_config())["nginx/landing.html"]
 
     # Assert
-    assert _badged(landing_html) == {"ariel"}
-
-
-def test_the_badged_card_keeps_its_href_behind_a_password_wall() -> None:
-    """The badge labels the card; it does not disable it.
-
-    The `?token=` exchange mints a session cookie, so an operator who has opened
-    the login URL once returns through this very link. A card rendered inert
-    would strand them.
-    """
-    # Act
-    landing_html = render_web_terminals(_password_config())["nginx/landing.html"]
-
-    # Assert
-    href, _ = _cards(landing_html)["ariel"]
-    assert href.endswith("/u/ariel/"), href
+    assert _badged(landing_html) == set()
+    assert set(_cards(landing_html)) == {"alice", "ariel"}
 
 
 def test_every_card_is_badged_and_navigable_under_the_token_posture() -> None:

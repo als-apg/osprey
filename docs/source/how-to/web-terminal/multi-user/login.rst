@@ -126,10 +126,10 @@ set it — see :ref:`reference-ports`),
    :icon: gear
 
    The key reaches past this page: it sets how long a terminal session cookie
-   lasts wherever that cookie is used — ``osprey web``, ``auth.method:
-   token``, and ``login: false`` roster entries. For everyone who does go
-   through the login page, nginx rather than that cookie is what lets them
-   through, so here the key sets the login page's cookie.
+   lasts wherever that cookie is used — ``osprey web`` and ``auth.method:
+   token``. For everyone who goes through the login page, nginx rather than
+   that cookie is what lets them through, so here the key sets the login
+   page's cookie.
 
 ``tls.port`` is optional in the same way: nginx serves HTTPS on 443 unless you
 name another port, for a host that cannot bind 443 or already carries another
@@ -199,24 +199,11 @@ on the deploy host. A ``claims`` stanza under ``password`` resolves nothing;
    emit only the groups assigned to this application, or define app roles and
    point ``claim`` at ``roles``.
 
-Leave one entry public
-======================
-
-A roster entry that fronts a read-only service — the preset's ARIEL logbook —
-can opt out of the login wall:
-
-.. code-block:: yaml
-
-   users:
-     - name: ariel
-       index: 2
-       persona: ariel
-       login: false
-
-Only the literal ``false`` opts out; anything else means "login required". The
-entry is still gated the way every terminal is under ``token``, by its own
-login URL. A ``login: false`` entry whose persona can edit the deployment
-(``setup_patch`` or the Config panel) is refused at build and at ``osprey up``.
+Behind a proxy that re-signs TLS with a site certificate authority, the
+identity-provider fetch fails inside the login service even with the site-CA
+block in ``.env.shared`` uncommented: that service receives the three proxy
+variables and nothing else, and no site CA is mounted into its image. See
+:ref:`deployment-env-chain` for what the chain delivers to which container.
 
 .. _multi-user-shared-card:
 
@@ -259,10 +246,15 @@ credential:
            persona: readonly
            access: any                # any roster login opens this card
 
+The ``control-assistant`` preset ships its two standalone cards this way —
+``logbook`` and ``knowledge``, each ``access: any`` under ``password`` — so
+the logbook research and facility knowledge terminals are opened with any
+roster login's own password and carry no credential of their own.
+
 Who can open it: anyone this deployment can authenticate. Under ``password``
 that is every roster entry with a provisioned password; under ``oidc``, every
-entry that carries an ``oidc_subject:`` — ``login: false`` entries included,
-and the shared card itself when it carries one. On a shared card the password
+entry that carries an ``oidc_subject:``, the shared card itself included when
+it carries one. On a shared card the password
 form gains a username field: the person types their *own* roster name beside
 the password, and it is that name's stored password that is checked — and that
 name the rate limit counts against. A card that never had a password of its
@@ -304,9 +296,6 @@ build verbs that run it:
   a person keeps ``oidc_subject:`` on one card only — a login by that
   identity would otherwise be ambiguous, and is refused.
 
-``login: false`` remains the ungated option — no login wall at all, the entry
-gated only by its own login URL. ``access: any`` is the gated one: everyone
-can reach the card, but only by logging in as themselves.
 
 .. _multi-user-https:
 
@@ -411,11 +400,10 @@ A credential can outlive an account, so:
   other case — that logout is remembered in the authentication service's
   memory only, so a copy captured beforehand can be replayed until it
   expires, within ``auth.session_lifetime``.
-- **Terminal sessions are kept on disk** — the ones behind ``login: false``
-  entries here, and behind ``auth.method: token`` and ``osprey web``
-  elsewhere — so they outlive a restart of the web terminals and a change of
-  the operator secret. A password change or a decommission ends the
-  login-page session, not this one.
+- **Terminal sessions are kept on disk** — behind ``auth.method: token`` and
+  ``osprey web``, not behind the login page here — so there they outlive a
+  restart of the web terminals and a change of the operator secret. A
+  password change or a decommission ends the login-page session, not those.
 - **A shortened** ``auth.session_lifetime`` **reaches sessions already
   running** at the next restart of the web terminals, when their deadlines
   are clamped to the new value.

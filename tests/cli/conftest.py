@@ -68,8 +68,8 @@ def _neutral_color_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Redirect ``Path.home()`` and ``$HOME`` to a tmp directory.
 
-    Leak guarded: CLI code that writes under the home directory (skills install,
-    template scaffolding, hook registration) would otherwise touch the
+    Leak guarded: CLI code that writes under the home directory (template
+    scaffolding, hook registration) would otherwise touch the
     developer's real ``~``. Patching the method on ``Path`` is required because
     callers use ``Path.home()`` directly; ``$HOME`` is patched alongside it for
     subprocess-style code paths that read the environment instead.

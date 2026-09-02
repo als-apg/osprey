@@ -586,8 +586,16 @@ web:
   # `osprey feedback list` / `osprey feedback export`.
   feedback:
     # owner/repo whose new-issue form the GitHub channel prefills. Point it at
-    # the repository your users' reports should land in.
+    # the repository your users' reports should land in. Shorthand for one
+    # `github` entry under `trackers`; set it to "" to offer no GitHub channel.
     github_repo: als-apg/osprey
+    # Further issue trackers, one channel each, captioned by `label`. A
+    # `gitlab` entry takes the project's base URL (gitlab.com or self-hosted);
+    # a `github` entry takes owner/repo.
+    # trackers:
+    #   - kind: gitlab
+    #     url: https://git.example.org/controls/osprey
+    #     label: Facility GitLab
     # Recipient of the prefilled mailto: draft the Email channel opens.
     email: thellert@lbl.gov
     # Ceiling in bytes on the on-disk feedback store (256 MB). Above it the

@@ -138,7 +138,7 @@ def _send_body(**overrides: Any) -> dict[str, Any]:
 # ---- POST /api/feedback: records ----
 
 
-@pytest.mark.parametrize("channel", ["local", "github", "email"])
+@pytest.mark.parametrize("channel", ["local", "github", "gitlab", "email"])
 def test_send_writes_one_record_carrying_its_channel(env: _Env, channel: str) -> None:
     response = env.client.post("/api/feedback", json=_send_body(channel=channel))
 
@@ -171,8 +171,9 @@ def test_send_keeps_the_full_text_and_context_in_the_record(env: _Env) -> None:
     assert env.headers()[0]["excerpt"]
 
 
-def test_send_stamps_the_payload_digest_only_for_outbound_channels(env: _Env) -> None:
-    outbound = env.client.post("/api/feedback", json=_send_body(channel="github")).json()
+@pytest.mark.parametrize("channel", ["github", "gitlab", "email"])
+def test_send_stamps_the_payload_digest_only_for_outbound_channels(env: _Env, channel: str) -> None:
+    outbound = env.client.post("/api/feedback", json=_send_body(channel=channel)).json()
     header = env.headers()[0]
     encoded = outbound["payload"].encode("utf-8")
     assert header["bundle_bytes"] == len(encoded)
@@ -183,6 +184,31 @@ def test_send_stamps_the_payload_digest_only_for_outbound_channels(env: _Env) ->
     env.client.post("/api/feedback", json=_send_body(channel="local"))
     assert "bundle_sha256" not in env.headers()[0]
     assert "bundle_bytes" not in env.headers()[0]
+
+
+@pytest.mark.parametrize(
+    ("channel", "tracker"),
+    [("github", "facility/fork"), ("gitlab", "https://git.example.org/controls/osprey")],
+)
+def test_send_records_which_tracker_the_report_went_to(
+    env: _Env, channel: str, tracker: str
+) -> None:
+    """With several trackers configured, "github" alone no longer says where."""
+    env.client.post("/api/feedback", json=_send_body(channel=channel, tracker=tracker))
+    assert env.headers()[0]["tracker"] == tracker
+
+
+@pytest.mark.parametrize("channel", ["local", "email"])
+def test_tracker_is_not_stamped_on_channels_that_have_none(env: _Env, channel: str) -> None:
+    env.client.post("/api/feedback", json=_send_body(channel=channel, tracker="facility/fork"))
+    assert "tracker" not in env.headers()[0]
+
+
+def test_an_oversized_tracker_string_is_refused(env: _Env) -> None:
+    response = env.client.post(
+        "/api/feedback", json=_send_body(channel="github", tracker="x" * 513)
+    )
+    assert response.status_code == 422
 
 
 # ---- POST /api/feedback: the byte cap ----

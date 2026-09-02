@@ -38,6 +38,18 @@ _DEFAULT_DB_NAME = "ariel"
 #: mints a real password into the project ``.env``.
 _DEFAULT_DB_PASSWORD = "ariel"
 
+#: Store-address overrides for the *derived* DSN. A process inside the compose
+#: network reaches Postgres by its service name on the in-network port, not by
+#: ``localhost`` on the published host port, and it says so with these two
+#: variables rather than by carrying a second DSN that would have to be kept in
+#: step with ``services.postgresql``.
+_DB_HOST_ENV_VAR = "ARIEL_DATABASE_HOST"
+_DB_PORT_ENV_VAR = "ARIEL_DATABASE_PORT"
+
+#: The host a derived DSN dials when nothing overrides it: the machine the
+#: deployment runs on, where the compose service publishes ``port_host``.
+_DEFAULT_DB_HOST = "localhost"
+
 #: Dotted prefix of the facility-vocabulary block, so every message this module
 #: raises or reports names the key an operator would edit rather than a bare
 #: field name. Mirrors ``_SETTINGS_PREFIX`` in ``search/qmd.py``.
@@ -70,17 +82,25 @@ def resolve_ariel_dsn(
          as the effective ``uri``, with a once-per-process warning naming the
          key that replaced it.  It is never discarded in favor of the derived
          DSN — a project pointed at a real database keeps reaching it.
-      3. Otherwise: ``postgresql://{username}:{password}@localhost:{port_host}/
+      3. Otherwise: ``postgresql://{username}:{password}@{host}:{port}/
          {database_name}``, where password reads ``ARIEL_DB_PASSWORD`` from the
          environment (the same value the compose service reads as
-         ``POSTGRES_PASSWORD``) and falls back to ``ariel``.
+         ``POSTGRES_PASSWORD``) and falls back to ``ariel``; host is
+         ``ARIEL_DATABASE_HOST`` or ``localhost``; and port is
+         ``ARIEL_DATABASE_PORT`` or the ``port_host`` above.
+
+    The two store-address overrides apply in that third rung ONLY. An explicit
+    ``uri`` — and the legacy alias — names a database this deployment may not
+    run at all, so redirecting it would point the agent at a different store
+    than the project asked for.
 
     Args:
         ariel_section: The ``ariel`` section from config.yml.
         services: The ``services.postgresql`` mapping from config.yml, or None
             when the caller has no services block — the derived DSN then falls
             back to the shipped Postgres defaults.
-        env: Where to read ``ARIEL_DB_PASSWORD`` from. Defaults to the process
+        env: Where to read ``ARIEL_DB_PASSWORD``, ``ARIEL_DATABASE_HOST`` and
+            ``ARIEL_DATABASE_PORT`` from. Defaults to the process
             environment, which is what every in-container consumer wants. A
             caller acting ON a project rather than IN it — the deploy, which
             migrates a store it is bringing up — passes that project's own
@@ -98,6 +118,10 @@ def resolve_ariel_dsn(
 
     Returns:
         The DSN to connect with.
+
+    Raises:
+        ValueError: If ``ARIEL_DATABASE_PORT`` is set to something that is not
+            an integer port number.
     """
     database = ariel_section.get("database") or {}
 
@@ -110,15 +134,44 @@ def resolve_ariel_dsn(
         _warn_once_connection_string_retired()
         return str(legacy_uri)
 
+    source: Mapping[str, str] = env if env is not None else os.environ
     postgresql = services or {}
     username = postgresql.get("username", _DEFAULT_DB_USERNAME)
     database_name = postgresql.get("database_name", _DEFAULT_DB_NAME)
-    port = postgresql.get("port_host", default_port("postgres", base=base))
-    password = (env if env is not None else os.environ).get(
-        "ARIEL_DB_PASSWORD", _DEFAULT_DB_PASSWORD
-    )
+    password = source.get("ARIEL_DB_PASSWORD", _DEFAULT_DB_PASSWORD)
 
-    return f"postgresql://{username}:{password}@localhost:{port}/{database_name}"
+    host = _env_override(source, _DB_HOST_ENV_VAR) or _DEFAULT_DB_HOST
+
+    port: Any = postgresql.get("port_host", default_port("postgres", base=base))
+    port_override = _env_override(source, _DB_PORT_ENV_VAR)
+    if port_override is not None:
+        try:
+            port = int(port_override)
+        except ValueError as exc:
+            raise ValueError(
+                f"{_DB_PORT_ENV_VAR} must be an integer port number, got {port_override!r}"
+            ) from exc
+
+    return f"postgresql://{username}:{password}@{host}:{port}/{database_name}"
+
+
+def _env_override(source: Mapping[str, str], name: str) -> str | None:
+    """Read one store-address override, treating a blank value as unset.
+
+    Args:
+        source: Environment mapping to read from.
+        name: Variable name.
+
+    Returns:
+        The stripped value, or None when the variable is absent or blank. A
+        compose file that interpolates a key the deployment never configured
+        hands the container an empty string; dialing it would fail without
+        naming either the key or the deployment that left it unset.
+    """
+    value = source.get(name)
+    if value is None:
+        return None
+    return value.strip() or None
 
 
 def _warn_once_connection_string_retired() -> None:

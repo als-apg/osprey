@@ -554,6 +554,15 @@ class TestHostNetworkDerivation:
         assert bindings == []
         assert "host network" not in caplog.text
 
+    def test_the_ariel_sync_poller_neither_derives_nor_warns(self, caplog):
+        """``ariel_sync`` is an outbound-only poller with no listening socket,
+        same as the bundled bridges; a warning for it would be noise on a
+        valid config."""
+        with caplog.at_level("WARNING"):
+            bindings = derive_host_network_bindings(_host_config(ariel_sync={"network": "host"}))
+        assert bindings == []
+        assert "host network" not in caplog.text
+
     def test_both_halves_on_host_derive_both(self):
         bindings = derive_host_network_bindings(
             _host_config(

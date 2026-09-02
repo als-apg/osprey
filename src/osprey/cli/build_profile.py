@@ -56,6 +56,7 @@ from .build_profile_resolve import (
 )
 from .build_profile_schema import (
     BlueskyConfig,
+    BlueskyExternalConfig,
     BlueskyWebConfig,
     DispatchConfig,
     EnvConfig,
@@ -73,6 +74,7 @@ __all__ = [
     "EXTENDS_OVERRIDE_REFUSAL",
     "PROFILE_FILENAME",
     "BlueskyConfig",
+    "BlueskyExternalConfig",
     "BlueskyWebConfig",
     "BuildProfile",
     "DispatchConfig",

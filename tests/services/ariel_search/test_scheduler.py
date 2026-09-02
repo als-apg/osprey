@@ -17,6 +17,7 @@ from osprey.services.ariel_search.config import (
 from osprey.services.ariel_search.ingestion.scheduler import (
     IngestionPollResult,
     IngestionScheduler,
+    StopReason,
 )
 
 
@@ -600,6 +601,55 @@ class TestIngestionScheduler:
 
         # Verify it ran at least one poll and stopped
         repository.start_ingestion_run.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_run_forever_returns_failure_cap(self, repository) -> None:
+        """run_forever() reports FAILURE_CAP when the failure cap ends the loop."""
+        config = _make_config(max_failures=2, poll_interval=0)
+        scheduler = IngestionScheduler(config=config, repository=repository)
+        scheduler.poll_once = AsyncMock(side_effect=ConnectionError("API down"))
+
+        reason = await asyncio.wait_for(scheduler.run_forever(), timeout=5.0)
+
+        assert reason is StopReason.FAILURE_CAP
+        assert scheduler.poll_once.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_run_forever_returns_signal_on_stop(self, config, repository) -> None:
+        """run_forever() reports SIGNAL when stop() ends the loop."""
+        scheduler = IngestionScheduler(config=config, repository=repository)
+        poll_result = IngestionPollResult(
+            entries_added=0,
+            entries_updated=0,
+            entries_failed=0,
+            duration_seconds=0.1,
+            since=None,
+        )
+
+        async def _poll(dry_run=False):
+            await scheduler.stop()
+            return poll_result
+
+        scheduler.poll_once = AsyncMock(side_effect=_poll)
+
+        reason = await asyncio.wait_for(scheduler.run_forever(), timeout=5.0)
+
+        assert reason is StopReason.SIGNAL
+        assert scheduler.poll_once.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_run_forever_returns_signal_when_stopped_before_start(
+        self, config, repository
+    ) -> None:
+        """run_forever() reports SIGNAL when stop() was called before it ran."""
+        scheduler = IngestionScheduler(config=config, repository=repository)
+        scheduler.poll_once = AsyncMock()
+        await scheduler.stop()
+
+        reason = await asyncio.wait_for(scheduler.run_forever(), timeout=5.0)
+
+        assert reason is StopReason.SIGNAL
+        scheduler.poll_once.assert_not_called()
 
 
 class TestIngestionRunTracking:

@@ -55,9 +55,8 @@ exceptions:
      after — only the page's honesty about it. The cards keep their hrefs (the
      ``?token=`` exchange leaves a session cookie, so the link is a real return
      path), so nothing about navigation changes either. Under ``password``, the
-     posture whose cards this baseline does not cover, the marks appear on the
-     ``login: false`` entries alone; ``test_landing_token_badge.py`` pins that
-     split.
+     posture whose cards this baseline does not cover, no card carries the
+     marks; ``test_landing_token_badge.py`` pins that split.
 
 Everything else — every volume, header, ``location`` block, comment and blank
 line, and every port *site* (see the mask below) — must be untouched, with one
@@ -319,6 +318,18 @@ _REWORDED_COMPOSE_LINES = frozenset(
     }
 )
 
+#: Two comment lines in the `token` render's ungated location, as the frozen
+#: baseline worded them when a roster entry could still declare `login: false`
+#: and land on the same branch. That key is retired, so the comment no longer
+#: names it; these exact lines — and ONLY these — may be replaced in the
+#: `token` render. The directives around them are untouched.
+_REWORDED_NGINX_LINES = frozenset(
+    {
+        "        # off, or this entry declared `login: false` — so the two headers that",
+        "        # carry one are handled the other way round from the gated branch above.",
+    }
+)
+
 #: Task 4.7 (nginx-identity-headers), ungated arm. Four clears per `/u/<user>/`
 #: location, and NOTHING else: no `auth_request_set`, no forward, no `/auth/`
 #: location — those render only with authentication on.
@@ -494,6 +505,10 @@ def test_the_frozen_baseline_really_predates_the_feature() -> None:
         )
 
     nginx = (_BASELINE_DIR / "nginx.conf").read_text()
+    for line in _REWORDED_NGINX_LINES:
+        assert line in nginx, (
+            f"the frozen baseline lacks the pre-retirement comment it is said to carry: {line!r}"
+        )
     assert "X-Osprey-Auth-Subject" not in nginx
     assert "X-Osprey-Auth-Role" not in nginx
 
@@ -579,6 +594,8 @@ def test_no_pre_feature_line_is_removed_or_reworded() -> None:
         replaceable = (
             _REPLACED_COMPOSE_LINES | _REWORDED_COMPOSE_LINES
             if name == "docker-compose.web.yml"
+            else _REWORDED_NGINX_LINES
+            if name == "nginx.conf"
             else frozenset()
         )
         lost = [

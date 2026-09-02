@@ -50,8 +50,6 @@ user       role           persona     what only this entry can prove
                                       account and subject but NEITHER a role
                                       nor a role-source header at all —
                                       absent, never present-and-blank.
-``kiosk``  (none)         probe stub  ``login: false``: the ungated branch
-                                      forwards NONE of the four.
 ``dave``   (none)         probe stub  A role the boundary cannot carry refuses
                                       the login 403 instead of poisoning a
                                       header (see FAULT INJECTION below).
@@ -65,9 +63,10 @@ compares the two against the same value. That makes these assertions a proof
 of nginx TRANSPORT — that the sidecar's ``X-Osprey-Auth-Account`` is captured
 from the ``/verify`` answer, forwarded exactly once, replaces a client-forged
 copy rather than joining it, and is cleared on the ungated arm — and NOT a
-proof of OIDC semantics, where an account and a subject actually diverge. The
-OIDC half is unit-covered instead, because the repo has no OIDC e2e harness to
-drive a real IdP login through this chain.
+proof of OIDC semantics, where an account and a subject actually diverge. That
+half is ``tests/deployment/web_terminals/test_auth_serving_oidc.py``: one OIDC
+login through the rendered nginx and the real sidecar, against a stub provider
+in the serving harness's network namespace.
 
 **The persona each user runs is decided by the ROLE, never by a ``persona:``
 pin.** That is not incidental to the fixture — it is the FR6 mechanism under
@@ -94,19 +93,10 @@ naming a header in a location's proxy-header table replaces whatever the client
 sent under that name. The template forbids a second directive for the same name
 in the same location, so the COUNT below is a duplicate-forward regression
 guard, not a claim that nginx skipped an empty clear. The unconditional
-``proxy_set_header ... "";`` clears live in the UNGATED locations instead — the
-exempt ``/u/kiosk/`` and each ``/_osprey_auth/<user>`` subrequest — where there
-is no sidecar answer to forward and the clear is the only thing standing
-between a client's header and the upstream. That is what
-``test_the_exempt_branch_forwards_no_identity_header`` proves.
-
-WHAT THE EXEMPT BRANCH DOES NOT PROVE HERE: it runs against the alpine stub, so
-this lane shows only that nginx forwards none of the identity headers on the
-ungated arm. It does not show that a ``login: false`` terminal is actually
-usable by an anonymous person on a REAL image, where the same arm also
-clears the operator secret and forwards only the app's own session cookie.
-``tests/e2e/web_terminals/test_terminal_auth_multiuser_e2e.py`` drives that
-ungated arm against a real ``osprey web``, so the pair covers it.
+``proxy_set_header ... "";`` clears live in the UNGATED locations instead —
+each ``/_osprey_auth/<user>`` subrequest — where there is no sidecar answer to
+forward and the clear is the only thing standing between a client's header and
+the upstream.
 
 Alice's persona is the real thing for the complementary reason: the ledger
 assertions need the real audit writer, the real ``/api/config`` protected-set
@@ -252,13 +242,11 @@ ROLE_SOURCE_ROSTER = "roster"
 REAL_USER = "alice"
 HEADER_USER = "bob"
 NO_ROLE_USER = "carol"
-EXEMPT_USER = "kiosk"
 UNSAFE_ROLE_USER = "dave"
 #: Declaration order is roster order, and roster order is index order.
-USERS = (REAL_USER, HEADER_USER, NO_ROLE_USER, EXEMPT_USER, UNSAFE_ROLE_USER)
-#: Every entry that authenticates. ``kiosk`` is exempt and gets no credential —
-#: provisioning mints none for a ``login: false`` entry.
-LOGIN_USERS = (REAL_USER, HEADER_USER, NO_ROLE_USER, UNSAFE_ROLE_USER)
+USERS = (REAL_USER, HEADER_USER, NO_ROLE_USER, UNSAFE_ROLE_USER)
+#: Every entry that authenticates — the whole roster, behind a password wall.
+LOGIN_USERS = USERS
 
 #: This module's own thousand-port block (see test_dispatch_deploy.py's 20700
 #: note): everything not pinned explicitly follows it instead of landing on a
@@ -719,10 +707,6 @@ def _roster() -> list[dict[str, Any]]:
             entry["role"] = ROLE_OPERATOR
         elif user == HEADER_USER:
             entry["role"] = ROLE_OBSERVER
-        if user == EXEMPT_USER:
-            # Only the literal boolean False exempts an entry; absent or True
-            # both mean "login required".
-            entry["login"] = False
         entries.append(entry)
     return entries
 
@@ -797,15 +781,13 @@ def _override_text() -> str:
 #: both required and both TRUE of the stub: it serves no Config panel and runs
 #: no agent, so the persona holds neither deployment-editing surface.
 #:
-#: This is not fixture ceremony. ``kiosk`` carries ``login: false``, and the
-#: build refuses an open terminal whose persona it cannot READ — "a persona
-#: nobody can read cannot be shown to hold anything less than both surfaces".
-#: A hand-written project has no readable delta by default, which is why the
-#: two lanes this one reuses have no exempt user at all. Declaring the delta is
-#: therefore the shape a facility would have to use for a public kiosk too:
-#: the exempt entry runs an explicitly unprivileged tier, and the guard is
-#: satisfied by the persona being harmless rather than by the check being
-#: skipped.
+#: This is not fixture ceremony. The build refuses a shared card whose persona
+#: it cannot READ — "a persona nobody can read cannot be shown to hold anything
+#: less than both surfaces" — and a hand-written project has no readable delta
+#: by default. Declaring the delta is the shape a facility has to use for any
+#: hand-written persona it means to share: the entry runs an explicitly
+#: unprivileged tier, and the guard is satisfied by the persona being harmless
+#: rather than by the check being skipped.
 _PROBE_DELTA = {
     "config": {
         # `web.config_panel.enabled` — the panel is ON unless a layer turns it
@@ -831,8 +813,7 @@ def _add_persona_catalog(repo: Path, terminal_path: Path, probe_path: Path) -> N
     remedy materialization itself names for a hand-written persona.
 
     The probe entry additionally names a ``build_profile`` and the delta is
-    written beside the profile (see :data:`_PROBE_DELTA` for why the exempt
-    entry forces this). One side effect is worth knowing about rather than
+    written beside the profile (see :data:`_PROBE_DELTA`). One side effect is worth knowing about rather than
     being surprised by: ``osprey build`` materializes a project from that delta
     under ``build/<project name>-probe/``. Nothing uses it — the catalog's
     ``project_path`` is what every reader of a persona's project consults, and
@@ -1362,7 +1343,7 @@ def test_alices_container_runs_the_persona_her_role_named(deployment: dict[str, 
     assert _container_image(_web_container(REAL_USER)) == TERMINAL_IMAGE_TAG, (
         f"{REAL_USER}'s role did not resolve to the {TERMINAL_PERSONA!r} persona"
     )
-    for user in (HEADER_USER, NO_ROLE_USER, EXEMPT_USER, UNSAFE_ROLE_USER):
+    for user in (HEADER_USER, NO_ROLE_USER, UNSAFE_ROLE_USER):
         assert _container_image(_web_container(user)) == PROBE_IMAGE_TAG, (
             f"{user} did not resolve to the {PROBE_PERSONA!r} persona"
         )
@@ -1429,7 +1410,7 @@ def test_the_upstream_receives_exactly_one_of_each_identity_header(
     because this lane is password-only, where the account IS the subject. So
     what its arrival proves is nginx TRANSPORT — captured from ``/verify``,
     forwarded once, uncorrupted — and not OIDC semantics, where the two
-    diverge; that half is unit-covered, there being no OIDC e2e harness.
+    diverge; that half is ``tests/deployment/web_terminals/test_auth_serving_oidc.py``.
     """
     report = _probe_report(HEADER_USER, opener=deployment["sessions"][HEADER_USER])
     assert _forwarded(report, ACCOUNT_HEADER) == [HEADER_USER], (
@@ -1462,8 +1443,7 @@ def test_a_client_forged_identity_header_never_reaches_the_upstream(
     proxy-header table replaces whatever the client sent under it. Delete those
     forwards and the forged values arrive verbatim, which is what makes this
     assert honest; the unconditional empty clears this lane also relies on are
-    in the ungated locations and are proved by
-    ``test_the_exempt_branch_forwards_no_identity_header``. The forged
+    in the ungated ``/_osprey_auth/<user>`` subrequest locations. The forged
     role-source is the sharpest of the four: a client that could name its own
     provenance would be able to dress a roster role up as an IdP claim, so the
     gated forward has to win over the forgery there too.
@@ -1528,47 +1508,6 @@ def test_a_session_with_no_role_forwards_an_account_and_subject_and_no_role_head
     )
     assert _forwarded(report, ROLE_SOURCE_HEADER) == [], (
         f"{ROLE_SOURCE_HEADER} arrived beside no role at all: {report}"
-    )
-
-
-def test_the_exempt_branch_forwards_no_identity_header(deployment: dict[str, Any]) -> None:
-    """SC4: a ``login: false`` location establishes no identity, so it forwards none.
-
-    ``kiosk`` sits on the ungated branch: nginx runs no ``auth_request`` for it,
-    so there is no sidecar answer to forward — and the unconditional clears mean
-    the terminal receives none of the four headers rather than empty ones.
-    Reached with no credential at all, which is what ``login: false`` means.
-
-    Forged headers are sent on the same request: the ungated branch is the one
-    where a client could most plausibly hope to supply its own identity, and the
-    clears are the only thing stopping it. All four identity headers are
-    forged and all four have to be absent — the role-source clear included,
-    since a provenance arriving where no identity was established would be a
-    claim about a role the branch never resolved, and the account clear most of
-    all, since an account arriving on the ungated arm is an unauthenticated
-    client naming itself to the upstream.
-    """
-    report = _probe_report(
-        EXEMPT_USER,
-        headers={
-            **_navigation(),
-            ACCOUNT_HEADER: "root",
-            SUBJECT_HEADER: "root",
-            ROLE_HEADER: "admin",
-            ROLE_SOURCE_HEADER: "claim",
-        },
-    )
-    assert _forwarded(report, ACCOUNT_HEADER) == [], (
-        f"the exempt branch forwarded {ACCOUNT_HEADER}: {report}"
-    )
-    assert _forwarded(report, SUBJECT_HEADER) == [], (
-        f"the exempt branch forwarded {SUBJECT_HEADER}: {report}"
-    )
-    assert _forwarded(report, ROLE_HEADER) == [], (
-        f"the exempt branch forwarded {ROLE_HEADER}: {report}"
-    )
-    assert _forwarded(report, ROLE_SOURCE_HEADER) == [], (
-        f"the exempt branch forwarded {ROLE_SOURCE_HEADER}: {report}"
     )
 
 

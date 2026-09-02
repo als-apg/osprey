@@ -179,8 +179,14 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         env={
             "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
             "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
-            # Full-URL override of the in-JVM bridge (default 127.0.0.1:7979).
-            "PHOEBUS_BRIDGE_URL": "${PHOEBUS_BRIDGE_URL:-http://127.0.0.1:7979}",
+            # Full-URL override of the in-JVM bridge. The host env var wins;
+            # the fallback resolves at render time from the deployment's own
+            # phoebus.host/phoebus.port (default 127.0.0.1:7979). A literal
+            # default here would materialize the env var on every launch and —
+            # because the env var wins outright in phoebus_bridge_url() — pin
+            # the client to 7979 while the backend renders onto the configured
+            # port (osprey #829).
+            "PHOEBUS_BRIDGE_URL": "${PHOEBUS_BRIDGE_URL:-{phoebus_bridge_default}}",
             # Instance identity — tools tag UI signals with it (open_panel →
             # panel_focus targets the matching web-terminal tab). extends
             # clones get this auto-rewritten to their own name.
@@ -1409,8 +1415,18 @@ def _resolve_placeholder(value: str, ctx: dict) -> str:
     - ``{project_root}`` → ctx["project_root"]
     - ``{current_python_env}`` → ctx["current_python_env"]
     - ``{channel_finder_pipeline}`` → ctx["channel_finder_pipeline"]
+    - ``{phoebus_bridge_default}`` → ctx["phoebus_bridge_default"], the
+      render-time bridge URL derived from ``phoebus.host``/``phoebus.port``
+      (``http://127.0.0.1:7979`` when the context carries none — a caller
+      that skips config_derived_context keeps the stock default)
     - ``${...}`` env-var references are left untouched (resolved at runtime)
     """
+    if "{phoebus_bridge_default}" in value:
+        value = value.replace(
+            "{phoebus_bridge_default}",
+            str(ctx.get("phoebus_bridge_default", "http://127.0.0.1:7979")),
+        )
+
     if "{channel_finder_pipeline}" in value:
         value = value.replace(
             "{channel_finder_pipeline}",

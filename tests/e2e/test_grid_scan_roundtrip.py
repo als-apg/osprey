@@ -147,21 +147,22 @@ def deployed_grid_scan_stack(
     # The plan devices are authored BETWEEN `init` and `build`: the build copies
     # <repo>/data into the build zone and stages the device file it finds there
     # for the queueserver worker, so a set written after the build would never
-    # reach a container. Selected from the repo's own data/channel_limits.json —
-    # the same bytes the build copies to build/data, and the only copy that
-    # exists this early.
+    # reach a container. Selected from the repo's own channel roster — the same
+    # channel database the build materializes for the deployed channel finder,
+    # read here from the tier the profile pins because that is the only copy
+    # that exists this early.
     correctors: dict[str, tuple[str, str]] = {}
     bpms: dict[str, str] = {}
 
     def author_devices(repo: Path) -> None:
         nonlocal correctors, bpms
-        limits = _orm_stack.channel_limits(repo)
+        records = _orm_stack.roster_records(repo)
         # A single corrector/BPM pair is all a 1-axis grid_scan needs -- unlike
         # the orm plan, grid_scan doesn't sweep every named corrector against
         # every named detector, so there is no benefit to _orm_stack's usual
         # DEFAULT_CORRECTOR_COUNT/DEFAULT_BPM_COUNT of 4.
-        correctors = _orm_stack.select_correctors(limits, count=1)
-        bpms = _orm_stack.select_bpms(limits, count=1)
+        correctors = _orm_stack.select_correctors(records, count=1)
+        bpms = _orm_stack.select_bpms(records, count=1)
         _orm_stack.write_devices_file(repo, correctors=correctors, bpms=bpms)
 
     # The deployment REPO: `osprey up` runs here, `.env` lives here, and the

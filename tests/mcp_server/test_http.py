@@ -14,6 +14,7 @@ request, and a rejected credential (401) degrading quietly rather than raising.
 
 from __future__ import annotations
 
+import os
 import urllib.error
 from unittest.mock import MagicMock, patch
 
@@ -96,6 +97,26 @@ def test_phoebus_bridge_url_default(patch_config, monkeypatch):
     monkeypatch.delenv("PHOEBUS_BRIDGE_PORT", raising=False)
     with patch_config({}):
         assert http.phoebus_bridge_url() == "http://127.0.0.1:7979"
+
+
+@pytest.mark.unit
+def test_phoebus_bridge_url_config_values(patch_config, monkeypatch):
+    """With no env overrides, phoebus.host/phoebus.port answer (#829)."""
+    monkeypatch.delenv("PHOEBUS_BRIDGE_URL", raising=False)
+    monkeypatch.delenv("PHOEBUS_BRIDGE_PORT", raising=False)
+    with patch_config({"phoebus": {"host": "127.0.0.1", "port": 19921}}):
+        assert http.phoebus_bridge_url() == "http://127.0.0.1:19921"
+
+
+@pytest.mark.unit
+def test_phoebus_bridge_default_pure():
+    """The shared config-half helper: configured, defaulted, and a bare `phoebus:` key."""
+    assert http.phoebus_bridge_default({}) == "http://127.0.0.1:7979"
+    assert http.phoebus_bridge_default({"phoebus": None}) == "http://127.0.0.1:7979"
+    assert (
+        http.phoebus_bridge_default({"phoebus": {"host": "10.0.0.5", "port": 19921}})
+        == "http://10.0.0.5:19921"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -670,3 +691,59 @@ def test_fetch_panels_header_failure_degrades_to_none():
     ):
         assert http.fetch_panels() is None
     assert mock_logger.warning.called
+
+
+# ---------------------------------------------------------------------------
+# Panel bearer: carrier -> latch -> this process's own credential holder
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_panel_auth_headers_fall_back_to_in_process_credentials(monkeypatch):
+    """With no carrier in the environment, the bearer is the panel token this
+    process already holds — the one a gallery auto-launched in-thread verifies,
+    so the process is not refused by its own gallery."""
+    from osprey.interfaces.web_auth import (
+        BIND_HOST_ENV,
+        OPERATOR_SECRET_ENV,
+        PANEL_TOKEN_ENV,
+        get_web_credentials,
+    )
+
+    for name in (PANEL_TOKEN_ENV, OPERATOR_SECRET_ENV, BIND_HOST_ENV):
+        monkeypatch.delenv(name, raising=False)
+    held = get_web_credentials()  # what building an interface app in-thread does
+    assert PANEL_TOKEN_ENV not in os.environ
+
+    assert http._panel_auth_headers() == {"Authorization": f"Bearer {held.panel_token}"}
+
+
+@pytest.mark.unit
+def test_panel_auth_headers_send_nothing_when_nothing_is_held(monkeypatch):
+    """No carrier, no latch, no holder: no bearer at all, never a minted one."""
+    from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, peek_web_credentials
+
+    monkeypatch.delenv(PANEL_TOKEN_ENV, raising=False)
+    assert peek_web_credentials() is None
+
+    assert http._panel_auth_headers() == {}
+    assert peek_web_credentials() is None  # the lookup did not populate anything
+
+
+@pytest.mark.unit
+def test_panel_auth_headers_prefer_the_carrier_over_the_holder(monkeypatch):
+    """A carrier handed in by the launching process wins over the local holder."""
+    from osprey.interfaces.web_auth import (
+        BIND_HOST_ENV,
+        OPERATOR_SECRET_ENV,
+        PANEL_TOKEN_ENV,
+        get_web_credentials,
+    )
+
+    for name in (PANEL_TOKEN_ENV, OPERATOR_SECRET_ENV, BIND_HOST_ENV):
+        monkeypatch.delenv(name, raising=False)
+    held = get_web_credentials()
+    monkeypatch.setenv(PANEL_TOKEN_ENV, "handed-in")
+
+    assert http._panel_auth_headers() == {"Authorization": "Bearer handed-in"}
+    assert held.panel_token != "handed-in"

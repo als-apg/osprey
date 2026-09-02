@@ -308,10 +308,10 @@ def _web_terminal_group(
         if persona:
             rights.append(persona)
             rights.extend(_write_rights(profile, persona_deltas, persona))
-        if user.get("login") is False:
-            # The one warning tone on the card: an open surface must not be
-            # skimmed past, so `password` stays dim precisely to keep it alone.
-            auth_cell: Cell = [("no login", Styles.WARNING)]
+        if auth_method and user.get("access") == "any":
+            # A shared card: behind the wall, opened with any roster login's
+            # own credential rather than one of its own.
+            auth_cell: Cell = _dotted_list([str(auth_method), "shared"])
         elif auth_method:
             auth_cell = [(str(auth_method), Styles.DIM)]
         else:

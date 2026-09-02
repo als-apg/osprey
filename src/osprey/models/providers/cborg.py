@@ -43,6 +43,7 @@ class CBorgProviderAdapter(LiteLLMDelegatingProvider):
 
     # LiteLLM integration - CBORG is an OpenAI-compatible proxy
     is_openai_compatible = True
+    gateway = "litellm"  # a LiteLLM proxy — requests carry the acting identity
     supports_native_structured_output = True  # proxies to models with native json_schema support
 
     # execute_completion / check_health inherited from LiteLLMDelegatingProvider.

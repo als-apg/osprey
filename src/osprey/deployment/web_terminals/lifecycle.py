@@ -110,7 +110,6 @@ from osprey.deployment.web_terminals.personas import (
     as_dict,
     effective_image_source,
     entry_is_shared,
-    entry_requires_login,
     env_var_suffix,
     freeze_user_indices,
     normalize_users,
@@ -933,16 +932,7 @@ def rotate_user_password(config_path: str | Path, user: str, password: str) -> N
         raise ValueError(
             f"User {user!r} is not present in modules.web_terminals.users; no password was changed."
         )
-    # On the roster, but outside the login wall: no gate ever consults a hash
-    # for this entry, so "changing its password" would store a credential
-    # nothing checks while telling the operator it took effect.
-    if not any(entry["name"] == user and entry_requires_login(entry) for entry in roster):
-        raise ValueError(
-            f"User {user!r} has 'login: false' in modules.web_terminals.users, so its "
-            "terminal is served without authentication and has no password to change. "
-            "Remove that key to put the entry behind the login wall; nothing was modified."
-        )
-    # On the roster and behind the wall, but shared: /verify checks the
+    # On the roster, but shared: /verify checks the
     # OPENER's credential for a shared card, so no hash of its own is ever
     # provisioned or consulted — "changing its password" would store a
     # credential nothing checks while telling the operator it took effect.

@@ -39,6 +39,7 @@ which devices share a PV.
    - Why the server can only read, and what it refuses before dialing
    - What each degraded state means and the remedy it names
    - How to generate a graph corpus from your own channel databases
+   - Why the corpus is the deployment's channel list, not only a search index
    - How to point the tools at a store the facility already runs
 
    **Prerequisites:** a project with a ``services.graphdb`` block — the
@@ -373,22 +374,51 @@ address the virtual accelerator does not serve. Both are the documented shapes
 of those smaller views, not a mismatch. A build with a channel database of your
 own restores the correspondence by regenerating the corpus from it.
 
+The corpus is the channel list, not only a search index
+-------------------------------------------------------
+
+On a graph-mode build the corpus is what the deployment answers "which channels
+does this facility have" with. Three places read it and get the same list:
+
+* **The queue server's devices.** With no device file of your own, ``osprey
+  build`` derives the plan device set from the corpus: every write-direction
+  binding becomes a settable, every read-direction one a readable. A settable
+  takes the ``:RB`` sibling of its ``:SP`` address as its readback where the
+  corpus enumerates that address as a read binding, and otherwise carries none.
+  See :doc:`../bluesky/write-plans`.
+* **The channel finder in graph mode.** It keeps no database of its own and
+  turns phrases into addresses out of this same corpus.
+* **The channel finder's web view.** Its channel list serves the corpus's
+  addresses and their total, and a name checked against it is checked for
+  membership in the corpus.
+
+Because the direction of a binding is a property of the graph rather than a
+guess from the address, a graph-mode build reads the settable/readable split
+straight out of the corpus. A build on one of the file-backed paradigms has to
+derive that split instead — from the write-limits file, or failing that from
+the ``:SP`` address grammar — because no paradigm database records a
+direction.
+
+Where the corpus cannot be read — the store belongs to the facility and this
+deployment holds no ``.ttl`` file, or ``services.graphdb.ttl_path`` points at
+nothing — the web view says it has nothing to enumerate from and names that
+key, rather than reporting a facility with no channels. The rest of the app
+starts as usual, and the graph tools keep answering from the store.
+
 
 Multi-User Operator Terminals
 =============================
 
-The ``control-assistant-readonly`` and ``control-assistant-readwrite`` personas
-(:doc:`../web-terminal/multi-user/index`) get the same facility-knowledge-graph agent and its tools,
-reading the hosting deployment's store. They are attached renders — they deploy no services of their own — so
-they have to be told which port that store is published on. Per-user web
-terminal containers run with ``network_mode: host``, so a container's
-``localhost`` *is* the deployment host, and both presets pin the bolt port
-directly:
-
-.. code-block:: yaml
-
-   config:
-     services.graphdb.port_host: 7687
+The ``control-assistant-readonly``, ``control-assistant-readwrite`` and
+``control-assistant-admin`` personas (:doc:`../web-terminal/multi-user/index`)
+get the same facility-knowledge-graph agent and its tools, reading the hosting
+deployment's store, and — the preset runs ``channel_finder_mode: graph`` — a
+channel finder that answers from it too. They are attached renders — they
+deploy no services of their own — so they have to be told which port that
+store is published on. Per-user web terminal containers run with
+``network_mode: host``, so a container's ``localhost`` *is* the deployment
+host, and the build copies the bolt port from the hosting deployment's own
+render into each persona.
 
 Two consequences worth knowing before you move anything:
 
@@ -407,8 +437,12 @@ Two consequences worth knowing before you move anything:
 The read-only persona receives ``GRAPHDB_PASSWORD`` as well. The store has a
 single write-capable account, so read-only-ness here is enforced by the graph
 server's read transaction rather than by the credential — the same posture the
-ARIEL database credential already takes. ``control-assistant-ariel`` has no
-control surface and no graph tools by design.
+ARIEL database credential already takes. ``control-assistant-logbook`` has no
+control surface and no graph tools by design. ``control-assistant-knowledge``
+is the persona built around the graph: it keeps the facility-knowledge-graph
+agent, the graph-backed channel finder and the KNOWLEDGE panel, and nothing
+that reads or writes the machine — the standalone card for "how is the
+machine put together" questions.
 
 
 .. seealso::

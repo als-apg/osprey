@@ -134,7 +134,6 @@ REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-conne
 
 #: The image under test, and the simulation data both containers serve.
 IMAGE = os.environ.get("OSPREY_VA_E2E_IMAGE", "osprey-va-full:latest")
-DATA_DIR = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/simulation"
 
 #: Container-name prefixes; ``_serving`` appends the run's own ephemeral port.
 #: Named for the *target* each instance backs, since that is what the deployment
@@ -319,7 +318,12 @@ def _serving(prefix: str):
         "-p",
         f"127.0.0.1:{port}:{port}/tcp",
         "-v",
-        f"{DATA_DIR}:/data/simulation:ro",
+        f"{e2e_conftest.demo_data_dir()}:/data/simulation:ro",
+        # The namespace, named: the IOC refuses to boot without one rather
+        # than picking the framework's demo channels on its own. VA_LATTICE
+        # is already stated above, so only the manifest is added here.
+        "-e",
+        f"VA_CHANNELS_FILE={e2e_conftest.DEMO_MANIFEST_FILENAME}",
         IMAGE,
     )
     if started.returncode != 0:

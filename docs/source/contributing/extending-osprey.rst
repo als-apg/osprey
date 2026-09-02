@@ -150,15 +150,15 @@ Panel
 -----
 
 A panel is a tab in the Web Terminal. The supported route is the guided skill
---- ``osprey skills install creating-an-osprey-panel``, whose source is
-``src/osprey/templates/skills/creating-an-osprey-panel/`` --- which walks a
-coding agent through a bundle that already meets every rule: a directory under
-the project's ``panels/`` holding a ``manifest.json`` and an entry HTML file.
-Discovery is off until a deployer sets ``web.allow_runtime_panels``, and it is
-fail-closed, so a malformed bundle is skipped rather than served. Pinning test:
+--- ``/osprey:panel``, whose source is ``plugins/osprey/skills/panel/`` ---
+which walks a coding agent through a bundle that already meets every rule: a
+directory under the project's ``panels/`` holding a ``manifest.json`` and an
+entry HTML file. Discovery is off until a deployer sets
+``web.allow_runtime_panels``, and it is fail-closed, so a malformed bundle is
+skipped rather than served. Pinning test:
 ``tests/interfaces/web_terminal/test_panel_discovery.py``. What a panel may
-and may not do at runtime --- notably the proxy's header stripping, which rules
-out backends that authenticate their own callers --- is on
+and may not do at runtime --- notably the proxy's header stripping, which
+rules out backends that authenticate their own callers --- is on
 :doc:`/how-to/web-terminal/panels`.
 
 .. _extending-lume-model:

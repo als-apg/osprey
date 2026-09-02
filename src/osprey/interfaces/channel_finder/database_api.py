@@ -3,8 +3,10 @@
 Exposes database operations via REST endpoints, adapting for each pipeline
 type. The three file-backed paradigms (hierarchical, middle_layer, in_context)
 are served by calling their database instances directly via app.state, avoiding
-MCP server dependencies. The graph paradigm has no database file behind it: its
-routes report the paradigm and point at the tools that read the store.
+MCP server dependencies. The graph paradigm has no database file behind it: the
+two routes that answer which channels exist — membership and enumeration — read
+the channel roster the app resolved at startup, the explorer's routes query the
+store, and the rest report the paradigm and point at the tools that read it.
 """
 
 from __future__ import annotations
@@ -12,8 +14,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Iterable, Mapping
-from typing import Any
+from collections.abc import Callable, Iterable, Mapping
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -32,6 +34,9 @@ from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
 from osprey.services.channel_finder.graph_queries import GRAPH_CHANNEL_COUNT_CYPHER
 from osprey.services.facility_knowledge.seeder.prompt_snapshot import RELATIONSHIP_TYPES_CYPHER
 
+if TYPE_CHECKING:
+    from osprey.channel_roster import RosterAbsence
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -40,28 +45,6 @@ router = APIRouter()
 #: them into the agent rather than spelled out again here, so the web UI can
 #: only ever name the vocabulary the agent actually has.
 GRAPH_PARADIGM_TOOLS: tuple[str, ...] = tuple(CHANNEL_FINDER_TOOLS_BY_PIPELINE["graph"])
-
-#: Where a graph-mode reader is sent for the answers the file-backed paradigms
-#: compute from a database. Reused verbatim by every route that has no
-#: store-backed implementation, so the redirection reads the same everywhere.
-_GRAPH_TOOL_HINT = (
-    "Query the graph store with the read_cypher tool; get_schema describes what is in it."
-)
-
-
-def _graph_not_implemented(subject: str) -> HTTPException:
-    """Return the 501 a route raises when graph mode has no store-backed answer.
-
-    Not a 404: the route exists and the paradigm is served, there is simply no
-    implementation of this particular question against a graph store yet. The
-    detail names the tools that do answer it so the reply is a redirection
-    rather than a dead end.
-    """
-    return HTTPException(
-        status_code=501,
-        detail=f"{subject} is not implemented for the graph paradigm. {_GRAPH_TOOL_HINT}",
-    )
-
 
 # ---------------------------------------------------------------------------
 # Graph store queries
@@ -134,6 +117,21 @@ _NO_GRAPH_CONTEXT_DETAIL = "Graph store is not available."
 _NO_GRAPH_CONTEXT_SUGGESTIONS = [
     f"Check that a 'services.{GRAPHDB_SERVICE_NAME}' block is configured and that the "
     "channel finder was started against it.",
+]
+
+#: Said when the roster read failed in a way the roster does not model — the
+#: app kept no result to render a reason from. Every modelled reason travels as
+#: the absence's own sentence instead (see :func:`_roster_unavailable`).
+_NO_ROSTER_DETAIL = (
+    "The channel roster could not be read, so which channels this facility has is unknown."
+)
+
+#: What an operator edits when an enumeration route reports no roster. Named on
+#: every such answer, including the ones whose reason already names a path: the
+#: path says which file was unreadable, this says which key put it there.
+_NO_ROSTER_SUGGESTIONS = [
+    f"Check that 'services.{GRAPHDB_SERVICE_NAME}.ttl_path' names a readable "
+    "knowledge-graph corpus and restart the channel finder.",
 ]
 
 
@@ -332,6 +330,64 @@ async def _graph_count(ctx: Any, cypher: str) -> int:
     if not result.rows:
         return 0
     return int(result.rows[0].get("n") or 0)
+
+
+def _roster_unavailable(absence: RosterAbsence | None) -> JSONResponse:
+    """Return the 503 an enumeration route answers with when there is no roster.
+
+    503 rather than 501 or 404: the question is answerable and the route
+    implements it — this deployment has nothing to answer it *from*, which is a
+    state an operator can change. The reason is the roster's own sentence,
+    rendered once in :mod:`osprey.channel_roster`, so the web body, the build
+    fact and the log line cannot describe the same absence three ways.
+
+    Args:
+        absence: Why the roster is missing, or ``None`` when the app holds no
+            roster result at all and there is no modelled reason to render.
+
+    Returns:
+        The 503, in the body shape the other graph routes answer an unavailable
+        store in: detail, error type, and the remedy.
+    """
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": absence.message() if absence is not None else _NO_ROSTER_DETAIL,
+            "error_type": "service_unavailable",
+            "suggestions": list(_NO_ROSTER_SUGGESTIONS),
+        },
+    )
+
+
+def _serve_from_roster(request: Request, answer: Callable[[], Any]) -> Any:
+    """Answer a graph-paradigm request from the roster the app started with.
+
+    The roster is read once, at lifespan, so a route only reads it off state
+    here. Both routes that enumerate share what happens when there is nothing to
+    read — an app whose corpus could not be resolved keeps no roster, and one
+    whose corpus could not be parsed or holds no channel keeps the absence
+    saying so — so neither can drift into reporting the same unstaged
+    deployment differently.
+
+    The gate is on the records, not on the absence: a source that enumerated
+    its channels but cannot say which are settable carries both, and neither of
+    these routes asks about direction — membership and enumeration are answers
+    about which channels exist.
+
+    Args:
+        request: FastAPI request, carrying the app's roster on its state.
+        answer: Returns the route's payload, read from the addresses the
+            lifespan derived beside the roster.
+
+    Returns:
+        Whatever *answer* returns, or the 503 the absence renders.
+    """
+    roster = getattr(request.app.state, "channel_roster", None)
+    if roster is None:
+        return _roster_unavailable(None)
+    if not roster.records:
+        return _roster_unavailable(roster.absence)
+    return answer()
 
 
 def _pipeline_type(request: Request) -> str:
@@ -607,10 +663,19 @@ async def get_statistics(request: Request):
 
 @router.post("/validate")
 async def validate_channels(request: Request, body: ValidateRequest):
-    """Validate channel names against the database."""
+    """Validate channel names against the paradigm's roster of channels.
+
+    The file-backed paradigms ask their database. The graph paradigm asks the
+    channel roster — the corpus the store is seeded from — because membership is
+    a question about which channels the facility has, and that is one answer per
+    build no matter who asks it.
+    """
     pt = _pipeline_type(request)
     if pt == "graph":
-        raise _graph_not_implemented("Channel validation")
+        state = request.app.state
+        return _serve_from_roster(
+            request, lambda: _validate_against_roster(state.channel_address_index, body.channels)
+        )
 
     try:
         db = _get_database(request)
@@ -650,6 +715,32 @@ async def validate_channels(request: Request, body: ValidateRequest):
 # ---------------------------------------------------------------------------
 # Graph pipeline endpoints
 # ---------------------------------------------------------------------------
+
+
+def _validate_against_roster(addresses: frozenset[str], channels: list[str]) -> dict[str, Any]:
+    """Answer membership for *channels* against the roster's addresses.
+
+    Direction plays no part: a settable channel and a readable one are equally
+    real, and a membership answer that quietly dropped the readable half would
+    report most of a facility as invalid.
+
+    Args:
+        addresses: Every address the roster enumerated, as the lifespan indexed
+            them.
+        channels: The addresses asked about, in the order they were asked.
+
+    Returns:
+        One result per channel plus the counts, in the shape the file-backed
+        paradigms answer this route in.
+    """
+    results = [{"channel": channel, "valid": channel in addresses} for channel in channels]
+    valid_count = sum(1 for result in results if result["valid"])
+    return {
+        "results": results,
+        "valid_count": valid_count,
+        "invalid_count": len(channels) - valid_count,
+        "total": len(channels),
+    }
 
 
 async def _read_graph_statistics(ctx: Any) -> dict[str, int]:
@@ -1006,14 +1097,31 @@ async def get_channels(
     chunk_idx: int | None = None,
     chunk_size: int = 50,
 ):
-    """Get channels from the in-context database.
+    """Get the channels this facility has, as the active paradigm enumerates them.
+
+    The in-context paradigm serves its database rows, optionally cut into the
+    chunks its prompt is built from. The graph paradigm serves the channel
+    roster's addresses: the corpus enumerates bindings rather than database
+    rows, and an address is the whole record downstream — a device's name is its
+    channel address.
+
+    Every paradigm's items carry the channel under the ``channel`` key, so a
+    reader of this route can name a channel without knowing which paradigm
+    answered; the file-backed paradigms carry their remaining columns beside it.
 
     Args:
         request: FastAPI request.
         chunk_idx: Optional chunk index (0-based). If omitted, returns all.
+            In-context only; see :func:`_roster_channels`.
         chunk_size: Number of channels per chunk (default 50).
     """
-    if _pipeline_type(request) != "in_context":
+    pt = _pipeline_type(request)
+    if pt == "graph":
+        state = request.app.state
+        return _serve_from_roster(
+            request, lambda: _roster_channels(state.channel_addresses, chunk_idx)
+        )
+    if pt != "in_context":
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
     try:
@@ -1043,6 +1151,41 @@ async def get_channels(
     except Exception as exc:
         logger.exception("Failed to get channels")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+def _roster_channels(addresses: tuple[str, ...], chunk_idx: int | None) -> dict[str, Any]:
+    """Serve the roster's addresses, whole.
+
+    Args:
+        addresses: Every address the roster enumerated, in its order, as the
+            lifespan deduplicated them.
+        chunk_idx: The chunk asked for, which is always a mistake here.
+
+    Returns:
+        Every enumerated channel as a ``{"channel": address}`` item — the item
+        shape this route answers in for every paradigm — and how many there
+        are.
+
+    Raises:
+        HTTPException: 422 when a chunk is asked for. Chunking exists to cut the
+            in-context paradigm's channel list into prompt-sized pieces; the
+            graph paradigm builds no such prompt, so honouring the parameter
+            would invent a chunking contract nothing on the other side has. Not
+            a 400: the parameter is well-formed and inapplicable.
+    """
+    if chunk_idx is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "chunk_idx is not available for the graph paradigm: chunking cuts the "
+                "in-context paradigm's channel list into prompt-sized pieces, which the "
+                "graph paradigm does not build. Request the channels without it."
+            ),
+        )
+    return {
+        "channels": [{"channel": address} for address in addresses],
+        "total": len(addresses),
+    }
 
 
 # ---------------------------------------------------------------------------
