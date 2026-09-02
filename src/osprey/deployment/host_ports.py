@@ -176,10 +176,13 @@ _WORKER_SERVICE_PREFIX = "dispatch-worker"
 _COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
 
 # Bundled services that legitimately run host-mode WITHOUT binding a port:
-# outbound-only bridges with no listening socket (their templates say so).
-# Exempt from the "host-mode service escapes the preflight" warning, which
-# exists for services that DO bind something the framework cannot derive.
-_HOST_MODE_PORTLESS_SERVICES = frozenset({"nextcloud_bridge", "gchat_bridge"})
+# outbound-only bridges and pollers with no listening socket (their templates
+# say so) — nextcloud_bridge and gchat_bridge push notifications out, and
+# ariel_sync polls ARIEL's API on an interval rather than listening for
+# inbound connections. Exempt from the "host-mode service escapes the
+# preflight" warning, which exists for services that DO bind something the
+# framework cannot derive.
+_HOST_MODE_PORTLESS_SERVICES = frozenset({"nextcloud_bridge", "gchat_bridge", "ariel_sync"})
 
 # Config values the host-mode templates fall back on that are NOT ports. The
 # two port fallbacks the templates also carry (the dispatcher's own port and the

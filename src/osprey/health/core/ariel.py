@@ -20,9 +20,15 @@ that one response:
 * ``ariel_entries`` — the logbook entry count as ``value`` (e.g. ``"48,291
   entries"``); ``warning`` when it is zero or absent;
 * ``ariel_last_ingestion`` — the age of the last successful ingestion as a
-  human-readable ``value`` (e.g. ``"2 h ago"``); ``warning`` only when the field
-  is absent (never ran). Cadences differ per facility, so a stale-but-present
-  timestamp is never flagged;
+  human-readable ``value`` (e.g. ``"2 h ago"``); ``warning`` when the field is
+  absent (never ran), and — only when an ``ariel.ingestion`` block is
+  configured — when the age exceeds ``poll_interval_seconds`` plus
+  ``watch.max_interval_seconds``, the span within which a live watcher ingests
+  even at its slowest backoff. Absent keys take their defaults from
+  :class:`~osprey.services.ariel_search.config.IngestionConfig` and
+  :class:`~osprey.services.ariel_search.config.WatchConfig`; with no
+  ``ingestion`` block the cadence is unknown, so any present timestamp is
+  ``ok``;
 * ``ariel_search_modules`` — the enabled search modules (count in the message,
   names in ``value``); ``warning`` when none are enabled, since search is core;
 * ``ariel_enhancement_modules`` — the enabled enhancement/enrichment modules
@@ -119,7 +125,7 @@ def ariel(
         return [
             status_row,
             _entries_row(payload),
-            _last_ingestion_row(payload),
+            _last_ingestion_row(payload, ariel_block),
             _modules_row(
                 "ariel_search_modules",
                 payload.get("enabled_search_modules"),
@@ -239,11 +245,18 @@ def _entries_row(payload: dict[str, Any]) -> CheckResult:
     )
 
 
-def _last_ingestion_row(payload: dict[str, Any]) -> CheckResult:
-    """Report the age of the last ingestion; ``warning`` only when never run.
+def _last_ingestion_row(payload: dict[str, Any], ariel_block: Mapping[str, Any]) -> CheckResult:
+    """Report the age of the last ingestion; ``warning`` when never run or stale.
 
-    Facilities ingest on very different cadences, so a stale-but-present
-    timestamp is reported ``ok`` — only a missing/unparseable value warns.
+    Args:
+        payload: The parsed ``/api/status`` body.
+        ariel_block: The top-level ``ariel`` config block, read for the
+            ``ingestion`` cadence that defines the staleness threshold.
+
+    Returns:
+        The ``ariel_last_ingestion`` row. Staleness is only judged when
+        ``ariel.ingestion`` is configured — without it the facility's cadence is
+        unknown, so a stale-but-present timestamp stays ``ok``.
     """
     raw = payload.get("last_ingestion")
     if not raw:
@@ -263,6 +276,18 @@ def _last_ingestion_row(payload: dict[str, Any]) -> CheckResult:
             "Last ingestion recorded",
             value=str(raw),
         )
+
+    age = _age_seconds(parsed)
+    threshold = _staleness_threshold_seconds(ariel_block)
+    if threshold is not None and age > threshold:
+        return CheckResult(
+            "ariel_last_ingestion",
+            CATEGORY,
+            Status.WARNING,
+            f"Last ingestion is {_format_duration(age)} old, "
+            f"ingestion interval is {_format_duration(threshold)}",
+            value=_humanize_age(parsed),
+        )
     return CheckResult(
         "ariel_last_ingestion",
         CATEGORY,
@@ -270,6 +295,45 @@ def _last_ingestion_row(payload: dict[str, Any]) -> CheckResult:
         "Last successful ingestion",
         value=_humanize_age(parsed),
     )
+
+
+def _staleness_threshold_seconds(ariel_block: Mapping[str, Any]) -> float | None:
+    """Derive the last-ingestion staleness threshold from the ``ariel`` block.
+
+    The threshold is ``ingestion.poll_interval_seconds`` plus
+    ``ingestion.watch.max_interval_seconds`` — the longest a live watcher goes
+    between successful ingests once backoff has stretched its interval to the
+    cap. Absent or unusable keys fall back to the dataclass defaults so a
+    default change in the service config propagates here.
+
+    Returns:
+        The threshold in seconds, or ``None`` when there is no
+        ``ariel.ingestion`` block and therefore no known cadence to judge.
+    """
+    ingestion = ariel_block.get("ingestion")
+    if not isinstance(ingestion, dict):
+        return None
+
+    # Imported lazily: the ariel_search package pulls the whole search service
+    # in, and this category must stay importable without it.
+    from osprey.services.ariel_search.config import IngestionConfig, WatchConfig
+
+    watch = ingestion.get("watch")
+    watch_block = watch if isinstance(watch, dict) else {}
+    poll_s = _as_seconds(
+        ingestion.get("poll_interval_seconds"), IngestionConfig.poll_interval_seconds
+    )
+    backoff_s = _as_seconds(
+        watch_block.get("max_interval_seconds"), WatchConfig.max_interval_seconds
+    )
+    return poll_s + backoff_s
+
+
+def _as_seconds(raw: Any, default: float) -> float:
+    """Coerce a configured interval to seconds, falling back to ``default``."""
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return float(default)
+    return float(raw)
 
 
 def _modules_row(name: str, modules: Any, *, noun: str, warn_when_empty: bool) -> CheckResult:
@@ -301,23 +365,32 @@ def _parse_timestamp(raw: Any) -> datetime | None:
         return None
 
 
-def _humanize_age(then: datetime) -> str:
-    """Render the elapsed time since ``then`` as a compact human-readable age.
+def _age_seconds(then: datetime) -> float:
+    """Return the elapsed seconds since ``then``, never negative.
 
     Matches ``then``'s awareness (aware vs naive) when sampling "now" so a
     timezone-qualified timestamp and a naive one both subtract cleanly.
     """
     now = datetime.now(then.tzinfo) if then.tzinfo else datetime.now()
-    seconds = (now - then).total_seconds()
-    if seconds < 0:
-        seconds = 0.0
+    return max((now - then).total_seconds(), 0.0)
+
+
+def _format_duration(seconds: float) -> str:
+    """Render a span of seconds in its largest whole unit (e.g. ``"2 h"``)."""
     if seconds < 60:
-        return "just now"
+        return f"{int(seconds)} s"
     minutes = seconds / 60
     if minutes < 60:
-        return f"{int(minutes)} m ago"
+        return f"{int(minutes)} m"
     hours = minutes / 60
     if hours < 24:
-        return f"{int(hours)} h ago"
-    days = hours / 24
-    return f"{int(days)} d ago"
+        return f"{int(hours)} h"
+    return f"{int(hours / 24)} d"
+
+
+def _humanize_age(then: datetime) -> str:
+    """Render the elapsed time since ``then`` as a compact human-readable age."""
+    seconds = _age_seconds(then)
+    if seconds < 60:
+        return "just now"
+    return f"{_format_duration(seconds)} ago"

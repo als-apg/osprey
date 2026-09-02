@@ -949,7 +949,7 @@ def _resolve_qmd_render_context(config, repo_root):
 #: ``OSPREY_<KEY>_IMAGE`` compose override that pins each one, mapped to the
 #: suffix its name carries after the project name (the project image itself
 #: carries none). The third-party pins that sit beside these in the same
-#: templates — postgres, mongo, redis, tiled, openobserve — are deliberately
+#: templates — postgres, mongo, redis, tiled, openobserve, neo4j — are deliberately
 #: absent: those are upstream coordinates, and prefixing or re-tagging one
 #: names an image that exists in no registry.
 _OSPREY_IMAGE_SUFFIXES: dict[str, str] = {
@@ -1391,6 +1391,56 @@ def _inject_project_metadata(config):
     config_with_labels["osprey_service_container_audit_dir"] = (
         PurePosixPath(_CONTAINER_APP_ROOT) / AUDIT_DIR_RELPATH
     ).as_posix()
+
+    # ARIEL's markdown mirror, in the same two spellings and for the same
+    # reason as the audit zone above: the HOST bind source compose resolves
+    # against the pinned project directory, and the CONTAINER target the
+    # exporter inside actually writes to. A template that mounts the mirror
+    # into a service consumes both and makes no path decision of its own, so
+    # the directory the exporter fills and the directory the mount covers are
+    # provably the one configured string.
+    #
+    # Read through :func:`configured_ariel_mirror_path` — the one reader the
+    # qmd sidecar's corpus list, the provisioned host directory and the
+    # web-terminal overlay's per-user mount all share, ``settings`` winning
+    # over the module block exactly as ARIEL's own loader merges them. Both
+    # keys are ``None`` when that reader is: a disabled export writes nothing,
+    # and an enabled one with no path is a config error the exporter itself
+    # refuses at runtime. ``None`` rather than an empty string because a
+    # template gates the whole mount on the key's truthiness, and an empty
+    # source renders a bind that resolves to nothing instead of no bind.
+    #
+    # An absolute value is operator-owned and names a directory outside the
+    # repo: the source spells it repo-relative only when it actually sits
+    # inside this repo (so the rendered file survives the repo being moved),
+    # and the target is never re-anchored under the project directory — the
+    # exporter inside resolves an absolute path to itself, so re-anchoring
+    # would mount the bind where nothing writes. Same rule, same reason, as
+    # ``osprey_container_agent_data_dir`` above and
+    # ``web_terminals.render._container_mirror_dir``.
+    #
+    # No gid is injected here. Ownership of the shared mirror directory is the
+    # web-terminal overlay's concern, resolved there against the host
+    # directory; a second spelling of it in this context would be a value no
+    # base-compose template reads.
+    #
+    # Known limit, shared with both siblings: a ``~``-relative path is anchored
+    # on the container side like any other relative path, while the host source
+    # expands it against this user's home. Such a deployment's mirror is
+    # misfiled rather than lost, and naming HOME here would duplicate a value
+    # the image sets.
+    ariel_mirror_path = configured_ariel_mirror_path(config)
+    if ariel_mirror_path is None:
+        config_with_labels["osprey_ariel_mirror_source"] = None
+        config_with_labels["osprey_container_ariel_mirror_dir"] = None
+    else:
+        mirror_base = PurePosixPath(ariel_mirror_path)
+        config_with_labels["osprey_ariel_mirror_source"] = repo_relative_mount_source(
+            ariel_mirror_path, repo_root
+        )
+        config_with_labels["osprey_container_ariel_mirror_dir"] = (
+            mirror_base if mirror_base.is_absolute() else container_project_dir / mirror_base
+        ).as_posix()
 
     # The qmd sidecar's resolved settings and its corpus list, derived here for
     # the same reason ``osprey_state_mount_source`` is: a mount source has to

@@ -1079,6 +1079,11 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         no_client_reach=True,
         note="a chat bridge that dials the dispatcher; nothing in a container dials it",
     ),
+    "ariel_sync": ReachContract(
+        service="ariel_sync",
+        no_client_reach=True,
+        note="a logbook poller that dials the store and the facility logbook; nothing in a container dials it",
+    ),
 }
 
 

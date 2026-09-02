@@ -301,7 +301,7 @@ The web interface discovers its search modes and tunable parameters dynamically 
 
          1. **Registry bootstrap** --- pre-creates the framework registry singleton (without an application registry path) so that ARIEL's search module discovery works even when running outside a full Osprey application.
 
-         2. **Config loading** --- searches for ``config.yml`` in four locations: the provided ``config_path``, ``/app/config.yml`` (Docker mount), the ``CONFIG_FILE`` environment variable, and the current directory. Applies the ``ARIEL_DATABASE_HOST`` environment variable override for Docker networking.
+         2. **Config loading** --- searches for ``config.yml`` in four locations: the provided ``config_path``, ``/app/config.yml`` (Docker mount), the ``CONFIG_FILE`` environment variable, and the current directory. The DSN is then resolved by ``resolve_ariel_dsn``, which applies the ``ARIEL_DATABASE_HOST`` and ``ARIEL_DATABASE_PORT`` overrides for Docker networking.
 
          3. **Service creation** --- creates the ``ARIELSearchService`` from the loaded config and stores it in ``app.state.ariel_service``.
 
@@ -318,7 +318,11 @@ The web interface discovers its search modes and tunable parameters dynamically 
             * - ``CONFIG_FILE``
               - Path to config.yml (alternative to default search)
             * - ``ARIEL_DATABASE_HOST``
-              - Override database hostname in URI (e.g., ``postgresql`` for Docker compose networking)
+              - Host the derived DSN dials (e.g., ``ariel-postgres``, the store's compose network alias). Default: ``localhost``
+            * - ``ARIEL_DATABASE_PORT``
+              - Port the derived DSN dials (e.g., ``5432``, the in-network port, where ``services.postgresql.port_host`` is the published one). Default: ``services.postgresql.port_host``
+
+         Both overrides apply only where the DSN is *derived* from ``services.postgresql``. A DSN written out in ``ariel.database.uri``, or in the legacy ``connection_string``, is used verbatim. The ARIEL panel resolves its DSN through the same function, so it does not redirect an authored one either. A blank value counts as unset. A non-integer ``ARIEL_DATABASE_PORT`` is refused rather than ignored.
 
       .. tab-item:: Frontend
 

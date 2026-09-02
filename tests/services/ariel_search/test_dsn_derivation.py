@@ -74,9 +74,15 @@ def _load_rendered(relative_path: str) -> dict[str, Any]:
 
 
 @pytest.fixture(autouse=True)
-def no_ambient_db_password(monkeypatch):
-    """Pin the password default: a developer's own ARIEL_DB_PASSWORD must not decide."""
-    monkeypatch.delenv("ARIEL_DB_PASSWORD", raising=False)
+def no_ambient_store_address(monkeypatch):
+    """Pin every env-read field: a developer's own exports must not decide.
+
+    The password and the two store-address overrides are all read from the same
+    environment, so a shell that happens to export one of them would otherwise
+    move an assertion in this file.
+    """
+    for name in ("ARIEL_DB_PASSWORD", "ARIEL_DATABASE_HOST", "ARIEL_DATABASE_PORT"):
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture
@@ -244,7 +250,123 @@ def test_explicit_uri_ignores_a_port_host_edit() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The web interface: derive first, then rewrite the host for the container
+# Store-address overrides — the derived rung only
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_overrides_replace_the_derived_host_and_port() -> None:
+    """ARIEL_DATABASE_HOST and ARIEL_DATABASE_PORT address the derived store.
+
+    A process inside the compose network reaches Postgres by its service name
+    on the in-network port, not by ``localhost`` on the published host port.
+    The deployment says so with these two variables rather than by writing out
+    a second DSN that would then have to be kept in step with the first.
+    """
+    uri = resolve_ariel_dsn(
+        {},
+        {"username": "ariel", "database_name": "ariel", "port_host": 15432},
+        env={"ARIEL_DATABASE_HOST": "postgresql", "ARIEL_DATABASE_PORT": "5432"},
+    )
+
+    assert uri == "postgresql://ariel:ariel@postgresql:5432/ariel"
+
+
+@pytest.mark.unit
+def test_each_override_stands_alone() -> None:
+    """Setting one leaves the other on its derived value."""
+    services = {"username": "ariel", "database_name": "ariel", "port_host": 15432}
+
+    host_only = resolve_ariel_dsn({}, services, env={"ARIEL_DATABASE_HOST": "postgresql"})
+    port_only = resolve_ariel_dsn({}, services, env={"ARIEL_DATABASE_PORT": "5432"})
+
+    assert host_only == "postgresql://ariel:ariel@postgresql:15432/ariel"
+    assert port_only == "postgresql://ariel:ariel@localhost:5432/ariel"
+
+
+@pytest.mark.unit
+def test_overrides_leave_an_explicit_uri_verbatim() -> None:
+    """An authored DSN names a store this deployment may not run at all.
+
+    Redirecting it would send the agent's queries to a different database than
+    the one the project pointed at, so the overrides stop at the derived rung.
+    """
+    external = "postgresql://reader:pw@logbook-db.example.org:5433/facility_olog"
+
+    uri = resolve_ariel_dsn(
+        {"database": {"uri": external}},
+        {"username": "ariel", "database_name": "ariel", "port_host": 15432},
+        env={"ARIEL_DATABASE_HOST": "postgresql", "ARIEL_DATABASE_PORT": "5432"},
+    )
+
+    assert uri == external
+
+
+@pytest.mark.unit
+def test_overrides_leave_the_legacy_connection_string_verbatim(
+    rearmed_connection_string_warning,
+) -> None:
+    """The retired alias is an authored DSN too, and is redirected no more."""
+    legacy = "postgresql://ariel:pw@logbook-db.example.org:5432/ariel"
+
+    uri = resolve_ariel_dsn(
+        {"database": {"connection_string": legacy}},
+        {"username": "ariel", "database_name": "ariel", "port_host": 15432},
+        env={"ARIEL_DATABASE_HOST": "postgresql", "ARIEL_DATABASE_PORT": "5432"},
+    )
+
+    assert uri == legacy
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("blank", ["", "   ", "\t"])
+def test_a_blank_override_is_unset(blank: str) -> None:
+    """A rendered-but-empty variable means "no override", not an empty host.
+
+    A compose file that interpolates a key the deployment never configured
+    hands the container an empty string; connecting to it would fail in a way
+    that names neither the key nor the deployment that left it unset.
+    """
+    uri = resolve_ariel_dsn(
+        {},
+        {"username": "ariel", "database_name": "ariel", "port_host": 15432},
+        env={"ARIEL_DATABASE_HOST": blank, "ARIEL_DATABASE_PORT": blank},
+    )
+
+    assert uri == "postgresql://ariel:ariel@localhost:15432/ariel"
+
+
+@pytest.mark.unit
+def test_a_non_integer_port_override_is_refused() -> None:
+    """A port that is not a number is a config error, not a silent fallback."""
+    with pytest.raises(ValueError, match="ARIEL_DATABASE_PORT"):
+        resolve_ariel_dsn(
+            {},
+            {"username": "ariel", "database_name": "ariel", "port_host": 15432},
+            env={"ARIEL_DATABASE_PORT": "postgresql:5432"},
+        )
+
+
+@pytest.mark.unit
+def test_overrides_come_from_the_env_mapping_the_caller_passed(monkeypatch) -> None:
+    """A caller acting ON a project reads that project's env, not the ambient one.
+
+    The deploy migrates the store from the host, where the compose service name
+    resolves to nothing. It passes its own mapping, and an ambient export from
+    some other deployment must not reach past it.
+    """
+    monkeypatch.setenv("ARIEL_DATABASE_HOST", "postgresql")
+    monkeypatch.setenv("ARIEL_DATABASE_PORT", "5432")
+    services = {"username": "ariel", "database_name": "ariel", "port_host": 15432}
+
+    assert resolve_ariel_dsn({}, services, env={}) == (
+        "postgresql://ariel:ariel@localhost:15432/ariel"
+    )
+    assert resolve_ariel_dsn({}, services) == "postgresql://ariel:ariel@postgresql:5432/ariel"
+
+
+# ---------------------------------------------------------------------------
+# The web interface: one resolver, no post-resolution rewrite
 # ---------------------------------------------------------------------------
 
 
@@ -269,11 +391,10 @@ def _write_project_config(tmp_path: Path, ariel: dict[str, Any], port_host: int)
 
 
 @pytest.mark.unit
-def test_web_interface_derives_the_dsn(tmp_path, monkeypatch) -> None:
+def test_web_interface_derives_the_dsn(tmp_path) -> None:
     """The web app reads the same derived DSN as every other entry point."""
     from osprey.interfaces.ariel.app import load_ariel_config
 
-    monkeypatch.delenv("ARIEL_DATABASE_HOST", raising=False)
     config_path = _write_project_config(tmp_path, {"search_modules": {}}, port_host=15432)
 
     ariel_config = load_ariel_config(config_path)
@@ -282,23 +403,44 @@ def test_web_interface_derives_the_dsn(tmp_path, monkeypatch) -> None:
 
 
 @pytest.mark.unit
-def test_container_host_override_still_reaches_a_derived_dsn(tmp_path, monkeypatch) -> None:
-    """ARIEL_DATABASE_HOST rewrites the derived host, not just a written-out one.
+def test_container_overrides_reach_the_panel_through_the_resolver(tmp_path, monkeypatch) -> None:
+    """The panel gets the container address from the resolver, not a rewrite.
 
-    The web interface runs in a container, where `localhost` is the container
-    itself.  The override that repoints it at the Postgres service has to see a
-    resolved DSN — so the derivation happens first, and only then the rewrite.
+    It used to derive a DSN and then run a regex over whatever came back. The
+    address now belongs to the one rung that owns it, so every entry point in
+    the container agrees on the store without a second implementation.
     """
     from osprey.interfaces.ariel.app import load_ariel_config
 
     monkeypatch.setenv("ARIEL_DATABASE_HOST", "postgresql-service")
+    monkeypatch.setenv("ARIEL_DATABASE_PORT", "5432")
     config_path = _write_project_config(tmp_path, {"search_modules": {}}, port_host=15432)
 
     ariel_config = load_ariel_config(config_path)
 
     assert ariel_config["database"]["uri"] == (
-        "postgresql://ariel:ariel@postgresql-service:15432/ariel"
+        "postgresql://ariel:ariel@postgresql-service:5432/ariel"
     )
+
+
+@pytest.mark.unit
+def test_the_panel_leaves_an_explicit_uri_alone(tmp_path, monkeypatch) -> None:
+    """Behaviour change: the old regex rewrote an authored URI as well.
+
+    A panel pointed at a facility's own logbook database kept its host only
+    because no container override happened to be set.
+    """
+    from osprey.interfaces.ariel.app import load_ariel_config
+
+    external = "postgresql://reader:pw@logbook-db.example.org:5433/facility_olog"
+    monkeypatch.setenv("ARIEL_DATABASE_HOST", "postgresql-service")
+    config_path = _write_project_config(
+        tmp_path, {"database": {"uri": external}, "search_modules": {}}, port_host=15432
+    )
+
+    ariel_config = load_ariel_config(config_path)
+
+    assert ariel_config["database"]["uri"] == external
 
 
 # ---------------------------------------------------------------------------

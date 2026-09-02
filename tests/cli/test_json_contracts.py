@@ -303,6 +303,7 @@ def _invoke_ariel_status(
             )
         ]
     )
+    repository.get_last_ingestion = AsyncMock(return_value=None)
 
     with (
         _install_ariel_service(_StubService(repository=repository)),

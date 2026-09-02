@@ -10,13 +10,14 @@ search/enhancement module rows).
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
 from osprey.health.core.ariel import ariel
 from osprey.health.models import CheckResult, Status
 from osprey.port_layout import default_port
+from osprey.services.ariel_search.config import IngestionConfig, WatchConfig
 
 
 async def _run(config, *, transport=None) -> dict[str, CheckResult]:
@@ -25,11 +26,15 @@ async def _run(config, *, transport=None) -> dict[str, CheckResult]:
     return {r.name: r for r in results}
 
 
-def _cfg(*, web: dict | None = None, deployment: dict | None = None) -> dict:
+def _cfg(
+    *, web: dict | None = None, deployment: dict | None = None, ingestion: dict | None = None
+) -> dict:
     """A config with a non-empty top-level ``ariel`` block (the presence gate)."""
     ariel_block: dict = {"database": {"uri": "postgresql://ariel@localhost/ariel"}}
     if web is not None:
         ariel_block["web"] = web
+    if ingestion is not None:
+        ariel_block["ingestion"] = ingestion
     cfg: dict = {"ariel": ariel_block}
     if deployment is not None:
         cfg["deployment"] = deployment
@@ -116,6 +121,88 @@ async def test_last_ingestion_reports_age() -> None:
     row = (await _run(_cfg(), transport=_ok_transport()))["ariel_last_ingestion"]
     assert row.status is Status.OK
     assert row.value.endswith("ago")
+
+
+# --------------------------------------------------------------------------- #
+# Last-ingestion staleness threshold
+# --------------------------------------------------------------------------- #
+
+#: An ``ariel.ingestion`` block with an explicit 30-minute threshold
+#: (``poll_interval_seconds`` + ``watch.max_interval_seconds``).
+_INGESTION_30_MIN = {
+    "adapter": "generic_json",
+    "poll_interval_seconds": 600,
+    "watch": {"max_interval_seconds": 1200},
+}
+
+
+def _ingested(delta: timedelta, *, aware: bool = False) -> dict:
+    """A status payload whose ``last_ingestion`` is ``delta`` in the past."""
+    now = datetime.now(UTC) if aware else datetime.now()
+    return _status_payload(last_ingestion=(now - delta).isoformat())
+
+
+async def test_fresh_ingestion_is_ok_under_threshold() -> None:
+    cfg = _cfg(ingestion=_INGESTION_30_MIN)
+    row = (await _run(cfg, transport=_ok_transport(_ingested(timedelta(minutes=5)))))[
+        "ariel_last_ingestion"
+    ]
+    assert row.status is Status.OK
+    assert row.value == "5 m ago"
+
+
+async def test_stale_ingestion_warns_with_age_and_threshold() -> None:
+    cfg = _cfg(ingestion=_INGESTION_30_MIN)
+    row = (await _run(cfg, transport=_ok_transport(_ingested(timedelta(hours=6)))))[
+        "ariel_last_ingestion"
+    ]
+    assert row.status is Status.WARNING
+    assert "6 h" in row.message
+    assert "30 m" in row.message
+    assert row.value == "6 h ago"
+
+
+async def test_threshold_falls_back_to_dataclass_defaults() -> None:
+    """Absent keys take :class:`IngestionConfig`/:class:`WatchConfig` defaults."""
+    cfg = _cfg(ingestion={"adapter": "generic_json"})
+    default_threshold = IngestionConfig.poll_interval_seconds + WatchConfig.max_interval_seconds
+
+    stale = _ingested(timedelta(seconds=default_threshold + 3600))
+    fresh = _ingested(timedelta(seconds=default_threshold - 3600))
+    assert (await _run(cfg, transport=_ok_transport(stale)))[
+        "ariel_last_ingestion"
+    ].status is Status.WARNING
+    assert (await _run(cfg, transport=_ok_transport(fresh)))[
+        "ariel_last_ingestion"
+    ].status is Status.OK
+
+
+async def test_no_ingestion_block_never_warns_on_age() -> None:
+    row = (await _run(_cfg(), transport=_ok_transport(_ingested(timedelta(days=30)))))[
+        "ariel_last_ingestion"
+    ]
+    assert row.status is Status.OK
+    assert row.value == "30 d ago"
+
+
+async def test_threshold_applies_to_timezone_aware_timestamps() -> None:
+    cfg = _cfg(ingestion=_INGESTION_30_MIN)
+    stale = _ingested(timedelta(hours=6), aware=True)
+    fresh = _ingested(timedelta(minutes=5), aware=True)
+    assert (await _run(cfg, transport=_ok_transport(stale)))[
+        "ariel_last_ingestion"
+    ].status is Status.WARNING
+    assert (await _run(cfg, transport=_ok_transport(fresh)))[
+        "ariel_last_ingestion"
+    ].status is Status.OK
+
+
+async def test_unparseable_timestamp_stays_ok_with_ingestion_block() -> None:
+    cfg = _cfg(ingestion=_INGESTION_30_MIN)
+    payload = _status_payload(last_ingestion="whenever")
+    row = (await _run(cfg, transport=_ok_transport(payload)))["ariel_last_ingestion"]
+    assert row.status is Status.OK
+    assert row.value == "whenever"
 
 
 async def test_module_rows_list_names() -> None:

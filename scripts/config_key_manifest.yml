@@ -377,6 +377,17 @@ keys:
     rendered: false
     evidence: 'OSPREY_GCHAT_BRIDGE_IMAGE:-\{\{ services\.gchat_bridge\.image'
     note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+  services.ariel_sync.image:
+    rendered: false
+    evidence: 'OSPREY_WORKER_IMAGE:-\{\{ svc\.image \| default\(osprey_images\.worker\)'
+    note: >-
+      OSPREY-built image, same layering as `services.event_dispatcher.image`.
+      Runs the bare project image, so it shares `OSPREY_WORKER_IMAGE` with
+      `services.dispatch_worker.image` by design. The compose template reads
+      it through `svc = services.ariel_sync | default({}, true)` — the block
+      may be absent on a deploy that selects the service without authoring
+      it — so the evidence anchors on that alias plus the worker default,
+      which is what distinguishes it from the dispatch worker's line.
   services.bluesky.image:
     rendered: false
     evidence: 'OSPREY_BLUESKY_BRIDGE_IMAGE:-\{\{ svc\.image'

@@ -1219,6 +1219,38 @@ class ARIELRepository:
                 query=f"SELECT MAX(completed_at) source_system={source_system}",
             ) from e
 
+    async def get_last_ingestion(self) -> datetime | None:
+        """Get the completion time of the last successful ingestion run, any source.
+
+        The facility-wide watermark, as opposed to
+        :meth:`get_last_successful_run`, which scopes the same aggregate to one
+        source system for incremental polling. Two surfaces report this value:
+        the ARIEL dashboard status panel and the ``osprey ariel status`` CLI
+        command, both by way of ``ARIELSearchService.get_status``.
+
+        Returns:
+            Completion timestamp of the most recent successful run across all
+            source systems, or None if no run has ever succeeded.
+        """
+        try:
+            async with self.pool.connection() as conn:
+                result = await conn.execute(
+                    """
+                    SELECT MAX(completed_at) FROM ingestion_runs
+                    WHERE status = 'success'
+                    """
+                )
+                row = await result.fetchone()
+                if row and row[0]:
+                    ts: datetime = row[0]
+                    return ts
+                return None
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Failed to get last ingestion: {e}",
+                query="SELECT MAX(completed_at) all sources",
+            ) from e
+
     async def health_check(self) -> tuple[bool, str]:
         """Check database connectivity and basic health.
 

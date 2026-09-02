@@ -598,7 +598,7 @@ Overriding Service Images
 
 Every service image resolves through the same three-layer chain — an
 environment variable wins, then a ``config.yml`` key, then the packaged
-default. Thirteen images, one row each:
+default. Fifteen images, one row each:
 
 .. list-table::
    :header-rows: 1
@@ -620,6 +620,10 @@ default. Thirteen images, one row each:
      - ``OSPREY_MONGODB_IMAGE``
      - ``services.mongodb.image``
      - upstream pin
+   * - graphdb
+     - ``OSPREY_GRAPHDB_IMAGE``
+     - ``services.graphdb.image``
+     - upstream pin
    * - event_dispatcher
      - ``OSPREY_DISPATCH_IMAGE``
      - ``services.event_dispatcher.image``
@@ -636,6 +640,10 @@ default. Thirteen images, one row each:
      - ``OSPREY_GCHAT_BRIDGE_IMAGE``
      - ``services.gchat_bridge.image``
      - ``<project>-gchat-bridge``
+   * - ariel_sync
+     - ``OSPREY_WORKER_IMAGE``
+     - ``services.ariel_sync.image``
+     - ``<project>``
    * - bluesky
      - ``OSPREY_BLUESKY_BRIDGE_IMAGE``
      - ``services.bluesky.image``
@@ -665,10 +673,14 @@ Point either of the first two layers at an internal registry mirror or a
 pinned digest when your deployment host cannot (or should not) pull public
 images.
 
-Five of the thirteen are **upstream pins** — images somebody else publishes,
-named exactly as they publish them. The other eight are **built by OSPREY**
+Six of the fifteen are **upstream pins** — images somebody else publishes,
+named exactly as they publish them. The other nine are **built by OSPREY**
 from your project, and their default reference is assembled rather than
 fixed: a project name, a per-service suffix, and the two axes below.
+
+``dispatch_worker`` and ``ariel_sync`` share one row value on purpose: both run
+the bare project image, so both read ``OSPREY_WORKER_IMAGE``. Set that variable
+and both services move to the image you name.
 
 .. _deployment-image-axes:
 
@@ -681,7 +693,7 @@ An OSPREY-built default is always spelled the same way::
 
 Two stack-wide settings supply the ends of that name, so an entire deployment
 can be moved to a registry — or to a different tag — without touching any of
-the thirteen rows above:
+the fifteen rows above:
 
 .. list-table::
    :header-rows: 1
@@ -735,7 +747,7 @@ Two things about *when* and *where* this applies are worth having straight:
   is what it always was — ``<project>:local`` and its siblings — so a
   deployment that never heard of them is unaffected.
 
-The axes never touch the five upstream pins. Prefixing ``mongo:7`` with your
+The axes never touch the six upstream pins. Prefixing ``mongo:7`` with your
 registry would name an image that exists in no registry; mirror those through
 their own row instead.
 
