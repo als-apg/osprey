@@ -96,6 +96,8 @@ import { badgeToneForStatus } from './results-view.js';
  * @property {(view: string) => void} setView  The tab now showing. Decides
  *   which of the strip's controls are on screen (`stripControls`).
  * @property {(mode: 'expert'|'simple') => void} onModeChange
+ * @property {(runId: string) => Promise<boolean>} removeRun  Drop one finished
+ *   run from history; the Results tab's "Remove from history" lands here.
  */
 
 /**

@@ -576,7 +576,7 @@ describe('clearControl', () => {
 
 describe('plain-language hints', () => {
   test('every control has one sentence, and the badge one per state', () => {
-    for (const key of ['start', 'stop', 'abort', 'clear']) {
+    for (const key of /** @type {const} */ (['start', 'stop', 'abort', 'clear'])) {
       expect(CONTROL_HINTS[key]).toMatch(/^[A-Z].*\.$/);
     }
     const states = [
@@ -1280,6 +1280,7 @@ describe('createResultsView', () => {
     };
     vi.stubGlobal('fetch', stubFetch(routes));
     const elements = mountElements();
+    /** @type {string[]} */
     const removed = [];
     view = createResultsView({ api: (p) => p, elements, onRemove: (id) => removed.push(id) });
 
@@ -3229,15 +3230,6 @@ describe('the merged panel shell', () => {
     byId('view-tab-results').click();
     expect(visibleViews()).toEqual(['results']);
   });
-
-  /** Push one frame at the panel's queue stream. @param {any} frameObject */
-  function pushQueueFrame(frameObject) {
-    for (const source of ShellEventSource.instances) {
-      if (source.url.includes('/queue/events') && source.onmessage) {
-        source.onmessage({ data: JSON.stringify(frameObject) });
-      }
-    }
-  }
 
   test('the two halts are live on every view while a plan is moving', async () => {
     mount();
