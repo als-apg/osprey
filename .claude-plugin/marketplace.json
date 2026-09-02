@@ -1,0 +1,15 @@
+{
+  "name": "osprey",
+  "description": "Agent skills for developing and deploying OSPREY, the agentic control-room interface for accelerators and beamlines.",
+  "owner": {
+    "name": "ALS Accelerator Physics Group",
+    "url": "https://github.com/als-apg"
+  },
+  "plugins": [
+    {
+      "name": "osprey",
+      "source": "./plugins/osprey",
+      "description": "Agent skills for developing and deploying OSPREY, the agentic control-room interface for accelerators and beamlines."
+    }
+  ]
+}

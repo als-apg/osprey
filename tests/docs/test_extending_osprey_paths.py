@@ -10,7 +10,7 @@ an afternoon before concluding the docs are wrong.
 So this gate reads the page's inline literals and resolves them for real:
 
 * a literal that looks like a repo path (``src/…``, ``packages/…``,
-  ``tests/…``) must exist on disk, relative to the repo root;
+  ``tests/…``, ``plugins/…``) must exist on disk, relative to the repo root;
 * a literal that looks like a dotted Python name under ``lume`` or ``osprey``
   must actually import — the module prefix via :func:`importlib.import_module`,
   the final segment via :func:`getattr`.
@@ -50,9 +50,10 @@ _LITERAL_PATTERN = re.compile(r"``([^`\n]+)``")
 
 #: A literal is treated as a repo path when it starts with one of these. The
 #: page also cites ``docs/…`` paths, but those move around constantly during a
-#: restructure and are covered by the Sphinx build itself; the three trees
-#: below are the ones a developer is being sent to read.
-_PATH_PREFIXES = ("src/", "packages/", "tests/")
+#: restructure and are covered by the Sphinx build itself; the four trees
+#: below are the ones a developer is being sent to read. ``plugins/`` holds
+#: the shipped skills.
+_PATH_PREFIXES = ("src/", "packages/", "tests/", "plugins/")
 
 #: Shell-glob metacharacters. A literal carrying one is a pattern, not a path,
 #: and is satisfied by any single match.

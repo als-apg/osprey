@@ -94,7 +94,7 @@ class TestLazyGroup:
 
         commands = group.list_commands(mock.Mock())
 
-        for retired in ("deploy", "claude"):
+        for retired in ("deploy", "claude", "skills"):
             assert retired not in commands
 
     def test_every_listed_command_actually_resolves(self):

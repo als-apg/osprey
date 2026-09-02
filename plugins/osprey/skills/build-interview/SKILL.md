@@ -1,5 +1,5 @@
 ---
-name: osprey-build-interview
+name: build-interview
 description: >
   Interactive interview that sets up a custom OSPREY deployment for a new
   accelerator, beamline, or detector application. Use when someone says

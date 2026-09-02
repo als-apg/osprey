@@ -189,12 +189,9 @@ explicit ``osprey build``.
 Adding your own panel
 ---------------------
 
-The easy path is the guided skill — a coding agent follows it to produce a
-panel that already meets every rule:
-
-.. code-block:: bash
-
-   osprey skills install creating-an-osprey-panel
+The easy path is the guided ``/osprey:panel`` skill — a coding agent follows it
+to produce a panel that already meets every rule. It ships in the ``osprey``
+plugin; installing it is on :doc:`/contributing/agent-skills`.
 
 What the skill produces, and the test that pins panel discovery, are the panel
 seam in :doc:`/contributing/extending-osprey`.
@@ -272,9 +269,8 @@ like "set up for machine setup."
    :icon: package
 
    You only need this to write a panel by hand or wire a new one into the hub;
-   the ``creating-an-osprey-panel`` skill and the source (which the panel
-   validator and its browser test suite back) are the real reference. The rough
-   idea:
+   the ``/osprey:panel`` skill and the source (which the panel validator and its
+   browser test suite back) are the real reference. The rough idea:
 
    .. tab-set::
 

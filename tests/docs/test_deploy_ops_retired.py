@@ -22,7 +22,8 @@ import pytest
 # package and the docs tree, not tests/ — so the literal is safe here.
 RETIRED_SKILL = "osprey-deploy-ops"
 
-ROOTS = ("src/osprey", "docs/source")
+# plugins/ holds the shipped skills.
+ROOTS = ("src/osprey", "docs/source", "plugins")
 SCAN_SUFFIXES = (
     ".py",
     ".md",

@@ -1,5 +1,5 @@
 ---
-name: osprey-design-philosophy
+name: design-philosophy
 description: >-
   OSPREY's design and architecture principles — the rules that define how OSPREY code should be
   structured, and the anti-pattern each one prevents. Consult before designing, adding, or reviewing

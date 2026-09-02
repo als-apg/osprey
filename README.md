@@ -39,13 +39,14 @@ osprey web
 ```
 
 For a deployment tailored to your detector, beamline, or accelerator subsystem, install the
-guided build-interview skill and run it from your agent session:
+`osprey` plugin and run its guided build-interview skill from your agent session:
 
 ```bash
-osprey skills install osprey-build-interview
+claude plugin marketplace add als-apg/osprey --sparse .claude-plugin plugins
+claude plugin install osprey@osprey
 ```
 
-Then start the agent in an empty directory and type `/osprey-build-interview`. The skill
+Then start the agent in an empty directory and type `/osprey:build-interview`. The skill
 walks you through a guided conversation and produces the deployment repository — a git
 repository whose `profile.yml` is the source of truth. From inside it, `osprey build`
 renders the ready-to-run deployment into `build/`.

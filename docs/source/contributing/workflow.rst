@@ -145,14 +145,9 @@ Osprey Agent Workflow Skill
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 If you use the Osprey agent (e.g., via `Claude Code <https://docs.claude.com/en/docs/claude-code>`_),
-install the bundled ``osprey-contribute`` skill to get guided help following
-this workflow:
-
-.. code-block:: bash
-
-   uv run osprey skills install osprey-contribute
-
-The skill walks you through branching, commits, push, PR, and CI iteration,
+the ``/osprey:contribute`` skill gives guided help following this workflow. It
+walks you through branching, commits, push, PR, and CI iteration,
 auto-detecting whether you have push access to ``als-apg/osprey`` or are
-contributing from a fork. It is one of six installable skills --- which one
-fits which step of the journey is on :doc:`agent-skills`.
+contributing from a fork. It ships in the ``osprey`` plugin alongside five
+others; how to install it, and which skill fits which step of the journey, is
+on :doc:`agent-skills`.
