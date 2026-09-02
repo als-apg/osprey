@@ -78,6 +78,11 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 # MutationObserver appends every later value.  A correct boot yields either
 # ["simple"] (hub: SSR already simple, mode-boot no-clobbers) or [null, "simple"]
 # (artifacts: no SSR attr, mode-boot sets it from ?mode=) — never "expert".
+#
+# The onboarding tour's invite veil covers the shell on a fresh profile and
+# intercepts pointer events, so every page seeds the dismissal flag before its
+# first script runs — the same seed the drawer and scaffold suites carry.
+_DISMISS_TOUR = "try { localStorage.setItem('osprey-tour-dismissed-v1', '1') } catch (e) {}"
 _MODE_LOG_INIT_SCRIPT = """
 (function () {
   window.__uiModeLog = window.__uiModeLog || [];
@@ -171,6 +176,7 @@ def _open_hub_page(browser: Browser, base_url: str, query: str = "") -> Page:
     then waits for the artifacts tab (async panel init done).
     """
     page = browser.new_page()
+    page.add_init_script(_DISMISS_TOUR)
     page.add_init_script(_MODE_LOG_INIT_SCRIPT)
     page.goto(f"{base_url}{query}", wait_until="domcontentloaded")
     expect(page.locator('button[data-panel-id="artifacts"]')).to_be_attached(timeout=10_000)
@@ -286,6 +292,7 @@ def test_artifacts_iframe_boots_simple_no_flash(tmp_path, chromium_browser):
         # can observe first paint. mode-boot resolves Simple from ?mode= with no
         # Expert ever on the element, and the Simple view is what renders.
         probe = chromium_browser.new_page()
+        probe.add_init_script(_DISMISS_TOUR)
         probe.add_init_script(_MODE_LOG_INIT_SCRIPT)
         probe.goto(iframe_src, wait_until="domcontentloaded")
         expect(probe.locator("#view-artifacts-simple")).to_be_visible(timeout=10_000)
