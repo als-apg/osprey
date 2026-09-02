@@ -371,12 +371,17 @@ def _refusal_code(body: Any) -> Any:
     return detail.get("code") if isinstance(detail, dict) else None
 
 
-def _enqueue_session_plan(plan_name: str, plan_args: dict) -> tuple[int, Any]:
+def _enqueue_session_plan(
+    plan_name: str, plan_args: dict, *, token: str | None = None
+) -> tuple[int, Any]:
     """Stage ``plan_name`` in the shared draft and try to enqueue it.
 
     The queue path takes plan name and args from the server-side draft snapshot
     at a pinned revision, never from the enqueue body — so reaching the enqueue
-    gate at all means going through the draft first.
+    gate at all means going through the draft first. ``token`` is what an add
+    to the preset's armed queue requires; the refusals the negative tests
+    assert on (validation, retired metadata) are raised before the arming
+    check, so they need none.
     """
     status, patched = _patch(
         "/draft",
@@ -387,7 +392,8 @@ def _enqueue_session_plan(plan_name: str, plan_args: dict) -> tuple[int, Any]:
         },
     )
     assert status == 200, f"PATCH /draft failed for {plan_name!r}: {status} {patched}"
-    return _post("/queue/items", {"draft_revision": patched["revision"]})
+    headers = {"X-Launch-Token": token} if token else None
+    return _post("/queue/items", {"draft_revision": patched["revision"]}, headers=headers)
 
 
 def _wait_for_health(url: str, timeout: float) -> None:
@@ -784,17 +790,17 @@ def test_session_plan_author_validate_launch_read_round_trip(
         "num": NUM_POINTS,
     }
     # Execution is the queue's: stage the plan in the shared draft, enqueue at
-    # the pinned revision (which mints the run id), then arm the queue. Same
-    # guarantees the retired two-step mint-then-launch flow had — the pinned
-    # revision and the launch token — with the plan running in the queue
-    # server's worker rather than in the bridge process.
-    status, body = _enqueue_session_plan(_POSITIVE_PLAN_NAME, plan_args)
+    # the pinned revision (which mints the run id) with the launch token, and
+    # start the queue only where it is stopped. Same guarantees the retired
+    # two-step mint-then-launch flow had — the pinned revision and the launch
+    # token — with the plan running in the queue server's worker rather than
+    # in the bridge process.
+    token = _minted_token(deployed_sandbox_stack.repo)
+    status, body = _enqueue_session_plan(_POSITIVE_PLAN_NAME, plan_args, token=token)
     assert status == 200, f"POST /queue/items failed: {status} {body}"
     run_id = body["run_id"]
 
-    token = _minted_token(deployed_sandbox_stack.repo)
-    status, body = _post("/queue/start", {}, headers={"X-Launch-Token": token})
-    assert status == 200, f"POST /queue/start failed: {status} {body}"
+    _queue_drive.start_draining(BRIDGE_URL, token, run_id)
 
     deadline = time.monotonic() + SCAN_TIMEOUT_SEC
     status_body: dict = {}

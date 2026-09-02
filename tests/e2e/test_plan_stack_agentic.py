@@ -3943,8 +3943,9 @@ def _start_plan_and_wait_running(stack: DeployedScanStack, num_points: int) -> s
         "grid_scan",
         _long_grid_args(stack, num_points),
         client_id=_PROTOCOL_CLIENT_ID,
+        token=stack.token,
     )
-    _queue_drive.start_queue(BRIDGE_URL, stack.token)
+    _queue_drive.start_draining(BRIDGE_URL, stack.token, run_id)
 
     deadline = time.monotonic() + RUNNING_WAIT_TIMEOUT_SEC
     last: Any = "(no answer yet)"

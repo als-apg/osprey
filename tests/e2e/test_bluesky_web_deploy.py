@@ -616,11 +616,13 @@ def test_plan_via_sidecar_queue_completes(deployed_stack: DeployedStack) -> None
     """The whole operator flow through the sidecar, with NO credential in hand.
 
     This is the browser's view: compose the draft, enqueue it at the pinned
-    revision, arm the queue, watch the run, read the results -- every call to
-    the sidecar, never to the bridge. The launch token is resolved by the
-    sidecar in-process and attached to each queue WRITE; this test never sends
-    it and asserts, on every single response it reads, that the token has not
-    come back out.
+    revision, start the queue where it is stopped, watch the run, read the
+    results -- every call to the sidecar, never to the bridge. The launch token
+    is resolved by the sidecar in-process and attached to each queue WRITE;
+    this test never sends it and asserts, on every single response it reads,
+    that the token has not come back out. On the preset's armed queue the
+    enqueue is that write and the plan runs from it; a Start is sent only
+    where the manager reports the queue stopped.
     """
     token = _minted_token(deployed_stack.repo)
 
@@ -659,13 +661,20 @@ def test_plan_via_sidecar_queue_completes(deployed_stack: DeployedStack) -> None
     run_id = enqueued.get("run_id")
     assert run_id, f"no run_id in the enqueue response: {enqueued}"
 
-    # --- arm the queue: the sidecar supplies the token we never sent -------
-    status, started = _sidecar_post("/queue/start", {})
-    assert status == 200, (
-        "the sidecar must attach the launch token it resolved in-process, so a "
-        f"browser with no credential can still arm the queue: {status} {started}"
-    )
-    _assert_no_token("queue-start response", started)
+    # --- make sure it drains: the sidecar supplies the token we never sent --
+    # An armed queue (the preset's posture) ran the plan off the enqueue above;
+    # a stopped one needs the Start, and the sidecar attaches the token to
+    # that write too.
+    status, queue_body = _sidecar_get("/queue")
+    assert status == 200, f"GET /queue (via sidecar) failed: {status} {queue_body}"
+    _assert_no_token("queue snapshot", queue_body)
+    if not queue_body["status"].get("queue_autostart_enabled"):
+        status, started = _sidecar_post("/queue/start", {})
+        assert status == 200, (
+            "the sidecar must attach the launch token it resolved in-process, so a "
+            f"browser with no credential can still start the queue: {status} {started}"
+        )
+        _assert_no_token("queue-start response", started)
 
     # --- watch it run, through the sidecar ---------------------------------
     deadline = time.monotonic() + SCAN_TIMEOUT_SEC
@@ -700,8 +709,9 @@ def test_plan_direct_via_bridge(deployed_stack: DeployedStack) -> None:
 
     The isolation control for test 3: when that one fails, this says whether
     the sidecar's relay broke or the stack underneath it did. Here the caller
-    holds the launch token itself -- the bridge gates the arming action, and
-    the sidecar's only job is to hold that credential on the browser's behalf.
+    holds the launch token itself -- the bridge gates every arming write (the
+    add, on the preset's armed queue; the Start, on a stopped one), and the
+    sidecar's only job is to hold that credential on the browser's behalf.
     """
     token = _minted_token(deployed_stack.repo)
 
@@ -721,12 +731,13 @@ def test_plan_direct_via_bridge(deployed_stack: DeployedStack) -> None:
     )
     assert status == 200, f"PATCH /draft (bridge) failed: {status} {patched}"
 
-    status, body = _bridge_post("/queue/items", {"draft_revision": patched["revision"]})
+    status, body = _bridge_post(
+        "/queue/items", {"draft_revision": patched["revision"]}, token=token
+    )
     assert status == 200, f"POST /queue/items (bridge) failed: {status} {body}"
     run_id = body["run_id"]
 
-    status, body = _bridge_post("/queue/start", {}, token=token)
-    assert status == 200, f"POST /queue/start (bridge) failed: {status} {body}"
+    _queue_drive.start_draining(BRIDGE_URL, token, run_id)
 
     deadline = time.monotonic() + SCAN_TIMEOUT_SEC
     last_status_body: dict[str, Any] = {}

@@ -856,9 +856,9 @@ def test_orbit_bump_sweep_roundtrip_closes_a_local_bump(
 
     token = _orm_stack.minted_launch_token(stack.repo)
     run_id = _queue_drive.stage_and_enqueue(
-        BRIDGE_URL, "orbit_bump_sweep", plan_args, client_id="bump-roundtrip-e2e"
+        BRIDGE_URL, "orbit_bump_sweep", plan_args, client_id="bump-roundtrip-e2e", token=token
     )
-    _queue_drive.start_queue(BRIDGE_URL, token)
+    _queue_drive.start_draining(BRIDGE_URL, token, run_id)
     status_body = _queue_drive.wait_for_terminal_status(
         BRIDGE_URL, run_id, timeout=SCAN_TIMEOUT_SEC
     )
