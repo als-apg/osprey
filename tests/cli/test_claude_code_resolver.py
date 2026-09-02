@@ -51,9 +51,9 @@ class TestAnthropicProvider:
 
     def test_model_tiers(self):
         spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
-        assert spec.tier_to_model["haiku"] == "claude-haiku-4-5-20251001"
-        assert spec.tier_to_model["sonnet"] == "claude-sonnet-4-5-20250929"
-        assert spec.tier_to_model["opus"] == "claude-opus-4-6"
+        assert spec.tier_to_model["haiku"] == "claude-haiku-4-5"
+        assert spec.tier_to_model["sonnet"] == "claude-sonnet-5"
+        assert spec.tier_to_model["opus"] == "claude-opus-5"
 
 
 class TestCBORGProvider:
@@ -304,7 +304,7 @@ class TestAgentModel:
 
     def test_logbook_deep_research_default_opus(self):
         spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
-        assert spec.agent_model("logbook-deep-research") == "claude-opus-4-6"
+        assert spec.agent_model("logbook-deep-research") == "claude-opus-5"
 
 
 class TestPerTierOverrides:
@@ -464,9 +464,9 @@ class TestEnvBlockTierModels:
 
     def test_anthropic_has_all_tier_model_vars(self):
         spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
-        assert spec.env_block["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == "claude-haiku-4-5-20251001"
-        assert spec.env_block["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "claude-sonnet-4-5-20250929"
-        assert spec.env_block["ANTHROPIC_DEFAULT_OPUS_MODEL"] == "claude-opus-4-6"
+        assert spec.env_block["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == "claude-haiku-4-5"
+        assert spec.env_block["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "claude-sonnet-5"
+        assert spec.env_block["ANTHROPIC_DEFAULT_OPUS_MODEL"] == "claude-opus-5"
 
     def test_cborg_has_all_tier_model_vars(self):
         spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})

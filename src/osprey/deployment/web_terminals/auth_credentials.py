@@ -123,8 +123,21 @@ TERMINAL_SECRET_VAR_PREFIX = ROSTER_SECRET_ENV_PREFIX
 #: credentials is what keeps such a refusal about something they can find.
 TERMINAL_SECRET_SUBJECT = "secrets"
 
-_HASH_HEADER = "# Auto-generated web-terminal auth password hashes (osprey deploy)"
-_SECRET_HEADER = "# Auto-generated web-terminal auth signing secrets (osprey deploy)"
+#: Every spelling each ``.env.auth`` block header has been written under, oldest
+#: first. A header is matched against the file already on the operator's disk
+#: (the hash-entry placement below looks one up to extend its block), so the
+#: text is a lookup key rather than a message: these tuples only ever grow, and
+#: the last entry is the one written today.
+_HASH_HEADERS: tuple[str, ...] = (
+    "# Auto-generated web-terminal auth password hashes (osprey deploy)",
+    "# Auto-generated web-terminal auth password hashes (osprey up)",
+)
+_SECRET_HEADERS: tuple[str, ...] = (
+    "# Auto-generated web-terminal auth signing secrets (osprey deploy)",
+    "# Auto-generated web-terminal auth signing secrets (osprey up)",
+)
+_HASH_HEADER = _HASH_HEADERS[-1]
+_SECRET_HEADER = _SECRET_HEADERS[-1]
 
 # Minted-password alphabet: alphanumerics minus the transcription lookalikes
 # (0/O, 1/l/I). A minted password is read off a terminal and retyped by a
@@ -1234,7 +1247,8 @@ def _lines_with_entry_replaced(
     would otherwise sit in the credential file as cleartext.
 
     A user with no entry yet is appended under the existing
-    :data:`_HASH_HEADER` when the file already has one — placed after the last
+    hash header when the file already has one (any spelling in
+    :data:`_HASH_HEADERS`) — placed after the last
     hash line so it joins that block — and under a newly added header when it
     does not.
     """
@@ -1253,14 +1267,15 @@ def _lines_with_entry_replaced(
     if replaced:
         return lines
 
-    if _HASH_HEADER in lines:
+    existing_header = next((header for header in _HASH_HEADERS if header in lines), None)
+    if existing_header is not None:
         last_hash = max(
             (
                 index
                 for index, line in enumerate(lines)
                 if (dotenv_line_var(line) or "").startswith(PW_HASH_VAR_PREFIX)
             ),
-            default=lines.index(_HASH_HEADER),
+            default=lines.index(existing_header),
         )
         lines.insert(last_hash + 1, entry)
         return lines

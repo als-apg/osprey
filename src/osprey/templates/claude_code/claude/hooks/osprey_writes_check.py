@@ -523,7 +523,7 @@ def main():
     # the write tools — this deny together with approval's defer (see
     # osprey_approval.py) is the whole gate. On a render that hard-blocks the
     # tool through `permissions.deny` in
-    # `src/osprey/cli/templates/claude_code.py`, this is defense-in-depth.
+    # `osprey.cli.templates.claude_code`, this is defense-in-depth.
     log_hook("writes-check", hook_input, status="deny", detail=f"target={target}")
     _record_refusal(
         hook_input,

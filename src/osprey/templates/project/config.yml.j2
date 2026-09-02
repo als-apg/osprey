@@ -47,7 +47,8 @@ container_runtime: auto
 services:
   # Local telemetry backend for the OSPREY agent — a single-binary OTLP
   # logs/metrics store (see the `telemetry:` block under `claude_code:` below
-  # and docs/how-to/monitor-agent.rst). Deployed by default: the agent emits its
+  # and https://als-apg.github.io/osprey/how-to/health-and-monitoring/monitor-agent.html).
+  # Deployed by default: the agent emits its
   # telemetry here, so `osprey up` + `osprey web` gives you a working,
   # queryable observability store out of the box. Bound to localhost.
   openobserve:
@@ -404,7 +405,7 @@ claude_code:
   # via `npx -y @anthropic-ai/claude-code@<version>` instead of bare `claude`.
   # First run downloads the package; subsequent runs hit the npx cache.
   # Verify with `osprey health` after setting.
-  # cli_version: "2.1.146"
+  # cli_version: "2.1.258"
   #
   # ── Server / Agent Overrides ──────────────────────────────
   # Disable framework servers or add custom MCP servers:
@@ -457,7 +458,7 @@ claude_code:
   # every prompt, response, and API body to disk, so this adds no new exposure —
   # it just makes that data queryable in a local store you own. To turn it off,
   # set `enabled: false`. Tracing and OTEL_LOG_TOOL_CONTENT are intentionally
-  # NOT wired. See docs/how-to/monitor-agent.rst.
+  # NOT wired. See https://als-apg.github.io/osprey/how-to/health-and-monitoring/monitor-agent.html.
   telemetry:
     enabled: true                        # Master switch
     backend: openobserve                 # openobserve | generic
@@ -675,23 +676,23 @@ api:
     openai:
       api_key: ${OPENAI_API_KEY}
       base_url: https://api.openai.com/v1
-      models:                        # GPT-5 sizes mapped onto the standard tiers
-        haiku: gpt-5-nano
-        sonnet: gpt-5-mini
-        opus: gpt-5
+      models:                        # GPT-5.6 sizes mapped onto the standard tiers
+        haiku: gpt-5.6-luna
+        sonnet: gpt-5.6-terra
+        opus: gpt-5.6-sol
     anthropic:
       api_key: ${ANTHROPIC_API_KEY}
       base_url: https://api.anthropic.com
       models:
-        haiku: claude-haiku-4-5-20251001
-        sonnet: claude-sonnet-4-5-20250929
-        opus: claude-opus-4-6
+        haiku: claude-haiku-4-5
+        sonnet: claude-sonnet-5
+        opus: claude-opus-5
     google:
       api_key: ${GOOGLE_API_KEY}
       base_url: https://generativelanguage.googleapis.com/v1beta
-      models:                        # Gemini 2.5 sizes mapped onto the standard tiers
-        haiku: gemini-2.5-flash-lite
-        sonnet: gemini-2.5-flash
+      models:                        # Current stable Gemini sizes on the standard tiers
+        haiku: gemini-3.5-flash-lite
+        sonnet: gemini-3.8-flash
         opus: gemini-2.5-pro
     ollama:
       api_key: ollama

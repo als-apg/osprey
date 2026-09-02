@@ -46,8 +46,8 @@ class TestOpenAIMetadata:
         assert OpenAIProviderAdapter.default_base_url == "https://api.openai.com/v1"
 
     def test_default_and_health_models(self):
-        assert OpenAIProviderAdapter.default_model_id == "gpt-5"
-        assert OpenAIProviderAdapter.health_check_model_id == "gpt-5-nano"
+        assert OpenAIProviderAdapter.default_model_id == "gpt-5.6-sol"
+        assert OpenAIProviderAdapter.health_check_model_id == "gpt-5.6-luna"
 
     def test_available_models_include_default_and_health(self):
         models = OpenAIProviderAdapter.available_models
@@ -163,7 +163,7 @@ class TestOpenAICheckHealth:
     def test_model_id_defaults_to_health_check_model(self):
         with patch(HEALTH, return_value=(True, "ok")) as mock_health:
             OpenAIProviderAdapter().check_health(api_key="key", base_url=None)
-        assert mock_health.call_args.kwargs["model_id"] == "gpt-5-nano"
+        assert mock_health.call_args.kwargs["model_id"] == "gpt-5.6-luna"
 
     def test_explicit_model_id_overrides_default(self):
         with patch(HEALTH, return_value=(True, "ok")) as mock_health:

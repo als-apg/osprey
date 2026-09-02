@@ -20,12 +20,12 @@ class GoogleProviderAdapter(LiteLLMDelegatingProvider):
     requires_model_id = True
     supports_proxy = True
     default_base_url = None
-    default_model_id = "gemini-2.5-flash"  # Latest Flash for general use
-    health_check_model_id = "gemini-2.5-flash-lite"  # Cheapest/fastest for health checks
+    default_model_id = "gemini-3.8-flash"  # Current stable Flash for general use
+    health_check_model_id = "gemini-3.5-flash-lite"  # Cheapest/fastest stable, for health checks
     available_models = [
-        "gemini-2.5-pro",  # Most capable Gemini 2.5 model
-        "gemini-2.5-flash",  # Fast and capable, good balance
-        "gemini-2.5-flash-lite",  # Fastest, most cost-effective
+        "gemini-2.5-pro",  # Most capable stable Gemini model (no stable Pro successor yet)
+        "gemini-3.8-flash",  # Current stable Flash, good balance
+        "gemini-3.5-flash-lite",  # Fastest, most cost-effective stable model
     ]
 
     # API key acquisition information

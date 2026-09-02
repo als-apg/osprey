@@ -20,9 +20,9 @@ class OpenAIProviderAdapter(LiteLLMDelegatingProvider):
     requires_model_id = True
     supports_proxy = True
     default_base_url = "https://api.openai.com/v1"
-    default_model_id = "gpt-5"  # GPT-5 for general use
-    health_check_model_id = "gpt-5-nano"  # Cheapest GPT-5 model for health checks
-    available_models = ["gpt-5", "gpt-5-mini", "gpt-5-nano"]
+    default_model_id = "gpt-5.6-sol"  # Flagship for general use
+    health_check_model_id = "gpt-5.6-luna"  # Cheapest listed model for health checks
+    available_models = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
 
     # API key acquisition information
     api_key_url = "https://platform.openai.com/api-keys"
