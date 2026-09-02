@@ -56,8 +56,6 @@ const HOST_LABEL = /** @type {Readonly<Record<BarHost, string>>} */ (
  */
 const DISPLAY_MENU_TAG = 'osprey-display-menu';
 
-/** What an empty activity strip previews as: the strip's idle reading. */
-const ACTIVITY_IDLE = 'idle';
 
 /** The sheet is a singleton per page; the controller arrives with it. */
 /** @type {SheetController | null} */
@@ -193,7 +191,6 @@ function copyOfLive(type) {
   }
   const copy = /** @type {Element} */ (shell.firstElementChild.cloneNode(true));
   neutralize(copy);
-  if (type === 'activity' && !copy.textContent?.trim()) copy.textContent = ACTIVITY_IDLE;
   return copy;
 }
 

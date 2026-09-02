@@ -10,16 +10,16 @@
  * three are why `reconcile()` is a keyed pass over element identities rather
  * than a `replaceChildren`:
  *
- *   Adopted nodes are MOVED, never rebuilt. Seven chrome nodes (`#activity-strip`,
- *   `#docs-link`, `#command-palette-btn`, the logo, the identity block, the
- *   display menu, the status dots) are rendered server-side and carry live
- *   state that no builder can reconstruct: `#activity-strip` is an `aria-live`
- *   region that `activity-history.js` mutates into its own trigger, and it
- *   self-boots from its own module before any layout arrives. Rebuilding it
- *   would leave a dead strip with no error anywhere. So a shell whose SSR body
- *   already exists is stamped `data-bar-adopted` at hydration and its subtree
- *   is never touched again — `document.getElementById('activity-strip')`
- *   returns the same node object across any number of pool round-trips.
+ *   Adopted nodes are MOVED, never rebuilt. Five chrome nodes (`#docs-link`,
+ *   `#command-palette-btn`, the logo, the identity block, the display menu)
+ *   are rendered server-side and carry live state that no builder can
+ *   reconstruct: the display menu is a custom element with its own listeners,
+ *   and the docs link is filled in by boot before any layout arrives.
+ *   Rebuilding one would leave a dead body with no error anywhere. So a shell
+ *   whose SSR body already exists is stamped `data-bar-adopted` at hydration
+ *   and its subtree is never touched again — `document.getElementById(
+ *   'docs-link')` returns the same node object across any number of pool
+ *   round-trips.
  *
  *   Focus and selection survive a move. Re-parenting a node blurs it, so a
  *   reconcile that lands while the operator is typing in the search item would
@@ -381,7 +381,7 @@ function isShell(node) {
 
 /**
  * The layout key for the n-th item of a type. First occurrence keys on the bare
- * type, so the common (singleton) case reads as `data-bar-key="activity"`.
+ * type, so the common (singleton) case reads as `data-bar-key="docs"`.
  * @param {string} type
  * @param {Map<string, number>} counts
  * @returns {string}

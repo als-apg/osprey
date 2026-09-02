@@ -50,7 +50,7 @@ LOGGER_NAME = "osprey.interfaces.web_terminal.bar_items_store"
 #: repeats.
 CATALOG: dict[str, dict[str, Any]] = {
     "logo": {"options": {}},
-    "activity": {"options": {}},
+    "feedback": {"options": {}},
     "clock": {
         "options": {
             "zone": {"kind": "enum", "values": ("none", "local", "utc", "both"), "default": "none"},
@@ -70,7 +70,7 @@ VOCABULARY = BarVocabulary(items=CATALOG, version=1, max_items_per_host=20)
 DEFAULT_LAYOUT: dict[str, Any] = {
     "version": 1,
     "rev": 0,
-    "header": [{"type": "logo"}, {"type": "activity"}],
+    "header": [{"type": "logo"}, {"type": "feedback"}],
     "status": [{"type": "clock", "options": {"zone": "utc", "seconds": True}}],
     "status_visible": True,
 }
@@ -92,7 +92,7 @@ def document(**overrides: Any) -> dict[str, Any]:
         "version": 1,
         "rev": 0,
         "header": [{"type": "logo"}],
-        "status": [{"type": "activity"}],
+        "status": [{"type": "feedback"}],
         "header_visible": True,
         "status_visible": True,
     }
@@ -106,7 +106,7 @@ def document(**overrides: Any) -> dict[str, Any]:
 def test_load_returns_the_deployment_default_when_nothing_is_stored(tmp_path: Path) -> None:
     result = load(tmp_path)
 
-    assert result["header"] == [{"type": "logo"}, {"type": "activity"}]
+    assert result["header"] == [{"type": "logo"}, {"type": "feedback"}]
     assert result["header_visible"] is True
     assert result["status_visible"] is True
     # Never saved, so the revision a conditional save compares against is zero.
@@ -129,7 +129,7 @@ def test_load_returns_a_copy_the_caller_cannot_mutate_the_default_through(
     first["header"].append({"type": "clock"})
     first["status_visible"] = False
 
-    assert load(tmp_path)["header"] == [{"type": "logo"}, {"type": "activity"}]
+    assert load(tmp_path)["header"] == [{"type": "logo"}, {"type": "feedback"}]
     assert load(tmp_path)["status_visible"] is True
 
 
@@ -266,7 +266,7 @@ def test_save_keeps_any_type_in_either_bar(tmp_path: Path) -> None:
 
 def test_save_refuses_more_items_than_a_bar_may_carry(tmp_path: Path) -> None:
     with pytest.raises(BarLayoutInvalid) as excinfo:
-        save(tmp_path, document(header=[{"type": "activity"}] * 21))
+        save(tmp_path, document(header=[{"type": "feedback"}] * 21))
 
     assert excinfo.value.reason == "overflow"
 
@@ -292,7 +292,7 @@ def test_save_refuses_a_second_copy_of_a_single_node_type(tmp_path: Path) -> Non
     # Counted across the whole document, header first: the status-bar copy is
     # the duplicate, and the message names it.
     with pytest.raises(BarLayoutInvalid) as excinfo:
-        save(tmp_path, document(header=[{"type": "activity"}], status=[{"type": "activity"}]))
+        save(tmp_path, document(header=[{"type": "feedback"}], status=[{"type": "feedback"}]))
 
     assert excinfo.value.reason == "duplicate"
     assert "status[0]" in str(excinfo.value)
@@ -388,9 +388,9 @@ def test_save_does_not_check_availability(tmp_path: Path) -> None:
     # The client refuses an item whose runtime dependency is missing; the server
     # cannot see that, and refusing here would make a layout unsavable for as
     # long as a bridge happened to be down.
-    saved = save(tmp_path, document(status=[{"type": "activity"}]))
+    saved = save(tmp_path, document(status=[{"type": "feedback"}]))
 
-    assert saved["status"] == [{"type": "activity", "options": {}}]
+    assert saved["status"] == [{"type": "feedback", "options": {}}]
 
 
 # ── save_layout: options are completed, not trusted ────────────────────────

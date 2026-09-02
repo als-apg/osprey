@@ -364,8 +364,7 @@ where the deployment renders one, the
 :ref:`control-target chip <web-terminal-session-posture>`, the command palette
 button and the display menu. The status bar starts nearly bare: a space, the
 **System health** dot where the SYSTEM panel is enabled, and a clock at the
-right. The agent's activity line, the **Docs** link and the rest of the catalog
-are one drag away. Which items sit in which bar, and in what order, is yours
+right. The **Docs** link and the rest of the catalog are one drag away. Which items sit in which bar, and in what order, is yours
 to change.
 
 Rearranging the bars

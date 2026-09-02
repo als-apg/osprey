@@ -94,14 +94,14 @@ afterEach(() => {
 
 describe('the Show rows on a panel surface', () => {
   test('with both bars showing a tile header offers only its own verbs', async () => {
-    await bootWith(doc(['logo', 'clock'], ['activity']));
+    await bootWith(doc(['logo', 'clock'], ['stopwatch']));
 
     expect(openTileMenu('terminal')).toBe(true);
     expect(labels()).toEqual(['Restart terminal', 'New session', 'Close terminal tile']);
   });
 
   test('a hidden header adds Show header below the verbs, and it brings the header back', async () => {
-    await bootWith(doc(['logo', 'clock'], ['activity'], { headerVisible: false }));
+    await bootWith(doc(['logo', 'clock'], ['stopwatch'], { headerVisible: false }));
 
     expect(openTileMenu('iframe:ariel')).toBe(true);
     expect(labels()).toEqual([
@@ -124,7 +124,7 @@ describe('the Show rows on a panel surface', () => {
   });
 
   test('each hidden bar gets its own row, and the rows are gone once both show', async () => {
-    await bootWith(doc(['logo'], ['activity'], { headerVisible: false, statusVisible: false }));
+    await bootWith(doc(['logo'], ['stopwatch'], { headerVisible: false, statusVisible: false }));
 
     openTileMenu('terminal');
     expect(labels().slice(-2)).toEqual(['Show header', 'Show status bar']);
@@ -144,12 +144,12 @@ describe('the Show rows on a panel surface', () => {
   });
 
   test('the simple-mode terminal declines with both bars showing, but opens for a hidden one', async () => {
-    await bootWith(doc(['logo'], ['activity']), 'simple');
+    await bootWith(doc(['logo'], ['stopwatch']), 'simple');
     expect(openTileMenu('terminal')).toBe(false);
     expect(document.querySelector('.rail-context-menu')).toBe(null);
     teardown(modules);
 
-    await bootWith(doc(['logo'], ['activity'], { headerVisible: false }), 'simple');
+    await bootWith(doc(['logo'], ['stopwatch'], { headerVisible: false }), 'simple');
     expect(openTileMenu('terminal')).toBe(true);
     expect(labels()).toEqual(['Show header']);
     expect(document.querySelectorAll('.rail-context-divider')).toHaveLength(0);

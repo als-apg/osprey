@@ -28,17 +28,6 @@
   font-size: var(--text-sm);
 }
 
-/* Resting state, hub variant only. The strip is empty between entries by
-   design, and an empty strip in the status bar reads as a missing item — so
-   the hub's strip says `idle` in muted text while nothing is showing, which
-   is also what the Customize sheet previews for it. Pseudo-content rather
-   than a DOM node: the floating variant below keys its own empty-state hide
-   on `:empty`, and the live region's DOM stays text-free between entries. */
-.status-activity:not(.status-activity-floating):empty::after {
-  content: 'idle';
-  color: var(--text-muted);
-}
-
 .activity-strip-entry {
   display: inline-flex;
   align-items: baseline;

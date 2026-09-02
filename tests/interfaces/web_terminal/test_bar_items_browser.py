@@ -361,9 +361,9 @@ def test_a_tile_dragged_from_the_sheet_lands_where_it_was_dropped(tmp_path, chro
 def test_a_drag_inside_one_bar_reorders_it(tmp_path, chromium_browser):
     """A reorder is a permutation, and a full bar must still accept one.
 
-    The seeded status bar holds three fixed-width items (no ``activity``,
-    which stretches and would make the midpoint arithmetic depend on the
-    viewport). The rightmost is dragged onto the left half of the leftmost.
+    The seeded status bar holds three fixed-width items (no ``space``, which
+    stretches and would make the midpoint arithmetic depend on the viewport).
+    The rightmost is dragged onto the left half of the leftmost.
     """
     with _launch_web_terminal(tmp_path) as (base_url, _app):
         _seed_layout(
@@ -427,38 +427,6 @@ def test_an_item_dragged_to_the_other_bar_leaves_the_first(tmp_path, chromium_br
         expect(_shell(page, "status", "clock")).to_be_attached(timeout=5_000)
         assert _types(page, "status") == ["docs", "clock"]
         assert _types(page, "header") == ["logo", "space", "display"]
-
-        page.close()
-
-
-def test_the_activity_line_drags_out_of_the_status_bar_like_any_item(tmp_path, chromium_browser):
-    """The activity strip is the one item that stretches to fill its bar and
-    is empty between agent actions -- the two properties most likely to make a
-    press on it land on nothing. It must still be a drag source, and it must
-    arrive in the header."""
-    with _launch_web_terminal(tmp_path) as (base_url, _app):
-        _seed_layout(
-            base_url,
-            header=["logo", "space", "display"],
-            status=["activity", "clock"],
-        )
-        page = _open(chromium_browser, base_url)
-        _enter_edit_mode(page)
-
-        header_box = page.locator(HEADER_HOST).bounding_box()
-        assert header_box is not None
-        _drag(
-            page,
-            _center(_shell(page, "status", "activity")),
-            (
-                header_box["x"] + header_box["width"] - 2,
-                header_box["y"] + header_box["height"] / 2,
-            ),
-        )
-
-        expect(_shell(page, "header", "activity")).to_be_attached(timeout=5_000)
-        assert _types(page, "header") == ["logo", "space", "display", "activity"]
-        assert _types(page, "status") == ["clock"]
 
         page.close()
 

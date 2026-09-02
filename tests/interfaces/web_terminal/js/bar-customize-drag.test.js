@@ -90,27 +90,27 @@ afterEach(() => {
 
 describe('moving an item between the bars', () => {
   test('a header item dropped on the status bar moves there', async () => {
-    await editing(doc(['logo', 'clock', 'docs'], ['activity']));
+    await editing(doc(['logo', 'clock', 'docs'], ['stopwatch']));
 
     await drag(shell('clock'), IN_STATUS);
 
     const bodies = putBodies();
     expect(bodies).toHaveLength(1);
     expect(bodies[0].header.map((/** @type {any} */ i) => i.type)).toEqual(['logo', 'docs']);
-    expect(bodies[0].status.map((/** @type {any} */ i) => i.type)).toEqual(['activity', 'clock']);
-    expect(rendered('status')).toEqual(['activity', 'clock']);
+    expect(bodies[0].status.map((/** @type {any} */ i) => i.type)).toEqual(['stopwatch', 'clock']);
+    expect(rendered('status')).toEqual(['stopwatch', 'clock']);
   });
 
   test('the item lands where the pointer released it', async () => {
-    await editing(doc(['logo', 'clock'], ['activity', 'docs']));
-    withRect(shell('activity'), { left: 40, right: 80, top: 100, bottom: 126 });
+    await editing(doc(['logo', 'clock'], ['stopwatch', 'docs']));
+    withRect(shell('stopwatch'), { left: 40, right: 80, top: 100, bottom: 126 });
     withRect(shell('docs'), { left: 80, right: 120, top: 100, bottom: 126 });
 
     await drag(shell('clock'), { x: 50, y: 112 });
 
     expect(putBodies()[0].status.map((/** @type {any} */ i) => i.type)).toEqual([
       'clock',
-      'activity',
+      'stopwatch',
       'docs',
     ]);
   });

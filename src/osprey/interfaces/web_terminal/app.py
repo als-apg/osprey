@@ -342,8 +342,7 @@ BAR_HOSTS: tuple[str, ...] = ("header", "status")
 #:
 #: The status bar ships almost empty: a space, so the rest sits at the right
 #: edge, then the system-health dot and the clock. Everything else the bar can
-#: show — the agent's activity line, the documentation link, the stopwatch —
-#: stays in the catalog and is one drag away in Customize; a screen an
+#: show — the documentation link, the stopwatch — stays in the catalog and is one drag away in Customize; a screen an
 #: operator watches all day should start with what they read, not with what
 #: the terminal knows about itself. ``system-health`` renders only where this
 #: deployment enables the SYSTEM panel — :func:`bar_render_plan` drops it
@@ -380,8 +379,8 @@ DEFAULT_BAR_LAYOUT: dict = {
 #: The ADOPTED item types: the ones whose body is a literal block in
 #: ``index.html`` rather than a JS-built one.
 #:
-#: These are the nodes other modules resolve **by id** — ``#activity-strip``,
-#: ``#docs-link``, ``#command-palette-btn``, ``#display-menu-settings``,
+#: These are the nodes other modules resolve **by id** — ``#docs-link``,
+#: ``#command-palette-btn``, ``#display-menu-settings``,
 #: ``#logout-btn``, the identity trigger and menu. They are therefore
 #: rendered on EVERY request whether or not the layout places
 #: them: into their shell when placed, into ``#bar-item-pool`` when not. A
@@ -393,7 +392,6 @@ ADOPTED_BAR_ITEM_TYPES: tuple[str, ...] = (
     "identity",
     "search",
     "display",
-    "activity",
     "docs",
 )
 
@@ -414,7 +412,6 @@ BAR_ITEM_TYPES: tuple[str, ...] = (
     "search",
     "system-health",
     "bluesky-queue",
-    "activity",
     "docs",
     "feedback",
     "clock",

@@ -7,7 +7,7 @@
  * that states them, and each is pinned here as an EXACT set rather than a
  * membership check, so both directions of drift fail:
  *
- *   - the 14 types themselves;
+ *   - the 13 types themselves;
  *   - no placement axis — every type may sit in either bar, so no entry may
  *     grow a `hosts` list that would quietly refuse one of them;
  *   - foldable — `overflowLabel(ctx) !== null` IS the ladder's fold domain, so
@@ -36,7 +36,6 @@ const EXPECTED_TYPES = [
   'display',
   'docs',
   'feedback',
-  'activity',
   'clock',
   'system-health',
   'bluesky-queue',
@@ -89,8 +88,8 @@ function asEnumSpec(spec) {
 }
 
 describe('type set', () => {
-  test('declares exactly 14 types', () => {
-    expect(BAR_ITEM_TYPES).toHaveLength(14);
+  test('declares exactly 13 types', () => {
+    expect(BAR_ITEM_TYPES).toHaveLength(13);
     expect(sorted(BAR_ITEM_TYPES)).toEqual(sorted(EXPECTED_TYPES));
   });
 
@@ -202,10 +201,6 @@ describe('align', () => {
 });
 
 describe('flex hints', () => {
-  test('activity absorbs the spare space and may ellipsize', () => {
-    expect(BAR_CATALOG.activity.flex({})).toEqual({ flex: '1 1 0', minWidth: '0' });
-  });
-
   test('a space at width 0 fills, and at any other width holds that width', () => {
     expect(BAR_CATALOG.space.flex({})).toEqual({ flex: '1 1 0' });
     expect(BAR_CATALOG.space.flex({ width: 0 })).toEqual({ flex: '1 1 0' });
@@ -216,7 +211,7 @@ describe('flex hints', () => {
   });
 
   test('every other type stamps nothing on its shell', () => {
-    const stamped = ['activity', 'space'];
+    const stamped = ['space'];
     for (const [type, entry] of entries()) {
       if (stamped.includes(type)) continue;
       expect(entry.flex({})).toBeNull();

@@ -94,7 +94,6 @@ export const BAR_HOSTS = /** @type {readonly BarHost[]} */ (Object.freeze(['head
 export const BAR_GROUPS = Object.freeze([
   'Identity',
   'Machine',
-  'Agent',
   'Panels',
   'System',
   'Tools',
@@ -278,21 +277,6 @@ export const BAR_CATALOG = Object.freeze({
     // The queue is read through the Bluesky panel's proxy, so the item exists
     // exactly where that panel is declared.
     available: (ctx) => ctx.blueskyAvailable === true,
-  },
-
-  activity: {
-    type: 'activity',
-    label: 'Activity',
-    group: 'Agent',
-    multi: false,
-    options: NO_OPTIONS,
-    priority: 60,
-    align: 'center',
-    // The one item that absorbs the bar's spare space; `min-width: 0` lets its
-    // aria-live text ellipsize instead of pushing the chrome beside it out.
-    flex: () => ({ flex: '1 1 0', minWidth: '0' }),
-    overflowLabel: NEVER_FOLDS,
-    available: ALWAYS,
   },
 
   docs: {

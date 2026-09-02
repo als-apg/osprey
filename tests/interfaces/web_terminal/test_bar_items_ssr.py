@@ -4,9 +4,9 @@ The web terminal's header and status bar are item HOSTS: ``root()`` renders one
 ordered run of ``.bar-item`` shells per bar from the effective layout, so the
 operator's order is on the page before a single module script has run.
 
-Six chrome nodes are ADOPTED — they are resolved by id by other modules
-(``#activity-strip``, ``#docs-link``, ``#command-palette-btn``,
-``#display-menu-settings``, ``#logout-btn``, the identity trigger and menu), so
+Five chrome nodes are ADOPTED — they are resolved by id by other modules
+(``#docs-link``, ``#command-palette-btn``, ``#display-menu-settings``,
+``#logout-btn``, the identity trigger and menu), so
 they are rendered on **every** request whichever way the
 layout falls: into their shell when it places them, into ``#bar-item-pool``
 when it does not. That is the invariant this file exists for (FR6), and it is
@@ -45,7 +45,6 @@ from osprey.interfaces.web_terminal.app import (
 
 #: Ids the terminal renders on every deployment, whatever the layout says.
 _UNIVERSAL_IDS = (
-    "activity-strip",
     "docs-link",
     "command-palette-btn",
     "display-menu-settings",
@@ -267,12 +266,12 @@ class TestShellRuns:
             "version": 1,
             "rev": 3,
             "header": [{"type": "display"}, {"type": "space"}, {"type": "logo"}],
-            "status": [{"type": "docs"}, {"type": "activity"}],
+            "status": [{"type": "docs"}, {"type": "stopwatch"}],
             "status_visible": True,
         }
         body = _body(client)
         assert _shell_types(body, "header") == ["display", "space", "logo"]
-        assert _shell_types(body, "status") == ["docs", "activity"]
+        assert _shell_types(body, "status") == ["docs", "stopwatch"]
 
     def test_shells_name_the_item_they_follow(self, configured_app):
         """`data-follows` is how the identity middot knows it sits after the
@@ -567,13 +566,13 @@ class TestAdoptedNodesArePresentOnEveryDeployment:
         pool = _pool(_body(client))
 
         parked = re.findall(r'<div class="bar-item" data-bar-item="([^"]+)"', pool)
-        expected = ["logo", "search", "display", "activity", "docs"]
+        expected = ["logo", "search", "display", "docs"]
         if fixture == "configured_app":
             expected += ["identity"]
         assert sorted(parked) == sorted(expected)
         # The bodies sit INSIDE those shells: the first thing in the pool is a
         # shell, never an adopted node.
-        assert pool.index('<div class="bar-item"') < pool.index('id="activity-strip"')
+        assert pool.index('<div class="bar-item"') < pool.index('id="docs-link"')
 
     @pytest.mark.parametrize("fixture", ["plain_app", "configured_app"])
     def test_every_adopted_node_is_rendered_exactly_once(self, fixture, request):
@@ -605,7 +604,7 @@ class TestAdoptedNodesArePresentOnEveryDeployment:
             "version": 1,
             "rev": 1,
             "header": [{"type": t} for t in ("logo", "search", "display")],
-            "status": [{"type": t} for t in ("activity", "docs")],
+            "status": [{"type": "docs"}],
             "status_visible": True,
         }
         body = _body(client)

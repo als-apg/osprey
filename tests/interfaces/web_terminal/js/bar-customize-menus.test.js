@@ -376,7 +376,7 @@ describe('outside edit mode the menu is the way in, plus Hide on the status bar'
     // the sheet — which does not exist until edit mode has been entered. The
     // Hide row names the bar under the pointer: offered from the top bar,
     // "Hide status bar" read as "hide this one".
-    await notEditing(doc(['logo', 'clock'], ['activity']));
+    await notEditing(doc(['logo', 'clock'], ['stopwatch']));
 
     rightClick(shell('clock'));
 
@@ -390,7 +390,7 @@ describe('outside edit mode the menu is the way in, plus Hide on the status bar'
   });
 
   test('Hide header withdraws the top bar and reads Show once hidden', async () => {
-    await notEditing(doc(['logo', 'clock'], ['activity']));
+    await notEditing(doc(['logo', 'clock'], ['stopwatch']));
 
     rightClick(shell('clock'));
     menuRow('header').click();
@@ -404,9 +404,9 @@ describe('outside edit mode the menu is the way in, plus Hide on the status bar'
   });
 
   test('the status bar offers Hide status bar, which reads Show once hidden', async () => {
-    await notEditing(doc(['logo', 'clock'], ['activity']));
+    await notEditing(doc(['logo', 'clock'], ['stopwatch']));
 
-    rightClick(shell('activity'));
+    rightClick(shell('stopwatch'));
     expect(menuRow('customize')?.textContent).toBe('Customize bars…');
     expect(menuRow('status')?.textContent).toBe('Hide status bar');
     expect(menuRow('header')).toBe(null);
@@ -416,12 +416,12 @@ describe('outside edit mode the menu is the way in, plus Hide on the status bar'
 
     expect(putBodies()).toHaveLength(1);
     expect(putBodies()[0].status_visible).toBe(false);
-    rightClick(shell('activity'));
+    rightClick(shell('stopwatch'));
     expect(menuRow('status')?.textContent).toBe('Show status bar');
   });
 
   test('entering edit mode brings the item rows', async () => {
-    await notEditing(doc(['logo', 'clock'], ['activity']));
+    await notEditing(doc(['logo', 'clock'], ['stopwatch']));
     customize.enterEditMode();
 
     rightClick(shell('clock'));
@@ -432,7 +432,7 @@ describe('outside edit mode the menu is the way in, plus Hide on the status bar'
     expect(menuRow('customize')?.textContent).toBe('Done customizing');
     expect(menuRow('reset')).toBe(null);
 
-    rightClick(shell('activity'));
+    rightClick(shell('stopwatch'));
     expect(menuRow('options')).not.toBe(null);
     expect(menuRow('status')?.textContent).toBe('Hide status bar');
   });
@@ -527,7 +527,7 @@ describe('the Default preset', () => {
     ({ customize, sync } = await boot({
       fetch: endpoint({
         get: doc(['logo', 'clock', 'docs'], []),
-        reset: doc(['logo'], ['activity']),
+        reset: doc(['logo'], ['stopwatch']),
       }),
     }));
     customize.enterEditMode();
@@ -536,7 +536,7 @@ describe('the Default preset', () => {
     await settle();
 
     expect(rendered('header')).toEqual(['logo']);
-    expect(rendered('status')).toEqual(['activity']);
+    expect(rendered('status')).toEqual(['stopwatch']);
   });
 
   test('it is the one edit a read-only layout still allows', async () => {

@@ -250,7 +250,7 @@ describe('flipping the ui mode', () => {
 
   test('the saved layout is the same in both modes, and the flip writes nothing', async () => {
     ({ customize, sync } = await boot({
-      fetch: endpoint({ get: doc(['logo', 'clock'], ['activity', 'docs']) }),
+      fetch: endpoint({ get: doc(['logo', 'clock'], ['stopwatch', 'docs']) }),
     }));
     const before = { header: rendered('header'), status: rendered('status') };
 

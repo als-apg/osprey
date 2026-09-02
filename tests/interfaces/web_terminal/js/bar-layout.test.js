@@ -97,7 +97,7 @@ describe('schema', () => {
 describe('a clean document', () => {
   const clean = doc({
     rev: 7,
-    header: [item('logo'), item('control-target'), item('activity'), item('docs')],
+    header: [item('logo'), item('control-target'), item('feedback'), item('docs')],
     status: [item('stopwatch'), item('clock', { zone: 'utc', format: '24h', seconds: true })],
     status_visible: false,
   });
@@ -113,7 +113,7 @@ describe('a clean document', () => {
       header: [
         { type: 'logo', options: {} },
         { type: 'control-target', options: {} },
-        { type: 'activity', options: {} },
+        { type: 'feedback', options: {} },
         { type: 'docs', options: {} },
       ],
       status: [
@@ -126,9 +126,9 @@ describe('a clean document', () => {
   });
 
   test('keeps the stored order — order IS the layout', () => {
-    const reversed = doc({ header: [item('docs'), item('activity'), item('logo')] });
+    const reversed = doc({ header: [item('docs'), item('feedback'), item('logo')] });
     const result = normalize(reversed, BAR_CATALOG, {});
-    expect(types(result.layout.header)).toEqual(['docs', 'activity', 'logo']);
+    expect(types(result.layout.header)).toEqual(['docs', 'feedback', 'logo']);
     expect(result.readonly).toBe(false);
   });
 
@@ -307,14 +307,14 @@ describe('an unknown version', () => {
   });
 
   const deploymentDefault = doc({
-    header: [item('logo'), item('control-target'), item('activity')],
+    header: [item('logo'), item('control-target'), item('feedback')],
     status: [item('stopwatch')],
   });
 
   test('falls back to the deployment default and goes read-only', () => {
     const result = normalize(future, BAR_CATALOG, { defaultLayout: deploymentDefault });
     expect(result.layout.version).toBe(BAR_LAYOUT_VERSION);
-    expect(types(result.layout.header)).toEqual(['logo', 'control-target', 'activity']);
+    expect(types(result.layout.header)).toEqual(['logo', 'control-target', 'feedback']);
     expect(types(result.layout.status)).toEqual(['stopwatch']);
     expect(result.changed).toBe(true);
     expect(result.readonly).toBe(true);

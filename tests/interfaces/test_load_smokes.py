@@ -276,7 +276,7 @@ def test_web_terminal_status_readouts_are_live(
     places_clock = {
         **DEFAULT_BAR_LAYOUT,
         "status": [
-            {"type": "activity"},
+            {"type": "space"},
             {"type": "clock"},
         ],
     }

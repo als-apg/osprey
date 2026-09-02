@@ -153,13 +153,13 @@ describe('rung 3 — foldable items fold, lowest priority first', () => {
   });
 
   test('only the six overflowLabel types are candidates', () => {
-    // activity and search both declare a null overflowLabel:
+    // control-target and search both declare a null overflowLabel:
     // a bar of nothing but those has no rung 3 at all, however crowded it is.
-    reconcile(layoutOf(['activity', 'search']));
+    reconcile(layoutOf(['control-target', 'search']));
     crowdingAtCapacity(1);
     applyOverflow(document);
 
-    expect(typesIn('header')).toEqual(['activity', 'search']);
+    expect(typesIn('header')).toEqual(['control-target', 'search']);
     expect(typesInPool()).toEqual([]);
     expect(trigger()).toBeNull();
   });

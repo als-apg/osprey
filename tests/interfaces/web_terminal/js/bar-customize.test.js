@@ -371,10 +371,10 @@ describe('a tile shows the item', () => {
     const headings = Array.from(document.querySelectorAll('.bar-sheet-group-heading')).map(
       (h) => h.textContent
     );
-    expect(headings).toEqual(['Identity', 'Machine', 'Agent', 'Panels', 'System', 'Tools', 'Layout']);
+    expect(headings).toEqual(['Identity', 'Machine', 'Panels', 'System', 'Tools', 'Layout']);
     expect(
       Array.from(document.querySelectorAll('.bar-tile')).map((t) => /** @type {any} */ (t).dataset.barTile)
-    ).toHaveLength(14);
+    ).toHaveLength(13);
   });
 
   test('a full host refuses the tile by name', async () => {

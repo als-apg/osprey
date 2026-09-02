@@ -6,7 +6,7 @@
  * Two of these assertions are the reason the host exists at all, and both are
  * named in the proposal's FR2:
  *
- *   - `document.getElementById('activity-strip')` returns the SAME node object
+ *   - `document.getElementById('docs-link')` returns the SAME node object
  *     across host -> pool -> host round-trips. The strip self-boots from its
  *     own module, is an `aria-live` region, and is mutated into its own history
  *     trigger by a third module. Every one of those lookups is null-guarded, so
@@ -92,11 +92,9 @@ function seedDom(headerShells = '', statusShells = '') {
   hydrate(document);
 }
 
-/** An adopted-chrome shell: a body the server rendered, which must never be rebuilt. */
-const ACTIVITY_SHELL =
-  '<div class="bar-item" data-bar-item="activity"><div id="activity-strip" aria-live="polite"></div></div>';
-
-/** The docs link, adopted, already revealed — the item hides it again itself. */
+/** The docs link, adopted, already revealed — the item hides it again itself.
+ *  Also the adopted-chrome shell of record below: a body the server rendered,
+ *  which must never be rebuilt. */
 const DOCS_SHELL =
   '<div class="bar-item" data-bar-item="docs"><a class="status-link" id="docs-link">Docs</a></div>';
 
@@ -166,22 +164,22 @@ afterEach(() => {
 });
 
 describe('adopted nodes are moved, never rebuilt', () => {
-  test('#activity-strip is the same node object across a pool round-trip', () => {
-    seedDom(ACTIVITY_SHELL);
-    const original = document.getElementById('activity-strip');
+  test('#docs-link is the same node object across a pool round-trip', () => {
+    seedDom(DOCS_SHELL);
+    const original = document.getElementById('docs-link');
     expect(original).toBeTruthy();
     // A marker no builder could reproduce: if the node is ever rebuilt from the
     // type's builder instead of moved, this is what disappears.
     /** @type {any} */ (original).__ospreyLiveRegion = Symbol('live');
 
     reconcile(layoutOf([], []));
-    const parked = document.getElementById('activity-strip');
+    const parked = document.getElementById('docs-link');
     expect(parked).toBe(original);
     expect(poolElement(document)?.contains(/** @type {Node} */ (parked))).toBe(true);
     expect(typesIn('header')).toEqual([]);
 
-    reconcile(layoutOf(['activity'], []));
-    const back = document.getElementById('activity-strip');
+    reconcile(layoutOf(['docs'], []));
+    const back = document.getElementById('docs-link');
     expect(back).toBe(original);
     expect(/** @type {any} */ (back).__ospreyLiveRegion).toBe(
       /** @type {any} */ (original).__ospreyLiveRegion
@@ -190,28 +188,28 @@ describe('adopted nodes are moved, never rebuilt', () => {
   });
 
   test('a shell parked by one reconcile is reused by the next, not recreated', () => {
-    seedDom(ACTIVITY_SHELL);
-    const shell = shellForKey('activity');
+    seedDom(DOCS_SHELL);
+    const shell = shellForKey('docs');
     expect(shell).toBeTruthy();
 
     reconcile(layoutOf([], []));
-    reconcile(layoutOf(['activity'], []));
+    reconcile(layoutOf(['docs'], []));
 
-    expect(shellForKey('activity')).toBe(shell);
+    expect(shellForKey('docs')).toBe(shell);
   });
 
   test('an adopted body is left alone even when the type has a builder', () => {
-    seedDom(ACTIVITY_SHELL);
-    useBuilder('activity', () => {
+    seedDom(DOCS_SHELL);
+    useBuilder('docs', () => {
       const span = document.createElement('span');
       span.className = 'rebuilt';
       return span;
     });
-    const original = document.getElementById('activity-strip');
+    const original = document.getElementById('docs-link');
 
-    reconcile(layoutOf(['activity'], []));
+    reconcile(layoutOf(['docs'], []));
 
-    expect(document.getElementById('activity-strip')).toBe(original);
+    expect(document.getElementById('docs-link')).toBe(original);
     expect(document.querySelector('.rebuilt')).toBeNull();
   });
 });
@@ -349,13 +347,6 @@ describe('order and parking', () => {
 });
 
 describe('catalog flex hints are stamped on the shell', () => {
-  test('activity absorbs spare space and may ellipsize', () => {
-    reconcile(layoutOf(['activity'], []));
-    const shell = /** @type {HTMLElement} */ (shellForKey('activity'));
-    expect(flexOf(shell)).toEqual(['1', '1', '0px']);
-    expect(shell.style.getPropertyValue('min-width')).toBe('0');
-  });
-
   test('a space at width 0 fills the bar', () => {
     reconcile(layoutOf(['space'], [], { options: { space: { width: 0 } } }));
     expect(flexOf(/** @type {HTMLElement} */ (shellForKey('space')))).toEqual(['1', '1', '0px']);
@@ -391,10 +382,10 @@ describe('catalog flex hints are stamped on the shell', () => {
 
 describe('isLive', () => {
   test('true for a node in a host, false for a node in the pool', () => {
-    seedDom(ACTIVITY_SHELL);
-    const strip = /** @type {HTMLElement} */ (document.getElementById('activity-strip'));
+    seedDom(DOCS_SHELL);
+    const strip = /** @type {HTMLElement} */ (document.getElementById('docs-link'));
 
-    reconcile(layoutOf(['activity'], []));
+    reconcile(layoutOf(['docs'], []));
     expect(isLive(strip)).toBe(true);
 
     reconcile(layoutOf([], []));
@@ -527,35 +518,30 @@ describe('popovers close before their item moves', () => {
 
 describe('first paint', () => {
   test('hydration is synchronous and indexes the server-rendered shells', () => {
-    seedDom(ACTIVITY_SHELL + `<div class="bar-item" data-bar-item="clock"></div>`);
+    seedDom(DOCS_SHELL + `<div class="bar-item" data-bar-item="clock"></div>`);
 
     // No reconcile has run: everything below is what the SSR pass alone gives.
-    expect(shellForKey('activity')).toBeTruthy();
+    expect(shellForKey('docs')).toBeTruthy();
     expect(shellForKey('clock')).toBeTruthy();
-    expect(/** @type {HTMLElement} */ (shellForKey('activity')).dataset.barAdopted).toBe('true');
+    expect(/** @type {HTMLElement} */ (shellForKey('docs')).dataset.barAdopted).toBe('true');
     expect(/** @type {HTMLElement} */ (shellForKey('clock')).dataset.barAdopted).toBeUndefined();
-    expect(flexOf(/** @type {HTMLElement} */ (shellForKey('activity')))).toEqual([
-      '1',
-      '1',
-      '0px',
-    ]);
   });
 
   test('shells parked in the pool by the server are hydrated too', () => {
     document.body.innerHTML = `
       <header class="header"><div class="header-actions" data-bar-host="header"></div></header>
       <footer class="status-bar" data-bar-host="status"></footer>
-      <div id="bar-item-pool" hidden>${ACTIVITY_SHELL}</div>
+      <div id="bar-item-pool" hidden>${DOCS_SHELL}</div>
     `;
     hydrate(document);
 
-    const strip = document.getElementById('activity-strip');
+    const strip = document.getElementById('docs-link');
     expect(strip).toBeTruthy();
     expect(isLive(strip)).toBe(false);
 
-    reconcile(layoutOf(['activity'], []));
+    reconcile(layoutOf(['docs'], []));
 
-    expect(document.getElementById('activity-strip')).toBe(strip);
+    expect(document.getElementById('docs-link')).toBe(strip);
     expect(isLive(strip)).toBe(true);
   });
 
@@ -564,7 +550,7 @@ describe('first paint', () => {
     // path would make the header and the status bar wait on the network before
     // they could paint at all, so importing the module afresh — hydration and
     // everything else it does at module scope — must touch no transport.
-    seedDom(ACTIVITY_SHELL);
+    seedDom(DOCS_SHELL);
     const fetchSpy = vi.fn();
     const originalFetch = globalThis.fetch;
     globalThis.fetch = /** @type {typeof globalThis.fetch} */ (fetchSpy);

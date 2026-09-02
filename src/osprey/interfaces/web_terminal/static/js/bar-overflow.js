@@ -16,7 +16,7 @@
  *      spacing item — not to fold it, not to resize it. If it did, it would be
  *      racing CSS for the same pixels.
  *
- *   1. Text ellipsizes. Also CSS (`min-width: 0` on the activity shell). The
+ *   1. Text ellipsizes. Also CSS (`min-width: 0` on a space shell). The
  *      only thing this module does for rung 1 is stay out of the way: it does
  *      not fold anything while the bar is merely tight, because a probe that
  *      reports no overflow is a bar whose text has already absorbed it.

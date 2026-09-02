@@ -2,22 +2,18 @@
 
 ``POST /api/agent-activity`` broadcasts an ``agent_activity`` frame over the
 ``/api/files/events`` SSE stream; the hub front-end turns it into either a
-persistent rail badge (kind ``panel`` with a rail entry) or a transient
-activity-strip entry (every other kind). None of that is reachable from the
-FastAPI TestClient — it only exists once a real browser runs panel-manager.js
-and activity-strip.js against a live SSE stream.
+persistent rail badge (kind ``panel`` with a rail entry) or a tile glow.
+None of that is reachable from the FastAPI TestClient — it only exists once a
+real browser runs panel-manager.js against a live SSE stream.
 
 Coverage:
 
   (1) kind ``panel`` targeting a real rail panel → its rail button gains the
       persistent ``agent-attention`` badge; activating the panel (a rail
       click) clears it.
-  (2) kind ``channel`` → an ``.activity-strip-entry`` naming the channel
-      appears in ``#activity-strip`` and auto-clears after ACTIVITY_CLEAR_MS.
-  (3) malformed bodies → 422 AND no DOM change (no strip entry, no badge),
-      proven by ordering: a valid frame POSTed *after* the malformed ones
-      lands (its badge appears) while the strip stays empty and no other
-      badge exists.
+  (3) malformed bodies → 422 AND no DOM change (no badge), proven by
+      ordering: a valid frame POSTed *after* the malformed ones lands (its
+      badge appears) while no other badge exists.
   (4) the Plans view's guarded auto-switch, against a real in-process
       bluesky bridge + bluesky-web sidecar: a PATCH /draft with client_id
       ``mcp-agent`` while the panel is unbound on another plan switches the
@@ -25,13 +21,8 @@ Coverage:
       (``agent-flash``); an operator-origin PATCH does neither.
   (5) an agent switch glows the panel's TILE BODY, not only its rail tab —
       with a human rail click as the control that must glow nothing.
-  (6) an agent hide reports itself on the activity strip, worded and
-      labelled, and glows nothing (the rail entry is already gone); an agent
+  (6) an agent hide glows nothing (the rail entry is already gone); an agent
       show right after is the positive control proving the glow probe armed.
-  (7) the history popover: five rapid frames render as five rows, newest
-      first, and the same rows — including a hide mirrored into the server
-      ring by the panel routes and worded "agent removed …" — come back after
-      a reload, served from ``GET /api/agent-activity/recent``.
   (8) badge acknowledgment across a reload: a badge the operator cleared by
       surfacing the panel stays cleared, while a newer unseen event restores
       one. Each half is the other's discriminator.
@@ -300,24 +291,6 @@ def _wait_for_history_read(page: Page) -> None:
     )
 
 
-def _open_history_popover(page: Page):
-    """Open the strip's history popover the way a keyboard operator does.
-
-    Focus + Enter rather than a click: the strip is a one-row flex region in
-    the footer whose live slot is empty between frames, and driving it through
-    focus keeps the test off Playwright's hit-testing entirely while staying a
-    real user gesture (the mount takes tabindex=0 and Enter/Space).
-
-    Returns:
-        The popover locator (a child of ``<body>``, absent while closed).
-    """
-    page.locator("#activity-strip").focus()
-    page.keyboard.press("Enter")
-    popover = page.locator("body > .activity-history-popover")
-    expect(popover).to_be_visible(timeout=5_000)
-    return popover
-
-
 _ATTENTION_RE = re.compile(r"\bagent-attention\b")
 _ACTIVE_RE = re.compile(r"\bactive\b")
 
@@ -366,42 +339,6 @@ def test_panel_activity_badges_rail_entry_and_activation_clears_it(tmp_path, chr
 
 
 # ---------------------------------------------------------------------------
-# (2) kind 'channel' → activity-strip entry, then auto-clear
-# ---------------------------------------------------------------------------
-
-
-def test_channel_activity_shows_strip_entry_then_auto_clears(tmp_path, chromium_browser):
-    """A channel-kind frame lands in #activity-strip and auto-clears (~6s).
-
-    Channel frames are never suppressed (no panel self-signals a channel
-    write), so the entry must show regardless of which panel is active. The
-    auto-clear is asserted as an eventual condition with a generous timeout —
-    ACTIVITY_CLEAR_MS is 6000ms — rather than a fixed sleep.
-    """
-    workspace = tmp_path / "_agent_data"
-    workspace.mkdir()
-
-    with _hub_server(workspace) as base_url:
-        page = _open_hub_page(chromium_browser, base_url)
-        entry = page.locator("#activity-strip .activity-strip-entry")
-        expect(entry).to_have_count(0)
-
-        r = _post_activity(
-            base_url,
-            {"tool": "write_channel", "target": {"kind": "channel", "detail": "SR01:HCM1:SP"}},
-        )
-        assert r.status_code == 200, r.text
-
-        expect(entry).to_be_visible(timeout=5_000)
-        expect(entry).to_contain_text("SR01:HCM1:SP")
-
-        # Auto-clear: the entry retires on its own after ACTIVITY_CLEAR_MS.
-        expect(entry).to_have_count(0, timeout=12_000)
-
-        page.close()
-
-
-# ---------------------------------------------------------------------------
 # (3) malformed POST → 422 and no DOM change
 # ---------------------------------------------------------------------------
 
@@ -439,9 +376,8 @@ def test_malformed_post_422_and_no_dom_change(tmp_path, chromium_browser):
         )
 
         # The sentinel arrived, so the malformed frames (had they broadcast)
-        # would already be visible — and they are not: no strip entry, and the
-        # sentinel's badge is the only attention badge in the document.
-        expect(page.locator("#activity-strip .activity-strip-entry")).to_have_count(0)
+        # would already be visible — and they are not: the sentinel's badge is
+        # the only attention badge in the document.
         expect(page.locator(".agent-attention")).to_have_count(1)
 
         page.close()
@@ -691,13 +627,11 @@ def test_agent_switch_glows_the_tile_body_not_only_the_rail(tmp_path, chromium_b
 # ---------------------------------------------------------------------------
 
 
-def test_agent_rail_removal_reports_on_the_strip_and_glows_nothing(tmp_path, chromium_browser):
-    """An agent rail removal is reported in words; there is nothing left to glow.
+def test_agent_rail_removal_glows_nothing(tmp_path, chromium_browser):
+    """An agent rail removal leaves nothing to glow.
 
     The rail entry is removed by the same operation, so a glow would have
-    nowhere to land and the strip line is the whole feedback. The line is
-    asserted verbatim — verb AND catalog label, not the raw panel id — because
-    "some entry appeared" is equally consistent with the unlabelled fallback.
+    nowhere to land.
 
     The agent rail ADD at the end is the positive control: it proves the flash
     probe was armed and capable of recording a glow throughout, so the
@@ -709,7 +643,6 @@ def test_agent_rail_removal_reports_on_the_strip_and_glows_nothing(tmp_path, chr
     with _hub_server(workspace) as base_url:
         page = _open_hub_page(chromium_browser, base_url)
         rail_btn = page.locator(_DATA_VIZ_RAIL)
-        entry = page.locator("#activity-strip .activity-strip-entry")
 
         _post_panel(
             base_url,
@@ -717,8 +650,7 @@ def test_agent_rail_removal_reports_on_the_strip_and_glows_nothing(tmp_path, chr
             {"panel": "data-viz", "visible": False, "source": "agent"},
         )
 
-        expect(entry).to_have_text("agent removedDATA VIZ", timeout=5_000)
-        # The removal really happened: membership is gone, not just narrated.
+        # The removal really happened: membership is gone.
         expect(rail_btn).to_have_count(0, timeout=5_000)
         # Nothing flashed anywhere — no rail glow (the entry is gone) and no
         # tile glow (the visibility path never calls glowPanel).
@@ -732,114 +664,10 @@ def test_agent_rail_removal_reports_on_the_strip_and_glows_nothing(tmp_path, chr
             {"panel": "data-viz", "visible": True, "source": "agent"},
         )
         expect(rail_btn).to_have_count(1, timeout=5_000)
-        expect(entry).to_have_text("agent made availableDATA VIZ", timeout=5_000)
         page.wait_for_function(
             "() => (window.__flashLog || []).some((c) => c.includes('panel-rail-button'))",
             timeout=10_000,
         )
-
-        page.close()
-
-
-# ---------------------------------------------------------------------------
-# (7) history popover — five rapid frames, and the same rows after a reload
-# ---------------------------------------------------------------------------
-
-_BURST_CHANNELS = [
-    "SR01:HCM1:SP",
-    "SR02:HCM1:SP",
-    "SR03:HCM1:SP",
-    "SR04:HCM1:SP",
-    "SR05:HCM1:SP",
-]
-
-
-def test_history_popover_lists_every_frame_of_a_rapid_burst(tmp_path, chromium_browser):
-    """Five frames in quick succession leave one live line but five rows.
-
-    The live strip is single-slot latest-wins, so a burst is exactly the case
-    where the popover has to earn its keep. Asserting a count of five alone
-    would pass on five copies of the newest frame, so the subjects are matched
-    against the posted channels in reverse: that pins the count, the
-    newest-first ordering the endpoint promises, and the absence of both
-    duplication and truncation in one comparison.
-    """
-    workspace = tmp_path / "_agent_data"
-    workspace.mkdir()
-
-    with _hub_server(workspace) as base_url:
-        page = _open_hub_page(chromium_browser, base_url)
-
-        for channel in _BURST_CHANNELS:
-            r = _post_activity(
-                base_url,
-                {"tool": "write_channel", "target": {"kind": "channel", "detail": channel}},
-            )
-            assert r.status_code == 200, r.text
-
-        # The live line coalesced the burst down to the newest frame.
-        entry = page.locator("#activity-strip .activity-strip-entry")
-        expect(entry).to_have_text(f"agent wrote{_BURST_CHANNELS[-1]}", timeout=5_000)
-
-        popover = _open_history_popover(page)
-        expect(popover.locator(".activity-history-row")).to_have_count(5, timeout=5_000)
-        assert popover.locator(".activity-history-subject").all_text_contents() == list(
-            reversed(_BURST_CHANNELS)
-        )
-        assert popover.locator(".activity-history-verb").all_text_contents() == ["agent wrote"] * 5
-
-        page.close()
-
-
-def test_history_popover_rows_survive_a_reload_including_a_rail_removal(tmp_path, chromium_browser):
-    """After a reload the popover shows the same history, read from the server.
-
-    The history is the server's ring, not page state, and this is what makes
-    that observable: nothing in the reloaded page ever saw these frames live.
-    The rail removal is the discriminating row — it reaches the ring only because the
-    panel ROUTE mirrors an agent-origin rail change as ``remove_panel_from_rail``
-    (an SSE frame alone would leave no trace to re-read), and the popover must
-    word it exactly as the live strip did before the reload.
-    """
-    workspace = tmp_path / "_agent_data"
-    workspace.mkdir()
-
-    with _hub_server(workspace) as base_url:
-        page = _open_hub_page(chromium_browser, base_url)
-
-        for channel in _BURST_CHANNELS[:2]:
-            r = _post_activity(
-                base_url,
-                {"tool": "write_channel", "target": {"kind": "channel", "detail": channel}},
-            )
-            assert r.status_code == 200, r.text
-        _post_panel(
-            base_url,
-            "/api/panel-visibility",
-            {"panel": "data-viz", "visible": False, "source": "agent"},
-        )
-
-        # Pre-reload wording, from the live client-synthesised frame.
-        expect(page.locator("#activity-strip .activity-strip-entry")).to_have_text(
-            "agent removedDATA VIZ", timeout=5_000
-        )
-
-        _reload_hub_page(page)
-
-        # The reloaded page has seen nothing; every row below came off the ring.
-        expect(page.locator("#activity-strip .activity-strip-entry")).to_have_count(0)
-        popover = _open_history_popover(page)
-        expect(popover.locator(".activity-history-row")).to_have_count(3, timeout=5_000)
-        assert popover.locator(".activity-history-verb").all_text_contents() == [
-            "agent removed",
-            "agent wrote",
-            "agent wrote",
-        ]
-        assert popover.locator(".activity-history-subject").all_text_contents() == [
-            "DATA VIZ",
-            _BURST_CHANNELS[1],
-            _BURST_CHANNELS[0],
-        ]
 
         page.close()
 
@@ -958,8 +786,8 @@ def test_logbook_navigate_is_local_to_the_sending_client_and_unattributed(
     since both travel the same one stream in order, anything the navigate had
     (wrongly) broadcast would already be visible there.
 
-    And on the sender: navigating is not an agent action, so no flash, no
-    badge and no strip line may appear even on the client that did move.
+    And on the sender: navigating is not an agent action, so no flash and no
+    badge may appear even on the client that did move.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -979,23 +807,21 @@ def test_logbook_navigate_is_local_to_the_sending_client_and_unattributed(
         # ...with no agent attribution of any kind.
         assert sender.evaluate("(window.__flashLog || []).length") == 0
         expect(sender.locator(".agent-attention")).to_have_count(0)
-        expect(sender.locator("#activity-strip .activity-strip-entry")).to_have_count(0)
 
         # Ordering sentinel: a genuine broadcast reaches the second context.
         r = _post_activity(
-            base_url,
-            {"tool": "write_channel", "target": {"kind": "channel", "detail": "SR09:SENTINEL:SP"}},
+            base_url, {"tool": "open_panel", "target": {"kind": "panel", "panel": "data-viz"}}
         )
         assert r.status_code == 200, r.text
-        expect(bystander.locator("#activity-strip .activity-strip-entry")).to_have_text(
-            "agent wroteSR09:SENTINEL:SP", timeout=5_000
-        )
+        expect(bystander.locator(_DATA_VIZ_RAIL)).to_have_class(_ATTENTION_RE, timeout=5_000)
 
         # The sentinel arrived, so a broadcast navigate would have too — and
         # the second context's workspace is exactly where it was.
         expect(bystander.locator(_DATA_VIZ_RAIL)).not_to_have_class(_ACTIVE_RE)
         expect(_data_viz_iframe(bystander)).to_have_count(0)
-        assert bystander.evaluate("(window.__flashLog || []).length") == 0
+        # The only glow on the bystander is the sentinel's own rail badge.
+        flashes = bystander.evaluate("window.__flashLog || []")
+        assert all("panel-rail-button" in entry for entry in flashes), flashes
 
         bystander.close()
         sender.close()

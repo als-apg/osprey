@@ -105,7 +105,6 @@
   <link rel="stylesheet" href="{{ prefixed('/static/css/feedback-modal.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/sessions.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/settings.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/static/css/activity-strip.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/tour.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/10-prompt-gallery.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/20-memory-gallery.css') }}">
@@ -120,10 +119,10 @@
     bodies are built by JS, keyed by type, so the same code runs at first paint
     and when the operator drags the item in later.
 
-    These six are the exception. Every one of them is resolved BY ID by some
-    other module — #activity-strip, #docs-link, #command-palette-btn,
-    #display-menu-settings, #logout-btn, the identity trigger and menu — so
-    they are rendered on EVERY request whichever way the
+    These five are the exception. Every one of them is resolved BY ID by some
+    other module — #docs-link, #command-palette-btn, #display-menu-settings,
+    #logout-btn, the identity trigger and menu — so they are rendered on
+    EVERY request whichever way the
     layout falls: into their shell when the layout places them, into
     #bar-item-pool at the end of this document when it does not. A removed item
     must never make an id go dark; the module looking it up cannot tell "the
@@ -248,14 +247,6 @@
           </button>
           {% endif %}
         </osprey-display-menu>
-{%- elif type == 'activity' -%}
-        <!-- Agent activity strip: most recent agent action ("agent wrote …").
-             Populated by activity-strip.js via panel-manager's
-             setActivityStripHandler seam, which finds it by id. The item is
-             the one that absorbs its bar's spare room (the catalog's flex
-             hint), so entries appear inside reserved space rather than
-             shifting whatever sits after them. -->
-        <div class="status-activity" id="activity-strip" role="status" aria-live="polite"></div>
 {%- elif type == 'docs' -%}
         <!-- Same destination as the rail's Documentation control, under the
              same rule and in the same shape: href-less and hidden until boot
@@ -413,7 +404,7 @@
   <!-- Status bar — the second bar-item host. It holds its items directly
        rather than through wrappers: the old .status-left / .status-right
        groups (and the space-between that spread them to the two edges) are
-       gone, so every item sits on the bar's one uniform gap and the `activity`
+       gone, so every item sits on the bar's one uniform gap and a `space`
        item is what pushes the trailing items right — spacing an operator can
        see and move, instead of a layout mode they cannot.
        Hidden by html[data-status-bar="hidden"], stamped on <html> above, so
@@ -547,10 +538,6 @@
 
   <!-- App entry point -->
   <script type="module" src="{{ prefixed('/static/js/app.js') }}"></script>
-
-  <!-- Activity strip: self-registering module (like osprey-theme-switcher);
-       binds #activity-strip above to panel-manager's activity seam. -->
-  <script type="module" src="{{ prefixed('/static/js/activity-strip.js') }}"></script>
 
   <!-- Onboarding tour (replaces the one-time rail hint): self-registering
        module; invite card + spotlighted steps over the live shell. -->
