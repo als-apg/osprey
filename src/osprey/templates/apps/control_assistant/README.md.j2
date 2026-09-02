@@ -84,11 +84,12 @@ If a dependency changes later, `uv sync` rebuilds the environment from
 
 ### 2. Configure API Keys
 
-Create a `.env` file in the project root:
+Create a `.env` at the repo root — one level above this `build/` directory,
+beside `profile.yml`. The `.env.example` there lists every variable:
 
 ```bash
-# Copy example environment file
-cp env.example .env
+# From the repo root
+cp .env.example .env
 
 # Edit .env and add your API keys
 CBORG_API_KEY=your_cborg_api_key_here
@@ -213,7 +214,6 @@ This template follows the **layered architecture** of the ALS Assistant, with pl
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  Layer 3: Optional MCP Deployment                       │
-│  services/channel_finder/                               │
 │  - Standalone MCP server                                │
 │  - Imports from service layer                           │
 │  - Deploy via config.yml                                │
@@ -461,7 +461,8 @@ Need to support a different control system (LabVIEW, OPC-UA, etc.)?
 **Step 1: Implement your custom connector**
 
 ```python
-# In src/{{ package_name }}/connectors/my_custom_connector.py
+# my_facility/connectors.py — a Python package of your own, installed into
+# this deployment's environment
 from osprey.connectors.control_system.base import ControlSystemConnector
 
 class MyCustomConnector(ControlSystemConnector):
@@ -479,27 +480,13 @@ class MyCustomConnector(ControlSystemConnector):
     # ... implement other required methods
 ```
 
-**Step 2: Register it through the registry system**
+**Step 2: Register it**
 
-```python
-# In registry.py
-from osprey.registry import ConnectorRegistration, extend_framework_registry
-
-def get_registry_config(self):
-    return extend_framework_registry(
-        connectors=[
-            ConnectorRegistration(
-                name="custom",
-                connector_type="control_system",
-                module_path="{{ package_name }}.connectors.my_custom_connector",
-                class_name="MyCustomConnector",
-                description="My custom control system connector"
-            )
-        ],
-        capabilities=[...],  # Your existing capabilities
-        context_classes=[...]  # Your existing context classes
-    )
-```
+Either call `ConnectorFactory.register_control_system` from your package, or
+ship an `osprey.registry.base.ConnectorRegistration` through
+`osprey.registry.helpers.extend_framework_registry`. Both paths, the contract
+every connector has to meet, and the pinning test are in the Extending OSPREY
+guide: https://als-apg.github.io/osprey/contributing/extending-osprey.html
 
 **Step 3: Use it in configuration**
 
@@ -538,33 +525,9 @@ For hierarchical database, structure channels by system/device/field:
 
 ### 4. Add Facility Context
 
-Create custom facility prompts in the appropriate pipeline directory:
-
-```python
-# For in-context pipeline:
-# Edit: src/{{ package_name }}/services/channel_finder/prompts/in_context/system.py
-
-# For hierarchical pipeline:
-# Edit: src/{{ package_name }}/services/channel_finder/prompts/hierarchical/system.py
-
-facility_description = """
-Your facility description here.
-Include: beam energy, main systems, naming conventions, etc.
-"""
-```
-
-The prompts are already configured in `config.yml`:
-
-```yaml
-channel_finder:
-  pipelines:
-    in_context:
-      prompts:
-        path: src/{{ package_name }}/services/channel_finder/prompts/in_context
-    hierarchical:
-      prompts:
-        path: src/{{ package_name }}/services/channel_finder/prompts/hierarchical
-```
+Edit `.claude/rules/facility.md` (beam energy, main systems, naming
+conventions). The build renders it once and registers it as yours, so rebuilds
+never overwrite it.
 
 ---
 
@@ -629,18 +592,8 @@ osprey build && osprey up -d
 
 - **Osprey Documentation**: https://als-apg.github.io/osprey/
 - **ALS Assistant Paper**: arXiv:2509.17255
-- **Channel Finder**: Embedded in `services/channel_finder/`
-
----
-
-## 🤝 Contributing
-
-To adapt this template or contribute improvements:
-
-1. Service Layer (`services/`) - Pure business logic, framework-independent
-2. Capabilities (`capabilities/`) - Thin wrappers integrating services with Osprey
-3. Context Classes (`context_classes.py`) - Data structures for inter-capability communication
-4. Registry (`registry.py`) - Component registration
+- **Channel Finder**: part of the OSPREY framework; configured under
+  `channel_finder:` in `profile.yml`
 
 ---
 
