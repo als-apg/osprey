@@ -46,7 +46,7 @@ from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
 from osprey.port_layout import default_port
-from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
+from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS, panel_spec_enabled
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
 
 if TYPE_CHECKING:
@@ -1124,10 +1124,14 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
     custom = []
 
     for panel_id, spec in panels_config.items():
+        # One predicate for builtin and custom blocks alike: the build writes
+        # `enabled` onto every block from the profile's `web_panels` selection,
+        # so a block this render carries for a tab it does not select is off.
+        if not panel_spec_enabled(spec):
+            continue
         if panel_id in BUILTIN_PANELS:
-            if spec is True or (isinstance(spec, dict) and spec.get("enabled", True)):
-                enabled.add(panel_id)
-        else:
+            enabled.add(panel_id)
+        elif isinstance(spec, dict):
             custom.append(
                 {
                     "id": panel_id,

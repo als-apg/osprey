@@ -26,7 +26,6 @@ from osprey.bluesky_bridge_connection import (
 )
 from osprey.cli.build_profile_reach import (
     attached_render_overrides,
-    orphan_panel_fragments,
     reach_override_errors,
     selected_panel_errors,
 )
@@ -365,22 +364,3 @@ def test_a_selected_tab_told_no_address_is_refused():
     assert "the host" in error
     assert selected_panel_errors(["bluesky"], rendered, told_by="the host") == []
     assert selected_panel_errors(["okf"], {}, told_by="the host") == []
-
-
-def test_an_inherited_fragment_of_an_unselected_tab_is_dropped():
-    """A host that pins ``web.panels.events.path`` hands every persona the
-    fragment; a persona that never selected the tab drops it, one that did
-    keeps it (the projection supplies the url), and a fragment that names a
-    url is a tab in its own right and stays."""
-    rendered = {
-        "web": {
-            "panels": {
-                "events": {"path": "/custom-route"},
-                "bluesky": {"url": "http://localhost:10071", "path": "/bluesky/"},
-                "okf": {"enabled": True},
-            }
-        }
-    }
-    assert orphan_panel_fragments([], rendered) == ["web.panels.events"]
-    assert orphan_panel_fragments(["events"], rendered) == []
-    assert orphan_panel_fragments(["okf"], {"web": {"panels": {"okf": {"enabled": True}}}}) == []

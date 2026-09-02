@@ -122,9 +122,20 @@ def test_bluesky_web_parse_defaults_when_empty_mapping() -> None:
 
 
 def test_panel_presets_builtin_members_validate(tmp_path: Path) -> None:
-    """A preset whose members are built-in panel ids validates without raising."""
-    profile = BuildProfile(name="x", panel_presets={"Machine setup": ["artifacts", "ariel"]})
+    """A preset whose members are the universal panel and a SELECTED built-in
+    validates without raising."""
+    profile = BuildProfile(
+        name="x", web_panels=["ariel"], panel_presets={"Machine setup": ["artifacts", "ariel"]}
+    )
     profile.validate(tmp_path)  # must not raise
+
+
+def test_panel_presets_unselected_builtin_member_raises(tmp_path: Path) -> None:
+    """A built-in the profile never selected renders no tab, so a preset naming
+    it would open on nothing."""
+    profile = BuildProfile(name="x", panel_presets={"Machine setup": ["artifacts", "ariel"]})
+    with pytest.raises(BuildProfileError, match="'ariel'"):
+        profile.validate(tmp_path)
 
 
 def test_panel_presets_unknown_member_raises(tmp_path: Path) -> None:
@@ -135,9 +146,11 @@ def test_panel_presets_unknown_member_raises(tmp_path: Path) -> None:
 
 
 def test_panel_presets_url_backed_member_validates(tmp_path: Path) -> None:
-    """A member backed by a web.panels.<id>.url override is a known id."""
+    """A member backed by a web.panels.<id>.url override is a known id once
+    web_panels selects it."""
     profile = BuildProfile(
         name="x",
+        web_panels=["grafana"],
         panel_presets={"Dash": ["grafana"]},
         config={"web.panels.grafana.url": "http://grafana.local:3000"},
     )
@@ -158,16 +171,19 @@ def test_panel_presets_non_list_value_raises(tmp_path: Path) -> None:
 
 
 def test_is_known_panel_id_shared_predicate(tmp_path: Path) -> None:
-    """_is_known_panel_id covers built-in / web_panels / url-backed for both callers."""
+    """_is_known_panel_id means "a tab this render shows": universal, or selected
+    in web_panels — a url-backed custom panel counts only once it is selected."""
     profile = BuildProfile(
         name="x",
         web_panels=["ariel"],
         config={"web.panels.grafana.url": "http://x:3000"},
     )
-    assert profile._is_known_panel_id("artifacts")  # built-in
+    assert profile._is_known_panel_id("artifacts")  # universal
     assert profile._is_known_panel_id("ariel")  # web_panels entry
-    assert profile._is_known_panel_id("grafana")  # url-backed custom
+    assert not profile._is_known_panel_id("grafana")  # url-backed but not selected
+    assert not profile._is_known_panel_id("okf")  # built-in but not selected
     assert not profile._is_known_panel_id("nope")
+    assert BuildProfile(name="x", web_panels=["grafana"])._is_known_panel_id("grafana")
 
 
 def test_control_assistant_profile_validates() -> None:

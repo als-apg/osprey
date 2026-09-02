@@ -18,6 +18,7 @@ import logging
 import pathlib
 import shutil
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -656,10 +657,17 @@ def test_attached_preset_built_alone_is_told_its_templates_defaults(
     # by running the same injectors over the template-as-deployment.
     from osprey.cli.build_profile import resolve_build_profile
 
+    # `enabled` is each render's OWN selection, not a projected fact: the
+    # host deployment carries the block for the tab its personas select
+    # (switched off there), and the persona that selects it switches it on.
     selected = resolve_build_profile(None, preset=preset)[0].web_panels
     for panel in ("events", "bluesky"):
         if panel in selected:
-            assert config["web"]["panels"][panel] == host["web"]["panels"][panel], panel
+            told = {k: v for k, v in config["web"]["panels"][panel].items() if k != "enabled"}
+            hosts = {k: v for k, v in host["web"]["panels"][panel].items() if k != "enabled"}
+            assert told == hosts, panel
+            assert config["web"]["panels"][panel]["enabled"] is True, panel
+            assert host["web"]["panels"][panel]["enabled"] is False, panel
 
 
 def test_deploying_profile_may_pin_only_the_events_path(runner: CliRunner, tmp_path: Path) -> None:
@@ -686,16 +694,23 @@ def test_deploying_profile_may_pin_only_the_events_path(runner: CliRunner, tmp_p
     assert events["url"].startswith("http://localhost:")
     assert events["label"] == "EVENTS"
     assert events["health_endpoint"] == "/health"
+    # The deployment itself does not select the tab (its write-armed personas
+    # do), so its own render carries the complete entry switched off.
+    assert events["enabled"] is False
     # Every persona inherited the pin. The one that selects the tab is told
-    # the whole entry from this render; the ones that do not drop the
-    # url-less fragment instead of rendering an empty-url tab.
+    # the whole entry from this render and switches it on; the ones that do
+    # not keep the inherited fragment switched off instead of rendering an
+    # empty-url tab.
     personas = {
         path.name.rsplit("-", 1)[1]: yaml.safe_load((path / "config.yml").read_text())
         for path in _project(tmp_path, "pathpin").glob("pathpin-*")
     }
     assert set(personas) >= {"readonly", "readwrite"}
-    assert personas["readwrite"]["web"]["panels"]["events"] == events
-    assert "events" not in personas["readonly"]["web"]["panels"]
+    assert personas["readwrite"]["web"]["panels"]["events"] == {**events, "enabled": True}
+    readonly_events = personas["readonly"]["web"]["panels"]["events"]
+    assert readonly_events["path"] == "/custom-route"
+    assert readonly_events["enabled"] is False
+    assert "url" not in readonly_events
 
 
 def test_attached_profile_built_alone_may_name_its_host_by_hand(
@@ -1128,6 +1143,69 @@ def test_persona_exclusion_keeps_the_artifact_out_of_the_built_project(
     wide_owned = [str(entry) for entry in _config_yaml(wide)["scaffold"]["user_owned"]]
     assert "agents/orbit-writer" in wide_owned, wide_owned
     assert "commands/osprey/scan" in wide_owned, wide_owned
+
+
+def test_persona_exclusion_of_a_panel_switches_its_inherited_block_off(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """``exclude: web_panels:`` must reach the render, not just the selection.
+
+    The web terminal reads its tab strip from ``web.panels.<id>`` alone. A
+    persona subtracts a tab from ``web_panels``, but every ``config:`` fact
+    about that panel — a builtin's label, a custom panel's url — is inherited
+    additively and lands in the persona's render regardless; before the
+    selection was projected onto those blocks, each one still rendered as a
+    tab (a builtin block without ``enabled: false`` is on, and a custom block
+    was on unconditionally). Asserted through the CLI, on the rendered
+    config.yml and on the terminal's own reader of it, because the defect
+    lived between the three.
+    """
+    from osprey.interfaces.web_terminal.app import _load_panel_config
+    from osprey.profiles.web_panels import UNIVERSAL_PANELS
+
+    root = tmp_path / "prof"
+    (root / "personas").mkdir(parents=True)
+    (root / "data" / "facility_knowledge").mkdir(parents=True)
+    (root / "profile.yml").write_text(
+        "name: RootProfile\n"
+        "data_bundle: control_assistant\n"
+        "provider: anthropic\n"
+        "model: haiku\n"
+        "channel_finder_mode: hierarchical\n"
+        "hooks: [memory-guard]\n"
+        "web_panels: [okf, lattice, grafana]\n"
+        "config:\n"
+        "  web.panels.lattice.label: LATTICE\n"
+        "  web.panels.grafana.label: GRAFANA\n"
+        "  web.panels.grafana.url: http://grafana.local:3000\n"
+    )
+    (root / "personas" / "narrow.yml").write_text(
+        "name: Narrow\nexclude:\n  web_panels:\n    - lattice\n    - grafana\n"
+    )
+
+    result = _render_from(runner, str(root / "profile.yml"))
+    assert result.exit_code == 0, result.output
+
+    narrow = _config_yaml(_persona_project(root, "narrow"))["web"]["panels"]
+    # The inherited facts are still there — a persona cannot subtract config —
+    # and each block now says it is not a tab of this render.
+    assert narrow["lattice"] == {"label": "LATTICE", "enabled": False}
+    assert narrow["grafana"]["url"] == "http://grafana.local:3000"
+    assert narrow["grafana"]["enabled"] is False
+    assert narrow["okf"]["enabled"] is True
+    with patch(
+        "osprey.utils.workspace.load_osprey_config",
+        return_value=_config_yaml(_persona_project(root, "narrow")),
+    ):
+        enabled, custom, _default = _load_panel_config()
+    assert enabled == UNIVERSAL_PANELS | {"okf"}
+    assert custom == []
+
+    # Control: the deployment's own render, from the same build, shows all three.
+    wide = _config_yaml(root / "build")["web"]["panels"]
+    assert wide["lattice"]["enabled"] is True
+    assert wide["grafana"]["enabled"] is True
+    assert wide["okf"]["enabled"] is True
 
 
 class TestGraphModeRequiresAGraphStore:

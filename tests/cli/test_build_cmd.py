@@ -367,17 +367,25 @@ class TestValidation:
         with pytest.raises(BuildProfileError, match="Unknown default_panel 'areil'"):
             profile.validate(tmp_path)
 
-    def test_default_panel_builtin_accepted(self, tmp_path: Path):
-        """A built-in panel id is accepted as default_panel without needing
-        a matching web_panels entry."""
-        profile = BuildProfile(name="Test", default_panel="ariel")
+    def test_default_panel_selected_builtin_accepted(self, tmp_path: Path):
+        """A built-in panel id is accepted as default_panel once web_panels
+        selects it — the selection is what shows the tab."""
+        profile = BuildProfile(name="Test", web_panels=["ariel"], default_panel="ariel")
         profile.validate(tmp_path)  # must not raise
+
+    def test_default_panel_unselected_builtin_rejected(self, tmp_path: Path):
+        """A built-in the profile never selected renders no tab, so naming it
+        as default_panel would fall back to the workspace silently."""
+        profile = BuildProfile(name="Test", default_panel="ariel")
+        with pytest.raises(BuildProfileError, match="Unknown default_panel 'ariel'"):
+            profile.validate(tmp_path)
 
     def test_default_panel_custom_via_config_accepted(self, tmp_path: Path):
         """A custom panel backed by a `web.panels.<id>.url` config override
-        is accepted as default_panel."""
+        is accepted as default_panel once web_panels selects it."""
         profile = BuildProfile(
             name="Test",
+            web_panels=["grafana"],
             default_panel="grafana",
             config={"web.panels.grafana.url": "http://localhost:3000"},
         )

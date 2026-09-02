@@ -95,7 +95,7 @@ def ariel_ingestion_advisories(rendered_config: Mapping[str, Any]) -> list[str]:
     ]
 
 
-def _spelled_values(config: Any, dotted_key: str) -> list[tuple[str, Any]]:
+def spelled_values(config: Any, dotted_key: str) -> list[tuple[str, Any]]:
     """Every way *config* writes *dotted_key*, with the value each gives.
 
     A ``config:`` block may spell one leaf as the whole dotted key
@@ -151,7 +151,7 @@ def reach_override_errors(config: Any, projected: Mapping[str, Any]) -> list[str
     """
     errors: list[str] = []
     for dotted_key, value in projected.items():
-        for spelling, spelled in _spelled_values(config, dotted_key):
+        for spelling, spelled in spelled_values(config, dotted_key):
             if spelled == value:
                 continue
             errors.append(
@@ -201,39 +201,3 @@ def selected_panel_errors(
                 f"under `config:` (web.panels.{panel}.url), or drop the panel."
             )
     return errors
-
-
-def orphan_panel_fragments(
-    selected_panels: Iterable[str], rendered_config: Mapping[str, Any]
-) -> list[str]:
-    """The ``web.panels.<id>`` blocks an attached render must drop.
-
-    A persona profile inherits the hosting profile's ``config:`` keys, so a
-    host that pins ``web.panels.events.path`` — the documented way to move
-    the dashboard's route — hands every persona a ``web.panels.events``
-    fragment. For a persona that selects the tab the projection completes it
-    with the host's ``url``; for one that does not, the fragment is a tab this
-    persona never asked for, with an EMPTY url — the web terminal makes a
-    custom panel of any such block — that would either fail at first click or
-    be refused by :func:`osprey.deployment.reach.reach_errors` as a consumer
-    with nothing to dial. Neither is what the operator meant, so the fragment
-    goes: a tab the Reach Contract projects exists in an attached render on
-    the strength of the profile's selection alone.
-
-    Args:
-        selected_panels: The attached profile's ``web_panels`` selection.
-        rendered_config: The attached render's config after projection.
-
-    Returns:
-        Dotted ``web.panels.<id>`` keys to delete, registry order.
-    """
-    selected = set(selected_panels)
-    keys: list[str] = []
-    for contract in REACH_CONTRACTS.values():
-        for panel in sorted({key.panel for key in contract.projected if key.panel}):
-            if panel in selected:
-                continue
-            block = dotted_get(rendered_config, f"web.panels.{panel}")
-            if isinstance(block, Mapping) and not block.get("url"):
-                keys.append(f"web.panels.{panel}")
-    return keys
