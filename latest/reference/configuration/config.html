@@ -1060,7 +1060,7 @@ covered in <a class="reference internal" href="../../how-to/deploy-project/index
 <span id="deployment-image-overrides"></span><h3>Overriding Service Images<a class="headerlink" href="#overriding-service-images" title="Link to this heading">#</a></h3>
 <p>Every service image resolves through the same three-layer chain — an
 environment variable wins, then a <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> key, then the packaged
-default. Thirteen images, one row each:</p>
+default. Fifteen images, one row each:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 20.0%" />
@@ -1091,25 +1091,35 @@ default. Thirteen images, one row each:</p>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.mongodb.image</span></code></p></td>
 <td><p>upstream pin</p></td>
 </tr>
-<tr class="row-odd"><td><p>event_dispatcher</p></td>
+<tr class="row-odd"><td><p>graphdb</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_GRAPHDB_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.graphdb.image</span></code></p></td>
+<td><p>upstream pin</p></td>
+</tr>
+<tr class="row-even"><td><p>event_dispatcher</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_DISPATCH_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.event_dispatcher.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-dispatch</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p>dispatch_worker</p></td>
+<tr class="row-odd"><td><p>dispatch_worker</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_WORKER_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.dispatch_worker.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p>nextcloud_bridge</p></td>
+<tr class="row-even"><td><p>nextcloud_bridge</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_NEXTCLOUD_BRIDGE_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.nextcloud_bridge.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-nextcloud-bridge</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p>gchat_bridge</p></td>
+<tr class="row-odd"><td><p>gchat_bridge</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_GCHAT_BRIDGE_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.gchat_bridge.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-gchat-bridge</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>ariel_sync</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_WORKER_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.ariel_sync.image</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;</span></code></p></td>
 </tr>
 <tr class="row-odd"><td><p>bluesky</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_BLUESKY_BRIDGE_IMAGE</span></code></p></td>
@@ -1147,10 +1157,13 @@ default. Thirteen images, one row each:</p>
 <p>Point either of the first two layers at an internal registry mirror or a
 pinned digest when your deployment host cannot (or should not) pull public
 images.</p>
-<p>Five of the thirteen are <strong>upstream pins</strong> — images somebody else publishes,
-named exactly as they publish them. The other eight are <strong>built by OSPREY</strong>
+<p>Six of the fifteen are <strong>upstream pins</strong> — images somebody else publishes,
+named exactly as they publish them. The other nine are <strong>built by OSPREY</strong>
 from your project, and their default reference is assembled rather than
 fixed: a project name, a per-service suffix, and the two axes below.</p>
+<p><code class="docutils literal notranslate"><span class="pre">dispatch_worker</span></code> and <code class="docutils literal notranslate"><span class="pre">ariel_sync</span></code> share one row value on purpose: both run
+the bare project image, so both read <code class="docutils literal notranslate"><span class="pre">OSPREY_WORKER_IMAGE</span></code>. Set that variable
+and both services move to the image you name.</p>
 <section id="the-two-image-axes">
 <span id="deployment-image-axes"></span><h4>The two image axes<a class="headerlink" href="#the-two-image-axes" title="Link to this heading">#</a></h4>
 <p>An OSPREY-built default is always spelled the same way:</p>
@@ -1159,7 +1172,7 @@ fixed: a project name, a per-service suffix, and the two axes below.</p>
 </div>
 <p>Two stack-wide settings supply the ends of that name, so an entire deployment
 can be moved to a registry — or to a different tag — without touching any of
-the thirteen rows above:</p>
+the fifteen rows above:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 16.0%" />
@@ -1220,7 +1233,7 @@ filled in by compose at <code class="docutils literal notranslate"><span class="
 is what it always was — <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;:local</span></code> and its siblings — so a
 deployment that never heard of them is unaffected.</p></li>
 </ul>
-<p>The axes never touch the five upstream pins. Prefixing <code class="docutils literal notranslate"><span class="pre">mongo:7</span></code> with your
+<p>The axes never touch the six upstream pins. Prefixing <code class="docutils literal notranslate"><span class="pre">mongo:7</span></code> with your
 registry would name an image that exists in no registry; mirror those through
 their own row instead.</p>
 </section>

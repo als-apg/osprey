@@ -778,6 +778,90 @@ in the <code class="docutils literal notranslate"><span class="pre">watch</span>
 per-model embedding tables, and the migrations that create them — is documented
 in <a class="reference internal" href="../../reference/contracts/ariel.html"><span class="doc">ARIEL Contracts</span></a>.</p>
 </section>
+<section id="deployed-ingestion">
+<h4>Deployed Ingestion<a class="headerlink" href="#deployed-ingestion" title="Link to this heading">#</a></h4>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">watch</span></code> keeps the mirror fresh only while you leave the command
+running. A deployment needs the same loop with no terminal attached, so Osprey
+ships a service that runs it in a container. Declare it in the build profile:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># profile.yml</span>
+<span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">ariel_sync</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osprey.ariel_sync</span>
+</pre></div>
+</div>
+<p>The build copies the bundled compose template into the project and adds
+<code class="docutils literal notranslate"><span class="pre">ariel_sync</span></code> to <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> then starts a container
+that runs <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">sync</span> <span class="pre">--watch</span></code>. That command syncs once on startup —
+schema migration, an incremental ingest, and an enhancement pass over entries
+that are still missing derived fields — and then enters the polling loop. Every later poll runs the same enhancement pass after it stores
+what it fetched, so a larger backlog is worked down over successive polls. A
+failure in that pass is logged and does not count toward
+<code class="docutils literal notranslate"><span class="pre">max_consecutive_failures</span></code>.</p>
+<p>The deployed loop does not wait for a prior ingest. It overrides
+<code class="docutils literal notranslate"><span class="pre">require_initial_ingest</span></code>, so a container started against an empty database
+does the full first ingest itself.</p>
+<p>The container runs the project image that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds, the same image
+the web terminals run by default, and the container runtime restarts it unless
+you stop it. That is what keeps the mirror moving between deployments instead of
+freezing at the last <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. When the failure cap is reached the process
+exits with a non-zero status, and the restart policy starts it again. A
+repeatedly failing source therefore shows up as a restarting container, not as a
+stopped one. The two readings that tell the difference are the container’s
+restart count and the <code class="docutils literal notranslate"><span class="pre">ariel_last_ingestion</span></code> health row described below.</p>
+<p>The service publishes no port and declares no container health check. It only
+makes outbound calls, to the logbook and to the database, so a container probe
+would have nothing to ask it. A container that is up but no longer ingesting is
+exactly the failure such a probe would report as healthy, so staleness is
+reported by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> instead — see below.</p>
+<p><strong>Reaching the database.</strong> When the deployment also runs the ARIEL database, the
+rendered compose file sets <code class="docutils literal notranslate"><span class="pre">ARIEL_DATABASE_HOST</span></code> and <code class="docutils literal notranslate"><span class="pre">ARIEL_DATABASE_PORT</span></code> in
+the container’s environment. On the default bridge network they name the database
+container’s network alias <code class="docutils literal notranslate"><span class="pre">ariel-postgres</span></code> and its container port <code class="docutils literal notranslate"><span class="pre">5432</span></code>.
+When the service is declared with <code class="docutils literal notranslate"><span class="pre">network:</span> <span class="pre">host</span></code> under its <code class="docutils literal notranslate"><span class="pre">config:</span></code> key,
+they name <code class="docutils literal notranslate"><span class="pre">localhost</span></code> and the port the database publishes on the host. The two
+variables are written into the compose file only, never into the project’s
+<code class="docutils literal notranslate"><span class="pre">.env</span></code>, so commands you run on the host are unaffected. They apply only where
+the connection string is derived from the <code class="docutils literal notranslate"><span class="pre">services.postgresql</span></code> block;
+<a class="reference internal" href="../../reference/contracts/ariel.html"><span class="doc">ARIEL Contracts</span></a> documents the full precedence order.</p>
+<p>When the deployment does not run the database, neither variable is written and
+the derived address stays <code class="docutils literal notranslate"><span class="pre">localhost</span></code>. Inside a bridge-networked container
+that is the container itself. Point an external store at an address the
+container can resolve with <code class="docutils literal notranslate"><span class="pre">ariel.database.uri</span></code>. Declaring the service with
+<code class="docutils literal notranslate"><span class="pre">network:</span> <span class="pre">host</span></code> helps only when the store listens on the deployment host
+itself.</p>
+<div class="warning admonition">
+<p class="admonition-title">An authored URI is used exactly as written</p>
+<p>If <code class="docutils literal notranslate"><span class="pre">ariel.database.uri</span></code> is set, that value is used verbatim and the two
+variables above are ignored. A URI naming <code class="docutils literal notranslate"><span class="pre">localhost</span></code> is correct from the
+host, but inside a bridge-networked container <code class="docutils literal notranslate"><span class="pre">localhost</span></code> is the container
+itself, so the sync cannot reach the database. Either write a URI the
+container can resolve, or remove the key and let the address be derived.</p>
+</div>
+<p><strong>The mirror directory.</strong> When <code class="docutils literal notranslate"><span class="pre">ariel.enhancement_modules.qmd_export</span></code> is
+enabled with a <code class="docutils literal notranslate"><span class="pre">mirror_path</span></code>, the host directory it names is bind-mounted into
+the container read-write. The exporter runs inside this container, so without
+that mount its files would land in the container’s own writable layer and be
+discarded on the next recreate. The web terminals mount the same directory, so
+every process that enhances an entry writes into one mirror.</p>
+<p><strong>A source nobody ingests.</strong> If <code class="docutils literal notranslate"><span class="pre">ariel.ingestion.source_url</span></code> is an HTTP or
+HTTPS URL and the deployment declares no <code class="docutils literal notranslate"><span class="pre">ariel_sync</span></code> service, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+prints one warning line:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>⚠ ariel.ingestion.source_url is https://api.example.com/logbook, but no
+service in this deployment ingests it — add a services: entry with
+`template: osprey.ariel_sync`.
+</pre></div>
+</div>
+<p>The advisory never fails the build. A <code class="docutils literal notranslate"><span class="pre">source_url</span></code> naming a local file is
+silent, because a file needs no polling service.</p>
+<p><strong>Watching for a stalled mirror.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> reports an
+<code class="docutils literal notranslate"><span class="pre">ariel_last_ingestion</span></code> row. When the config carries an <code class="docutils literal notranslate"><span class="pre">ariel.ingestion</span></code>
+block, that row becomes a warning once the newest ingestion is older than
+<code class="docutils literal notranslate"><span class="pre">poll_interval_seconds</span></code> plus <code class="docutils literal notranslate"><span class="pre">watch.max_interval_seconds</span></code> — two hours with
+the defaults above. The warning reads <code class="docutils literal notranslate"><span class="pre">Last</span> <span class="pre">ingestion</span> <span class="pre">is</span> <span class="pre">&lt;age&gt;</span> <span class="pre">old,</span> <span class="pre">ingestion</span>
+<span class="pre">interval</span> <span class="pre">is</span> <span class="pre">&lt;threshold&gt;</span></code>. Without an <code class="docutils literal notranslate"><span class="pre">ariel.ingestion</span></code> block the expected
+cadence is unknown, and the row stays <code class="docutils literal notranslate"><span class="pre">ok</span></code> as long as some ingestion has been
+recorded. A store that has never been ingested warns either way.</p>
+</section>
 </section>
 <section id="see-also">
 <h3>See Also<a class="headerlink" href="#see-also" title="Link to this heading">#</a></h3>
@@ -847,6 +931,7 @@ in <a class="reference internal" href="../../reference/contracts/ariel.html"><sp
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#cli-usage">CLI Usage</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#backoff-behavior">Backoff Behavior</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#deployed-ingestion">Deployed Ingestion</a></li>
 </ul>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See Also</a></li>

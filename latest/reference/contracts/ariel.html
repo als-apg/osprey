@@ -827,7 +827,7 @@ App Internals</label><div class="sd-tab-content docutils">
 <p class="sd-card-text"><strong>Lifespan management:</strong> The app uses FastAPI’s <code class="docutils literal notranslate"><span class="pre">lifespan</span></code> context manager to initialize the <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> on startup and clean it up on shutdown. During initialization:</p>
 <ol class="arabic simple">
 <li><p class="sd-card-text"><strong>Registry bootstrap</strong> — pre-creates the framework registry singleton (without an application registry path) so that ARIEL’s search module discovery works even when running outside a full Osprey application.</p></li>
-<li><p class="sd-card-text"><strong>Config loading</strong> — searches for <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> in four locations: the provided <code class="docutils literal notranslate"><span class="pre">config_path</span></code>, <code class="docutils literal notranslate"><span class="pre">/app/config.yml</span></code> (Docker mount), the <code class="docutils literal notranslate"><span class="pre">CONFIG_FILE</span></code> environment variable, and the current directory. Applies the <code class="docutils literal notranslate"><span class="pre">ARIEL_DATABASE_HOST</span></code> environment variable override for Docker networking.</p></li>
+<li><p class="sd-card-text"><strong>Config loading</strong> — searches for <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> in four locations: the provided <code class="docutils literal notranslate"><span class="pre">config_path</span></code>, <code class="docutils literal notranslate"><span class="pre">/app/config.yml</span></code> (Docker mount), the <code class="docutils literal notranslate"><span class="pre">CONFIG_FILE</span></code> environment variable, and the current directory. The DSN is then resolved by <code class="docutils literal notranslate"><span class="pre">resolve_ariel_dsn</span></code>, which applies the <code class="docutils literal notranslate"><span class="pre">ARIEL_DATABASE_HOST</span></code> and <code class="docutils literal notranslate"><span class="pre">ARIEL_DATABASE_PORT</span></code> overrides for Docker networking.</p></li>
 <li><p class="sd-card-text"><strong>Service creation</strong> — creates the <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> from the loaded config and stores it in <code class="docutils literal notranslate"><span class="pre">app.state.ariel_service</span></code>.</p></li>
 <li><p class="sd-card-text"><strong>Health check</strong> — validates the database connection and logs the result.</p></li>
 </ol>
@@ -847,11 +847,15 @@ App Internals</label><div class="sd-tab-content docutils">
 <td><p class="sd-card-text">Path to config.yml (alternative to default search)</p></td>
 </tr>
 <tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">ARIEL_DATABASE_HOST</span></code></p></td>
-<td><p class="sd-card-text">Override database hostname in URI (e.g., <code class="docutils literal notranslate"><span class="pre">postgresql</span></code> for Docker compose networking)</p></td>
+<td><p class="sd-card-text">Host the derived DSN dials (e.g., <code class="docutils literal notranslate"><span class="pre">ariel-postgres</span></code>, the store’s compose network alias). Default: <code class="docutils literal notranslate"><span class="pre">localhost</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">ARIEL_DATABASE_PORT</span></code></p></td>
+<td><p class="sd-card-text">Port the derived DSN dials (e.g., <code class="docutils literal notranslate"><span class="pre">5432</span></code>, the in-network port, where <code class="docutils literal notranslate"><span class="pre">services.postgresql.port_host</span></code> is the published one). Default: <code class="docutils literal notranslate"><span class="pre">services.postgresql.port_host</span></code></p></td>
 </tr>
 </tbody>
 </table>
 </div>
+<p class="sd-card-text">Both overrides apply only where the DSN is <em>derived</em> from <code class="docutils literal notranslate"><span class="pre">services.postgresql</span></code>. A DSN written out in <code class="docutils literal notranslate"><span class="pre">ariel.database.uri</span></code>, or in the legacy <code class="docutils literal notranslate"><span class="pre">connection_string</span></code>, is used verbatim. The ARIEL panel resolves its DSN through the same function, so it does not redirect an authored one either. A blank value counts as unset. A non-integer <code class="docutils literal notranslate"><span class="pre">ARIEL_DATABASE_PORT</span></code> is refused rather than ignored.</p>
 </div>
 <input id="sd-tab-item-3" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-3">
