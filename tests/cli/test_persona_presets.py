@@ -462,14 +462,12 @@ class TestControlAssistantWebTier:
         The referenced persona projects do not exist yet at build time. For the
         personas nobody is exposed by, the lint demotes those not-yet-rendered
         paths to WARNINGS (they carry a ``build_profile`` naming the delta
-        ``osprey build`` renders them from). For the ``default_persona``, the
-        absent render is an ERROR (``persona_privileges_unknown``): its
-        privileges cannot be read, so "holds nothing" would be a guess about
-        the tier every bare roster entry inherits — and `osprey up` now gates
-        on this belt, where that guess would be fail-open on the deploy path
-        itself. The shared standalone card is NOT singled out: it sits behind
-        the login wall like every other entry, so an unread render there is
-        the ordinary warning.
+        ``osprey build`` renders them from). For a persona a shared card
+        (``access: any``) resolves to, the absent render is an ERROR
+        (``persona_privileges_unknown``): its privileges cannot be read, so
+        "holds nothing" would be a guess about the one terminal every login
+        opens — and `osprey up` gates on this belt, where that guess would be
+        fail-open on the deploy path itself.
 
         Both findings name the same remedy and it is the command that comes
         next anyway: ``osprey build``. What this test pins is that nothing ELSE
@@ -487,11 +485,11 @@ class TestControlAssistantWebTier:
         assert {finding.code for finding in errors} <= {"web_terminals.persona_privileges_unknown"}
         for finding in errors:
             assert "osprey build" in finding.message
-        # And the persona it is about is the default one, not the shared card:
-        # no entry on the shipped roster is served without a login.
-        assert any("'readonly'" in finding.message for finding in errors)
+        # And the shared entries are the ones it is about: the shipped stack
+        # shares `logbook` and `knowledge` with the whole roster, which is why
+        # their unread renders are refused.
         for card in ("logbook", "knowledge"):
-            assert not any(f"'{card}'" in finding.message for finding in errors)
+            assert any(f"'{card}'" in finding.message for finding in errors)
 
     def test_ships_companion_panels_multi_user(self) -> None:
         """Feature parity: multi-user must not shed single-user companion panels.

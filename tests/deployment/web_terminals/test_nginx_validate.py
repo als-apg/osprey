@@ -21,11 +21,9 @@ uses) against each render shape the auth/TLS seams can produce:
 - the cleartext-auth render (`auth.method: password` with
   `allow_insecure_http`, the shape a facility behind its own TLS terminator
   deploys): the same auth surface inside a *single* server block.
-- the open render (`auth.method: none`, with a `login: false` entry beside a
-  normal one): no sidecar surface at all, and yet the per-user `include` +
-  envsubst chain still runs — the only shape where a secret snippet is read at
-  start with no `auth_request` in front of it, and the only one whose two
-  ungated locations are shaped differently from each other.
+- the open render (`auth.method: none`): no sidecar surface at all, and yet
+  the per-user `include` + envsubst chain still runs — the only shape where a
+  secret snippet is read at start with no `auth_request` in front of it.
 
 Every one of these tests asserts the constructs it means to validate are
 actually present in the rendered fragment before handing it to nginx — a
@@ -109,8 +107,7 @@ pytestmark = [
 
 
 def _config(tls: dict | None = None, auth: dict | None = None, users: list | None = None) -> dict:
-    """A rendering config; *users* takes plain names or full roster entries (a
-    `login: false` one is what the open render's exempt case needs)."""
+    """A rendering config; *users* takes plain names or full roster entries."""
     web_terminals: dict = {
         "enabled": True,
         "users": ["alice", "bob"] if users is None else users,
@@ -518,7 +515,7 @@ def test_cleartext_auth_render_passes_nginx_t() -> None:
     assert result.returncode == 0, result.stderr
 
 
-def test_open_render_with_an_exempt_entry_passes_nginx_t() -> None:
+def test_open_render_passes_nginx_t() -> None:
     """C4: the open render (`auth.method: none`) — the only posture that reads a
     per-user secret snippet at start with no `auth_request` in front of it.
 
@@ -530,18 +527,13 @@ def test_open_render_with_an_exempt_entry_passes_nginx_t() -> None:
     the injection predicate and the artifact predicate even slightly out of
     step would produce a config that renders cleanly and refuses to start.
 
-    A `login: false` entry sits beside the injected one deliberately: this is
-    the only render where two ungated locations are shaped differently from
-    each other, one carrying an include and the other the clear that replaces
-    it.
-
     Asserted clean rather than merely accepted: a duplicate header name — which
     is exactly what a clear written beside the include would be, and the
     snippet is a separate file this test is the first to resolve — leaves nginx
     exiting 0 with `could not build optimal proxy_headers_hash` on stderr, on
     every start and every reload.
     """
-    roster = [{"name": "alice", "index": 0}, {"name": "kiosk", "index": 1, "login": False}]
+    roster = [{"name": "alice", "index": 0}, {"name": "kiosk", "index": 1}]
     users = ["alice", "kiosk"]
     secrets = _terminal_secrets(users)
 
@@ -556,8 +548,8 @@ def test_open_render_with_an_exempt_entry_passes_nginx_t() -> None:
     # that had grown a login wall would not be this posture at all.
     directives = _directives(nginx_conf)
     assert "include /etc/nginx/osprey/secret-alice.conf;" in directives
-    assert "secret-kiosk.conf" not in nginx_conf
-    assert f'{TERMINAL_SECRET_HEADER} "";' in directives
+    assert "include /etc/nginx/osprey/secret-kiosk.conf;" in directives
+    assert f'{TERMINAL_SECRET_HEADER} "";' not in directives
     assert "auth_request" not in directives
     assert "location /auth/" not in directives
 
@@ -570,10 +562,11 @@ def test_open_render_with_an_exempt_entry_passes_nginx_t() -> None:
         (conf_dir / "default.conf").write_text(nginx_conf)
         # Under `none` the snippets ARE written — the artifact predicate is the
         # injection predicate — so the same entrypoint chain the gated renders
-        # drive applies here, for the one non-exempt user.
+        # drive applies here, for every user.
         _write_secret_templates(artifacts, templates_dir)
         assert [path.name for path in sorted(templates_dir.iterdir())] == [
-            "secret-alice.conf.template"
+            "secret-alice.conf.template",
+            "secret-kiosk.conf.template",
         ]
         secret_env = {terminal_secret_env_var(user): value for user, value in secrets.items()}
 
@@ -590,19 +583,15 @@ def test_open_render_with_an_exempt_entry_passes_nginx_t() -> None:
     assert result.returncode == 0, result.stderr
     assert "[warn]" not in result.stderr, result.stderr
 
-    # Assert — the injected user's secret is really in the resolved config, and
-    # the exempt user's is nowhere in it. Two occurrences of the header name:
-    # alice's snippet sets it, kiosk's location clears it.
+    # Assert — each user's secret is really in the resolved config, once, in
+    # that user's own snippet. Two occurrences of the header name: one snippet
+    # per user sets it, and no location clears it.
     dump = result.stdout
     assert dump.count(TERMINAL_SECRET_HEADER) == 2
-    snippet = _config_file_sections(dump)[f"{_NGINX_ENVSUBST_OUTPUT_DIR}/secret-alice.conf"]
-    assert f'{TERMINAL_SECRET_HEADER} "{secrets["alice"]}";' in snippet
-    assert secrets["kiosk"] not in dump
-
-    # Assert — and the ungated entry claims the same name by clearing it, which
-    # is what keeps a client from supplying one.
-    kiosk_location = _location_body(_config_file_sections(dump)[_DEFAULT_CONF_PATH], "kiosk")
-    assert f'{TERMINAL_SECRET_HEADER} "";' in kiosk_location
+    for user in users:
+        snippet = _config_file_sections(dump)[f"{_NGINX_ENVSUBST_OUTPUT_DIR}/secret-{user}.conf"]
+        assert f'{TERMINAL_SECRET_HEADER} "{secrets[user]}";' in snippet
+    assert f'{TERMINAL_SECRET_HEADER} "";' not in dump
 
 
 def test_secret_include_is_scoped_per_user_with_no_cross_leak() -> None:
@@ -782,16 +771,15 @@ def test_no_location_forwards_the_browsers_whole_cookie_jar() -> None:
     credentials outside the perimeter. So no location may pass `$http_cookie`:
     a gated one cuts the header entirely (it authenticates by the injected
     operator secret), and an ungated one narrows it to that user's own session
-    cookie. Checked on the resolved config, mixed roster included, because the
-    two branches are exactly where a later edit would reintroduce the bare
-    forward.
+    cookie. Checked on the resolved config, because the two branches are
+    exactly where a later edit would reintroduce the bare forward.
     """
     users = ["alice", "kiosk"]
     secrets = _terminal_secrets(users)
     config = _config(users=users, auth={"method": "password", "allow_insecure_http": True})
     config["modules"]["web_terminals"]["users"] = [
         {"name": "alice", "index": 0},
-        {"name": "kiosk", "index": 1, "login": False},
+        {"name": "kiosk", "index": 1},
     ]
     artifacts = render_web_terminals(config, terminal_secrets=secrets)
     nginx_conf = artifacts["nginx/nginx.conf"]
@@ -820,17 +808,11 @@ def test_no_location_forwards_the_browsers_whole_cookie_jar() -> None:
 
     assert "$http_cookie" not in dump
 
-    # The gated user authenticates by the header nginx injected, so its cookie
-    # is cut outright.
-    gated = _location_body(default_conf, "alice")
-    assert 'proxy_set_header Cookie "";' in gated
-
-    # The exempt user has no injected header, so its own session cookie is the
-    # only gate left and must survive — and nothing else may travel with it.
-    exempt = _location_body(default_conf, "kiosk")
-    cookie = f"osprey_terminal_session_{_BASE_PORTS['web'] + 1}"
-    assert f'proxy_set_header Cookie "{cookie}=$cookie_{cookie}";' in exempt
-    assert 'proxy_set_header Cookie "";' not in exempt
+    # Every gated user authenticates by the header nginx injected, so its
+    # cookie is cut outright.
+    for user in users:
+        gated = _location_body(default_conf, user)
+        assert 'proxy_set_header Cookie "";' in gated
 
 
 def test_the_secret_directory_holds_exactly_the_users_with_a_gated_location() -> None:
@@ -854,7 +836,7 @@ def test_the_secret_directory_holds_exactly_the_users_with_a_gated_location() ->
     config = _config(users=users, auth={"method": "password", "allow_insecure_http": True})
     config["modules"]["web_terminals"]["users"] = [
         {"name": "alice", "index": 0},
-        {"name": "kiosk", "index": 1, "login": False},
+        {"name": "kiosk", "index": 1},
     ]
     artifacts = render_web_terminals(config, terminal_secrets=secrets)
 
@@ -902,7 +884,7 @@ def test_the_secret_directory_holds_exactly_the_users_with_a_gated_location() ->
     }
     # alice is gated and reads her snippet; kiosk is served ungated with the
     # header cleared, so nothing would ever open a file for it.
-    assert materialized == included == {"secret-alice.conf"}
+    assert materialized == included == {"secret-alice.conf", "secret-kiosk.conf"}
 
 
 def test_every_terminal_location_clears_credentials_nginx_did_not_set() -> None:
@@ -920,7 +902,7 @@ def test_every_terminal_location_clears_credentials_nginx_did_not_set() -> None:
     config = _config(users=users, auth={"method": "password", "allow_insecure_http": True})
     config["modules"]["web_terminals"]["users"] = [
         {"name": "alice", "index": 0},
-        {"name": "kiosk", "index": 1, "login": False},
+        {"name": "kiosk", "index": 1},
     ]
     artifacts = render_web_terminals(config, terminal_secrets=secrets)
 
@@ -949,14 +931,11 @@ def test_every_terminal_location_clears_credentials_nginx_did_not_set() -> None:
         body = _location_body(default_conf, user)
         assert 'proxy_set_header Authorization "";' in body
 
-    # Injected here, so not cleared here.
-    gated = _location_body(default_conf, "alice")
-    assert f'proxy_set_header {TERMINAL_SECRET_HEADER} "";' not in gated
-    assert "include /etc/nginx/osprey/secret-alice.conf;" in gated
-
-    # Not injected here, so cleared here.
-    exempt = _location_body(default_conf, "kiosk")
-    assert f'proxy_set_header {TERMINAL_SECRET_HEADER} "";' in exempt
+    # Injected in every gated location, so cleared in none of them.
+    for user in users:
+        gated = _location_body(default_conf, user)
+        assert f'proxy_set_header {TERMINAL_SECRET_HEADER} "";' not in gated
+        assert f"include /etc/nginx/osprey/secret-{user}.conf;" in gated
 
 
 def test_a_blank_terminal_secret_takes_down_only_that_users_terminal() -> None:

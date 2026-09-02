@@ -693,35 +693,34 @@ def _privileged_persona_problems(
 
     * ``default_persona`` must not be a privileged tier — it is what every entry
       that names no tier inherits;
-    * no entry served without a login may resolve to one.
+    * no shared card (``access: any``) may resolve to one.
 
-    **The two rules read two different maps**, and handing one map to both is
-    what left this surface exempt on a floorless host preset: every persona
-    there sits at the baseline, so the relative map is empty for all of them and
-    the login rule had nothing to report about a terminal holding everything.
-    See
+    **The two rules read two different maps**, and handing one map to both
+    would leave this surface exempt on a floorless host preset: every persona
+    there sits at the baseline, so the relative map is empty for all of them
+    and the shared-card rule would have nothing to report about a terminal
+    holding everything. See
     :func:`~osprey.deployment.web_terminals.personas.privileges_beyond_baseline`
     for why the ``default_persona`` rule keeps the relative reading.
 
     Args:
-        config: The host profile's ``config:`` block, from which the roster and
-            the ``auth`` stanza are folded out — and the baseline both the
-            relative map and the remedy are measured against.
+        config: The host profile's ``config:`` block, from which the roster is
+            folded out — and the baseline the relative map is measured
+            against.
         privileges: Persona name → what it holds BEYOND that baseline, for the
             personas whose presets resolved. A persona absent from this mapping
             contributes nothing — its entry already failed to resolve and is
             reported as such.
         absolute_privileges: Persona name → what it holds outright, same
-            personas. What the login rule is judged on.
+            personas. What the shared-card rule is judged on.
 
     Returns:
         One message per problem, ``default_persona`` first, then roster order.
     """
     from osprey.deployment.web_terminals.personas import (
-        persona_privileges,
         privileged_default_persona_problem,
         resolve_personas,
-        unauthenticated_privileged_terminal_problems,
+        shared_card_privileged_problems,
     )
 
     from .build_profile_emit import effective_web_terminals
@@ -740,16 +739,7 @@ def _privileged_persona_problems(
     # is a different mistake, reported by the deploy lint that owns it, and
     # raising here would replace that report with a worse one.
     resolved = resolve_personas(web_terminals, {}, "", strict=False)
-    problems.extend(
-        unauthenticated_privileged_terminal_problems(
-            resolved,
-            absolute_privileges,
-            # The host profile's own posture, which decides which remedy is
-            # honest: a profile that floors nothing has no unprivileged tier to
-            # point the entry at, so it is told how to create one instead.
-            baseline_privileges=persona_privileges(config),
-        )
-    )
+    problems.extend(shared_card_privileged_problems(resolved, absolute_privileges))
     return problems
 
 
@@ -809,7 +799,7 @@ def _persona_profile_texts(
     # deliberately drops the `extends:` that produced it. Recorded BOTH ways,
     # because the two rules in `_privileged_persona_problems` read two different
     # answers: relative to the host for the inherited `default_persona`,
-    # absolute for the `login: false` key an author typed on purpose. See
+    # absolute for the `access: any` key an author typed on purpose. See
     # `privileges_beyond_baseline`.
     host_privileges = persona_privileges(resolved.config)
     privileges: dict[str, tuple[str, ...]] = {}

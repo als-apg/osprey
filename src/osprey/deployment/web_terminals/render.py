@@ -45,7 +45,6 @@ from osprey.deployment.web_terminals.personas import (
     config_needs_launch_token_for,
     effective_image_source,
     entry_is_shared,
-    entry_requires_login,
     env_var_suffix,
     env_var_suffix_collisions,
     resolve_personas,
@@ -380,33 +379,30 @@ def _terminal_secret_artifacts(
 
     Every roster user is CHECKED — the four refusals below cover the whole
     roster, because every user's container reads its own secret whatever the
-    perimeter does with it — but only a user whose ``/u/<user>/`` location
-    actually ``include``s a snippet gets one written. That is exactly the
-    predicate nginx.conf.j2 emits the include under (``inject_secret and not
-    svc.login_exempt``), spelled here character-for-character so the two cannot
-    disagree: a snippet with no include is a dead secret, an include with no
-    snippet is a proxy that refuses to start.
+    perimeter does with it — but a snippet is written only when the
+    ``/u/<user>/`` locations actually ``include`` one. That is exactly the
+    predicate nginx.conf.j2 emits the include under (``inject_secret``),
+    spelled here the same way so the two cannot disagree: a snippet with no
+    include is a dead secret, an include with no snippet is a proxy that
+    refuses to start.
 
-    A snippet for anyone else is a plaintext operator secret substituted into
-    the nginx container's filesystem for no reader: under ``token`` nginx
-    injects no header at all (the browser reaches the app through that user's
-    own ``?token=`` exchange), and a ``login: false`` entry is served ungated
-    with the header explicitly CLEARED whatever the method. Not written, so the
-    invariant the nginx ``-T`` tests reason about — every file under
-    ``/etc/nginx/osprey`` is included by exactly one location — holds by
-    construction rather than by luck.
+    Under ``token`` a snippet would be a plaintext operator secret substituted
+    into the nginx container's filesystem for no reader: nginx injects no
+    header at all there (the browser reaches the app through that user's own
+    ``?token=`` exchange). Not written, so the invariant the nginx ``-T`` tests
+    reason about — every file under ``/etc/nginx/osprey`` is included by
+    exactly one location — holds by construction rather than by luck.
 
     Args:
-        services: The resolved per-user service entries (``user`` and
-            ``login_exempt`` are read).
+        services: The resolved per-user service entries (``user`` is read).
         terminal_secrets: ``{username: secret}`` as provisioned into the deploy
             ``.env``. Only the KEYS are used — a value is read solely to refuse
             an absent one, and is never rendered anywhere.
         inject_secret: Whether nginx injects the operator secret on the
-            non-exempt ``/u/<user>/`` locations at all — the ``inject_secret``
-            boolean of :func:`_auth_tls_context` (true for ``none``,
-            ``password`` and ``oidc``; false for ``token``). ``False`` means no
-            location includes anything, so no snippet is written.
+            ``/u/<user>/`` locations at all — the ``inject_secret`` boolean of
+            :func:`_auth_tls_context` (true for ``none``, ``password`` and
+            ``oidc``; false for ``token``). ``False`` means no location
+            includes anything, so no snippet is written.
 
     Returns:
         ``{output-relative path: content}``, one entry per injecting roster
@@ -487,10 +483,11 @@ def _terminal_secret_artifacts(
             "reached without it refuses every request. Mint the missing variables into "
             "the deploy .env (osprey up does this in preflight) and re-render"
         )
+    if not inject_secret:
+        return {}
     return {
         _secret_template_path(service["user"]): _secret_template_content(service["user"])
         for service in services
-        if inject_secret and not service.get("login_exempt")
     }
 
 
@@ -980,12 +977,6 @@ def render_web_terminals(
                 # keeps a role-only roster resolving field for field like the
                 # `persona:`-pinned roster it stands for.
                 "role": roster_roles.get(entry["name"]),
-                # Whether this entry opted out of the login wall (`login:
-                # false` on the roster entry). Read through the shared
-                # predicate rather than off the raw key so the template's gate
-                # and credential provisioning can never disagree about who has
-                # a login. With auth off the template never consults it.
-                "login_exempt": not entry_requires_login(entry),
                 # Whether this entry is a shared card (`access: any` on the
                 # roster entry): any authenticated roster user may open it,
                 # not only the one it belongs to. Read through the shared
@@ -1942,7 +1933,7 @@ def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None)
     The four methods and what they mean:
 
     * ``none`` — OPEN, navigation-only. Everyone who can reach nginx is
-      trusted; nginx vouches for every request to a non-exempt terminal by
+      trusted; nginx vouches for every request to a terminal by
       injecting that user's terminal secret, so the landing page needs no
       login and no token. No sidecar.
     * ``token`` — the DEFAULT. No login wall and no sidecar; nginx injects
@@ -1954,16 +1945,16 @@ def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None)
     Every consumer decides on the derived booleans below rather than on the
     method name, so a new method cannot fork a branch somebody forgot:
 
-    * ``sidecar_active`` — a sidecar service is rendered and every non-exempt
+    * ``sidecar_active`` — a sidecar service is rendered and every
       location carries an ``auth_request`` (``password``/``oidc``).
     * ``inject_secret`` — nginx injects the per-user terminal secret on
-      non-exempt locations (``password``/``oidc``/``none``; NOT ``token``).
+      every location (``password``/``oidc``/``none``; NOT ``token``).
     * ``walled`` — a login wall stands in front of the roster. Identical to
       ``sidecar_active``; spelled separately because its readers ask a
       different question (who has a login) than the sidecar's do.
     * ``token_exchange`` — the browser reaches every terminal through the
       per-user magic link (``token`` only).
-    * ``open_perimeter`` — nginx vouches for every non-exempt terminal with no
+    * ``open_perimeter`` — nginx vouches for every terminal with no
       wall in front of it (``none`` only). Derived here rather than recombined
       as ``inject_secret and not sidecar_active`` by each reader, because it is
       the posture the perimeter stamp, the egress deploy gate and the lint rule

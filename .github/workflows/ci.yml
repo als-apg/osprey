@@ -3556,9 +3556,9 @@ jobs:
     # `auth.method: token` (the DEFAULT, and what an absent `auth:` block
     # renders) where nginx injects nothing and each terminal's own `?token=`
     # exchange is the gate; and `auth.method: none` (OPEN, navigation-only)
-    # where nginx injects each user's operator secret, a `login: false` entry is
-    # left out of that injection, and executed code is refused the deployment's
-    # own web ports. Both lanes share one persona project and therefore one
+    # where nginx injects each user's operator secret and executed code is
+    # refused the deployment's own web ports. Both lanes share one persona
+    # project and therefore one
     # `:local` image, so the second `osprey up` re-runs the build against a
     # byte-identical context and hits the runtime cache: the added cost over the
     # single-posture lane this replaces is a second render plus a second deploy,

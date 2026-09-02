@@ -418,11 +418,12 @@ def test_preflight_mints_credentials_then_secrets_for_the_roster(
     assert calls[1][1] == str(tmp_path)
 
 
-def test_preflight_mints_no_credential_for_a_login_false_entry(monkeypatch, tmp_path):
-    """A roster entry with `login: false` is left out of the password mint: no
-    gate ever asks the sidecar about it, so a hash for it would be a credential
-    nothing checks — and a minted password printed for it would tell the
-    operator the opposite of the truth."""
+def test_preflight_mints_a_credential_for_an_entry_carrying_the_retired_login_key(
+    monkeypatch, tmp_path
+):
+    """`login: false` used to leave an entry out of the password mint. The key
+    is retired, so an entry still carrying it is behind the wall like its
+    neighbours and gets its password minted with them."""
     calls: list[list[str]] = []
     env_auth = tmp_path / AUTH_ENV_FILENAME
 
@@ -445,7 +446,7 @@ def test_preflight_mints_no_credential_for_a_login_false_entry(monkeypatch, tmp_
     )
     _run_preflight(monkeypatch, tmp_path, config)
 
-    assert calls == [["alice", "bob"]]
+    assert calls == [["alice", "ariel", "bob"]]
 
 
 def test_preflight_mints_no_credential_for_a_shared_entry(monkeypatch, tmp_path):
@@ -532,10 +533,10 @@ def test_an_auth_off_deploy_refuses_a_bad_roster_name_without_naming_auth(monkey
     assert not (tmp_path / ENV_LOCAL_FILENAME).exists()
 
 
-def test_preflight_provisions_a_terminal_secret_for_a_login_false_entry(monkeypatch, tmp_path):
-    """The opposite of the password mint's rule, and deliberately so: opting out
-    of the login wall does not opt a terminal out of needing a front door, so
-    every roster entry is passed to the terminal mint."""
+def test_preflight_provisions_a_terminal_secret_for_a_shared_entry(monkeypatch, tmp_path):
+    """The opposite of the password mint's rule, and deliberately so: a card
+    opened with somebody else's credential is still a terminal needing a front
+    door, so every roster entry is passed to the terminal mint."""
     calls: list[list[str]] = []
 
     def _fake_terminal(project_root, usernames):
@@ -556,8 +557,8 @@ def test_preflight_provisions_a_terminal_secret_for_a_login_false_entry(monkeypa
         "password",
         users=[
             "alice",
-            {"name": "ariel", "index": 1, "login": False},
-            {"name": "bob", "index": 2, "login": True},
+            {"name": "ariel", "index": 1, "access": "any"},
+            {"name": "bob", "index": 2},
         ],
     )
     _run_preflight(monkeypatch, tmp_path, config)

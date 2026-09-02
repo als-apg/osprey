@@ -229,14 +229,12 @@
       (sidecar) + OSPREY_TERMINAL_SESSION_LIFETIME (every per-user terminal)
       One number, emitted twice, on both sides of the auth/terminal namespace
       line. Which of the two actually expires an operator's session is an
-      ENTRY-level question, not a deployment-level one: wherever the terminal's
-      own token->cookie gate is the one left standing — every entry under `token`,
-      the `login: false` entries under `none`/`password`/`oidc` — this number,
-      not the sidecar's, is what expires it; elsewhere it is inert and
-      harmless. Emitted unconditionally because the container cannot know at
-      build time which it is, and it cannot ride in the persona's `config.yml`,
-      which is baked into the image at build time and so cannot see a
-      deploy-time edit.
+      DEPLOYMENT-level question: under `token` the terminal's own token->cookie
+      gate is the one left standing and this number, not the sidecar's, is
+      what expires it; under every other method it is inert and harmless.
+      Emitted unconditionally because the container cannot know at build time
+      which it is, and it cannot ride in the persona's `config.yml`, which is
+      baked into the image at build time and so cannot see a deploy-time edit.
     auth_image: str | None
       Registry-mode image for the sidecar. When unset, the local-build tag
       `<facility_prefix>-assistant-auth:local` is referenced instead — the
@@ -790,14 +788,11 @@ services:
 
    One line per entry that declares a role; an entry with none emits nothing and
    the sidecar resolves "" for it, which is "no privileges" rather than a role
-   named "". Entries opted out of the login wall (`login: false`) are NOT
-   filtered out here: they are on OSPREY_AUTH_USERS above, which is the roster
-   this table is keyed from, and a role table that disagreed with that roster is
-   the drift worth avoiding. Nothing is granted by it — an exempt entry has no
-   password provisioned, so no login of theirs ever reaches the lookup. (A
-   password-mode argument that turns load-bearing under `oidc` once shared
-   cards exist: a `login: false` entry with a mapped subject IS an eligible
-   opener, and its login does reach this table.)
+   named "". Shared cards (`access: any`) are NOT filtered out here: they are
+   on OSPREY_AUTH_USERS above, which is the roster this table is keyed from,
+   and a role table that disagreed with that roster is the drift worth
+   avoiding. Under `oidc` every entry carrying a mapped subject is an eligible
+   opener of a shared card, and its login does reach this table.
 
    The variable NAME arrives pre-resolved as `svc.role_env` (render.py, via
    personas.env_var_suffix()) and is emitted verbatim, for the reason spelled
@@ -925,9 +920,7 @@ services:
          because every method can leave a terminal standing on that cookie.
          The one place it is minted is this app's `?token=` exchange, which
          trades a magic link for a session. Under `token` every entry enters
-         that way; under `none`/`password`/`oidc` the `login: false` entries
-         do, reaching their terminal by the same `?token=` URL. For a
-         NON-exempt entry under those three the injected terminal secret
+         that way. Under `none`/`password`/`oidc` the injected terminal secret
          authenticates the request instead (and under `password`/`oidc` nginx
          cuts the cookie jar as well), so this number is inert for that
          container and it is the sidecar's own cookie, carrying

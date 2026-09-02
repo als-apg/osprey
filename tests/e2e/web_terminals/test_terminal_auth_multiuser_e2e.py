@@ -22,12 +22,9 @@ differ in exactly one thing: whether nginx vouches for the caller.
              magic link, which the app exchanges for a session cookie.
 
   ``none``   OPEN, navigation-only. nginx injects each user's operator secret on
-             every non-exempt ``/u/<user>/`` location, so anyone who can reach
-             nginx is served that user's terminal with no credential of their
-             own. Navigation IS the authentication. A roster entry that declared
-             ``login: false`` is deliberately left OUT of that injection: it is
-             proxied ungated, and the app's own gate is then the only one in
-             front of it.
+             every ``/u/<user>/`` location, so anyone who can reach nginx is
+             served that user's terminal with no credential of their own.
+             Navigation IS the authentication.
 
 ``token`` is what an absent ``auth:`` block renders, and it carries what
 ``auth.method: none`` used to mean before the four-method scheme. That the two
@@ -51,17 +48,12 @@ Against the ``token`` deployment (roster: ``alice``):
       operator secret, is exchanged by a browser for a session cookie; the SAME
       mutating request carrying that cookie is then accepted with ``200``.
 
-Against the ``open`` deployment (roster: ``alice``; ``kiosk`` with
-``login: false``):
+Against the ``open`` deployment (roster: ``alice``):
 
   O1  A cookie-less, token-less client both NAVIGATES to ``/u/alice/`` and
       performs the mutating ``PATCH`` that T1 was refused — and is served
       ``200`` for both. The credential it never presented was injected by
       nginx; navigation alone reached a credentialed terminal.
-  O2  The exempt ``kiosk`` entry is proxied by that same nginx but carries no
-      injected secret, so the identical requests are refused ``401`` — and
-      refused by the terminal APP (a JSON refusal body), not by the perimeter.
-      One deployment, one image, two locations: the difference is the injection.
   O3  Every per-user container carries the perimeter stamp
       (``OSPREY_WEB_PERIMETER=open`` plus this deployment's own web ports), and
       code executed through the shipped ``ExecutionWrapper`` INSIDE one of those
@@ -277,15 +269,11 @@ OPEN_LANE = Lane(
         "lattice": 19941,
         "channel_finder": 19951,
     },
-    #: TWO entries, because the open posture's claim is a CONTRAST: `alice` is
-    #: injected into, `kiosk` declared `login: false` and is not. One container
-    #: each, from the same already-built image.
     users=(
         # `index` is spelled out because an OBJECT entry must carry one — profile
         # validation refuses an object roster entry with no index, since the
         # index (not the position) is what allocates every port family.
         {"name": "alice", "index": 0, "persona": PERSONA},
-        {"name": "kiosk", "index": 1, "persona": PERSONA, "login": False},
     ),
 )
 
@@ -827,9 +815,9 @@ def _deploy(lane: Lane, tmp_path: Path, persona_path: Path) -> Iterator[dict[str
         up = _run_osprey(osprey_bin, ["up", "--dev"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
         assert up.returncode == 0, _fmt(f"osprey up --dev ({lane.posture} multiuser)", up)
         for user in lane.usernames:
-            # Under `open` the injected location answers 200 and the exempt one
-            # still 401s; under `token` nothing is injected anywhere.
-            expected = 200 if lane.posture == "none" and _is_injected(lane, user) else 401
+            # Under `open` every location is injected into and answers 200;
+            # under `token` nothing is injected anywhere.
+            expected = 200 if lane.posture == "none" else 401
             _wait_for_gate(lane, user, expected, READY_TIMEOUT_SEC)
         yield {
             "lane": lane,
@@ -841,18 +829,6 @@ def _deploy(lane: Lane, tmp_path: Path, persona_path: Path) -> Iterator[dict[str
         # lifecycle does — then the exact-named sweep as a safety net.
         _run_osprey(osprey_bin, ["down"], repo)
         _teardown(lane)
-
-
-def _is_injected(lane: Lane, user: str) -> bool:
-    """Whether nginx injects *user*'s operator secret on their location.
-
-    The roster's own ``login: false`` opt-out, read back off the authored entry:
-    an exempt entry is proxied but never vouched for, whatever the method.
-    """
-    for entry in lane.users:
-        if isinstance(entry, dict) and str(entry["name"]) == user:
-            return entry.get("login") is not False
-    return True
 
 
 @pytest.fixture(scope="module")
@@ -964,7 +940,7 @@ def test_token_login_unlocks_the_mutation(token_deployment: dict[str, Any]) -> N
 
 
 # --------------------------------------------------------------------------
-# none (open) — navigation-only: nginx vouches, the roster's exempt entry does not
+# none (open) — navigation-only: nginx vouches for every terminal
 # --------------------------------------------------------------------------
 
 
@@ -992,39 +968,6 @@ def test_open_navigation_reaches_a_credentialed_terminal(open_deployment: dict[s
     )
 
 
-def test_open_exempt_entry_is_proxied_but_not_credentialed(
-    open_deployment: dict[str, Any],
-) -> None:
-    """O2: the ``login: false`` entry is served by the same nginx and vouched for by nobody.
-
-    ``kiosk`` declared ``login: false``, so its location is proxied without the
-    secret injection its neighbour gets — the opt-out means "left out of whatever
-    front door the rest of the deployment has", and under ``none`` that front
-    door is the injection itself. What stands in front of ``kiosk`` afterwards is
-    the app's own gate, which refuses both requests ``alice`` was served.
-
-    That the refusal comes from the APP and not from the perimeter is asserted
-    rather than assumed: nginx refuses with its own HTML error page, while the
-    terminal app answers a JSON request with a JSON ``{"detail": ...}`` body. A
-    ``401`` shaped that way was produced behind the proxy, which is what makes
-    this a statement about the exempt entry rather than about nginx.
-    """
-    status, _, body = _patch_config(OPEN_LANE, "kiosk")
-    assert status == 401, (
-        f"the exempt entry's mutating route was not refused (got {status})\n"
-        f"{body[:300]}\n{_logs(OPEN_LANE.container('kiosk'))}"
-    )
-    assert json.loads(body).get("detail"), (
-        f"the 401 did not carry the terminal app's own refusal body: {body[:300]}"
-    )
-
-    status, _, body = _request(OPEN_LANE, "/u/kiosk/", headers=_navigation())
-    assert status == 401, (
-        f"navigating to the exempt terminal was credentialed after all (got {status})\n"
-        f"{body[:300]}\n{_logs(OPEN_LANE.container('kiosk'))}"
-    )
-
-
 def test_open_stamps_the_perimeter_onto_every_user_container(
     open_deployment: dict[str, Any],
 ) -> None:
@@ -1036,10 +979,6 @@ def test_open_stamps_the_perimeter_onto_every_user_container(
     secret opens — and it is asserted whole rather than by membership: a stamp
     that named only the container's own port would leave a neighbour's terminal
     reachable, and would still pass an ``in`` check.
-
-    The exempt entry is stamped too. Its location is not injected into, but its
-    container shares the host network namespace with the ones that are, so code
-    running there reaches ``alice``'s terminal exactly as easily.
     """
     expected = ",".join(str(port) for port in sorted({OPEN_LANE.nginx_port, *OPEN_LANE.web_ports}))
     for user in OPEN_LANE.usernames:

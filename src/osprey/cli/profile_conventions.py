@@ -1026,7 +1026,7 @@ def is_setup_patch_capable(config: Any) -> bool:
     **Parity is the criterion, not conservatism**, because the two consumers
     pull in opposite directions. The container's Dockerfile *grants* the
     ``build/config.yml`` chown on ``True``; the persona-roster guard *refuses*
-    a ``default_persona`` or ``login: false`` on ``True``. So there is no safe
+    a ``default_persona`` or a shared card on ``True``. So there is no safe
     direction to lean: an answer biased toward ``False`` waves a capable
     persona past the roster guard, and one biased toward ``True`` hands an
     image's ``config.yml`` to an agent that cannot in fact patch it. The only

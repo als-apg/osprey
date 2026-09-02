@@ -247,9 +247,9 @@ def _roster_usernames(config_path: str) -> list[str]:
 
     Read from the rendered ``build/config.yml`` every verb here acts through,
     normalized by the module's own normalizer so a bare-string roster and an
-    explicit one answer identically. The WHOLE roster, ``login: false`` entries
-    included: those users have a terminal, and a terminal needs a secret whether
-    or not it sits behind a login.
+    explicit one answer identically. The WHOLE roster, shared cards included:
+    every entry has a terminal, and a terminal needs a secret whatever
+    credential opens it.
 
     Args:
         config_path: The rendered config, as :class:`_Repo` carries it.
@@ -711,16 +711,15 @@ def login_url(user: str, repo: Path | None) -> None:
     web_terminals.auth.method at 'token' — the default — nginx authenticates
     nobody and stamps nothing, so the terminal's own gate is the only one: a
     browser gets in by opening this URL once, which trades the token for a
-    session cookie and redirects to the plain address. The same is true for a
-    roster entry that set 'login: false' while auth is on.
+    session cookie and redirects to the plain address.
 
     A user behind a login wall ('password'/'oidc') has no token URL, and this
     verb refuses for them: nginx denies the request before the app can read
     the token, so the URL would only bounce them to that page. Under 'none',
-    nginx vouches for every non-exempt terminal itself, so there is no login
-    page and no token URL either; this verb refuses and names the terminal's
-    plain address instead. Either way, it names the real address rather than
-    printing a live secret that accomplishes nothing.
+    nginx vouches for every terminal itself, so there is no login page and no
+    token URL either; this verb refuses and names the terminal's plain address
+    instead. Either way, it names the real address rather than printing a live
+    secret that accomplishes nothing.
 
     The URL carries that user's secret. Treat it like a password: send it to the
     person it belongs to, over something you would send a password over, and

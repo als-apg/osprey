@@ -878,11 +878,12 @@ class TestTokenLoginClosingLine:
 
         assert "login-url" not in "\n".join(recorder.lines)
 
-    def test_a_login_exempt_entry_is_named_even_with_auth_on(
+    def test_the_retired_login_key_names_no_entry_with_auth_on(
         self, repo_with_logins: Path, recorder: Recorded
     ) -> None:
-        """`login: false` puts one entry outside the wall, and that terminal is
-        reached exactly the way an auth-off one is -- singular phrasing: `needs`."""
+        """`login: false` used to put one entry outside the wall and name it
+        here. The key is retired: an entry still carrying it is behind the wall
+        like its neighbours, so the login-url line is not printed at all."""
         config = repo_with_logins / "build" / "config.yml"
         config.write_text(
             config.read_text() + "      - name: kiosk\n        index: 2\n        login: false\n"
@@ -891,11 +892,8 @@ class TestTokenLoginClosingLine:
         print_summary_card(repo_with_logins, "running")
 
         printed = "\n".join(recorder.lines)
-        assert "osprey users login-url kiosk" in printed
-        assert "this terminal has no login page" in printed
-        assert "kiosk needs its own login URL" in printed
-        # ...and only that entry: alice and bob still have a login page.
-        assert "alice" not in printed.split("no login page")[1]
+        assert "login-url" not in printed
+        assert "no login page" not in printed
 
 
 class TestSharedCardClosingLine:

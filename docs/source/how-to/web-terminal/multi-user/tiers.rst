@@ -416,28 +416,25 @@ Checked, not merely conventional
 
 The one capability it would be worst to leave open — editing the deployment —
 is guarded by the commands themselves, not only by the preset's choices.
-``osprey profile validate`` and ``osprey build`` refuse a ``login: false``
-entry that resolves to a persona holding either deployment-editing surface,
-and refuse a privileged ``default_persona`` in a deployment that draws a tier
-split at all; ``osprey up`` asks the same question of the render before it
-starts anything. Each refusal names the user, or the persona, and the remedy.
+``osprey profile validate`` and ``osprey build`` refuse a shared card
+(``access: any``) that resolves to a persona holding either deployment-editing
+surface, and refuse a privileged ``default_persona`` in a deployment that
+draws a tier split at all; ``osprey up`` asks the same question of the render
+before it starts anything. Each refusal names the user, or the persona, and
+the remedy.
 
 .. dropdown:: Exactly what ``validate``, ``build`` and ``up`` refuse
    :icon: shield-check
 
-   ``osprey profile validate`` and ``osprey build`` refuse any ``login: false``
-   entry that resolves to a persona holding either deployment-editing surface
-   — the agent's ``setup_patch`` tool or the web Config panel — naming the
-   user. That refusal does not ask whether your profile drew a tier split: a
-   profile that floors neither surface hands both of them to every persona it
-   has, so an open terminal there is the most exposed version of this rather
-   than an exempt one. What the split changes is the remedy the message can
-   honestly offer. Where an unprivileged tier exists you are told to point the
-   entry at it (or to give the entry a login); where none does, you are told
-   to write the floor first — a ``claude_code.permissions.deny`` carrying
-   ``mcp__osprey_workspace__setup_patch``, and
-   ``web.config_panel.enabled: false``, in the profile's ``config:`` block —
-   and to lift both only in the persona meant to hold them.
+   ``osprey profile validate`` and ``osprey build`` refuse any shared card
+   (``access: any``) that resolves to a persona holding either
+   deployment-editing surface — the agent's ``setup_patch`` tool or the web
+   Config panel — naming the user. That refusal does not ask whether your
+   profile drew a tier split: a profile that floors neither surface hands both
+   of them to every persona it has, so a shared card there is the most exposed
+   version of this rather than an exempt one. The remedy is the card's own
+   key — ``access: own``, or dropping the key — or pointing the entry at a
+   persona that holds neither surface.
 
    A privileged ``default_persona`` is refused too, in a deployment that draws
    a privilege split at all — one whose profile floors those surfaces and lets
@@ -448,14 +445,14 @@ starts anything. Each refusal names the user, or the persona, and the remedy.
    ``build_profile`` pointing outside ``personas/``, say — is refused rather
    than taken to hold nothing, naming the persona, the value it was given and
    the remedy — plus the path it tried, where the value resolved to one; where
-   the unreadable persona is an open terminal's, that refusal too stands
-   whatever the profile floors, so long as the deployment has a login wall for
-   the entry to have opted out of.
+   the unreadable persona is a shared card's, that refusal too stands whatever
+   the profile floors, so long as the deployment has a login wall for the card
+   to be shared behind.
 
    Where the deployment has no login page at all — ``auth.method`` of
-   ``token`` (the default) or ``none`` — there is no wall for an entry to be
-   exempt from, so the exposure belongs to the deployment rather than to any
-   one entry: it is reported as an advisory naming every privileged terminal
+   ``token`` (the default) or ``none`` — sharing changes nothing, so the
+   exposure belongs to the deployment rather than to any one entry: it is
+   reported as an advisory naming every privileged terminal
    instead of failing the build, and it is the one of these rules measured against the
    profile's own floor — a deployment that never drew a split would otherwise
    hear about every terminal it has, every time, for a posture it has always
@@ -463,23 +460,21 @@ starts anything. Each refusal names the user, or the persona, and the remedy.
    success line.
 
    ``osprey scaffold web-terminals lint`` asks the same questions of what was
-   last *rendered*, and so does the render step itself. A ``login: false``
-   exposure is an error there too; the message adds that this is what the last
-   ``osprey build`` rendered, so a render made before the floor existed is
-   refused until a rebuild puts the floor into it. A persona whose project has
-   not been rendered yet is refused the same way where it is exposed, with
-   ``osprey build`` as the remedy — or ``login: true`` for an entry that
-   opted out of the wall — while behind a login it stays the plain warning it
-   always was. A deployment that pulls its images from a registry has no
-   persona render to read at all, so there only an open terminal is refused;
+   last *rendered*, and so does the render step itself. A shared privileged
+   card is an error there too. A persona whose project has not been rendered
+   yet is refused the same way where a shared card resolves to it, with
+   ``osprey build`` as the remedy — or ``access: own`` for the card — while
+   on an own card it stays the plain warning it always was. A deployment that
+   pulls its images from a registry has no persona render to read at all, so
+   there only a shared card is refused;
    its inherited default is judged where the deltas live, by ``osprey
    validate`` and ``osprey build``. A privileged ``default_persona`` in a
    render is advisory, because the entries it actually exposes are named by
    the rule that does block.
 
    ``osprey up`` asks the door question once more before it starts anything.
-   A stack whose render serves an open privileged terminal, or one whose
-   persona cannot be read there, does not come up — the refusal arrives with
+   A stack whose render shares a privileged card, or one whose persona cannot
+   be read there, does not come up — the refusal arrives with
    the other start-time problems, so one attempt reports them all — and the
    two advisories are printed beside it. Nothing else the lint finds stops a
    start: a duplicate port or a missing certificate belongs to the commands

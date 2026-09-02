@@ -369,8 +369,8 @@ def _remove_persona_layer(repo: Path) -> None:
     ``personas/`` directory leaves a catalog whose ``build_profile`` entries
     point at files that are not there — and a persona nobody can read is
     refused where its privileges would decide something (the
-    ``default_persona`` every unlabelled user inherits, the ``login: false``
-    entry served to anyone), which is the guard doing its job on a broken
+    ``default_persona`` every unlabelled user inherits, the shared card every
+    login opens), which is the guard doing its job on a broken
     catalog, not the pre-persona shape this test protects.
     """
     shutil.rmtree(repo / "personas")

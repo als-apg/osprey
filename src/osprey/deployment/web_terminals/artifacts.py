@@ -543,7 +543,7 @@ class OpenModeEgressError(DeploymentError):
     """An OPEN deployment ships a persona that may still reach the host network.
 
     Under ``auth.method: none`` nginx vouches for every request it proxies: it
-    injects each user's operator secret on every non-exempt location, so
+    injects each user's operator secret on every location, so
     *anything* that can reach nginx is served that user's terminal. That is the
     posture's whole point for a human — no login, no magic link — and its whole
     danger for an agent, because the agent's own tools reach nginx from inside
@@ -639,7 +639,7 @@ class OpenModeEgressError(DeploymentError):
             f"Refusing to deploy: auth.method 'none' (open) lets nginx vouch for every "
             f"terminal, and persona(s) {named} may still reach the host network via "
             f"{tools_named}.{breakdown}\n"
-            f"Open mode injects each user's operator secret on every non-exempt "
+            f"Open mode injects each user's operator secret on every "
             f"location, so anything that reaches nginx is served that user's terminal "
             f"— including an agent running inside another user's terminal, which "
             f"arrives over loopback and is indistinguishable from the operator's own "

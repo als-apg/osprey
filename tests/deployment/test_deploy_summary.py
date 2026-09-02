@@ -1363,12 +1363,12 @@ def test_every_deploy_exit_path_shares_this_one_seam():
 
 
 # ---------------------------------------------------------------------------
-# The roster's three-way split behind a login wall: an entry with its own
-# required login reaches the seeded-logins report, a `login: false` entry
-# reaches the token-URL list, and a shared entry (`access: any`) reaches
-# NEITHER — it holds no credential of its own and is opened with another
-# roster user's name and credential, which is what `_shared_cards` exists to
-# say.
+# The roster's split behind a login wall: an entry with its own login reaches
+# the seeded-logins report, and a shared entry (`access: any`) does NOT — it
+# holds no credential of its own and is opened with another roster user's name
+# and credential, which is what `_shared_cards` exists to say. The token-URL
+# list is empty behind a wall: it is everybody under `token` and nobody under
+# any other method, now that no roster key can put one entry outside the wall.
 # ---------------------------------------------------------------------------
 
 
@@ -1381,12 +1381,37 @@ def _walled_roster_config(method: str = "password") -> dict:
                 "auth": {"method": method},
                 "users": [
                     {"name": "alice", "index": 0},
-                    {"name": "ariel", "index": 1, "login": False},
+                    {"name": "ariel", "index": 1},
                     {"name": "ops", "index": 2, "access": "any"},
                 ],
             }
         }
     }
+
+
+def _config_with_the_retired_login_key(method: str) -> dict:
+    """A roster still carrying `login: false`, under the given method."""
+    config = _walled_roster_config(method)
+    config["modules"]["web_terminals"]["users"][1]["login"] = False
+    return config
+
+
+@pytest.mark.parametrize("method", ["password", "oidc", "none"])
+def test_token_login_users_is_nobody_under_every_injecting_method(method: str):
+    """Under `password`, `oidc` and `none` nginx injects every entry's operator
+    secret, so no terminal is entered through its `?token=` URL and the list is
+    empty — and the retired `login: false` does not put an entry back on it."""
+    assert deploy_summary.token_login_users(_config_with_the_retired_login_key(method)) == []
+
+
+def test_token_login_users_is_everybody_under_token():
+    """Under `token` nginx injects nothing, so every roster entry — shared cards
+    included, since sharing is inert with no wall — is entered by its own URL."""
+    assert deploy_summary.token_login_users(_config_with_the_retired_login_key("token")) == [
+        "alice",
+        "ariel",
+        "ops",
+    ]
 
 
 @pytest.fixture
@@ -1411,7 +1436,7 @@ def test_a_shared_entry_is_in_neither_the_seeded_logins_nor_the_token_list(
     tokens = deploy_summary.token_login_users(config)
 
     assert [user for user, _ in seeded.printable] == ["alice"]
-    assert tokens == ["ariel"]
+    assert tokens == []
     assert deploy_summary._shared_cards(config) == ["ops"]
 
 

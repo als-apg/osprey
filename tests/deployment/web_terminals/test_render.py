@@ -3771,17 +3771,15 @@ def test_every_terminal_carries_the_session_lifetime_under_every_method(method: 
     """`auth.session_lifetime` reaches every per-user container, in every posture.
 
     The setting governs the terminal's OWN session cookie, minted in one place:
-    this app's `?token=` exchange. Every entry enters that way under `token`,
-    and so do the `login: false` entries under `none`/`password`/`oidc` — those
-    reach their terminal by the same `?token=` URL. A non-exempt entry under
-    those three is authenticated by the injected terminal secret instead, so the
-    number is inert for that container. Which case a given container is in is an
-    entry-level fact the render cannot fold into a posture, so the value is
-    emitted to all of them: gating it on the method would starve exactly the
-    `login: false` entries the other three postures leave standing on that
-    cookie. It has to travel as environment: the persona's `config.yml` is baked
-    into the image at build time, so a deploy-time edit re-renders this overlay
-    and nothing else.
+    this app's `?token=` exchange. Every entry enters that way under `token`;
+    under `none`/`password`/`oidc` the injected terminal secret authenticates
+    the request instead, so the number is inert for that container. The value
+    is emitted under every method all the same: the container cannot know at
+    build time which posture it will run under, and a deploy-time change of
+    method must not leave a terminal missing the number it now needs. It has to
+    travel as environment: the persona's `config.yml` is baked into the image
+    at build time, so a deploy-time edit re-renders this overlay and nothing
+    else.
 
     Emitted in the `OSPREY_TERMINAL_*` namespace, never `OSPREY_AUTH_*` — the
     isolation this file pins elsewhere, re-asserted here so the two rulings
@@ -4707,13 +4705,13 @@ def _secrets_for(users: list[str]) -> dict[str, str]:
 
 
 def _secret_service(user: str) -> dict:
-    """The two keys `_terminal_secret_artifacts` reads off a resolved entry.
+    """The one key `_terminal_secret_artifacts` reads off a resolved entry.
 
     Lets the carrier's own four refusals be exercised on names the render's
     roster gates refuse earlier — the carrier still has to hold them on its own,
     because it is also called with rosters those gates never saw.
     """
-    return {"user": user, "login_exempt": False}
+    return {"user": user}
 
 
 def test_render_without_terminal_secrets_returns_exactly_the_three_artifacts() -> None:
@@ -4770,41 +4768,38 @@ def test_no_secret_snippet_is_written_for_a_location_nothing_gates() -> None:
     """A snippet nothing `include`s is a plaintext secret in the nginx container
     for no reader.
 
-    nginx emits the include under exactly one predicate — `inject_secret and
-    not svc.login_exempt` — so under `token` nothing includes anything, and a
-    `login: false` entry is served ungated with the header CLEARED whatever the
-    method. Neither gets a file. The roster REFUSALS still cover everyone: each
-    user's own container reads its own secret whatever the perimeter does.
+    nginx emits the include under exactly one predicate — `inject_secret` — so
+    under `token` nothing includes anything and no file is written, while every
+    other method writes one per roster user. The roster REFUSALS cover everyone
+    in both cases: each user's own container reads its own secret whatever the
+    perimeter does.
     """
     # Arrange
     secrets = _secrets_for(["alice", "bob", "carol"])
 
     # Act
     auth_off = render_web_terminals(copy.deepcopy(_MULTI_USER_CONFIG), terminal_secrets=secrets)
-    mixed = render_web_terminals(
-        _mixed_login_config("kiosk"), terminal_secrets=_secrets_for(["alice", "kiosk"])
+    auth_on = render_web_terminals(
+        _retired_login_key_config("kiosk"), terminal_secrets=_secrets_for(["alice", "kiosk"])
     )
 
     # Assert
     assert [path for path in auth_off if path.startswith("nginx/templates/")] == []
-    assert [path for path in mixed if path.startswith("nginx/templates/")] == [
-        "nginx/templates/secret-alice.conf.template"
+    assert [path for path in auth_on if path.startswith("nginx/templates/")] == [
+        "nginx/templates/secret-alice.conf.template",
+        "nginx/templates/secret-kiosk.conf.template",
     ]
-    # The ungated user's secret is nowhere in the render — not as a file, and not
-    # as the variable an include would have referenced.
-    for content in mixed.values():
-        assert "secret-kiosk.conf" not in content
 
 
 def test_every_secret_snippet_is_included_by_exactly_one_location() -> None:
-    """The set of snippets equals the set of includes, on a mixed roster.
+    """The set of snippets equals the set of includes.
 
     Stated as an equality rather than as two containments: an include with no
     file crash-loops nginx at start, and a file with no include is the dead
     secret above. Both directions have to hold at once.
     """
     # Arrange
-    config = _mixed_login_config("kiosk")
+    config = _retired_login_key_config("kiosk")
 
     # Act
     artifacts = render_web_terminals(config, terminal_secrets=_secrets_for(["alice", "kiosk"]))
@@ -4823,19 +4818,7 @@ def test_every_secret_snippet_is_included_by_exactly_one_location() -> None:
             flags=re.MULTILINE,
         )
     }
-    assert materialized == included == {"secret-alice.conf"}
-
-
-def test_a_login_exempt_user_still_needs_a_minted_secret() -> None:
-    """Not writing the snippet does not relax the roster gate.
-
-    The ungated user's own container authenticates every request against that
-    secret — the `?token=` exchange is the only way into it — so a roster where
-    it is missing is still refused, snippet or no snippet.
-    """
-    # Act / Assert
-    with pytest.raises(ValueError, match="OSPREY_TERMINAL_SECRET_KIOSK"):
-        render_web_terminals(_mixed_login_config("kiosk"), terminal_secrets=_secrets_for(["alice"]))
+    assert materialized == included == {"secret-alice.conf", "secret-kiosk.conf"}
 
 
 def test_terminal_secret_snippet_names_the_variable_never_the_value() -> None:
@@ -5178,23 +5161,12 @@ def _secret_include(user: str) -> str:
     return f"include /etc/nginx/osprey/secret-{user}.conf;"
 
 
-def _mixed_login_config(exempt: str) -> dict:
-    """An auth-on roster where one entry declared `login: false`."""
+def _retired_login_key_config(user: str) -> dict:
+    """An auth-on roster where one entry still carries the retired `login: false`."""
     return _auth_config(
         [
             {"name": "alice", "index": 0},
-            {"name": exempt, "index": 1, "login": False},
-        ]
-    )
-
-
-def _open_mixed_config(exempt: str) -> dict:
-    """The same roster in the open posture — the shape where the two ungated
-    locations differ from each other, one injected and one cleared."""
-    return _open_config(
-        [
-            {"name": "alice", "index": 0},
-            {"name": exempt, "index": 1, "login": False},
+            {"name": user, "index": 1, "login": False},
         ]
     )
 
@@ -5256,10 +5228,9 @@ def test_nginx_secret_include_absent_when_auth_method_is_token() -> None:
 def test_nginx_open_render_injects_the_secret_without_any_login_wall() -> None:
     """The `none` method's whole shape, smoke-tested at the render seam.
 
-    Reaching this nginx IS the authorization, so every non-exempt location
-    carries its own user's snippet with no subrequest in front of it. An entry
-    that declared `login: false` opts out of that injection exactly as it opts
-    out of a login wall under `password`, and gets no snippet written for it.
+    Reaching this nginx IS the authorization, so every location carries its own
+    user's snippet with no subrequest in front of it. The retired `login: false`
+    opted an entry out of that injection; it opts nothing out now.
     """
     # Arrange
     config = _config([{"name": "alice", "index": 0}, {"name": "kiosk", "index": 1, "login": False}])
@@ -5269,39 +5240,39 @@ def test_nginx_open_render_injects_the_secret_without_any_login_wall() -> None:
     artifacts = render_web_terminals(config, terminal_secrets=_secrets_for(["alice", "kiosk"]))
     nginx_conf = artifacts["nginx/nginx.conf"]
 
-    # Assert — the non-exempt user is vouched for… (read off the directives:
-    # the template names this very include in the prose above it)
-    assert _secret_include("alice") in _directives(_location_body(nginx_conf, "location /u/alice/"))
-    # …the exempt one is not, and has the header cleared instead.
-    kiosk = _directives(_location_body(nginx_conf, "location /u/kiosk/"))
-    assert _secret_include("kiosk") not in kiosk
-    assert 'proxy_set_header X-Osprey-Terminal-Secret "";' in kiosk
+    # Assert — every user is vouched for (read off the directives: the template
+    # names this very include in the prose above it)
+    for user in ("alice", "kiosk"):
+        body = _directives(_location_body(nginx_conf, f"location /u/{user}/"))
+        assert _secret_include(user) in body
+        assert 'proxy_set_header X-Osprey-Terminal-Secret "";' not in body
 
     # Assert — and no login wall was rendered anywhere.
     assert "auth_request" not in nginx_conf
     assert [path for path in artifacts if path.startswith("nginx/templates/")] == [
-        "nginx/templates/secret-alice.conf.template"
+        "nginx/templates/secret-alice.conf.template",
+        "nginx/templates/secret-kiosk.conf.template",
     ]
 
 
-def test_nginx_login_exempt_location_gets_no_secret_and_keeps_its_cookie() -> None:
-    """A `login: false` entry is served ungated, so it is treated exactly like
-    an auth-off deployment: no header injected, and the cookie NOT stripped.
-
-    Stripping it there would break the only gate that entry still has — the
-    app's own token->cookie session, which cannot read a cookie nginx cut.
+def test_nginx_renders_no_exempt_location_for_the_retired_login_key() -> None:
+    """`login: false` used to render one location with no secret injected and
+    its cookie kept. The key is gone: the entry carrying it is gated, injected
+    and cookie-cut exactly like its neighbour, and the resolved service entry
+    carries no exemption flag for the template to read.
     """
     # Act
-    nginx_conf = _render_nginx(_mixed_login_config("kiosk"))
-    exempt = _location_body(nginx_conf, "location /u/kiosk/")
-    gated = _location_body(nginx_conf, "location /u/alice/")
+    nginx_conf = _render_nginx(_retired_login_key_config("kiosk"))
+    kiosk = _location_body(nginx_conf, "location /u/kiosk/")
+    alice = _location_body(nginx_conf, "location /u/alice/")
 
-    # Assert — the exempt location carries neither half
-    assert _secret_include("kiosk") not in exempt
-    assert 'proxy_set_header Cookie "";' not in exempt
-    # Assert — its gated peer in the same render carries both
-    assert _secret_include("alice") in gated
-    assert 'proxy_set_header Cookie "";' in gated
+    # Assert — both locations carry both halves
+    for user, body in (("kiosk", kiosk), ("alice", alice)):
+        assert "auth_request " in _directives(body)
+        assert _secret_include(user) in body
+        assert 'proxy_set_header Cookie "";' in body
+    # Assert — and the rendered perimeter knows no exemption
+    assert "login_exempt" not in nginx_conf
 
 
 def test_nginx_secret_include_and_cookie_strip_share_one_predicate() -> None:
@@ -5326,7 +5297,7 @@ def test_nginx_secret_include_and_cookie_strip_share_one_predicate() -> None:
     shapes = {
         "token": (copy.deepcopy(_MULTI_USER_CONFIG), ["alice", "bob", "carol"]),
         "auth-on": (_auth_config(["alice", "bob"]), ["alice", "bob"]),
-        "mixed": (_mixed_login_config("kiosk"), ["alice", "kiosk"]),
+        "retired-key": (_retired_login_key_config("kiosk"), ["alice", "kiosk"]),
     }
 
     # Act / Assert
@@ -5437,8 +5408,11 @@ def test_every_terminal_location_clears_the_authorization_header() -> None:
     shapes = {
         "token": (copy.deepcopy(_MULTI_USER_CONFIG), ["alice", "bob", "carol"]),
         "auth-on": (_auth_config(["alice", "bob"]), ["alice", "bob"]),
-        "mixed": (_mixed_login_config("kiosk"), ["alice", "kiosk"]),
-        "open": (_open_mixed_config("kiosk"), ["alice", "kiosk"]),
+        "retired-key": (_retired_login_key_config("kiosk"), ["alice", "kiosk"]),
+        "open": (
+            _open_config([{"name": "alice", "index": 0}, {"name": "kiosk", "index": 1}]),
+            ["alice", "kiosk"],
+        ),
     }
 
     # Act / Assert
@@ -5458,19 +5432,20 @@ def test_ungated_locations_clear_the_operator_secret_header() -> None:
     """
     # Arrange / Act
     token = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
-    mixed = _render_nginx(_mixed_login_config("kiosk"))
+    auth_on = _render_nginx(_retired_login_key_config("kiosk"))
     cleared = 'proxy_set_header X-Osprey-Terminal-Secret "";'
 
     # Assert — `token` injects nowhere, so every location clears it
     for user in ("alice", "bob", "carol"):
         assert cleared in _directives(_location_body(token, f"location /u/{user}/"))
 
-    # Assert — with auth on, only the exempt location does; the gated one has
-    # the include that SETS it and must not clear it afterwards.
-    assert cleared in _directives(_location_body(mixed, "location /u/kiosk/"))
-    gated = _directives(_location_body(mixed, "location /u/alice/"))
-    assert cleared not in gated
-    assert _secret_include("alice") in gated
+    # Assert — with auth on, no location does: each has the include that SETS
+    # it and must not clear it afterwards. The retired `login: false` used to
+    # make one location the exception; it makes none now.
+    for user in ("alice", "kiosk"):
+        gated = _directives(_location_body(auth_on, f"location /u/{user}/"))
+        assert cleared not in gated
+        assert _secret_include(user) in gated
 
 
 def test_ungated_locations_forward_only_that_users_own_session_cookie() -> None:
@@ -5482,9 +5457,9 @@ def test_ungated_locations_forward_only_that_users_own_session_cookie() -> None:
     agent-generated code. The cookie cannot be cut here — it is the only gate
     left in front of the terminal — so exactly one is forwarded.
     """
-    # Arrange
-    mixed = _render_nginx(_mixed_login_config("kiosk"))
-    exempt = _directives(_location_body(mixed, "location /u/kiosk/"))
+    # Arrange — `token` is the posture that leaves a location ungated
+    token = _render_nginx(_config([{"name": "alice", "index": 0}, {"name": "kiosk", "index": 1}]))
+    exempt = _directives(_location_body(token, "location /u/kiosk/"))
     kiosk_port = allocate_ports(_BASE_PORTS, 1)["web"]
 
     # Assert
@@ -5713,11 +5688,10 @@ def test_landing_cards_mark_every_user_token_login_under_the_default_posture() -
     }
 
 
-def test_landing_cards_mark_a_login_exempt_user_token_login_behind_a_password_wall() -> None:
-    """Under `auth.method: password` the roster signs in — except the `login: false`
-    entry, which sits outside nginx's vouching and still reaches its terminal
-    through its `?token=` URL. The two postures coexist on one page, which is
-    exactly why the flag is per card and not per deployment.
+def test_landing_cards_mark_nobody_token_login_behind_a_password_wall() -> None:
+    """Under `auth.method: password` the whole roster signs in, so no card
+    carries the badge — the retired `login: false` used to put one entry
+    outside nginx's vouching and badge it, and it puts nobody there now.
     """
     # Arrange
     config = copy.deepcopy(
@@ -5733,7 +5707,7 @@ def test_landing_cards_mark_a_login_exempt_user_token_login_behind_a_password_wa
 
     # Assert
     assert cards["alice"]["token_login"] is False
-    assert cards["ariel"]["token_login"] is True
+    assert cards["ariel"]["token_login"] is False
 
 
 def test_token_login_reaches_the_rendered_page_as_a_badge() -> None:
