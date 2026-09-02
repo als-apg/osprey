@@ -95,6 +95,7 @@ TOP_LEVEL_FIELDS = {
     "session_id",
     "session_target",
     "store_available",
+    "readonly_run",
     "enforceable",
     "enforceable_reason",
     "execution_in_flight",
@@ -1323,3 +1324,24 @@ class TestUnresolvableRoots:
         with patch.object(session_store, "store_path", side_effect=RuntimeError("no config")):
             payload = get_posture(client)
         assert payload["store_available"] is False
+
+
+class TestReadonlyRun:
+    """A read-only run is published, never left for the client to infer."""
+
+    def test_an_ordinary_run_says_so(self, client):
+        assert get_posture(client)["readonly_run"] is False
+
+    def test_a_readonly_run_is_published_and_holds_every_row(
+        self, make_client, tmp_path, agent_data_root, monkeypatch
+    ):
+        # After the fixture: it clears OSPREY_EXECUTION_MODE so no test
+        # inherits a read-only run from whatever ran before.
+        monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+        with make_client(render(tmp_path=tmp_path, global_writes=True)) as client:
+            payload = get_posture(client)
+
+        assert payload["readonly_run"] is True
+        for row in payload["targets"]:
+            assert row["ceiling_writes"] is True, row["target"]
+            assert row["effective"] is False, row["target"]

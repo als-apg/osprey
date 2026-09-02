@@ -39,6 +39,7 @@ from osprey.interfaces.web_terminal.operator_session import (
 )
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from osprey_connectors import session_store
+from osprey_connectors.control_system.base import is_readonly_run
 
 logger = logging.getLogger(__name__)
 
@@ -2814,6 +2815,11 @@ def _posture_view(app: Any, session_key: str, config_path: Path | None) -> dict[
     return {
         "session_target": session_target,
         "store_available": _posture_store_path() is not None,
+        # Published rather than left for the client to infer from
+        # ``ceiling_writes ∧ posture ≠ sandbox ∧ ¬effective``: that signature
+        # is also what a store that fails to resolve leaves behind, and an
+        # operator must not be told the deployment is read-only when it is not.
+        "readonly_run": is_readonly_run(),
         "enforceable": enforceable,
         "enforceable_reason": None if enforceable else ENFORCEABLE_REASON_NO_RECORD,
         "execution_in_flight": _first_live_execution() is not None,
@@ -2865,6 +2871,10 @@ async def get_terminal_posture(session_id: str, request: Request):
       other roles named beside it (see :func:`_collapse_reachability`).
 
     And, once for the session: ``session_target``, ``store_available``,
+    ``readonly_run`` (the whole deployment was started read-only, which is
+    the one thing besides the ceiling and the narrowing that holds
+    ``effective`` down — stated outright, so a client never has to infer it
+    from a row whose ``effective`` a failed store read zeroed),
     ``enforceable`` (+``enforceable_reason``), ``execution_in_flight``,
     ``last_switch`` (the publisher's block — ``request_id``, ``target``,
     ``status``, ``reason``, ``detail``, ``at`` — passed through whole with

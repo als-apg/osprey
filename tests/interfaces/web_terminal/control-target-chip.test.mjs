@@ -143,6 +143,7 @@ const viewOf = (o = {}) => ({
   session_id: SESSION,
   session_target: 'standin',
   store_available: true,
+  readonly_run: false,
   enforceable: true,
   enforceable_reason: null,
   execution_in_flight: false,
