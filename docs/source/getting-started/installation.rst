@@ -65,7 +65,7 @@ Step 2: Install Claude Code
 
 .. code-block:: bash
 
-   npm install -g @anthropic-ai/claude-code@2.1.146
+   npm install -g @anthropic-ai/claude-code@2.1.258
 
 The pinned version is the one OSPREY's generated projects run. Installing it
 exactly — rather than whatever was published most recently — means a brand-new
@@ -91,7 +91,7 @@ globally — set a version under ``config:`` in ``profile.yml`` and run
 
    config:
      claude_code:
-       cli_version: "2.1.146"   # exact version, no semver ranges
+       cli_version: "2.1.258"   # exact version, no semver ranges
 
 When set, ``osprey chat`` and the web terminal launch the pinned
 version via ``npx -y @anthropic-ai/claude-code@<version>`` instead of the
@@ -327,7 +327,7 @@ Troubleshooting
    :icon: alert
 
    **"claude: command not found"**
-      Install Claude Code: ``npm install -g @anthropic-ai/claude-code@2.1.146``
+      Install Claude Code: ``npm install -g @anthropic-ai/claude-code@2.1.258``
 
    **"osprey: command not found"**
       If you installed via ``uv tool install osprey-framework``, make sure uv's

@@ -491,5 +491,64 @@ def test_proxy_guard_accepts_the_declared_arg_idiom():
     assert carries_proxy_idiom(run_instructions(from_arg)[0])
 
 
+# ── Claude Code CLI pin parity ───────────────────────────────────────────────
+#
+# The framework's default CLI pin is spelled once in code
+# (``_DEFAULT_CLAUDE_CLI_VERSION``, which the project Dockerfile.j2 renders
+# from) and hand-copied into three places that cannot read it: the
+# dispatch-worker Dockerfile (a literal file, not a template), the commented
+# ``cli_version:`` example in the generated config.yml, and the installation
+# page (three times; RST substitutions do not expand inside code blocks or
+# inline literals). Each copy is asserted equal to the constant so a bump that
+# misses one fails here instead of shipping two different CLIs.
+
+DOCS_DIR = pathlib.Path(osprey.__file__).parents[2] / "docs" / "source"
+INSTALLATION_PAGE = DOCS_DIR / "getting-started" / "installation.rst"
+CONFIG_TEMPLATE = TEMPLATES_DIR / "project" / "config.yml.j2"
+_CLI_PIN_RE = re.compile(r'@anthropic-ai/claude-code@([0-9][\w.\-]*)|cli_version: "([^"]+)"')
+
+
+def _cli_pins(text: str) -> list[str]:
+    """Every spelled-out CLI version in *text*, in order of appearance."""
+    return [a or b for a, b in _CLI_PIN_RE.findall(text)]
+
+
+def _default_cli_pin() -> str:
+    from osprey.cli.templates.scaffolding import _DEFAULT_CLAUDE_CLI_VERSION
+
+    return _DEFAULT_CLAUDE_CLI_VERSION
+
+
+def test_event_dispatcher_pins_the_default_cli_version():
+    pins = _cli_pins(_dockerfile("event_dispatcher"))
+    assert pins == [_default_cli_pin()], (
+        f"event_dispatcher/Dockerfile pins {pins}, _DEFAULT_CLAUDE_CLI_VERSION is "
+        f"{_default_cli_pin()!r} — bump both together"
+    )
+
+
+def test_config_template_example_pins_the_default_cli_version():
+    pins = _cli_pins(CONFIG_TEMPLATE.read_text())
+    assert pins == [_default_cli_pin()], (
+        f"config.yml.j2's cli_version example says {pins}, _DEFAULT_CLAUDE_CLI_VERSION is "
+        f"{_default_cli_pin()!r}"
+    )
+
+
+def test_installation_page_pins_the_default_cli_version():
+    pins = _cli_pins(INSTALLATION_PAGE.read_text())
+    assert len(pins) >= 3, f"expected the install command and the pin example, found {pins}"
+    assert set(pins) == {_default_cli_pin()}, (
+        f"{INSTALLATION_PAGE.relative_to(DOCS_DIR)} spells the CLI pin as {sorted(set(pins))}, "
+        f"_DEFAULT_CLAUDE_CLI_VERSION is {_default_cli_pin()!r}"
+    )
+
+
+def test_cli_pin_regex_reads_both_spellings():
+    """Meta-test: the matcher sees the npm spec and the YAML key, and nothing else."""
+    sample = 'npm install -g @anthropic-ai/claude-code@1.2.3 \\\n  cli_version: "4.5.6"  # x.y.z\n'
+    assert _cli_pins(sample) == ["1.2.3", "4.5.6"]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
