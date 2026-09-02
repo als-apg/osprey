@@ -44,6 +44,7 @@ inside to exercise the check itself.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path, PurePath
 from unittest.mock import patch
 
@@ -66,11 +67,11 @@ class StubWorkspaceWatcher:
         workspace_dir: Path,
         broadcaster: FileEventBroadcaster,
         *,
-        feedback_rel: PurePath | None = None,
+        concealed: Sequence[PurePath] = (),
     ) -> None:
         self.workspace_dir = workspace_dir
         self.broadcaster = broadcaster
-        self.feedback_rel = feedback_rel
+        self.concealed = tuple(concealed)
         self.started = False
 
     def start(self) -> None:

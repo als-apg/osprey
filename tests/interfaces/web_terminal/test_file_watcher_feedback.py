@@ -6,11 +6,14 @@ watched workspace tree, every record would otherwise fire an SSE
 announce itself the moment someone filed feedback.
 
 The watcher therefore drops events whose *workspace-relative* path starts with
-``feedback_rel``. These tests pin that the check is anchored at the workspace
-root (a nested ``sessions/<id>/feedback/`` directory elsewhere in the tree is
-ordinary workspace content and must still broadcast), that it compares whole
-path segments rather than string prefixes, and that ``feedback_rel=None`` —
-the store sited outside the watched tree — leaves the watcher untouched.
+the feedback store's own relative path — one member of its ``concealed``
+collection, resolved onto ``app.state.feedback_rel``. These tests pin that the
+check is anchored at the workspace root (a nested ``sessions/<id>/feedback/``
+directory elsewhere in the tree is ordinary workspace content and must still
+broadcast), that it compares whole path segments rather than string prefixes,
+and that an absent member — the store sited outside the watched tree — leaves
+the watcher untouched. The collection seam itself, and the bar-items store that
+made it one, are covered in ``test_file_watcher.py``.
 """
 
 from __future__ import annotations
@@ -40,7 +43,11 @@ WORKSPACE = Path("/tmp/osprey-test-workspace")
 
 
 def _handler(feedback_rel: PurePath | None, broadcaster: MagicMock) -> _WorkspaceHandler:
-    return _WorkspaceHandler(WORKSPACE, broadcaster, feedback_rel=feedback_rel)
+    """The feedback store as the watcher now takes it: one member of the
+    concealed collection, or an empty collection when there is nothing to
+    conceal. Every expectation below is about that member alone."""
+    concealed = () if feedback_rel is None else (feedback_rel,)
+    return _WorkspaceHandler(WORKSPACE, broadcaster, concealed=concealed)
 
 
 def _broadcast_paths(broadcaster: MagicMock) -> list[str]:
@@ -48,7 +55,7 @@ def _broadcast_paths(broadcaster: MagicMock) -> list[str]:
 
 
 class TestStoreIsConcealed:
-    """Events under ``feedback_rel`` are dropped before any broadcast."""
+    """Events under the feedback store are dropped before any broadcast."""
 
     def test_record_write_emits_no_event(self):
         broadcaster = MagicMock()
@@ -91,7 +98,7 @@ class TestStoreIsConcealed:
         broadcaster.broadcast.assert_not_called()
 
     def test_multi_segment_store_path_is_dropped(self):
-        """``feedback_rel`` need not be a single segment."""
+        """The store's relative path need not be a single segment."""
         broadcaster = MagicMock()
         handler = _handler(PurePath("shared") / "feedback", broadcaster)
 
@@ -164,7 +171,7 @@ class TestOnlyTheStoreIsConcealed:
 
 
 class TestStoreOutsideTheWatchedTree:
-    """``feedback_rel=None`` — nothing to conceal, nothing suppressed."""
+    """No member for the store — nothing to conceal, nothing suppressed."""
 
     def test_none_broadcasts_a_feedback_path_normally(self):
         broadcaster = MagicMock()
@@ -185,18 +192,18 @@ class TestStoreOutsideTheWatchedTree:
 
 
 class TestWatcherThreadsTheValueThrough:
-    """``WorkspaceWatcher`` carries ``feedback_rel`` to the handler it builds."""
+    """``WorkspaceWatcher`` carries the store's path to the handler it builds."""
 
     def test_start_passes_feedback_rel_to_the_handler(self, tmp_path):
         broadcaster = FileEventBroadcaster()
         feedback_rel = PurePath("feedback")
-        watcher = WorkspaceWatcher(tmp_path, broadcaster, feedback_rel=feedback_rel)
+        watcher = WorkspaceWatcher(tmp_path, broadcaster, concealed=(feedback_rel,))
 
         with patch("osprey.interfaces.web_terminal.file_watcher._WorkspaceHandler") as handler_cls:
             watcher.start()
             try:
                 assert handler_cls.call_args.args[:2] == (tmp_path, broadcaster)
-                assert handler_cls.call_args.kwargs["feedback_rel"] == feedback_rel
+                assert handler_cls.call_args.kwargs["concealed"] == (feedback_rel,)
             finally:
                 watcher.stop()
 
@@ -207,7 +214,7 @@ class TestWatcherThreadsTheValueThrough:
         with patch("osprey.interfaces.web_terminal.file_watcher._WorkspaceHandler") as handler_cls:
             watcher.start()
             try:
-                assert handler_cls.call_args.kwargs["feedback_rel"] is None
+                assert handler_cls.call_args.kwargs["concealed"] == ()
             finally:
                 watcher.stop()
 
@@ -226,7 +233,8 @@ class TestWatcherThreadsTheValueThrough:
 
 
 class TestLifespanWiring:
-    """``app.py`` hands the resolved ``feedback_rel`` to the watcher."""
+    """``app.py`` hands the resolved ``feedback_rel`` to the watcher, as one
+    member of the collection it conceals."""
 
     def test_watcher_is_constructed_with_app_state_feedback_rel(self, tmp_path):
         from fastapi.testclient import TestClient
@@ -241,8 +249,8 @@ class TestLifespanWiring:
             """Mirrors the real keyword-only signature, so a positional
             third argument from ``app.py`` would fail this test."""
 
-            def __init__(self, workspace, broadcaster, *, feedback_rel=None):
-                constructed.append((workspace, feedback_rel))
+            def __init__(self, workspace, broadcaster, *, concealed=()):
+                constructed.append((workspace, tuple(concealed)))
 
             def start(self):
                 pass
@@ -268,7 +276,8 @@ class TestLifespanWiring:
             with TestClient(app) as client:
                 feedback_rel = client.app.state.feedback_rel
 
-        assert constructed == [(workspace_dir, feedback_rel)]
+        assert constructed[0][0] == workspace_dir
+        assert feedback_rel in constructed[0][1]
         assert feedback_rel == PurePath("feedback")
 
 
@@ -373,7 +382,7 @@ class TestCaseVariantEventsAreConcealed:
         workspace = tmp_path / "_agent_data"
         workspace.mkdir()
         broadcaster = MagicMock()
-        handler = _WorkspaceHandler(workspace, broadcaster, feedback_rel=PurePath("feedback"))
+        handler = _WorkspaceHandler(workspace, broadcaster, concealed=(PurePath("feedback"),))
 
         handler.on_any_event(FileCreatedEvent(str(workspace / "Feedback" / "fb-secret.json")))
 
@@ -385,7 +394,7 @@ class TestCaseVariantEventsAreConcealed:
         workspace = tmp_path / "_agent_data"
         workspace.mkdir()
         broadcaster = MagicMock()
-        handler = _WorkspaceHandler(workspace, broadcaster, feedback_rel=PurePath("feedback"))
+        handler = _WorkspaceHandler(workspace, broadcaster, concealed=(PurePath("feedback"),))
 
         handler.on_any_event(FileCreatedEvent(str(workspace / "artifacts" / "plot.png")))
 
