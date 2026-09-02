@@ -1737,5 +1737,60 @@ class TestGraphdbConfiguredContextKey:
         assert ("graph" in captured["enabled_servers"]) is deploy_services
 
 
+class TestPhoebusBridgeDefaultContextKey:
+    """``phoebus_bridge_default``, the phoebus bridge context key (#829).
+
+    The phoebus server's rendered ``PHOEBUS_BRIDGE_URL`` env entry always
+    materializes at launch and wins outright in ``phoebus_bridge_url()``, so
+    its fallback half must be derived from the deployment's own
+    ``phoebus.host``/``phoebus.port`` — one spelling with the runtime
+    resolution, shared via ``osprey.mcp_server.http.phoebus_bridge_default``,
+    so the rendered client and the deployed bridge cannot drift onto
+    different ports.
+    """
+
+    @staticmethod
+    def _derive(config):
+        from pathlib import Path
+
+        from osprey.cli.templates import claude_code
+
+        return claude_code.config_derived_context(config, Path("."))
+
+    def test_derived_from_the_phoebus_block(self):
+        derived = self._derive({"phoebus": {"host": "127.0.0.1", "port": 19921}})
+        assert derived["phoebus_bridge_default"] == "http://127.0.0.1:19921"
+
+    def test_stock_default_without_a_phoebus_block(self):
+        assert self._derive({})["phoebus_bridge_default"] == "http://127.0.0.1:7979"
+
+    def test_build_path_renders_the_configured_port_into_the_server_env(self, tmp_path):
+        """The resolved phoebus server's env fallback is the configured URL."""
+        from osprey.cli.templates import claude_code
+
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="phoebus-bridge-port",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+
+        config["phoebus"] = {"host": "127.0.0.1", "port": 19921}
+        config.setdefault("claude_code", {}).setdefault("servers", {})["phoebus"] = {
+            "enabled": True
+        }
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
+
+        phoebus = [s for s in ctx["servers"] if s["name"] == "phoebus"]
+        assert len(phoebus) == 1
+        assert phoebus[0]["env"]["PHOEBUS_BRIDGE_URL"] == (
+            "${PHOEBUS_BRIDGE_URL:-http://127.0.0.1:19921}"
+        )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

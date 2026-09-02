@@ -17,8 +17,10 @@ channel the sender picks. Facility staff read those records back with
 Choose a channel
 ----------------
 
-Switching between the three channels keeps the typed text and both checkboxes
-as they were.
+**Local** and **Email** are always offered; between them sits one channel per
+issue tracker the facility configured — a GitHub repository or a GitLab
+project, captioned however the facility named it. Switching between channels
+keeps the typed text and both checkboxes as they were.
 
 .. list-table::
    :header-rows: 1
@@ -33,13 +35,14 @@ as they were.
      - The report is for the people who run this deployment — the usual case in
        a control room, and the only one that works with outbound access
        blocked.
-   * - **GitHub**
-     - Also opens a new-issue tab on the configured repository. Without session
-       context the issue body arrives complete; with it, the whole report —
-       text, metadata, session context — is copied to the clipboard and the
-       issue body is a single line saying to paste it there, because the
-       context is far too large to prefill.
-     - The report belongs upstream, and the sender has a GitHub account.
+   * - **An issue tracker** (GitHub or GitLab)
+     - Also opens a new-issue tab on that tracker. Without session context the
+       issue body arrives complete; with it, the whole report — text, metadata,
+       session context — is copied to the clipboard and the issue body is a
+       single line saying to paste it there, because the context is far too
+       large to prefill.
+     - The report belongs with the people who read that tracker, and the
+       sender has an account there.
    * - **Email**
      - Also opens a mail draft to the configured address, following the same
        rule: complete when it fits, one paste when session context (or a very
@@ -47,17 +50,19 @@ as they were.
      - There is a maintainer address to write to and no issue tracker in the
        loop.
 
-GitHub and Email never send anything by themselves. OSPREY prefills a tab or a
-draft in the sender's own browser and mail client; the sender still reviews it
-and presses send. The server posts nothing off the host, on any channel.
+The tracker and Email channels never send anything by themselves. OSPREY
+prefills a tab or a draft in the sender's own browser and mail client; the
+sender still reviews it and presses send. The server posts nothing off the
+host, on any channel.
 
 Both outbound channels write the same record on the deployment as a Local send
 does, so the facility keeps its own copy of every report even when the
 conversation continues in a public issue.
 
-If a channel is not configured for the deployment, its radio button still
-appears but the action is refused with a short explanation rather than aiming
-the report somewhere nobody reads. See :ref:`feedback-configuration`.
+A tracker the deployment has not configured is not offered at all; if the
+Email channel has no address behind it, its radio button still appears but the
+action is refused with a short explanation rather than aiming the report
+somewhere nobody reads. See :ref:`feedback-configuration`.
 
 What gets attached
 ------------------
@@ -80,9 +85,9 @@ username, which travel either way.
 **Session context** — the checkbox is **off** by default, and is greyed out with
 "no session yet" when there is no live session to attach. It adds:
 
-- the session's id — on the GitHub and Email channels the issue title or mail
-  subject also carries a short prefix of it, so the message can be matched to
-  the deployment's own record even if the paste step is missed,
+- the session's id — on the tracker and Email channels the issue title or
+  mail subject also carries a short prefix of it, so the message can be matched
+  to the deployment's own record even if the paste step is missed,
 - the session's tool-call and agent event log,
 - its chat history,
 - the terminal scrollback,
@@ -94,7 +99,7 @@ OSPREY does not tag every artifact with the session that produced it, so the
 inventory falls back to a time window: an artifact somebody else made in a
 different tab during the same minutes can be listed. Only its title and id
 appear — never its contents — but a sender attaching context to a **public**
-GitHub issue should know that the list is not strictly their own work.
+issue should know that the list is not strictly their own work.
 
 Session context is triaged newest-first and truncated to fit a size budget, so a
 long session is attached in part rather than in full. The outbound copy — the
@@ -211,10 +216,12 @@ history of what people reported stays complete.
 Point the channels at your facility
 -----------------------------------
 
-Three string keys under ``web`` aim the two rail controls, and a fourth bounds
-the store they fill. The table, the shipped defaults, and what a blank value
-means are in :ref:`config-web`. The Local channel is always available and needs
-no configuration at all.
+``web.feedback.trackers`` lists the issue trackers the dialog offers — a
+self-hosted GitLab, the upstream GitHub repository, both — and
+``web.feedback.email`` names the address behind the Email channel. The table,
+the shipped defaults, and what a blank value means are in :ref:`config-web`;
+the tracker list itself is described in :ref:`feedback-trackers`. The Local
+channel is always available and needs no configuration at all.
 
 .. note::
 

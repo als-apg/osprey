@@ -832,6 +832,36 @@ class TestExtendsServers:
         )
 
 
+class TestPhoebusBridgeFallback:
+    """The rendered PHOEBUS_BRIDGE_URL fallback follows the deployment (#829).
+
+    The env entry always materializes at launch, and the env var wins outright
+    in phoebus_bridge_url() — so a fallback rendered from anything but the
+    deployment's own phoebus.host/phoebus.port pins the client to a port the
+    backend does not serve.
+    """
+
+    def test_fallback_resolves_from_ctx(self):
+        ctx = _base_ctx(phoebus_bridge_default="http://127.0.0.1:19921")
+        phoebus = _resolve_one({"servers": {"phoebus": {"enabled": True}}}, "phoebus", ctx)
+        assert phoebus["env"]["PHOEBUS_BRIDGE_URL"] == (
+            "${PHOEBUS_BRIDGE_URL:-http://127.0.0.1:19921}"
+        )
+
+    def test_fallback_default_without_ctx_key(self):
+        """A context that skips config_derived_context keeps the stock 7979."""
+        phoebus = _resolve_one({"servers": {"phoebus": {"enabled": True}}}, "phoebus")
+        assert phoebus["env"]["PHOEBUS_BRIDGE_URL"] == (
+            "${PHOEBUS_BRIDGE_URL:-http://127.0.0.1:7979}"
+        )
+
+    def test_clone_spec_env_untouched(self):
+        """A clone's spec-authored bridge URL is the operator's, not the ctx's."""
+        ctx = _base_ctx(phoebus_bridge_default="http://127.0.0.1:19921")
+        p2 = _resolve_one({"servers": {"phoebus2": dict(_PHOEBUS2_SPEC)}}, "phoebus2", ctx)
+        assert p2["env"]["PHOEBUS_BRIDGE_URL"] == ("${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}")
+
+
 # ---------------------------------------------------------------------------
 # Agent resolution tests
 # ---------------------------------------------------------------------------

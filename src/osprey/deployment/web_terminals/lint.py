@@ -253,6 +253,7 @@ def lint_web_terminals(
     findings.extend(_check_auth_oidc(root, web_terminals))
     findings.extend(_check_auth_credential_collisions(web_terminals, users))
     findings.extend(_check_shared_card_duplicate_subject(web_terminals, users))
+    findings.extend(_check_shared_card_subject(web_terminals, users))
     findings.extend(_check_authorization(web_terminals))
     findings.extend(_check_claims_without_oidc(web_terminals))
     findings.extend(_check_role_charset(web_terminals))
@@ -628,13 +629,21 @@ def _check_user_access(web_terminals: dict[str, Any], users: list[Any]) -> list[
       deliberately fail-closed to ``own`` — so ``access: ANY`` (or ``true``, or
       a number) never widens an entry's reach, but the author who wrote it
       believes the opposite of what deploys.
-    * ``access: any`` is a WARN when it cannot change anything: either the
-      deployment stands no wall at all (``sidecar_active`` is false — under
-      ``token`` and ``none`` alike no login gates the roster, so every entry is
-      as reachable as the key promises to make this one), or the same entry
-      also carries ``login: false`` (nginx proxies it with no ``auth_request``,
-      so there is no authenticated identity for ``access`` to widen). One code
-      for both; the message names the cause.
+    * ``access: any`` is a WARN on an entry that also carries ``login: false``
+      under a walled deployment: nginx proxies a login-exempt entry with no
+      ``auth_request``, so there is no authenticated identity for ``access`` to
+      widen, and the key claims a distinction the entry does not have.
+
+    Where the deployment stands no wall at all (``sidecar_active`` is false —
+    under ``token`` and ``none`` alike no login gates the roster) the key is
+    inert too, and deliberately NOT reported. Profile overlays concatenate the
+    roster list rather than merging entries by name, so a passive base that a
+    host variant arms with ``password``/``oidc`` has to carry ``access: any``
+    on the base entry — the same position ``oidc_subject`` already sits in
+    silently (:func:`_check_auth_oidc` reads it only under ``oidc``). A finding
+    there would recur on every validate/build of the base and train operators
+    to skip the WARN block; the key arms the moment the variant is selected,
+    and the merged view is what both commands lint.
 
     ``access: own`` explicit is silent — a valid spelling of the default, even
     though the normalizer drops it.
@@ -646,7 +655,6 @@ def _check_user_access(web_terminals: dict[str, Any], users: list[Any]) -> list[
     context = _auth_context(web_terminals)
     inert = context is None or not context["sidecar_active"]
 
-    any_declared = False
     for user in users:
         if not isinstance(user, dict) or "access" not in user:
             continue
@@ -654,10 +662,9 @@ def _check_user_access(web_terminals: dict[str, Any], users: list[Any]) -> list[
         if isinstance(access, str) and access == "own":
             continue
         if isinstance(access, str) and access == "any":
-            any_declared = True
-            # Only where the wall stands: with no sidecar the deployment-level
-            # warning below already covers this entry, and reporting both
-            # causes for one key would double-count a single inertness.
+            # Only where the wall stands: with no sidecar both keys are carried
+            # base-entry state, and the pair becomes this finding on the
+            # variant render that arms the wall.
             if not inert and user.get("login") is False:
                 name = user.get("name", user)
                 findings.append(
@@ -684,22 +691,6 @@ def _check_user_access(web_terminals: dict[str, Any], users: list[Any]) -> list[
                     f"access {access!r}; access must be the string 'own' (default: "
                     f"this entry reaches only its own terminal) or 'any' (may reach "
                     f"every roster entry's terminal). Anything else deploys as 'own'"
-                ),
-            )
-        )
-
-    if any_declared and inert:
-        method = "unset" if context is None else repr(context["auth_method"])
-        findings.append(
-            Finding(
-                severity="warn",
-                code="web_terminals.user_access_inert",
-                message=(
-                    "a modules.web_terminals.users entry sets access: any, but "
-                    f"auth.method is {method} so no login wall stands between "
-                    "entries — every terminal is already as reachable as the key "
-                    "promises to make this one; the key changes nothing until "
-                    "auth.method is password or oidc"
                 ),
             )
         )
@@ -1739,8 +1730,9 @@ def _check_privileged_persona_exposure(
 
     # A shared card is judged on the same ABSOLUTE answer, and only reported
     # where a wall stands: with no sidecar there is no authenticated identity
-    # for `access: any` to widen (`user_access_inert` says so), and the
-    # deployment-wide arm above already names every privileged entry once.
+    # for `access: any` to widen (see `_check_user_access` on why that is a
+    # carried key rather than a finding), and the deployment-wide arm above
+    # already names every privileged entry once.
     for problem in shared_card_privileged_problems(resolved, absolute):
         findings.append(
             Finding(
@@ -3373,6 +3365,59 @@ def _check_shared_card_duplicate_subject(
         for colliding in by_subject.values()
         if len(colliding) > 1
     ]
+
+
+def _check_shared_card_subject(web_terminals: dict[str, Any], users: list[Any]) -> list[Finding]:
+    """OIDC: a shared card that also carries a non-empty ``oidc_subject`` — a WARN.
+
+    A shared card is opened with the OPENER's identity: the sidecar's callback
+    reverse-matches the asserted subject over every roster entry's mapping,
+    and the card's own subject participates like any other entry's. So a
+    subject on the shared card itself maps one more identity that may open
+    the card as itself — a documented shape (a service identity on its own
+    shared card), which is why this is a WARN and not a refusal.
+
+    The hazard is the other reading of the same two keys: ``access: any``
+    typo'd onto a *personal* card — the admin login, say — which hands that
+    terminal to every mapped roster identity the moment ``oidc`` is in force,
+    with a green build. Nothing else in this module says so, and the entry
+    alone cannot tell the two readings apart, so the message names the entry
+    and both ways out.
+
+    Scoped to ``method: oidc`` like the two subject checks above: no other
+    method reads the mapping, and on a passive ``none``/``token`` base that an
+    ``oidc`` variant arms both keys are carried base-entry state
+    (:func:`_check_user_access`); the finding belongs to the merged render
+    where the wall stands. The message names the user, never the subject —
+    same reasoning as the ``$`` scan.
+    """
+    context = _auth_context(web_terminals)
+    if context is None or context["auth_method"] != "oidc":
+        return []
+    findings: list[Finding] = []
+    for user in users:
+        if not isinstance(user, dict) or not entry_is_shared(user):
+            continue
+        subject = user.get("oidc_subject")
+        if not isinstance(subject, str) or not subject.strip():
+            continue
+        name = user.get("name", user)
+        findings.append(
+            Finding(
+                severity="warn",
+                code="web_terminals.shared_card_subject",
+                message=(
+                    f"modules.web_terminals.users entry {name!r} sets access: any and "
+                    "also carries an oidc_subject. A shared card is opened with the "
+                    "opener's identity, so this subject only lets that one identity "
+                    "open the card as itself — it is not the card's own login. If "
+                    f"{name!r} is a personal card, drop access: any: as written, every "
+                    "roster identity can open it. If it is a shared card, its own "
+                    "oidc_subject is usually unneeded"
+                ),
+            )
+        )
+    return findings
 
 
 def _check_notice_docs(root: dict[str, Any], web_terminals: dict[str, Any]) -> list[Finding]:

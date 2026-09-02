@@ -85,6 +85,10 @@ class BaseProvider(ABC):
     # eliminating hardcoded provider checks in the adapter layer.
     litellm_prefix: str | None = None  # LiteLLM prefix (e.g., "anthropic", "gemini")
     is_openai_compatible: bool = False  # True for OpenAI-compatible endpoints (CBORG, etc.)
+    # The gateway kind fronting this provider, when it is a proxy rather than a
+    # model vendor. "litellm" makes every request carry the acting identity for
+    # spend attribution (see models/spend_attribution.py); None sends nothing.
+    gateway: str | None = None
     # Structured output routing:
     #   True  -> send response_format json_schema (native constrained decoding)
     #   False -> use OSPREY's prompt-based JSON fallback

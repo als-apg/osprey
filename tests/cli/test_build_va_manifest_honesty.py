@@ -715,8 +715,12 @@ def test_a_graph_mode_repo_deploys_a_va_and_the_fact_names_the_corpus(tmp_path_f
     printed = " ".join(result.output.split())
     assert "knowledge-graph corpus (./data/facility.ttl)" in printed
     assert "3 channel(s)" in printed
-    # The honest cost: no identity keys, so no setpoints and no lattice.
-    assert "serves 0 setpoints" in printed
+    # The honest gain and cost: the one pair the roster vouches for is served
+    # as a setpoint echo, and everything else is static-noisy -- no identity
+    # keys and no lattice.
+    assert "The corpus pairs 1 setpoint(s) with a readback" in printed
+    assert "served as setpoint-echo channels, every other channel as static-noisy" in printed
+    assert "serves 0 setpoints" not in printed
     assert _DEAD_FALLBACK_SENTENCE not in printed
 
     manifest = json.loads((repo / "build" / "data" / "simulation" / MANIFEST_FILENAME).read_text())
@@ -746,8 +750,39 @@ def test_a_graph_manifests_fact_names_the_corpus_not_databases(tmp_path, capsys)
     assert "knowledge-graph corpus (./data/facility.ttl)" in printed
     assert "channel database(s)" not in printed
     assert "Not staged" not in printed
+    assert "The corpus pairs 1 setpoint(s) with a readback" in printed
+    # The pair is a real setpoint, so the all-static-noisy degradation
+    # sentence would be false here and is not printed over it.
+    assert "carries no hierarchy identity keys" not in printed
+    assert "serves 0 setpoints" not in printed
+
+
+def test_a_graph_corpus_pairing_nothing_still_states_the_cost(tmp_path, capsys):
+    """A corpus whose device grouping states no pair gets the degradation sentence.
+
+    The claim is read off the manifest's census, not the source: with no
+    setpoint served, saying so is the honest fact, and the pairing sentence
+    (which would read ``pairs 0 setpoint(s)``) is not printed at all.
+    """
+    corpus = (
+        "@prefix narad_p: <https://narad.example.org/property/> .\n"
+        "@prefix narad_sem: <https://narad.example.org/schema/shared_semantics/> .\n"
+        '<https://narad.example.org/binding/dcct> narad_p:fullPv "SR01C___T______AM00" ;\n'
+        "    narad_p:readsSignal narad_sem:dcct_signal .\n"
+        '<https://narad.example.org/binding/bend_sp> narad_p:fullPv "SR01C___B______AC00" ;\n'
+        "    narad_p:writesSignal narad_sem:bend_signal .\n"
+    )
+    root = _graph_repo(tmp_path / "repo", corpus=corpus)
+    prepared = prepare_project_manifest(root / "data", DEFAULT_TIER, config=_graph_config(root))
+
+    _report(_shared(tmp_path), _profile(data="data"), root / "data", prepared)
+
+    printed = _printed(capsys)
+    assert "2 channel(s)" in printed
     assert "The knowledge graph carries no hierarchy identity keys" in printed
     assert "serves 0 setpoints" in printed
+    assert "The corpus pairs" not in printed
+    assert prepared.manifest["_metadata"]["setpoint_count"] == 0
 
 
 def test_a_graph_repo_with_an_unreadable_corpus_refuses_naming_it(tmp_path):

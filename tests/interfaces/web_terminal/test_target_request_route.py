@@ -179,13 +179,20 @@ def ledger():
 
 
 @contextmanager
-def attached_pty(client, session_id, pid=PTY_PID):
-    """Make the registry report a running PTY with *pid* for *session_id*."""
+def attached_pty(client, session_id, pid=PTY_PID, *, alive=True, exit_code=None):
+    """Make the registry report a PTY with *pid* for *session_id*.
+
+    ``alive``/``exit_code`` are what :class:`PtySession` reports for its child;
+    the default is a running one. A dead PTY keeps its pid — ``Popen.pid``
+    outlives the process — which is exactly why the route reads liveness
+    rather than inferring it from the pid.
+    """
     registry = client.app.state.pty_registry
+    pty = SimpleNamespace(pid=pid, is_alive=alive, exit_code=exit_code)
     with patch.object(
         registry,
         "get_session",
-        side_effect=lambda sid: SimpleNamespace(pid=pid) if sid == session_id else None,
+        side_effect=lambda sid: pty if sid == session_id else None,
     ):
         yield
 
@@ -323,19 +330,75 @@ class TestGrammar:
 
 
 class TestSessionNotStarted:
-    """409 when nothing has published a record this session owns."""
+    """409 when nothing has published a record this session owns.
+
+    One status, three rungs, split by what the PTY registry says about the
+    session's process: no PTY at all, a PTY whose process has exited, and a
+    live PTY that has not started a controls server yet. Only the last one
+    can be answered by sending a prompt, so only it says so.
+    """
 
     def test_no_pty_at_all_is_409(self, client):
         with synthetic_process_tree(), only_alive():
             resp = post_target(client)
         assert resp.status_code == 409
-        assert resp.json()["detail"]["error"] == "session_not_started"
+        detail = resp.json()["detail"]
+        assert detail["error"] == "session_not_started"
+        assert "no running session" in detail["message"]
+        assert "prompt" not in detail["message"]
 
     def test_a_pty_with_no_published_record_is_409(self, client):
         with attached_pty(client, SESSION_A), synthetic_process_tree(), only_alive():
             resp = post_target(client)
         assert resp.status_code == 409
-        assert resp.json()["detail"]["error"] == "session_not_started"
+        detail = resp.json()["detail"]
+        assert detail["error"] == "session_not_started"
+        assert "Send one prompt first" in detail["message"]
+
+    def test_a_pty_whose_process_exited_is_409_agent_exited(self, client):
+        """A dead agent is named as such, with its exit code — not asked for a prompt.
+
+        ``PtySession.pid`` still reports the child's pid after it exits, so the
+        process-table walk finds nothing and lands on the same "no record"
+        rung a fresh session does. The instruction there — send a prompt —
+        cannot be followed with no process to send it to.
+        """
+        with (
+            attached_pty(client, SESSION_A, alive=False, exit_code=1),
+            synthetic_process_tree(),
+            only_alive(),
+        ):
+            resp = post_target(client)
+        assert resp.status_code == 409
+        detail = resp.json()["detail"]
+        assert detail["error"] == "agent_exited"
+        assert "exit code 1" in detail["message"]
+        assert "prompt" not in detail["message"]
+
+    def test_a_clean_exit_is_still_an_exit(self, client):
+        """Exit code 0 is an exit code, not the absence of one."""
+        with (
+            attached_pty(client, SESSION_A, alive=False, exit_code=0),
+            synthetic_process_tree(),
+            only_alive(),
+        ):
+            resp = post_target(client)
+        assert resp.status_code == 409
+        detail = resp.json()["detail"]
+        assert detail["error"] == "agent_exited"
+        assert "exit code 0" in detail["message"]
+
+    def test_a_pty_whose_process_exited_without_a_code_is_still_agent_exited(self, client):
+        with (
+            attached_pty(client, SESSION_A, alive=False, exit_code=None),
+            synthetic_process_tree(),
+            only_alive(),
+        ):
+            resp = post_target(client)
+        assert resp.status_code == 409
+        detail = resp.json()["detail"]
+        assert detail["error"] == "agent_exited"
+        assert "exit code" not in detail["message"]
 
     def test_a_record_owned_by_another_session_is_409(self, client):
         """The ancestor walk is the ownership rule; a stranger's record is not ours."""
@@ -346,10 +409,24 @@ class TestSessionNotStarted:
         assert resp.json()["detail"]["error"] == "session_not_started"
 
     def test_a_dead_controls_server_is_409(self, client):
+        """The agent is alive and its controls server is not: a prompt restarts it."""
         write_target_state(target="standin", owner_ppid=PTY_PID, server_pid=SERVER_PID)
         with attached_pty(client, SESSION_A), synthetic_process_tree(), only_alive():
             resp = post_target(client)
         assert resp.status_code == 409
+        assert resp.json()["detail"]["error"] == "session_not_started"
+
+    def test_a_dead_agent_with_a_stale_record_is_agent_exited(self, client):
+        """A record left behind by a dead agent does not turn it back into a live one."""
+        write_target_state(target="standin", owner_ppid=PTY_PID, server_pid=SERVER_PID)
+        with (
+            attached_pty(client, SESSION_A, alive=False, exit_code=137),
+            synthetic_process_tree(),
+            only_alive(),
+        ):
+            resp = post_target(client)
+        assert resp.status_code == 409
+        assert resp.json()["detail"]["error"] == "agent_exited"
 
     def test_a_refused_session_writes_no_request(self, client):
         with synthetic_process_tree(), only_alive():

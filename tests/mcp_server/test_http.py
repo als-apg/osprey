@@ -99,6 +99,26 @@ def test_phoebus_bridge_url_default(patch_config, monkeypatch):
         assert http.phoebus_bridge_url() == "http://127.0.0.1:7979"
 
 
+@pytest.mark.unit
+def test_phoebus_bridge_url_config_values(patch_config, monkeypatch):
+    """With no env overrides, phoebus.host/phoebus.port answer (#829)."""
+    monkeypatch.delenv("PHOEBUS_BRIDGE_URL", raising=False)
+    monkeypatch.delenv("PHOEBUS_BRIDGE_PORT", raising=False)
+    with patch_config({"phoebus": {"host": "127.0.0.1", "port": 19921}}):
+        assert http.phoebus_bridge_url() == "http://127.0.0.1:19921"
+
+
+@pytest.mark.unit
+def test_phoebus_bridge_default_pure():
+    """The shared config-half helper: configured, defaulted, and a bare `phoebus:` key."""
+    assert http.phoebus_bridge_default({}) == "http://127.0.0.1:7979"
+    assert http.phoebus_bridge_default({"phoebus": None}) == "http://127.0.0.1:7979"
+    assert (
+        http.phoebus_bridge_default({"phoebus": {"host": "10.0.0.5", "port": 19921}})
+        == "http://10.0.0.5:19921"
+    )
+
+
 # ---------------------------------------------------------------------------
 # post_json (fire-and-forget)
 # ---------------------------------------------------------------------------

@@ -47,6 +47,9 @@ class ALSAPGProviderAdapter(LiteLLMDelegatingProvider):
 
     # LiteLLM integration - ALS-APG is an OpenAI-compatible proxy
     is_openai_compatible = True
+    # A LiteLLM proxy: requests carry the acting identity so the gateway's
+    # spend logs book each call to a person, not to the deployment's key.
+    gateway = "litellm"
     # Note: intentionally leaves supports_native_structured_output at the None default
     # so structured-output support is auto-detected via litellm.supports_response_schema()
     # on the resolved openai/<model> id, which is what the proxy actually serves.

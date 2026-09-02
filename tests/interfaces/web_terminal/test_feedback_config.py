@@ -26,8 +26,10 @@ from osprey.interfaces.web_terminal.app import (
     DEFAULT_FEEDBACK_GITHUB_REPO,
     DEFAULT_FEEDBACK_MAX_STORE_BYTES,
     coerce_config_str,
+    coerce_feedback_trackers,
     coerce_store_ceiling,
     create_app,
+    resolve_feedback_trackers,
 )
 from osprey.interfaces.web_terminal.routes.panels import router as panels_router
 
@@ -107,6 +109,11 @@ class TestFeedbackConfigDefaults:
             assert app.state.feedback_github_repo == DEFAULT_FEEDBACK_GITHUB_REPO
             assert app.state.feedback_email == DEFAULT_FEEDBACK_EMAIL
             assert app.state.feedback_max_store_bytes == DEFAULT_FEEDBACK_MAX_STORE_BYTES
+            # The bare deployment still reaches the maintainers: the shipped
+            # `github_repo` default is the one tracker on offer.
+            assert app.state.feedback_trackers == [
+                {"kind": "github", "label": "GitHub", "repo": DEFAULT_FEEDBACK_GITHUB_REPO}
+            ]
 
     def test_default_ceiling_is_256_mb(self):
         """The documented default, spelled out so a silent change is caught."""
@@ -231,6 +238,7 @@ class TestBadValuesAreContained:
             assert app.state.docs_url == ""
             assert app.state.feedback_github_repo == ""
             assert app.state.feedback_email == ""
+            assert app.state.feedback_trackers == []
 
     def test_absent_config_still_takes_the_defaults(self, project_dir, shared_root):
         """The counterpart: nothing configured is not the same as blanked."""
@@ -287,8 +295,29 @@ class TestPanelsPayload:
         with _lifespan_client(project_dir, shared_root, overrides=overrides) as (client, _app):
             payload = client.get("/api/panels").json()
         assert payload["docs_url"] == "https://docs.example.org/osprey"
-        assert payload["feedback_github_repo"] == "facility/osprey-fork"
+        assert payload["feedback_trackers"] == [
+            {"kind": "github", "label": "GitHub", "repo": "facility/osprey-fork"}
+        ]
         assert payload["feedback_email"] == "controls@example.org"
+        # The sugar key is resolved into the tracker list server-side; the
+        # browser never sees it on its own.
+        assert "feedback_github_repo" not in payload
+
+    def test_configured_trackers_reach_the_browser_in_order(self, project_dir, shared_root):
+        """A facility-authored list travels as written, sugar tracker last."""
+        overrides = {
+            "web.feedback.trackers": [
+                {"kind": "gitlab", "url": "https://git.example.org/ops/osprey", "label": "Ops"},
+                {"kind": "github", "repo": "facility/fork", "label": "Fork"},
+            ],
+        }
+        with _lifespan_client(project_dir, shared_root, overrides=overrides) as (client, _app):
+            payload = client.get("/api/panels").json()
+        assert payload["feedback_trackers"] == [
+            {"kind": "gitlab", "label": "Ops", "url": "https://git.example.org/ops/osprey"},
+            {"kind": "github", "label": "Fork", "repo": "facility/fork"},
+            {"kind": "github", "label": "GitHub", "repo": DEFAULT_FEEDBACK_GITHUB_REPO},
+        ]
 
     def test_ceiling_is_not_exposed_to_the_browser(self, project_dir, shared_root):
         """The store ceiling is server-side only; nothing in the UI reads it."""
@@ -303,5 +332,118 @@ class TestPanelsPayload:
         app.state.project_cwd = "/tmp"
         payload = TestClient(app).get("/api/panels").json()
         assert payload["docs_url"] == DEFAULT_DOCS_URL
-        assert payload["feedback_github_repo"] == DEFAULT_FEEDBACK_GITHUB_REPO
+        assert payload["feedback_trackers"] == [
+            {"kind": "github", "label": "GitHub", "repo": DEFAULT_FEEDBACK_GITHUB_REPO}
+        ]
         assert payload["feedback_email"] == DEFAULT_FEEDBACK_EMAIL
+
+
+GITLAB_URL = "https://git.example.org/controls/osprey"
+
+
+class TestFeedbackTrackers:
+    """``web.feedback.trackers`` — the facility-authored outbound tracker list."""
+
+    def test_absent_list_is_empty(self):
+        assert coerce_feedback_trackers(None) == []
+
+    def test_github_and_gitlab_entries_are_normalised(self):
+        raw = [
+            {"kind": "github", "repo": " facility/fork ", "label": " Fork "},
+            {"kind": "gitlab", "url": GITLAB_URL + "/", "label": "Facility GitLab"},
+        ]
+        assert coerce_feedback_trackers(raw) == [
+            {"kind": "github", "label": "Fork", "repo": "facility/fork"},
+            {"kind": "gitlab", "label": "Facility GitLab", "url": GITLAB_URL},
+        ]
+
+    def test_label_defaults_to_the_kind_name(self):
+        raw = [{"kind": "gitlab", "url": GITLAB_URL}, {"kind": "github", "repo": "a/b"}]
+        assert [t["label"] for t in coerce_feedback_trackers(raw)] == ["GitLab", "GitHub"]
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "not a list",
+            {"kind": "github", "repo": "a/b"},
+            42,
+        ],
+    )
+    def test_a_non_list_is_reported_and_dropped(self, bad):
+        assert coerce_feedback_trackers(bad) == []
+
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            "a/b",
+            {"kind": "bitbucket", "url": GITLAB_URL},
+            {"kind": "github"},
+            {"kind": "github", "repo": ""},
+            {"kind": "github", "repo": "no-slash"},
+            {"kind": "github", "repo": "a/b c"},
+            {"kind": "gitlab"},
+            {"kind": "gitlab", "url": "git.example.org/x"},
+            {"kind": "gitlab", "repo": "a/b"},
+            {"repo": "a/b"},
+        ],
+    )
+    def test_a_malformed_entry_is_dropped_and_the_rest_kept(self, entry):
+        """One bad line must not take the whole channel list down with it."""
+        raw = [entry, {"kind": "github", "repo": "keep/me"}]
+        assert coerce_feedback_trackers(raw) == [
+            {"kind": "github", "label": "GitHub", "repo": "keep/me"}
+        ]
+
+    def test_github_repo_sugar_is_appended_as_a_tracker(self):
+        trackers = [{"kind": "gitlab", "label": "Ops", "url": GITLAB_URL}]
+        assert resolve_feedback_trackers(trackers, "als-apg/osprey") == [
+            {"kind": "gitlab", "label": "Ops", "url": GITLAB_URL},
+            {"kind": "github", "label": "GitHub", "repo": "als-apg/osprey"},
+        ]
+
+    def test_blank_github_repo_adds_nothing(self):
+        """Explicitly blank still retires the sugar channel."""
+        trackers = [{"kind": "gitlab", "label": "Ops", "url": GITLAB_URL}]
+        assert resolve_feedback_trackers(trackers, "") == trackers
+        assert resolve_feedback_trackers([], "") == []
+
+    def test_a_listed_tracker_wins_over_the_sugar_duplicate(self):
+        """Listing the same repo with its own label must not render it twice."""
+        trackers = [{"kind": "github", "label": "OSPREY upstream", "repo": "als-apg/osprey"}]
+        assert resolve_feedback_trackers(trackers, "als-apg/osprey") == trackers
+
+    def test_duplicates_inside_the_list_collapse_to_the_first(self):
+        trackers = [
+            {"kind": "gitlab", "label": "One", "url": GITLAB_URL},
+            {"kind": "gitlab", "label": "Two", "url": GITLAB_URL},
+        ]
+        assert resolve_feedback_trackers(trackers, "") == [trackers[0]]
+
+    def test_lifespan_resolves_the_list_plus_sugar(self, project_dir, shared_root):
+        overrides = {
+            "web.feedback.trackers": [{"kind": "gitlab", "url": GITLAB_URL, "label": "Ops"}],
+            "web.feedback.github_repo": "facility/fork",
+        }
+        with _lifespan_client(project_dir, shared_root, overrides=overrides) as (_client, app):
+            assert app.state.feedback_trackers == [
+                {"kind": "gitlab", "label": "Ops", "url": GITLAB_URL},
+                {"kind": "github", "label": "GitHub", "repo": "facility/fork"},
+            ]
+
+    def test_lifespan_with_list_and_blank_sugar_is_the_list_alone(self, project_dir, shared_root):
+        """The ALS posture: a self-hosted tracker and no upstream channel."""
+        overrides = {
+            "web.feedback.trackers": [{"kind": "gitlab", "url": GITLAB_URL, "label": "Ops"}],
+            "web.feedback.github_repo": "",
+        }
+        with _lifespan_client(project_dir, shared_root, overrides=overrides) as (_client, app):
+            assert app.state.feedback_trackers == [
+                {"kind": "gitlab", "label": "Ops", "url": GITLAB_URL}
+            ]
+
+    def test_malformed_list_in_config_leaves_the_sugar_tracker(self, project_dir, shared_root):
+        overrides = {"web.feedback.trackers": "https://git.example.org/x"}
+        with _lifespan_client(project_dir, shared_root, overrides=overrides) as (_client, app):
+            assert app.state.feedback_trackers == [
+                {"kind": "github", "label": "GitHub", "repo": DEFAULT_FEEDBACK_GITHUB_REPO}
+            ]

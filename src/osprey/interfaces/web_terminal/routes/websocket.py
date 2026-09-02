@@ -698,6 +698,59 @@ def _state_dir_names(target_state: Any) -> tuple[str, ...]:
         return ()
 
 
+@dataclass(frozen=True)
+class _PtyState:
+    """What the PTY registry says about a session's process, read in one go.
+
+    ``registered`` is whether the registry holds a PTY under this key at all.
+    ``alive`` and ``exit_code`` are :attr:`PtySession.is_alive` and
+    :attr:`PtySession.exit_code` for a registered PTY — ``None`` for one the
+    registry cannot answer for — and ``None`` for both when none is registered.
+    """
+
+    registered: bool
+    alive: bool | None
+    exit_code: int | None
+
+
+_NO_PTY = _PtyState(registered=False, alive=None, exit_code=None)
+
+
+def _pty_state_for(app: Any, session_key: str) -> _PtyState:
+    """The registry's view of this session's process — see :class:`_PtyState`.
+
+    Read where :func:`_pty_pid_for` reads, through the same accessor and with
+    the same tolerance of a registry that lacks it. The pid alone cannot say
+    whether the process is running: ``PtySession.pid`` is ``Popen.pid`` and
+    outlives the child, so a dead agent and a not-yet-started one look alike
+    to a process-table walk. Liveness is one attribute away and is what the
+    refusal ladder needs to tell the two apart.
+    """
+    registry = getattr(app.state, "pty_registry", None)
+    getter = getattr(registry, "get_session", None)
+    if getter is None:
+        return _NO_PTY
+    try:
+        session = getter(session_key)
+    except Exception:  # noqa: BLE001 — a registry that cannot be asked has no PTY to report
+        logger.warning("Could not ask the PTY registry about session %s", session_key)
+        return _NO_PTY
+    if session is None:
+        return _NO_PTY
+    alive = getattr(session, "is_alive", None)
+    exit_code = getattr(session, "exit_code", None)
+    try:
+        # 0 and negative (signal) codes are exit codes too; only a non-number is not.
+        exit_code = int(exit_code) if exit_code is not None else None
+    except (TypeError, ValueError):
+        exit_code = None
+    return _PtyState(
+        registered=True,
+        alive=alive if isinstance(alive, bool) else None,
+        exit_code=exit_code,
+    )
+
+
 def _pty_pid_for(app: Any, session_key: str) -> int | None:
     """The pid of the PTY this session runs in, or ``None``.
 
@@ -888,54 +941,82 @@ def _read_effort_level(config_path: Path | None) -> str | None:
         return None
 
 
+#: What ``claude --resume <id>`` prints before exiting 1 when no transcript
+#: for that id exists. The pre-spawn check in :func:`_transcript_missing` is
+#: meant to keep such a child from ever being spawned; this is the second net,
+#: for a transcript that vanished after the check or one the CLI refuses to
+#: load.
+NO_CONVERSATION_MARKER = b"No conversation found with session ID"
+
+#: How much of a ``--resume`` child's output is searched for the marker. The
+#: verdict is the first thing the CLI prints, so anything beyond the first
+#: few kilobytes is a session that resumed and is now doing real work.
+_NO_CONVERSATION_SCAN_LIMIT = 16 * 1024
+
+
+def _transcript_missing(registry, discovery: SessionDiscovery, session_id: str) -> bool:
+    """Whether resuming *session_id* would spawn a child with nothing to resume.
+
+    A pooled PTY that is still alive IS the session — a terminal that was
+    opened and never prompted has one, and no ``.jsonl`` yet, because Claude
+    Code writes the transcript on the first prompt. Only with no live PTY is
+    the transcript directory the authority: ``--resume`` on an id with no
+    file there prints :data:`NO_CONVERSATION_MARKER` and exits, which is the
+    dead PTY the caller refuses to hand the operator.
+    """
+    existing = registry.get_session(session_id)
+    if existing is not None and existing.is_alive:
+        return False
+    return session_id not in discovery.snapshot_session_ids()
+
+
+def _transcript_missing_frame(session_id: str, code: int | None = None) -> str:
+    frame: dict[str, Any] = {"type": "transcript_missing", "session_id": session_id}
+    if code is not None:
+        frame["code"] = code
+    return json.dumps(frame)
+
+
 async def _run_output_loop(
     session,
     websocket: WebSocket,
     stop_event: asyncio.Event,
+    *,
+    resume_id: str | None = None,
 ) -> None:
-    """Forward PTY bytes to the WebSocket until stopped or process exits."""
+    """Forward PTY bytes to the WebSocket until stopped or process exits.
+
+    ``resume_id`` names the id a ``--resume`` child spawned by this handler
+    was asked for. Its early output is then watched for
+    :data:`NO_CONVERSATION_MARKER`: a child that prints it and exits is
+    reported as ``transcript_missing`` rather than a bare ``exit``, so the
+    client renders the same state the pre-spawn refusal produces instead of
+    a process-exited line the operator cannot act on.
+    """
+    no_conversation = False
+    scanned = bytearray()
     try:
         async for data in session.read_output():
             if stop_event.is_set():
                 return
+            if resume_id is not None and not no_conversation:
+                if len(scanned) < _NO_CONVERSATION_SCAN_LIMIT:
+                    scanned.extend(data)
+                    no_conversation = NO_CONVERSATION_MARKER in scanned
             await websocket.send_bytes(data)
     except Exception:
         pass
     finally:
         if not stop_event.is_set():
             code = session.exit_code
+            if no_conversation and resume_id is not None:
+                frame = _transcript_missing_frame(resume_id, code)
+            else:
+                frame = json.dumps({"type": "exit", "code": code})
             try:
-                await websocket.send_text(json.dumps({"type": "exit", "code": code}))
+                await websocket.send_text(frame)
             except Exception:
                 pass
-
-
-async def _discover_and_notify(
-    snapshot: set[str],
-    discovery: SessionDiscovery,
-    registry,
-    current_key: str,
-    websocket: WebSocket,
-    timeout: float = 15.0,
-) -> str | None:
-    """Discover a newly-created Claude session UUID and notify the client.
-
-    Returns the discovered UUID (or None). Also rekeys the registry entry,
-    which renames the pooled session and records the audit alias back to the
-    spawn key; the posture store is untouched, because every entry it holds is
-    written under both keys — see
-    :meth:`~osprey.interfaces.web_terminal.pty_manager.PtyRegistry.rekey_session`
-    and :func:`persist_or_raise`.
-    """
-    loop = asyncio.get_event_loop()
-    new_id = await loop.run_in_executor(None, discovery.discover_new_session, snapshot, timeout)
-    if new_id:
-        registry.rekey_session(current_key, new_id)
-        try:
-            await websocket.send_text(json.dumps({"type": "session_info", "session_id": new_id}))
-        except Exception:
-            pass
-    return new_id
 
 
 def _build_extra_env(
@@ -1037,7 +1118,15 @@ async def terminal_ws(websocket: WebSocket):
     - Server -> Client JSON: {"type": "exit", "code": N}
     - Server -> Client JSON: {"type": "session_switched", "session_id": UUID}
     - Server -> Client JSON: {"type": "session_info", "session_id": UUID}
+    - Server -> Client JSON: {"type": "transcript_missing", "session_id": UUID, "code"?: N}
     - Server -> Client JSON: {"type": "error", "message": str}
+
+    ``transcript_missing`` answers a resume — the ``mode=resume`` connect or a
+    ``switch_session`` — of an id with no live PTY and no transcript on disk.
+    Nothing is spawned for it: on the connect path the socket is then closed,
+    on the switch path the current session stays attached. The same frame,
+    with the exit ``code``, replaces ``exit`` when a ``--resume`` child prints
+    that it found no such conversation and quits.
     """
     await websocket.accept()
 
@@ -1093,12 +1182,25 @@ async def terminal_ws(websocket: WebSocket):
     except TimeoutError:
         logger.warning("No initial resize from client within 5s, using defaults")
 
-    # For resumes, snapshot the session files before spawning — a stale/absent
-    # --resume-id can make the CLI silently start a fresh session instead of
-    # resuming, and this is how we tell the two apart once the PTY is up.
-    resume_snapshot: set[str] | None = None
-    if mode == "resume" and req_session_id:
-        resume_snapshot = discovery.snapshot_session_ids()
+    # The resume boundary. ``--resume`` on an id with no transcript exits at
+    # once with "No conversation found", and a PTY that dies on attach is a
+    # terminal the operator cannot use. The server knows before spawning, so
+    # it says so and closes; the client renders the state and offers a fresh
+    # start (terminal.js). Deliberately not a silent fresh session: the
+    # operator picked a chat, and starting a different one under them hides
+    # that it is gone.
+    if (
+        mode == "resume"
+        and req_session_id
+        and _transcript_missing(registry, discovery, req_session_id)
+    ):
+        logger.info("Refusing to resume %s: no live PTY and no transcript", req_session_id)
+        try:
+            await websocket.send_text(_transcript_missing_frame(req_session_id))
+            await websocket.close()
+        except Exception:
+            pass
+        return
 
     extra_env = _build_extra_env(websocket, claude_session_id, telemetry_session_id)
 
@@ -1112,70 +1214,27 @@ async def terminal_ws(websocket: WebSocket):
     )
     registry.attach_session(current_key)
 
-    # New sessions: confirm the id immediately. It is the id this handler put
-    # on the CLI's own command line a few lines up, so there is nothing to wait
-    # for and nothing to race.
-    if claude_session_id is None:
-        try:
-            await websocket.send_text(
-                json.dumps({"type": "session_info", "session_id": current_key})
-            )
-        except Exception:
-            pass
+    # Confirm the id immediately, whichever path spawned it. A new session's
+    # id is the one this handler put on the CLI's command line; a resume's is
+    # either a warm PTY (the session itself) or an id whose transcript was on
+    # disk a moment ago — the boundary above refused everything else. There is
+    # nothing to wait for and nothing to race.
+    try:
+        await websocket.send_text(json.dumps({"type": "session_info", "session_id": current_key}))
+    except Exception:
+        pass
 
-    # For resumes, confirm the actually-attached session id so the client can
-    # tell a live resume from a silently-fresh PTY on a stale --resume-id.
-    # Two cases are trusted immediately, with no discovery needed: a reused
-    # warm session (same live PTY) and a cold resume whose session file was
-    # already on disk before we spawned (the id was genuinely valid). Only a
-    # request for an id with no file on disk — stale/absent — is ambiguous:
-    # the CLI may fall back to creating a fresh session under an id of its own
-    # choosing, and ``--resume`` gives this handler no way to dictate that id
-    # the way the new-session path dictates one. So this branch alone still
-    # discovers, and it keeps the generous window: it is racing the CLI's own
-    # startup, and a fallback id that arrives late is still worth having. When
-    # the window closes with nothing new, the requested id is confirmed rather
-    # than left unanswered, so the client is never stranded without one.
-    if resume_snapshot is not None:
-        if was_reused or req_session_id in resume_snapshot:
-            try:
-                await websocket.send_text(
-                    json.dumps({"type": "session_info", "session_id": current_key})
-                )
-            except Exception:
-                pass
-        else:
-
-            async def _confirm_resume():
-                nonlocal current_key
-                found = await _discover_and_notify(
-                    resume_snapshot, discovery, registry, current_key, websocket
-                )
-                if found:
-                    current_key = found
-                elif session.is_alive:
-                    # Nothing new appeared and the PTY is still up, so the
-                    # requested id resumed after all — confirm it. A PTY that
-                    # has already exited says the opposite: ``--resume`` found
-                    # no such conversation and the CLI quit. Confirming the id
-                    # back in that case would tell the client to keep an id
-                    # that resolves to nothing and re-resume it on the next
-                    # reload, which is how a dead tab becomes a permanent one.
-                    # Staying quiet leaves the client's own failover — driven
-                    # by the ``exit`` frame it has already been sent — to
-                    # discard the id and start clean.
-                    try:
-                        await websocket.send_text(
-                            json.dumps({"type": "session_info", "session_id": current_key})
-                        )
-                    except Exception:
-                        pass
-
-            asyncio.create_task(_confirm_resume())
-
-    # Start output forwarding
+    # Start output forwarding. A ``--resume`` child this handler spawned is
+    # watched for the CLI's own "no such conversation" verdict.
     stop_event = asyncio.Event()
-    output_task = asyncio.create_task(_run_output_loop(session, websocket, stop_event))
+    output_task = asyncio.create_task(
+        _run_output_loop(
+            session,
+            websocket,
+            stop_event,
+            resume_id=req_session_id if mode == "resume" and not was_reused else None,
+        )
+    )
 
     try:
         while True:
@@ -1219,6 +1278,17 @@ async def terminal_ws(websocket: WebSocket):
                                     }
                                 )
                             )
+                            continue
+
+                        if _transcript_missing(registry, discovery, target_id):
+                            # Nothing to switch to; the operator stays on the
+                            # session they are on. Same frame as the connect
+                            # path, so the client renders one state.
+                            logger.info(
+                                "Refusing to switch to %s: no live PTY and no transcript",
+                                target_id,
+                            )
+                            await websocket.send_text(_transcript_missing_frame(target_id))
                             continue
 
                         try:
@@ -1269,7 +1339,12 @@ async def terminal_ws(websocket: WebSocket):
                             # 6. Start new output loop
                             stop_event = asyncio.Event()
                             output_task = asyncio.create_task(
-                                _run_output_loop(session, websocket, stop_event)
+                                _run_output_loop(
+                                    session,
+                                    websocket,
+                                    stop_event,
+                                    resume_id=None if was_reused else target_id,
+                                )
                             )
 
                             # 7. Update tracking
@@ -1489,6 +1564,11 @@ class _TargetRequestFacts:
     #: re-derived: the reader that decides the 409, the writer that addresses
     #: the request file and the ledger line must all name one pid.
     server_pid: int | None
+    #: What the PTY registry says about this session's process, read in the
+    #: same hop as ``record`` so the two describe one moment. A record of
+    #: ``None`` means one of three things — no PTY, a dead agent, or a live one
+    #: that has not started its controls server — and only this can say which.
+    pty: _PtyState = _NO_PTY
 
 
 def _target_request_facts(app: Any, session_key: str, config_path: Path | None):
@@ -1518,6 +1598,7 @@ def _target_request_facts(app: Any, session_key: str, config_path: Path | None):
             server_pid=None,
         )
 
+    pty = _pty_state_for(app, session_key)
     record = _session_record(app, session_key)
     server_pid = _pid_or_none((record or {}).get("server_pid"))
     pending = target_state.read_request(server_pid) if server_pid is not None else None
@@ -1528,6 +1609,7 @@ def _target_request_facts(app: Any, session_key: str, config_path: Path | None):
         store_available=True,
         pending=pending,
         server_pid=server_pid,
+        pty=pty,
     )
 
 
@@ -1578,6 +1660,41 @@ def _target_refusal(
                 "This deployment's agent-data root does not resolve, so there is "
                 "nowhere to write a switch request the controls server would read. "
                 "Nothing was requested."
+            ),
+            detail=f"target={body.target}",
+        )
+
+    # One status, three rungs, split by what the registry says about the
+    # session's process. "Send one prompt first" is right only for a live
+    # agent whose controls server has not started; the same sentence for a
+    # dead one is an instruction with no process to follow it, and for no PTY
+    # at all it points at a terminal that is not there.
+    if facts.pty.alive is False:
+        code = facts.pty.exit_code
+        exited = f"exited (exit code {code})" if code is not None else "exited"
+        return _refuse_gesture(
+            app,
+            session_id,
+            subject=subject,
+            status_code=409,
+            error="agent_exited",
+            message=(
+                f"The agent in this terminal has {exited}, so there is no "
+                "control-system server to ask. Start a new session, then switch."
+            ),
+            detail=f"target={body.target} exit_code={code}",
+        )
+
+    if not facts.pty.registered:
+        return _refuse_gesture(
+            app,
+            session_id,
+            subject=subject,
+            status_code=409,
+            error="session_not_started",
+            message=(
+                "This terminal has no running session, so there is nothing to ask "
+                "for a switch. Start a session, then switch."
             ),
             detail=f"target={body.target}",
         )
@@ -1641,9 +1758,14 @@ async def request_terminal_target(body: TargetRequest, request: Request):
     * **400** — an id outside the closed key grammar, or a target this render
       does not configure. Both are identifiers, checked before anything is read
       or written.
+    * **409** ``agent_exited`` — the PTY registered for this session reports
+      its process has exited. There is no server to address and no prompt that
+      could start one; the message names the exit code when it is known.
     * **409** ``session_not_started`` — no controls server has published a
-      record this session's process tree owns. There is nothing to address: the
-      request file's whole addressing scheme is that pid.
+      record this session's process tree owns, and the agent is live or there
+      is no PTY at all. There is nothing to address: the request file's whole
+      addressing scheme is that pid. Only the live-agent case is told to send
+      a prompt, because only there does a prompt start the server.
     * **503** ``store_unavailable`` / ``store_write_failed`` — the state
       directory does not resolve, or the write failed. The gesture did not
       happen and the operator is told so, rather than being shown a request id

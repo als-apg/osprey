@@ -220,7 +220,7 @@ async def get_panels(request: Request):
             "open_tiles_age_s": float|None,   # seconds since that report (None = never)
             "open_tiles_dock": bool|None,     # reporting client had a dock shell (None = never)
             "docs_url": str,            # target of the rail's Documentation control
-            "feedback_github_repo": str,   # "owner/repo" for the prefilled new-issue URL
+            "feedback_trackers": [...],  # [{"kind", "label", "repo"|"url"}], render order
             "feedback_email": str,      # recipient of the prefilled mailto: draft
         }
 
@@ -291,11 +291,13 @@ async def get_panels(request: Request):
     So ``[]`` always means known-empty and ``null`` always means unknown; the
     age tells the two flavours of unknown apart.
 
-    ``docs_url``, ``feedback_github_repo`` and ``feedback_email`` are the
-    resolved ``web.docs_url`` / ``web.feedback.*`` values that address the two
-    utility controls at the far end of the rail: the Documentation link target,
-    and the two outbound channels the feedback dialog offers (a prefilled
-    GitHub issue and a prefilled ``mailto:`` draft). The store ceiling
+    ``docs_url``, ``feedback_trackers`` and ``feedback_email`` are the resolved
+    ``web.docs_url`` / ``web.feedback.*`` values that address the two utility
+    controls at the far end of the rail: the Documentation link target, and
+    the outbound channels the feedback dialog offers (one prefilled new-issue
+    link per configured tracker — ``web.feedback.trackers`` plus the
+    ``web.feedback.github_repo`` sugar, already merged server-side — and a
+    prefilled ``mailto:`` draft). The store ceiling
     (``web.feedback.max_store_bytes``) is deliberately not echoed — it governs
     server-side pruning and nothing in the browser acts on it.
     """
@@ -361,10 +363,15 @@ async def get_panels(request: Request):
     open_tiles_age = None if open_tiles_ts is None else time.time() - open_tiles_ts
     open_tiles_dock = getattr(request.app.state, "open_tiles_dock", None)
     # Utility-cluster targets. The defaults mirror app.DEFAULT_DOCS_URL /
-    # DEFAULT_FEEDBACK_GITHUB_REPO / DEFAULT_FEEDBACK_EMAIL, spelled as
-    # literals here for the same routes->app import-cycle reason as above.
+    # DEFAULT_FEEDBACK_GITHUB_REPO (as the one sugar tracker) /
+    # DEFAULT_FEEDBACK_EMAIL, spelled as literals here for the same
+    # routes->app import-cycle reason as above.
     docs_url = getattr(request.app.state, "docs_url", "https://als-apg.github.io/osprey")
-    feedback_github_repo = getattr(request.app.state, "feedback_github_repo", "als-apg/osprey")
+    feedback_trackers = getattr(
+        request.app.state,
+        "feedback_trackers",
+        [{"kind": "github", "label": "GitHub", "repo": "als-apg/osprey"}],
+    )
     feedback_email = getattr(request.app.state, "feedback_email", "thellert@lbl.gov")
     # Onboarding tour: the resolved invite policy plus the derived capability
     # list for the "Ask in plain language" card. Both resolved at startup
@@ -395,7 +402,7 @@ async def get_panels(request: Request):
         "open_tiles_age_s": open_tiles_age,
         "open_tiles_dock": open_tiles_dock,
         "docs_url": docs_url,
-        "feedback_github_repo": feedback_github_repo,
+        "feedback_trackers": [dict(tracker) for tracker in feedback_trackers],
         "feedback_email": feedback_email,
         "config_panel_enabled": config_panel_enabled,
         "scaffold_write_enabled": scaffold_write_enabled,

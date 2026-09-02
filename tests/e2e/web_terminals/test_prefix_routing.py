@@ -321,15 +321,13 @@ def _recv_json(ws, msg_type: str, max_frames: int = 30) -> dict:
 def ws_app(tmp_path, monkeypatch):
     """An isolated app for driving a real websocket handshake.
 
-    Uses the ``mode=resume`` path, which confirms synchronously with the
-    requested id -- the exact shape ``test_ws_resume_confirm.py`` relies on, so
-    the frame this test waits for is guaranteed to arrive. ``mode=new`` would
-    serve equally well now that it confirms the id it forces on the CLI, but
-    there is no reason to churn a passing handshake test onto it.
+    Uses the ``mode=resume`` path with an id that has no transcript on disk:
+    the server answers ``transcript_missing`` synchronously, before any spawn
+    (``test_ws_resume_confirm.py`` pins that shape), so the frame this test
+    waits for is guaranteed to arrive and nothing is ever launched.
 
     ``discover_new_session`` is patched to ``None`` so nothing polls the real
-    filesystem; on the resume path that simply means the requested id is the
-    one confirmed.
+    filesystem.
     """
     monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
     ws_dir = tmp_path / "var" / "agent_data"
@@ -362,8 +360,8 @@ class TestWebSocketHandshakeUnderPrefix:
         url = f"/ws/terminal?session_id={session_id}&mode=resume"
         with client.websocket_connect(url) as ws:
             ws.send_json({"type": "resize", "cols": 80, "rows": 24})
-            msg = _recv_json(ws, "session_info")
-            assert msg["session_id"]
+            msg = _recv_json(ws, "transcript_missing")
+            assert msg["session_id"] == session_id
 
     def test_literal_prefixed_ws_path_is_not_routed(self, ws_app):
         """The app registers ``/ws/terminal`` only -- a literal ``/u/alice/ws/...``

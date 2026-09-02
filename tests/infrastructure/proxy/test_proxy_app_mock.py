@@ -202,3 +202,40 @@ def test_health_endpoint_reports_upstream():
     resp = client.get("/health")
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok", "upstream": "https://api.cborg.lbl.gov/v1"}
+
+
+def test_proxy_forwards_litellm_attribution_headers(monkeypatch):
+    """The x-litellm-* headers Claude Code adds (ANTHROPIC_CUSTOM_HEADERS) reach
+    the upstream gateway; unrelated client headers do not."""
+    captured = _install_fake_upstream(
+        monkeypatch,
+        {
+            "choices": [
+                {"message": {"role": "assistant", "content": "PONG"}, "finish_reason": "stop"}
+            ],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 1},
+        },
+    )
+    app = create_proxy_app("https://gw.example/v1", upstream_api_key="secret-key")
+    client = TestClient(app)
+
+    resp = client.post(
+        "/v1/messages",
+        json={
+            "model": "some-model",
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 16,
+        },
+        headers={
+            "X-LiteLLM-End-User-Id": "thellert",
+            "x-litellm-tags": "osprey,surface:terminal",
+            "X-Corp-Trace": "abc123",
+        },
+    )
+    assert resp.status_code == 200
+
+    sent = {k.lower(): v for k, v in captured["headers"].items()}
+    assert sent["x-litellm-end-user-id"] == "thellert"
+    assert sent["x-litellm-tags"] == "osprey,surface:terminal"
+    assert "x-corp-trace" not in sent
+    assert sent["authorization"] == "Bearer secret-key"
