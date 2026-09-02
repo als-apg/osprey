@@ -47,20 +47,26 @@ on:
     # PR-gated or dispatch-gated and does NOT run on this schedule.
     - cron: '0 7 * * *'
 
-# Only one CI run per pull request stays alive. Without this, every push to a
-# branch left its predecessor's full job matrix queued rather than cancelled,
-# and on an account whose concurrent-job allowance is already saturated those
-# dead runs sat ahead of the live one in line: measured over 71 PR runs, 35%
-# were superseded-but-still-running ghosts holding 31% of all CI wall-clock.
+# One live CI run per ref. Without this, every push left its predecessor's
+# full job matrix queued rather than cancelled, and on an account whose
+# concurrent-job allowance is already saturated those dead runs sat ahead of
+# the live one in line: measured over 71 PR runs, 35% were
+# superseded-but-still-running ghosts holding 31% of all CI wall-clock.
 #
-# The `github.sha` fallback is load-bearing. `github.head_ref` is empty off
-# pull_request, so without it every push to main and every nightly would share
-# one group and cancel each other. cancel-in-progress is likewise scoped to
-# pull_request only: a superseded PR run is waste, but a superseded main or
-# schedule run is a lost signal nothing else reproduces.
+# Grouping, by event:
+#   pull_request     one group per PR number — a new push to the branch
+#                    supersedes the run for the previous head.
+#   push             one group per branch ref (`refs/heads/main`) — a merge
+#                    that lands while the previous merge's run is still going
+#                    supersedes it. main is a fast-forward sequence, so the
+#                    newer run tests a tree that contains the older one; a red
+#                    the older merge introduced still shows in the newer run.
+#   schedule, dispatch  one group per run — never cancelled, because the
+#                    nightly and a hand-triggered lane are signals nothing
+#                    else reproduces.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.workflow }}-${{ (github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number)) || (github.event_name == 'push' && github.ref) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 # Note: This workflow runs tests, linting, docs build, and package checks
 # For documentation deployment to GitHub Pages, see .github/workflows/docs.yml

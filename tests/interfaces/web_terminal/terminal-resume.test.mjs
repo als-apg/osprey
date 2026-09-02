@@ -36,15 +36,35 @@ class FakeTerminal {
     this.cols = 80;
     this.rows = 24;
     this.options = {};
+    /** Everything written to the screen, concatenated. */
+    this.written = '';
+    /** @type {((data: string) => void)|null} */
+    this.dataHandler = null;
+    FakeTerminal.last = this;
   }
   loadAddon() {}
   open() {}
-  onData() {}
+  /** @param {(data: string) => void} fn */
+  onData(fn) {
+    this.dataHandler = fn;
+  }
   onResize() {}
-  write() {}
+  /** @param {string} text */
+  write(text) {
+    this.written += text;
+  }
   reset() {}
   focus() {}
   attachCustomKeyEventHandler() {}
+}
+/** @type {FakeTerminal|null} */
+FakeTerminal.last = null;
+
+/** Type into the terminal as the operator would. @param {string} data */
+function press(data) {
+  const t = /** @type {FakeTerminal} */ (FakeTerminal.last);
+  if (!t.dataHandler) throw new Error('onData handler not set');
+  t.dataHandler(data);
 }
 
 class FakeAddon {
@@ -293,5 +313,126 @@ describe('auto-resume failover window', () => {
     receive({ type: 'exit', code: 0 });
 
     expect(localStorage.getItem(STORAGE_KEY)).toBe('live-id');
+  });
+});
+
+describe('transcript missing: an explicit state, never a dead PTY', () => {
+  // routes/websocket.py refuses to resume an id whose transcript is gone and
+  // says so with a `transcript_missing` frame (before spawning, or after a
+  // `--resume` child reports `No conversation found` and exits). The client
+  // must render that state, drop the stale pointer, and hand the operator a
+  // way to start fresh — deliberately, not by silently respawning.
+
+  test('auto-resume: the stale pointer is dropped and the socket is not reconnected', () => {
+    localStorage.setItem(STORAGE_KEY, 'gone-id');
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    const socketsBefore = FakeWebSocket.created;
+    const socket = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
+
+    receive({ type: 'transcript_missing', session_id: 'gone-id' });
+
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(terminal.getCurrentSessionId()).toBeNull();
+    expect(FakeWebSocket.created).toBe(socketsBefore);
+    expect(socket.readyState).toBe(FakeWebSocket.CLOSED);
+  });
+
+  test('the state is written to the terminal with the way forward', () => {
+    localStorage.setItem(STORAGE_KEY, 'gone-id');
+    terminal.initTerminal('terminal-container');
+    openSocket();
+
+    receive({ type: 'transcript_missing', session_id: 'gone-id' });
+
+    const written = /** @type {FakeTerminal} */ (FakeTerminal.last).written;
+    expect(written).toContain('gone-id');
+    expect(written).toMatch(/transcript/i);
+    expect(written).toMatch(/Enter/);
+    expect(written).not.toContain('[Process exited');
+  });
+
+  test('Enter starts a fresh session; other keys do not', () => {
+    localStorage.setItem(STORAGE_KEY, 'gone-id');
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    receive({ type: 'transcript_missing', session_id: 'gone-id' });
+    const socketsBefore = FakeWebSocket.created;
+
+    press('x');
+    expect(FakeWebSocket.created).toBe(socketsBefore);
+
+    press('\r');
+    expect(FakeWebSocket.created).toBe(socketsBefore + 1);
+    const url = /** @type {FakeWebSocket} */ (FakeWebSocket.last).url;
+    expect(url).not.toContain('session_id=');
+    expect(url).not.toContain('mode=resume');
+  });
+
+  test('Enter is one-shot: keystrokes after the fresh start reach the new socket', () => {
+    localStorage.setItem(STORAGE_KEY, 'gone-id');
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    receive({ type: 'transcript_missing', session_id: 'gone-id' });
+    press('\r');
+    openSocket();
+
+    press('ls\r');
+
+    const sent = /** @type {FakeWebSocket} */ (FakeWebSocket.last).sent;
+    expect(sent).toContain('ls\r');
+  });
+
+  test('an explicit resume (sessions.js resumeSession) gets the same state', () => {
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    receive({ type: 'session_info', session_id: 'first-id' });
+    terminal.stopTerminal();
+
+    terminal.startTerminal('gone-explicit-id', 'resume');
+    openSocket();
+    const socketsBefore = FakeWebSocket.created;
+    receive({ type: 'transcript_missing', session_id: 'gone-explicit-id' });
+
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(terminal.getCurrentSessionId()).toBeNull();
+    expect(FakeWebSocket.created).toBe(socketsBefore);
+    press('\r');
+    expect(FakeWebSocket.created).toBe(socketsBefore + 1);
+  });
+
+  test('a refused switch leaves the live session untouched', () => {
+    // The server answers a switch_session to a missing id with the same frame
+    // but keeps the current PTY attached; the operator is still on it.
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    receive({ type: 'session_info', session_id: 'live-id' });
+    const socket = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
+
+    receive({ type: 'transcript_missing', session_id: 'other-id' });
+
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('live-id');
+    expect(terminal.getCurrentSessionId()).toBe('live-id');
+    expect(socket.readyState).not.toBe(FakeWebSocket.CLOSED);
+    expect(/** @type {FakeTerminal} */ (FakeTerminal.last).written).toContain('other-id');
+    // Enter is ordinary input here, forwarded to the live PTY.
+    press('\r');
+    expect(socket.sent).toContain('\r');
+  });
+
+  test('a fresh start from elsewhere disarms Enter', () => {
+    localStorage.setItem(STORAGE_KEY, 'gone-id');
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    receive({ type: 'transcript_missing', session_id: 'gone-id' });
+
+    // The picker's "New session" (sessions.js) ends in startTerminal().
+    terminal.startTerminal();
+    openSocket();
+    const socketsBefore = FakeWebSocket.created;
+    press('\r');
+
+    expect(FakeWebSocket.created).toBe(socketsBefore);
+    expect(/** @type {FakeWebSocket} */ (FakeWebSocket.last).sent).toContain('\r');
   });
 });
