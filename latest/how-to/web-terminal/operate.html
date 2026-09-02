@@ -577,9 +577,18 @@ terminal report a problem without leaving it. See
 (a small dot holding the light/dark, Expert/Simple, and theme controls — see
 <a class="reference internal" href="theming.html"><span class="doc">Theming</span></a>), a settings drawer, and an optional name badge to tell one
 deployment from another.</p></li>
-<li><p><strong>Status bar</strong> — a thin strip along the bottom: what the agent is doing right
-now, a <strong>Docs</strong> link, a clock, and a health dot for each panel that reports
-one. Both bars are yours to rearrange — see <a class="reference internal" href="#web-terminal-bars"><span class="std std-ref">The header and status bar</span></a>.</p></li>
+<li><p><strong>Status bar</strong> — a thin strip along the bottom: a clock at the right, and
+before it, where the deployment runs the SYSTEM panel, a <strong>System health</strong>
+dot for the health checks that panel runs. Both bars are yours to rearrange
+— see <a class="reference internal" href="#web-terminal-bars"><span class="std std-ref">The header and status bar</span></a>. The dot is the worst outcome across the
+checks; click it for a card with one row per check category, and <strong>Open
+SYSTEM</strong> for the full dashboard. Its options add the outcome in a word beside
+the dot and switch the card to one row per check.
+Where a deployment runs the Bluesky panel, a <strong>Bluesky queue</strong> item is on offer
+for either bar: a dot and a word for what the queue is doing, the running
+plan and how far it is, and a card with the queued plans, <strong>Open Bluesky</strong>
+and — if you switch them on in its options — the panel’s own Start, Stop and
+Abort.</p></li>
 </ul>
 <p>The settings drawer lets you read and edit the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — and
 the agent’s own setup and memory files — from the browser, so you rarely need
@@ -859,40 +868,50 @@ record fields in <a class="reference internal" href="../../reference/contracts/a
 drawn from one catalog. The header starts with the wordmark, the identity block
 where the deployment renders one, the
 <a class="reference internal" href="#web-terminal-session-posture"><span class="std std-ref">control-target chip</span></a>, the command palette
-button and the display menu. The status bar starts with the
-agent’s activity line, a health dot for each panel that reports one, the
-<strong>Docs</strong> link and a clock. Which items sit in which bar, and in what order, is
-yours to change.</p>
+button and the display menu. The status bar starts nearly bare: a space, the
+<strong>System health</strong> dot where the SYSTEM panel is enabled, and a clock at the
+right. The <strong>Docs</strong> link and the rest of the catalog are one drag away. Which items sit in which bar, and in what order, is yours
+to change.</p>
 <section id="rearranging-the-bars">
 <h3>Rearranging the bars<a class="headerlink" href="#rearranging-the-bars" title="Link to this heading">#</a></h3>
 <p>Open <strong>Customize bars</strong> in any of three ways: right-click either bar, pick it
-from the display menu, or run it from the command palette. The bars tint, every
-item in them picks up a dashed outline, and a sheet opens carrying a tile for
-every item there is. From there:</p>
+from the display menu, or run it from the command palette. The bars tint and
+name themselves (<strong>Header</strong> at the top, <strong>Status bar</strong> at the bottom), every
+item in them picks up a dashed outline, and a sheet opens showing every item
+there is, drawn as it will look in the bar. From there:</p>
 <ul class="simple">
-<li><p><strong>Drag a tile onto a bar</strong> to add that item. Drag an item already in a bar to
-move it, within its own bar or across to the other one.</p></li>
+<li><p><strong>Drag a tile onto a bar</strong> to add that item, or click it to add it to the
+header. Drag an item already in a bar to move it, within its own bar or
+across to the other one.</p></li>
 <li><p><strong>Drag an item off both bars</strong> to take it away.</p></li>
-<li><p><strong>Click an item</strong> to open its options — the clock’s time zone and seconds,
-the width of a fixed gap, the share of the room a flexible space claims —
-along with <strong>Move to status bar</strong> (or back to the header) and <strong>Remove</strong>,
-where the item allows them.</p></li>
-<li><p><strong>Presets</strong> sit at the foot of the sheet: <em>Clean</em>, <em>Everything</em> and
-<em>Minimal</em>, each one replacing both bars in a single step.</p></li>
-<li><p><strong>Hide status bar</strong> in that same right-click menu, or the checkbox in the
-sheet, withdraws the bottom bar and brings it back. The items you put there
-are still there when it returns.</p></li>
-<li><p><strong>Reset to default</strong>, on the bar’s right-click menu while you are editing,
-throws your arrangement away and puts back the one the deployment ships.</p></li>
+<li><p><strong>Click an item</strong> to open its options — the clock’s zone, 24- or 12-hour
+format and seconds, a space’s width, what the Bluesky queue shows and which
+of its controls it offers, what the system-health chip says and lists — along
+with <strong>Move to status bar</strong> (or back to the
+header) and <strong>Remove</strong>. Every item can go in either bar: the control-target
+chip, the command palette button and the display menu work from the status
+bar exactly as they do from the header, drawn smaller, and their cards open
+upward from there.</p></li>
+<li><p><strong>Drag either end of a space</strong> to set its width. A space at width 0 takes
+whatever room is left in the bar; that is what pushes the items after it to
+the right.</p></li>
+<li><p><strong>Hide header</strong> and <strong>Hide status bar</strong>, on that bar’s own right-click menu
+or as the checkboxes in the sheet, withdraw a bar and bring it back. The
+items you put there are still there when it returns. A hidden bar has
+nothing left to right-click, so <strong>Show header</strong> and <strong>Show status bar</strong>
+appear on the right-click menu of every panel’s title bar, the terminal’s
+included, in Simple mode as well. <strong>Customize bars</strong> in the command palette
+is another way back in; editing shows every bar.</p></li>
+<li><p><strong>Default</strong>, at the foot of the sheet, throws your arrangement away and puts
+back the one this deployment ships (<code class="docutils literal notranslate"><span class="pre">web.bar_items</span></code>).</p></li>
 </ul>
 <p><strong>Done</strong> or <strong>Esc</strong> ends customizing. Every change applies as you make it.</p>
-<p>Some edits are refused, and the sheet says why rather than failing quietly. The
-wordmark, the identity block, the control-target chip and the display menu can
-be reordered but never removed, and a deployment can lock more items the same
-way. An item the header alone can hold — the command palette button, say — is
-refused by the status bar. A tile for something this deployment does not render
-is disabled and carries the reason. If an arrangement cannot be saved the sheet
-reads <strong>Layout not saved</strong>, and your edit was not stored.</p>
+<p>Some edits are refused, and the sheet says why rather than failing quietly.
+Most items go in once: a tile that is already in a bar is dimmed, and says
+where it is on hover. A tile for something this
+deployment does not render is disabled and carries the reason. If an
+arrangement cannot be saved the sheet reads <strong>Layout not saved</strong>, and your edit
+was not stored.</p>
 <p>Customizing is an Expert-mode affordance. Simple mode renders the arrangement
 you saved but offers no way into the sheet; switch to Expert from the display
 menu to change it.</p>

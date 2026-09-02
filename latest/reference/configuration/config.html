@@ -1034,17 +1034,18 @@ dotted form, e.g. <code class="docutils literal notranslate"><span class="pre">w
 <section id="the-header-and-status-bar">
 <span id="config-bar-items"></span><h3>The header and status bar<a class="headerlink" href="#the-header-and-status-bar" title="Link to this heading">#</a></h3>
 <p>The terminal’s header and its status bar are both <em>item hosts</em>: each renders
-one ordered list of small items — the wordmark, the control-target chip, the
-connection light, a clock, the documentation link — drawn from one catalog.
+one ordered list of small items — the wordmark, the control-target chip, a
+clock, the documentation link — drawn from one catalog.
 <code class="docutils literal notranslate"><span class="pre">web.bar_items</span></code> sets the arrangement this deployment starts from. A user who
 rearranges their own bars overrides it for themselves; everyone else, and every
-new browser, gets what you write here.</p>
+new browser, gets what you write here, and it is what the <strong>Default</strong> preset in
+Customize returns a user to.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">bar_items</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">header</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">logo</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">identity</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">space</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">control-target</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">search</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">display</span><span class="p p-Indicator">]</span>
-<span class="w">    </span><span class="nt">status</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">connection</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">panel-health</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">terminal-size</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">activity</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">docs</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">clock</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">status</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">space</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">system-health</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">clock</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">header_visible</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">    </span><span class="nt">status_visible</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">    </span><span class="nt">locked</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">connection</span><span class="p p-Indicator">]</span>
 </pre></div>
 </div>
 <ul class="simple">
@@ -1052,18 +1053,27 @@ new browser, gets what you write here.</p>
 left to right in each list. Omit one and it keeps the shipped order, so
 arranging the header never silently empties the status bar. Write an empty
 list for a bar you want left bare.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">status_visible</span></code> hides the status bar without emptying it. A user can bring
-it back; the items you listed are still there when they do.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">locked</span></code> names items a user may move but never remove. The wordmark, the
-identity block, the control-target chip and the display menu are always
-locked and cannot be unlocked here.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">header_visible</span></code> and <code class="docutils literal notranslate"><span class="pre">status_visible</span></code> hide a bar without emptying it. A
+user can bring it back; the items you listed are still there when they do.</p></li>
 </ul>
 <p>An item that needs an option takes a mapping instead of a bare name, for
-example <code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">{type:</span> <span class="pre">clock,</span> <span class="pre">options:</span> <span class="pre">{zone:</span> <span class="pre">utc}}</span></code>.</p>
+example <code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">{type:</span> <span class="pre">clock,</span> <span class="pre">options:</span> <span class="pre">{zone:</span> <span class="pre">utc,</span> <span class="pre">format:</span> <span class="pre">12h}}</span></code> or
+<code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">{type:</span> <span class="pre">space,</span> <span class="pre">options:</span> <span class="pre">{width:</span> <span class="pre">120}}</span></code> (a <code class="docutils literal notranslate"><span class="pre">space</span></code> at width <code class="docutils literal notranslate"><span class="pre">0</span></code>, the
+default, takes whatever room is left in the bar). Any item may sit in either
+bar. The <code class="docutils literal notranslate"><span class="pre">bluesky-queue</span></code> item, offered where the Bluesky panel is declared,
+takes <code class="docutils literal notranslate"><span class="pre">controls</span></code> (<code class="docutils literal notranslate"><span class="pre">none</span></code>, the default: its card only opens the panel;
+<code class="docutils literal notranslate"><span class="pre">stop</span></code>: adds <em>Stop after current item</em>; <code class="docutils literal notranslate"><span class="pre">full</span></code>: Start, Stop and Abort),
+<code class="docutils literal notranslate"><span class="pre">progress</span></code> (show the running plan’s name and points on the chip, default
+<code class="docutils literal notranslate"><span class="pre">true</span></code>) and <code class="docutils literal notranslate"><span class="pre">count</span></code> (show how many plans are queued, default <code class="docutils literal notranslate"><span class="pre">true</span></code>).
+The <code class="docutils literal notranslate"><span class="pre">system-health</span></code> item, offered where the SYSTEM panel is enabled, takes
+<code class="docutils literal notranslate"><span class="pre">text</span></code> (<code class="docutils literal notranslate"><span class="pre">none</span></code>, the default: the dot alone; <code class="docutils literal notranslate"><span class="pre">status</span></code>: the dot and the
+suite’s worst outcome in a word) and <code class="docutils literal notranslate"><span class="pre">detail</span></code> (<code class="docutils literal notranslate"><span class="pre">categories</span></code>, the default:
+its card lists one row per check category; <code class="docutils literal notranslate"><span class="pre">checks</span></code>: every check).</p>
 <p>Nothing here can stop the terminal from booting. An item name the build does
-not know, an item placed in a bar that cannot hold it, or a line that is not an
-item at all is reported in the log and skipped; the rest of the bar is
-rendered. Twenty items per bar is the ceiling, and extras past it are dropped.</p>
+not know, a second copy of an item that can only appear once (everything but <code class="docutils literal notranslate"><span class="pre">clock</span></code>, <code class="docutils literal notranslate"><span class="pre">stopwatch</span></code>, <code class="docutils literal notranslate"><span class="pre">space</span></code>
+and <code class="docutils literal notranslate"><span class="pre">separator</span></code>), or a line that is not an item at all is reported in the log
+and skipped; the rest of the bar is rendered. Twenty items per bar is the
+ceiling, and extras past it are dropped.</p>
 </section>
 <section id="dangerously-allow-bash-waiving-the-bash-launch-token-refusal">
 <span id="config-dangerously-allow-bash"></span><h3><code class="docutils literal notranslate"><span class="pre">dangerously_allow_bash</span></code> — waiving the Bash/launch-token refusal<a class="headerlink" href="#dangerously-allow-bash-waiving-the-bash-launch-token-refusal" title="Link to this heading">#</a></h3>
