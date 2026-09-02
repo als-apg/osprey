@@ -11,6 +11,7 @@
   "enhancement_modules.semantic_processor",
   "enhancement_modules.text_embedding",
   "entries",
+  "last_ingestion",
   "message",
   "search_modules",
   "search_modules.hybrid",

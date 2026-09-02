@@ -320,7 +320,9 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
         The status document. Every path through this function — unconfigured,
         healthy, and both failure branches — carries a ``vocabulary`` key, so a
         caller never has to reach the database to learn what the vocabulary is
-        doing.
+        doing. The healthy paths also carry ``last_ingestion``: the ISO-8601
+        timestamp of the newest successful ingestion run, or ``None`` when the
+        store has never been ingested.
     """
     from osprey.services.ariel_search import create_ariel_service
 
@@ -338,6 +340,7 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
             healthy, message = await service.health_check()
             stats = await service.repository.get_enhancement_stats()
             tables = await service.repository.get_embedding_tables()
+            last_ingestion = await service.repository.get_last_ingestion()
 
             return {
                 "status": "healthy" if healthy else "unhealthy",
@@ -351,6 +354,7 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
                     "connected": healthy,
                 },
                 "entries": stats.get("total_entries", 0),
+                "last_ingestion": last_ingestion.isoformat() if last_ingestion else None,
                 "embedding_tables": [
                     {
                         "table": t.table_name,

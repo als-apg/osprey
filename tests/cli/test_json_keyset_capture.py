@@ -403,6 +403,7 @@ def test_ariel_status_json_keyset(
             )
         ]
     )
+    repository.get_last_ingestion = AsyncMock(return_value=None)
     ariel_service(_StubService(repository=repository))
     monkeypatch.setattr("osprey.cli.ariel.get_config_value", lambda *a, **kw: dict(_ARIEL_CONFIG))
 

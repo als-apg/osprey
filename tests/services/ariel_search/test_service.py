@@ -781,6 +781,7 @@ class TestServiceGetStatus:
 
         mock_repository = MagicMock()
         mock_repository.get_embedding_tables = AsyncMock(return_value=[])
+        mock_repository.get_last_ingestion = AsyncMock(return_value=None)
 
         service = ARIELSearchService(
             config=minimal_config,
@@ -797,7 +798,8 @@ class TestServiceGetStatus:
         assert result.entry_count is not None  # Entry count retrieved
         assert result.enabled_search_modules == ["keyword", "semantic"]
         assert result.enabled_enhancement_modules == ["text_embedding"]
-        assert isinstance(result.errors, list)
+        # A faithful repository double means nothing failed on the way through.
+        assert result.errors == []
 
     @pytest.mark.asyncio
     async def test_get_status_reports_unreachable_database(self, minimal_config, fake_pool_factory):

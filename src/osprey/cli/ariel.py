@@ -259,6 +259,7 @@ def status_command(output_json: bool) -> None:
                 {
                     "Database": result["database"]["uri"],
                     "Total entries": result["entries"],
+                    "Last ingestion": result.get("last_ingestion") or "never",
                 },
             )
             output.report("")
