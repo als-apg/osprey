@@ -312,6 +312,15 @@ def init_project(
     accelerator with no channel database to build its namespace from — which
     the build refuses, correctly.
 
+    ``channel_finder_mode`` is pinned to ``hierarchical`` when the caller names
+    no mode and the preset's own is ``graph`` — the same containerless fact a
+    third time. The graph paradigm answers from the ``graphdb`` service the
+    preset deploys, which this harness never starts, so every lookup would
+    fail at connect and an agent asked for a channel would never reach the tool
+    a test is actually about. The hierarchical database the preset also ships
+    answers from a file. A test whose subject IS the graph paradigm names
+    ``graph`` explicitly and stands the store up itself.
+
     Tier selection follows a per-mode default: tier 1 is in_context-only, while
     every other paradigm requires tier 3. When ``tier`` is left ``None`` and a
     ``channel_finder_mode`` is given, the tier is derived from it (in_context
@@ -354,6 +363,8 @@ def init_project(
     from osprey.build.build_tiers import default_tier_for_mode, tier_mode_conflict
 
     provider = os.environ.get("OSPREY_E2E_FORCE_PROVIDER", provider)
+    if channel_finder_mode is None and _preset_channel_finder_mode(template) == "graph":
+        channel_finder_mode = "hierarchical"
     effective_tier = tier
     if effective_tier is None and channel_finder_mode is not None:
         derived = default_tier_for_mode(channel_finder_mode)
@@ -406,6 +417,19 @@ def init_project(
     assert (render / "config.yml").is_file(), f"Build produced no render at {render}"
     _override_ariel_db_uri(render)
     return repo
+
+
+def _preset_channel_finder_mode(template: str) -> str | None:
+    """The ``channel_finder_mode`` the packaged preset ``template`` ships, if any.
+
+    Read from the preset the way ``osprey init`` reads it, so the pin above
+    follows the preset rather than a list of names kept here.
+    """
+    from osprey.cli.build_profile_presets import _load_preset_raw
+
+    raw, _path = _load_preset_raw(template.replace("_", "-"))
+    mode = raw.get("channel_finder_mode")
+    return mode if isinstance(mode, str) else None
 
 
 def _preset_declares_virtual_accelerator(template: str) -> bool:
