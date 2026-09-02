@@ -231,10 +231,108 @@ The computed interval is capped at ``max_interval_seconds``. After a successful 
    scheduler will log a message and skip the cycle. Set ``require_initial_ingest: false``
    in the ``watch`` config block to start polling from the beginning of time instead.
 
-
 The PostgreSQL schema this data lands in --- the ``enhanced_entries`` table, the
 per-model embedding tables, and the migrations that create them --- is documented
 in :doc:`/reference/contracts/ariel`.
+
+
+Deployed Ingestion
+~~~~~~~~~~~~~~~~~~
+
+``osprey ariel watch`` keeps the mirror fresh only while you leave the command
+running. A deployment needs the same loop with no terminal attached, so Osprey
+ships a service that runs it in a container. Declare it in the build profile:
+
+.. code-block:: yaml
+
+   # profile.yml
+   services:
+     ariel_sync:
+       template: osprey.ariel_sync
+
+The build copies the bundled compose template into the project and adds
+``ariel_sync`` to ``deployed_services``. ``osprey up`` then starts a container
+that runs ``osprey ariel sync --watch``. That command syncs once on startup ---
+schema migration, an incremental ingest, and an enhancement pass over entries
+that are still missing derived fields --- and then enters the polling loop. Every later poll runs the same enhancement pass after it stores
+what it fetched, so a larger backlog is worked down over successive polls. A
+failure in that pass is logged and does not count toward
+``max_consecutive_failures``.
+
+The deployed loop does not wait for a prior ingest. It overrides
+``require_initial_ingest``, so a container started against an empty database
+does the full first ingest itself.
+
+The container runs the project image that ``osprey up`` builds, the same image
+the web terminals run by default, and the container runtime restarts it unless
+you stop it. That is what keeps the mirror moving between deployments instead of
+freezing at the last ``osprey up``. When the failure cap is reached the process
+exits with a non-zero status, and the restart policy starts it again. A
+repeatedly failing source therefore shows up as a restarting container, not as a
+stopped one. The two readings that tell the difference are the container's
+restart count and the ``ariel_last_ingestion`` health row described below.
+
+The service publishes no port and declares no container health check. It only
+makes outbound calls, to the logbook and to the database, so a container probe
+would have nothing to ask it. A container that is up but no longer ingesting is
+exactly the failure such a probe would report as healthy, so staleness is
+reported by ``osprey health`` instead --- see below.
+
+**Reaching the database.** When the deployment also runs the ARIEL database, the
+rendered compose file sets ``ARIEL_DATABASE_HOST`` and ``ARIEL_DATABASE_PORT`` in
+the container's environment. On the default bridge network they name the database
+container's network alias ``ariel-postgres`` and its container port ``5432``.
+When the service is declared with ``network: host`` under its ``config:`` key,
+they name ``localhost`` and the port the database publishes on the host. The two
+variables are written into the compose file only, never into the project's
+``.env``, so commands you run on the host are unaffected. They apply only where
+the connection string is derived from the ``services.postgresql`` block;
+:doc:`/reference/contracts/ariel` documents the full precedence order.
+
+When the deployment does not run the database, neither variable is written and
+the derived address stays ``localhost``. Inside a bridge-networked container
+that is the container itself. Point an external store at an address the
+container can resolve with ``ariel.database.uri``. Declaring the service with
+``network: host`` helps only when the store listens on the deployment host
+itself.
+
+.. admonition:: An authored URI is used exactly as written
+   :class: warning
+
+   If ``ariel.database.uri`` is set, that value is used verbatim and the two
+   variables above are ignored. A URI naming ``localhost`` is correct from the
+   host, but inside a bridge-networked container ``localhost`` is the container
+   itself, so the sync cannot reach the database. Either write a URI the
+   container can resolve, or remove the key and let the address be derived.
+
+**The mirror directory.** When ``ariel.enhancement_modules.qmd_export`` is
+enabled with a ``mirror_path``, the host directory it names is bind-mounted into
+the container read-write. The exporter runs inside this container, so without
+that mount its files would land in the container's own writable layer and be
+discarded on the next recreate. The web terminals mount the same directory, so
+every process that enhances an entry writes into one mirror.
+
+**A source nobody ingests.** If ``ariel.ingestion.source_url`` is an HTTP or
+HTTPS URL and the deployment declares no ``ariel_sync`` service, ``osprey build``
+prints one warning line:
+
+::
+
+   ⚠ ariel.ingestion.source_url is https://api.example.com/logbook, but no
+   service in this deployment ingests it — add a services: entry with
+   `template: osprey.ariel_sync`.
+
+The advisory never fails the build. A ``source_url`` naming a local file is
+silent, because a file needs no polling service.
+
+**Watching for a stalled mirror.** ``osprey health`` reports an
+``ariel_last_ingestion`` row. When the config carries an ``ariel.ingestion``
+block, that row becomes a warning once the newest ingestion is older than
+``poll_interval_seconds`` plus ``watch.max_interval_seconds`` --- two hours with
+the defaults above. The warning reads ``Last ingestion is <age> old, ingestion
+interval is <threshold>``. Without an ``ariel.ingestion`` block the expected
+cadence is unknown, and the row stays ``ok`` as long as some ingestion has been
+recorded. A store that has never been ingested warns either way.
 
 
 See Also
