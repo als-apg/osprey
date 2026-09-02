@@ -832,7 +832,7 @@ export function chartTheme() {
  * underneath it. Trace colors are never touched.
  *
  * @param {any} gd - the plotted Plotly graph div
- * @returns {Record<string, string>}
+ * @returns {Record<string, string | string[]>}
  */
 export function chartRelayout(gd) {
   const styles = _computedStyles();
@@ -844,7 +844,7 @@ export function chartRelayout(gd) {
   const line = _readVar(styles, '--chart-axis-line');
   const pane = _readVar(styles, '--chart-pane-bg');
 
-  /** @type {Record<string, string>} */
+  /** @type {Record<string, string | string[]>} */
   const update = {
     paper_bgcolor: paper,
     plot_bgcolor: plot,
