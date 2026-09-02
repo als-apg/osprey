@@ -458,9 +458,10 @@ these verbs act on that roster, which lives in the profile. Every verb takes
        Prompts without echoing, and ends that user's sessions.
      - —
    * - ``login-url USER``
-     - Print the URL that opens that user's terminal. Only the URL goes to
-       stdout, so it can be piped or copied. Refuses for a user who signs in
-       through a login page, and for every user of an open deployment.
+     - Print the URL that opens that user's terminal under ``auth.method:
+       token``. Only the URL goes to stdout, so it can be piped or copied.
+       Refuses for a user who signs in through a login page, and for every
+       user of an open deployment.
      - —
    * - ``env``
      - Render ``.env.users``, the env file every per-user container runs
@@ -478,9 +479,9 @@ these verbs act on that roster, which lives in the profile. Every verb takes
 ``osprey users login-url`` builds the URL from that user's operator secret in
 the repository's ``.env``, which ``osprey up`` mints for every roster user in
 every auth mode. Opening it once trades the token for a session cookie. It is
-how someone gets in when nginx stamps no credential on the request —
-``auth.method: token``, the default, or a roster entry with ``login: false``
-— and it is a password: send each person only their own. Rotate one by deleting
+how someone gets in under ``auth.method: token``, the default, where nginx
+stamps no credential on the request — and it is a password: send each person
+only their own. Rotate one by deleting
 that user's ``OSPREY_TERMINAL_SECRET_*`` line from ``.env`` and running
 ``osprey up`` again.
 
