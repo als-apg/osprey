@@ -32,6 +32,8 @@ says.
 
 `exemplar-profile/` is a trimmed materialization of the bundled
 `control-assistant` preset — `data/` is empty on purpose (the fixture is
-validated and parsed, never built). The exact commands and edits that produced
+validated and parsed, never built). It carries no `provenance:` block: trimmed
+by hand, it is not the preset's materialization, so `osprey validate` has no
+preset to compare it with. The exact commands and edits that produced
 it are recorded outside the test tree, with the walkthrough this exemplar
 became.

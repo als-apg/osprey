@@ -56,13 +56,13 @@ def profile_file_at(target: Path) -> Path:
     return target.resolve()
 
 
-def check_profile_file(profile_file: Path) -> None:
+def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
     """Validate the profile at *profile_file* and print the verdict.
 
     The whole of what both spellings of the verb do once a profile file has been
     named: resolve the ``extends:`` chain, run the profile's own consistency
     check, lint the declared web stack against the config a build would render,
-    and report.
+    compare a materialized profile with the preset it came from, and report.
 
     The host-variant overlay is applied first, exactly as ``osprey build``
     applies it. Without that, this verb would judge a document no host builds:
@@ -74,6 +74,9 @@ def check_profile_file(profile_file: Path) -> None:
     Args:
         profile_file: An existing profile file — a repo's ``profile.yml`` or a
             persona delta.
+        drift: ``error`` refuses a profile that differs from its preset in a
+            place no marker comment claims; ``warn`` prints those places and
+            passes.
 
     Raises:
         click.UsageError: With every accumulated problem, so the caller exits 2.
@@ -84,6 +87,7 @@ def check_profile_file(profile_file: Path) -> None:
         deploy_aware_config_warnings,
         limits_block_errors,
     )
+    from .build_profile_drift import MARKER_REACH, preset_drift_report
     from .build_profile_panels import bar_items_selection_warnings
     from .variant_selection import VARIANT_DIRNAME, VariantSelection, resolve_variant_selection
 
@@ -146,6 +150,37 @@ def check_profile_file(profile_file: Path) -> None:
     ):
         note(f"⚠ {warning}")
 
+    # A materialized profile against the preset it was written from. Only a
+    # profile `osprey init` stamped has a preset to be compared with; a
+    # hand-written one has nothing to drift from. The findings refuse by
+    # default because the failure they name is the silent kind — a line the
+    # preset gained and this copy never did builds green forever — while a
+    # facility fact is claimed once, with a marker comment, and never asked
+    # about again.
+    if build_profile.provenance is not None:
+        try:
+            report_card = preset_drift_report(profile_file, build_profile.provenance)
+        except BuildProfileError as e:
+            raise click.UsageError(str(e)) from e
+        if report_card.note:
+            note(report_card.note)
+        for stale in report_card.stale_markers:
+            note(f"⚠ {stale}")
+        unmarked = report_card.unmarked
+        if unmarked and drift == "error":
+            tag = build_profile.provenance.deviation_marker
+            raise click.UsageError(
+                f"Profile differs from preset {report_card.preset} in {len(unmarked)} "
+                f"place(s) no marker claims:\n  - "
+                + "\n  - ".join(finding.render() for finding in unmarked)
+                + f"\nA deliberate difference is marked with a `# {tag}: <why>` comment "
+                f"within {MARKER_REACH} lines above its line, or one naming the key or "
+                f"member when the profile has no line for it. `--drift=warn` reports "
+                f"without refusing."
+            )
+        for finding in unmarked:
+            note(f"⚠ preset drift: {finding.render()}")
+
     # Before the verdict, and worded as `osprey build` words it: the reader has
     # to know WHICH document was judged before being told it is fine.
     if variant.selected:
@@ -173,8 +208,15 @@ def check_profile_file(profile_file: Path) -> None:
 
 @click.command()
 @click.argument("target", required=False, type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--drift",
+    type=click.Choice(["error", "warn"]),
+    default="error",
+    show_default=True,
+    help="What an unmarked difference from the profile's preset does: refuse, or warn.",
+)
 @repo_option
-def validate(target: Path | None, repo: Path | None) -> None:
+def validate(target: Path | None, drift: str, repo: Path | None) -> None:
     """Check the deployment profile without building.
 
     With no argument, validates the deployment repo enclosing the working
@@ -185,6 +227,11 @@ def validate(target: Path | None, repo: Path | None) -> None:
     directories, the data: tree, service templates, lifecycle steps, env vars —
     then lints the declared web stack against the config a build would render.
     Every problem found is reported, not just the first.
+
+    A profile `osprey init` wrote is also compared with the preset it came from,
+    persona deltas included. Every difference is refused unless a marker comment
+    (`# DEVIATION: <why>`, tag set by provenance.deviation_marker) claims it;
+    --drift=warn reports them and passes.
 
     Judges what this host builds: when .env.variant selects an overlay under
     profiles/, that overlay is merged in first, and named in the output.
@@ -212,4 +259,4 @@ def validate(target: Path | None, repo: Path | None) -> None:
         # so there is no second existence check to make here.
         profile_file = find_repo_root(repo) / PROFILE_FILENAME
 
-    check_profile_file(profile_file)
+    check_profile_file(profile_file, drift=drift)

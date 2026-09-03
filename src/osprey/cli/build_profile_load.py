@@ -33,6 +33,7 @@ from .build_profile_document import _normalize_profile_aliases, _read_profile_do
 from .build_profile_merge import resolve_profile_document
 from .build_profile_model import BuildProfile
 from .build_profile_schema import (
+    DEFAULT_DEVIATION_MARKER,
     BlueskyConfig,
     BlueskyExternalConfig,
     BlueskyWebConfig,
@@ -196,6 +197,12 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "provenance",
     }
 )
+
+
+# Keys recognized inside the ``provenance:`` block. Closed like the others: a
+# misspelled `deviation_marker:` would silently leave the default tag in force
+# and every `# ALS-DEVIATION:` comment unread.
+_KNOWN_PROVENANCE_KEYS = frozenset({"preset", "preset_hash", "deviation_marker"})
 
 
 # Keys recognized inside the ``environment:`` block. Rejected outright like the
@@ -1026,9 +1033,18 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
                 f"`osprey init` and records what the profile was materialized from; "
                 f"drop the block rather than half-filling it."
             )
+        _reject_unknown_block_keys(provenance_raw, _KNOWN_PROVENANCE_KEYS, "provenance")
+        marker = provenance_raw.get("deviation_marker", DEFAULT_DEVIATION_MARKER)
+        if not isinstance(marker, str) or not marker.strip():
+            raise BuildProfileError(
+                f"Profile 'provenance.deviation_marker' must be a non-empty string — the "
+                f"tag of the `# <TAG>:` comment that marks a deliberate difference from "
+                f"the preset (got {marker!r})."
+            )
         provenance = ProfileProvenance(
             preset=str(provenance_raw["preset"]),
             preset_hash=str(provenance_raw["preset_hash"]),
+            deviation_marker=marker.strip(),
         )
 
     # A `config:` key present but empty — every entry commented out, say —

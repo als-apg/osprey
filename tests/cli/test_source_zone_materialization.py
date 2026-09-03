@@ -1334,6 +1334,7 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
 
     from osprey.cli.build_profile_emit import emits_persona_profiles
     from osprey.cli.build_profile_merge import compute_preset_hash
+    from osprey.cli.build_profile_schema import DEFAULT_DEVIATION_MARKER
 
     target = tmp_path / "facility"
     assert _new(runner, target, preset).exit_code == 0
@@ -1348,6 +1349,7 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
     assert d_new.pop("provenance") == {
         "preset": preset,
         "preset_hash": compute_preset_hash(preset),
+        "deviation_marker": DEFAULT_DEVIATION_MARKER,
     }
     for stamped in ("name", "requires_osprey_version", "data"):
         d_preset.pop(stamped)
