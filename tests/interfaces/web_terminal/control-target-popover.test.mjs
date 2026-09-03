@@ -700,18 +700,20 @@ describe('turning writes off and on', () => {
     expect(confirmBtn()?.textContent).toBe('Turn writes on');
   });
 
-  test('the confirm body states scope and endpoint, and claims nothing about process', async () => {
+  test('the confirm body states scope and claims nothing about process or endpoint', async () => {
     // Whether a write prompts for approval, and what limits apply, are
     // deployment configuration the browser cannot see — the dialog must not
-    // state either as fact.
+    // state either as fact. The roster's endpoint is where reads go under the
+    // current posture, so it is not where this write will land: it stays out.
     await bootOpen();
     toggleEl('live')?.click();
     await flush();
 
     const body = inConfirm('.posture-modal-body').textContent ?? '';
-    expect(body).toContain('For your session · als-gw.lbl.gov:5064.');
+    expect(body).toContain('For your session.');
     expect(body).toContain('Takes effect at the next write — nothing restarts.');
     expect(body).not.toMatch(/approval|asks you|limits/i);
+    expect(body).not.toMatch(/[\w.-]+:\d+/);
     // The title names the machine; the body's own sentences do not repeat it.
     // (The hardware notice below them is the one deliberate exception.)
     const paragraphs = [...(confirmEl()?.querySelectorAll('.posture-modal-body p') ?? [])]
@@ -890,6 +892,24 @@ describe('switching', () => {
     );
     // Off means off: no hardware notice until writes are actually on there.
     expect(confirmEl()?.querySelector('.posture-modal-live')).toBeNull();
+  });
+
+  test('a machine arrived at with writes off promises reads only', async () => {
+    await bootOpen(viewOf({ targets: [rowOf(KINDS.va, { ...STATES.sandbox })] }));
+    switchEl('va')?.click();
+    await flush();
+    const body = inConfirm('.posture-modal-body').textContent ?? '';
+    expect(body).toContain('All control reads go to 127.0.0.1:10064.');
+    expect(body).not.toContain('reads and writes');
+  });
+
+  test('a locked machine promises reads only too', async () => {
+    await bootOpen(viewOf({ targets: [rowOf(KINDS.va, { ...STATES['read-only'] })] }));
+    switchEl('va')?.click();
+    await flush();
+    const body = inConfirm('.posture-modal-body').textContent ?? '';
+    expect(body).toContain('All control reads go to 127.0.0.1:10064.');
+    expect(body).toContain('Writes are locked read-only there by the deployment.');
   });
 
   test('switching onto the live machine with writes on carries the hardware notice', async () => {
