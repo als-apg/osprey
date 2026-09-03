@@ -20,10 +20,12 @@ from osprey.deployment.host_ports import (
     HostPortBinding,
     PortConflict,
     derive_host_network_bindings,
+    derive_web_terminal_bindings,
     find_port_conflicts,
     format_conflict_report,
     parse_host_port_bindings,
 )
+from osprey.deployment.web_terminals.ports import FAMILY_BASE_FIELDS
 from osprey.port_layout import (
     CA_DEFAULT_PORT,
     DEFAULT_PORT_BASE,
@@ -1484,3 +1486,164 @@ class TestTwoDeploymentsOnOneHost:
         # Every in-block one names the single knob that moves them together.
         in_block = [c for c in conflicts if not c.channel_access]
         assert {c.remedy for c in in_block} == {PORT_BASE_CONFIG_KEY}
+
+
+def _web_config(users, *, base=None, prefix="dls", **web_terminals):
+    """A rendered-config stand-in for a web-terminal roster."""
+    config = {
+        "facility": {"prefix": prefix},
+        "modules": {"web_terminals": {"enabled": True, "users": users, **web_terminals}},
+    }
+    if base is not None:
+        config["deployment"] = {"port_base": base}
+    return config
+
+
+class TestWebTerminalDerivation:
+    """Per-user index ports of the web-terminal stack, which publishes nothing.
+
+    Every terminal runs on the host network, so the ports of a roster index
+    appear in no compose file; a foreign holder of one used to surface only as
+    the companion panel's own "port is already in use" inside the container.
+    """
+
+    families = tuple(FAMILY_BASE_FIELDS.values())
+
+    def test_no_web_terminals_derives_nothing(self):
+        assert derive_web_terminal_bindings(None) == []
+        assert derive_web_terminal_bindings({}) == []
+        assert derive_web_terminal_bindings({"modules": {"web_terminals": None}}) == []
+        disabled = _web_config(["alice"])
+        disabled["modules"]["web_terminals"]["enabled"] = False
+        assert derive_web_terminal_bindings(disabled) == []
+
+    def test_one_binding_per_family_per_roster_index(self):
+        config = _web_config([{"name": "alice", "index": 0}, {"name": "logbook", "index": 6}])
+
+        bindings = derive_web_terminal_bindings(config)
+
+        expected = {
+            (f"web-{user}", default_port(family, index, base=DEFAULT_PORT_BASE))
+            for user, index in (("alice", 0), ("logbook", 6))
+            for family in self.families
+        }
+        assert {(b.service, b.host_port) for b in bindings} == expected
+        assert all(b.host_network for b in bindings)
+        assert all(b.host_ip == "127.0.0.1" for b in bindings)
+        assert all(b.container_port == b.host_port for b in bindings)
+        assert all(b.compose_file == host_ports._DERIVED_SOURCE for b in bindings)
+
+    def test_bare_string_roster_entries_take_their_position(self):
+        bindings = derive_web_terminal_bindings(_web_config(["alice", "bob"]))
+        web = {
+            b.service: b.host_port
+            for b in bindings
+            if b.host_port in {default_port("web", i, base=DEFAULT_PORT_BASE) for i in (0, 1)}
+        }
+        assert web == {
+            "web-alice": default_port("web", 0, base=DEFAULT_PORT_BASE),
+            "web-bob": default_port("web", 1, base=DEFAULT_PORT_BASE),
+        }
+
+    def test_the_bands_follow_this_deployments_base(self):
+        bindings = derive_web_terminal_bindings(
+            _web_config([{"name": "alice", "index": 3}], base=SECOND_BASE)
+        )
+        assert {b.host_port for b in bindings} == {
+            default_port(family, 3, base=SECOND_BASE) for family in self.families
+        }
+
+    def test_a_family_moved_by_its_base_port_key_is_checked_where_it_binds(self):
+        config = _web_config([{"name": "alice", "index": 2}], web_base_port=30000)
+        ports = {b.host_port for b in derive_web_terminal_bindings(config)}
+        assert 30002 in ports
+        assert default_port("web", 2, base=DEFAULT_PORT_BASE) not in ports
+
+    def test_the_remedy_names_the_users_index_and_the_family_key(self):
+        config = _web_config([{"name": "logbook", "index": 6}])
+        web_port = default_port("web", 6, base=DEFAULT_PORT_BASE)
+        (binding,) = [b for b in derive_web_terminal_bindings(config) if b.host_port == web_port]
+        assert binding.remedy is not None
+        assert "logbook" in binding.remedy
+        assert "modules.web_terminals.web_base_port" in binding.remedy
+
+
+class TestWebTerminalConflicts:
+    """The derived index ports join the same two checks every other port gets."""
+
+    @staticmethod
+    def _only_busy(monkeypatch, busy):
+        monkeypatch.setattr(
+            host_ports, "_port_is_free", lambda host_ip, host_port: host_port != busy
+        )
+
+    def test_a_clear_roster_has_no_conflicts(self, monkeypatch):
+        monkeypatch.setattr(host_ports, "_port_is_free", lambda host_ip, host_port: True)
+        config = _web_config([{"name": "alice", "index": 0}])
+        assert find_port_conflicts([], project_name="proj", config=config) == []
+
+    def test_own_running_terminal_is_an_idempotent_redeploy(self, monkeypatch):
+        # Host network: `ps` maps no port, so the terminal is recognised by name.
+        busy = default_port("web", 0, base=DEFAULT_PORT_BASE)
+        self._only_busy(monkeypatch, busy)
+        ps_json = json.dumps(_ps_row("dls-web-alice", "proj"))
+        monkeypatch.setattr(host_ports, "_run_runtime_ps", lambda config=None: ps_json)
+        config = _web_config([{"name": "alice", "index": 0}])
+
+        assert find_port_conflicts([], project_name="proj", config=config) == []
+
+    def test_a_foreign_holder_of_an_index_port_fails_fast(self, monkeypatch):
+        """The reported shape after a rename: the roster says ``logbook`` on
+        index 6, but something else already answers on that index's web port."""
+        busy = default_port("web", 6, base=DEFAULT_PORT_BASE)
+        self._only_busy(monkeypatch, busy)
+        monkeypatch.setattr(host_ports, "_run_runtime_ps", lambda config=None: "")
+        config = _web_config([{"name": "logbook", "index": 6}])
+
+        conflicts = find_port_conflicts([], project_name="proj", config=config)
+
+        assert len(conflicts) == 1
+        (conflict,) = conflicts
+        assert conflict.host_port == busy
+        assert conflict.service == "web-logbook"
+        assert conflict.kind == "external"
+        assert conflict.host_network
+        assert conflict.holder == "an unknown host process"
+        assert "logbook" in conflict.remedy
+        report = format_conflict_report(conflicts)
+        assert f"port {busy}" in report
+        assert "web-logbook" in report
+
+    def test_a_foreign_container_holding_an_index_port_is_named(self, monkeypatch):
+        busy = default_port("artifact", 1, base=DEFAULT_PORT_BASE)
+        self._only_busy(monkeypatch, busy)
+        ps_json = json.dumps(_ps_row("other-thing", "other", port=busy))
+        monkeypatch.setattr(host_ports, "_run_runtime_ps", lambda config=None: ps_json)
+        config = _web_config([{"name": "bob", "index": 1}])
+
+        (conflict,) = find_port_conflicts([], project_name="proj", config=config)
+        assert conflict.holder == "container 'other-thing' (compose project 'other')"
+
+    def test_another_terminal_of_this_project_does_not_vouch_for_the_port(self, monkeypatch):
+        """An off-roster terminal of this very project still running is not the
+        roster's container: it cannot be told apart from a foreign process by
+        port, so the port is reported rather than waved through."""
+        busy = default_port("web", 6, base=DEFAULT_PORT_BASE)
+        self._only_busy(monkeypatch, busy)
+        ps_json = json.dumps(_ps_row("dls-web-ariel", "proj"))
+        monkeypatch.setattr(host_ports, "_run_runtime_ps", lambda config=None: ps_json)
+        config = _web_config([{"name": "logbook", "index": 6}])
+
+        conflicts = find_port_conflicts([], project_name="proj", config=config)
+        assert [c.service for c in conflicts] == ["web-logbook"]
+
+    def test_a_service_on_a_terminals_port_is_a_duplicate(self, monkeypatch):
+        monkeypatch.setattr(host_ports, "_port_is_free", lambda host_ip, host_port: True)
+        web_port = default_port("web", 0, base=DEFAULT_PORT_BASE)
+        config = _web_config([{"name": "alice", "index": 0}])
+        published = HostPortBinding("facility-api", "127.0.0.1", web_port, 80, "x.yml")
+
+        (conflict,) = find_port_conflicts([published], project_name="proj", config=config)
+        assert conflict.kind == "duplicate"
+        assert conflict.service == "web-alice"
+        assert conflict.holder == "service 'facility-api'"
