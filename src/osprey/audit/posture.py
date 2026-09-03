@@ -206,55 +206,6 @@ def _state_signature(path: Path) -> tuple[str, int, int, int] | None:
     return (str(path), st.st_mtime_ns, st.st_size, st.st_ino)
 
 
-def _match_session_record(target_state: Any, entries: list[Path], owner_ppid: int) -> str | None:
-    """The target named by the one live record this session owns, or ``None``.
-
-    Selection is *exact parent equality*: the controls MCP server that writes
-    these files and the server this code is running in are both spawned by the
-    same Claude Code process, so the record whose ``owner_ppid`` is our parent
-    is the one describing our session. That is the rule
-    ``executor._session_target_record`` and ``target_banner.resolve_session_target``
-    already use, and it is deliberately narrower than the ancestor-chain walk
-    the stdlib-only hooks do: a deployment that interposes a process breaks the
-    equality and gets "no answer", never another session's target.
-
-    Zero matches (no controls server, or a directory this deployment never
-    created) and more than one (an ``owner_ppid`` collision after PID reuse)
-    both answer ``None``, as does a record naming a target no reader knows. A
-    record whose ``server_pid`` is gone is residue — its target describes a
-    server nobody is talking to any more — and is skipped.
-
-    That liveness skip is evaluated when the *signature* moves, not on every
-    lookup: the caller caches this answer against the state files' signature,
-    and a server dying does not touch its file. Deliberately so — a ``kill(pid,
-    0)`` per tool call buys very little, because the record of a server that
-    died is rewritten or swept by the next server to start, which moves the
-    signature and re-runs this. Nothing rests on the freshness of the answer
-    either: the guarantee that a write cannot land on a machine nobody selected
-    is the runtime's generation pin, not this lookup.
-    """
-    matches: list[str] = []
-    for entry in entries:
-        record = target_state.read_file(entry)
-        if not isinstance(record, dict) or record.get("owner_ppid") != owner_ppid:
-            continue
-        server_pid = record.get("server_pid")
-        if not isinstance(server_pid, int) or not target_state.is_process_alive(server_pid):
-            continue
-        target = record.get("target")
-        if target in target_state.TARGET_NAMES:
-            matches.append(str(target))
-    if len(matches) != 1:
-        if matches:
-            logger.debug(
-                "%d control-target records share owner_ppid %s; the session target is unknown",
-                len(matches),
-                owner_ppid,
-            )
-        return None
-    return matches[0]
-
-
 def session_control_target() -> str | None:
     """The control target this process's writes are about, or ``None``.
 
@@ -274,9 +225,20 @@ def session_control_target() -> str | None:
        record's is — a stamp naming something no reader knows can only index
        the store to a key nothing writes, so it is dropped in favour of the
        state record rather than answered with.
-    2. Otherwise the controls server's state record for this session — see
-       :func:`_match_session_record`. This is the reader for the MCP servers,
-       which is where :func:`posture` is called from on every tool call.
+    2. Otherwise the controls server's state record for this session, matched
+       by :func:`osprey.mcp_server.control_system.target_state.session_record`
+       — exact parent equality, the one rule every child of the same Claude
+       Code process reads by. This is the reader for the MCP servers, which is
+       where :func:`posture` is called from on every tool call.
+
+    The liveness skip inside that match is evaluated when the state files'
+    *signature* moves, not on every lookup: the answer is cached against the
+    signature, and a server dying does not touch its file. Deliberately so — a
+    ``kill(pid, 0)`` per tool call buys very little, because the record of a
+    server that died is rewritten or swept by the next server to start, which
+    moves the signature and re-runs the match. Nothing rests on the freshness
+    of the answer either: the guarantee that a write cannot land on a machine
+    nobody selected is the runtime's generation pin, not this lookup.
 
     ``None`` is an honest "not knowable here", and :func:`posture` answers the
     environment for it rather than clamping: this gate refuses EVERY write tool
@@ -321,7 +283,8 @@ def session_control_target() -> str | None:
     if cached is not None and cached[0] == signature:
         return cached[1]
 
-    target = _match_session_record(target_state, entries, owner_ppid)
+    record = target_state.session_record(entries, owner_ppid)
+    target = None if record is None else str(record["target"])
     with _TARGET_CACHE_LOCK:
         _TARGET_CACHE = (signature, target)
     return target

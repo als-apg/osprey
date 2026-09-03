@@ -138,6 +138,7 @@ import json
 import logging
 import os
 import tempfile
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -218,6 +219,7 @@ __all__ = [
     "in_flight_executions",
     "is_process_alive",
     "is_request_fresh",
+    "live_records",
     "publish_last_switch",
     "publish_posture_realign",
     "publish_reachability",
@@ -226,8 +228,10 @@ __all__ = [
     "read_file",
     "read_request",
     "record_child_pids",
+    "record_pid",
     "remove_request",
     "request_file_path",
+    "session_record",
     "state_dir",
     "state_file_path",
     "sweep_stale",
@@ -313,7 +317,7 @@ def _now_iso() -> str:
 # -- liveness --------------------------------------------------------------
 
 
-def is_process_alive(pid: int) -> bool:
+def is_process_alive(pid: object) -> bool:
     """Whether *pid* names a running process.
 
     ``os.kill(pid, 0)`` sends no signal and only asks the kernel whether the
@@ -322,8 +326,14 @@ def is_process_alive(pid: int) -> bool:
     it counts as ALIVE: sweeping a file whose owner is merely unreachable would
     delete live state. Non-positive PIDs are rejected without calling
     ``os.kill`` at all, because 0 and negatives address process *groups*.
+
+    Anything that is not an ``int`` names no process and is ``False`` without
+    a call either, so a record field can be handed over unconverted. That
+    includes ``bool``: ``True`` is ``1`` to ``os.kill``, and PID 1 is always
+    alive, so a record carrying ``"server_pid": true`` would otherwise read as
+    a running server forever.
     """
-    if pid <= 0:
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
         return False
     try:
         os.kill(pid, 0)
@@ -334,6 +344,118 @@ def is_process_alive(pid: int) -> bool:
     except OSError:  # pragma: no cover - platform oddity; assume alive
         return True
     return True
+
+
+# -- the records that describe a session -----------------------------------
+
+
+def record_pid(record: Mapping[str, Any], field: str) -> int | None:
+    """The PID a record's *field* carries, or ``None`` when it carries no PID.
+
+    Strict: the one writer of these files (:func:`write_on_start`) emits an
+    ``int``, so anything else — a string, a float, a ``bool`` (which IS an
+    ``int`` to ``isinstance`` and ``1`` to ``os.kill``) — is a record nothing
+    here wrote, and coercing it would let such a record match a real parent.
+    """
+    value = record.get(field)
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None
+    return value
+
+
+def live_records(entries: Iterable[Path]) -> list[dict[str, Any]]:
+    """Every readable record among *entries* whose owning server still runs.
+
+    A record whose ``server_pid`` is gone is residue: its target describes a
+    server nobody is talking to any more, and the next server to start sweeps
+    it (:func:`sweep_stale`). Unreadable entries are skipped, not raised — a
+    half-written file is the documented "state unavailable" outcome.
+
+    Args:
+        entries: State-file paths, typically ``state_dir().glob(STATE_FILE_GLOB)``.
+            Taken rather than globbed here because one caller keys a cache on
+            the same listing and must not glob twice.
+    """
+    live: list[dict[str, Any]] = []
+    for entry in entries:
+        record = read_file(entry)
+        if record is None:
+            continue
+        server_pid = record_pid(record, "server_pid")
+        if server_pid is None or not is_process_alive(server_pid):
+            continue
+        live.append(record)
+    return live
+
+
+def session_record(
+    entries: Sequence[Path],
+    owner_ppid: int,
+    *,
+    require_generation: bool = False,
+) -> dict[str, Any] | None:
+    """The one live record this session owns, or ``None``.
+
+    THE matcher for every process that is a child of the same Claude Code
+    process as the controls server — the audit posture, the python executor,
+    the banner — so that no two of them can disagree about which session they
+    are in.
+
+    Selection is *exact parent equality*: the controls MCP server that writes
+    these files and the server this code runs in are both spawned by the same
+    Claude Code process, so the record whose ``owner_ppid`` equals our parent
+    is the one describing our session. Deliberately narrower than the
+    ancestor-chain walk the stdlib-only hooks do (and keep, by design: a hook
+    cannot import this module): a deployment that interposes a process breaks
+    the equality and gets "no answer", never another session's target. Strict
+    ``int`` on both sides, per :func:`record_pid`.
+
+    Zero matches (no controls server, or a directory this deployment never
+    created) and more than one (an ``owner_ppid`` collision after PID reuse)
+    both answer ``None``, as does a record naming a target no reader knows. A
+    record whose ``server_pid`` is gone is residue and is skipped
+    (:func:`live_records`).
+
+    Args:
+        entries: State-file paths, as for :func:`live_records`.
+        owner_ppid: This process's parent, ``os.getppid()``.
+        require_generation: Also require an ``int`` ``generation`` — the
+            executor stamps its sandbox with it, and a record without one
+            cannot pin a run.
+
+    Returns:
+        The matching record, or ``None``.
+    """
+    matches: list[dict[str, Any]] = []
+    for record in live_records(entries):
+        if record_pid(record, "owner_ppid") != owner_ppid:
+            continue
+        if record.get("target") not in TARGET_NAMES:
+            continue
+        if require_generation:
+            generation = record.get("generation")
+            if isinstance(generation, bool) or not isinstance(generation, int):
+                continue
+        matches.append(record)
+
+    if len(matches) != 1:
+        if matches:
+            logger.warning(
+                "%d control-target records share owner_ppid %s; the session target is unknown",
+                len(matches),
+                owner_ppid,
+            )
+        elif entries:
+            # Records exist but none is ours — another session's, or a parent
+            # this process does not have. Worth seeing when a switch appears to
+            # have had no effect.
+            logger.debug(
+                "%d control-target record(s) present, none owned by ppid %s",
+                len(entries),
+                owner_ppid,
+            )
+        return None
+    return matches[0]
 
 
 # -- record normalization --------------------------------------------------

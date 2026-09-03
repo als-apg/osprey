@@ -408,6 +408,145 @@ class TestIsProcessAlive:
         assert target_state.is_process_alive(0) is False
         assert target_state.is_process_alive(-1) is False
 
+    @pytest.mark.parametrize("value", [True, False, "4321", 4321.0, None, [4321]])
+    def test_anything_but_an_int_names_no_process(self, monkeypatch, value):
+        """``True`` is ``1`` to ``os.kill``, and PID 1 is always alive."""
+
+        def explode(pid, sig):  # pragma: no cover - must not be called
+            raise AssertionError(f"os.kill called with {pid!r}")
+
+        monkeypatch.setattr(os, "kill", explode)
+        assert target_state.is_process_alive(value) is False
+
+
+# ---------------------------------------------------------------------------
+# The records that describe a session: one matcher for every child process
+# ---------------------------------------------------------------------------
+
+
+def _record(pid, *, owner_ppid=None, target="va", generation=3, **extra) -> dict:
+    payload = {
+        "target": target,
+        "generation": generation,
+        "server_pid": pid,
+        "owner_ppid": os.getppid() if owner_ppid is None else owner_ppid,
+        **extra,
+    }
+    path = target_state.state_file_path(pid if isinstance(pid, int) else 99999)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return payload
+
+
+def _entries():
+    return sorted(target_state.state_dir().glob(target_state.STATE_FILE_GLOB))
+
+
+class TestRecordPid:
+    @pytest.mark.parametrize("value", [True, False, "4321", 4321.0, None, 0, -1])
+    def test_only_a_positive_int_is_a_pid(self, value):
+        assert target_state.record_pid({"server_pid": value}, "server_pid") is None
+
+    def test_a_positive_int_is_returned_as_is(self):
+        assert target_state.record_pid({"server_pid": 4321}, "server_pid") == 4321
+
+    def test_a_missing_field_is_none(self):
+        assert target_state.record_pid({}, "server_pid") is None
+
+
+class TestLiveRecords:
+    def test_a_running_owner_keeps_its_record(self, state_root):
+        _record(os.getpid())
+
+        assert [r["server_pid"] for r in target_state.live_records(_entries())] == [os.getpid()]
+
+    def test_a_dead_owner_is_residue(self, state_root, monkeypatch):
+        _record(4321)
+        monkeypatch.setattr(os, "kill", TestSweep._kill_with_dead({4321}))
+
+        assert target_state.live_records(_entries()) == []
+
+    def test_a_bool_server_pid_is_not_a_live_server(self, state_root, monkeypatch):
+        """``True`` would reach ``os.kill(1, 0)`` and read as alive forever."""
+        _record(True)
+
+        def explode(pid, sig):  # pragma: no cover - must not be called
+            raise AssertionError(f"os.kill called with {pid!r}")
+
+        monkeypatch.setattr(os, "kill", explode)
+        assert target_state.live_records(_entries()) == []
+
+    def test_an_unreadable_entry_is_skipped(self, state_root):
+        _record(os.getpid())
+        target_state.state_file_path(4321).write_text("{not json", encoding="utf-8")
+
+        assert len(target_state.live_records(_entries())) == 1
+
+
+class TestSessionRecord:
+    def test_the_record_our_parent_owns_is_ours(self, state_root):
+        _record(os.getpid())
+
+        record = target_state.session_record(_entries(), os.getppid())
+
+        assert record is not None
+        assert record["target"] == "va"
+
+    def test_another_parents_record_is_not_ours(self, state_root):
+        _record(os.getpid(), owner_ppid=os.getppid() + 100000)
+
+        assert target_state.session_record(_entries(), os.getppid()) is None
+
+    def test_equality_is_strict_int(self, state_root):
+        """A record spelling the parent as a string or a bool matches nothing."""
+        _record(os.getpid(), owner_ppid=str(os.getppid()))
+
+        assert target_state.session_record(_entries(), os.getppid()) is None
+        assert target_state.session_record(_entries(), 1) is None
+
+    def test_a_bool_owner_never_matches_pid_one(self, state_root):
+        _record(os.getpid(), owner_ppid=True)
+
+        assert target_state.session_record(_entries(), 1) is None
+
+    def test_a_dead_server_record_is_residue(self, state_root, monkeypatch):
+        _record(4321)
+        monkeypatch.setattr(os, "kill", TestSweep._kill_with_dead({4321}))
+
+        assert target_state.session_record(_entries(), os.getppid()) is None
+
+    def test_an_unknown_target_is_no_answer(self, state_root):
+        _record(os.getpid(), target="production")
+
+        assert target_state.session_record(_entries(), os.getppid()) is None
+
+    def test_two_records_sharing_the_parent_are_ambiguous(self, state_root, caplog):
+        _record(os.getpid())
+        _record(os.getppid(), target="live")
+
+        with caplog.at_level("WARNING"):
+            assert target_state.session_record(_entries(), os.getppid()) is None
+
+        assert "share owner_ppid" in caplog.text
+
+    def test_generation_is_only_required_when_asked(self, state_root):
+        _record(os.getpid(), generation="3")
+
+        assert target_state.session_record(_entries(), os.getppid()) is not None
+        assert (
+            target_state.session_record(_entries(), os.getppid(), require_generation=True) is None
+        )
+
+    def test_a_bool_generation_does_not_pin_a_run(self, state_root):
+        _record(os.getpid(), generation=True)
+
+        assert (
+            target_state.session_record(_entries(), os.getppid(), require_generation=True) is None
+        )
+
+    def test_no_entries_is_none(self, state_root):
+        assert target_state.session_record([], os.getppid()) is None
+
 
 # ---------------------------------------------------------------------------
 # Shutdown + durability
