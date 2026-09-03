@@ -1,27 +1,60 @@
+// @ts-check
 /**
  * Unit tests for the onboarding tour (tour.js).
  *
  *   npx vitest run tests/interfaces/web_terminal/tour.test.mjs
  *
  * The tour is an invite card followed by spotlighted steps over the live
- * shell. applyTourConfig() records the server-derived facts (invite policy +
- * capability list from GET /api/panels) and arms the automatic invite;
- * startTour() is the on-demand entry (rail control, palette) that ignores
- * the policy. Steps whose anchor is absent drop out. The dismissal flag is
- * storage-scoped (per-persona scoping is covered in
+ * shell. applyTourConfig() records the invite policy from GET /api/panels and
+ * arms the automatic invite; startTour() is the on-demand entry (rail control,
+ * palette) that ignores the policy. Steps whose anchor is absent drop out. The
+ * dismissal flag is storage-scoped (per-persona scoping is covered in
  * js/storage-scope-keys.test.js).
  *
- * terminal.js (the xterm stack) is imported lazily by tour.js and mocked
- * here — the prompt chips must INSERT text, never send it.
+ * What the first card SAYS about this deployment, and what the "Try it" chips
+ * offer, are first-contact.js's derivations — so the tour cannot disagree with
+ * the two views about one deployment. That module is deliberately NOT mocked
+ * here: loading it for real is what proves the tour reaches the same
+ * derivation the views do, rather than a stub that agrees by construction.
+ * Its two inputs are the seams instead — the server's facts through
+ * `setFacts`, and the machine kind through the mocked chip.
+ *
+ * Seams: terminal.js is mocked in the chip suite's shape (it owns the session
+ * id and the xterm stack), extended with the insert seam's exports, because
+ * the module graph now reaches it statically; the control-target chip is
+ * mocked because reading a real kind would need a mounted chip and a served
+ * posture. The prompt chips must INSERT text, never send it.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-const TERMINAL_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/terminal.js';
+/** Mutable stand-in for terminal.js, reachable from the hoisted vi.mock factory. */
+const term = vi.hoisted(() => ({
+  /** @type {string|null} */
+  sessionId: /** @type {string|null} */ (null),
+  /** @type {(() => void)[]} */
+  listeners: [],
+  paste: vi.fn(),
+  focus: vi.fn(),
+}));
 
-const pasteToTerminal = vi.fn();
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () => ({
-  pasteToTerminal,
+  getCurrentSessionId: () => term.sessionId,
+  /** @param {() => void} fn */
+  onSessionChange: (fn) => term.listeners.push(fn),
+  pasteToTerminal: term.paste,
+  focusTerminal: term.focus,
+}));
+
+/** Mutable stand-in for the control-target chip, which owns the machine kind. */
+const chipKind = vi.hoisted(() => ({
+  /** @type {string|null} */
+  value: /** @type {string|null} */ (null),
+}));
+
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/control-target-chip.js', () => ({
+  activeKind: () => chipKind.value,
+  subscribe: vi.fn(),
 }));
 
 import {
@@ -29,6 +62,11 @@ import {
   startTour,
   INVITE_DELAY_MS,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/tour.js';
+import {
+  capabilitySentence,
+  setFacts,
+  starterPrompts,
+} from '../../../src/osprey/interfaces/web_terminal/static/js/first-contact.js';
 
 /** Mount the full set of tour anchors. */
 function mountFullShell() {
@@ -55,11 +93,20 @@ function mountFullShell() {
 /**
  * Arm the invite under `policy` and let the delay elapse.
  * @param {string} [policy]
- * @param {string[]} [capabilities]
  */
-function invite(policy = 'once', capabilities = []) {
-  applyTourConfig({ tour: { policy, capabilities } });
+function invite(policy = 'once') {
+  applyTourConfig({ tour: { policy } });
   vi.advanceTimersByTime(INVITE_DELAY_MS + 1);
+}
+
+/**
+ * Publish what this deployment stands on, both halves at once: the machine
+ * kind the chip would name, and what the server said about the deployment.
+ * @param {{kind?: string|null, capabilities?: string[], logbook?: boolean}} [state]
+ */
+function serve({ kind = null, capabilities = [], logbook = false } = {}) {
+  chipKind.value = kind;
+  setFacts({ capabilities, logbook });
 }
 
 function closeTour() {
@@ -86,12 +133,24 @@ function click(selector) {
 const cardTitle = () => document.querySelector('.tour-title')?.textContent;
 const nextBtn = () => '.tour-nav .tour-btn.primary';
 
+/** The first card's body text, as an operator reads it. */
+const cardBody = () => document.querySelector('.tour-body')?.textContent ?? '';
+
+/** The prompts the current card offers, in order. */
+const chipTexts = () =>
+  [...document.querySelectorAll('.tour-chip')].map((c) => c.textContent ?? '');
+
 beforeEach(() => {
   vi.useFakeTimers();
   localStorage.clear();
   document.body.innerHTML = '';
   document.body.className = '';
-  pasteToTerminal.mockClear();
+  document.documentElement.removeAttribute('data-ui-mode');
+  vi.clearAllMocks();
+  // first-contact.js holds this deployment's facts as module state, and these
+  // tests share one instance of it: reset both of its inputs, or one test's
+  // machine leaks into the next one's card.
+  serve();
 });
 
 afterEach(() => {
@@ -165,7 +224,7 @@ describe('invite policy', () => {
 describe('steps', () => {
   test('all ten steps run with the full shell mounted, in order', () => {
     mountFullShell();
-    applyTourConfig({ tour: { policy: 'never', capabilities: [] } });
+    applyTourConfig({ tour: { policy: 'never' } });
     startTour();
 
     const titles = [];
@@ -196,16 +255,51 @@ describe('steps', () => {
     expect(document.querySelector('.tour-kicker')?.textContent).toBe('Step 1 of 2');
   });
 
-  test('the capability list renders verbatim from the payload', () => {
+  test('the first card says exactly what first contact derives', () => {
     document.body.innerHTML = '<div class="terminal-card"></div>';
-    applyTourConfig({
-      tour: { policy: 'never', capabilities: ['read live machine values', 'make plots'] },
-    });
+    serve({ kind: 'simulated', capabilities: ['make plots'] });
     startTour();
 
-    expect(document.querySelector('.tour-body')?.textContent).toContain(
-      'read live machine values, and make plots'
-    );
+    // Not a substring of the tour's own composing: the whole sentence, so the
+    // card and the two views cannot drift apart a word at a time.
+    expect(cardBody()).toContain(capabilitySentence());
+    expect(cardBody()).toContain('read demo data and make plots');
+  });
+
+  test('a demo deployment is never described as reading the live machine', () => {
+    document.body.innerHTML = '<div class="terminal-card"></div>';
+    serve({ kind: 'simulated', capabilities: ['make plots'] });
+    startTour();
+
+    // The one claim the derivation exists to prevent. The server used to emit
+    // this phrase for the mock connector too, and the card repeated it.
+    expect(cardBody()).not.toContain('live machine');
+  });
+
+  test('a live deployment says so', () => {
+    document.body.innerHTML = '<div class="terminal-card"></div>';
+    serve({ kind: 'live', capabilities: ['make plots'] });
+    startTour();
+
+    expect(cardBody()).toContain(capabilitySentence());
+    expect(cardBody()).toContain('read live machine values');
+  });
+
+  test('a session on no known machine gets no read phrase', () => {
+    document.body.innerHTML = '<div class="terminal-card"></div>';
+    serve({ kind: null });
+    startTour();
+
+    expect(capabilitySentence()).toBe('');
+    expect(cardBody()).toBe('This terminal lets you talk to the OSPREY agent.');
+  });
+
+  test('a deployment with no capabilities still names where values come from', () => {
+    document.body.innerHTML = '<div class="terminal-card"></div>';
+    serve({ kind: 'standin' });
+    startTour();
+
+    expect(cardBody()).toContain('read values from the rehearsal copy');
   });
 
   test('chip-derived text renders as text — markup in a facility name stays inert', () => {
@@ -263,17 +357,80 @@ describe('activation', () => {
 });
 
 describe('prompt chips', () => {
-  test('a chip inserts its prompt into the terminal and sends nothing', async () => {
+  /** Walk the two-step tour on a bare terminal card to the "Try it" card. */
+  function reachTryIt() {
     document.body.innerHTML = '<div class="terminal-card"></div>';
     startTour();
     click(nextBtn()); // → Try it (only 2 steps here)
     vi.advanceTimersByTime(200);
     expect(cardTitle()).toBe('Try it');
+  }
+
+  test('the chips are first contact\'s starter prompts, in its order', () => {
+    serve({ kind: 'simulated', logbook: true });
+    reachTryIt();
+
+    expect(chipTexts()).toEqual(starterPrompts());
+    // Pinned as literals too, so a derivation that quietly went empty could
+    // not satisfy the comparison above by matching nothing.
+    expect(chipTexts()).toEqual([
+      'What can you read right now?',
+      'What are you allowed to do in this session?',
+      'What happened in the logbook today?',
+    ]);
+  });
+
+  test('a deployment that cannot answer a question does not offer it', () => {
+    serve({ kind: null, logbook: false });
+    reachTryIt();
+
+    expect(chipTexts()).toEqual(['What are you allowed to do in this session?']);
+  });
+
+  test('the prompts follow the machine, resolved when the card renders', () => {
+    serve({ kind: null });
+    reachTryIt();
+    expect(chipTexts()).not.toContain('What can you read right now?');
+
+    // The chip settles on a machine while the tour is already open; going back
+    // and forward re-renders the card, and the offer follows.
+    chipKind.value = 'live';
+    click('.tour-nav .tour-btn.ghost'); // Back
+    click(nextBtn());
+    vi.advanceTimersByTime(200);
+
+    expect(chipTexts()).toContain('What can you read right now?');
+  });
+
+  test('a chip inserts its prompt into the terminal and sends nothing', () => {
+    serve({ kind: 'live' });
+    reachTryIt();
 
     click('.tour-chip');
-    await import(TERMINAL_PATH); // let the lazy import settle
-    await Promise.resolve();
-    expect(pasteToTerminal).toHaveBeenCalledWith('What can you see on this machine?');
-    expect(pasteToTerminal.mock.calls[0][0].endsWith('\n')).toBe(false);
+
+    expect(term.paste).toHaveBeenCalledWith('What can you read right now?');
+    expect(term.paste.mock.calls[0][0].endsWith('\n')).toBe(false);
+    // Inserted where the operator can carry on typing — the seam moves focus,
+    // it does not press Enter for them.
+    expect(term.focus).toHaveBeenCalled();
+  });
+
+  test('in Simple view the chip reaches the visible input, not the hidden terminal', () => {
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    serve({ kind: 'live' });
+    reachTryIt();
+    // The Simple view's one prompt input, alongside the tour's own anchor.
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      '<div id="operator-container"><div class="op-input-area"><textarea></textarea></div></div>'
+    );
+
+    click('.tour-chip');
+
+    const input = /** @type {HTMLTextAreaElement} */ (
+      document.querySelector('#operator-container .op-input-area textarea')
+    );
+    expect(input.value).toBe('What can you read right now?');
+    expect(term.paste).not.toHaveBeenCalled();
   });
 });

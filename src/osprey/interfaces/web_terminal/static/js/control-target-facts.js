@@ -45,6 +45,21 @@ export const KIND_WORDS = {
 };
 
 /**
+ * The "read" capability phrase first contact and the tour put in front of an
+ * operator, keyed on the same `data-target-kind` value as {@link KIND_WORDS}.
+ * Keyed rather than fixed because the sentence is a promise about where the
+ * numbers come from: a demo connector saying "read live machine values" would
+ * be the one claim this vocabulary exists to prevent.
+ * @type {Record<string, string>}
+ */
+export const KIND_READ_PHRASES = {
+  live: 'read live machine values',
+  standin: 'read values from the rehearsal copy',
+  va: 'read values from the simulator',
+  simulated: 'read demo data',
+};
+
+/**
  * The one-line descriptor under each name: what writing to this machine does.
  * These are statements of consequence, not of process — nothing about
  * approvals or limits, which are configuration this file cannot see.

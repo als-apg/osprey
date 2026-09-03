@@ -739,6 +739,28 @@ export function stateWord(row) {
 }
 
 /**
+ * The kind of machine this session stands on — `live`, `standin`, `va` or
+ * `simulated` — or `null` while nothing has been read yet.
+ *
+ * The chip's own two steps, the row it speaks for and that row's kind, handed
+ * out as one answer. A consumer that phrases what a read or a write MEANS here
+ * is describing the machine the chip names a few pixels away, so it must not
+ * walk the roster a second time: a second derivation is how the two come to
+ * disagree, and disagreeing about whether this is the facility's own machine
+ * is the one thing this surface exists to prevent.
+ *
+ * Recomputed per call from {@link getState}, so pairing it with
+ * {@link subscribe} follows a switch without any state of its own.
+ * @returns {string|null}
+ */
+export function activeKind() {
+  const state = getState();
+  if (!state) return null;
+  const row = activeRow(state);
+  return row ? kindAttr(row) : null;
+}
+
+/**
  * Paint the chip from {@link getState}, then tell the subscribers.
  *
  * Everything visual is a data attribute; not one colour name is spelled here.

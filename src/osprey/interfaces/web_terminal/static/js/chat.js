@@ -16,6 +16,7 @@
 
 import { sendPrompt, interrupt, deleteChat } from './chat-client.js';
 import { createChatRenderer, elem } from './chat-render.js';
+import { buildEmptyState, onKindChange, onSettled, renderEmptyStateContent } from './first-contact.js';
 
 /** Max textarea height (px) before it scrolls — matches operator.css. */
 const MAX_INPUT_HEIGHT = 120;
@@ -151,6 +152,24 @@ export function initChat(containerId = 'operator-container') {
   /** In-flight turn handle, or null when idle. Also the streaming/idle flag. */
   let handle = /** @type {import('./chat-client.js').ChatAbortHandle | null} */ (null);
 
+  /** The first-contact block while it is on screen, or null once it is gone. */
+  let emptyState = /** @type {HTMLElement | null} */ (null);
+
+  // First contact, once there is enough known to say something true. A log that
+  // already has entries in it is not empty and needs no invitation — a resumed
+  // page reaches the settled moment too.
+  onSettled(() => {
+    if (renderer.messageCount() > 0) return;
+    emptyState = buildEmptyState();
+    messages.prepend(emptyState);
+  });
+
+  // A switch changes what the sentence may claim. Rebuilt in place, and only
+  // while the block is still the whole of the log.
+  onKindChange(() => {
+    if (emptyState) renderEmptyStateContent(emptyState);
+  });
+
   const isPinned = () =>
     messages.scrollHeight - messages.scrollTop - messages.clientHeight < STICK_THRESHOLD;
   const scrollToBottom = () => {
@@ -195,6 +214,9 @@ export function initChat(containerId = 'operator-container') {
     if (!prompt) return;
 
     renderer.addUserMessage(prompt);
+    // The invitation has been taken; the log is the conversation from here.
+    emptyState?.remove();
+    emptyState = null;
     textarea.value = '';
     autoResize();
     scrollToBottom();

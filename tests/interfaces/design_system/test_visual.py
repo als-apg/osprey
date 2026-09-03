@@ -556,6 +556,12 @@ def test_visual_snapshot(tmp_path, chromium_browser, target: VisualTarget, pytes
                                     '.dock-iframe-overlay iframe[data-panel-id="artifacts"]'
                                 )
                             ).to_be_visible(timeout=10_000)
+                    if target.dock_shell and mode == "simple":
+                        # The Simple empty state renders at the settled moment
+                        # (server facts, session id, chip), a beat after the
+                        # grid. A capture before it lands would pin the wrong
+                        # state and flake against a frame that includes it.
+                        expect(page.locator(".op-messages .op-empty")).to_be_visible(timeout=10_000)
                     # Let async init (panel health polling, SSE-driven layout,
                     # font swaps) settle before the screenshot.
                     page.wait_for_timeout(600)

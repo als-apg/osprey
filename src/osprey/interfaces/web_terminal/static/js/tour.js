@@ -9,10 +9,11 @@
  * Honesty rule: the tour never promises safety properties. The target step
  * reads the control-target chip's own rendered words (the server-derived
  * facts) and states them as the CURRENT configuration — nothing more.
- * Approval flows are config-dependent and therefore never mentioned. The
- * capability list arrives derived from the server (`GET /api/panels` →
- * `tour.capabilities`); the browser renders it verbatim and invents
- * nothing.
+ * Approval flows are config-dependent and therefore never mentioned.
+ *
+ * What the agent can do here, the questions offered as chips, and the chip
+ * row itself come from first-contact.js, which the Simple empty state and the
+ * Expert strip render too; that module's header carries the reasoning.
  *
  * Invite policy (`GET /api/panels` → `tour.policy`, resolved server-side
  * from `web.tour` / `OSPREY_WEB_TOUR`):
@@ -40,17 +41,7 @@
 import { installFocusTrap, removeFocusTrap } from '/design-system/js/focus-trap.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { isLive } from './bar-host.js';
-
-/**
- * Insert a prompt into the terminal — inserted, not sent; the visitor
- * presses Enter. Imported lazily so this module stays loadable without the
- * xterm stack (jsdom tests, future embedders).
- * @param {string} text
- */
-async function insertPrompt(text) {
-  const { pasteToTerminal } = await import('./terminal.js');
-  pasteToTerminal(text);
-}
+import { capabilitySentence, chipRow, starterPrompts } from './first-contact.js';
 
 /** Dismissal flag ("Don't show this again" / completed). Scoped per user. */
 const DISMISS_BASE = 'osprey-tour-dismissed-v1';
@@ -63,8 +54,13 @@ const SETTLE_MS = 160;
 
 /* ---- Server-derived facts (applyTourConfig) ---- */
 
-/** @type {{policy: string, capabilities: string[]}} */
-let facts = { policy: 'never', capabilities: [] };
+/**
+ * The one thing the tour reads off `GET /api/panels` for itself: when to
+ * invite. Everything the cards SAY about this deployment belongs to
+ * first-contact.js, which panel-manager.js hands the same payload.
+ * @type {{policy: string}}
+ */
+let facts = { policy: 'never' };
 
 /* ---- Storage ---- */
 
@@ -174,10 +170,6 @@ const chipFacts = () => {
   return { name: (short.textContent || '').trim(), state: (state.textContent || '').trim() };
 };
 
-/** "a, b, and c" @param {string[]} items */
-const listPhrase = (items) =>
-  items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
-
 /**
  * @typedef {Object} TourStep
  * @property {() => Element | null} anchor
@@ -187,7 +179,9 @@ const listPhrase = (items) =>
  * @property {() => (Element | null)[]} [extras]
  * @property {'left'} [place]
  * @property {string} [foot]
- * @property {string[]} [chips]
+ * @property {() => string[]} [chips] resolved at render, not at module load —
+ *   the prompts on offer follow the machine this session stands on, and that
+ *   can change under a tour that is already open.
  */
 
 /**
@@ -226,9 +220,10 @@ const STEPS = [
     title: 'Ask in plain language',
     body: () => {
       const parts = ['This terminal lets you talk to the ', strong('OSPREY agent'), '.'];
-      if (facts.capabilities.length > 0) {
-        parts.push(` Here it can ${listPhrase(facts.capabilities)}.`);
-      }
+      // Read here, not at module load: the chip's kind settles after boot, and
+      // a card built from a stale kind would name the wrong machine's values.
+      const sentence = capabilitySentence();
+      if (sentence) parts.push(` ${sentence}`);
       return parts;
     },
     foot: 'Enter sends · Esc interrupts the agent at any time.',
@@ -336,7 +331,7 @@ const STEPS = [
     body: () => [
       'Pick a question to start.',
     ],
-    chips: ['What can you see on this machine?', 'What are you allowed to do in this session?'],
+    chips: starterPrompts,
     foot: 'Retake this tour any time from the rail.',
   },
 ];
@@ -511,16 +506,10 @@ const tour = {
 
     card.append(cancel, kicker, title, body);
 
-    if (step.chips) {
-      const chips = el('div', 'tour-chips');
-      for (const prompt of step.chips) {
-        const chip = el('button', 'tour-chip', prompt);
-        chip.type = 'button';
-        chip.onclick = () => insertPrompt(prompt);
-        chips.appendChild(chip);
-      }
-      card.appendChild(chips);
-    }
+    // A step that offers no prompt renders no strip: an empty `.tour-chips`
+    // would be a gap under the body with nothing in it.
+    const prompts = step.chips ? step.chips() : [];
+    if (prompts.length) card.appendChild(chipRow(prompts));
     if (step.foot) card.appendChild(el('div', 'tour-foot', step.foot));
 
     const nav = el('div', 'tour-nav');
@@ -631,7 +620,7 @@ export function startTour() {
 }
 
 /**
- * Record the server-derived tour facts and arm the automatic invite.
+ * Record the invite policy and arm the automatic invite.
  *
  * Called once from panel-manager's boot with the `GET /api/panels` payload
  * (the page's ONE round trip). A null/failed payload leaves the tour
@@ -639,17 +628,16 @@ export function startTour() {
  * invite is additionally suppressed on embedded pages (the shell inside a
  * dashboard is not a first visit).
  *
- * @param {{tour?: {policy?: unknown, capabilities?: unknown}} | null | undefined} panelsPayload
+ * The same payload reaches first-contact.js through its own `setFacts`, which
+ * panel-manager calls whether or not this one returns early: what the cards
+ * say must not depend on whether the tour is on offer.
+ *
+ * @param {{tour?: {policy?: unknown}} | null | undefined} panelsPayload
  */
 export function applyTourConfig(panelsPayload) {
   const cfg = panelsPayload?.tour;
   if (!cfg) return;
-  facts = {
-    policy: typeof cfg.policy === 'string' ? cfg.policy : 'never',
-    capabilities: Array.isArray(cfg.capabilities)
-      ? cfg.capabilities.filter((c) => typeof c === 'string')
-      : [],
-  };
+  facts = { policy: typeof cfg.policy === 'string' ? cfg.policy : 'never' };
 
   const invite =
     facts.policy === 'always' || (facts.policy === 'once' && !isDismissed());

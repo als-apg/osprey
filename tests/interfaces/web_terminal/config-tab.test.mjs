@@ -281,7 +281,17 @@ describe('command palette guards on the tab being gone', () => {
       closePalette: () => {},
       isOpen: () => false,
     }),
-    'terminal.js': () => ({ restartTerminal: async () => {}, startTerminal: () => {} }),
+    // The two verbs palette-boot binds, plus the four the first-contact graph
+    // reaches through tour.js: an absent export on a whole-module stub is
+    // `undefined`, and first contact calls one of them at import time.
+    'terminal.js': () => ({
+      restartTerminal: async () => {},
+      startTerminal: () => {},
+      getCurrentSessionId: () => null,
+      onSessionChange: () => {},
+      pasteToTerminal: () => {},
+      focusTerminal: () => {},
+    }),
     'panel-manager.js': () => ({
       getHiddenPanels: () => [],
       getVisiblePanels: () => [],

@@ -1038,6 +1038,7 @@ jobs:
           tests/interfaces/web_terminal/test_posture_toggle_browser.py \
           tests/interfaces/web_terminal/test_bar_items_browser.py \
           tests/interfaces/web_terminal/test_ui_mode_browser.py \
+          tests/interfaces/web_terminal/test_first_contact_simple_browser.py \
           tests/interfaces/web_terminal/test_chat_browser.py \
           tests/interfaces/web_terminal/test_rail_position_browser.py \
           tests/interfaces/web_terminal/test_session_persistence_browser.py \

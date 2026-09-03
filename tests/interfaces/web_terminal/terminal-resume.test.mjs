@@ -155,6 +155,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   document.documentElement.removeAttribute('data-osprey-storage-scope');
+  document.documentElement.removeAttribute('data-ui-mode');
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -434,5 +435,61 @@ describe('transcript missing: an explicit state, never a dead PTY', () => {
 
     expect(FakeWebSocket.created).toBe(socketsBefore);
     expect(/** @type {FakeWebSocket} */ (FakeWebSocket.last).sent).toContain('\r');
+  });
+});
+
+describe('a refused own-resume in Simple view', () => {
+  // The block above pins the Expert answer to this same frame: say what
+  // happened, then wait for Enter. Simple view hides the terminal entirely, so
+  // both halves of that answer land in a window nobody can see or reach, and
+  // the chat would sit silent until someone thought to reload. The stale
+  // pointer is already gone from storage by then, so nothing is left for the
+  // operator to decide and the client makes the only remaining move itself.
+
+  test('a fresh session is started instead of arming a hidden Enter', () => {
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    localStorage.setItem(STORAGE_KEY, 'gone-id');
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    const socketsBefore = FakeWebSocket.created;
+
+    receive({ type: 'transcript_missing', session_id: 'gone-id' });
+
+    expect(FakeWebSocket.created).toBe(socketsBefore + 1);
+    const url = /** @type {FakeWebSocket} */ (FakeWebSocket.last).url;
+    expect(url).not.toContain('session_id=');
+    expect(url).not.toContain('mode=resume');
+    // Nothing was asked of the operator, so nothing claims to have been.
+    expect(/** @type {FakeTerminal} */ (FakeTerminal.last).written).not.toMatch(/Press Enter/);
+  });
+
+  test('Enter is ordinary input on the session that replaces it', () => {
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    localStorage.setItem(STORAGE_KEY, 'gone-id');
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    receive({ type: 'transcript_missing', session_id: 'gone-id' });
+    openSocket();
+    const socketsBefore = FakeWebSocket.created;
+
+    press('\r');
+
+    expect(FakeWebSocket.created).toBe(socketsBefore);
+    expect(/** @type {FakeWebSocket} */ (FakeWebSocket.last).sent).toContain('\r');
+  });
+
+  test('a refused switch is untouched by the mode', () => {
+    // The server kept the current PTY attached, so the operator is still on a
+    // live session and there is nothing to start in either view.
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    receive({ type: 'session_info', session_id: 'live-id' });
+    const socketsBefore = FakeWebSocket.created;
+
+    receive({ type: 'transcript_missing', session_id: 'other-id' });
+
+    expect(FakeWebSocket.created).toBe(socketsBefore);
+    expect(terminal.getCurrentSessionId()).toBe('live-id');
   });
 });

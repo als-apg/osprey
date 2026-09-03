@@ -125,7 +125,7 @@ describe('tour.js', () => {
 
   /** Arm the automatic invite and let its delay elapse. */
   function inviteNow() {
-    applyTourConfig({ tour: { policy: 'once', capabilities: [] } });
+    applyTourConfig({ tour: { policy: 'once' } });
     vi.advanceTimersByTime(INVITE_DELAY_MS + 1);
   }
 

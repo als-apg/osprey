@@ -107,6 +107,44 @@ html[data-ui-mode="simple"] #operator-container {
   gap: 2px;
 }
 
+/* ---- First contact (shown while the log is empty) ---- */
+
+/* Mono, because it sits where log entries will: the block is the first thing
+   in the console and must read as part of it, not as chrome above it. The
+   chips inherit the family through `.tour-chip { font: inherit }`. */
+.op-empty {
+  padding: 16px 16px 6px 14px;
+  max-width: 640px;
+  font-family: var(--font-mono);
+}
+
+.op-empty-intro {
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
+  color: var(--text-secondary);
+  margin: 0 0 10px;
+}
+
+/* The capability phrases themselves — the part of the sentence that is a claim
+   about this deployment, lifted out of the connective text around it. */
+.op-empty-intro strong {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+
+/* The chips ARE the tour's (tour.css): one affordance, one look, wherever the
+   same prompts are offered. Only the fit is local — the intro already carries
+   the gap below it, and the console's type scale is a step down from a tour
+   card's. */
+.op-empty .tour-chips {
+  margin-top: 0;
+}
+
+.op-empty .tour-chip {
+  font-size: var(--text-md);
+  padding: 8px 12px;
+}
+
 /* ---- Log entries (full-width, no chat bubbles) ---- */
 
 .op-entry {

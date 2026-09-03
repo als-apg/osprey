@@ -40,6 +40,7 @@ import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-com
 import { applyConfigTabGate } from './config-tab.js';
 import { applyScaffoldWriteGate } from './scaffold/write-gate.js';
 import { applyTourConfig } from './tour.js';
+import { setFacts } from './first-contact.js';
 import {
   initDockIframeAdapter, focusPanel, hidePanel, concealPanel,
   setKnownServicePanels, setServerVisiblePanels,
@@ -408,6 +409,13 @@ export async function initPanelManager(panelId) {
   // capability list) on the same single /api/panels round trip. tour.js owns
   // the policy; a failed fetch (null) leaves the tour on-demand only.
   applyTourConfig(panelConfig);
+
+  // Hand first contact the same facts off the same round trip. Unlike every
+  // other server-config read above, the failed fetch (null) is NOT a no-op
+  // here: the greeting and its starter prompts render either way, so they need
+  // to be told the facts are in — with nothing in them — or they would wait
+  // for a payload that is never coming.
+  setFacts(panelConfig ? panelConfig.tour : null);
 
   // A human closing a dock tile is a LOCAL vacate (occupancy is per-client
   // layout state; the panel keeps its rail membership) — reconcile the local

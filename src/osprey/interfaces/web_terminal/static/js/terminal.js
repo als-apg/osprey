@@ -421,16 +421,28 @@ export function startTerminal(sessionId = null, mode = 'new') {
             autoResumeFailoverId = null;
             if (msg.session_id === currentSessionId) {
               // This connection's own resume. Drop the pointer so no reload
-              // asks for it again, drop the socket so the wrapper does not
-              // reconnect to the same refused URL, and arm Enter.
+              // asks for it again, and drop the socket so the wrapper does not
+              // reconnect to the same refused URL.
               clearStoredSessionId();
               stopTerminal();
               setSessionLabel(null);
-              term.write(
-                `\r\n\x1b[33mThe transcript for session ${msg.session_id} is missing, so it cannot be resumed.\x1b[0m\r\n` +
-                'Press Enter to start a new session.\r\n'
-              );
-              freshStartArmed = true;
+              if (document.documentElement.getAttribute('data-ui-mode') === 'simple') {
+                // Simple view hides the terminal, so writing the state into it
+                // and waiting for Enter asks for a keystroke in a window the
+                // operator cannot see or reach: the chat sits silent until
+                // someone thinks to reload. Nothing about the refusal is
+                // theirs to decide here — the id is already gone from storage
+                // — so make the only remaining move for them.
+                startTerminal();
+              } else {
+                // Expert view can show what happened, so it does, and arms
+                // Enter to make the next move the operator's.
+                term.write(
+                  `\r\n\x1b[33mThe transcript for session ${msg.session_id} is missing, so it cannot be resumed.\x1b[0m\r\n` +
+                  'Press Enter to start a new session.\r\n'
+                );
+                freshStartArmed = true;
+              }
             } else {
               // A refused switch_session: the server kept the current PTY
               // attached, so the operator is still on a live session.

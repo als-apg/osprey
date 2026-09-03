@@ -373,15 +373,17 @@ async def get_panels(request: Request):
         [{"kind": "github", "label": "GitHub", "repo": "als-apg/osprey"}],
     )
     feedback_email = getattr(request.app.state, "feedback_email", "thellert@lbl.gov")
-    # Onboarding tour: the resolved invite policy plus the derived capability
-    # list for the "Ask in plain language" card. Both resolved at startup
-    # (web.tour / OSPREY_WEB_TOUR; config + enabled panels) — the browser
-    # renders these facts and never invents its own. "once" default mirrors
+    # Onboarding tour: the resolved invite policy, the derived capability
+    # list for the "Ask in plain language" card, and whether the logbook
+    # (ARIEL panel) is available. All resolved at startup (web.tour /
+    # OSPREY_WEB_TOUR; config + enabled panels) — the browser renders these
+    # facts and never invents its own. "once" default mirrors
     # app.DEFAULT_TOUR_POLICY — a literal for the routes->app import-cycle
     # reason above.
     tour = {
         "policy": getattr(request.app.state, "web_tour_policy", "once"),
         "capabilities": list(getattr(request.app.state, "tour_capabilities", [])),
+        "logbook": bool(getattr(request.app.state, "tour_logbook", False)),
     }
     return {
         "enabled": enabled,
