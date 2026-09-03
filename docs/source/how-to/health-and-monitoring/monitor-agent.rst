@@ -123,7 +123,7 @@ default. If your project removed it, restore it:
    services:
      openobserve:
        path: ./services/openobserve
-       port: 5080          # host port for the UI + OTLP ingest
+       port: 10050         # host port for the UI + OTLP ingest (deployment.port_base + 50)
 
    deployed_services:
      - openobserve
@@ -246,8 +246,10 @@ deploy warns with a named remedy and carries on — telemetry is the only thing
 affected, and every other service in the deployment comes up as usual. The
 remedy is almost always to run ``osprey up`` again once the store is running.
 
-The UI is then available at ``http://localhost:5080`` (log in with the **root**
-credentials). Verify the service is recognized with ``osprey health``.
+The UI is then available at ``http://localhost:10050`` — the layout's
+``openobserve`` slot, ``deployment.port_base`` + 50; ``services.openobserve.port``
+moves it. Log in with the **root** credentials. Verify the service is
+recognized with ``osprey health``.
 
 4. Point the agent at it
 ------------------------
@@ -414,5 +416,6 @@ Caveats
   if below OpenObserve's floor of 3 days), and the percentage-full of the disk
   the volume grows into.
 - **Local by design.** The service binds to localhost by default. Do not expose
-  port 5080 beyond the host without putting authentication and transport
-  security in front of it.
+  the store's published port (``services.openobserve.port``, 10050 by default)
+  beyond the host without putting authentication and transport security in
+  front of it.

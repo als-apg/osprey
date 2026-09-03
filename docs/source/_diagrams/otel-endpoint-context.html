@@ -1,7 +1,7 @@
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 336" role="img" aria-labelledby="otel-endpoint-title otel-endpoint-desc">
   <title id="otel-endpoint-title">Where the OTLP endpoint points, by running context</title>
-  <desc id="otel-endpoint-desc">One OpenObserve store is reached under a different host name depending on where the emitter runs: localhost from a plain host run, the compose service name openobserve from a bridge-networked container, and localhost again from a host-networked container where the compose DNS name would not resolve. The port 5080 is fixed and does not follow a changed published port.</desc>
+  <desc id="otel-endpoint-desc">One OpenObserve store is reached under a different host name depending on where the emitter runs: localhost from a plain host run, the compose service name openobserve from a bridge-networked container, and localhost again from a host-networked container where the compose DNS name would not resolve. The port is the one the store publishes (services.openobserve.port); only a bridge-networked container reaches it on the image's fixed listen port, 5080.</desc>
   <defs>
     <marker id="otel-endpoint-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -23,7 +23,7 @@
   <rect class="nb" x="16" y="130" width="300" height="64" rx="6"/>
   <text class="tn" x="166" y="154" text-anchor="middle">bridge-networked container</text>
   <text class="ts" x="166" y="171" text-anchor="middle">the containerized dispatch worker</text>
-  <text class="ts" x="166" y="186" text-anchor="middle">host must be openobserve</text>
+  <text class="ts" x="166" y="186" text-anchor="middle">host must be openobserve, port must be 5080</text>
 
   <rect class="nb" x="16" y="220" width="300" height="64" rx="6"/>
   <text class="tn" x="166" y="244" text-anchor="middle">host-networked container</text>
@@ -39,10 +39,10 @@
 
   <rect class="nb-st" x="620" y="120" width="300" height="84" rx="6"/>
   <text class="tn" x="770" y="148" text-anchor="middle">OpenObserve</text>
-  <text class="ts" x="770" y="167" text-anchor="middle">http://&lt;host&gt;:5080/api/&lt;org&gt;</text>
+  <text class="ts" x="770" y="167" text-anchor="middle">http://&lt;host&gt;:&lt;port&gt;/api/&lt;org&gt;</text>
   <text class="ts" x="770" y="185" text-anchor="middle">one store, reached by three names</text>
 
-  <text class="ta ta-warn" x="480" y="308" text-anchor="middle">5080 is fixed — the derivation does not follow a changed services.openobserve.port; publish elsewhere and set endpoint: explicitly</text>
+  <text class="ta ta-warn" x="480" y="308" text-anchor="middle">the port follows services.openobserve.port — only the bridge case uses the image's fixed 5080; do not hardcode endpoint:</text>
   <text class="ta ta-warn" x="480" y="324" text-anchor="middle">hardcoding endpoint: points every context at one host and silently drops the records from the others</text>
 </svg>
 </div>
