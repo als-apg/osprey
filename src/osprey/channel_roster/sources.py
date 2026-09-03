@@ -170,12 +170,20 @@ def _graph_source(config: dict) -> RosterSourceResolution:
     operator has to edit, rather than a connection attempt whose failure would
     be reported as an empty facility.
 
+    A block the service resolver cannot read is its own absence
+    (:attr:`~osprey.channel_roster.records.RosterAbsenceReason.GRAPH_MALFORMED`),
+    carrying the resolver's complaint: "you declared no corpus" and "the line
+    you declared it with cannot be read" send an operator to different edits.
+    Fail-soft either way -- the build stays browse-only and the web body says
+    why -- because no source was named, so none is there to be corrupt.
+
     Args:
         config: Full project configuration dictionary.
 
     Returns:
         The corpus source, or a
         :attr:`~osprey.channel_roster.records.RosterAbsenceReason.GRAPH_NO_TTL`
+        / :attr:`~osprey.channel_roster.records.RosterAbsenceReason.GRAPH_MALFORMED`
         absence.
     """
     from osprey.deployment.graphdb_service import resolve_graphdb_service_config
@@ -187,7 +195,13 @@ def _graph_source(config: dict) -> RosterSourceResolution:
             f"The services.graphdb block is malformed ({e}), so it names no readable "
             "knowledge-graph corpus to enumerate channels from."
         )
-        settings = None
+        return RosterSourceResolution(
+            absence=RosterAbsence(
+                reason=RosterAbsenceReason.GRAPH_MALFORMED,
+                config_keys=GRAPH_CORPUS_CONFIG_KEYS,
+                detail=str(e),
+            )
+        )
 
     if settings is None or settings.ttl_path is None:
         return RosterSourceResolution(

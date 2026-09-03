@@ -458,11 +458,14 @@ def _graph_roster(config: dict):
     )
 
     resolution = resolve_roster_source(config)
+    # Graph mode with no readable corpus is still graph mode: both absences
+    # come back so the refusal can name the corpus keys, or the broken line.
     graph_configured = (
         resolution.source is not None and resolution.source.kind is RosterSourceKind.GRAPH
     ) or (
         resolution.absence is not None
-        and resolution.absence.reason is RosterAbsenceReason.GRAPH_NO_TTL
+        and resolution.absence.reason
+        in (RosterAbsenceReason.GRAPH_NO_TTL, RosterAbsenceReason.GRAPH_MALFORMED)
     )
     if not graph_configured:
         return None

@@ -207,6 +207,8 @@ class TestRosterAbsence:
         ("reason", "kwargs", "missing"),
         [
             (RosterAbsenceReason.GRAPH_NO_TTL, {}, "config_keys"),
+            (RosterAbsenceReason.GRAPH_MALFORMED, {"detail": "boom"}, "config_keys"),
+            (RosterAbsenceReason.GRAPH_MALFORMED, {"config_keys": ("k",)}, "detail"),
             (RosterAbsenceReason.DIRECTION_UNDERIVABLE, {}, "path"),
             (RosterAbsenceReason.CORRUPT_SOURCE, {"detail": "boom"}, "path"),
             (RosterAbsenceReason.CORRUPT_SOURCE, {"path": Path("/x")}, "detail"),

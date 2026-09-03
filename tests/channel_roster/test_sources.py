@@ -92,7 +92,7 @@ class TestGraphMode:
         assert resolution.absence is not None
         assert resolution.absence.reason is RosterAbsenceReason.GRAPH_NO_TTL
 
-    def test_malformed_graphdb_block_degrades_to_the_same_absence(self, caplog) -> None:
+    def test_malformed_graphdb_block_is_its_own_absence_naming_the_why(self, caplog) -> None:
         config = {
             "channel_finder": {"pipeline_mode": "graph"},
             "services": {"graphdb": {"ttl_path": "   "}},
@@ -101,10 +101,17 @@ class TestGraphMode:
         with caplog.at_level("WARNING"):
             resolution = resolve_roster_source(config)
 
+        assert resolution.source is None
         assert resolution.absence is not None
-        assert resolution.absence.reason is RosterAbsenceReason.GRAPH_NO_TTL
         # A blank value is a config mistake rather than a deliberate "no local
-        # corpus", so unlike the absent block it is warned about by name.
+        # corpus": a different remedy, so a different reason, still fail-soft.
+        assert resolution.absence.reason is RosterAbsenceReason.GRAPH_MALFORMED
+        assert resolution.absence.config_keys == GRAPH_CORPUS_CONFIG_KEYS
+        assert resolution.absence.detail
+        message = resolution.absence.message()
+        assert resolution.absence.detail in message
+        assert "services.graphdb.ttl_path" in message
+        assert "services.graphdb.uri" in message
         assert "services.graphdb" in caplog.text
 
     def test_absolute_ttl_path_is_taken_as_written(self, tmp_path: Path) -> None:
