@@ -688,6 +688,9 @@ def stubbed_start(monkeypatch):
         "log_endpoint_summary",
     ):
         monkeypatch.setattr(container_lifecycle, name, lambda *a, **k: None)
+    # The off-roster terminal sweep answers "nothing removed"; it lists the
+    # runtime's containers, which nothing here has.
+    monkeypatch.setattr(container_lifecycle, "remove_orphan_terminals", lambda config: {})
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
