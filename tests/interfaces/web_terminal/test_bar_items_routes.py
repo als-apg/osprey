@@ -50,7 +50,6 @@ from fastapi.testclient import TestClient
 from osprey.interfaces.web_terminal import bar_items_store
 from osprey.interfaces.web_terminal.app import (
     BAR_LAYOUT_VERSION,
-    DEFAULT_BAR_LAYOUT,
     MAX_BAR_ITEMS_PER_HOST,
     create_app,
 )
@@ -625,8 +624,14 @@ class TestAStoredDocumentThisBuildCannotRead:
         assert response.status_code == 200
         layout = response.json()
         assert layout["rev"] == 0, "nothing readable is stored, so nothing has been saved"
-        assert types(layout, "status") == types(DEFAULT_BAR_LAYOUT, "status")
-        assert types(layout, "header") == types(DEFAULT_BAR_LAYOUT, "header")
+        # The deployment default as the lifespan resolved it — the shipped
+        # arrangement minus whatever this deployment cannot render — rather
+        # than the raw constant, which names items no single-user deployment
+        # without the SYSTEM panel can show.
+        deployment_default = unreadable_client.app.state.bar_layout
+        assert types(layout, "status") == types(deployment_default, "status")
+        assert types(layout, "header") == types(deployment_default, "header")
+        assert types(layout, "status") == ["space", "clock"]
 
     def test_the_first_paint_is_the_deployment_default(self, unreadable_client):
         page = unreadable_client.get("/").text
