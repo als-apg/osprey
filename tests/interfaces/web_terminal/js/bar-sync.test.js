@@ -527,9 +527,10 @@ describe('the deployment context is served, not inferred', () => {
     expect(sync.isLayoutReadonly()).toBe(false);
   });
 
-  test('an item the deployment does not offer is dropped and latches read-only', async () => {
+  test('an item the deployment does not offer is dropped from a stored document and latches read-only', async () => {
+    // rev 4: an operator saved this document, so the drop is their content.
     await boot({
-      fetch: endpoint({ get: doc([], ['bluesky-queue', 'clock']) }),
+      fetch: endpoint({ get: doc([], ['bluesky-queue', 'clock'], { rev: 4 }) }),
       context: { identityAvailable: false, blueskyAvailable: false, systemHealthAvailable: false },
     });
     await settle();
@@ -559,9 +560,10 @@ describe('the deployment context is served, not inferred', () => {
 
   test('system health follows the stamp, not a guess from the page', async () => {
     // Nothing on the page says whether the SYSTEM panel is enabled; only the
-    // stamp does, and without it the item is refused.
+    // stamp does, and without it the item is refused. rev 2: a stored
+    // document, so the refusal is a loss and latches.
     await boot({
-      fetch: endpoint({ get: doc([], ['system-health', 'clock']) }),
+      fetch: endpoint({ get: doc([], ['system-health', 'clock'], { rev: 2 }) }),
       context: { identityAvailable: false, blueskyAvailable: false, systemHealthAvailable: false },
     });
     await settle();
@@ -590,7 +592,7 @@ describe('the deployment context is served, not inferred', () => {
     // would let the client re-add an item the deployment cannot render; the
     // read-only latch says instead that we could not read the document fully.
     await boot({
-      fetch: endpoint({ get: doc(['logo', 'identity'], []) }),
+      fetch: endpoint({ get: doc(['logo', 'identity'], [], { rev: 5 }) }),
       headerShells: LOGO_SHELL,
       context: null,
     });
@@ -598,6 +600,84 @@ describe('the deployment context is served, not inferred', () => {
 
     expect(typesIn('header')).toEqual(['logo']);
     expect(sync.isLayoutReadonly()).toBe(true);
+  });
+});
+
+describe('the deployment default is never latched for what it cannot show (#863)', () => {
+  // The shipped default places `system-health`, which only a deployment with
+  // the SYSTEM panel renders. The server now serves the default already
+  // filtered; this is the belt to that brace — a stale client against a newer
+  // server, or a stamp that flips between loads, must still get an editable
+  // sheet. A rev-0 document is nobody's saved content, so an `unavailable`
+  // drop from it is not a loss.
+
+  /** The shipped default, as `DEFAULT_BAR_LAYOUT` spells it. */
+  const SHIPPED_DEFAULT = doc(
+    ['logo', 'identity', 'space', 'control-target', 'search', 'display'],
+    ['space', 'system-health', 'clock']
+  );
+
+  /** A deployment with a user but without the SYSTEM panel. */
+  const NO_SYSTEM_PANEL = {
+    identityAvailable: true,
+    blueskyAvailable: false,
+    systemHealthAvailable: false,
+  };
+
+  test('a rev-0 document missing a gated item renders the rest and stays writable', async () => {
+    await boot({
+      fetch: endpoint({
+        get: SHIPPED_DEFAULT,
+        puts: [jsonResponse(200, doc(['logo'], ['space', 'clock', 'stopwatch'], { rev: 1 }))],
+      }),
+      context: NO_SYSTEM_PANEL,
+    });
+    await settle();
+
+    expect(typesIn('status')).toEqual(['space', 'clock']);
+    expect(sync.isLayoutReadonly()).toBe(false);
+
+    await sync.saveLayout(doc(['logo'], ['space', 'clock', 'stopwatch']), { edit: true });
+    expect(putBodies()).toHaveLength(1);
+    expect(putBodies()[0].status.map((/** @type {any} */ i) => i.type)).toEqual([
+      'space',
+      'clock',
+      'stopwatch',
+    ]);
+  });
+
+  test('a rev-0 document with an unknown type still latches', async () => {
+    await boot({
+      fetch: endpoint({ get: doc(['logo', 'not-a-type'], ['space', 'system-health', 'clock']) }),
+      context: NO_SYSTEM_PANEL,
+    });
+    await settle();
+
+    expect(sync.isLayoutReadonly()).toBe(true);
+    expect(putBodies()).toEqual([]);
+  });
+
+  test('a reset onto a default the deployment cannot fully render leaves the sheet editable', async () => {
+    // The route answers a DELETE with the deployment default. Before #863 that
+    // answer re-latched the client on the next line, so "Default" — the
+    // documented way out of read-only — could not get out.
+    await boot({
+      fetch: endpoint({
+        get: doc(['logo', 'not-a-type'], ['clock'], { rev: 3 }),
+        deletes: [jsonResponse(200, SHIPPED_DEFAULT)],
+        puts: [jsonResponse(200, doc(['logo'], ['space', 'clock', 'stopwatch'], { rev: 1 }))],
+      }),
+      context: NO_SYSTEM_PANEL,
+    });
+    await settle();
+    expect(sync.isLayoutReadonly()).toBe(true);
+
+    await sync.resetLayout({ edit: true });
+
+    expect(typesIn('status')).toEqual(['space', 'clock']);
+    expect(sync.isLayoutReadonly()).toBe(false);
+    await sync.saveLayout(doc(['logo'], ['space', 'clock', 'stopwatch']), { edit: true });
+    expect(putBodies()).toHaveLength(1);
   });
 });
 

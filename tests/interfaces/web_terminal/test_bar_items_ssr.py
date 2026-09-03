@@ -35,11 +35,15 @@ from fastapi.testclient import TestClient
 from osprey.interfaces.web_terminal.app import (
     ADOPTED_BAR_ITEM_TYPES,
     BAR_ITEM_AVAILABILITY,
+    BAR_ITEM_GATES,
     BAR_ITEM_OPTIONS,
     BAR_ITEM_TYPES,
     BAR_LAYOUT_VERSION,
     DEFAULT_BAR_LAYOUT,
     STATIC_DIR,
+    SYSTEM_HEALTH_PANEL_ID,
+    bar_item_available,
+    bar_render_plan,
     create_app,
 )
 
@@ -891,6 +895,16 @@ class TestDeploymentContextIsServerSupplied:
             "system-health": {"systemHealthAvailable"},
         }
         assert set(expected) == set(BAR_ITEM_AVAILABILITY), "a gated type grew or vanished"
+        assert set(BAR_ITEM_GATES) == set(BAR_ITEM_AVAILABILITY), (
+            "every gated type names what it needs, for the web.bar_items warning"
+        )
+        # The build-time half: every panel-gated type is judged by `osprey
+        # build` too, and the one runtime-gated type (identity) is the only one
+        # it leaves to the server.
+        from osprey.cli.build_profile_panels import BAR_ITEM_PANEL_GATES
+
+        assert set(BAR_ITEM_AVAILABILITY) - set(BAR_ITEM_PANEL_GATES) == {"identity"}
+        assert BAR_ITEM_PANEL_GATES["system-health"] == SYSTEM_HEALTH_PANEL_ID
         for item_type, keys in expected.items():
             entry = _catalog_entry(source, item_type)
             predicate = entry[entry.index("available:") :]
@@ -908,3 +922,56 @@ class TestAssetsGoThroughThePrefix:
                 body = _body(client)
         assert 'href="/u/alice/static/css/bars.css"' in body
         assert 'href="/static/css/bars.css"' not in body
+
+
+class TestTheDefaultIsRenderableByConstruction:
+    """The rev-0 answer never names an item the stamp says is unavailable.
+
+    The shipped default places ``identity`` and ``system-health``, both gated.
+    ``bar_render_plan`` always dropped them on paint, but the document behind
+    the paint — the one ``GET /api/bar-items`` answers at ``rev`` 0 and the one
+    a reset returns to — still carried them, and the browser's normalizer read
+    that as lost content and latched Customize read-only on every deployment
+    without the SYSTEM panel. The default is therefore filtered once, at the
+    lifespan, by the same context the page stamps, so the served document and
+    the paint agree.
+    """
+
+    def test_the_rev_0_answer_names_no_item_the_stamp_says_is_unavailable(self, plain_app):
+        _, client = plain_app
+        context = _context(_body(client))
+        layout = client.get("/api/bar-items").json()
+
+        assert layout["rev"] == 0
+        for host in ("header", "status"):
+            for item in layout[host]:
+                assert bar_item_available(item["type"], context), (host, item["type"])
+
+    def test_the_plain_default_degrades_exactly_as_its_docstring_promises(self, plain_app):
+        """No SYSTEM panel and no identity: ``space · clock`` and a header
+        without the identity block — the served document, not just the paint."""
+        _, client = plain_app
+        layout = client.get("/api/bar-items").json()
+
+        assert [item["type"] for item in layout["status"]] == ["space", "clock"]
+        assert "identity" not in [item["type"] for item in layout["header"]]
+
+    def test_a_configured_deployment_keeps_the_gated_items(self, configured_app):
+        _, client = configured_app
+        layout = client.get("/api/bar-items").json()
+
+        assert [item["type"] for item in layout["status"]] == ["space", "system-health", "clock"]
+        assert "identity" in [item["type"] for item in layout["header"]]
+
+    def test_the_paint_drops_nothing_further_from_the_served_default(self, plain_app):
+        """The render plan and the document describe the same bars: every item
+        the deployment default holds is a shell on the page."""
+        app, client = plain_app
+        body = _body(client)
+        plan = bar_render_plan(app.state.bar_layout, context=_context(body))
+
+        for host in ("header", "status"):
+            assert [shell["type"] for shell in getattr(plan, host)] == [
+                item["type"] for item in app.state.bar_layout[host]
+            ]
+            assert _shell_types(body, host) == [item["type"] for item in app.state.bar_layout[host]]

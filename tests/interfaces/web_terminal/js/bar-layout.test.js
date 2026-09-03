@@ -184,8 +184,12 @@ describe('dropping', () => {
     expect(result.readonly).toBe(false);
   });
 
-  test('an item this deployment cannot render is dropped', () => {
-    const layout = doc({ header: [item('identity'), item('system-health'), item('docs')] });
+  test('an item this deployment cannot render is dropped from a stored document', () => {
+    // rev 3: an operator saved this, so the drop is THEIR content going missing.
+    const layout = doc({
+      rev: 3,
+      header: [item('identity'), item('system-health'), item('docs')],
+    });
 
     const bare = normalize(layout, BAR_CATALOG, {});
     expect(types(bare.layout.header)).toEqual(['docs']);
@@ -198,6 +202,46 @@ describe('dropping', () => {
     });
     expect(types(equipped.layout.header)).toEqual(['identity', 'system-health', 'docs']);
     expect(equipped.readonly).toBe(false);
+  });
+
+  test('the same drop from a rev-0 document is not a loss', () => {
+    // rev 0 is the deployment default: nobody authored it and the server
+    // already declined to paint the item, so dropping it here takes nothing
+    // away from anyone. The drop is still reported, and the document is still
+    // `changed`; it just does not latch (#863).
+    const layout = doc({ header: [item('identity'), item('system-health'), item('docs')] });
+
+    const result = normalize(layout, BAR_CATALOG, {});
+    expect(types(result.layout.header)).toEqual(['docs']);
+    expect(result.dropped.map((drop) => drop.reason)).toEqual(['unavailable', 'unavailable']);
+    expect(result.changed).toBe(true);
+    expect(result.readonly).toBe(false);
+  });
+
+  test('a rev-0 document still latches on an unknown type', () => {
+    const result = normalize(
+      doc({ header: [item('identity'), item('quantum-flux'), item('docs')] }),
+      BAR_CATALOG,
+      {}
+    );
+    expect(result.dropped.map((drop) => drop.reason)).toEqual(['unavailable', 'unknown-type']);
+    expect(result.readonly).toBe(true);
+  });
+
+  test('a rev-0 document still latches on an unreadable version', () => {
+    const result = normalize(doc({ version: 99, header: [item('logo')] }), BAR_CATALOG, {});
+    expect(result.readonly).toBe(true);
+  });
+
+  test('a rev that is not a number reads as unsaved, and its unavailable drops do not latch', () => {
+    const result = normalize(
+      doc({ rev: 'seven', header: [item('identity'), item('docs')] }),
+      BAR_CATALOG,
+      {}
+    );
+    expect(result.layout.rev).toBe(0);
+    expect(result.dropped.map((drop) => drop.reason)).toEqual(['unavailable']);
+    expect(result.readonly).toBe(false);
   });
 
   test('a second copy of a single-node type is dropped, and that is NOT a loss', () => {

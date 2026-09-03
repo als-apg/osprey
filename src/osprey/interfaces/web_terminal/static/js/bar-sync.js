@@ -32,13 +32,21 @@
  * points at.
  *
  * A DOCUMENT WE HAD TO DROP CONTENT FROM IS READ-ONLY (FR5). `normalize()`
- * reports `readonly` when an entry was lost — an unknown item type, a host this
- * build will not render it in, an unreadable schema version. Rendering what
- * survived is right; writing it back is not, because the write would DELETE
- * whatever this build could not understand. So `readonly` latches and every
- * later save is refused before it reaches the network. A document that
- * salvaged nothing at all is not even reconciled: blanking the bars over a
- * version we cannot read is strictly worse than leaving the server's paint up.
+ * reports `readonly` when an entry was lost — an unknown item type, an
+ * unreadable schema version, an item the deployment cannot show that an
+ * operator had STORED. Rendering what survived is right; writing it back is
+ * not, because the write would DELETE whatever this build could not
+ * understand. So `readonly` latches and every later save is refused before it
+ * reaches the network. A document that salvaged nothing at all is not even
+ * reconciled: blanking the bars over a version we cannot read is strictly
+ * worse than leaving the server's paint up.
+ *
+ * The deployment default is the exception, and `normalize()` draws it: a
+ * document at `rev` 0 is nobody's saved content, so a gated item leaving it
+ * because this deployment lacks the panel behind it is not a loss and does not
+ * latch. The server serves the default already filtered by the same facts it
+ * stamps below; this is the belt to that brace, for a stale client against a
+ * newer server or a stamp that flips between loads.
  *
  * TWO TABS. There is no broadcast — the protection is arithmetic. Every PUT
  * carries the revision this client is holding; the server answers 409 with the
@@ -427,7 +435,9 @@ function refuse(reason) {
  * it here would leave an operator whose stored layout this build cannot fully
  * read with no way back at all. The latch is cleared only once the server has
  * confirmed the removal, and what comes back is judged on its own merits — a
- * deployment default this build cannot fully render latches again.
+ * deployment default naming a type this build does not know latches again,
+ * while one naming an item this deployment cannot show does not (it arrives at
+ * `rev` 0, and `normalize()` reads that drop as no loss).
  *
  * There is no revision and so no conflict ladder: a reset is unconditional by
  * construction, which is why it is its own verb rather than a `rev`-less PUT.

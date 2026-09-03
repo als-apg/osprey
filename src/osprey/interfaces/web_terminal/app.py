@@ -345,9 +345,16 @@ BAR_HOSTS: tuple[str, ...] = ("header", "status")
 #: show — the documentation link, the stopwatch — stays in the catalog and is one drag away in Customize; a screen an
 #: operator watches all day should start with what they read, not with what
 #: the terminal knows about itself. ``system-health`` renders only where this
-#: deployment enables the SYSTEM panel — :func:`bar_render_plan` drops it
-#: otherwise rather than painting an empty shell — so a deployment without
-#: that panel gets ``space · clock``.
+#: deployment enables the SYSTEM panel, and ``identity`` only where there is a
+#: user or a deployment name to show — so a deployment without that panel gets
+#: ``space · clock``. That degrade happens ONCE, at the lifespan:
+#: :func:`_load_bar_items` filters this document through
+#: :func:`renderable_bar_layout` with the same context the page stamps, so the
+#: rev-0 answer of ``GET /api/bar-items`` never names an item the deployment
+#: cannot paint. :func:`bar_render_plan` drops the same items again on paint,
+#: but only as a backstop — a served default that still carried them read, to
+#: the browser's normalizer, as content lost, and latched Customize read-only
+#: on every deployment without the SYSTEM panel (#863).
 #:
 #: ``web.bar_items`` overrides this per deployment, and the sheet's one preset,
 #: "Default", returns a user to whichever of the two applies.
@@ -487,6 +494,75 @@ BAR_ITEM_AVAILABILITY: dict[str, Callable[[dict], bool]] = {
     "system-health": lambda ctx: ctx.get("systemHealthAvailable") is True,
 }
 
+#: What each gated item needs, in the words a ``web.bar_items`` warning uses to
+#: tell an operator why the item they authored will not show. Keyed exactly as
+#: :data:`BAR_ITEM_AVAILABILITY`; ``tests/interfaces/web_terminal/
+#: test_bar_items_ssr.py`` pins the two key sets together.
+BAR_ITEM_GATES: dict[str, str] = {
+    "identity": "a terminal user or a deployment name",
+    "bluesky-queue": "the Bluesky panel",
+    "system-health": "the SYSTEM panel",
+}
+
+
+def bar_item_available(item_type: str, context: dict) -> bool:
+    """Whether this deployment can show *item_type*.
+
+    The one place :data:`BAR_ITEM_AVAILABILITY` is consulted, so the paint,
+    the lifespan's filtering of the deployment default and the config loader's
+    warnings all answer from the same predicate.
+
+    Args:
+        item_type: A type from :data:`BAR_ITEM_TYPES`.
+        context: The deployment facts from :func:`bar_availability_context`.
+
+    Returns:
+        True for a type the table does not gate, else the predicate's answer.
+    """
+    predicate = BAR_ITEM_AVAILABILITY.get(item_type)
+    return True if predicate is None else predicate(context)
+
+
+def renderable_bar_layout(layout: dict, *, context: dict) -> dict:
+    """*layout* with every item this deployment cannot show removed.
+
+    The deployment default must be renderable by construction on the deployment
+    that serves it: ``bar_render_plan`` already drops a gated item on paint,
+    but the document behind the paint — the rev-0 answer of
+    ``GET /api/bar-items``, and what a reset returns to — has to agree with it,
+    or the browser's normalizer reads the difference as lost content and
+    latches the whole layout read-only (#863). This is that agreement, applied
+    once at the lifespan where the facts are known.
+
+    Only the deployment default goes through here. An operator's stored
+    document is deliberately NOT filtered: an item they placed that this
+    deployment can no longer show is their content, and the client's latch
+    exists to keep it from being written back without them.
+
+    Args:
+        layout: A layout document — the shipped default or an authored one.
+        context: The deployment facts from :func:`bar_availability_context`.
+
+    Returns:
+        *layout* itself when it drops nothing, so a caller can tell the
+        shipped constant from a copy of it; otherwise a new document sharing
+        every key but the filtered host lists. Never mutates *layout*.
+    """
+    filtered: dict = {}
+    for host in BAR_HOSTS:
+        items = layout.get(host) or []
+        kept = [
+            item
+            for item in items
+            if not isinstance(item, dict)
+            or bar_item_available(str(item.get("type") or ""), context)
+        ]
+        if len(kept) != len(items):
+            filtered[host] = kept
+    if not filtered:
+        return layout
+    return {**layout, **filtered}
+
 
 def bar_availability_context(
     *,
@@ -546,6 +622,34 @@ def bluesky_panel_declared(custom_panels: list[dict] | None) -> bool:
     from osprey.deployment.web_terminals.personas import BLUESKY_PANEL_ID
 
     return any(panel.get("id") == BLUESKY_PANEL_ID for panel in custom_panels or ())
+
+
+def deployment_bar_context(app: FastAPI) -> dict:
+    """This deployment's availability facts, read off ``app.state``.
+
+    One function, two call sites, so they cannot disagree: the lifespan filters
+    the deployment default through it, and ``root()`` renders from it and
+    stamps it on ``<html>``. ``identityAvailable`` is the same condition the
+    identity block itself renders under — a user to name, or a deployment name
+    to show — stated once so the item and its body can never disagree.
+
+    Args:
+        app: The application, its lifespan far enough along to have resolved
+            the panel set, the Bluesky declaration, the terminal user and the
+            deployment name. Anything not yet on state reads as absent.
+
+    Returns:
+        The context :func:`bar_availability_context` builds.
+    """
+    state = app.state
+    enabled_panels = getattr(state, "enabled_panels", None) or set()
+    return bar_availability_context(
+        identity_available=bool(
+            getattr(state, "terminal_user", "") or getattr(state, "app_name", "")
+        ),
+        bluesky_available=bool(getattr(state, "bluesky_available", False)),
+        system_health_available=SYSTEM_HEALTH_PANEL_ID in enabled_panels,
+    )
 
 
 class BarRenderPlan(NamedTuple):
@@ -709,8 +813,7 @@ def bar_render_plan(layout: dict, *, context: dict) -> BarRenderPlan:
     """
 
     def _is_available(item_type: str) -> bool:
-        predicate = BAR_ITEM_AVAILABILITY.get(item_type)
-        return True if predicate is None else predicate(context)
+        return bar_item_available(item_type, context)
 
     seen: set[str] = set()
     runs: dict[str, list[dict]] = {}
@@ -1382,7 +1485,7 @@ def _coerce_bar_item(host: str, index: int, raw: object) -> dict | None:
     return item
 
 
-def _load_bar_items(config_path: str | Path | None = None) -> dict:
+def _load_bar_items(config_path: str | Path | None = None, *, context: dict | None = None) -> dict:
     """Read ``web.bar_items`` into this deployment's default bar layout.
 
     The deployment's half of the bar-items contract: an operator's saved
@@ -1390,6 +1493,15 @@ def _load_bar_items(config_path: str | Path | None = None) -> dict:
     the same fail-open coercion :func:`_load_panel_presets` performs for
     ``web.presets``, and for the same reason — there is no config schema
     anywhere, so a typo must cost the operator one item and never the boot.
+
+    With a *context* the result is also renderable by construction: an item
+    this deployment cannot show leaves the document here, so the rev-0 answer
+    of ``GET /api/bar-items`` never names one and the browser has nothing to
+    drop (#863). An AUTHORED item that goes is warned about by position and
+    gate, because an operator wrote it and will look for it; an item the
+    shipped order supplied is dropped quietly, because nobody did. Without a
+    *context* nothing is filtered — that is the coercion alone, which is what
+    the config tests exercise.
 
     Four keys, each degrading on its own:
 
@@ -1406,22 +1518,35 @@ def _load_bar_items(config_path: str | Path | None = None) -> dict:
     Args:
         config_path: Explicit ``config.yml`` to read; falls back to the
             ``CONFIG_FILE`` environment variable and then ``./config.yml``.
+        context: The deployment facts from :func:`bar_availability_context`,
+            or None to skip the availability filter.
 
     Returns:
         The resolved layout document. Falls open to :data:`DEFAULT_BAR_LAYOUT`
-        on any read error or when the key is absent.
+        on any read error or when the key is absent — filtered through
+        :func:`renderable_bar_layout` when a *context* is given, and the
+        constant itself when nothing needs to leave it.
     """
+
+    def _default() -> dict:
+        if context is None:
+            return DEFAULT_BAR_LAYOUT
+        return renderable_bar_layout(DEFAULT_BAR_LAYOUT, context=context)
+
+    def _shipped_host(host: str) -> list[dict]:
+        return list(_default()[host])
+
     try:
         raw = _load_web_ui_config(config_path).get("bar_items")
     except Exception:  # noqa: BLE001 — an unreadable config renders the shipped bars
         logger.warning("web.bar_items could not be read; using the default layout.")
-        return DEFAULT_BAR_LAYOUT
+        return _default()
 
     if raw is None:
-        return DEFAULT_BAR_LAYOUT
+        return _default()
     if not isinstance(raw, dict):
         logger.warning("web.bar_items is not a mapping; using the default layout.")
-        return DEFAULT_BAR_LAYOUT
+        return _default()
 
     layout: dict = {"version": BAR_LAYOUT_VERSION, "rev": 0}
     # Single-node types are counted across both bars, header first, exactly as
@@ -1430,20 +1555,30 @@ def _load_bar_items(config_path: str | Path | None = None) -> dict:
     for host in BAR_HOSTS:
         configured = raw.get(host)
         if configured is None:
-            layout[host] = list(DEFAULT_BAR_LAYOUT[host])
+            layout[host] = _shipped_host(host)
             placed.update(item["type"] for item in layout[host])
             continue
         if not isinstance(configured, list):
             logger.warning(
                 "web.bar_items.%s is not a list of item types; using the default order.", host
             )
-            layout[host] = list(DEFAULT_BAR_LAYOUT[host])
+            layout[host] = _shipped_host(host)
             placed.update(item["type"] for item in layout[host])
             continue
         items: list[dict] = []
         for index, entry in enumerate(configured):
             item = _coerce_bar_item(host, index, entry)
             if item is None:
+                continue
+            if context is not None and not bar_item_available(item["type"], context):
+                logger.warning(
+                    "web.bar_items.%s[%d] places %r, which this deployment cannot show "
+                    "(it needs %s); dropping it.",
+                    host,
+                    index,
+                    item["type"],
+                    BAR_ITEM_GATES.get(item["type"], "a deployment fact that is absent"),
+                )
                 continue
             if item["type"] not in BAR_ITEM_MULTI:
                 if item["type"] in placed:
@@ -2065,10 +2200,21 @@ def _create_lifespan(
         # (the default) → the "+" menu renders no presets section.
         app.state.panel_presets = _load_panel_presets(enabled_panels, custom_panels)
 
+        # Whether this deployment declares the Bluesky panel: the plan-queue
+        # item reads the queue through that panel's proxy, so the panel's
+        # presence is what makes the item offerable. It says nothing about
+        # whether the sidecar is answering; the item says that itself. Resolved
+        # before the bar layout because the layout is filtered by it.
+        app.state.bluesky_available = bluesky_panel_declared(custom_panels)
+
         # The deployment's default bar arrangement (web.bar_items), resolved
-        # once at boot. This is the document effective_bar_layout() renders
-        # until a user's saved layout is loaded ahead of it.
-        app.state.bar_layout = _load_bar_items(resolved_config_path)
+        # once at boot and filtered to what THIS deployment can show — the same
+        # facts root() stamps on the page, evaluated here first. This is the
+        # document effective_bar_layout() renders until a user's saved layout
+        # is loaded ahead of it, and the rev-0 answer of GET /api/bar-items.
+        app.state.bar_layout = _load_bar_items(
+            resolved_config_path, context=deployment_bar_context(app)
+        )
 
         # The per-user layer on top of that default, read from the store beside
         # the feedback records. Three pieces of state, and the layout routes
@@ -2090,12 +2236,6 @@ def _create_lifespan(
         app.state.bar_items_effective = _load_stored_bar_layout(
             bar_items_dir, app.state.bar_items_vocabulary, app.state.bar_layout
         )
-
-        # Whether this deployment declares the Bluesky panel: the plan-queue
-        # item reads the queue through that panel's proxy, so the panel's
-        # presence is what makes the item offerable. It says nothing about
-        # whether the sidecar is answering; the item says that itself.
-        app.state.bluesky_available = bluesky_panel_declared(custom_panels)
 
         # ── Tour capabilities ──
         # The "Ask in plain language" tour card lists what THIS deployment's
@@ -2324,20 +2464,15 @@ def create_app(
         # The two bars, rendered from the effective layout. Server-rendered
         # rather than fetched: the order is chrome, and chrome that arrives a
         # frame late is chrome the operator watches rearrange itself on every
-        # load. `identityAvailable` is the same condition the identity block
-        # itself renders under (a user to name, or a deployment name to show),
-        # stated once so the item and its body can never disagree.
+        # load.
         #
-        # The context is evaluated once and used twice: this render drops what
-        # the deployment cannot show, and the template stamps the same facts on
-        # <html> so bar-sync.js hands the browser's normalizer the server's
-        # answer instead of inferring one from the page it just received.
-        enabled_panels = getattr(request.app.state, "enabled_panels", None) or set()
-        bar_context = bar_availability_context(
-            identity_available=bool(terminal_user or app_name),
-            bluesky_available=bool(getattr(request.app.state, "bluesky_available", False)),
-            system_health_available=SYSTEM_HEALTH_PANEL_ID in enabled_panels,
-        )
+        # The context is the lifespan's own — the facts the deployment default
+        # was filtered by — read again off app.state and used twice: this
+        # render drops what the deployment cannot show, and the template stamps
+        # the same facts on <html> so bar-sync.js hands the browser's
+        # normalizer the server's answer instead of inferring one from the page
+        # it just received.
+        bar_context = deployment_bar_context(request.app)
         plan = bar_render_plan(effective_bar_layout(request.app), context=bar_context)
         return templates.TemplateResponse(
             request,

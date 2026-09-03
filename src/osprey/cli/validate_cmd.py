@@ -84,6 +84,7 @@ def check_profile_file(profile_file: Path) -> None:
         deploy_aware_config_warnings,
         limits_block_errors,
     )
+    from .build_profile_panels import bar_items_selection_warnings
     from .variant_selection import VARIANT_DIRNAME, VariantSelection, resolve_variant_selection
 
     variant = VariantSelection(name=None, path=None)
@@ -135,8 +136,13 @@ def check_profile_file(profile_file: Path) -> None:
     # (a privileged terminal with no login wall — `auth.method: token` or `none`) that are not
     # mistakes every deployment has made, so they must not fail a CI gate — but
     # a finding nobody prints is a finding nobody has.
-    for warning in deploy_aware_config_warnings(
-        build_profile.deploy, build_profile.config, profile_root=profile_root
+    for warning in (
+        *deploy_aware_config_warnings(
+            build_profile.deploy, build_profile.config, profile_root=profile_root
+        ),
+        # The same line `osprey build` prints for a `web.bar_items` entry the
+        # served default drops because its panel is not selected.
+        *bar_items_selection_warnings(build_profile.config, build_profile.web_panels),
     ):
         note(f"⚠ {warning}")
 
