@@ -237,7 +237,9 @@ row then reads ``✓ switched``, or ``✗`` with the phrase for the refusal ---
 the same refusal, for the same reason, the agent is given. While a request is
 out the chip reads ``switching…``, and one request is outstanding at a time.
 If nothing answers within 30 seconds the row reads ``request_expired``:
-nothing that could carry out the switch was alive to pick it up.
+nothing that could carry out the switch was alive to pick it up. The outcome
+line leaves the row after about a minute --- an outcome is news for as long as
+someone is watching for it.
 
 What the switch itself is gated on --- the approval prompt, the limits
 posture, the archive --- is :doc:`../control-systems/switch-control-target`.
