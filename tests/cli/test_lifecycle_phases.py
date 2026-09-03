@@ -325,6 +325,8 @@ class TestBuildPhases:
             # Hand-written, not materialized: nothing for the preset-drift lint
             # to compare with.
             provenance = None
+            # No panel selection: nothing for the bar-items warning to check.
+            web_panels: list[str] = []
 
             def resolved_tier(self) -> int:
                 return 1
