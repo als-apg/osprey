@@ -67,7 +67,7 @@ class DriftFinding:
     Attributes:
         subject: What differs, as an operator would name it — a dotted key
             (``config.web.theme``, ``bluesky``) or a list member
-            (``web_panels: system-health``).
+            (``web_panels: lattice``).
         detail: Which way it differs.
         profile_ref: ``file:line`` in the profile, or the file alone when the
             profile has no line for it.

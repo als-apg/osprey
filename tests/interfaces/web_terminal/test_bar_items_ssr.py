@@ -901,7 +901,7 @@ class TestDeploymentContextIsServerSupplied:
         # The build-time half: every panel-gated type is judged by `osprey
         # build` too, and the one runtime-gated type (identity) is the only one
         # it leaves to the server.
-        from osprey.cli.build_profile_panels import BAR_ITEM_PANEL_GATES
+        from osprey.profiles.web_panels import BAR_ITEM_PANEL_GATES
 
         assert set(BAR_ITEM_AVAILABILITY) - set(BAR_ITEM_PANEL_GATES) == {"identity"}
         assert BAR_ITEM_PANEL_GATES["system-health"] == SYSTEM_HEALTH_PANEL_ID

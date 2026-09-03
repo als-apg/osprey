@@ -28,24 +28,11 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from osprey.profiles.web_panels import UNIVERSAL_PANELS
+from osprey.profiles.web_panels import BAR_ITEM_PANEL_GATES, UNIVERSAL_PANELS
 
 from .build_profile_reach import spelled_values
 
 __all__ = ["bar_items_selection_warnings", "panel_selection_errors", "panel_selection_overrides"]
-
-#: The bar items whose availability is a panel's presence, and the panel each
-#: needs. The build-time half of ``BAR_ITEM_AVAILABILITY`` in
-#: ``interfaces/web_terminal/app.py``: the server drops such an item from the
-#: default it serves when the panel is absent, and this is what lets the build
-#: say so first. ``identity`` is gated too, but on a runtime fact (a terminal
-#: user or a deployment name) a build cannot judge, so it is deliberately not
-#: here; ``tests/interfaces/web_terminal/test_bar_items_ssr.py`` pins the two
-#: tables together.
-BAR_ITEM_PANEL_GATES: dict[str, str] = {
-    "bluesky-queue": "bluesky",
-    "system-health": "system-health",
-}
 
 #: The two bars a ``web.bar_items`` block arranges, as ``BAR_HOSTS`` names them.
 _BAR_HOSTS: tuple[str, ...] = ("header", "status")
@@ -138,8 +125,8 @@ def _spelled_panel_ids(config: Any) -> set[str]:
 def bar_items_selection_warnings(config: Any, selected_panels: Iterable[str]) -> list[str]:
     """Name each authored ``web.bar_items`` entry this deployment cannot show.
 
-    ``system-health`` renders only where the SYSTEM panel is selected and
-    ``bluesky-queue`` only where the Bluesky panel is; an authored default that
+    The SYSTEM panel's status item renders only where that panel is selected
+    and ``bluesky-queue`` only where the Bluesky panel is; an authored default that
     places either on a deployment without the panel is filtered by the server
     before it is served, so the item never appears and nothing on screen says
     why. A warning, not an error — the deployment still builds and renders,
