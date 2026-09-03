@@ -32,7 +32,23 @@ from osprey.profiles.web_panels import UNIVERSAL_PANELS
 
 from .build_profile_reach import spelled_values
 
-__all__ = ["panel_selection_errors", "panel_selection_overrides"]
+__all__ = ["bar_items_selection_warnings", "panel_selection_errors", "panel_selection_overrides"]
+
+#: The bar items whose availability is a panel's presence, and the panel each
+#: needs. The build-time half of ``BAR_ITEM_AVAILABILITY`` in
+#: ``interfaces/web_terminal/app.py``: the server drops such an item from the
+#: default it serves when the panel is absent, and this is what lets the build
+#: say so first. ``identity`` is gated too, but on a runtime fact (a terminal
+#: user or a deployment name) a build cannot judge, so it is deliberately not
+#: here; ``tests/interfaces/web_terminal/test_bar_items_ssr.py`` pins the two
+#: tables together.
+BAR_ITEM_PANEL_GATES: dict[str, str] = {
+    "bluesky-queue": "bluesky",
+    "system-health": "system-health",
+}
+
+#: The two bars a ``web.bar_items`` block arranges, as ``BAR_HOSTS`` names them.
+_BAR_HOSTS: tuple[str, ...] = ("header", "status")
 
 
 def panel_selection_overrides(
@@ -117,3 +133,44 @@ def _spelled_panel_ids(config: Any) -> set[str]:
                 elif isinstance(sub_value, Mapping):
                     ids.update(str(leaf).split(".")[0] for leaf in sub_value)
     return ids
+
+
+def bar_items_selection_warnings(config: Any, selected_panels: Iterable[str]) -> list[str]:
+    """Name each authored ``web.bar_items`` entry this deployment cannot show.
+
+    ``system-health`` renders only where the SYSTEM panel is selected and
+    ``bluesky-queue`` only where the Bluesky panel is; an authored default that
+    places either on a deployment without the panel is filtered by the server
+    before it is served, so the item never appears and nothing on screen says
+    why. A warning, not an error — the deployment still builds and renders,
+    minus that one item — but the operator wrote the entry and will look for it,
+    so the build says which one it was and what it needs.
+
+    Every spelling of the list is found (dotted, prefix-over-mapping, nested),
+    and each entry is reported by position, the way the server's own log line
+    reports it.
+
+    Args:
+        config: The profile's ``config:`` block, whatever shape it parsed as.
+        selected_panels: The profile's resolved ``web_panels`` selection.
+
+    Returns:
+        One warning per unrenderable entry, in bar order then list order.
+    """
+    shown = set(selected_panels) | UNIVERSAL_PANELS
+    warnings: list[str] = []
+    for host in _BAR_HOSTS:
+        for spelling, entries in spelled_values(config, f"web.bar_items.{host}"):
+            if not isinstance(entries, list):
+                continue
+            for index, entry in enumerate(entries):
+                item_type = entry.get("type") if isinstance(entry, Mapping) else entry
+                panel = BAR_ITEM_PANEL_GATES.get(str(item_type))
+                if panel is None or panel in shown:
+                    continue
+                warnings.append(
+                    f"{spelling}[{index}] places {item_type!r}, which needs the {panel!r} panel "
+                    f"and {panel!r} is not in web_panels — the item leaves the default this "
+                    f"deployment serves. Add {panel!r} to web_panels, or drop the entry."
+                )
+    return warnings

@@ -2850,6 +2850,16 @@ def _build_repo(
         web_warnings = deploy_aware_config_warnings(
             build_profile.deploy, build_profile.config, profile_root=repo_root
         )
+        # An authored `web.bar_items` entry the served default will not carry:
+        # the server filters a panel-gated item whose panel this profile does
+        # not select, so the operator who wrote it is told here, not by an
+        # item that never appears.
+        from .build_profile_panels import bar_items_selection_warnings
+
+        web_warnings = [
+            *web_warnings,
+            *bar_items_selection_warnings(build_profile.config, build_profile.web_panels),
+        ]
         if not build_profile.provider:
             raise click.UsageError(
                 f"{PROFILE_FILENAME} names no provider. Add `provider: "
