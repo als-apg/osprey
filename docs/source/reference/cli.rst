@@ -173,7 +173,7 @@ Check the deployment profile without building.
 
 .. code-block:: bash
 
-   osprey validate [TARGET] [--repo DIRECTORY]
+   osprey validate [TARGET] [--repo DIRECTORY] [--drift error|warn]
 
 With no argument, validates the deployment repository enclosing the working
 directory. ``TARGET`` names a different profile to check instead â€” a persona
@@ -184,6 +184,18 @@ directories, the ``data:`` tree, service templates, lifecycle steps, env vars â€
 then lints the declared web stack against the config a build would render. Every
 problem found is reported, not just the first. Exits 0 when the profile is
 valid, 2 with the accumulated errors when it is not, so a CI job can gate on it.
+
+A profile ``osprey init`` wrote is also compared with the preset it came from,
+persona deltas included: a value that differs, a key or list member the preset
+has and the profile lacks, one the profile adds that neither the preset nor the
+app template knows, or a persona ``exclude:`` of something the preset keeps.
+Each is refused with both ``file:line`` references unless a ``# DEVIATION:
+<why>`` comment within three lines above the profile line claims it (for a
+missing line, a comment anywhere naming the key or member). The tag is set by
+``provenance.deviation_marker``; a marker that no longer marks a difference is
+reported as stale. ``--drift=warn`` prints the differences and passes. ``osprey
+build`` prints the same list under ``-v`` and, whenever the bundled preset's hash
+differs from the recorded one, a one-line note that the preset has moved on.
 
 .. code-block:: bash
 

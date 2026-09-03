@@ -2093,7 +2093,7 @@ def _render_persona_projects(shared: _SharedRenderInputs, zones: _RenderZones) -
     The naming is the catalog's, not this function's invention:
     ``<repo>-<persona>`` is what ``osprey init`` writes into every catalog
     entry's ``project`` and ``project_path``
-    (:func:`~osprey.cli.profile_cmd._persona_catalog_layer`), which is how the
+    (:func:`~osprey.cli.build_profile_emit.persona_catalog_layer`), which is how the
     deploy finds the render this produced. Every delta is rendered whether the
     catalog names it or not — the catalog decides which personas are *deployed*,
     ``personas/`` decides which exist — so a delta added before its catalog entry
@@ -2888,6 +2888,26 @@ def _build_repo(
         # nobody has: every surface that gates on the errors discards these.
         for web_warning in web_warnings:
             output.note(f"⚠ {web_warning}")
+
+        # The comparison the `provenance:` stamp promises: a note whenever the
+        # preset has moved on since this profile was materialized, and — under
+        # `-v`, since a build is not the verb that refuses — the places the
+        # profile differs from it that no marker comment claims. `osprey
+        # validate` is where those become a refusal.
+        if build_profile.provenance is not None:
+            from .build_profile_drift import preset_drift_report
+            from .phase_reporter import is_verbose
+
+            drift = preset_drift_report(profile_path, build_profile.provenance)
+            if drift.note:
+                output.note(drift.note)
+            if is_verbose() and drift.unmarked:
+                output.warn(
+                    f"preset drift: {PROFILE_FILENAME} differs from preset {drift.preset} in "
+                    f"{len(drift.unmarked)} place(s) no marker claims (osprey validate refuses "
+                    f"these)",
+                    "\n".join(finding.render() for finding in drift.unmarked),
+                )
 
         # A fresh staging tree, and the output zone it will replace. Both are
         # created now: the venv below is written into `build/` directly, at the

@@ -167,7 +167,7 @@ def _render_deployable_config(tmp_path: Path, preset: str = "control-assistant")
     preset author wrote. No build renders a project from that layer: every build
     materializes a profile first, and materialization emits one
     ``personas/<name>.yml`` delta per catalog entry and repoints the catalog at
-    it (``_persona_catalog_layer``). A config linted before that rewrite is a
+    it (``persona_catalog_layer``). A config linted before that rewrite is a
     shape the pipeline never emits.
 
     So this applies the same rewrite, through the same function the
@@ -180,8 +180,7 @@ def _render_deployable_config(tmp_path: Path, preset: str = "control-assistant")
     ``tests/cli/test_persona_profile_emission.py``, which drives ``osprey
     init`` → ``osprey build`` for every persona-bearing preset.)
     """
-    from osprey.cli.build_profile_emit import persona_catalog
-    from osprey.cli.profile_cmd import _persona_catalog_layer
+    from osprey.cli.build_profile_emit import persona_catalog, persona_catalog_layer
 
     config_path = tmp_path / "config.yml"
     resolved = resolve_preset(preset)
@@ -190,7 +189,7 @@ def _render_deployable_config(tmp_path: Path, preset: str = "control-assistant")
     config_update_fields(config_path, resolved.config)
     config_update_fields(
         config_path,
-        _persona_catalog_layer(persona_catalog(resolved.config), repo_name=preset)["config"],
+        persona_catalog_layer(persona_catalog(resolved.config), repo_name=preset)["config"],
     )
     with config_path.open("r", encoding="utf-8") as fh:
         return yaml.safe_load(fh)

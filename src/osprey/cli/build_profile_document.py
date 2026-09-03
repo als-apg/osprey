@@ -65,11 +65,6 @@ def _normalize_profile_aliases(raw: dict[str, Any], source: str) -> dict[str, An
 def _read_profile_document(path: Path, source: str | None = None) -> Any:
     """Read one raw profile-YAML document, normalizing YAML-surface aliases.
 
-    The only ``yaml.safe_load`` of a profile document in the pipeline (pinned
-    by a guard test). Mapping-shape checks stay with the callers so each keeps
-    naming its own layer ("Override must be a YAML mapping", ...); a
-    non-mapping document is returned exactly as parsed.
-
     Args:
         path: File to read.
         source: How to name the file in error messages (defaults to ``path``).
@@ -81,11 +76,36 @@ def _read_profile_document(path: Path, source: str | None = None) -> Any:
         BuildProfileError: On invalid YAML, or on a same-document double
             spelling with differing values.
     """
-    label = str(path) if source is None else source
+    return _parse_profile_document(
+        path.read_text(encoding="utf-8"), str(path) if source is None else source
+    )
+
+
+def _parse_profile_document(text: str, source: str) -> Any:
+    """Parse one raw profile-YAML document, normalizing YAML-surface aliases.
+
+    The only ``yaml.safe_load`` of a profile document in the pipeline (pinned
+    by a guard test), reached from files through :func:`_read_profile_document`
+    and directly for a document that exists only as text — the profile the
+    emitter would write. Mapping-shape checks stay with the callers so each
+    keeps naming its own layer ("Override must be a YAML mapping", ...); a
+    non-mapping document is returned exactly as parsed.
+
+    Args:
+        text: The document.
+        source: How to name it in error messages.
+
+    Returns:
+        The parsed document — normalized in place when it is a mapping.
+
+    Raises:
+        BuildProfileError: On invalid YAML, or on a same-document double
+            spelling with differing values.
+    """
     try:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        raw = yaml.safe_load(text)
     except yaml.YAMLError as e:
-        raise BuildProfileError(f"Invalid YAML in {label}: {e}") from e
+        raise BuildProfileError(f"Invalid YAML in {source}: {e}") from e
     if isinstance(raw, dict):
-        _normalize_profile_aliases(raw, label)
+        _normalize_profile_aliases(raw, source)
     return raw

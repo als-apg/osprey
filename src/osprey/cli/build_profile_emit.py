@@ -26,7 +26,7 @@ from __future__ import annotations
 import copy
 import io
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -42,7 +42,8 @@ from .build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
 from .build_profile_merge import _deep_merge, _resolve_extends, compute_preset_hash
 from .build_profile_presets import _load_preset_raw
 from .build_profile_resolve import merge_cli_overrides
-from .profile_conventions import BUILD_OUTPUT_DIR
+from .profile_conventions import BUILD_OUTPUT_DIR, PROFILE_TRIGGERS_FILENAME
+from .profile_root import PERSONA_DIRNAME
 
 # YAML-surface spellings that differ from the canonical resolved-content field
 # name (D2: the rename is confined to the profile-YAML surface, so the
@@ -216,7 +217,9 @@ _REQUIRES_VERSION_COMMENT = (
 _PROVENANCE_COMMENT = [
     "# What this profile was materialized from. Emitted, not hand-written: a",
     "# build compares it against the installed preset and mentions it when the",
-    "# preset has moved on. Advisory only — this profile is the source of truth.",
+    "# preset has moved on; `osprey validate` refuses every difference from the",
+    "# preset that no `# DEVIATION: <why>` comment above the line claims (tag set",
+    "# by `deviation_marker:`). This profile is the source of truth either way.",
 ]
 
 # Round-trip mode preserves comments, key order, and quoting style (same
@@ -1148,6 +1151,94 @@ _ZONE_MAP = """\
 #   SECRETS  .env, your API keys. Not in git. Rebuilds never touch it
 #   OUTPUT   build/, generated. Never edit it; deleting it is safe
 #   STATE    var/, the agent's memory and audit log. Not in git. Kept"""
+
+
+def persona_catalog_layer(persona_names: Iterable[str], *, repo_name: str) -> dict[str, Any]:
+    """A raw profile fragment repointing each persona's ``build_profile`` at its
+    emitted sibling profile.
+
+    Written at the DEEPEST spelling on purpose. ``_collapse_config_prefixes``
+    resolves a prefix pair deeper-key-wins, so these keys survive whatever
+    shallower spelling the preset used for the module subtree
+    (``modules.web_terminals:``, or even a nested ``modules:``) and land inside
+    it — while a shallower fragment of ours would instead be overwritten
+    wholesale by the preset's own subtree.
+
+    Args:
+        persona_names: Personas the profile's catalog declares.
+        repo_name: Directory name of the deployment repo. A persona render is
+            build output like every other render, so its ``project_path`` lands
+            under the repo's ``build/`` zone and its ``project`` is keyed off
+            the deployment's own name rather than the preset's. This is why a
+            shipped preset cannot spell either value correctly on its own —
+            neither is knowable until a repo has a name.
+    """
+    layer: dict[str, str] = {}
+    for name in persona_names:
+        prefix = f"modules.web_terminals.personas.{name}"
+        layer[f"{prefix}.build_profile"] = f"{PERSONA_DIRNAME}/{name}.yml"
+        # `project` must equal `project_path`'s basename. Both are derived from
+        # the repo name here, and `osprey build` derives the render's own name
+        # the same way, which is how the render lands exactly where the catalog
+        # mounts it.
+        layer[f"{prefix}.project"] = f"{repo_name}-{name}"
+        layer[f"{prefix}.project_path"] = f"{BUILD_OUTPUT_DIR}/{repo_name}-{name}"
+    return {"config": layer}
+
+
+def triggers_layer() -> dict[str, Any]:
+    """A raw profile fragment repointing ``dispatch.triggers`` at the profile's own file.
+
+    The materialized ``triggers.yml`` is what the build must read (FR-3), so the
+    emitted key names it rather than the bundled trigger set it was copied from.
+    Merged through the same channel as every other emitted value, so nothing
+    here is a second path into the resolved content.
+    """
+    return {"dispatch": {"triggers": PROFILE_TRIGGERS_FILENAME}}
+
+
+def materialized_profile(preset_name: str, *, repo_name: str, profile_name: str) -> dict[str, Any]:
+    """The profile ``osprey init`` writes for *preset_name* today, as data.
+
+    The reference a materialized profile is compared with
+    (:func:`~osprey.cli.build_profile_drift.preset_drift_report`): not the
+    preset's raw layer, which no repo ever holds, but the document the emitter
+    makes of it — ``extends`` resolved, defaults synthesized, ``config:``
+    prefixes collapsed, the persona catalog and ``dispatch.triggers`` repointed
+    at the files a repo of this name owns. Produced by the emitter itself, so a
+    difference between this and the profile on disk is either an operator's
+    edit or a change in the preset, never an artifact of how ``osprey init``
+    spells things.
+
+    Args:
+        preset_name: Bundled preset, any CLI spelling.
+        repo_name: Directory name of the deployment repo, which the persona
+            catalog's ``project`` and ``project_path`` derive from.
+        profile_name: The profile's display ``name:``, copied in so it never
+            reads as a difference.
+
+    Returns:
+        The emitted profile, parsed.
+
+    Raises:
+        BuildProfileError: When the preset is unknown or will not emit.
+    """
+    from .build_profile_document import _parse_profile_document
+
+    raw, anchor = _load_preset_raw(preset_name)
+    resolved = _resolve_extends(dict(raw), anchor)
+    config = resolved.get("config")
+    personas = persona_catalog(config if isinstance(config, Mapping) else {})
+    layers: tuple[Mapping[str, Any], ...] = (
+        *((persona_catalog_layer(personas, repo_name=repo_name),) if personas else ()),
+        *((triggers_layer(),) if isinstance(resolved.get("dispatch"), Mapping) else ()),
+    )
+    text = emit_standalone_profile_yaml(preset_name, (), (), profile_name, extra_layers=layers)
+    # Parsed the way the profile on disk is, aliases canonicalized, so the
+    # emitted ``app_template`` is never compared with the loader's ``data_bundle``
+    # spelling as if they were two keys.
+    document = _parse_profile_document(text, f"materialized preset {preset_name!r}")
+    return document if isinstance(document, dict) else {}
 
 
 def emit_standalone_profile_yaml(
