@@ -90,17 +90,22 @@ env:
 
 jobs:
   test:
-    name: Test Python ${{ matrix.python-version }} on ${{ matrix.os }}
+    name: Test Python ${{ matrix.python-version }} on ${{ matrix.os }} (${{ matrix.shard }})
     runs-on: ${{ matrix.os }}
     # Without a bound, a single wedged xdist worker holds the lane at 99% for
     # the 6-hour default.
     #
-    # 60 rather than 45, because the healthy run grew. Through August a cell
-    # finished in ~15-18 min; by 2026-09-01 the suite had grown to the point
-    # where every cell needs ~35-41 min (ubuntu and macOS alike, coverage cell
-    # included: it measures through PEP 669, see COVERAGE_CORE below, which
-    # costs near enough nothing, so no cell is an outlier). What forces the
-    # headroom on top of that is a known intermittent tail worth ~12 minutes:
+    # 60 rather than 45 (#838, #841). The healthy runtime of one cell is not
+    # a number but a band: on main between 2026-08-28 and 2026-09-03 the four
+    # cells took anywhere from 24 to 46 minutes, with the same commit landing
+    # at 33 and 45 minutes on the same day. The per-test event logs in the
+    # ci-diag artifact show why — every test, the 24,000 sub-10 ms ones
+    # included, runs 1.5-1.7x slower on some runners than on others, so the
+    # spread is the runner pool, not the suite (the coverage cell is no
+    # outlier either: it measures through PEP 669, see COVERAGE_CORE below,
+    # which costs near enough nothing). The shard axis below halves what one
+    # job runs, which is what keeps a slow runner clear of this cap. What
+    # forces the headroom on top is a known intermittent tail worth ~12 minutes:
     # a worker wedges mid-test and its share has to be redistributed to a
     # replacement, or the session hangs after the last test on non-daemon
     # threads that outlive it. Both are visible in this lane's uploaded
@@ -115,6 +120,17 @@ jobs:
       matrix:
         python-version: ['3.11', '3.12']
         os: [ubuntu-latest, macos-latest]
+        # Each cell runs as two jobs. `cli` is tests/cli alone; `rest` is
+        # everything else. Measured on the per-test event logs of a full run,
+        # tests/cli is 49% of the suite's test time on both OSes (its ~120
+        # tests that run a real `osprey build` are most of that), so the two
+        # halves finish together and a job takes half the wall clock of a
+        # whole-suite cell on the same runner. A shard is a directory, not a
+        # duration file or a hash: nothing to regenerate, and the balance is
+        # re-checked by reading `--durations` when tests/cli drifts far from
+        # half. Runner-minutes are unchanged; the macOS concurrency ceiling
+        # discussed below sees twice the jobs at half the length each.
+        shard: [cli, rest]
         # Pull requests drop the 3.11/macOS cell; every other event runs the
         # full product.
         #
@@ -184,9 +200,11 @@ jobs:
       # minute intermittent tail described on the job cap above. A cap set just
       # above the healthy runtime kills the runs that hit that tail and would
       # have passed anyway; the value is deliberately loose for that reason, and
-      # tightening it is how this lane starts flaking. 55 = the ~41 min the
-      # slowest healthy cell now takes + the ~12 min tail; the previous 40 was
-      # sized for a ~18 min cell and became the healthy runtime itself.
+      # tightening it is how this lane starts flaking. 55 was sized when a cell
+      # ran the whole suite and the slowest healthy one took ~41 min; a shard
+      # runs half of it, so the same cap now leaves room for the slowest runner
+      # in the pool AND the tail. The previous 40 was sized for a ~18 min cell
+      # and became the healthy runtime itself.
       timeout-minutes: 55
       env:
         # Switches on tests/ci_diagnostics.py: a continuously flushed event log
@@ -326,7 +344,14 @@ jobs:
         # which is after tee has to open its file.
         mkdir -p ci-diag
         set -o pipefail
-        uv run pytest tests/ --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py -m "not pty" -v --tb=short --durations=50 --timeout=600 --timeout-method=signal -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
+        # The shard: `cli` narrows the path to tests/cli, `rest` keeps tests/
+        # and ignores tests/cli. Spelled as two variables on the one pytest
+        # line so the invocation test_ci_workflow_wiring.py pins stays one line.
+        case "${{ matrix.shard }}" in
+          cli)  SHARD_PATH="cli"; SHARD_IGNORE="" ;;
+          rest) SHARD_PATH="";    SHARD_IGNORE="--ignore=tests/cli" ;;
+        esac
+        uv run pytest tests/$SHARD_PATH $SHARD_IGNORE --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py -m "not pty" -v --tb=short --durations=50 --timeout=600 --timeout-method=signal -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
 
     # The two steps below are the reason the step above has its own timeout.
     # They run on success too: on a green lane the summary is the slow-test
@@ -349,7 +374,7 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v7
       with:
-        name: ci-diag-unit-${{ matrix.python-version }}-${{ matrix.os }}
+        name: ci-diag-unit-${{ matrix.python-version }}-${{ matrix.os }}-${{ matrix.shard }}
         path: ci-diag/
         retention-days: 14
         if-no-files-found: warn
@@ -363,8 +388,10 @@ jobs:
       # contended ones, so they would be where this suite starts flaking. What
       # it covers is not OS-specific either: it is how OSPREY's own renderer
       # drives a terminal. Both Linux Python cells run it, so it is not
-      # single-interpreter, and a developer on macOS runs it locally.
-      if: matrix.os == 'ubuntu-latest'
+      # single-interpreter, and a developer on macOS runs it locally. One shard
+      # per cell: the suite is not part of either half and would otherwise run
+      # twice.
+      if: matrix.os == 'ubuntu-latest' && matrix.shard == 'rest'
       # Serial by construction, and no xdist flags. Each scenario allocates a
       # pty, starts a real verb on it in its own session, and asserts on what
       # the terminal showed, including that a spinner ADVANCED between two
@@ -402,17 +429,20 @@ jobs:
       # seam test actually executes. The gate fails unless every module exits
       # 0 with zero skips and at least one pass, which closes the gap the
       # in-sweep venue guard cannot: a skipped live suite fails THIS step even
-      # if a future marker or fixture skip slips past the import guard.
-      if: matrix.os == 'ubuntu-latest'
+      # if a future marker or fixture skip slips past the import guard. One
+      # shard per cell, as for the pty suite above.
+      if: matrix.os == 'ubuntu-latest' && matrix.shard == 'rest'
       run: uv run python scripts/va/live_ca/gate.py --pva
 
     - name: Upload coverage reports to Codecov
+      # Both shards of the coverage cell upload; Codecov merges reports for
+      # one commit, so the two halves add up to the whole suite's coverage.
       uses: codecov/codecov-action@v7
       if: matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest'
       with:
         files: ./coverage.xml
         flags: unittests
-        name: codecov-umbrella
+        name: codecov-umbrella-${{ matrix.shard }}
         fail_ci_if_error: false
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
