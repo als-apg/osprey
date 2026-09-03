@@ -88,7 +88,7 @@ from ..app import (
     get_settings,
 )
 from ..exceptions import InvalidSessionError
-from ..identity_headers import is_header_safe, same_value
+from ..identity_headers import is_header_safe, same_identity, same_value
 from ..return_to import safe_return_to
 from ..sessions import SESSION_COOKIE_NAME, SessionState
 from ..throttle import AttemptThrottle
@@ -984,7 +984,7 @@ async def oidc_callback(request: Request) -> Response:
         matches = [
             (name, configured)
             for name, configured in settings.oidc_subjects.items()
-            if same_value(asserted, configured)
+            if same_identity(asserted, configured, claim=settings.oidc_claim)
         ]
         if not matches:
             logger.warning(
@@ -1049,7 +1049,12 @@ async def oidc_callback(request: Request) -> Response:
             raise _refuse_login(user, reason=refused.reason, message=refused.message) from None
     else:
         opener_name = ""
-        if not same_value(asserted, expected_subject):
+        # `expected_subject is None` was refused before the exchange on this
+        # same (own-card) branch; the re-check here is for the type checker,
+        # which cannot carry that narrowing across the two `shared` branches.
+        if expected_subject is None or not same_identity(
+            asserted, expected_subject, claim=settings.oidc_claim
+        ):
             # No search of the roster for a user this identity *would* match:
             # on an own card, the clicked card is the only user this login can
             # unlock, so the asserted identity is compared against that user's
@@ -1097,11 +1102,12 @@ async def oidc_callback(request: Request) -> Response:
     # expiry and by logout alone. It carries the asserted subject instead — an
     # opaque account identifier, not a credential — so a later verify subrequest
     # can name which provider account is behind this unlocked user without
-    # re-contacting the IdP. `grant.subject` and `asserted` are byte-equal here
-    # (the constant-time check above just proved it, against the clicked card's
-    # own mapping or against the matched entry's on a shared card); the
-    # configured value is stored so the cookie carries the deployment's own
-    # canonical spelling.
+    # re-contacting the IdP. `grant.subject` and `asserted` name the same
+    # identity here (the constant-time check above just proved it, against the
+    # clicked card's own mapping or against the matched entry's on a shared
+    # card) — the same bytes, or under an `email` claim the same mailbox in
+    # whatever case the provider chose to spell it; the configured value is
+    # stored so the cookie carries the deployment's own canonical spelling.
     session = _current_session(request).with_user(
         user,
         expires_at=now + settings.session_lifetime,

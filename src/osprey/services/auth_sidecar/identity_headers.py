@@ -32,7 +32,9 @@ than the deployment thinks it forwarded, which is exactly the failure this
 module exists to prevent.
 
 The module also owns :func:`same_value`, the constant-time comparator every
-check of an identity value uses.
+check of an identity value uses, and :func:`same_identity`, the one rule for
+when a *mapped identity* may match under a different spelling — an ``email``
+claim is a mailbox, and a mailbox does not change with its case.
 """
 
 from __future__ import annotations
@@ -44,7 +46,9 @@ __all__ = [
     "ROLE_HEADER",
     "ROLE_SOURCE_HEADER",
     "SUBJECT_HEADER",
+    "CASE_INSENSITIVE_CLAIMS",
     "is_header_safe",
+    "same_identity",
     "same_value",
 ]
 
@@ -129,3 +133,46 @@ def same_value(left: str, right: str) -> bool:
     comparison that was about to *succeed*, locking that operator out for good.
     """
     return secrets.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
+
+
+CASE_INSENSITIVE_CLAIMS: frozenset[str] = frozenset({"email"})
+"""The ID-token claims whose values name a mailbox, matched without regard to case.
+
+``email`` is the one claim OpenID Connect defines as an RFC 5322 address, and
+an address is the same mailbox in any case: the domain by RFC 5321, the local
+part by every mail provider in practice — the same person is
+``THellert@lbl.gov`` in a directory and ``thellert@lbl.gov`` in daily use, and
+a provider releases whichever spelling it stores. A byte-exact match would
+couple a roster to that cosmetic choice, refusing every login with a 403 that
+names nothing an operator can see in the config.
+
+Nothing else is on the list, and that is deliberate. ``sub`` is a
+case-sensitive opaque identifier by specification, so two subjects differing
+only in case are two accounts, and ``preferred_username`` is a display value
+the specification tells a relying party not to lean on at all — a deployment
+that maps on it gets the exact compare and can move to ``email`` when its
+provider spells that one unpredictably.
+"""
+
+
+def same_identity(asserted: str, configured: str, *, claim: str) -> bool:
+    """Whether an asserted identity matches a roster mapping, under ``claim``'s rule.
+
+    The one comparator for a mapped identity: the callback's own-card and
+    shared-card branches and ``/verify``'s opener re-validation all go through
+    it, so the three cannot disagree about what "the same identity" means.
+
+    Args:
+        asserted: The value the identity provider asserted (or, on
+            re-validation, the value a session recorded).
+        configured: The roster entry's mapped value.
+        claim: The ID-token claim the deployment maps on.
+
+    Returns:
+        For a claim in :data:`CASE_INSENSITIVE_CLAIMS`, whether the two are the
+        same mailbox — both sides casefolded, then compared in constant time.
+        For every other claim, exactly :func:`same_value`.
+    """
+    if claim in CASE_INSENSITIVE_CLAIMS:
+        return same_value(asserted.casefold(), configured.casefold())
+    return same_value(asserted, configured)

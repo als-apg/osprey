@@ -621,7 +621,7 @@ def test_a_non_ascii_identity_is_refused_over_the_wire(idp: MockIdP) -> None:
     handshake completes against the IdP and the login is then refused with a
     category pointing at the configuration. The refusal is a clean 403 rather
     than the ``TypeError`` a ``str`` comparison would raise on this input, which
-    is why :func:`~osprey.services.auth_sidecar.routes.oidc._same_value`
+    is why :func:`~osprey.services.auth_sidecar.identity_headers.same_value`
     compares UTF-8 bytes.
     """
     idp.subject = "jörg@example.org"
@@ -647,6 +647,55 @@ def test_a_configured_claim_other_than_sub_is_honoured(idp: MockIdP) -> None:
 
     assert response.status_code == 303
     assert _session_from(response).unlocked_usernames(now=0.0) == ("alice",)
+
+
+def test_an_email_claim_is_matched_without_regard_to_case(idp: MockIdP) -> None:
+    """The provider spells the mailbox as its directory does; the roster spells
+    it lowercase. Same mailbox, so alice logs in — and the session carries the
+    roster's own spelling, not the provider's."""
+    idp.subject = "an-opaque-provider-id"
+    idp.extra_claims = {"email": "Alice.Example@Example.ORG"}
+    app = _sidecar(
+        idp,
+        OSPREY_AUTH_OIDC_CLAIM="email",
+        OSPREY_AUTH_OIDC_SUBJECT_ALICE="alice.example@example.org",
+    )
+    with _browser(app) as client:
+        response = _log_in(client, "alice")
+
+    assert response.status_code == 303
+    session = _session_from(response)
+    assert session.unlocked_usernames(now=0.0) == ("alice",)
+    entry = session.entry("alice")
+    assert entry is not None
+    assert entry.oidc_subject == "alice.example@example.org"
+
+
+def test_an_email_claim_naming_another_mailbox_is_still_refused(idp: MockIdP) -> None:
+    """Case-insensitive is not lenient: a different address is a different person."""
+    idp.subject = "an-opaque-provider-id"
+    idp.extra_claims = {"email": "Alice.Example@example.net"}
+    app = _sidecar(
+        idp,
+        OSPREY_AUTH_OIDC_CLAIM="email",
+        OSPREY_AUTH_OIDC_SUBJECT_ALICE="alice.example@example.org",
+    )
+    with _browser(app) as client:
+        response = _log_in(client, "alice")
+
+    assert response.status_code == 403
+    assert SESSION_COOKIE_NAME not in response.cookies
+
+
+def test_the_default_sub_claim_stays_case_sensitive(idp: MockIdP) -> None:
+    """``sub`` is an opaque, case-sensitive identifier by specification: a
+    subject differing from the mapping only in case is somebody else."""
+    idp.subject = ALICE_SUBJECT.upper()
+    with _browser(_sidecar(idp)) as client:
+        response = _log_in(client, "alice")
+
+    assert response.status_code == 403
+    assert SESSION_COOKIE_NAME not in response.cookies
 
 
 def test_the_session_cookie_carries_the_pinned_attributes(idp: MockIdP) -> None:
@@ -737,6 +786,29 @@ def test_a_shared_card_with_its_own_identity_admits_any_mapped_entry(
     assert entry is not None
     assert entry.oidc_subject == asserted
     assert entry.opener == opener
+
+
+def test_a_shared_card_reverse_match_honours_the_email_claim_rule(idp: MockIdP) -> None:
+    """The reverse match over the roster goes through the same comparator as
+    an own card: alice's directory-cased mailbox still resolves to alice, so
+    she opens bob's shared card as herself."""
+    idp.subject = "an-opaque-provider-id"
+    idp.extra_claims = {"email": "Alice.Example@Example.ORG"}
+    app = _sidecar(
+        idp,
+        OSPREY_AUTH_OIDC_CLAIM="email",
+        OSPREY_AUTH_OIDC_SUBJECT_ALICE="alice.example@example.org",
+        OSPREY_AUTH_OIDC_SUBJECT_CAROL="carol.example@example.org",
+        OSPREY_AUTH_ROSTER_ACCESS_BOB="any",
+    )
+    with _browser(app) as client:
+        response = _log_in(client, "bob")
+
+    assert response.status_code == 303
+    entry = _session_from(response).entry("bob")
+    assert entry is not None
+    assert entry.opener == "alice"
+    assert entry.oidc_subject == "alice.example@example.org"
 
 
 def test_an_entry_that_never_logs_into_its_own_card_can_open_a_shared_one(idp: MockIdP) -> None:
