@@ -309,9 +309,9 @@ export function identTitle(row) {
 /**
  * Everything the turn-writes-on confirm says. Only this direction asks —
  * turning off removes reach and is undone by a click; turning on is the
- * gesture after which a write the agent makes can land. The title names the
- * machine, so the body does not name it again: one line for the scope and
- * the endpoint, one for when it takes hold.
+ * gesture after which a write the agent makes can land. The body names no
+ * endpoint: the one the roster carries is where reads go under the session's
+ * current posture, not where the write this dialog allows would land.
  * @param {any} row
  * @param {string} kind
  * @returns {{title: string, body: ConfirmRun[][], live: string|null, confirmLabel: string}}
@@ -320,7 +320,7 @@ export function turnOnConfirm(row, kind) {
   return {
     title: `Turn writes on for ${displayName(row, kind)}?`,
     body: [
-      ['For ', { em: 'your session' }, row.endpoint ? ` · ${row.endpoint}.` : '.'],
+      ['For ', { em: 'your session' }, '.'],
       ['Takes effect at the next write — nothing restarts.'],
     ],
     live: hardwareNote(kind),
@@ -330,10 +330,11 @@ export function turnOnConfirm(row, kind) {
 
 /**
  * Everything the switch confirm says. The first line states the consequence —
- * where every control read and write goes next. The second names the write
- * state the session will ARRIVE in, because writes on/off is per machine and
- * does not travel; the word is stateWord's own, so the dialog and the chip a
- * moment later can never disagree.
+ * where control goes next, naming writes only when the session arrives able to
+ * make them. The second names the write state the session will ARRIVE in,
+ * because writes on/off is per machine and does not travel; the word is
+ * stateWord's own, so the dialog and the chip a moment later can never
+ * disagree.
  * @param {any} row
  * @param {string} kind
  * @param {'writes'|'sandbox'|'read-only'} word  stateWord's answer for the row
@@ -353,7 +354,11 @@ export function switchConfirm(row, kind, word) {
   return {
     title: `Switch to ${displayName(row, kind)}?`,
     body: [
-      ['All control reads and writes go to ', { em: String(row.endpoint || row.target) }, '.'],
+      [
+        word === 'writes' ? 'All control reads and writes go to ' : 'All control reads go to ',
+        { em: String(row.endpoint || row.target) },
+        '.',
+      ],
       arrival,
     ],
     live: word === 'writes' ? hardwareNote(kind) : null,

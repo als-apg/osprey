@@ -69,6 +69,7 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -80,6 +81,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     REASON_TARGET_UNRESOLVABLE,
     ROLE_READ_ONLY,
     ROLE_WRITE_ACCESS,
+    Endpoint,
     TargetDerivation,
     Verification,
     connector_block,
@@ -390,6 +392,17 @@ class _Child:
     def is_alive(self) -> bool:
         return self.process.returncode is None
 
+    def reported_role(self) -> str | None:
+        """The gateway role the child said it connected on, or ``None``.
+
+        A connector with no gateways to select between reports no role, and a
+        report is trusted here because it was verified against the parent's
+        derivation before the child was adopted. Anything but a non-empty
+        string is "no role", never a role spelled oddly.
+        """
+        reported = self.report.get("selected_role")
+        return reported if isinstance(reported, str) and reported else None
+
 
 # ---------------------------------------------------------------------------
 # Config-derived facts
@@ -440,28 +453,96 @@ def _connector_block(config: Any, connector_type: str) -> dict[str, Any]:
     return block if isinstance(block, dict) else {}
 
 
-def target_display_metadata(config: Any) -> dict[str, dict[str, Any]]:
+def _endpoint_text(endpoint: Endpoint | None) -> str:
+    """The ``host:port`` string the state file's ``endpoint`` slot carries.
+
+    Empty when there is no row to name: the slot is always written, so a
+    target whose gateway cannot be derived is described as ``""`` rather
+    than omitted.
+    """
+    return f"{endpoint.host}:{endpoint.port}" if endpoint is not None else ""
+
+
+def _display_writes(config: Any, target: str, effective_writes: Mapping[str, bool] | None) -> bool:
+    """Whether the endpoint rendered for *target* should be the write one.
+
+    The injected mapping wins where it holds an answer for *target*; a miss, a
+    ``None`` value or no mapping at all falls back to this process's own
+    posture through
+    :func:`~osprey.mcp_server.control_system.target_eligibility.effective_writes_for_target`,
+    which takes the ``control_system:`` section rather than the whole config.
+
+    Injection exists because the one caller that already knows the session's
+    posture computes it before it renders, and a second store read there could
+    answer a question the caller has already answered differently. A process
+    that carries no ``OSPREY_POSTURE_SESSION`` stamp has no narrowing to find,
+    so the fallback returns the deployment ceiling ANDed with this run's mode.
+
+    Args:
+        config: The full rendered config mapping.
+        target: The session control target being described.
+        effective_writes: Per-target effective posture, or ``None``.
+
+    Returns:
+        ``True`` when writes are armed for *target* under the posture that
+        applies to this rendering.
+    """
+    if effective_writes is not None:
+        override = effective_writes.get(target)
+        if override is not None:
+            return bool(override)
+    return effective_writes_for_target(_control_system_section(config), target)
+
+
+def target_display_metadata(
+    config: Any, *, effective_writes: Mapping[str, bool] | None = None
+) -> dict[str, dict[str, Any]]:
     """Per-target display metadata for the state file's single writer.
 
-    Rendered once, here, from config: readers (the prompt hook, the roster)
+    Rendered once, here, by the writer, under the session's effective posture:
+    readers (the prompt hook, the roster, the approval banner, the web badge)
     render the identity line straight from the state file and never re-derive
     it, so this is the only place the three targets get described.
 
     Each entry carries ``label``, ``display_name``, ``endpoint``,
-    ``real_machine`` and ``probe_channel`` — the destination's probe channel
-    travels with the metadata so a describer can name it without opening
-    ``config.yml``.
+    ``selected_role``, ``real_machine`` and ``probe_channel`` — the
+    destination's probe channel travels with the metadata so a describer can
+    name it without opening ``config.yml``.
+
+    Identity and posture are derived separately, and only the endpoint moves.
+    ``label``, ``display_name``, ``real_machine`` and the ``(stand-in)``
+    parenthesis come from the deployment ceiling, so narrowing a session never
+    renames the machine an operator is standing in front of. ``endpoint`` and
+    ``selected_role`` come from a second derivation under the effective
+    posture, so a session that has given up writes is told the read gateway it
+    is actually talking to rather than the write gateway the deployment would
+    permit. A process with no ``OSPREY_POSTURE_SESSION`` stamp has no narrowing
+    to answer for and is rendered from the ceiling and this run's mode.
 
     One entry per name in :data:`~osprey.mcp_server.control_system.target_state.TARGET_NAMES`,
     walked from that tuple rather than from a list spelled again here: the
     state file has a slot per target, this is its single writer, and a target
     described in one place and missing from the other is a reader rendering an
     empty identity line for a target an operator can select.
+
+    Args:
+        config: The full rendered config mapping (``config.yml`` as loaded).
+        effective_writes: Per-target effective write posture to render under.
+            A caller that has already resolved the session's posture passes it
+            so the rendering and the enforcement cannot disagree; a target the
+            mapping does not answer for falls back to this process's own
+            posture.
+
+    Returns:
+        One entry per target name. Every entry carries every key: a target
+        whose endpoints cannot be derived is described with an empty
+        ``endpoint`` and an empty ``selected_role`` rather than omitted.
     """
     metadata: dict[str, dict[str, Any]] = {}
     for target in target_state.TARGET_NAMES:
         try:
-            derivation = derive_endpoints(config, target)
+            # The ceiling derivation, and the only one identity is read from.
+            ceiling = derive_endpoints(config, target)
         except ValueError:
             # A deployment that has never named its real machine still needs a
             # slot: "unknown" is a truthful rendering, an absent key is not.
@@ -469,25 +550,31 @@ def target_display_metadata(config: Any) -> dict[str, dict[str, Any]]:
                 "label": _label(target, None),
                 "display_name": _display_name(config, target, None),
                 "endpoint": "",
+                "selected_role": "",
                 "real_machine": False,
                 "probe_channel": "",
             }
             continue
-        endpoint = derivation.selected_endpoint()
-        block = _connector_block(config, derivation.connector_type)
-        standin = _is_live_standin(config, target, endpoint)
+        block = _connector_block(config, ceiling.connector_type)
+        # Asked of the ceiling endpoint, so the parenthesis cannot move under a
+        # narrowing: a deployment whose two gateway rows sit on different ports
+        # would otherwise be a stand-in with writes armed and the real machine
+        # without them.
+        standin = _is_live_standin(config, target, ceiling.selected_endpoint())
+        selected = derive_endpoints(
+            config, target, writes_enabled=_display_writes(config, target, effective_writes)
+        )
         metadata[target] = {
-            "label": _label(target, derivation.connector_type, standin=standin),
-            "display_name": _display_name(
-                config, target, derivation.connector_type, standin=standin
-            ),
-            "endpoint": f"{endpoint.host}:{endpoint.port}" if endpoint else "",
+            "label": _label(target, ceiling.connector_type, standin=standin),
+            "display_name": _display_name(config, target, ceiling.connector_type, standin=standin),
+            "endpoint": _endpoint_text(selected.selected_endpoint()),
+            "selected_role": selected.selected_role,
             # True for the stand-in as well as the facility's machine, and the
             # question is the connector type alone rather than which target
             # asked: a stand-in is a real-machine posture, so every strict
             # limit, approval prompt and banner hardware gets, it gets. Only
             # the name on the label moves.
-            "real_machine": derivation.connector_type not in _SIMULATED_TYPES,
+            "real_machine": ceiling.connector_type not in _SIMULATED_TYPES,
             "probe_channel": str(block.get(PROBE_CHANNEL_KEY) or ""),
         }
     return metadata
@@ -512,6 +599,12 @@ def _is_live_standin(config: Any, target: str, endpoint: Any) -> bool:
     nothing more, so the port conjunct fails and the label stays
     ``LIVE MACHINE`` — which is the truth, because the operator is one hop from
     hardware.
+
+    Asked of the CEILING endpoint rather than of the one a narrowed session
+    lands on. The parenthesis is an identity fact, and identity does not move
+    when a session gives up writes: a deployment whose two gateway rows sit on
+    different ports would otherwise be a stand-in while writes are armed and
+    the facility's own machine once they are not.
 
     Asked of the live family — ``live`` and ``standin``, the two targets that
     dial a Channel Access gateway. ``va`` is not asked at all: the simulator is
@@ -712,6 +805,11 @@ class ConnectorHostManager:
         self._target = self._baseline
         self._generation = 0
         self._started = False
+        #: The targets block as last rendered, or ``None`` before the first
+        #: render. Identity depends on a posture that moves under a running
+        #: session, so this is a cache of the last answer rather than a
+        #: constant computed at start.
+        self._display: dict[str, dict[str, Any]] | None = None
         self._drain_override = drain_timeout_s
         self._probe_timeout_s = probe_timeout_s
         self._spawn_timeout_s = spawn_timeout_s
@@ -801,6 +899,106 @@ class ConnectorHostManager:
             return None
         return child
 
+    # -- display metadata --------------------------------------------------
+
+    def _render_display(self) -> dict[str, dict[str, Any]]:
+        """The targets block as this session would have it described right now.
+
+        :func:`target_display_metadata` renders every slot from config under
+        this process's own effective posture. The ACTIVE slot then takes a
+        second opinion it alone is entitled to: its target is being served by a
+        child that has already reported which gateway role it connected on, and
+        that report was verified against the parent's derivation before the
+        child was adopted. Rendering the active slot from the report rather
+        than from a fresh derivation is what stops the block from leading or
+        lagging the process an operator's reads actually go through — a landing
+        that fell back to the read gateway is described as ``read_only`` while
+        a re-derivation would still say ``write_access``.
+
+        Nothing else is overridden. A child that reports no role at all (a
+        connector with no gateways to select between), a target whose endpoints
+        cannot be derived, and every non-active slot are left exactly as
+        rendered.
+
+        Returns:
+            One entry per target name, in the shape
+            :func:`~osprey.mcp_server.control_system.target_state.publish_targets`
+            takes.
+        """
+        metadata = target_display_metadata(self._config.raw)
+        child = self._live_child()
+        if child is None:
+            return metadata
+        reported = child.reported_role()
+        slot = metadata.get(self._target)
+        if slot is None or reported is None:
+            return metadata
+        try:
+            endpoints = derive_endpoints(self._config.raw, self._target).endpoints
+        except ValueError:
+            # The slot is already the "not configured" rendering; a role
+            # without an endpoint to put beside it would say less, not more.
+            return metadata
+        slot["selected_role"] = reported
+        slot["endpoint"] = _endpoint_text(endpoints.get(reported))
+        return metadata
+
+    def display_metadata(self) -> dict[str, dict[str, Any]]:
+        """The targets block this server last rendered, rendering it if needed.
+
+        Reads only. The refusal describers reach identity through here while
+        building an error, and writing the state file as a side effect of
+        explaining a failure would make a bad moment worse. :meth:`reset_state`
+        seeds the cache at start and :meth:`publish_display` replaces it; a
+        caller that somehow arrives before either gets a fresh render rather
+        than an empty identity line.
+        """
+        if self._display is None:
+            self._display = self._render_display()
+        return self._display
+
+    def publish_display(self) -> bool:
+        """Re-render the targets block and republish it. Never raises.
+
+        The block is where every reader outside this process gets target
+        identity, and identity depends on a posture that moves under a running
+        session: an operator narrows the session to read-only, the child is
+        replaced by one on the read gateway, and readers rendering the block
+        verbatim would go on naming the write gateway. Readers are not what
+        fixes that — by contract they render what they are handed — so the
+        single writer restates its own opinion here.
+
+        Fail-soft in both halves, for the reason :meth:`_publish` is: the swap
+        has already happened by the time this runs. A render that raises and a
+        file that cannot be written are both logged and left, and neither turns
+        a switch that succeeded into an exception saying it failed.
+
+        Returns:
+            ``True`` when the record was updated; ``False`` when it was not —
+            no record to update, an unwritable file, or a render that raised.
+        """
+        try:
+            rendered = self._render_display()
+            self._display = rendered
+            if target_state.publish_targets(rendered):
+                return True
+            logger.warning(
+                "No target-state record to republish the display metadata for target %r "
+                "(generation %s) into; the server did not reset its state file at start",
+                self._target,
+                self._generation,
+            )
+        except Exception as exc:
+            logger.error(
+                "The display metadata for target %r (generation %s) could not be "
+                "republished: %s. Readers outside this server keep rendering the endpoint "
+                "the last successful publication named",
+                self._target,
+                self._generation,
+                exc,
+            )
+        return False
+
     # -- lifecycle ---------------------------------------------------------
 
     def reset_state(self, *, grace_s: float | None = None) -> list[int]:
@@ -808,10 +1006,17 @@ class ConnectorHostManager:
 
         Synchronous on purpose: it runs during server start, before the event
         loop that will own the children exists.
+
+        The targets block written here is rendered through
+        :meth:`display_metadata`, so the copy on disk and the copy this manager
+        will hand a describer are the same one from the first moment. Rendering
+        it twice — once for the file, once on the first refusal — is how the
+        two would drift apart.
         """
         return reset_target_state(
             self._config.raw,
             baseline=self._baseline,
+            targets_meta=self.display_metadata(),
             grace_s=self._terminate_grace_s if grace_s is None else grace_s,
         )
 
@@ -1070,9 +1275,7 @@ class ConnectorHostManager:
             self._generation,
             child.pid,
         )
-        reported = child.report.get("selected_role")
-        has_role = isinstance(reported, str) and bool(reported)
-        selected_role = reported if has_role else derivation.selected_role
+        selected_role = child.reported_role() or derivation.selected_role
         endpoint = derivation.endpoints.get(selected_role)
         return {
             "target": target,
@@ -1099,16 +1302,26 @@ class ConnectorHostManager:
         old target while every tool call went to the new one. The in-memory
         truth is authoritative and is what the accessors report; the file is
         the copy readers outside this process get, and its failure to update is
-        logged loudly and left stale rather than pretended away.
+        logged loudly and left stale rather than pretended away. The same is
+        true of the display metadata republished after it, which is why
+        :meth:`publish_display` is fail-soft as well.
+
+        Returns:
+            ``True`` when the switch record was updated. The display
+            republication is reported only in the log: a switch is not less
+            complete for having left one stale identity line behind.
         """
+        published = False
         try:
-            if target_state.publish_switch(self._target, self._generation, children=[child_pid]):
-                return True
-            logger.warning(
-                "No target-state record to publish the switch to %r into; "
-                "the server did not reset its state file at start",
-                target,
+            published = target_state.publish_switch(
+                self._target, self._generation, children=[child_pid]
             )
+            if not published:
+                logger.warning(
+                    "No target-state record to publish the switch to %r into; "
+                    "the server did not reset its state file at start",
+                    target,
+                )
         except OSError as exc:
             logger.error(
                 "The switch to %r (generation %s) succeeded, but its state file could not be "
@@ -1118,7 +1331,11 @@ class ConnectorHostManager:
                 self._generation,
                 exc,
             )
-        return False
+        # The identity readers render moved with the switch: a different target
+        # is active, served through a role this session's posture chose. It is
+        # republished here rather than left at what start-up rendered.
+        self.publish_display()
+        return published
 
     def _derive(self, target: str) -> TargetDerivation:
         """The destination's derivation, or a refusal naming what is missing.

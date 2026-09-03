@@ -23,6 +23,9 @@ Coverage (one test each):
   (c) turning writes back on is the direction that confirms: the dialog names
       the machine, Cancel is a true no-op on the row *and* in the store, and
       only a confirmed dialog widens.
+  (c2) a narrowing moves the endpoint the row's tooltip names off the write
+      gateway and onto the read one, and the confirm that would widen again
+      names no endpoint at all.
   (d) Switch confirms, is accepted as ``202``, and puts the chip and the row
       into ``switching…`` with a request file addressed to the controls server
       — this route only *asks*; the reconciler that would answer is not running
@@ -74,6 +77,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
@@ -134,6 +138,23 @@ _LONG_LIVED_SHELL = [sys.executable, "-c", "import time; time.sleep(3600)"]
 #: The Channel Access port the co-deployed stand-in serves on.
 STANDIN_PORT = 5074
 
+#: The facility machine's two gateway ports, deliberately distinct. Which of
+#: them a row names is the whole observable of the posture-aware render: under
+#: writes the row is talking to :data:`WRITE_PORT`, and a session that has given
+#: up writes is talking to :data:`READ_PORT`.
+READ_PORT = 5064
+WRITE_PORT = 5065
+
+#: The endpoints those two ports spell on the row, on the host both roles share.
+READ_ENDPOINT = f"gw:{READ_PORT}"
+WRITE_ENDPOINT = f"gw:{WRITE_PORT}"
+
+#: Anything shaped like a gateway address. Used to assert an ABSENCE: the
+#: turn-writes-on confirm names no endpoint at all, because the one the roster
+#: carries is where reads go under the current posture and not where the write
+#: this dialog allows would land.
+_HOST_PORT = re.compile(r"\b\S+:\d{2,5}\b")
+
 #: The target the published record puts the session on. Chosen so the roster
 #: carries all three interesting rows at once: ``va`` is active (no Switch),
 #: ``live`` is switchable, and ``standin`` is a real machine that is not.
@@ -147,6 +168,11 @@ POSTURE_TARGET = "standin"
 
 #: The row Switch is exercised on — the only one this render offers it for.
 SWITCH_TARGET = "live"
+
+#: The row the endpoint case is made on. The facility's own machine is the only
+#: target here whose two gateway roles sit on different ports, so it is the only
+#: row whose named endpoint can be seen to move when a session gives up writes.
+ENDPOINT_TARGET = "live"
 
 #: The server's own labels. The controls server mints these once, and this
 #: render keeps them where the machine vocabulary now lives: on tooltips.
@@ -183,8 +209,17 @@ def _write_config(path: Path, *, writes_enabled: bool = True) -> Path:
     channel to probe, strict limits (required toward the live family) and the
     operator's acknowledgement of the live gateway. Without them every row
     would carry an eligibility refusal and no Switch would be offered anywhere.
+
+    The ``epics`` block is the one target here whose two roles sit on DIFFERENT
+    ports, which is what makes a narrowing observable at all: a block whose
+    ``read_only`` and ``write_access`` name one gateway renders the same
+    endpoint under either posture, so a test asserting the endpoint moved would
+    pass on a render that never consulted the posture. The host stays ``gw`` in
+    both roles — a loopback address is the stand-in predicate's own signal, and
+    moving the write role off it would rename the machine mid-test.
     """
-    gateway = {"address": "gw", "port": 5064, "use_name_server": True}
+    gateway = {"address": "gw", "port": READ_PORT, "use_name_server": True}
+    write_gateway = {"address": "gw", "port": WRITE_PORT, "use_name_server": True}
     standin_gateway = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
     path.write_text(
         yaml.safe_dump(
@@ -199,7 +234,7 @@ def _write_config(path: Path, *, writes_enabled: bool = True) -> Path:
                             "probe_channel": "SR:PROBE",
                             "gateways": {
                                 "read_only": dict(gateway),
-                                "write_access": dict(gateway),
+                                "write_access": dict(write_gateway),
                             },
                         },
                         "live_standin": {
@@ -637,6 +672,63 @@ def test_arming_confirms_and_cancel_changes_nothing(tmp_path, monkeypatch, chrom
             # only ever records what was taken away.
             stored = _stored_postures()
             assert POSTURE_TARGET not in stored.get(session_id, {}), stored
+        finally:
+            page.close()
+
+
+def test_narrowing_moves_the_tooltip_onto_the_read_gateway(tmp_path, monkeypatch, chromium_browser):
+    """A narrowed row names the gateway it is actually talking to.
+
+    The endpoint on a row is where control *reads* go under this session's
+    posture. Armed, that is the write gateway; give the writes up and it is the
+    read gateway — and the tooltip an operator hovers has to say so, because the
+    render answering from the deployment ceiling would keep naming a gateway
+    this session can no longer reach.
+
+    The narrowing is made the way an operator makes it, through the popover's
+    own toggle and therefore through the real POST: a store written from the
+    test instead would prove the renderer reads a file, not that the round trip
+    an operator drives ends on screen. The row is re-read from the page after
+    the gesture — the popover subtree is replaced wholesale on every refetch.
+
+    The confirm that would widen again is checked for the opposite: it names no
+    endpoint whatsoever. The one the roster carries describes reads under the
+    posture the dialog is about to leave, so quoting it in the question would
+    name the wrong gateway at the one moment an operator is deciding about
+    writes.
+    """
+    known_ids: set[str] = set()
+
+    with _chip_hub(tmp_path, monkeypatch, known_ids=known_ids) as (base_url, app):
+        page, _session_id, _pid = _settled_chip(chromium_browser, base_url, app, known_ids)
+        try:
+            _open_popover(page)
+
+            # Armed: the write gateway, and only it.
+            ident = _row(page, ENDPOINT_TARGET).locator(".ctc-tip-ident")
+            expect(ident).to_contain_text(WRITE_ENDPOINT, timeout=TIMEOUT)
+            assert READ_ENDPOINT not in (ident.text_content() or "")
+
+            _narrow(page, ENDPOINT_TARGET)
+
+            # Narrowed: the read gateway. Re-resolved from the page, since the
+            # refetch that carried the new posture replaced the node above.
+            ident = _row(page, ENDPOINT_TARGET).locator(".ctc-tip-ident")
+            expect(ident).to_contain_text(READ_ENDPOINT, timeout=TIMEOUT)
+            tip = ident.text_content() or ""
+            assert WRITE_ENDPOINT not in tip
+            # Identity is derived from the ceiling and does not move with the
+            # posture: the operator is standing in front of the same machine.
+            assert LABELS[ENDPOINT_TARGET] in tip
+
+            # The confirm that widens again names no gateway at all.
+            _toggle(page, ENDPOINT_TARGET).click()
+            expect(page.locator(MODAL_TITLE)).to_have_text(
+                f"Turn writes on for {NAMES[ENDPOINT_TARGET]}?", timeout=TIMEOUT
+            )
+            body = page.locator(f"{OPEN_MODAL} .posture-modal-body").text_content() or ""
+            assert body.strip(), "the confirm rendered an empty body"
+            assert not _HOST_PORT.search(body), body
         finally:
             page.close()
 

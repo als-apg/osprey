@@ -36,6 +36,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     target_availability,
 )
 from osprey.mcp_server.control_system.tools import control_target
+from osprey_connectors import session_store
 from osprey_connectors.standin import ARCHIVER_RECORDER_SERVICE
 from tests.mcp_server import test_switch_lifecycle as switch_suite
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
@@ -52,6 +53,10 @@ child_environment = switch_suite.child_environment
 fixture_dir = switch_suite.fixture_dir
 make_manager = switch_suite.make_manager
 state_root = switch_suite.state_root
+# The posture store the endpoint cases narrow, stamped and cleared the same way
+# the lifecycle suite's republication cases need it.
+posture_store = switch_suite.posture_store
+narrow = switch_suite.narrow
 
 ROSTER = get_tool_fn(control_target.control_target)
 
@@ -97,6 +102,9 @@ TUNNELLED_PORT = 5064
 VA_GATEWAY_PORT = 5065
 REAL_GATEWAY_HOST = "gw.example.org"
 STANDIN_PROBE = "STANDIN:BEAM:CURRENT"
+#: The stand-in's write-capable gateway, on its own port, for the cases where
+#: which role was selected has to be visible in the rendered endpoint.
+STANDIN_WRITE_PORT = 5075
 
 #: A real archiver, so the honesty rule has no invented past to object to. The
 #: stand-in's connector type is one of the two whose history is invented, so a
@@ -110,6 +118,7 @@ def standin_config(
     standin_port=STANDIN_PORT,
     gateway_host="localhost",
     gateway_port=STANDIN_PORT,
+    write_port=None,
     live_host=REAL_GATEWAY_HOST,
     live_port=TUNNELLED_PORT,
     deployed=True,
@@ -137,6 +146,12 @@ def standin_config(
     gateway, which is how a case can ask what ``live`` is called when its
     endpoint happens to look exactly like the stand-in's.
 
+    *write_port* splits the stand-in's two gateway rows onto different ports.
+    The default puts both roles on the same one, where which role was selected
+    is unobservable in the endpoint; a case about the *posture* the endpoint
+    was rendered under has to split them, or it would pass whatever the
+    selection did.
+
     The display cases below need nothing more than that. The roster cases need
     the rest of a deployment an operator could actually switch on, and take it
     from the same builder rather than a second copy of these three blocks:
@@ -148,6 +163,9 @@ def standin_config(
     and whether an ``archiver_recorder`` makes the store the stand-in's).
     """
     gateway = {"address": gateway_host, "port": gateway_port, "use_name_server": True}
+    write_gateway = dict(gateway)
+    if write_port is not None:
+        write_gateway["port"] = write_port
     live_gateway = {"address": live_host, "port": live_port, "use_name_server": True}
     va_block = {"probe_channel": VA_PROBE}
     if va_gateways:
@@ -171,7 +189,7 @@ def standin_config(
                 "probe_channel": STANDIN_PROBE,
                 "gateways": {
                     "read_only": dict(gateway),
-                    "write_access": dict(gateway),
+                    "write_access": dict(write_gateway),
                 },
             },
             "virtual_accelerator": va_block,
@@ -189,6 +207,19 @@ def standin_config(
     if recorder:
         raw.setdefault("deployed_services", []).append(ARCHIVER_RECORDER_SERVICE)
     return raw
+
+
+def split_gateway_config(**kwargs):
+    """A stand-in whose read and write gateways sit on different ports.
+
+    The stand-in container is the *write* row's port, so the ceiling
+    derivation — the one identity is read from — still recognises the endpoint
+    as this deployment's own stand-in when the deployment arms writes. A
+    session that has given up writes selects the read row on the other port,
+    which is the only thing a posture is allowed to move.
+    """
+    kwargs.setdefault("writes_enabled", True)
+    return standin_config(write_port=STANDIN_WRITE_PORT, standin_port=STANDIN_WRITE_PORT, **kwargs)
 
 
 def without_a_standin(**kwargs):
@@ -887,13 +918,23 @@ class TestLiveStandinLabel:
         assert metadata["standin"]["label"] == "LIVE MACHINE (stand-in)"
         assert metadata["standin"]["real_machine"] is True
 
-    def test_an_armed_deployment_names_the_standin_through_its_write_gateway(self):
-        """Arming writes selects the other gateway row, and both point at it."""
-        metadata = target_display_metadata(standin_config(writes_enabled=True))
+    def test_an_armed_deployment_names_the_standin_through_its_write_gateway(self, monkeypatch):
+        """Arming writes selects the other gateway row, and the endpoint says so.
+
+        The two rows are split onto different ports, so the selection is
+        visible rather than implied, and the stamp is deleted explicitly: a
+        process with no ``OSPREY_POSTURE_SESSION`` has no session narrowing to
+        find, so the rendering is the deployment's ceiling — what every reader
+        saw before postures could move an endpoint at all.
+        """
+        monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
+
+        metadata = target_display_metadata(split_gateway_config())
 
         assert metadata["standin"]["label"] == "LIVE MACHINE (stand-in)"
         assert metadata["standin"]["real_machine"] is True
-        assert metadata["standin"]["endpoint"] == f"localhost:{STANDIN_PORT}"
+        assert metadata["standin"]["endpoint"] == f"localhost:{STANDIN_WRITE_PORT}"
+        assert metadata["standin"]["selected_role"] == "write_access"
 
     def test_the_simulator_is_described_by_its_own_branch(self):
         """``va`` is untouched by the stand-in, in every case above and here."""
@@ -1001,6 +1042,121 @@ class TestDisplayName:
         assert metadata["standin"]["display_name"] == "Shadow ring"
         assert metadata["standin"]["label"] == "LIVE MACHINE (stand-in)"
         assert metadata["standin"]["real_machine"] is True
+
+
+# ------------------------------------------------- display: the endpoint
+
+
+class TestEndpointFollowsThePosture:
+    """Which gateway the rendered ``endpoint`` names, and what it may not move.
+
+    A session can narrow itself from write-capable to read-only after the
+    state file was written. Enforcement already follows that; the rendered
+    string is what nine readers print verbatim, so it has to follow it too —
+    otherwise an operator who gave up writes is still told the name of the
+    write gateway, which is the one endpoint their session can no longer reach.
+
+    Identity is the half that must *not* move. The label, the display name,
+    the ``real_machine`` flag and the ``(stand-in)`` parenthesis all come from
+    the deployment ceiling, so narrowing a session never renames the machine
+    in front of the operator. Every case here runs on a split-port stand-in,
+    where the two halves are told apart by the port in the string.
+    """
+
+    def test_a_narrowed_session_is_named_through_the_read_gateway(self, posture_store):
+        narrow(posture_store, "standin")
+
+        metadata = target_display_metadata(split_gateway_config())
+
+        assert metadata["standin"]["endpoint"] == f"localhost:{STANDIN_PORT}"
+        assert metadata["standin"]["selected_role"] == "read_only"
+
+    def test_a_narrowing_never_renames_the_machine(self, posture_store):
+        """The parenthesis is read from the ceiling, so it cannot follow a port."""
+        narrow(posture_store, "standin")
+
+        metadata = target_display_metadata(split_gateway_config())
+
+        assert metadata["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert metadata["standin"]["display_name"] == "Rehearsal"
+        assert metadata["standin"]["real_machine"] is True
+        assert metadata["standin"]["probe_channel"] == STANDIN_PROBE
+
+    def test_a_narrowing_reaches_only_the_target_it_names(self, posture_store):
+        """Per-target, the way the store is keyed: ``live`` keeps its own answer."""
+        narrow(posture_store, "standin")
+
+        metadata = target_display_metadata(split_gateway_config())
+
+        assert metadata["standin"]["selected_role"] == "read_only"
+        assert metadata["live"]["selected_role"] == "write_access"
+
+    def test_an_unnarrowed_session_still_names_the_write_gateway(self, posture_store):
+        """Stamped, with nothing in the store: the ceiling answers unchanged."""
+        metadata = target_display_metadata(split_gateway_config())
+
+        assert metadata["standin"]["endpoint"] == f"localhost:{STANDIN_WRITE_PORT}"
+        assert metadata["standin"]["selected_role"] == "write_access"
+
+    def test_the_store_never_widens_a_deployment_that_arms_nothing(self, posture_store):
+        """Nothing a session holds can arm a target the deployment left unarmed."""
+        metadata = target_display_metadata(split_gateway_config(writes_enabled=False))
+
+        assert metadata["standin"]["endpoint"] == f"localhost:{STANDIN_PORT}"
+        assert metadata["standin"]["selected_role"] == "read_only"
+
+    def test_an_injected_mapping_overrides_the_session(self, posture_store):
+        """The caller that already resolved the posture is answered verbatim.
+
+        Both directions, because a mapping that only ever agreed with the
+        store would not prove it was consulted: it widens a narrowed session
+        back to the ceiling, and narrows an unnarrowed one.
+        """
+        narrow(posture_store, "standin")
+        config = split_gateway_config()
+
+        widened = target_display_metadata(config, effective_writes={"standin": True})
+        assert widened["standin"]["endpoint"] == f"localhost:{STANDIN_WRITE_PORT}"
+        assert widened["standin"]["selected_role"] == "write_access"
+
+        session_store.invalidate_cache()
+        narrowed = target_display_metadata(config, effective_writes={"standin": False})
+        assert narrowed["standin"]["endpoint"] == f"localhost:{STANDIN_PORT}"
+        assert narrowed["standin"]["selected_role"] == "read_only"
+
+    def test_a_target_the_mapping_skips_falls_back_to_the_session(self, posture_store):
+        """A miss is not an answer of ``False``: the store still decides."""
+        narrow(posture_store, "standin")
+
+        metadata = target_display_metadata(split_gateway_config(), effective_writes={"live": True})
+
+        assert metadata["standin"]["selected_role"] == "read_only"
+        assert metadata["live"]["selected_role"] == "write_access"
+
+    def test_the_label_is_unchanged_by_either_route(self, posture_store):
+        """One identity, whichever posture the endpoint was rendered under."""
+        config = split_gateway_config()
+        narrow(posture_store, "standin")
+
+        from_store = target_display_metadata(config)
+        injected = target_display_metadata(config, effective_writes={"standin": True})
+
+        assert from_store["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert injected["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert from_store["standin"]["endpoint"] != injected["standin"]["endpoint"]
+
+    def test_every_slot_carries_a_selected_role(self, posture_store):
+        """In-memory slots always carry the key, ``""`` where it is underivable."""
+        metadata = target_display_metadata(split_gateway_config())
+
+        assert all("selected_role" in meta for meta in metadata.values())
+
+    def test_an_underivable_target_carries_an_empty_role_and_endpoint(self):
+        """The slot survives; the two posture facts degrade rather than lie."""
+        metadata = target_display_metadata({"control_system": {"type": "virtual_accelerator"}})
+
+        assert metadata["live"]["selected_role"] == ""
+        assert metadata["live"]["endpoint"] == ""
 
 
 # ------------------------------------------------------ the limits posture

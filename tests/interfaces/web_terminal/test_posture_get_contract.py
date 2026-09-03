@@ -160,6 +160,7 @@ def render(
     va_writes=None,
     standin_roles=("read_only", "write_access"),
     display_names=None,
+    live_write_port=None,
     name="config.yml",
     tmp_path=None,
 ):
@@ -178,6 +179,12 @@ def render(
     ``display_names`` is written verbatim as
     ``control_system.target_display_names``, the deployment's renaming of the
     chip's per-target words.
+
+    ``live_write_port`` puts the facility machine's write gateway on a port of
+    its own. It is what makes a posture observable in an endpoint at all: with
+    one gateway row serving both roles the selected role moves under a narrowing
+    and the host:port the row reports does not, so a render that named the wrong
+    gateway would look identical to one that named the right one.
     """
     gateway = {"address": "gw", "port": 5064, "use_name_server": True}
     standin_gateway = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
@@ -204,7 +211,8 @@ def render(
                     "probe_channel": "SR:PROBE",
                     "gateways": {
                         "read_only": dict(gateway),
-                        "write_access": dict(gateway),
+                        "write_access": dict(gateway)
+                        | ({} if live_write_port is None else {"port": live_write_port}),
                     },
                 },
                 "live_standin": {
@@ -351,6 +359,25 @@ def write_target_state(
         encoding="utf-8",
     )
     return path
+
+
+@contextmanager
+def chat_session(client, chat_id=CHAT_A):
+    """Make the operator registry answer to *chat_id* as a chat pool key.
+
+    A chat has no PTY, so ``_posture_view`` resolves no controls-server record
+    for it and every identity on its rows comes from the render alone.
+    """
+
+    async def _cleanup_all():  # the lifespan's shutdown calls this
+        return None
+
+    client.app.state.operator_registry = SimpleNamespace(
+        has_chat_key=lambda key: key == chat_id,
+        get_chat_session=lambda key: SimpleNamespace() if key == chat_id else None,
+        cleanup_all=_cleanup_all,
+    )
+    yield
 
 
 @contextmanager
@@ -501,6 +528,90 @@ class TestIdentity:
         # An empty override is no name at all: the default answers.
         assert row_for(payload, "va")["display_name"] == "Simulator"
         assert row_for(payload, "live")["display_name"] == "Real machine"
+
+    def test_an_armed_session_is_rendered_through_its_write_gateway(self, make_client, tmp_path):
+        """The baseline the narrowing tests below move away from."""
+        with make_client(
+            render(tmp_path=tmp_path, global_writes=True, live_write_port=6064)
+        ) as client:
+            payload = get_posture(client)
+
+        assert row_for(payload, "live")["effective"] is True
+        assert row_for(payload, "live")["endpoint"] == "gw:6064"
+
+    def test_a_narrowing_moves_the_rendered_endpoint_to_the_read_gateway(
+        self, make_client, tmp_path, agent_data_root
+    ):
+        """The render answers for THIS session, not for the deployment.
+
+        Nothing is published here, so the fallback render is the whole of the
+        row's identity — and the renderer resolves its own posture from
+        ``OSPREY_POSTURE_SESSION``, a stamp this server does not carry. Left to
+        that default it would find no narrowing at all and name the write
+        gateway of a machine the operator has just given up writes on, beside an
+        ``effective`` of ``False`` on the same row.
+        """
+        narrow(agent_data_root, SESSION_A, {"live": "sandbox"})
+        with make_client(
+            render(tmp_path=tmp_path, global_writes=True, live_write_port=6064)
+        ) as client:
+            payload = get_posture(client)
+
+        live = row_for(payload, "live")
+        assert live["effective"] is False
+        assert live["endpoint"] == "gw:5064"
+        # Per-target, so the machine the operator did not narrow is untouched.
+        assert row_for(payload, "standin")["effective"] is True
+        # Identity is read from the ceiling: only the gateway moves.
+        assert live["label"] == "LIVE MACHINE"
+        assert live["real_machine"] is True
+
+    def test_a_labelled_record_still_names_the_endpoint_under_a_narrowing(
+        self, make_client, tmp_path, agent_data_root
+    ):
+        """A published row describes the process that owns the connector.
+
+        The reconciler republishes that record when it realigns the narrowed
+        session, so the row can name the previous posture's gateway until the
+        next pass lands. Letting the render win instead would put this server's
+        guess about a *new* server on a row about a running child.
+        """
+        narrow(agent_data_root, SESSION_A, {"live": "sandbox"})
+        with make_client(
+            render(tmp_path=tmp_path, global_writes=True, live_write_port=6064)
+        ) as client:
+            with live_session(
+                client,
+                targets={
+                    "live": {
+                        "label": "LIVE MACHINE",
+                        "endpoint": "gw:6064",
+                        "real_machine": True,
+                    }
+                },
+            ):
+                payload = get_posture(client)
+
+        live = row_for(payload, "live")
+        assert live["endpoint"] == "gw:6064"
+        assert live["effective"] is False
+
+    def test_a_chat_session_renders_its_targets_under_its_own_posture(
+        self, make_client, tmp_path, agent_data_root
+    ):
+        """No PTY means no record, so the injected render is the whole answer."""
+        narrow(agent_data_root, CHAT_A, {"live": "sandbox"})
+        with make_client(
+            render(tmp_path=tmp_path, global_writes=True, live_write_port=6064)
+        ) as client:
+            with chat_session(client):
+                payload = get_posture(client, CHAT_A)
+
+        live = row_for(payload, "live")
+        assert live["label"] == "LIVE MACHINE"
+        assert live["effective"] is False
+        assert live["endpoint"] == "gw:5064"
+        assert row_for(payload, "standin")["endpoint"] == f"localhost:{STANDIN_PORT}"
 
     def test_active_follows_the_published_target_and_baseline_does_not(self, client):
         with live_session(client, target="va"):
@@ -868,20 +979,8 @@ class TestAvailability:
 class TestChatSessions:
     """A chat has no controls server, and says so without losing its toggles."""
 
-    @contextmanager
-    def _chat(self, client, chat_id=CHAT_A):
-        async def _cleanup_all():  # the lifespan's shutdown calls this
-            return None
-
-        client.app.state.operator_registry = SimpleNamespace(
-            has_chat_key=lambda key: key == chat_id,
-            get_chat_session=lambda key: SimpleNamespace() if key == chat_id else None,
-            cleanup_all=_cleanup_all,
-        )
-        yield
-
     def test_no_switch_is_offered_and_the_reason_says_why(self, client):
-        with self._chat(client):
+        with chat_session(client):
             payload = get_posture(client, CHAT_A)
 
         for row in payload["targets"]:
@@ -890,14 +989,14 @@ class TestChatSessions:
 
     def test_reachability_is_unknown(self, client):
         """No PTY, so no record, so nothing has been probed on its behalf."""
-        with self._chat(client):
+        with chat_session(client):
             payload = get_posture(client, CHAT_A)
 
         for row in payload["targets"]:
             assert row["reachability"]["state"] == "unknown", row["target"]
 
     def test_nothing_is_active_beyond_the_baseline(self, client):
-        with self._chat(client):
+        with chat_session(client):
             payload = get_posture(client, CHAT_A)
 
         assert payload["session_target"] == "standin"
@@ -906,7 +1005,7 @@ class TestChatSessions:
     def test_the_toggles_stay_live(self, make_client, tmp_path):
         """The store is keyed on the session, not on the topology."""
         with make_client(render(tmp_path=tmp_path, global_writes=True)) as client:
-            with self._chat(client):
+            with chat_session(client):
                 payload = get_posture(client, CHAT_A)
 
         for row in payload["targets"]:
@@ -915,7 +1014,7 @@ class TestChatSessions:
 
     def test_a_chat_session_is_enforceable(self, client):
         """Its spawn seam stamps the store key, which is the whole question."""
-        with self._chat(client):
+        with chat_session(client):
             payload = get_posture(client, CHAT_A)
 
         assert payload["enforceable"] is True

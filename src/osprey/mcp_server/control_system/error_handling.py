@@ -34,8 +34,11 @@ def describe_active_target() -> dict[str, str] | None:
     materially different situation on the live machine than on the simulator,
     and the operator should not have to reconstruct which one it was from
     session memory. This resolves ``{name, label, endpoint}`` for the active
-    target from the same authorities the roster uses: the supervisor's target
-    of record and the per-target display metadata rendered from config.
+    target from the supervisor alone: its target of record, and the endpoint
+    the writer last rendered for that target. Re-deriving that endpoint from
+    config here would name the write gateway no matter which one the session
+    is actually talking through, so the envelope reads the writer's rendering
+    instead of forming a second opinion beside it.
 
     Fail-soft by construction: an envelope that raises while describing a
     failure is worse than one that omits the target, so every problem here —
@@ -43,14 +46,11 @@ def describe_active_target() -> dict[str, str] | None:
     to ``None`` and the envelope renders exactly as it did before this existed.
     """
     try:
-        from osprey.mcp_server.control_system.connector_host_manager import (
-            target_display_metadata,
-        )
         from osprey.mcp_server.control_system.server_context import get_server_context
 
         context = get_server_context()
         target = context.connector_hosts.active_target()
-        meta = target_display_metadata(context.config.raw).get(target) or {}
+        meta = context.connector_hosts.display_metadata().get(target) or {}
         identity = {"name": target, "label": str(meta.get("label") or target)}
         endpoint = str(meta.get("endpoint") or "")
         if endpoint:

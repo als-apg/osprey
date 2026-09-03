@@ -757,10 +757,10 @@ def _target_identity_phrase(record, target):
     if claim is None:
         return None
     if claim:
-        # The endpoint is the selected-role one the writer chose (write_access
-        # when writes are enabled, read_only otherwise). Rendered verbatim:
-        # picking a role here would be a second opinion about which gateway
-        # this session actually holds.
+        # The endpoint is the role the writer selected under the session's
+        # effective posture, republished whenever that posture changes.
+        # Rendered verbatim: picking a role here would be a second opinion
+        # about which gateway this session actually holds.
         endpoint = _sanitize_label(meta.get("endpoint") or "endpoint not recorded")
         # The label is the writer's too, for the same reason the destination
         # line below reads it rather than re-deriving one: a deployment may put

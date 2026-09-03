@@ -147,7 +147,7 @@ BOOT_TIMEOUT_S = 180.0
 
 #: Floor for this module's own test count -- a guard against a refactor that
 #: leaves the file importable but empty, which would otherwise pass silently.
-MIN_COLLECTED_TESTS = 25
+MIN_COLLECTED_TESTS = 28
 
 # -- the namespace both containers serve ------------------------------------
 
@@ -825,6 +825,30 @@ def realign_note():
     return record.get("last_posture_realign")
 
 
+def published_targets():
+    """The per-target display metadata this server last published.
+
+    The same ``targets`` block the prompt hook, the approval banner and the
+    per-target GET all render verbatim, read straight off the state file rather
+    than re-derived here. Re-deriving it in a test would be a second opinion
+    about identity, which is the thing a single-writer block exists to prevent.
+    """
+    record = target_state.read() or {}
+    return record.get("targets") or {}
+
+
+def configured_endpoint(config_path: Path, connector_type: str, role: str) -> str:
+    """The ``host:port`` one gateway row of the staged deployment names.
+
+    Read back out of the file :func:`raw_config` wrote, so an assertion about
+    "the read gateway" is anchored to the deployment the containers are actually
+    behind rather than to a port number spelled a second time in a test.
+    """
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    row = raw["control_system"]["connector"][connector_type]["gateways"][role]
+    return f"{row['address']}:{row['port']}"
+
+
 @pytest.fixture(scope="module")
 async def session(config_path, web, module_environment):
     """Drive the whole scripted session once, recording what each step saw.
@@ -894,6 +918,7 @@ async def session(config_path, web, module_environment):
             await reconciler.poll_once()
 
             journal["child_before_toggle"] = manager.status()["child_pid"]
+            journal["targets_before_toggle"] = published_targets()
             narrow = post_posture(web, TARGET_STANDIN, "sandbox")
             journal["narrow_status"] = narrow.status_code
             journal["narrow_body"] = narrow.json()
@@ -916,18 +941,36 @@ async def session(config_path, web, module_environment):
 
             # -- 2. The realignment waits for a run, then moves the gateway --
             #
-            # Back on the narrowed target, with the child still connected on
-            # write_access: this is the state the reconciler owes a rebuild.
+            # Back on the narrowed target, on a child that already read the
+            # moved store and so came up on the read gateway, while the
+            # reconciler — which has not yet observed the move — still owes a
+            # rebuild.
             await manager.switch(TARGET_STANDIN)
             journal["child_before_realign"] = manager.status()["child_pid"]
             with host_executor._in_flight_marker(TARGET_STANDIN):
                 await reconciler.poll_once()
                 journal["realign_while_running"] = realign_note()
                 journal["child_while_running"] = manager.status()["child_pid"]
+                # Taken INSIDE the in-flight window, together with the role
+                # the child serving the session actually holds. The switch back
+                # to the narrowed target already derived its gateway from the
+                # moved store, so what is pending here is a rebuild rather than
+                # a change of role -- and the block is expected to be carrying
+                # the read role already, before the reconciler reports "done".
+                journal["role_while_running"] = manager.status()["selected_role"]
+                journal["targets_while_running"] = published_targets()
             await reconciler.poll_once()
             journal["realign_after_running"] = realign_note()
             journal["child_after_realign"] = manager.status()["child_pid"]
             journal["role_after_realign"] = manager.status()["selected_role"]
+            # Taken HERE, immediately after the realignment, rather than in a
+            # test: the fixture keeps switching below, and every switch
+            # republishes the block. A test reading the file afterwards would be
+            # reading the last switch's answer, not the realignment's.
+            journal["targets_after_realign"] = published_targets()
+            journal["get_after_realign"] = web.get(
+                "/api/terminal/posture", params={"session_id": SESSION_ID}
+            ).json()
             journal["rows_narrowed"] = control_target_module.target_rows(
                 context.config.raw,
                 session_target=manager.active_target(),
@@ -1193,6 +1236,102 @@ class TestTheGatewayRealignsOnceNothingIsRunning:
 
         assert landed["target"] == TARGET_STANDIN
         assert landed["selected_role"] == "read_only"
+
+
+class TestThePublishedIdentityFollowsTheGateway:
+    """What every reader outside this process is handed once the child moves.
+
+    The state file's ``targets`` block is where the prompt hook, the approval
+    banner, the refusal envelopes and the header chip all get the endpoint they
+    print — by contract they render it verbatim and never re-derive it. So a
+    block still naming the write gateway of a target the operator narrowed is
+    not a cosmetic lag: it is every one of those surfaces telling an operator
+    their session is talking to a machine it is not talking to.
+
+    One caveat about the endpoints, stated once here. This deployment gives each
+    target's two gateway roles the same address and port, because there is one
+    soft IOC behind each container and the roles are two ways of asking the same
+    instance. The endpoint assertions below therefore prove that identity stayed
+    on the stand-in's own gateway rather than sliding to another machine, and
+    ``selected_role`` is what carries which role was picked.
+    """
+
+    def test_the_published_gateway_moves_when_the_session_narrows(
+        self, session, config_path
+    ) -> None:
+        """One target, one file, two postures — and the selected role moves between them.
+
+        Before the operator's toggle the stand-in's slot carries the role a
+        child with writes armed connected on; after the realignment it carries
+        the read one. Both ends are asserted against the deployment's own
+        gateway rows and against the role the child reported at each moment, so
+        this cannot pass on a block that was simply never written. The endpoint
+        is asserted at both ends as an identity check rather than as movement —
+        it is one address and port for both roles here, per the class docstring.
+        """
+        before = session["targets_before_toggle"][TARGET_STANDIN]
+        after = session["targets_after_realign"][TARGET_STANDIN]
+
+        assert before["selected_role"] == session["standin_role_before"] == "write_access"
+        assert before["endpoint"] == configured_endpoint(
+            config_path, "live_standin", "write_access"
+        )
+        assert after["selected_role"] == "read_only"
+        assert after["endpoint"] == configured_endpoint(config_path, "live_standin", "read_only")
+
+    def test_the_block_carries_the_read_role_before_the_realignment_reports_done(
+        self, session, config_path
+    ) -> None:
+        """Republished at the switch, not held back until the reconciler finishes.
+
+        The switch that put the session back on the narrowed target derived its
+        gateway from the store the toggle had already moved, so the child
+        holding the session through the in-flight window was itself on the read
+        gateway: what the reconciler still owed was a rebuild, not a change of
+        role. The claim pinned here is about WHEN the file moves — the block
+        already names the read role while ``last_posture_realign`` is still
+        ``pending``, so a reader is never told the write gateway during the wait.
+
+        It does not pin WHERE the rendered role came from. The fallback
+        derivation and the serving child's report agree at this moment, so this
+        assertion cannot tell the writer's child-report override apart from a
+        fresh derivation; that distinction is the unit suite's.
+        """
+        slot = session["targets_while_running"][TARGET_STANDIN]
+
+        assert slot["selected_role"] == session["role_while_running"]
+        assert slot["endpoint"] == configured_endpoint(
+            config_path, "live_standin", slot["selected_role"]
+        )
+
+    def test_the_get_and_the_state_file_agree_about_the_narrowed_target(self, session) -> None:
+        """Two surfaces, two derivations, one answer — endpoint and gateway role.
+
+        Compared against the journalled slot rather than against the config row,
+        because a published record carrying a label wins verbatim over the
+        route's own render and the row is therefore only ever as fresh as the
+        last publication.
+
+        Deliberately NOT claimed: that the row's endpoint proves the GET
+        repeated the record. This deployment gives the stand-in's two gateway
+        roles one address and port, so that string is the same whichever way the
+        route arrived at it. What the two surfaces are held to here is naming
+        one ``host:port`` for the stand-in and agreeing about the gateway role
+        behind it — the writer's published ``selected_role`` against the role the
+        route derives for itself in ``reachability`` (``_row_selected_role``,
+        which never reads the block). Those are independent derivations of the
+        same question, which is what makes their agreement worth an assertion.
+        ``effective`` is the premise rather than the evidence: it comes from the
+        posture store alone, and it is asserted so a green here cannot mean the
+        narrowing had silently gone away.
+        """
+        slot = session["targets_after_realign"][TARGET_STANDIN]
+        rows = {row["target"]: row for row in session["get_after_realign"]["targets"]}
+        row = rows[TARGET_STANDIN]
+
+        assert row["effective"] is False
+        assert row["endpoint"] == slot["endpoint"]
+        assert row["reachability"]["role"] == slot["selected_role"] == "read_only"
 
 
 # ---------------------------------------------------------------------------

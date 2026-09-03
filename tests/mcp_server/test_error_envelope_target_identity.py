@@ -8,8 +8,9 @@ human ``(active target: ...)`` clause into every control-system envelope.
 
 Two layers are pinned separately:
 
-* the resolver (``describe_active_target``) against a real config, including
-  its fail-soft collapse to ``None``;
+* the resolver (``describe_active_target``), which reads the supervisor's
+  display cache rather than re-deriving identity from config, including its
+  fail-soft collapse to ``None``;
 * the wiring — every branch of the handler carries the identity, the archiver
   (which has no live/VA axis) carries none, and an unresolvable identity
   leaves each envelope byte-identical to what it was before #697.
@@ -25,6 +26,7 @@ import pytest
 
 from osprey.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
 from osprey.mcp_server.control_system import error_handling, server_context
+from osprey.mcp_server.control_system.connector_host_manager import ConnectorHostManager
 from osprey.mcp_server.control_system.error_handling import (
     connector_error_handler,
     describe_active_target,
@@ -39,17 +41,43 @@ CLAUSE = "(active target: LIVE MACHINE at localhost:5064)"
 # ------------------------------------------------------------- the resolver
 
 
+def _slot(endpoint: str = "localhost:5064", role: str = "write_access") -> dict:
+    """One target slot in the shape the supervisor's display cache holds."""
+    return {
+        "label": "LIVE MACHINE",
+        "display_name": "the live machine",
+        "endpoint": endpoint,
+        "selected_role": role,
+        "real_machine": True,
+        "probe_channel": "",
+    }
+
+
 class _FakeManager:
+    """The two supervisor reads: the target of record and the display cache."""
+
+    def __init__(self, slot: dict | None = None) -> None:
+        self._display = {"live": slot if slot is not None else _slot()}
+
     def active_target(self) -> str:
         return "live"
 
+    def display_metadata(self) -> dict[str, dict]:
+        return self._display
+
 
 class _FakeContext:
-    """Just the two attributes the resolver reads, nothing else."""
+    """Just the one attribute the resolver reads, nothing else."""
+
+    def __init__(self, slot: dict | None = None) -> None:
+        self.connector_hosts = _FakeManager(slot)
+
+
+class _RealManagerContext:
+    """A real supervisor that has never spawned a child, and nothing else."""
 
     def __init__(self, raw: dict) -> None:
-        self.connector_hosts = _FakeManager()
-        self.config = MCPServerConfig(raw=raw)
+        self.connector_hosts = ConnectorHostManager(MCPServerConfig(raw=raw))
 
 
 def _epics_raw(port: int = 5064) -> dict:
@@ -71,7 +99,35 @@ def _epics_raw(port: int = 5064) -> dict:
 
 
 def test_the_resolver_names_target_label_and_endpoint(monkeypatch):
-    monkeypatch.setattr(server_context, "get_server_context", lambda: _FakeContext(_epics_raw()))
+    monkeypatch.setattr(server_context, "get_server_context", lambda: _FakeContext())
+    assert describe_active_target() == IDENTITY
+
+
+def test_the_resolver_prints_the_read_gateway_the_writer_rendered(monkeypatch):
+    """The whole point of reading the cache instead of re-deriving.
+
+    A session that has given up writes is served through the read gateway,
+    and the writer rendered that. Re-deriving from config here would name
+    the write gateway and tell the operator the wrong port.
+    """
+    slot = _slot(endpoint="localhost:5065", role="read_only")
+    monkeypatch.setattr(server_context, "get_server_context", lambda: _FakeContext(slot))
+    assert describe_active_target() == {
+        "name": "live",
+        "label": "LIVE MACHINE",
+        "endpoint": "localhost:5065",
+    }
+
+
+def test_the_resolver_names_the_target_before_any_child_exists(monkeypatch):
+    """A real supervisor with no child still answers with label and endpoint.
+
+    The first child is spawned lazily, so the earliest failures happen while
+    the manager has nothing running. The cache renders on demand, which is
+    what keeps those envelopes from carrying an empty identity line.
+    """
+    context = _RealManagerContext(_epics_raw())
+    monkeypatch.setattr(server_context, "get_server_context", lambda: context)
     assert describe_active_target() == IDENTITY
 
 
