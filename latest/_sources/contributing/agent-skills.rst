@@ -4,13 +4,13 @@
 Agent Skills
 ============
 
-Osprey ships six **agent skills** --- packaged, step-by-step instructions that a
+Osprey ships eight **agent skills** --- packaged, step-by-step instructions that a
 coding agent picks up automatically when a task matches their description.
 Instead of re-explaining the contribution workflow or the release process in
 every session, you install them once and the agent follows the project's own
 playbooks.
 
-All six travel together in one plugin, ``osprey``, published from the root of
+All eight travel together in one plugin, ``osprey``, published from the root of
 the ``als-apg/osprey`` repository. Claude Code and Codex install it from there
 with two commands each.
 
@@ -83,7 +83,7 @@ Install in Codex
 
 .. code-block:: bash
 
-   codex plugin marketplace add als-apg/osprey --sparse .agents/plugins plugins
+   codex plugin marketplace add als-apg/osprey --sparse .agents/plugins --sparse plugins
    codex plugin add osprey@osprey
 
 Codex invokes a skill with a leading ``$``, for example ``$contribute``. The
@@ -92,11 +92,11 @@ skills themselves are the same files the Claude Code plugin serves.
 .. note::
 
    Command syntax per `learn.chatgpt.com/docs/developer-commands
-   <https://learn.chatgpt.com/docs/developer-commands>`_, retrieved 2026-09-01.
-   Not verified locally.
+   <https://learn.chatgpt.com/docs/developer-commands>`_, retrieved 2026-09-01,
+   and verified against codex-cli 0.149 on 2026-09-02.
 
-The six skills
---------------
+The eight skills
+----------------
 
 .. list-table::
    :header-rows: 1
@@ -123,12 +123,24 @@ The six skills
        or detector through a guided interview.
    * - ``/osprey:panel``
      - Authors a themed web-terminal panel that passes the panel validator.
+   * - ``/osprey:housekeeping``
+     - Finds where the generated project, the shipped prompts, the runtime
+       messages, or a pinned version say something the code no longer does,
+       proves it, and writes a report the maintainer rules on. Report only.
+   * - ``/osprey:doc-sync``
+     - Proves the pages under ``docs/source`` against the code, from reading
+       source and from running what a page documents, reports the drift,
+       and applies the doc-side fixes the maintainer accepts.
 
-In Codex the same six are ``$design-philosophy``, ``$contribute``,
-``$pre-commit``, ``$release``, ``$build-interview``, and ``$panel``.
+In Codex the same eight are ``$design-philosophy``, ``$contribute``,
+``$pre-commit``, ``$release``, ``$build-interview``, ``$panel``,
+``$housekeeping``, and ``$doc-sync``.
 
 The skills route to each other: ``/osprey:contribute`` hands a standalone
-validation run to ``/osprey:pre-commit`` and a release to ``/osprey:release``.
+validation run to ``/osprey:pre-commit`` and a release to ``/osprey:release``;
+``/osprey:release`` runs ``/osprey:housekeeping`` and ``/osprey:doc-sync`` as
+advisory steps before the release-notes PR, and ``/osprey:housekeeping`` hands
+doc-page items to ``/osprey:doc-sync``.
 
 The workflow behind each one is documented on its own page:
 
