@@ -282,14 +282,15 @@ commit to your branch. If you see "pre-commit.ci - autofix" land, just
 **Internal mode** — when CI is green:
 
 ```bash
-gh pr merge --rebase --delete-branch
+gh pr merge --merge --delete-branch
 ```
 
-`--rebase` because branch protection requires linear history; `--merge` would
-be rejected. `--delete-branch` because long-lived branches aren't the model.
+Linear history is not enforced, so `--merge`, `--rebase`, and `--squash` are
+all accepted; pick `--merge` unless the branch is a single commit.
+`--delete-branch` because long-lived branches aren't the model.
 
 **Fork mode** — comment on the PR and ping a maintainer; merging is theirs to
-do. The maintainer will use the same `--rebase --delete-branch` from their
+do. The maintainer will use the same `--merge --delete-branch` from their
 side.
 
 After merge, sync local:
@@ -316,11 +317,12 @@ contributor sees what's about to ship and can stop it.
 
 A few facts about OSPREY's `main` branch protection that shape behaviour here:
 
-- **All 8 required CI checks must pass** before merge. There is no admin
-  bypass; `enforce_admins` is on. If a required check is genuinely wrong (a
+- **Both required status checks must pass** before merge: `pre-commit.ci - pr`
+  and `All CI Checks Passed`, the aggregate job every CI lane feeds. There is
+  no admin bypass; `enforce_admins` is on. If a required check is genuinely wrong (a
   flaky runner, a broken matrix), fix it forward — don't try to bypass.
-- **Linear history is required** — that's why merges always use `--rebase`
-  and rebases use `--force-with-lease`.
+- **Linear history is not enforced** — a PR may land as a merge commit or a
+  rebase. Rebases of a pushed branch still use `--force-with-lease`.
 - **Direct push to `main` is rejected.** This skill never tries; the hard
   block in Phase 1 mirrors the server-side rule so the contributor fails
   locally instead of after typing a commit message.

@@ -38,7 +38,7 @@ Thank you for your interest in contributing to the Osprey Framework. This guide 
       :link-type: doc
       :shadow: md
 
-      One plugin, ``osprey``, carrying six skills that teach a coding agent
+      One plugin, ``osprey``, carrying eight skills that teach a coding agent
       Osprey's own playbooks. How to install it, what each ``/osprey:<name>``
       skill does, and where the deployer-facing ones are documented.
 

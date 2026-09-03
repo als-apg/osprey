@@ -60,7 +60,7 @@ _ALLOWED_FRONTMATTER_KEYS = frozenset(
 )
 
 _CODEX_INSTALLATION = "AVAILABLE"
-_CODEX_AUTHENTICATION = frozenset({"ON_INSTALL", "ON_FIRST_USE"})
+_CODEX_AUTHENTICATION = frozenset({"ON_INSTALL", "ON_USE"})
 _CODEX_SKILLS_VALUE = "./skills/"
 
 #: Substrings that betray a developer machine or a chat session in shipped text.
@@ -289,7 +289,7 @@ def check_codex_fields(root: Path) -> list[str]:
 
     Pinned to https://developers.openai.com/plugins/build/plugins, retrieved
     2026-09-01: ``policy.installation`` is ``AVAILABLE``,
-    ``policy.authentication`` is one of ``ON_INSTALL`` / ``ON_FIRST_USE``,
+    ``policy.authentication`` is one of ``ON_INSTALL`` / ``ON_USE``,
     ``category`` is a non-empty string, and a skills-only plugin points
     ``skills`` at its skills directory.
     """
