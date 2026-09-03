@@ -2961,15 +2961,23 @@ def _build_repo(
             # copy's — is told about the deployment's services from the render
             # just written (see _SharedRenderInputs.host_config). A profile
             # that is itself attached hosts nothing and projects nothing.
+            from .build_profile_reach import (
+                ariel_ingestion_advisories,
+                pva_address_source_advisories,
+            )
+
+            rendered = _rendered_config(host_render)
+            # Every render carries the same connector table, so PVA channels
+            # with no address source are named once, here. Advisory: the
+            # build is sound, the reads would time out.
+            for advisory in pva_address_source_advisories(rendered):
+                output.note(f"⚠ {advisory}")
             if build_profile.deploy_services:
-                host_config = _rendered_config(host_render)
-                shared = shared._replace(host_config=host_config)
+                shared = shared._replace(host_config=rendered)
                 # The one render that has `deployed_services` in hand, so the
                 # one place a remote logbook with nothing mirroring it can be
                 # named. Advisory: the build is sound, the mirror is missing.
-                from .build_profile_reach import ariel_ingestion_advisories
-
-                for advisory in ariel_ingestion_advisories(host_config):
+                for advisory in ariel_ingestion_advisories(rendered):
                     output.note(f"⚠ {advisory}")
             phase.step("project files, agent artifacts and services")
             if injected:
