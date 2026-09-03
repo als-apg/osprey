@@ -2485,3 +2485,115 @@ def test_decommission_of_the_conflicted_personas_own_user_still_succeeds(
 
     assert [entry["name"] for entry in _reload_users(config_path)] == ["bob"]
     assert [c for c in fake_runtime if c[1] == "rm"] == [["docker", "rm", "-f", "dls-web-alice"]]
+
+
+# =============================================================================
+# osprey up: off-roster terminal containers are reconciled away
+# =============================================================================
+
+
+def test_up_reconcile_removes_only_off_roster_terminal_containers(
+    tmp_path, monkeypatch, fake_runtime_prune
+):
+    """The web-slice equivalent of ``--remove-orphans``: a container named for a
+    user no longer on the roster is removed; on-roster terminals, nginx and every
+    volume are left alone."""
+    calls, listing = fake_runtime_prune
+    monkeypatch.chdir(tmp_path)
+    config = _config(["alice"])
+    listing["containers"] = ["dls-web-alice", "dls-web-eve", "dls-nginx", "dls-auth"]
+
+    removed = lifecycle.remove_orphan_terminals(config)
+
+    assert removed == {"eve": "dls-web-eve"}
+    assert [c for c in calls if c[1] == "rm"] == [["docker", "rm", "-f", "dls-web-eve"]]
+    assert [c for c in calls if c[1] == "volume"] == []
+
+
+def test_up_reconcile_with_no_orphans_removes_nothing(tmp_path, monkeypatch, fake_runtime_prune):
+    calls, listing = fake_runtime_prune
+    monkeypatch.chdir(tmp_path)
+    config = _config(["alice", "bob"])
+    listing["containers"] = ["dls-web-alice", "dls-web-bob", "dls-nginx"]
+
+    assert lifecycle.remove_orphan_terminals(config) == {}
+    assert [c for c in calls if c[1] == "rm"] == []
+
+
+def test_up_reconcile_treats_a_renamed_user_as_an_orphan(tmp_path, monkeypatch, fake_runtime_prune):
+    """The reported shape: ``ariel`` renamed to ``logbook`` on the same index. The
+    old container still holds every port of that index, so it has to go."""
+    calls, listing = fake_runtime_prune
+    monkeypatch.chdir(tmp_path)
+    config = _config([{"name": "logbook", "index": 6}])
+    listing["containers"] = ["dls-web-ariel"]
+
+    assert lifecycle.remove_orphan_terminals(config) == {"ariel": "dls-web-ariel"}
+    assert [c for c in calls if c[1] == "rm"] == [["docker", "rm", "-f", "dls-web-ariel"]]
+
+
+def test_up_reconcile_discovery_is_scoped_by_compose_project_label(
+    tmp_path, monkeypatch, fake_runtime_prune
+):
+    calls, listing = fake_runtime_prune
+    monkeypatch.chdir(tmp_path)
+    config = _config(["alice"], project_name="demo-project")
+    listing["containers"] = []
+
+    lifecycle.remove_orphan_terminals(config)
+
+    assert [c for c in calls if c[1:3] == ["ps", "-a"]] == [
+        [
+            "docker",
+            "ps",
+            "-a",
+            "--filter",
+            "label=com.docker.compose.project=demo-project",
+            "--format",
+            "{{.Names}}",
+        ]
+    ]
+
+
+def test_up_reconcile_reports_a_failed_removal_instead_of_raising(
+    tmp_path, monkeypatch, fake_runtime_prune, caplog
+):
+    """A removal the runtime refuses is not this step's to diagnose: the
+    container keeps its ports, and the host-port preflight that follows names
+    the port. So: warn, leave it out of the removed set, never raise."""
+    calls, listing = fake_runtime_prune
+    monkeypatch.chdir(tmp_path)
+    config = _config(["alice"])
+    listing["containers"] = ["dls-web-eve"]
+
+    def _refusing_run(argv, capture_output=True, text=True, env=None, check=False, **kwargs):
+        calls.append(list(argv))
+        if argv[1] == "rm":
+            return subprocess.CompletedProcess(argv, returncode=1, stdout="", stderr="busy")
+        if argv[1:3] == ["ps", "-a"]:
+            return subprocess.CompletedProcess(
+                argv, returncode=0, stdout="\n".join(listing["containers"]), stderr=""
+            )
+        return subprocess.CompletedProcess(argv, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(lifecycle.subprocess, "run", _refusing_run)
+
+    assert lifecycle.remove_orphan_terminals(config) == {}
+    assert "dls-web-eve" in caplog.text
+    assert "busy" in caplog.text
+
+
+def test_up_reconcile_argv_safety_removal_is_exact_named(tmp_path, monkeypatch, fake_runtime_prune):
+    calls, listing = fake_runtime_prune
+    monkeypatch.chdir(tmp_path)
+    config = _config(["alice"])
+    listing["containers"] = ["dls-web-eve", "dls-web-mallory"]
+
+    lifecycle.remove_orphan_terminals(config)
+
+    removal_calls = [c for c in calls if c[1] == "rm"]
+    assert len(removal_calls) == 2
+    for argv in removal_calls:
+        assert not (_FORBIDDEN_ARGV_TOKENS & set(argv)), argv
+        assert not any(_GLOB_METACHARACTERS & set(token) for token in argv), argv
+        assert argv[:3] == ["docker", "rm", "-f"] and len(argv) == 4

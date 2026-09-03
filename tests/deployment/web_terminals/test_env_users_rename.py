@@ -279,6 +279,7 @@ def stubbed_start_stack(monkeypatch):
     """
     for name in (
         "_check_shared_disk_preflight",
+        "_reconcile_orphan_terminals",
         "_preflight_host_ports",
         "_ensure_service_tokens",
         "_preflight_archiver_pymongo",

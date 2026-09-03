@@ -86,6 +86,7 @@ from osprey.deployment.service_tokens import (
 from osprey.deployment.staleness import BUILD_DIRNAME, warn_if_project_stale
 from osprey.deployment.subprocess_capture import run_captured
 from osprey.deployment.web_terminals.env_production import migrate_users_env
+from osprey.deployment.web_terminals.lifecycle import remove_orphan_terminals
 from osprey.deployment.web_terminals.provision import (
     deploy_down_web_terminals,
     deploy_up_web_terminals,
@@ -4038,12 +4039,33 @@ def _report_port_conflicts(conflicts):
     logger.key_info(report)
 
 
+def _reconcile_orphan_terminals(config):
+    """Remove this deployment's terminal containers whose user left the roster.
+
+    The web slice's ``--remove-orphans`` (see
+    :func:`osprey.deployment.web_terminals.lifecycle.remove_orphan_terminals`
+    for why compose's own flag cannot do it here). One line per container
+    removed, so the deploy log says what happened to the old terminal; nothing
+    printed when the roster owns every terminal it finds. Volumes are never
+    touched — that stays ``osprey users prune``'s decision.
+
+    :param config: Loaded configuration dictionary
+    :type config: dict
+    """
+    for user, container in sorted(remove_orphan_terminals(config).items()):
+        _report_fact(
+            f"removed web terminal container '{container}': "
+            f"user '{user}' is no longer on the roster"
+        )
+
+
 def _preflight_host_ports(config, compose_files):
     """Abort the deploy if a published host port is already taken.
 
     Parses the published bindings out of the rendered compose files and checks
-    them for intra-deploy duplicates and external listeners (see
-    :mod:`osprey.deployment.host_ports`). On any conflict the report is printed
+    them, together with the ports derived for host-network services and for
+    every web-terminal roster index, for intra-deploy duplicates and external
+    listeners (see :mod:`osprey.deployment.host_ports`). On any conflict the report is printed
     in the CLI's one failure shape and a :class:`RuntimeError` is raised so the
     caller aborts before running a single container-touching command.
 
@@ -5626,7 +5648,10 @@ def _start_stack(
     from an aborted deploy holds its published host ports on Docker Desktop,
     blocking the next ``up``), and the plain path's ``up`` carries
     ``--remove-orphans`` to reconcile away services dropped from the config.
-    Running containers and volumes are never touched by either measure.
+    The web path gets the same reconcile by hand (:func:`_reconcile_orphan_terminals`):
+    a terminal container whose user left the roster is removed ahead of the
+    host-port preflight. Volumes are never touched by any of these measures,
+    and running containers only by that last one.
 
     Args:
         config: Loaded deploy config.
@@ -5698,12 +5723,27 @@ def _start_stack(
     # leaves the host untouched.
     _preflight_bluesky_network_backend(config)
 
+    # Reconcile the web slice's orphans FIRST: a terminal whose user was renamed
+    # or dropped from the roster keeps running on the host network, holding
+    # every port of the index it used to serve, and the plain path's
+    # `--remove-orphans` cannot reach it (see remove_orphan_terminals). This is
+    # the one container-touching step ahead of the port preflight, and it has
+    # to be: the preflight would otherwise refuse the very redeploy that
+    # reconciles the orphan away, and the operator would be back to removing it
+    # by hand. It acts only on THIS project's own containers, by project label
+    # and roster name, so it is a reconcile of this deployment's state rather
+    # than a mutation of anything the preflight below guards.
+    if web_terminals_enabled:
+        _reconcile_orphan_terminals(config)
+
     # Fail fast on a host-port collision (a foreign stack, or a second project
     # on the same host) with an actionable diagnosis, rather than letting
     # `compose up` collapse mid-start on a bare "address already in use". Runs
-    # before any container-touching command below, so an abort here leaves the
-    # host untouched. A port held by this project's own container is not a
-    # conflict, so an idempotent redeploy stays green.
+    # before any other container-touching command below, so an abort here
+    # leaves the host untouched. A port held by this project's own container is
+    # not a conflict, so an idempotent redeploy stays green; the web-terminal
+    # roster's per-index ports are covered too, so a port a foreign process
+    # holds is named here rather than inside the new container's panel logs.
     _preflight_host_ports(config, compose_files)
 
     # Refuse a pin the deploy itself would write over. Ahead of the override

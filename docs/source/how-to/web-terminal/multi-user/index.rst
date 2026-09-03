@@ -288,6 +288,11 @@ The config block
                 ``osprey up``. The new container comes up with freshly
                 allocated ports and a seeded workspace; existing users are
                 untouched.
+            * - **Rename or drop a user**
+              - Edit the roster entry, then ``osprey up``. A container whose
+                user is no longer on the roster is stopped and removed, so it
+                cannot keep serving that index's ports; its volumes are
+                retained until ``osprey users prune``.
             * - **Reseed workspaces**
               - ``osprey users seed [USER]`` re-applies the seeded configuration
                 for one user, or for everyone when ``USER`` is omitted.
