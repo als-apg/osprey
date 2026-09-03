@@ -41,6 +41,7 @@ from osprey.deployment.graphdb_service import resolve_graphdb_service_config
 from osprey.profiles.web_panels import panel_spec_enabled
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.utils.workspace import BUILD_DIR_NAME
+from osprey_connectors import yaml_loader
 from osprey_connectors.types import (
     baseline_target,
     target_writes_enabled,
@@ -716,7 +717,7 @@ def _persona_configs(
             continue
         try:
             with config_yml.open("r", encoding="utf-8") as fh:
-                persona_config = yaml.safe_load(fh)
+                persona_config = yaml_loader.safe_load(fh)
         except (OSError, yaml.YAMLError):
             continue
         yield persona_name, persona_config

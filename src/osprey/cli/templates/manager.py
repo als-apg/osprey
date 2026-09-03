@@ -6,7 +6,6 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-import yaml
 from jinja2 import Environment, FileSystemLoader, TemplateRuntimeError, select_autoescape
 
 from osprey.build.build_tiers import (
@@ -22,6 +21,7 @@ from osprey.profiles.web_panels import BUILTIN_PANELS
 from osprey.utils.config import resolve_env_vars
 from osprey.utils.facility import resolve_facility_name
 from osprey.utils.workspace import repo_root_for_config
+from osprey_connectors import yaml_loader
 
 logger = logging.getLogger("osprey.cli.templates")
 
@@ -338,7 +338,7 @@ class TemplateManager:
         ctx.setdefault("facility_permissions", {})
         if config_file.exists():
             with open(config_file) as f:
-                rendered_config = yaml.safe_load(f) or {}
+                rendered_config = yaml_loader.safe_load(f) or {}
             rendered_config = resolve_env_vars(rendered_config)  # Match regen path
             # Claude Code explicit overrides
             cc_config = rendered_config.get("claude_code", {})

@@ -21,12 +21,21 @@ Typical usage:
         "control_system.connector.virtual_accelerator.writes_enabled": True,
         "approval.tools.channel_write": "always",
     })
+
+    # A run of edits to one file: loaded once, written once at the end
+    with config_edit_session(Path("config.yml")):
+        config_update_fields(Path("config.yml"), {...})
+        config_add_to_list(Path("config.yml"), ["scaffold", "user_owned"], "rules/a")
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import shutil
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -416,7 +425,7 @@ def config_backup_path(config_path: Path) -> Path:
     from osprey.utils.workspace import agent_data_base_dir, anchored_path, repo_root_for_config
 
     try:
-        config = _load(config_path)
+        config = load_config_document(config_path)
     except Exception:  # noqa: BLE001 -- an unreadable config still deserves a backup
         # Falls back to the framework default rather than to the file's own
         # directory: a config too broken to name its own state zone is precisely
@@ -472,17 +481,192 @@ def write_config_backup(config_path: Path) -> Path:
     return backup_path
 
 
-def _load(path: Path) -> Any:
-    """Load a YAML file with comment preservation."""
+def load_config_document(path: Path) -> Any:
+    """Load a YAML file with comment preservation, for a writer to edit in place.
+
+    The pair with :func:`save_config_document` is what a writer uses when it
+    edits the document itself rather than through the dotted-key functions
+    below — the build's service injectors and ``auto`` resolvers. Using this
+    pair rather than a ``YAML()`` of its own is what makes such a writer join
+    a :func:`config_edit_session`: inside a session for *path* the session's
+    document is returned, loaded once and shared by every writer in the
+    session. It is the live document — a mutation made to it is what the
+    session writes, whether or not :func:`save_config_document` is called.
+
+    Outside a session this is one load from disk.
+    """
+    session = _sessions.get(_session_key(path))
+    if session is not None:
+        return session.document()
+    return _load_from_disk(path)
+
+
+def _load_from_disk(path: Path) -> Any:
     with open(path, encoding="utf-8") as f:
         data = _yaml.load(f)
     return data if data is not None else CommentedMap()
 
 
-def _save(path: Path, data: Any) -> None:
-    """Write data back to a YAML file, preserving comments."""
+def save_config_document(path: Path, data: Any) -> None:
+    """Write a document back to its YAML file, preserving comments.
+
+    Inside a :func:`config_edit_session` for *path* the write is deferred: the
+    document is held until the session flushes (see :func:`flush_config_edits`)
+    or ends. Outside a session this is one dump to disk, in the one style every
+    writer here uses (block sequences indented under their key, no wrapping).
+    """
+    session = _sessions.get(_session_key(path))
+    if session is not None:
+        session.stage(data)
+        return
+    _save_to_disk(path, data)
+
+
+def _save_to_disk(path: Path, data: Any) -> None:
     with open(path, "w", encoding="utf-8") as f:
         _yaml.dump(data, f)
+
+
+# =============================================================================
+# Edit Sessions
+# =============================================================================
+# Every writer below round-trips the whole document: load with the
+# comment-preserving loader, mutate, dump. That is the right unit for one
+# `osprey set`, and the wrong one for a build, which applies a few dozen such
+# edits to each rendered config.yml with the load costing several times the
+# dump. A session makes the run of edits one round trip: the first writer
+# loads the document, every writer edits that document in memory, and it is
+# dumped once — at the session's end, or earlier when something has to read
+# the file's bytes.
+#
+# Two things about disk are made explicit rather than left to luck:
+#
+# * A READER of the file's bytes sees pending edits only after a flush. The
+#   build's shared parse flushes before it reads; any other reader must call
+#   `flush_config_edits` first. Readers that go through `load_config_document` need nothing —
+#   they get the live document.
+# * A WRITER that bypasses the session (an injector with its own YAML
+#   instance) is detected by content digest. After a flush, its write is
+#   picked up by reloading; under pending edits, it is a conflict and the
+#   pending edits are dropped rather than written over it.
+
+
+class ConfigEditConflict(RuntimeError):
+    """The file changed on disk under a session's pending edits.
+
+    Something wrote the file without going through the session while it held
+    edits that had not been flushed. Neither side can be kept without losing
+    the other, so the session refuses and drops its own — the file is left as
+    the other writer left it. The fix is ordering: flush the session
+    (:func:`flush_config_edits`) before handing the file to a writer that
+    does not use it.
+    """
+
+
+@dataclass
+class _EditSession:
+    """The in-memory document of one file for the duration of a session."""
+
+    path: Path
+    doc: Any = None
+    #: SHA-256 of the file's bytes the document mirrors: as loaded, or as
+    #: last flushed. What tells an outside write from our own.
+    synced_digest: bytes | None = None
+    dirty: bool = False
+
+    def _disk_digest(self) -> bytes:
+        return hashlib.sha256(self.path.read_bytes()).digest()
+
+    def document(self) -> Any:
+        digest = self._disk_digest()
+        if self.doc is None or (digest != self.synced_digest and not self.dirty):
+            # First touch, or someone else wrote the file since we last synced
+            # and we hold nothing they could lose: take theirs.
+            self.doc = _load_from_disk(self.path)
+            self.synced_digest = digest
+            self.dirty = False
+        elif digest != self.synced_digest:
+            self._conflict()
+        return self.doc
+
+    def stage(self, data: Any) -> None:
+        self.doc = data
+        self.dirty = True
+
+    def flush(self) -> None:
+        if not self.dirty:
+            return
+        if self._disk_digest() != self.synced_digest:
+            self._conflict()
+        _save_to_disk(self.path, self.doc)
+        self.synced_digest = self._disk_digest()
+        self.dirty = False
+
+    def _conflict(self) -> None:
+        self.doc = None
+        self.dirty = False
+        raise ConfigEditConflict(
+            f"{self.path} was rewritten outside its edit session while the session "
+            "held unflushed edits; the pending edits were dropped. Flush the session "
+            "(flush_config_edits) before handing the file to a writer that bypasses it."
+        )
+
+
+_sessions: dict[Path, _EditSession] = {}
+
+
+def _session_key(path: Path) -> Path:
+    return Path(path).resolve()
+
+
+@contextmanager
+def config_edit_session(config_path: Path) -> Iterator[None]:
+    """Batch every config edit to *config_path* made inside the block.
+
+    Within the block the writers in this module (:func:`config_update_fields`,
+    :func:`config_add_to_list`, ... — anything built on :func:`load_config_document` and
+    :func:`save_config_document`) share one loaded document and write nothing; the document
+    is written once when the block ends, or earlier by
+    :func:`flush_config_edits`. Signatures, return values and the bytes
+    written are those of the same calls made one at a time.
+
+    Nested sessions on the same file join the outer one. Sessions on different
+    files are independent. The block ending on an exception still flushes,
+    matching what one-at-a-time writes would have left on disk — except a
+    :class:`ConfigEditConflict`, where the file is left to the other writer.
+
+    Args:
+        config_path: The YAML file whose edits to batch. Need not exist yet;
+            the first writer to touch it loads it.
+    """
+    key = _session_key(config_path)
+    if key in _sessions:
+        yield
+        return
+    session = _EditSession(path=key)
+    _sessions[key] = session
+    try:
+        yield
+    except ConfigEditConflict:
+        raise
+    except BaseException:
+        session.flush()
+        raise
+    else:
+        session.flush()
+    finally:
+        del _sessions[key]
+
+
+def flush_config_edits(config_path: Path) -> None:
+    """Write *config_path*'s pending session edits to disk, if there are any.
+
+    The call a reader of the file's *bytes* makes before reading, while a
+    session may be open. A no-op outside a session or with nothing pending.
+    """
+    session = _sessions.get(_session_key(config_path))
+    if session is not None:
+        session.flush()
 
 
 # =============================================================================
@@ -530,7 +714,7 @@ def config_add_to_list(
     Returns:
         True if the value was added, False if it was already present.
     """
-    data = _load(config_path)
+    data = load_config_document(config_path)
     node = _ensure_parent_node(data, key_path)
 
     leaf = key_path[-1]
@@ -542,7 +726,7 @@ def config_add_to_list(
         return False
 
     anchored_append(lst, value)
-    _save(config_path, data)
+    save_config_document(config_path, data)
     logger.debug("config_add_to_list: %s += %s in %s", ".".join(key_path), value, config_path)
     return True
 
@@ -565,7 +749,7 @@ def config_remove_from_list(
     Returns:
         True if the value was removed, False if it was not present.
     """
-    data = _load(config_path)
+    data = load_config_document(config_path)
 
     parents: list[tuple[Any, str]] = []
     node = data
@@ -593,7 +777,7 @@ def config_remove_from_list(
             if isinstance(child, dict) and not child:
                 del parent_node[parent_key]
 
-    _save(config_path, data)
+    save_config_document(config_path, data)
     logger.debug("config_remove_from_list: %s -= %s in %s", ".".join(key_path), value, config_path)
     return True
 
@@ -625,11 +809,11 @@ def config_replace_list(
             :func:`config_add_to_list`.
         new_list: The full replacement list (scalars, or nested dicts/lists).
     """
-    data = _load(config_path)
+    data = load_config_document(config_path)
     node = _ensure_parent_node(data, key_path)
 
     node[key_path[-1]] = new_list
-    _save(config_path, data)
+    save_config_document(config_path, data)
     logger.debug(
         "config_replace_list: %s = <%d item(s)> in %s",
         ".".join(key_path),
@@ -651,12 +835,12 @@ def config_update_fields(
         config_path: Path to the YAML file.
         updates: Mapping of ``"dot.separated.key"`` → new value.
     """
-    data = _load(config_path)
+    data = load_config_document(config_path)
 
     for dotted_key, value in updates.items():
         _set_dotted_anchored(data, data, dotted_key, value, create_only=True)
 
-    _save(config_path, data)
+    save_config_document(config_path, data)
     logger.debug("config_update_fields: updated %d field(s) in %s", len(updates), config_path)
 
 
@@ -673,7 +857,7 @@ def config_delete_field(config_path: Path, dotted_key: str) -> bool:
     Returns:
         Whether the key was present and removed.
     """
-    data = _load(config_path)
+    data = load_config_document(config_path)
     parts = dotted_key.split(".")
     node = data
     for part in parts[:-1]:
@@ -683,7 +867,7 @@ def config_delete_field(config_path: Path, dotted_key: str) -> bool:
     if not isinstance(node, dict) or parts[-1] not in node:
         return False
     del node[parts[-1]]
-    _save(config_path, data)
+    save_config_document(config_path, data)
     logger.debug("config_delete_field: removed %s from %s", dotted_key, config_path)
     return True
 
@@ -748,7 +932,7 @@ def config_read(config_path: Path) -> dict:
     import copy
     import json
 
-    data = _load(config_path)
+    data = load_config_document(config_path)
     return json.loads(json.dumps(copy.deepcopy(data), default=str))
 
 
@@ -794,7 +978,7 @@ def update_yaml_file(
         ...     }
         ... })
     """
-    data = _load(file_path)
+    data = load_config_document(file_path)
 
     # Create backup before modifying
     backup_path = None
@@ -820,7 +1004,7 @@ def update_yaml_file(
                 comment_text = f"\n{separator}\n{comment}\n{separator}"
                 data.yaml_set_comment_before_after_key(key, before=comment_text)
 
-    _save(file_path, data)
+    save_config_document(file_path, data)
 
     return backup_path
 
@@ -876,7 +1060,7 @@ def get_control_system_type(config_path: Path, key: str = "control_system.type")
         Type string or None if not found
     """
     try:
-        data = _load(config_path)
+        data = load_config_document(config_path)
 
         keys = key.split(".")
         value = data
@@ -1034,7 +1218,7 @@ def get_epics_gateway_config(config_path: Path) -> dict | None:
         Dict with gateway configuration or None if not found
     """
     try:
-        data = _load(config_path)
+        data = load_config_document(config_path)
 
         gateways = (
             data.get("control_system", {}).get("connector", {}).get("epics", {}).get("gateways")

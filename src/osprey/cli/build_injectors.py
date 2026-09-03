@@ -23,7 +23,12 @@ from typing import TYPE_CHECKING, Any
 
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS
 from osprey.errors import BuildProfileError
-from osprey.utils.config_writer import anchored_append, anchored_put
+from osprey.utils.config_writer import (
+    anchored_append,
+    anchored_put,
+    load_config_document,
+    save_config_document,
+)
 from osprey.utils.logger import get_logger
 from osprey_connectors import types as connector_types
 from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
@@ -134,14 +139,14 @@ def _user_owned_services(project_path: Path) -> set[str]:
     service keys.  Build must not refresh a claimed service template — that
     is the whole point of ``osprey scaffold claim services/<name>``.
     """
-    import yaml as _yaml
+    from osprey_connectors import yaml_loader
 
     config_path = project_path / "config.yml"
     if not config_path.exists():
         return set()
     try:
         with open(config_path, encoding="utf-8") as fh:
-            config = _yaml.safe_load(fh) or {}
+            config = yaml_loader.safe_load(fh) or {}
     except Exception:
         return set()
     owned = config.get("scaffold", {}).get("user_owned", []) or []
@@ -307,15 +312,11 @@ def _copy_service_templates(project_path: Path) -> int:
     Returns:
         Number of service template directories copied.
     """
-    from ruamel.yaml import YAML
-
     config_path = project_path / "config.yml"
     if not config_path.exists():
         return 0
 
-    yaml = YAML()
-    with open(config_path) as fh:
-        config = yaml.load(fh)
+    config = load_config_document(config_path)
 
     # Locate the package's service templates directory
     pkg_services = _locate_pkg_services()
@@ -421,7 +422,6 @@ def _inject_profile_services(
     Returns:
         Number of profile services injected.
     """
-    from ruamel.yaml import YAML
 
     if not services:
         return 0
@@ -430,10 +430,7 @@ def _inject_profile_services(
     if not config_path.exists():
         return 0
 
-    yaml = YAML()
-    yaml.preserve_quotes = True
-    with open(config_path) as fh:
-        config = yaml.load(fh)
+    config = load_config_document(config_path)
 
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
@@ -481,8 +478,7 @@ def _inject_profile_services(
 
         count += 1
 
-    with open(config_path, "w") as fh:
-        yaml.dump(config, fh)
+    save_config_document(config_path, config)
 
     return count
 
@@ -606,10 +602,7 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
         logger.warning("config.yml not found. Skipping the dispatch config registration.")
         return
 
-    yaml = YAML()
-    yaml.preserve_quotes = True
-    with open(config_path) as fh:
-        config = yaml.load(fh)
+    config = load_config_document(config_path)
 
     # No ``image`` key on either service, so each falls to its compose default:
     # the event-dispatcher builds the project's <project>-dispatch:local image (its
@@ -700,8 +693,7 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
                 events_panel, events_url, "/dashboard", "EVENTS", health_endpoint="/health"
             )
 
-    with open(config_path, "w") as fh:
-        yaml.dump(config, fh)
+    save_config_document(config_path, config)
 
     # 4. Post-build hint.
     logger.debug(
@@ -1094,7 +1086,6 @@ def _inject_bluesky(
             if a ``standin`` lane has no ``virtual_accelerator.live_standin``
             port to dial.
     """
-    from ruamel.yaml import YAML
 
     # 1. Copy the bundled compose template (located the same way as service templates).
     pkg_services = _locate_pkg_services()
@@ -1119,10 +1110,7 @@ def _inject_bluesky(
         logger.warning("config.yml not found. Skipping the bluesky config registration.")
         return
 
-    yaml = YAML()
-    yaml.preserve_quotes = True
-    with open(config_path) as fh:
-        config = yaml.load(fh)
+    config = load_config_document(config_path)
 
     _refuse_unknown_lane_targets(config)
 
@@ -1239,8 +1227,7 @@ def _inject_bluesky(
             anchored_append(deployed, lane_key)
     config["deployed_services"] = deployed
 
-    with open(config_path, "w") as fh:
-        yaml.dump(config, fh)
+    save_config_document(config_path, config)
 
     # 3. Post-build hint.
     logger.debug("  ✓ Injected Bluesky bridge (port %d)", bluesky.port)
@@ -1396,7 +1383,6 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
         va: Validated Virtual Accelerator configuration from the build profile.
         project_path: Root of the built project.
     """
-    from ruamel.yaml import YAML
 
     # 1. Copy the bundled compose template (located the same way as service templates).
     pkg_services = _locate_pkg_services()
@@ -1422,10 +1408,7 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
         )
         return
 
-    yaml = YAML()
-    yaml.preserve_quotes = True
-    with open(config_path) as fh:
-        config = yaml.load(fh)
+    config = load_config_document(config_path)
 
     # No scenario-state directory is created here. Pre-creating the compose bind
     # source — so the container runtime cannot materialize it root-owned — only
@@ -1471,8 +1454,7 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     # able to point at it is what would otherwise need a hand edit.
     wrote_gateways = _ensure_va_connector_gateways(config)
 
-    with open(config_path, "w") as fh:
-        yaml.dump(config, fh)
+    save_config_document(config_path, config)
 
     # 4. Post-build hint.
     logger.debug("  ✓ Injected Virtual Accelerator soft-IOC (CA port %d)", va.port)
@@ -1562,7 +1544,6 @@ def _inject_bluesky_web(bluesky_web: BlueskyWebConfig, project_path: Path) -> No
         bluesky_web: Validated bluesky-web configuration from the build profile.
         project_path: Root of the built project.
     """
-    from ruamel.yaml import YAML
 
     # 1. Copy the bundled compose template (located the same way as service templates).
     pkg_services = _locate_pkg_services()
@@ -1584,10 +1565,7 @@ def _inject_bluesky_web(bluesky_web: BlueskyWebConfig, project_path: Path) -> No
         logger.warning("config.yml not found. Skipping the bluesky_web config registration.")
         return
 
-    yaml = YAML()
-    yaml.preserve_quotes = True
-    with open(config_path) as fh:
-        config = yaml.load(fh)
+    config = load_config_document(config_path)
 
     # No ``image`` key: the service builds the local bluesky-web image on
     # first ``osprey up``. Override with OSPREY_BLUESKY_WEB_IMAGE, or
@@ -1634,8 +1612,7 @@ def _inject_bluesky_web(bluesky_web: BlueskyWebConfig, project_path: Path) -> No
             continue
         _fill_panel_defaults(panel_cfg, default_url, panel_path, label)
 
-    with open(config_path, "w") as fh:
-        yaml.dump(config, fh)
+    save_config_document(config_path, config)
 
     # 4. Post-build hint.
     logger.debug("  ✓ Injected bluesky-web sidecar (port %d)", bluesky_web.port)
@@ -1678,7 +1655,6 @@ def _inject_nextcloud_bridge(
             declared in the resolved triggers file.
         project_path: Root of the built project.
     """
-    from ruamel.yaml import YAML
 
     # 1. Copy the bundled compose template (located the same way as service templates).
     pkg_services = _locate_pkg_services()
@@ -1700,10 +1676,7 @@ def _inject_nextcloud_bridge(
         logger.warning("config.yml not found. Skipping the nextcloud_bridge config registration.")
         return
 
-    yaml = YAML()
-    yaml.preserve_quotes = True
-    with open(config_path) as fh:
-        config = yaml.load(fh)
+    config = load_config_document(config_path)
 
     # ``trigger`` is the one key the compose template reads with NO ``| default``
     # — it renders DISPATCH_TRIGGER straight from here, so a missing key must
@@ -1731,8 +1704,7 @@ def _inject_nextcloud_bridge(
         anchored_append(deployed, "nextcloud_bridge")
     config["deployed_services"] = deployed
 
-    with open(config_path, "w") as fh:
-        yaml.dump(config, fh)
+    save_config_document(config_path, config)
 
     # 3. Post-build hint.
     logger.debug("  ✓ Injected Nextcloud Talk bridge (trigger %r)", nextcloud_bridge.trigger)
@@ -1781,7 +1753,6 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
             declared in the resolved triggers file.
         project_path: Root of the built project.
     """
-    from ruamel.yaml import YAML
 
     # 1. Copy the bundled compose template (located the same way as service templates).
     pkg_services = _locate_pkg_services()
@@ -1803,10 +1774,7 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
         logger.warning("config.yml not found. Skipping the gchat_bridge config registration.")
         return
 
-    yaml = YAML()
-    yaml.preserve_quotes = True
-    with open(config_path) as fh:
-        config = yaml.load(fh)
+    config = load_config_document(config_path)
 
     # ``trigger`` is the one key the compose template reads with NO ``| default``
     # — it renders DISPATCH_TRIGGER straight from here, so a missing key must
@@ -1830,8 +1798,7 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
         deployed.append("gchat_bridge")
     config["deployed_services"] = deployed
 
-    with open(config_path, "w") as fh:
-        yaml.dump(config, fh)
+    save_config_document(config_path, config)
 
     # 3. Post-build hint.
     logger.debug("  ✓ Injected Google Chat bridge (trigger %r)", gchat_bridge.trigger)
@@ -1887,7 +1854,6 @@ def _inject_va_archiver(va_archiver: VAArchiverConfig, project_path: Path) -> No
         va_archiver: Validated archiver configuration from the build profile.
         project_path: Root of the built project.
     """
-    from ruamel.yaml import YAML
 
     # 1. Copy the bundled compose templates (located the same way as service
     #    templates). The recorder ships no Dockerfile — it runs the VA's image
@@ -1919,10 +1885,7 @@ def _inject_va_archiver(va_archiver: VAArchiverConfig, project_path: Path) -> No
         logger.warning("config.yml not found. Skipping the archiver config registration.")
         return
 
-    yaml = YAML()
-    yaml.preserve_quotes = True
-    with open(config_path) as fh:
-        config = yaml.load(fh)
+    config = load_config_document(config_path)
 
     # Only the keys the compose templates read: how the store publishes itself,
     # who it creates, and how it compresses. They restate profile knobs the
@@ -1960,8 +1923,7 @@ def _inject_va_archiver(va_archiver: VAArchiverConfig, project_path: Path) -> No
             anchored_append(deployed, name)
     config["deployed_services"] = deployed
 
-    with open(config_path, "w") as fh:
-        yaml.dump(config, fh)
+    save_config_document(config_path, config)
 
     # 3. Post-build hint.
     logger.debug(

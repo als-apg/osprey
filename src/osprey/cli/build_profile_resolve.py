@@ -647,9 +647,9 @@ def _write_profile_values(profile_path: Path, updates: list[tuple[list[str], Any
     """
     from ruamel.yaml import CommentedMap
 
-    from osprey.utils.config_writer import _load, _yaml
+    from osprey.utils.config_writer import _yaml, load_config_document
 
-    data = _load(profile_path)
+    data = load_config_document(profile_path)
     for key_path, value in updates:
         node = data
         for segment in key_path[:-1]:

@@ -34,6 +34,7 @@ from osprey.build.claude_code_telemetry import (
 from osprey.models.spend_attribution import apply_attribution_env, gateway_for
 from osprey.models.tiers import VALID_TIERS
 from osprey.utils.dotenv import chain_files
+from osprey_connectors import yaml_loader
 
 logger = logging.getLogger("osprey.build.claude_code_resolver")
 
@@ -493,12 +494,11 @@ def load_provider_spec(
         ``env_block['ANTHROPIC_BASE_URL']`` and ``upstream_base_url``, or
         ``None`` when no provider is configured.
     """
-    import yaml
 
     from osprey.utils.config import resolve_env_vars
 
     project_dir = Path(project_dir)
-    raw = yaml.safe_load((project_dir / "config.yml").read_text()) or {}
+    raw = yaml_loader.safe_load((project_dir / "config.yml").read_text()) or {}
 
     # Build an os.environ + .env overlay (.env wins) WITHOUT mutating os.environ.
     lookup: dict[str, str] = _env_lookup(Path(env_dir) if env_dir is not None else project_dir)
