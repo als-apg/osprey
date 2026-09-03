@@ -23,6 +23,7 @@ from typing import Any
 import yaml
 
 from osprey.errors import BuildProfileError
+from osprey_connectors import yaml_loader
 
 # YAML-surface spelling -> canonical BuildProfile field name. The rename is
 # confined to the YAML surface: the Python identifier, the manifest JSON keys,
@@ -84,7 +85,7 @@ def _read_profile_document(path: Path, source: str | None = None) -> Any:
 def _parse_profile_document(text: str, source: str) -> Any:
     """Parse one raw profile-YAML document, normalizing YAML-surface aliases.
 
-    The only ``yaml.safe_load`` of a profile document in the pipeline (pinned
+    The only YAML parse of a profile document in the pipeline (pinned
     by a guard test), reached from files through :func:`_read_profile_document`
     and directly for a document that exists only as text — the profile the
     emitter would write. Mapping-shape checks stay with the callers so each
@@ -103,7 +104,7 @@ def _parse_profile_document(text: str, source: str) -> Any:
             spelling with differing values.
     """
     try:
-        raw = yaml.safe_load(text)
+        raw = yaml_loader.safe_load(text)
     except yaml.YAMLError as e:
         raise BuildProfileError(f"Invalid YAML in {source}: {e}") from e
     if isinstance(raw, dict):

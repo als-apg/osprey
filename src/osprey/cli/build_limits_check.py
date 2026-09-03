@@ -30,10 +30,10 @@ LIMITS_DATABASE_KEY = "control_system.limits_checking.database_path"
 
 
 def _rendered_config(render_dir: Path) -> dict[str, Any]:
-    import yaml
+    from osprey_connectors import yaml_loader
 
     with (render_dir / "config.yml").open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh) or {}
+        return yaml_loader.safe_load(fh) or {}
 
 
 def limits_database_errors(render_dir: Path) -> list[str]:

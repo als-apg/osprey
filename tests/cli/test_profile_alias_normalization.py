@@ -206,7 +206,7 @@ def test_profile_hash_is_blind_to_the_spelling(tmp_path: Path) -> None:
 # (or _read_profile_document, its file-reading front), or a new read would
 # silently skip alias normalization.
 _ALLOWED_YAML_READS = {
-    ("build_profile_document.py", "_parse_profile_document", "yaml.safe_load"),
+    ("build_profile_document.py", "_parse_profile_document", "yaml_loader.safe_load"),
     # The app template's rendered config.yml — not a profile document.
     ("build_profile_drift.py", "_template_defaults", "yaml.safe_load"),
     # Scalar `--set` values, not documents — normalized as a layer instead.
@@ -255,4 +255,8 @@ def test_yaml_document_reads_happen_only_in_the_helper() -> None:
     assert found - _ALLOWED_YAML_READS == set()
     # The helper itself must still be the read point — an empty result would
     # otherwise pass vacuously.
-    assert ("build_profile_document.py", "_parse_profile_document", "yaml.safe_load") in found
+    assert (
+        "build_profile_document.py",
+        "_parse_profile_document",
+        "yaml_loader.safe_load",
+    ) in found
