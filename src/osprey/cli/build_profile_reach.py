@@ -95,6 +95,53 @@ def ariel_ingestion_advisories(rendered_config: Mapping[str, Any]) -> list[str]:
     ]
 
 
+def pva_address_source_advisories(rendered_config: Mapping[str, Any]) -> list[str]:
+    """Say when a connector block routes PVA channels but names no address source.
+
+    The connector-host child scrubs every inherited ``EPICS_PVA_*`` variable
+    before the connector runs, so ``pva_gateway`` is the only route a PVA
+    address list has into p4p. A block that lists ``pva_channels`` and relies
+    on ``EPICS_PVA_ADDR_LIST`` from the deployment's environment gets subnet
+    auto-discovery instead, which from an off-subnet host is a bare timeout on
+    every read. Advisory only: on the servers' own subnet discovery works.
+
+    ``pva_channels`` and ``pva_gateway`` are read exactly as ``connect()`` reads
+    them — a single glob may be a string, and an empty gateway block configures
+    nothing.
+
+    Args:
+        rendered_config: A render's config, after its ``config:`` overlay.
+
+    Returns:
+        One message per connector block with routing globs and no gateway,
+        naming the key to add; empty otherwise.
+    """
+    control_system = rendered_config.get("control_system")
+    connector = control_system.get("connector") if isinstance(control_system, Mapping) else None
+    if not isinstance(connector, Mapping):
+        return []
+    advisories: list[str] = []
+    for connector_type, block in connector.items():
+        if not isinstance(block, Mapping):
+            continue
+        globs = block.get("pva_channels") or []
+        if isinstance(globs, str):
+            globs = [globs]
+        if not isinstance(globs, list | tuple) or not any(str(g).strip() for g in globs):
+            continue
+        gateway = block.get("pva_gateway")
+        if isinstance(gateway, Mapping) and gateway:
+            continue
+        advisories.append(
+            f"control_system.connector.{connector_type}.pva_channels routes channels "
+            f"over PVA with no address source: add control_system.connector."
+            f"{connector_type}.pva_gateway (address may list several hosts, "
+            f"space-separated). EPICS_PVA_* variables set in the environment do "
+            f"not reach the connector."
+        )
+    return advisories
+
+
 def spelled_values(config: Any, dotted_key: str) -> list[tuple[str, Any]]:
     """Every way *config* writes *dotted_key*, with the value each gives.
 
