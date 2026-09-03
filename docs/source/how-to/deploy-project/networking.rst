@@ -95,4 +95,7 @@ project its own ``deployment.port_base`` (:ref:`reference-ports`), which moves
 the pair along with everything else.
 A facility service you place on the host network is covered the same way,
 read from its ``services.<name>.port`` key; one without that key cannot be
-checked, and ``osprey up`` says so rather than skipping it silently.
+checked, and ``osprey up`` says so rather than skipping it silently. The
+multi-user web terminals are covered the same way: every port of every roster
+index — terminal and companion panels alike — is checked, and a conflict names
+the user whose ``index`` to move.
