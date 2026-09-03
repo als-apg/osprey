@@ -1275,6 +1275,18 @@ osprey<span class="w"> </span>validate<span class="w"> </span>personas/readonly.
 <p>Resolves the profile and runs the full consistency check — convention
 directories, the data tree, service templates, lifecycle steps, environment
 variables — reporting every problem found, not just the first.</p>
+<p>It also compares the profile with the preset it was materialized from, so a
+line the preset gained after <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> (a panel, a hook, a permission)
+does not go missing silently. A difference you mean is claimed once, with a
+comment above the line:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="c1"># DEVIATION: the control room is dark</span>
+<span class="w">  </span><span class="nt">web.theme</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dark</span>
+</pre></div>
+</div>
+<p>Unclaimed differences fail the check (<code class="docutils literal notranslate"><span class="pre">--drift=warn</span></code> only reports them); a
+stale marker is reported too. The tag defaults to <code class="docutils literal notranslate"><span class="pre">DEVIATION</span></code> and is set by
+<code class="docutils literal notranslate"><span class="pre">provenance.deviation_marker</span></code>.</p>
 </section>
 </section>
 <section id="what-the-build-does">

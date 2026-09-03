@@ -643,7 +643,10 @@ project its own <code class="docutils literal notranslate"><span class="pre">dep
 the pair along with everything else.
 A facility service you place on the host network is covered the same way,
 read from its <code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;.port</span></code> key; one without that key cannot be
-checked, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> says so rather than skipping it silently.</p>
+checked, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> says so rather than skipping it silently. The
+multi-user web terminals are covered the same way: every port of every roster
+index — terminal and companion panels alike — is checked, and a conflict names
+the user whose <code class="docutils literal notranslate"><span class="pre">index</span></code> to move.</p>
 </section>
 </section>
 

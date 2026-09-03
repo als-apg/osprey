@@ -609,8 +609,7 @@ keeps using Channel Access. One deployment covers both:</p>
 <span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;*:IMAGE*&quot;</span>
 <span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;BL:CAM?:ARRAY&quot;</span>
 <span class="w">      </span><span class="nt">pva_gateway</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pvagw.facility.edu</span>
-<span class="w">        </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5075</span><span class="w">               </span><span class="c1"># default</span>
+<span class="w">        </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pvagw.facility.edu</span><span class="w">   </span><span class="c1"># or &quot;cam1 cam2 cam3&quot; for many servers</span>
 <span class="w">        </span><span class="nt">use_name_server</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 <span class="w">      </span><span class="nt">gateways</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">read_only</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> address</span><span class="p">:</span><span class="w"> </span><span class="nv">cagw.facility.edu</span><span class="p p-Indicator">,</span><span class="nt"> port</span><span class="p">:</span><span class="w"> </span><span class="nv">5064</span><span class="w"> </span><span class="p p-Indicator">}</span>
@@ -626,10 +625,19 @@ pvAccess client.</p>
 <p><code class="docutils literal notranslate"><span class="pre">pva_gateway</span></code> is a single flat block, unlike the <code class="docutils literal notranslate"><span class="pre">read_only</span></code> /
 <code class="docutils literal notranslate"><span class="pre">write_access</span></code> pair on the Channel Access side, because pvAccess is
 read-only here. The block is only consulted when <code class="docutils literal notranslate"><span class="pre">pva_channels</span></code> is
-non-empty, and it becomes <code class="docutils literal notranslate"><span class="pre">EPICS_PVA_ADDR_LIST</span></code> in the form
-<code class="docutils literal notranslate"><span class="pre">address:port</span></code> – or <code class="docutils literal notranslate"><span class="pre">EPICS_PVA_NAME_SERVERS</span></code>, same form, when
-<code class="docutils literal notranslate"><span class="pre">use_name_server</span></code> is true, which makes the client connect over TCP
-instead of searching by UDP broadcast (that is what an SSH tunnel needs).
+non-empty, and it is the <strong>only</strong> way to tell the connector where to
+search: the connector runs in a child process that drops every inherited
+<code class="docutils literal notranslate"><span class="pre">EPICS_PVA_*</span></code> variable, so an <code class="docutils literal notranslate"><span class="pre">EPICS_PVA_ADDR_LIST</span></code> set in <code class="docutils literal notranslate"><span class="pre">.env</span></code>
+never reaches it. The build warns when <code class="docutils literal notranslate"><span class="pre">pva_channels</span></code> is set and this
+block is missing.</p>
+<p><code class="docutils literal notranslate"><span class="pre">address</span></code> is one host or a space-separated list of hosts – what a
+facility with many pvAccess servers and no gateway needs. It becomes
+<code class="docutils literal notranslate"><span class="pre">EPICS_PVA_ADDR_LIST</span></code>, a list of UDP search targets: leave <code class="docutils literal notranslate"><span class="pre">port</span></code>
+unset and the client’s default (5076) applies; set it and it is appended
+to every listed host. Do not set 5075 here – that is the TCP port, and a
+search sent to it times out. With <code class="docutils literal notranslate"><span class="pre">use_name_server:</span> <span class="pre">true</span></code> the entry
+becomes <code class="docutils literal notranslate"><span class="pre">EPICS_PVA_NAME_SERVERS</span></code> instead, a TCP endpoint where <code class="docutils literal notranslate"><span class="pre">port</span></code>
+defaults to 5075; that is what an SSH tunnel needs.
 Whenever the block is present, <code class="docutils literal notranslate"><span class="pre">EPICS_PVA_AUTO_ADDR_LIST</span></code> is forced to
 <code class="docutils literal notranslate"><span class="pre">&quot;NO&quot;</span></code> – the same containment the Channel Access side applies, so a
 deployment deliberately pinned to one gateway cannot also

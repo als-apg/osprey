@@ -854,22 +854,28 @@ baseline.</p>
 allocated ports and a seeded workspace; existing users are
 untouched.</p></td>
 </tr>
-<tr class="row-odd"><td><p class="sd-card-text"><strong>Reseed workspaces</strong></p></td>
+<tr class="row-odd"><td><p class="sd-card-text"><strong>Rename or drop a user</strong></p></td>
+<td><p class="sd-card-text">Edit the roster entry, then <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. A container whose
+user is no longer on the roster is stopped and removed, so it
+cannot keep serving that index’s ports; its volumes are
+retained until <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">prune</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text"><strong>Reseed workspaces</strong></p></td>
 <td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">seed</span> <span class="pre">[USER]</span></code> re-applies the seeded configuration
 for one user, or for everyone when <code class="docutils literal notranslate"><span class="pre">USER</span></code> is omitted.</p></td>
 </tr>
-<tr class="row-even"><td><p class="sd-card-text"><strong>Remove one user</strong></p></td>
+<tr class="row-odd"><td><p class="sd-card-text"><strong>Remove one user</strong></p></td>
 <td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">remove</span> <span class="pre">USER</span></code> stops and removes the user’s
 container. Their volumes are <strong>retained</strong> by default; add
 <code class="docutils literal notranslate"><span class="pre">--archive</span></code> to tarball them into <code class="docutils literal notranslate"><span class="pre">web_terminal_archives/</span></code>
 first, or <code class="docutils literal notranslate"><span class="pre">--purge</span></code> to delete them outright.</p></td>
 </tr>
-<tr class="row-odd"><td><p class="sd-card-text"><strong>Clean up leftovers</strong></p></td>
+<tr class="row-even"><td><p class="sd-card-text"><strong>Clean up leftovers</strong></p></td>
 <td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">prune</span></code> removes workspaces of users no longer on
 the roster. <code class="docutils literal notranslate"><span class="pre">--dry-run</span></code> shows what it would do first, and the
 same <code class="docutils literal notranslate"><span class="pre">--archive</span></code> / <code class="docutils literal notranslate"><span class="pre">--purge</span></code> policy applies.</p></td>
 </tr>
-<tr class="row-even"><td><p class="sd-card-text"><strong>Tear it all down</strong></p></td>
+<tr class="row-odd"><td><p class="sd-card-text"><strong>Tear it all down</strong></p></td>
 <td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span></code> wipes the whole deployment back to a fresh state —
 containers, volumes, and images, every user’s workspace included —
 after a typed confirmation. It prints the removal plan first;

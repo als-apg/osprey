@@ -1056,6 +1056,11 @@ list for a bar you want left bare.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">header_visible</span></code> and <code class="docutils literal notranslate"><span class="pre">status_visible</span></code> hide a bar without emptying it. A
 user can bring it back; the items you listed are still there when they do.</p></li>
 </ul>
+<p>An item this deployment cannot show leaves the arrangement before it is served:
+<code class="docutils literal notranslate"><span class="pre">system-health</span></code> without the SYSTEM panel in <code class="docutils literal notranslate"><span class="pre">web_panels</span></code>, <code class="docutils literal notranslate"><span class="pre">bluesky-queue</span></code>
+without the Bluesky panel, <code class="docutils literal notranslate"><span class="pre">identity</span></code> with neither a terminal user nor an
+<code class="docutils literal notranslate"><span class="pre">app_name</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> name each such entry you
+wrote, and the server logs the same line at start-up.</p>
 <p>An item that needs an option takes a mapping instead of a bare name, for
 example <code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">{type:</span> <span class="pre">clock,</span> <span class="pre">options:</span> <span class="pre">{zone:</span> <span class="pre">utc,</span> <span class="pre">format:</span> <span class="pre">12h}}</span></code> or
 <code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">{type:</span> <span class="pre">space,</span> <span class="pre">options:</span> <span class="pre">{width:</span> <span class="pre">120}}</span></code> (a <code class="docutils literal notranslate"><span class="pre">space</span></code> at width <code class="docutils literal notranslate"><span class="pre">0</span></code>, the

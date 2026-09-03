@@ -601,7 +601,7 @@ osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span
 <section id="osprey-validate">
 <h2>osprey validate<a class="headerlink" href="#osprey-validate" title="Link to this heading">#</a></h2>
 <p>Check the deployment profile without building.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>validate<span class="w"> </span><span class="o">[</span>TARGET<span class="o">]</span><span class="w"> </span><span class="o">[</span>--repo<span class="w"> </span>DIRECTORY<span class="o">]</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>validate<span class="w"> </span><span class="o">[</span>TARGET<span class="o">]</span><span class="w"> </span><span class="o">[</span>--repo<span class="w"> </span>DIRECTORY<span class="o">]</span><span class="w"> </span><span class="o">[</span>--drift<span class="w"> </span>error<span class="p">|</span>warn<span class="o">]</span>
 </pre></div>
 </div>
 <p>With no argument, validates the deployment repository enclosing the working
@@ -612,6 +612,17 @@ directories, the <code class="docutils literal notranslate"><span class="pre">da
 then lints the declared web stack against the config a build would render. Every
 problem found is reported, not just the first. Exits 0 when the profile is
 valid, 2 with the accumulated errors when it is not, so a CI job can gate on it.</p>
+<p>A profile <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> wrote is also compared with the preset it came from,
+persona deltas included: a value that differs, a key or list member the preset
+has and the profile lacks, one the profile adds that neither the preset nor the
+app template knows, or a persona <code class="docutils literal notranslate"><span class="pre">exclude:</span></code> of something the preset keeps.
+Each is refused with both <code class="docutils literal notranslate"><span class="pre">file:line</span></code> references unless a <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">DEVIATION:</span>
+<span class="pre">&lt;why&gt;</span></code> comment within three lines above the profile line claims it (for a
+missing line, a comment anywhere naming the key or member). The tag is set by
+<code class="docutils literal notranslate"><span class="pre">provenance.deviation_marker</span></code>; a marker that no longer marks a difference is
+reported as stale. <code class="docutils literal notranslate"><span class="pre">--drift=warn</span></code> prints the differences and passes. <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">build</span></code> prints the same list under <code class="docutils literal notranslate"><span class="pre">-v</span></code> and, whenever the bundled preset’s hash
+differs from the recorded one, a one-line note that the preset has moved on.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>validate
 osprey<span class="w"> </span>validate<span class="w"> </span>personas/reader.yml
 osprey<span class="w"> </span>validate<span class="w"> </span>--repo<span class="w"> </span>~/als-assistant

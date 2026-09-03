@@ -631,7 +631,11 @@ PEP 508 spec.</p></td>
 <td><p>mapping</p></td>
 <td><p><em>written</em></p></td>
 <td><p>Which preset this profile was materialized from, and that preset’s hash.
-Written by the materialization; do not edit it.</p></td>
+Written by the materialization; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> compares the profile
+with that preset and refuses unmarked differences (see <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">validate</span></code>). The one key you may add is <code class="docutils literal notranslate"><span class="pre">deviation_marker</span></code>, the tag of
+the <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">&lt;TAG&gt;:</span> <span class="pre">&lt;why&gt;</span></code> comment that marks a difference as deliberate
+(default <code class="docutils literal notranslate"><span class="pre">DEVIATION</span></code>).</p></td>
 </tr>
 </tbody>
 </table>

@@ -587,6 +587,12 @@ Customize returns a user to.
 - ``header_visible`` and ``status_visible`` hide a bar without emptying it. A
   user can bring it back; the items you listed are still there when they do.
 
+An item this deployment cannot show leaves the arrangement before it is served:
+``system-health`` without the SYSTEM panel in ``web_panels``, ``bluesky-queue``
+without the Bluesky panel, ``identity`` with neither a terminal user nor an
+``app_name``. ``osprey build`` and ``osprey validate`` name each such entry you
+wrote, and the server logs the same line at start-up.
+
 An item that needs an option takes a mapping instead of a bare name, for
 example ``- {type: clock, options: {zone: utc, format: 12h}}`` or
 ``- {type: space, options: {width: 120}}`` (a ``space`` at width ``0``, the
