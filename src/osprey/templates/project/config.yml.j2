@@ -321,17 +321,22 @@ control_system:
       # pva_channels:
       #   - "*:IMAGE*"
       #   - "*:ARRAY*"
-      # PVA gateway - one flat block, unlike the CA read_only/write_access pair
-      # below, because PVA is read-only in this deployment. Read only when
-      # pva_channels is non-empty. Maps to EPICS_PVA_ADDR_LIST, or to
-      # EPICS_PVA_NAME_SERVERS when use_name_server is true (SSH tunnels).
-      # Whenever this block is present, EPICS_PVA_AUTO_ADDR_LIST is forced to
-      # "NO" - the same containment the CA side applies with
-      # EPICS_CA_AUTO_ADDR_LIST, so a deployment pinned to a gateway cannot also
-      # broadcast-discover servers on the local subnet.
+      # Where PVA searches go - one flat block, unlike the CA
+      # read_only/write_access pair below, because PVA is read-only in this
+      # deployment. Read only when pva_channels is non-empty, and the ONLY
+      # route: the connector host drops every EPICS_PVA_* variable from its
+      # environment, so an EPICS_PVA_ADDR_LIST set in .env never reaches it.
+      # `address` is one host or a space-separated list of hosts and maps to
+      # EPICS_PVA_ADDR_LIST (UDP search; leave `port` unset and p4p's default
+      # 5076 applies - 5075 is the TCP port and breaks the search), or to
+      # EPICS_PVA_NAME_SERVERS when use_name_server is true (TCP, SSH tunnels;
+      # port defaults to 5075). Whenever this block is present,
+      # EPICS_PVA_AUTO_ADDR_LIST is forced to "NO" - the same containment the CA
+      # side applies with EPICS_CA_AUTO_ADDR_LIST, so a deployment pinned to a
+      # gateway cannot also broadcast-discover servers on the local subnet.
       # pva_gateway:
-      #   address: your-gateway.example.com  # Replace with your PVA gateway address
-      #   port: 5075
+      #   address: your-gateway.example.com  # Or "host1 host2 host3" for many servers
+      #   # port: 5076  # Only if your servers search on a non-default port
       #   use_name_server: false  # Set true for SSH tunnels
       gateways:
         read_only:

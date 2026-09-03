@@ -588,10 +588,15 @@ control_system:
     #
     # `pva_gateway` is ONE flat block, not the read_only/write_access pair the
     # CA `gateways` below uses, precisely because there is no PVA write path.
-    # It is read only when pva_channels is non-empty, and maps to
-    # EPICS_PVA_ADDR_LIST — or to EPICS_PVA_NAME_SERVERS when use_name_server is
-    # true (TCP instead of UDP search: what SSH tunnels need). Whenever the block
-    # is present, EPICS_PVA_AUTO_ADDR_LIST is forced to "NO", mirroring the
+    # It is read only when pva_channels is non-empty, and it is the ONLY route:
+    # the connector host drops every EPICS_PVA_* variable from its environment,
+    # so an EPICS_PVA_ADDR_LIST set in .env never reaches it. `address` is one
+    # host or a space-separated list of hosts and maps to EPICS_PVA_ADDR_LIST
+    # (UDP search; leave `port` unset and p4p's default 5076 applies — 5075 is
+    # the TCP port and breaks the search) — or to EPICS_PVA_NAME_SERVERS when
+    # use_name_server is true (TCP instead of UDP search: what SSH tunnels need;
+    # port defaults to 5075). Whenever the block is present,
+    # EPICS_PVA_AUTO_ADDR_LIST is forced to "NO", mirroring the
     # EPICS_CA_AUTO_ADDR_LIST containment the CA path applies: a deployment
     # deliberately pinned to a gateway must not also broadcast-discover servers
     # on its local subnet.
@@ -616,8 +621,8 @@ control_system:
       #   - "*:IMAGE*"
       #   - "*:ARRAY*"
       # pva_gateway:
-      #   address: your-pva-gateway.example.com  # Replace with your PVA gateway
-      #   port: 5075
+      #   address: your-pva-gateway.example.com  # Or "host1 host2 host3" for many servers
+      #   # port: 5076  # Only if your servers search on a non-default port
       #   use_name_server: false  # Set true for SSH tunnels
       # use_name_server: Set to true for SSH tunnels (uses EPICS_CA_NAME_SERVERS)
       #                  Set to false for direct gateway (uses EPICS_CA_ADDR_LIST)

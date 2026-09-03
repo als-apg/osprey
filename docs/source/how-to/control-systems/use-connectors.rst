@@ -109,8 +109,7 @@ Pick a control system
                  - "*:IMAGE*"
                  - "BL:CAM?:ARRAY"
                pva_gateway:
-                 address: pvagw.facility.edu
-                 port: 5075               # default
+                 address: pvagw.facility.edu   # or "cam1 cam2 cam3" for many servers
                  use_name_server: false
                gateways:
                  read_only: { address: cagw.facility.edu, port: 5064 }
@@ -126,10 +125,20 @@ Pick a control system
       ``pva_gateway`` is a single flat block, unlike the ``read_only`` /
       ``write_access`` pair on the Channel Access side, because pvAccess is
       read-only here. The block is only consulted when ``pva_channels`` is
-      non-empty, and it becomes ``EPICS_PVA_ADDR_LIST`` in the form
-      ``address:port`` -- or ``EPICS_PVA_NAME_SERVERS``, same form, when
-      ``use_name_server`` is true, which makes the client connect over TCP
-      instead of searching by UDP broadcast (that is what an SSH tunnel needs).
+      non-empty, and it is the **only** way to tell the connector where to
+      search: the connector runs in a child process that drops every inherited
+      ``EPICS_PVA_*`` variable, so an ``EPICS_PVA_ADDR_LIST`` set in ``.env``
+      never reaches it. The build warns when ``pva_channels`` is set and this
+      block is missing.
+
+      ``address`` is one host or a space-separated list of hosts -- what a
+      facility with many pvAccess servers and no gateway needs. It becomes
+      ``EPICS_PVA_ADDR_LIST``, a list of UDP search targets: leave ``port``
+      unset and the client's default (5076) applies; set it and it is appended
+      to every listed host. Do not set 5075 here -- that is the TCP port, and a
+      search sent to it times out. With ``use_name_server: true`` the entry
+      becomes ``EPICS_PVA_NAME_SERVERS`` instead, a TCP endpoint where ``port``
+      defaults to 5075; that is what an SSH tunnel needs.
       Whenever the block is present, ``EPICS_PVA_AUTO_ADDR_LIST`` is forced to
       ``"NO"`` -- the same containment the Channel Access side applies, so a
       deployment deliberately pinned to one gateway cannot also
