@@ -109,6 +109,24 @@ async function dockIframeWithGlowSpy(importOriginal) {
   return { ...actual, glowPanel: glowPanelSpy };
 }
 
+// first-contact.js is stubbed whole: the greeting's own copy and DOM wiring is
+// first-contact.test.mjs's contract, not this file's, and what this file pins
+// is only that BOTH exits of the /api/panels fetch hand it the facts.
+//
+// The stub carries more than setFacts because panel-manager is not the only
+// module on this graph that reads it: tour.js imports the prompt, sentence and
+// chip-row helpers too. Keep this list in step with what the graph imports;
+// the helpers return the shapes their callers destructure, not real copy.
+const FIRST_CONTACT_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/first-contact.js';
+const {
+  setFacts, starterPrompts, capabilitySentence, chipRow,
+} = vi.hoisted(() => ({
+  setFacts: vi.fn(),
+  starterPrompts: vi.fn(() => []),
+  capabilitySentence: vi.fn(() => ''),
+  chipRow: vi.fn(() => document.createElement('div')),
+}));
+
 /** The adapter's live-follow observer; geometry itself is browser-suite turf. */
 class FakeResizeObserver {
   observe() {}
@@ -166,6 +184,9 @@ async function freshImport() {
   vi.doMock(DOCK_IFRAME_PATH, dockIframeWithGlowSpy);
   vi.doMock(TERMINAL_PATH, terminalWithVerbSpies);
   vi.doMock(SESSIONS_PATH, sessionsWithVerbSpies);
+  vi.doMock(FIRST_CONTACT_PATH, () => ({
+    setFacts, starterPrompts, capabilitySentence, chipRow,
+  }));
   return import('../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js');
 }
 
@@ -228,6 +249,44 @@ describe('config fetches: /api/panels and PANELS[].configEndpoint (via fetchJSON
 
     expect(calls).toContain('/api/panels');
     expect(calls).toContain('/api/artifact-server');
+  });
+
+  test("hands first contact the payload's tour object", async () => {
+    renderContainer();
+    const tour = { capabilities: ['run a scan'], logbook: true };
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
+      if (url === '/api/panels') {
+        return jsonOk({
+          enabled: ['artifacts'], custom: [], default: null,
+          visible: ['artifacts'], active: null, labels: {}, tour,
+        });
+      }
+      return jsonOk({});
+    }));
+    stubEventSource();
+
+    const { initPanelManager } = await freshImport();
+    await initPanelManager('panel-manager');
+
+    expect(setFacts).toHaveBeenCalledWith(tour);
+  });
+
+  // The greeting renders whether or not the fetch answered, so the failure
+  // path must SAY so rather than leave it waiting on a payload that never came.
+  test('a failed /api/panels still settles first contact with null', async () => {
+    renderContainer();
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
+      if (url === '/api/panels') {
+        return { ok: false, status: 500, statusText: 'Server Error', json: async () => ({}) };
+      }
+      return jsonOk({});
+    }));
+    stubEventSource();
+
+    const { initPanelManager } = await freshImport();
+    await initPanelManager('panel-manager');
+
+    expect(setFacts).toHaveBeenCalledWith(null);
   });
 });
 
