@@ -12,7 +12,7 @@ description: >-
 
 # OSPREY Design Philosophy
 
-> **Working draft.** Principles are still being collected and refined with the maintainer. The six
+> **Working draft.** Principles are still being collected and refined with the maintainer. The seven
 > below are confirmed. Each states a rule, its rationale, and the guidance an agent should apply.
 > Principles are written generically: do not hard-code lists of current features or subsystems into
 > this document — they go stale. Refer to "existing peer subsystems" and let the reader inspect the
@@ -104,6 +104,23 @@ as a wrong answer on a real machine, not as a failing test.
 - Deriving costs a lookup; duplicating costs a silent inconsistency. Prefer the lookup, and where a
   cached copy is genuinely needed, make its derivation explicit rather than re-deriving by hand.
 
+## 7. Keep the maintained surface small
+
+Every example, preset, demo, and doc page OSPREY ships is a promise to keep it working. A surface
+the development loop does not exercise day to day rots silently: its config drifts, its docs lie,
+and its tests pin yesterday's behavior. So the set of shipped surfaces must stay small enough that
+the ordinary development cycle touches all of them.
+
+- Before adding a parallel artifact (a demo preset, a second example stack, a tutorial variant),
+  fold the demonstration into a surface that is already exercised, with its tests, its docs, and
+  its CI lane, rather than shipping a lighter clone beside it.
+- If a dedicated artifact is genuinely needed, wire it into CI and the docs in the same change that
+  ships it. An untested example is a liability, not an asset.
+- Test each change against: "Which existing workflow will exercise this next month?" If none, either
+  wire one up or do not ship it.
+- When two shipped surfaces drift toward duplicating each other, merge them and delete the
+  redundant one. Deleting a surface nobody's workflow exercises is a feature, not a loss.
+
 ---
 
 ## How to apply
@@ -113,4 +130,5 @@ state it plainly: name the principle, point at the specific drift, and propose t
 the work back in line. The questions behind the principles: Is the unsafe path harder to reach than
 the safe one? Would this be wrong at another facility? Does this follow the shape of its peers? Can
 this dependency be swapped later without a rewrite? Could a user discover and use this without
-reading the source? Does this fact have exactly one producer?
+reading the source? Does this fact have exactly one producer? Which existing workflow will exercise
+this next month?
