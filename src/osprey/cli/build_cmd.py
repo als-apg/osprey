@@ -1236,12 +1236,35 @@ class _SharedRenderInputs(NamedTuple):
     """
 
 
-def _rendered_config(render_dir: Path) -> dict[str, Any]:
-    """The ``config.yml`` a render wrote, as a plain mapping."""
-    import yaml
+#: Parsed ``config.yml`` documents by (path, content digest); see
+#: :func:`_rendered_config`. Cleared at the start of every ``osprey build``.
+_rendered_config_cache: dict[tuple[str, bytes], dict[str, Any]] = {}
 
-    with (render_dir / "config.yml").open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh) or {}
+
+def _rendered_config(render_dir: Path) -> dict[str, Any]:
+    """The ``config.yml`` a render wrote, as a plain mapping.
+
+    Read a dozen times per render — every injector and every pre-publish check
+    asks for it — and rewritten in between by the resolvers that answer
+    ``auto`` values in place. The parse is what costs; the read is not. So the
+    file's bytes are read every time and the parse is cached under their
+    digest: a rewrite changes the digest and is parsed afresh, an unchanged
+    file is parsed once. Callers get their own copy, since some annotate the
+    mapping before handing it on.
+    """
+    import copy
+    import hashlib
+
+    from osprey_connectors import yaml_loader
+
+    path = render_dir / "config.yml"
+    data = path.read_bytes()
+    key = (str(path), hashlib.sha256(data).digest())
+    parsed = _rendered_config_cache.get(key)
+    if parsed is None:
+        parsed = yaml_loader.safe_load(data.decode("utf-8")) or {}
+        _rendered_config_cache[key] = parsed
+    return copy.deepcopy(parsed)
 
 
 def _resolve_rendered_execution_method(render_dir: Path) -> list[str]:
@@ -3494,6 +3517,8 @@ def build(
     """
     from .main import lifecycle_reporter
     from .summary_card import owns_summary_card, print_summary_card
+
+    _rendered_config_cache.clear()
 
     # Both decided here rather than in `_build_repo`, because a chained build —
     # `init --up`, `up --build` — reaches that function with the chaining verb's
