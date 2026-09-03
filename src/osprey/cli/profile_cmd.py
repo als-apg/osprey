@@ -24,7 +24,7 @@ Usage:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Iterable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
@@ -35,9 +35,9 @@ from osprey.utils.logger import get_logger
 
 from .output import report, section
 from .profile_conventions import (
-    BUILD_OUTPUT_DIR,
     CONTEXT_BASELINE_FILENAME,
     PER_USER_CONTEXT_DIRNAME,
+    PROFILE_TRIGGERS_FILENAME,
     context_baseline_slot,
 )
 
@@ -132,10 +132,6 @@ _PROFILE_DATA_DIRNAME = "data"
 # `<profile>/` once and every persona render sees it.
 _PERSONA_PROFILE_DIRNAME = "personas"
 
-# File name the resolved trigger config gets at the profile root, and the value
-# written to the emitted `dispatch.triggers` key (FR-3). One constant so the
-# copy target and the emitted key cannot drift apart.
-_PROFILE_TRIGGERS_FILENAME = "triggers.yml"
 
 # Convention directory holding one subdirectory of per-user web-terminal context
 # per roster user. Named from the convention table rather than spelled again, so
@@ -179,7 +175,7 @@ MATERIALIZED_SOURCE_ENTRIES: tuple[str, ...] = (
     "profile.yml",
     _PROFILE_DATA_DIRNAME,
     _PERSONA_PROFILE_DIRNAME,
-    _PROFILE_TRIGGERS_FILENAME,
+    PROFILE_TRIGGERS_FILENAME,
     _CONTEXT_CONVENTION_DIRNAME,
     _PROFILE_ENV_EXAMPLE_FILENAME,
 )
@@ -225,39 +221,6 @@ def _data_copy_ignore(source_root: Path) -> Callable[[str, list[str]], set[str]]
         }
 
     return ignore
-
-
-def _persona_catalog_layer(persona_names: Iterable[str], *, repo_name: str) -> dict[str, Any]:
-    """A raw profile fragment repointing each persona's ``build_profile`` at its
-    emitted sibling profile.
-
-    Written at the DEEPEST spelling on purpose. ``_collapse_config_prefixes``
-    resolves a prefix pair deeper-key-wins, so these keys survive whatever
-    shallower spelling the preset used for the module subtree
-    (``modules.web_terminals:``, or even a nested ``modules:``) and land inside
-    it — while a shallower fragment of ours would instead be overwritten
-    wholesale by the preset's own subtree.
-
-    Args:
-        persona_names: Personas the profile's catalog declares.
-        repo_name: Directory name of the deployment repo. A persona render is
-            build output like every other render, so its ``project_path`` lands
-            under the repo's ``build/`` zone and its ``project`` is keyed off
-            the deployment's own name rather than the preset's. This is why a
-            shipped preset cannot spell either value correctly on its own —
-            neither is knowable until a repo has a name.
-    """
-    layer: dict[str, str] = {}
-    for name in persona_names:
-        prefix = f"modules.web_terminals.personas.{name}"
-        layer[f"{prefix}.build_profile"] = f"{_PERSONA_PROFILE_DIRNAME}/{name}.yml"
-        # `project` must equal `project_path`'s basename. Both are derived from
-        # the repo name here, and `osprey build` derives the render's own name
-        # the same way, which is how the render lands exactly where the catalog
-        # mounts it.
-        layer[f"{prefix}.project"] = f"{repo_name}-{name}"
-        layer[f"{prefix}.project_path"] = f"{BUILD_OUTPUT_DIR}/{repo_name}-{name}"
-    return {"config": layer}
 
 
 def _triggers_source(resolved: BuildProfile, preset_dir: Path) -> Path | None:
@@ -626,17 +589,6 @@ def _write_secret_channel(
             written.append(_PROFILE_ENV_FILENAME)
 
     return written
-
-
-def _triggers_layer() -> dict[str, Any]:
-    """A raw profile fragment repointing ``dispatch.triggers`` at the profile's own file.
-
-    The materialized ``triggers.yml`` is what the build must read (FR-3), so the
-    emitted key names it rather than the bundled trigger set it was copied from.
-    Merged through the same channel as every other emitted value, so nothing
-    here is a second path into the resolved content.
-    """
-    return {"dispatch": {"triggers": _PROFILE_TRIGGERS_FILENAME}}
 
 
 def _off_chain_problem(persona_name: str, persona_preset: str, host_preset: str) -> str | None:
@@ -1062,7 +1014,11 @@ def _materialize_profile_directory(
         merge_cli_overrides,
         resolve_build_profile,
     )
-    from .build_profile_emit import emit_standalone_profile_yaml
+    from .build_profile_emit import (
+        emit_standalone_profile_yaml,
+        persona_catalog_layer,
+        triggers_layer,
+    )
     from .templates.manager import TemplateManager
 
     # Resolving through the public path validates the preset AND its -O/--set
@@ -1120,8 +1076,8 @@ def _materialize_profile_directory(
     persona_deltas = _parsed_persona_deltas(persona_texts)
 
     extra_layers: tuple[dict[str, Any], ...] = (
-        *((_persona_catalog_layer(persona_texts, repo_name=target.name),) if persona_texts else ()),
-        *((_triggers_layer(),) if triggers_src is not None else ()),
+        *((persona_catalog_layer(persona_texts, repo_name=target.name),) if persona_texts else ()),
+        *((triggers_layer(),) if triggers_src is not None else ()),
     )
 
     # Read once, before anything is written: the README rendered below tells the
@@ -1170,8 +1126,8 @@ def _materialize_profile_directory(
         (target / "profile.yml").write_text(profile_text, encoding="utf-8")
 
         if triggers_src is not None:
-            shutil.copy2(triggers_src, target / _PROFILE_TRIGGERS_FILENAME)
-            logger.debug("  Trigger config: %s", _PROFILE_TRIGGERS_FILENAME)
+            shutil.copy2(triggers_src, target / PROFILE_TRIGGERS_FILENAME)
+            logger.debug("  Trigger config: %s", PROFILE_TRIGGERS_FILENAME)
 
         # The profile owns its secrets from the first minute (FR-1) — the
         # documented variable list, whatever the shell already exports, and the

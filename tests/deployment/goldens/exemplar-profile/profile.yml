@@ -324,12 +324,6 @@ deploy:
 data: data
 # Minimum OSPREY release that understands this profile's keys. Builds below it abort.
 requires_osprey_version: '>=2026.8.0'
-# What this profile was materialized from. Emitted, not hand-written: a
-# build compares it against the installed preset and mentions it when the
-# preset has moved on. Advisory only — this profile is the source of truth.
-provenance:
-  preset: control-assistant
-  preset_hash: sha256:807a488a6d709eb2caec040fcbee659dbf7521bd3033e43c8fb50b35c8f3af27
 # true builds its own services stack; false attaches to another project's.
 deploy_services: true
 # Named web-terminal layouts, as label -> list of panel ids.

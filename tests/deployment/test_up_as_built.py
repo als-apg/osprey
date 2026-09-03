@@ -155,6 +155,9 @@ def started(monkeypatch):
     # must not depend on which ports happen to be free here. Exposure is read
     # from the rendered bindings by a different function, which stays live.
     monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
+    # The off-roster terminal sweep lists this project's containers on the real
+    # runtime; nothing here has one. Its own tests live under web_terminals/.
+    monkeypatch.setattr(container_lifecycle, "remove_orphan_terminals", lambda config: {})
 
     def _fake_run(cmd, env=None, check=False, **kwargs):
         record.setdefault("cmds", []).append(list(cmd))

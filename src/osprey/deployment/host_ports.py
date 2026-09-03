@@ -21,7 +21,11 @@ A service placed on the host's network namespace renders no ``ports:`` block at
 all — it binds its port on the host directly — so parsing compose files alone
 would leave exactly the ports two projects are most likely to fight over out of
 the check. Those bindings are therefore *derived* from the rendered config (see
-:func:`derive_host_network_bindings`) and join the same two checks.
+:func:`derive_host_network_bindings`) and join the same two checks. The web
+terminals are the largest such family: every per-user container runs on the host
+network and binds one port per panel family at its roster index, so those are
+derived too (:func:`derive_web_terminal_bindings`) — a renamed or removed user
+whose old container still holds an index is a collision this check has to name.
 
 Everything here is framed by the deployment's **port block**: ``port_base`` is
 the first of a thousand ports (:mod:`osprey.port_layout`), and the base is
@@ -51,6 +55,8 @@ from osprey.deployment.graphdb_service import (
 )
 from osprey.deployment.qmd_service import PORT_CONFIG_KEY as QMD_PORT_CONFIG_KEY
 from osprey.deployment.runtime_helper import get_ps_command, runtime_env
+from osprey.deployment.web_terminals.personas import normalize_users
+from osprey.deployment.web_terminals.ports import allocate_ports, base_ports_from_config
 from osprey.port_layout import (
     CA_DEFAULT_PORT,
     PORT_BASE_CONFIG_KEY,
@@ -225,6 +231,9 @@ class HostPortBinding:
         :data:`_DERIVED_SOURCE` for a binding derived from the rendered config
     :param host_network: ``True`` when the service runs in the host's network
         namespace and binds this port directly instead of publishing it
+    :param remedy: The config key that moves this port, when the deriving code
+        knows it better than :func:`_remedy_for_service` can work it out from
+        the service name. ``None`` leaves the resolution to that function
     """
 
     service: str
@@ -233,6 +242,7 @@ class HostPortBinding:
     container_port: int | None
     compose_file: str
     host_network: bool = False
+    remedy: str | None = None
 
 
 @dataclass
@@ -682,6 +692,86 @@ def derive_host_network_bindings(config):
     return bindings
 
 
+def _web_terminal_service(user):
+    """Return the binding label of one user's terminal.
+
+    ``web-<user>`` is the container name (``<facility_prefix>-web-<user>``,
+    see :mod:`osprey.deployment.web_terminals.naming`) with the facility prefix
+    dropped, which is exactly the suffix :func:`_runs_service` matches a running
+    container's name against — so this deployment's own terminal, still up from
+    the previous deploy, is read as the idempotent redeploy it is.
+    """
+    return f"web-{user}"
+
+
+def derive_web_terminal_bindings(config):
+    """Derive the per-user index ports of the web-terminal stack.
+
+    Every terminal container runs on the host network (``docker-compose.web.yml``
+    has no ``ports:`` block to parse), and each one binds a port in every panel
+    family at its roster index: ``<family base> + index`` for the terminal
+    itself and for each companion server (artifact gallery, ARIEL, lattice, …).
+    The index band is allocated whole — a user holds a slot in every family
+    whether or not the persona starts that panel — so the whole band is checked,
+    the same way the allocator reserves it.
+
+    The ports are derived the same way the render derives them, from the same
+    keys (:func:`~osprey.deployment.web_terminals.ports.base_ports_from_config`
+    and :func:`~osprey.deployment.web_terminals.ports.allocate_ports` at the
+    base THIS config resolved), so a deployment that moved a family by its
+    ``<family>_base_port`` key is checked where it actually binds.
+
+    Each binding carries its own remedy, because the generic resolution keys on
+    a compose service name and these have none: the contested port belongs to
+    one roster entry, and the surgical fix is that user's ``index``. The family
+    key is named beside it for the operator who would rather move the band.
+
+    A roster entry whose index the allocator refuses derives nothing here; the
+    web-terminal lint that follows this preflight refuses the whole deploy with
+    the message that names the entry.
+
+    :param config: Loaded (rendered) configuration dictionary
+    :type config: dict
+    :return: One :class:`HostPortBinding` per family per roster user, all
+        labeled ``web-<user>`` and marked host-network
+    :rtype: list[HostPortBinding]
+    """
+    if not isinstance(config, dict):
+        return []
+    modules = config.get("modules") or {}
+    web_terminals = modules.get("web_terminals") or {}
+    if not isinstance(web_terminals, dict) or not web_terminals.get("enabled"):
+        return []
+
+    base_ports = base_ports_from_config(web_terminals, base=resolve_port_base(config))
+    bindings = []
+    for entry in normalize_users(web_terminals.get("users")):
+        user = entry["name"]
+        try:
+            ports = allocate_ports(base_ports, entry["index"])
+        except ValueError as exc:
+            logger.debug(f"Web terminal {user!r} derives no ports for the preflight: {exc}")
+            continue
+        for family, port in ports.items():
+            slot = SLOTS_BY_NAME.get(family)
+            family_key = slot.config_key if slot is not None else None
+            remedy = f"index for user {user!r} in modules.web_terminals.users"
+            if family_key:
+                remedy = f"{remedy} (or {family_key})"
+            bindings.append(
+                HostPortBinding(
+                    service=_web_terminal_service(user),
+                    host_ip=_HOST_NETWORK_BIND,
+                    host_port=port,
+                    container_port=port,
+                    compose_file=_DERIVED_SOURCE,
+                    host_network=True,
+                    remedy=remedy,
+                )
+            )
+    return bindings
+
+
 def _probe_host(host_ip):
     """Return the address a published port is reachable on for probing."""
     return "127.0.0.1" if host_ip in _WILDCARD_HOSTS else host_ip
@@ -1011,8 +1101,9 @@ def find_port_conflicts(bindings, project_name, config=None, repo_id=None):
     :type project_name: str
     :param config: Configuration dictionary, used for runtime detection, for the
         port base every remedy and the report's framing are derived from, and to
-        derive the ports of services on the host network namespace, which
-        publish nothing for :func:`parse_host_port_bindings` to find
+        derive the ports of services on the host network namespace — the
+        web-terminal roster's index ports included — which publish nothing for
+        :func:`parse_host_port_bindings` to find
     :type config: dict, optional
     :param repo_id: This checkout's ``com.osprey.repo-id`` value. Defaults to
         deriving it from the repo root ``config`` resolves, which is what every
@@ -1028,7 +1119,9 @@ def find_port_conflicts(bindings, project_name, config=None, repo_id=None):
     # Published bindings claim first: a host-network service whose port a
     # published one already took is the one that has to move, and its remedy is
     # the key that moves it.
-    bindings = list(bindings) + derive_host_network_bindings(config)
+    bindings = (
+        list(bindings) + derive_host_network_bindings(config) + derive_web_terminal_bindings(config)
+    )
 
     def _conflict(binding, kind, holder):
         """Build one conflict, resolving its remedy against this base."""
@@ -1038,7 +1131,8 @@ def find_port_conflicts(bindings, project_name, config=None, repo_id=None):
             service=binding.service,
             kind=kind,
             holder=holder,
-            remedy=_remedy_for_service(
+            remedy=binding.remedy
+            or _remedy_for_service(
                 binding.service, binding.container_port, binding.host_port, base
             ),
             host_network=binding.host_network,

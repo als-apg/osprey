@@ -229,6 +229,11 @@ PROJECT_MIRROR_DIR = "project"
 #: one literal and two names for it.
 BUILD_OUTPUT_DIR = BUILD_DIR_NAME
 
+# File name the resolved trigger config gets at the profile root, and the value
+# `osprey init` writes to the emitted `dispatch.triggers` key (FR-3). One
+# constant so the copy target and the emitted key cannot drift apart.
+PROFILE_TRIGGERS_FILENAME = "triggers.yml"
+
 #: The durable state zone (``var/agent_data``, ``var/audit``) — git-ignored,
 #: never rendered, and never wiped by a build. Aliased for the same reason.
 STATE_DIR = STATE_DIR_NAME

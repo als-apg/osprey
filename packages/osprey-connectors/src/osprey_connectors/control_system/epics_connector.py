@@ -332,9 +332,21 @@ class EPICSConnector(ControlSystemConnector):
                   matching any pattern are served over PVAccess (p4p) instead of
                   Channel Access. Absent or empty => pure Channel Access, exactly
                   as before: p4p is not imported and no PVA env var is touched.
-                - pva_gateway: (optional) {address, port, use_name_server} for the
-                  PVA gateway, mapping to EPICS_PVA_ADDR_LIST or
-                  EPICS_PVA_NAME_SERVERS. Only read when pva_channels is non-empty.
+                - pva_gateway: (optional) {address, port, use_name_server} naming
+                  where PVA searches go. Only read when pva_channels is non-empty,
+                  and the ONLY route: the connector host scrubs every inherited
+                  EPICS_PVA_* variable before connect() runs, so a value set in
+                  the deployment's environment never reaches p4p.
+                    - address: one host, or a space-separated list of hosts (what
+                      a facility with many PVA servers and no gateway needs).
+                    - port: (optional) With use_name_server false the entries go
+                      to EPICS_PVA_ADDR_LIST as UDP search targets, and no port
+                      is appended unless one is set here (p4p's default, 5076,
+                      applies). Set, it is appended to every listed host. With
+                      use_name_server true the entry is a TCP name server in
+                      EPICS_PVA_NAME_SERVERS, defaulting to 5075.
+                    - use_name_server: (optional) TCP instead of UDP search.
+                      Required for SSH tunnels. Default: False
 
         Raises:
             ImportError: If pyepics is not installed, or if PVA channels are
@@ -449,20 +461,29 @@ class EPICSConnector(ControlSystemConnector):
 
             pva_gateway = config.get("pva_gateway") or {}
             if pva_gateway:
-                pva_address = pva_gateway.get("address", "")
-                pva_port = pva_gateway.get("port", 5075)
+                pva_address = str(pva_gateway.get("address", ""))
+                pva_port = pva_gateway.get("port")
                 # Config system automatically converts "true"/"false" to booleans
                 pva_use_name_server = pva_gateway.get("use_name_server", False)
                 # PVA carries the port inside the address entry itself — there is
                 # no client-side "server port" variable to set, unlike CA.
-                pva_endpoint = f"{pva_address}:{pva_port}" if pva_port else pva_address
                 if pva_use_name_server:
                     # Name servers make the client connect by TCP instead of
-                    # UDP-searching — required for SSH tunnels.
+                    # UDP-searching — required for SSH tunnels. 5075 is the PVA
+                    # TCP port.
+                    pva_endpoint = f"{pva_address}:{pva_port or 5075}"
                     os.environ["EPICS_PVA_NAME_SERVERS"] = pva_endpoint
                     os.environ.pop("EPICS_PVA_ADDR_LIST", None)
                     logger.debug(f"Using EPICS_PVA_NAME_SERVERS: {pva_endpoint}")
                 else:
+                    # Address-list entries are UDP search targets, whose default
+                    # port is 5076, not the TCP 5075 — an appended 5075 makes
+                    # every search miss. So no port is appended unless one is
+                    # set explicitly, and then to every host of the list.
+                    hosts = pva_address.split()
+                    if pva_port:
+                        hosts = [f"{host}:{pva_port}" for host in hosts]
+                    pva_endpoint = " ".join(hosts)
                     os.environ["EPICS_PVA_ADDR_LIST"] = pva_endpoint
                     os.environ.pop("EPICS_PVA_NAME_SERVERS", None)
                     logger.debug(f"Using EPICS_PVA_ADDR_LIST: {pva_endpoint}")

@@ -27,8 +27,21 @@ from osprey.interfaces.web_terminal.app import (
     DEFAULT_BAR_LAYOUT,
     MAX_BAR_ITEMS_PER_HOST,
     _load_bar_items,
+    bar_availability_context,
     create_app,
     effective_bar_layout,
+    renderable_bar_layout,
+)
+
+#: A deployment that can show every gated item.
+_OFFERS_EVERYTHING = bar_availability_context(
+    identity_available=True, bluesky_available=True, system_health_available=True
+)
+
+#: A single-user deployment without the SYSTEM panel or the Bluesky bridge: the
+#: shape the shipped default degrades on.
+_BARE = bar_availability_context(
+    identity_available=False, bluesky_available=False, system_health_available=False
 )
 
 
@@ -212,9 +225,26 @@ class TestLifespanWiring:
         web_section: dict = {} if bar_items is None else {"bar_items": bar_items}
         project_dir = tmp_path / "project"
         project_dir.mkdir(exist_ok=True)
-        with patch(
-            "osprey.interfaces.web_terminal.app._load_web_ui_config",
-            return_value=web_section,
+        # Both places the lifespan reaches for an agent-data root are pointed
+        # at tmp, the way ``test_bar_items_routes.py`` does it: the watched
+        # tree through ``watch_dir``, and the stores through the resolver. Left
+        # alone, either lands under the repository's own ``var/agent_data``,
+        # which the session guard in ``tests/conftest.py`` rightly refuses.
+        watch_dir = tmp_path / "_watch"
+        watch_dir.mkdir(exist_ok=True)
+        with (
+            patch(
+                "osprey.interfaces.web_terminal.app._load_web_config",
+                return_value={"watch_dir": str(watch_dir)},
+            ),
+            patch(
+                "osprey.interfaces.web_terminal.app._load_web_ui_config",
+                return_value=web_section,
+            ),
+            patch(
+                "osprey.utils.workspace.resolve_shared_data_root",
+                return_value=tmp_path / "agent_data",
+            ),
         ):
             app = create_app(shell_command="echo", project_dir=project_dir)
             with TestClient(app):
@@ -226,5 +256,132 @@ class TestLifespanWiring:
             assert effective_bar_layout(app) is app.state.bar_layout
 
     def test_no_config_leaves_the_shipped_default_in_place(self, tmp_path):
+        """The shipped arrangement, less whatever this deployment cannot
+        render — the same document the constant's docstring promises."""
         with self._app(tmp_path, None) as app:
-            assert effective_bar_layout(app) == DEFAULT_BAR_LAYOUT
+            layout = effective_bar_layout(app)
+            assert layout["rev"] == 0
+            assert layout["header_visible"] is True and layout["status_visible"] is True
+            assert _types(layout["status"]) in (
+                ["space", "clock"],
+                ["space", "system-health", "clock"],
+            )
+            assert [t for t in _types(layout["header"]) if t != "identity"] == [
+                t for t in _types(DEFAULT_BAR_LAYOUT["header"]) if t != "identity"
+            ]
+
+    def test_the_default_is_filtered_by_what_the_deployment_renders(self, tmp_path):
+        """No SYSTEM panel and no user: the rev-0 document the lifespan leaves
+        on state names neither ``system-health`` nor ``identity``, so the
+        browser's normalizer has nothing to drop and nothing to latch on."""
+        with (
+            patch(
+                "osprey.interfaces.web_terminal.app._load_panel_config",
+                return_value=({"artifacts"}, [], None),
+            ),
+            patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "", "OSPREY_WEB_APP_NAME": ""}),
+            self._app(tmp_path, None) as app,
+        ):
+            layout = app.state.bar_layout
+            assert _types(layout["status"]) == ["space", "clock"]
+            assert "identity" not in _types(layout["header"])
+            assert effective_bar_layout(app) is layout
+
+    def test_an_authored_default_is_filtered_the_same_way(self, tmp_path, caplog):
+        with (
+            patch(
+                "osprey.interfaces.web_terminal.app._load_panel_config",
+                return_value=({"artifacts"}, [], None),
+            ),
+            patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "", "OSPREY_WEB_APP_NAME": ""}),
+            caplog.at_level(logging.WARNING),
+            self._app(tmp_path, {"status": ["system-health", "clock"]}) as app,
+        ):
+            assert _types(app.state.bar_layout["status"]) == ["clock"]
+        assert "web.bar_items.status[0]" in caplog.text
+        assert "system-health" in caplog.text
+
+
+class TestUnrenderableItemsLeaveTheDefault:
+    """The deployment default is renderable by construction.
+
+    ``bar_render_plan`` already drops a gated item the deployment cannot show;
+    the document behind the paint must drop it too, or the browser reads the
+    difference as lost content and latches Customize read-only (#863). An
+    authored item is warned about by position, because an operator wrote it;
+    an item the shipped order supplied is dropped quietly, because nobody did.
+    """
+
+    def test_without_a_context_the_shipped_default_is_returned_as_is(self, tmp_path):
+        assert _load_bar_items(tmp_path / "nope.yml") is DEFAULT_BAR_LAYOUT
+
+    def test_a_deployment_that_renders_everything_gets_the_shipped_default_itself(self, tmp_path):
+        assert _load_bar_items(tmp_path / "nope.yml", context=_OFFERS_EVERYTHING) is (
+            DEFAULT_BAR_LAYOUT
+        )
+
+    def test_a_bare_deployment_gets_the_default_less_the_gated_items(self, tmp_path):
+        layout = _load_bar_items(tmp_path / "nope.yml", context=_BARE)
+        assert _types(layout["status"]) == ["space", "clock"]
+        assert _types(layout["header"]) == ["logo", "space", "control-target", "search", "display"]
+        assert layout["rev"] == 0 and layout["version"] == BAR_LAYOUT_VERSION
+        assert layout["header_visible"] is True and layout["status_visible"] is True
+
+    def test_the_shipped_constant_is_not_mutated_by_the_filter(self, tmp_path):
+        before = {host: list(DEFAULT_BAR_LAYOUT[host]) for host in ("header", "status")}
+        _load_bar_items(tmp_path / "nope.yml", context=_BARE)
+        assert {host: list(DEFAULT_BAR_LAYOUT[host]) for host in ("header", "status")} == before
+
+    def test_an_authored_unrenderable_item_is_dropped_with_a_warning_by_position(
+        self, tmp_path, caplog
+    ):
+        path = _write_config(tmp_path, {"status": ["space", "system-health", "clock"]})
+        with caplog.at_level(logging.WARNING):
+            layout = _load_bar_items(path, context=_BARE)
+        assert _types(layout["status"]) == ["space", "clock"]
+        assert "web.bar_items.status[1]" in caplog.text
+        assert "system-health" in caplog.text
+
+    def test_the_same_authored_item_survives_where_the_deployment_renders_it(
+        self, tmp_path, caplog
+    ):
+        path = _write_config(tmp_path, {"status": ["space", "system-health", "clock"]})
+        with caplog.at_level(logging.WARNING):
+            layout = _load_bar_items(path, context=_OFFERS_EVERYTHING)
+        assert _types(layout["status"]) == ["space", "system-health", "clock"]
+        assert caplog.text == ""
+
+    def test_an_unconfigured_host_is_filtered_without_a_warning(self, tmp_path, caplog):
+        """The status bar came from the shipped order, not from the operator:
+        ``system-health`` leaves it, and no line blames ``web.bar_items`` for
+        an item the operator never wrote."""
+        path = _write_config(tmp_path, {"header": ["logo", "display"]})
+        with caplog.at_level(logging.WARNING):
+            layout = _load_bar_items(path, context=_BARE)
+        assert _types(layout["status"]) == ["space", "clock"]
+        assert _types(layout["header"]) == ["logo", "display"]
+        assert caplog.text == ""
+
+    def test_the_warning_names_the_gate_the_item_depends_on(self, tmp_path, caplog):
+        path = _write_config(tmp_path, {"header": ["logo", "identity", "bluesky-queue"]})
+        with caplog.at_level(logging.WARNING):
+            layout = _load_bar_items(path, context=_BARE)
+        assert _types(layout["header"]) == ["logo"]
+        assert "web.bar_items.header[1]" in caplog.text
+        assert "web.bar_items.header[2]" in caplog.text
+        assert "identity" in caplog.text and "bluesky-queue" in caplog.text
+
+    def test_renderable_bar_layout_returns_the_same_object_when_nothing_is_dropped(self):
+        assert renderable_bar_layout(DEFAULT_BAR_LAYOUT, context=_OFFERS_EVERYTHING) is (
+            DEFAULT_BAR_LAYOUT
+        )
+
+    def test_renderable_bar_layout_copies_and_keeps_the_envelope(self):
+        source = {**DEFAULT_BAR_LAYOUT, "rev": 0, "status_visible": False}
+        layout = renderable_bar_layout(source, context=_BARE)
+        assert layout is not source
+        assert _types(layout["status"]) == ["space", "clock"]
+        assert layout["status_visible"] is False
+        assert layout["rev"] == 0
+        assert layout["version"] == BAR_LAYOUT_VERSION
+        assert _types(source["status"]) == ["space", "system-health", "clock"]

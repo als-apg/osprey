@@ -732,6 +732,8 @@ def _index_rendered_services(
     """
     import yaml
 
+    from osprey_connectors import yaml_loader
+
     owners = {}
     build_dir = str(config.get("build_dir", "./build"))
     for name, block in _mapping(config.get("services")).items():
@@ -741,7 +743,7 @@ def _index_rendered_services(
     indexed: list[_RenderedService] = []
     for path in compose_files:
         try:
-            document = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+            document = yaml_loader.safe_load(Path(path).read_text(encoding="utf-8"))
         except (OSError, yaml.YAMLError) as exc:
             logger.debug("Network checks skipped %s: %s", path, exc)
             continue
@@ -1234,12 +1236,35 @@ class _SharedRenderInputs(NamedTuple):
     """
 
 
-def _rendered_config(render_dir: Path) -> dict[str, Any]:
-    """The ``config.yml`` a render wrote, as a plain mapping."""
-    import yaml
+#: Parsed ``config.yml`` documents by (path, content digest); see
+#: :func:`_rendered_config`. Cleared at the start of every ``osprey build``.
+_rendered_config_cache: dict[tuple[str, bytes], dict[str, Any]] = {}
 
-    with (render_dir / "config.yml").open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh) or {}
+
+def _rendered_config(render_dir: Path) -> dict[str, Any]:
+    """The ``config.yml`` a render wrote, as a plain mapping.
+
+    Read a dozen times per render — every injector and every pre-publish check
+    asks for it — and rewritten in between by the resolvers that answer
+    ``auto`` values in place. The parse is what costs; the read is not. So the
+    file's bytes are read every time and the parse is cached under their
+    digest: a rewrite changes the digest and is parsed afresh, an unchanged
+    file is parsed once. Callers get their own copy, since some annotate the
+    mapping before handing it on.
+    """
+    import copy
+    import hashlib
+
+    from osprey_connectors import yaml_loader
+
+    path = render_dir / "config.yml"
+    data = path.read_bytes()
+    key = (str(path), hashlib.sha256(data).digest())
+    parsed = _rendered_config_cache.get(key)
+    if parsed is None:
+        parsed = yaml_loader.safe_load(data.decode("utf-8")) or {}
+        _rendered_config_cache[key] = parsed
+    return copy.deepcopy(parsed)
 
 
 def _resolve_rendered_execution_method(render_dir: Path) -> list[str]:
@@ -2093,7 +2118,7 @@ def _render_persona_projects(shared: _SharedRenderInputs, zones: _RenderZones) -
     The naming is the catalog's, not this function's invention:
     ``<repo>-<persona>`` is what ``osprey init`` writes into every catalog
     entry's ``project`` and ``project_path``
-    (:func:`~osprey.cli.profile_cmd._persona_catalog_layer`), which is how the
+    (:func:`~osprey.cli.build_profile_emit.persona_catalog_layer`), which is how the
     deploy finds the render this produced. Every delta is rendered whether the
     catalog names it or not — the catalog decides which personas are *deployed*,
     ``personas/`` decides which exist — so a delta added before its catalog entry
@@ -2850,6 +2875,16 @@ def _build_repo(
         web_warnings = deploy_aware_config_warnings(
             build_profile.deploy, build_profile.config, profile_root=repo_root
         )
+        # An authored `web.bar_items` entry the served default will not carry:
+        # the server filters a panel-gated item whose panel this profile does
+        # not select, so the operator who wrote it is told here, not by an
+        # item that never appears.
+        from .build_profile_panels import bar_items_selection_warnings
+
+        web_warnings = [
+            *web_warnings,
+            *bar_items_selection_warnings(build_profile.config, build_profile.web_panels),
+        ]
         if not build_profile.provider:
             raise click.UsageError(
                 f"{PROFILE_FILENAME} names no provider. Add `provider: "
@@ -2888,6 +2923,26 @@ def _build_repo(
         # nobody has: every surface that gates on the errors discards these.
         for web_warning in web_warnings:
             output.note(f"⚠ {web_warning}")
+
+        # The comparison the `provenance:` stamp promises: a note whenever the
+        # preset has moved on since this profile was materialized, and — under
+        # `-v`, since a build is not the verb that refuses — the places the
+        # profile differs from it that no marker comment claims. `osprey
+        # validate` is where those become a refusal.
+        if build_profile.provenance is not None:
+            from .build_profile_drift import preset_drift_report
+            from .phase_reporter import is_verbose
+
+            drift = preset_drift_report(profile_path, build_profile.provenance)
+            if drift.note:
+                output.note(drift.note)
+            if is_verbose() and drift.unmarked:
+                output.warn(
+                    f"preset drift: {PROFILE_FILENAME} differs from preset {drift.preset} in "
+                    f"{len(drift.unmarked)} place(s) no marker claims (osprey validate refuses "
+                    f"these)",
+                    "\n".join(finding.render() for finding in drift.unmarked),
+                )
 
         # A fresh staging tree, and the output zone it will replace. Both are
         # created now: the venv below is written into `build/` directly, at the
@@ -2961,15 +3016,23 @@ def _build_repo(
             # copy's — is told about the deployment's services from the render
             # just written (see _SharedRenderInputs.host_config). A profile
             # that is itself attached hosts nothing and projects nothing.
+            from .build_profile_reach import (
+                ariel_ingestion_advisories,
+                pva_address_source_advisories,
+            )
+
+            rendered = _rendered_config(host_render)
+            # Every render carries the same connector table, so PVA channels
+            # with no address source are named once, here. Advisory: the
+            # build is sound, the reads would time out.
+            for advisory in pva_address_source_advisories(rendered):
+                output.note(f"⚠ {advisory}")
             if build_profile.deploy_services:
-                host_config = _rendered_config(host_render)
-                shared = shared._replace(host_config=host_config)
+                shared = shared._replace(host_config=rendered)
                 # The one render that has `deployed_services` in hand, so the
                 # one place a remote logbook with nothing mirroring it can be
                 # named. Advisory: the build is sound, the mirror is missing.
-                from .build_profile_reach import ariel_ingestion_advisories
-
-                for advisory in ariel_ingestion_advisories(host_config):
+                for advisory in ariel_ingestion_advisories(rendered):
                     output.note(f"⚠ {advisory}")
             phase.step("project files, agent artifacts and services")
             if injected:
@@ -3492,6 +3555,8 @@ def build(
     """
     from .main import lifecycle_reporter
     from .summary_card import owns_summary_card, print_summary_card
+
+    _rendered_config_cache.clear()
 
     # Both decided here rather than in `_build_repo`, because a chained build —
     # `init --up`, `up --build` — reaches that function with the chaining verb's

@@ -26,6 +26,21 @@ from osprey.deployment.errors import (
 from osprey.deployment.web_terminals import postup_hooks, provision
 
 
+@pytest.fixture(autouse=True)
+def _inert_orphan_reconcile(monkeypatch):
+    """Keep the off-roster container sweep out of every argv test by default.
+
+    ``_start_stack`` reconciles the roster before the host-port preflight, and
+    that sweep asks the runtime for a container listing -- through the real
+    runtime detection, which the runtime-less macOS unit cell answers with
+    ``RuntimeError``. The sweep is a collaborator with its own tests
+    (tests/deployment/web_terminals/test_lifecycle.py); the tests here are
+    about the compose argv around it, and the two that are about the sweep's
+    place in the sequence install their own recording stand-in on top.
+    """
+    monkeypatch.setattr(container_lifecycle, "remove_orphan_terminals", lambda config: {})
+
+
 def _fake_popen(record):
     """A ``subprocess.Popen`` stand-in for the watched capture path.
 
@@ -745,6 +760,11 @@ def _mode_wiring_collab(monkeypatch, tmp_path):
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
+    # The host-port preflight ahead of the mode branch has its own tests and
+    # would probe this roster's real index ports on the machine running the
+    # suite. Inert here so the mode-wiring tests exercise only the
+    # local/registry step ordering.
+    monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda *a, **k: None)
     # The persona-render check is a separate concern with its own dedicated
     # tests below; keep it inert here so the mode-wiring tests exercise only the
     # local/registry step ordering rather than any repo's rendered state.
@@ -3617,3 +3637,86 @@ def test_a_repo_with_no_chain_files_is_silent(tmp_path):
     repo = _chain_repo(tmp_path)
 
     assert container_lifecycle._warn_lowercase_proxy_names(repo, _oidc_web_config()) == []
+
+
+# ---------------------------------------------------------------------------
+# deploy_up ordering: off-roster terminal containers are removed BEFORE the
+# host-port preflight. The orphan holds every port of the index it used to
+# serve, so a preflight that ran first would refuse the redeploy that is about
+# to reconcile it away.
+# ---------------------------------------------------------------------------
+
+
+def _record_web_deploy(monkeypatch, tmp_path, order, web_terminals):
+    """Wire deploy_up for a web-terminal config, recording the two steps under test."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: (
+            {"deployed_services": [], "modules": {"web_terminals": web_terminals}},
+            ["docker-compose.yml"],
+        ),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(
+        container_lifecycle, "_preflight_host_ports", lambda *a, **k: order.append("ports")
+    )
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_collect_unmet_preconditions", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "preflight_web_terminals", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
+    monkeypatch.setattr(
+        container_lifecycle, "deploy_up_web_terminals", lambda *a, **k: order.append("web_up")
+    )
+    monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda *a, **k: None)
+
+
+def test_deploy_up_removes_orphan_terminals_before_the_host_port_preflight(
+    monkeypatch, tmp_path, capsys
+):
+    order: list[str] = []
+    _record_web_deploy(monkeypatch, tmp_path, order, {"enabled": True, "image_source": "local"})
+
+    def _fake_remove(config):
+        order.append("orphans")
+        return {"ariel": "als-web-ariel"}
+
+    monkeypatch.setattr(container_lifecycle, "remove_orphan_terminals", _fake_remove)
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    assert order == ["orphans", "ports", "web_up"]
+    out = capsys.readouterr().out
+    assert "als-web-ariel" in out
+    assert "ariel" in out
+
+
+def test_deploy_up_without_web_terminals_reconciles_no_orphans(monkeypatch, tmp_path):
+    order: list[str] = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: ({"deployed_services": ["event_dispatcher"]}, ["docker-compose.yml"]),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "remove_orphan_terminals",
+        lambda config: order.append("orphans"),
+    )
+    monkeypatch.setattr(
+        container_lifecycle.subprocess, "run", lambda *a, **k: _FakeCompletedProcess()
+    )
+    monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda *a, **k: None)
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    assert order == []

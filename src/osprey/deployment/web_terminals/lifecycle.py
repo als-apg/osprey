@@ -20,9 +20,10 @@ the one non-destructive verb here: it changes a credential rather than removing
 a resource, but it belongs with the others because it is reached the same way
 (``osprey users <verb> <user>``) and needs the same roster/runtime gating.
 
-Volume-scoping boundary (applies to :func:`prune_users`'s discovery and to
-:func:`nuke_stack`'s per-user volume teardown alike): orphan discovery
-(:func:`_discover_orphan_containers`, :func:`_discover_orphan_volumes`) filters
+Volume-scoping boundary (applies to :func:`prune_users`'s discovery, to
+:func:`nuke_stack`'s per-user volume teardown and to the off-roster container
+sweep ``osprey up`` runs through :func:`remove_orphan_terminals` alike): orphan
+discovery (:func:`_discover_orphan_containers`, :func:`_discover_orphan_volumes`) filters
 the runtime listing by the compose-assigned owning-project label
 (``com.docker.compose.project=<project>``, matching exactly what
 :func:`osprey.deployment.runtime_helper.runtime_env`'s ``COMPOSE_PROJECT_NAME``
@@ -409,6 +410,65 @@ def prune_users(
     # the artifacts first, so the fresh sidecar's digest label matches the
     # purged file it bakes.
     _reconcile_auth_after_user_removal(config, orphan_users, rerendered=False, repo_root=repo_root)
+
+
+# =============================================================================
+# osprey up: reconcile off-roster terminal containers
+# =============================================================================
+
+
+def remove_orphan_terminals(config: dict[str, Any]) -> dict[str, str]:
+    """Remove this project's terminal containers whose user left the roster.
+
+    The web slice's ``--remove-orphans``. The plain services path reconciles a
+    dropped service away with compose's own flag, but the web stack cannot use
+    it (both of ``osprey up``'s invocations share one compose project, so
+    either would destroy the other's containers as "orphans"), and a container
+    compose is never told about is one compose never touches. Renaming a roster
+    entry therefore used to leave the old terminal running on the reused
+    index's ports, with the new one failing to bind beside it.
+
+    Discovery is the read-only, project-label-scoped listing ``prune`` uses
+    (:func:`_discover_orphan_containers`); removal is one exact-named ``rm -f``
+    per orphan (:func:`remove_container`). Volumes are never touched — retaining,
+    archiving or purging a departed user's workspace stays ``osprey users
+    prune``'s decision, taken with a typed confirmation this deploy step has no
+    business skipping.
+
+    A removal the runtime refuses is logged and left out of the result rather
+    than aborting the deploy: the container then still holds its ports, and the
+    host-port preflight that follows names the port it holds.
+
+    Args:
+        config: Raw deploy config — the roster, the facility prefix, the runtime
+            and the compose project name are all read off it.
+
+    Returns:
+        ``{user: container_name}`` for every container removed, in no
+        particular order. Empty when the roster owns every terminal it finds.
+    """
+    web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
+    roster_names = {entry["name"] for entry in normalize_users(web_terminals.get("users"))}
+
+    runtime = get_runtime_command(config)[0]
+    env = runtime_env(config, ignore_orphans=True)
+    facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
+    project = resolve_project_name(config)
+
+    orphans = _discover_orphan_containers(runtime, project, facility_prefix, roster_names, env=env)
+
+    removed: dict[str, str] = {}
+    for user in sorted(orphans):
+        container = orphans[user]
+        result = remove_container(runtime, container, env=env)
+        if result.returncode != 0:
+            logger.warning(
+                f"Could not remove off-roster web terminal container {container!r} "
+                f"(user {user!r}): {(result.stderr or result.stdout).strip()}"
+            )
+            continue
+        removed[user] = container
+    return removed
 
 
 # =============================================================================

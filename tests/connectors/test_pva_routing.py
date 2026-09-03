@@ -301,7 +301,13 @@ class TestPvaGatewayEnv:
         assert "EPICS_PVA_NAME_SERVERS" not in os.environ
 
     @pytest.mark.asyncio
-    async def test_port_defaults_to_5075(self, monkeypatch, clean_epics_env):
+    async def test_addr_list_branch_appends_no_port_unless_set(self, monkeypatch, clean_epics_env):
+        """EPICS_PVA_ADDR_LIST entries are UDP search targets (default 5076).
+
+        5075 is the PVA TCP port. Appending it here made p4p search on the
+        wrong port and every read time out, so an unset port appends nothing
+        and p4p's own default applies.
+        """
         _patch_writes_enabled(monkeypatch, False)
         _install_fake_p4p(monkeypatch)
 
@@ -313,7 +319,59 @@ class TestPvaGatewayEnv:
             }
         )
 
-        assert os.environ["EPICS_PVA_ADDR_LIST"] == "pvagw.example.com:5075"
+        assert os.environ["EPICS_PVA_ADDR_LIST"] == "pvagw.example.com"
+
+    @pytest.mark.asyncio
+    async def test_addr_list_accepts_a_space_separated_host_list(
+        self, monkeypatch, clean_epics_env
+    ):
+        """A many-server facility lists its hosts in ``address``; passed verbatim."""
+        _patch_writes_enabled(monkeypatch, False)
+        _install_fake_p4p(monkeypatch)
+
+        connector = EPICSConnector()
+        await connector.connect(
+            {
+                "pva_channels": ["*:image"],
+                "pva_gateway": {"address": "10.0.0.1 10.0.0.2 cam3.example.com"},
+            }
+        )
+
+        assert os.environ["EPICS_PVA_ADDR_LIST"] == "10.0.0.1 10.0.0.2 cam3.example.com"
+
+    @pytest.mark.asyncio
+    async def test_explicit_port_is_appended_to_every_listed_host(
+        self, monkeypatch, clean_epics_env
+    ):
+        """``port`` names the search port of each host, not a suffix on the string."""
+        _patch_writes_enabled(monkeypatch, False)
+        _install_fake_p4p(monkeypatch)
+
+        connector = EPICSConnector()
+        await connector.connect(
+            {
+                "pva_channels": ["*:image"],
+                "pva_gateway": {"address": "10.0.0.1 cam2.example.com", "port": 5086},
+            }
+        )
+
+        assert os.environ["EPICS_PVA_ADDR_LIST"] == "10.0.0.1:5086 cam2.example.com:5086"
+
+    @pytest.mark.asyncio
+    async def test_name_server_branch_still_defaults_to_5075(self, monkeypatch, clean_epics_env):
+        """Name servers are TCP endpoints, where 5075 is the right default."""
+        _patch_writes_enabled(monkeypatch, False)
+        _install_fake_p4p(monkeypatch)
+
+        connector = EPICSConnector()
+        await connector.connect(
+            {
+                "pva_channels": ["SR:CAM1:IMAGE"],
+                "pva_gateway": {"address": "pvagw.example.com", "use_name_server": True},
+            }
+        )
+
+        assert os.environ["EPICS_PVA_NAME_SERVERS"] == "pvagw.example.com:5075"
 
     @pytest.mark.asyncio
     async def test_name_server_branch_sets_and_clears_env(self, monkeypatch, clean_epics_env):

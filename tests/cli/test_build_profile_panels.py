@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 
 from osprey.cli.build_profile_panels import (
+    bar_items_selection_warnings,
     panel_selection_errors,
     panel_selection_overrides,
 )
@@ -156,3 +157,83 @@ def test_an_agreeing_or_absent_enabled_is_allowed() -> None:
 
 def test_universal_panels_are_never_a_contradiction() -> None:
     assert panel_selection_errors({"web.panels.artifacts.enabled": True}, []) == []
+
+
+# ---------------------------------------------------------------------------
+# bar_items_selection_warnings — an authored bar item the render cannot show
+# ---------------------------------------------------------------------------
+
+
+def test_a_panel_gated_item_without_its_panel_is_warned_about_by_position() -> None:
+    """The server drops ``system-health`` from the default it serves when the
+    SYSTEM panel is not selected (#863); the build says so first, naming the
+    entry the operator wrote and the panel it needs."""
+    config = {"web": {"bar_items": {"status": ["space", "system-health", "clock"]}}}
+
+    warnings = bar_items_selection_warnings(config, ["ariel", "artifacts"])
+
+    assert len(warnings) == 1
+    assert warnings[0].startswith("web: bar_items: status[1] places 'system-health'")
+    assert "'system-health' is not in web_panels" in warnings[0]
+
+
+def test_a_selected_panel_keeps_its_item_quiet() -> None:
+    config = {"web.bar_items": {"status": ["space", "system-health", "clock"]}}
+    assert bar_items_selection_warnings(config, ["system-health"]) == []
+
+
+def test_a_mapping_entry_is_judged_by_its_type() -> None:
+    config = {
+        "web.bar_items.header": [
+            "logo",
+            {"type": "bluesky-queue", "options": {"controls": "full"}},
+        ]
+    }
+
+    warnings = bar_items_selection_warnings(config, ["ariel"])
+
+    assert len(warnings) == 1
+    assert warnings[0].startswith("web.bar_items.header[1] places 'bluesky-queue'")
+    assert "needs the 'bluesky' panel" in warnings[0]
+
+
+def test_both_bars_and_both_gated_items_in_bar_then_list_order() -> None:
+    config = {
+        "web": {
+            "bar_items": {
+                "header": ["logo", "bluesky-queue"],
+                "status": ["system-health", "clock", "bluesky-queue"],
+            }
+        }
+    }
+
+    warnings = bar_items_selection_warnings(config, [])
+
+    assert [w.split(" places ")[0] for w in warnings] == [
+        "web: bar_items: header[1]",
+        "web: bar_items: status[0]",
+        "web: bar_items: status[2]",
+    ]
+
+
+def test_identity_is_not_a_build_time_judgment() -> None:
+    """``identity`` is gated on a runtime fact (a terminal user or a deployment
+    name) the build cannot see, so an authored ``identity`` never warns here."""
+    config = {"web": {"bar_items": {"header": ["logo", "identity"]}}}
+    assert bar_items_selection_warnings(config, []) == []
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param({}, id="no_config"),
+        pytest.param({"web": {"bar_items": None}}, id="bar_items_null"),
+        pytest.param({"web": {"bar_items": {"status": "system-health"}}}, id="not_a_list"),
+        pytest.param({"web": {"bar_items": {"status": [None, 3, {}]}}}, id="unreadable_entries"),
+        pytest.param({"web": {"bar_items": {"status": ["space", "clock"]}}}, id="ungated_items"),
+    ],
+)
+def test_nothing_to_judge_warns_nothing(config) -> None:
+    """Shape problems are the server loader's to report; this only speaks to a
+    readable entry naming a gated item."""
+    assert bar_items_selection_warnings(config, []) == []

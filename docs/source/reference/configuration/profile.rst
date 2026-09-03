@@ -142,7 +142,11 @@ Profile YAML reference
      - mapping
      - *written*
      - Which preset this profile was materialized from, and that preset's hash.
-       Written by the materialization; do not edit it.
+       Written by the materialization; ``osprey validate`` compares the profile
+       with that preset and refuses unmarked differences (see ``osprey
+       validate``). The one key you may add is ``deviation_marker``, the tag of
+       the ``# <TAG>: <why>`` comment that marks a difference as deliberate
+       (default ``DEVIATION``).
 
 
 Configuration overrides

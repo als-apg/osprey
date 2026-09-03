@@ -48,6 +48,19 @@ BUILTIN_PANEL_LABELS: dict[str, str] = {
     "system-health": "SYSTEM",
 }
 
+#: The bar items whose availability is a panel's presence, and the panel each
+#: needs. The build-time half of ``BAR_ITEM_AVAILABILITY`` in
+#: ``interfaces/web_terminal/app.py``: the server drops such an item from the
+#: default it serves when the panel is absent, and this is what lets the build
+#: say so first. ``identity`` is gated too, but on a runtime fact (a terminal
+#: user or a deployment name) a build cannot judge, so it is deliberately not
+#: here; ``tests/interfaces/web_terminal/test_bar_items_ssr.py`` pins the two
+#: tables together.
+BAR_ITEM_PANEL_GATES: dict[str, str] = {
+    "bluesky-queue": "bluesky",
+    "system-health": "system-health",
+}
+
 # Frontend fallback when a profile/config doesn't pin a default tab.
 # The web terminal opens this tab first on cold load.
 DEFAULT_PANEL_FALLBACK: str = "artifacts"

@@ -2,8 +2,8 @@
 
 ``app_template:`` is the profile-YAML spelling of the app-template selector;
 ``data_bundle:`` remains an accepted alias (and stays the canonical Python
-field name). Every raw profile document is read through
-``_read_profile_document``, which normalizes the spelling once per document —
+field name). Every raw profile document is parsed through
+``_parse_profile_document``, which normalizes the spelling once per document —
 so only one spelling survives a layer and mixed-spelling ``extends:`` /
 override chains merge child-wins through the ordinary deep merge.
 """
@@ -202,10 +202,13 @@ def test_profile_hash_is_blind_to_the_spelling(tmp_path: Path) -> None:
 
 
 # (module, enclosing function, call) triples allowed to deserialize YAML in the
-# profile pipeline. Everything else must route through _read_profile_document,
-# or a new read would silently skip alias normalization.
+# profile pipeline. Everything else must route through _parse_profile_document
+# (or _read_profile_document, its file-reading front), or a new read would
+# silently skip alias normalization.
 _ALLOWED_YAML_READS = {
-    ("build_profile_document.py", "_read_profile_document", "yaml.safe_load"),
+    ("build_profile_document.py", "_parse_profile_document", "yaml_loader.safe_load"),
+    # The app template's rendered config.yml — not a profile document.
+    ("build_profile_drift.py", "_template_defaults", "yaml.safe_load"),
     # Scalar `--set` values, not documents — normalized as a layer instead.
     ("build_profile_resolve.py", "_parse_set_pairs", "yaml.safe_load"),
     # The emitter's ruamel round-trip is a comment source; it must keep the
@@ -240,7 +243,7 @@ def _yaml_read_sites(source_path: Path) -> set[tuple[str, str, str]]:
 
 
 def test_yaml_document_reads_happen_only_in_the_helper() -> None:
-    """Every profile-document parse routes through ``_read_profile_document``."""
+    """Every profile-document parse routes through ``_parse_profile_document``."""
     pipeline_dir = Path(build_profile_presets.__file__).parent
     modules = sorted(pipeline_dir.glob("build_profile_*.py"))
     assert modules, f"no build_profile_*.py modules found under {pipeline_dir}"
@@ -252,4 +255,8 @@ def test_yaml_document_reads_happen_only_in_the_helper() -> None:
     assert found - _ALLOWED_YAML_READS == set()
     # The helper itself must still be the read point — an empty result would
     # otherwise pass vacuously.
-    assert ("build_profile_document.py", "_read_profile_document", "yaml.safe_load") in found
+    assert (
+        "build_profile_document.py",
+        "_parse_profile_document",
+        "yaml_loader.safe_load",
+    ) in found

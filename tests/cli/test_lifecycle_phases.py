@@ -322,6 +322,11 @@ class TestBuildPhases:
             # No live stand-in: _build_repo reads the block after the swap to
             # decide whether to run the stand-in's lattice gate.
             virtual_accelerator = None
+            # Hand-written, not materialized: nothing for the preset-drift lint
+            # to compare with.
+            provenance = None
+            # No panel selection: nothing for the bar-items warning to check.
+            web_panels: list[str] = []
 
             def resolved_tier(self) -> int:
                 return 1

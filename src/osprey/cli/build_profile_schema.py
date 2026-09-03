@@ -118,22 +118,32 @@ def env_names_errors(value: Any, key: str) -> list[str]:
     return errors
 
 
+#: Tag of the comment that marks a deliberate difference from the preset —
+#: ``# DEVIATION: <why>`` — when the profile's ``provenance:`` block names none.
+DEFAULT_DEVIATION_MARKER = "DEVIATION"
+
+
 @dataclass
 class ProfileProvenance:
     """What a materialized profile was emitted from (``provenance:``).
 
-    Written by ``osprey init`` and never by hand. It is the
-    MACHINE-READABLE record of the profile's source — the emitted header says
-    the same thing in prose, for people — and it is what a later build compares
-    against the installed preset to notice that the preset has moved on since
-    the profile was materialized (FR-6). That comparison is advisory: a profile
-    is the source of truth once it exists, so drift is reported, never enforced.
+    Written by ``osprey init`` and never by hand, except for the marker tag. It
+    is the MACHINE-READABLE record of the profile's source — the emitted header
+    says the same thing in prose, for people — and it is what
+    :func:`~osprey.cli.build_profile_drift.preset_drift_report` compares against
+    the installed preset to notice that the preset has moved on since the
+    profile was materialized (FR-6). A profile is the source of truth once it
+    exists, so a difference is never overwritten: ``osprey validate`` refuses
+    the ones nobody has marked as deliberate, and ``osprey build`` only names
+    them.
     """
 
     preset: str
     """Bundled preset name the profile was materialized from."""
     preset_hash: str
     """Content hash of that preset as resolved at materialization time."""
+    deviation_marker: str = DEFAULT_DEVIATION_MARKER
+    """Tag of the ``# <TAG>:`` comment that marks a difference as deliberate."""
 
 
 @dataclass

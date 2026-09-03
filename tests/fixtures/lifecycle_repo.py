@@ -594,7 +594,9 @@ data: data
 requires_osprey_version: '>=2026.9.0'
 # What this profile was materialized from. Emitted, not hand-written: a
 # build compares it against the installed preset and mentions it when the
-# preset has moved on. Advisory only — this profile is the source of truth.
+# preset has moved on; `osprey validate` refuses every difference from the
+# preset that no `# DEVIATION: <why>` comment above the line claims (tag set
+# by `deviation_marker:`). This profile is the source of truth either way.
 provenance:
   preset: control-assistant
   preset_hash: @PRESET_HASH:control-assistant@

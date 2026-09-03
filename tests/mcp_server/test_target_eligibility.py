@@ -853,6 +853,28 @@ def test_a_pva_row_appears_only_with_both_globs_and_a_gateway() -> None:
     )
 
 
+def test_a_pva_addr_list_row_without_a_port_carries_none() -> None:
+    """``connect()`` appends no port to an address list unless one is set.
+
+    Address-list entries are UDP search targets, and p4p's own default applies
+    when the entry names no port — so the row must not restate the TCP default.
+    """
+    config = _config(
+        connector={
+            EPICS_TYPE: _epics_block(
+                pva_channels=["*:IMAGE*"],
+                pva_gateway={"address": "cam1.example.org cam2.example.org"},
+            )
+        }
+    )
+
+    derivation = _derive(config, LIVE)
+
+    assert derivation.endpoints["pva"] == te.Endpoint(
+        "cam1.example.org cam2.example.org", None, "addr_list"
+    )
+
+
 def test_pva_globs_without_a_gateway_derive_no_pva_row() -> None:
     """``connect()`` touches no PVA environment variable without a gateway."""
     config = _config(connector={EPICS_TYPE: _epics_block(pva_channels=["*:IMAGE*"])})

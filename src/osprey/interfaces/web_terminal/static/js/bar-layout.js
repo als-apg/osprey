@@ -22,9 +22,19 @@
  * client must render what it got, offer no Customize entry, and issue ZERO
  * PUTs until the user explicitly resets. `changed` answers the weaker question
  * — is this document byte-identical to the input — and is true for lossless
- * completions too, such as an option arriving with its declared default. A
- * dropped DUPLICATE is on the lossless side: a second copy of a single-node
- * item never rendered anything, so removing it takes nothing away.
+ * completions too, such as an option arriving with its declared default.
+ *
+ * Two drops are on the lossless side. A DUPLICATE: a second copy of a
+ * single-node item never rendered anything, so removing it takes nothing
+ * away. And an UNAVAILABLE item in a document at `rev` 0: that revision is the
+ * deployment default, which no operator authored and which the server already
+ * declined to paint, so dropping it takes nothing from anyone — whereas the
+ * same drop from a stored document (`rev` ≥ 1) is content the operator placed
+ * going missing, and latches. Without that distinction a default naming an
+ * item the deployment cannot show — the shipped one places `system-health`,
+ * which needs the SYSTEM panel — latched every deployment without that panel
+ * read-only, and a reset could not recover because it adopted the same
+ * default again.
  *
  * Pure: no DOM, no storage, no network, and no runtime dependency on the
  * catalog either. The catalog is a PARAMETER, so this module can be exercised
@@ -97,6 +107,17 @@ export const BAR_LAYOUT_VERSION = 1;
  */
 export const MAX_ITEMS_PER_HOST = 20;
 
+/**
+ * The drop reasons that are NOT a loss, for a stored document and for one at
+ * `rev` 0. See the module comment for why `unavailable` is on the second list.
+ * @type {ReadonlySet<BarLayoutDrop['reason']>}
+ */
+const LOSSLESS_STORED = new Set(/** @type {BarLayoutDrop['reason'][]} */ (['duplicate']));
+/** @type {ReadonlySet<BarLayoutDrop['reason']>} */
+const LOSSLESS_UNSAVED = new Set(
+  /** @type {BarLayoutDrop['reason'][]} */ (['duplicate', 'unavailable'])
+);
+
 /** Internal per-host outcome, before the two hosts are folded into a result. */
 /**
  * @typedef {object} HostResult
@@ -162,15 +183,18 @@ function fallback(catalog, ctx) {
  * @returns {BarLayoutResult}
  */
 function normalizeDocument(doc, catalog, ctx, isDefault) {
+  const rev = isDefault ? 0 : asRev(doc.rev);
+  const revChanged = !isDefault && rev !== doc.rev;
+  // rev 0 is nobody's saved content: an item this deployment cannot show can
+  // leave it without anything being lost. Anything unknown still latches.
+  const lossless = rev === 0 ? LOSSLESS_UNSAVED : LOSSLESS_STORED;
   // Single-node types are counted across the WHOLE document, header first:
   // a second `docs` in the status bar is a duplicate of the one in the header.
   /** @type {Set<string>} */
   const seen = new Set();
-  const header = normalizeHost(doc.header, 'header', catalog, ctx, seen);
-  const status = normalizeHost(doc.status, 'status', catalog, ctx, seen);
+  const header = normalizeHost(doc.header, 'header', catalog, ctx, seen, lossless);
+  const status = normalizeHost(doc.status, 'status', catalog, ctx, seen, lossless);
 
-  const rev = isDefault ? 0 : asRev(doc.rev);
-  const revChanged = !isDefault && rev !== doc.rev;
   const headerVisible = typeof doc.header_visible === 'boolean' ? doc.header_visible : true;
   const statusVisible = typeof doc.status_visible === 'boolean' ? doc.status_visible : true;
   const visibleChanged =
@@ -200,9 +224,11 @@ function normalizeDocument(doc, catalog, ctx, isDefault) {
  * @param {BarCatalog} catalog
  * @param {BarLayoutContext} ctx
  * @param {Set<string>} seen - single-node types already placed in this document
+ * @param {ReadonlySet<BarLayoutDrop['reason']>} lossless - drop reasons that
+ *   do not make the document read-only
  * @returns {HostResult}
  */
-function normalizeHost(rawList, host, catalog, ctx, seen) {
+function normalizeHost(rawList, host, catalog, ctx, seen, lossless) {
   /** @type {BarLayoutItem[]} */
   const items = [];
   /** @type {BarLayoutDrop[]} */
@@ -233,7 +259,7 @@ function normalizeHost(rawList, host, catalog, ctx, seen) {
   return {
     items,
     changed: changed || dropped.length > 0,
-    lossy: lossy || dropped.some((drop) => drop.reason !== 'duplicate'),
+    lossy: lossy || dropped.some((drop) => !lossless.has(drop.reason)),
     dropped,
   };
 }

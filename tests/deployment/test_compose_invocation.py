@@ -744,6 +744,10 @@ def _podman_web_host(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     runs = _podman_host(monkeypatch)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["podman", "compose"])
     monkeypatch.setattr(container_lifecycle, "preflight_web_terminals", lambda *a, **k: None)
+    # The off-roster terminal sweep lists the runtime's containers with a bare
+    # `podman ps -a`, which is not a compose invocation and not what this
+    # module asserts; it has its own tests under web_terminals/.
+    monkeypatch.setattr(container_lifecycle, "remove_orphan_terminals", lambda config: {})
     for name in (
         "ensure_env_production",
         "build_persona_images",
