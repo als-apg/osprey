@@ -577,16 +577,22 @@ global installation.</p>
 </section>
 <section id="companion-services">
 <h3>Companion Services<a class="headerlink" href="#companion-services" title="Link to this heading">#</a></h3>
-<p>On startup, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> launches the same companion servers as
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>. Each server’s URL is printed before the Osprey agent starts:</p>
+<p>On startup, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> launches every framework companion server whose
+<code class="docutils literal notranslate"><span class="pre">auto_launch</span></code> is on. Each server’s URL is printed before the Osprey agent
+starts:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Companion servers
-  Artifact gallery   http://127.0.0.1:10200
-  ARIEL server       http://127.0.0.1:10300
+  Artifact gallery   http://127.0.0.1:10200/?token=…
+  ARIEL server       http://127.0.0.1:10300/?token=…
 </pre></div>
 </div>
-<p>Open any of these URLs in a browser to access the service while the Osprey agent
-runs in your terminal. Which servers start depends on your <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> —
-each server respects its own <code class="docutils literal notranslate"><span class="pre">auto_launch</span></code> setting.</p>
+<p>Each line is a login URL — the <code class="docutils literal notranslate"><span class="pre">?token=</span></code> carries this session’s operator
+secret. Open it in a browser to reach the service while the Osprey agent runs
+in your terminal; the address without the token will not sign you in. Which
+servers start depends on your <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — each server respects its own
+<code class="docutils literal notranslate"><span class="pre">auto_launch</span></code> setting. Unlike <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>, chat does not consult
+<code class="docutils literal notranslate"><span class="pre">web.panels</span></code>: a panel switched off there still gets its companion server
+here, because chat opens companions as browser tabs rather than as a panel
+rail.</p>
 <p>The servers run as background threads and stop automatically when you exit
 the Osprey agent.</p>
 </section>

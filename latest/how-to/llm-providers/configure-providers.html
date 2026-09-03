@@ -692,15 +692,34 @@ secret store, and nothing else re-reads your shell. See
 </div>
 </section>
 <section id="provider-configuration">
-<h2>Provider Configuration<a class="headerlink" href="#provider-configuration" title="Link to this heading">#</a></h2>
-<p>Providers are configured in two sections of <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+<span id="id1"></span><h2>Provider Configuration<a class="headerlink" href="#provider-configuration" title="Link to this heading">#</a></h2>
+<p>Providers are configured in the deployment repository’s <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. Its
+top-level <code class="docutils literal notranslate"><span class="pre">provider:</span></code> and <code class="docutils literal notranslate"><span class="pre">model:</span></code> keys select the provider the Osprey
+agent uses and its default model tier (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span> <span class="pre">provider=…</span> <span class="pre">model=…</span></code>
+writes them for you), and a gateway that is not built in is described with
+dotted overrides in the profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-gateway</span>
+<span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">api.providers.my-gateway.api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${MY_GATEWAY_API_KEY}</span>
+<span class="w">  </span><span class="nt">api.providers.my-gateway.base_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://my-gateway.example.com/v1</span>
+<span class="w">  </span><span class="nt">api.providers.my-gateway.models</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">haiku</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-haiku-4-5</span>
+<span class="w">    </span><span class="nt">sonnet</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-sonnet-4-6</span>
+<span class="w">    </span><span class="nt">opus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-opus-4-6</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders the profile into <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>, which every
+build wipes and re-renders; edit the profile, never the rendered file. The
+rendered file has two relevant sections:</p>
 <ol class="arabic simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">api.providers</span></code> — declares available providers with their endpoints and
 model IDs.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">claude_code</span></code> — selects which provider the Osprey agent uses and at which
 model tier.</p></li>
 </ol>
-<p><strong>Declare providers</strong> under <code class="docutils literal notranslate"><span class="pre">api.providers</span></code>:</p>
+<p>The YAML blocks below show that <strong>rendered</strong> <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>, so you can
+see what the profile’s overrides become. <strong>Declared providers</strong> appear under
+<code class="docutils literal notranslate"><span class="pre">api.providers</span></code>:</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>Model IDs change every few months as new Claude, GPT, and Gemini releases
@@ -871,8 +890,11 @@ LiteLLM ignores the headers.</p>
 </section>
 <section id="adding-a-new-provider">
 <h2>Adding a New Provider<a class="headerlink" href="#adding-a-new-provider" title="Link to this heading">#</a></h2>
-<p>To add a new OpenAI-compatible provider, add an entry to <code class="docutils literal notranslate"><span class="pre">api.providers</span></code>
-in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — no code changes required:</p>
+<p>To add a new OpenAI-compatible provider, add the dotted <code class="docutils literal notranslate"><span class="pre">api.providers</span></code>
+overrides to <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block (see
+<a class="reference internal" href="#provider-configuration"><span class="std std-ref">Provider Configuration</span></a> above) and run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> — no code changes required. The rendered result in
+<code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">api</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">providers</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">my-provider</span><span class="p">:</span>

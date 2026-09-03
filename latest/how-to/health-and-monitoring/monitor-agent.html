@@ -636,7 +636,7 @@ default. If your project removed it, restore it:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">openobserve</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/openobserve</span>
-<span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5080</span><span class="w">          </span><span class="c1"># host port for the UI + OTLP ingest</span>
+<span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10050</span><span class="w">         </span><span class="c1"># host port for the UI + OTLP ingest (deployment.port_base + 50)</span>
 
 <span class="nt">deployed_services</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openobserve</span>
@@ -757,8 +757,10 @@ agent starts.</p>
 deploy warns with a named remedy and carries on — telemetry is the only thing
 affected, and every other service in the deployment comes up as usual. The
 remedy is almost always to run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> again once the store is running.</p>
-<p>The UI is then available at <code class="docutils literal notranslate"><span class="pre">http://localhost:5080</span></code> (log in with the <strong>root</strong>
-credentials). Verify the service is recognized with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code>.</p>
+<p>The UI is then available at <code class="docutils literal notranslate"><span class="pre">http://localhost:10050</span></code> — the layout’s
+<code class="docutils literal notranslate"><span class="pre">openobserve</span></code> slot, <code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code> + 50; <code class="docutils literal notranslate"><span class="pre">services.openobserve.port</span></code>
+moves it. Log in with the <strong>root</strong> credentials. Verify the service is
+recognized with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code>.</p>
 </section>
 <section id="point-the-agent-at-it">
 <h3>4. Point the agent at it<a class="headerlink" href="#point-the-agent-at-it" title="Link to this heading">#</a></h3>
@@ -788,7 +790,7 @@ name rather than a secret.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 336" role="img" aria-labelledby="otel-endpoint-title otel-endpoint-desc">
   <title id="otel-endpoint-title">Where the OTLP endpoint points, by running context</title>
-  <desc id="otel-endpoint-desc">One OpenObserve store is reached under a different host name depending on where the emitter runs: localhost from a plain host run, the compose service name openobserve from a bridge-networked container, and localhost again from a host-networked container where the compose DNS name would not resolve. The port 5080 is fixed and does not follow a changed published port.</desc>
+  <desc id="otel-endpoint-desc">One OpenObserve store is reached under a different host name depending on where the emitter runs: localhost from a plain host run, the compose service name openobserve from a bridge-networked container, and localhost again from a host-networked container where the compose DNS name would not resolve. The port is the one the store publishes (services.openobserve.port); only a bridge-networked container reaches it on the image's fixed listen port, 5080.</desc>
   <defs>
     <marker id="otel-endpoint-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -810,7 +812,7 @@ name rather than a secret.</p>
   <rect class="nb" x="16" y="130" width="300" height="64" rx="6"/>
   <text class="tn" x="166" y="154" text-anchor="middle">bridge-networked container</text>
   <text class="ts" x="166" y="171" text-anchor="middle">the containerized dispatch worker</text>
-  <text class="ts" x="166" y="186" text-anchor="middle">host must be openobserve</text>
+  <text class="ts" x="166" y="186" text-anchor="middle">host must be openobserve, port must be 5080</text>
 
   <rect class="nb" x="16" y="220" width="300" height="64" rx="6"/>
   <text class="tn" x="166" y="244" text-anchor="middle">host-networked container</text>
@@ -826,10 +828,10 @@ name rather than a secret.</p>
 
   <rect class="nb-st" x="620" y="120" width="300" height="84" rx="6"/>
   <text class="tn" x="770" y="148" text-anchor="middle">OpenObserve</text>
-  <text class="ts" x="770" y="167" text-anchor="middle">http://&lt;host&gt;:5080/api/&lt;org&gt;</text>
+  <text class="ts" x="770" y="167" text-anchor="middle">http://&lt;host&gt;:&lt;port&gt;/api/&lt;org&gt;</text>
   <text class="ts" x="770" y="185" text-anchor="middle">one store, reached by three names</text>
 
-  <text class="ta ta-warn" x="480" y="308" text-anchor="middle">5080 is fixed — the derivation does not follow a changed services.openobserve.port; publish elsewhere and set endpoint: explicitly</text>
+  <text class="ta ta-warn" x="480" y="308" text-anchor="middle">the port follows services.openobserve.port — only the bridge case uses the image's fixed 5080; do not hardcode endpoint:</text>
   <text class="ta ta-warn" x="480" y="324" text-anchor="middle">hardcoding endpoint: points every context at one host and silently drops the records from the others</text>
 </svg>
 </div>
@@ -958,8 +960,9 @@ running container is not necessarily ready), the effective retention (warning
 if below OpenObserve’s floor of 3 days), and the percentage-full of the disk
 the volume grows into.</p></li>
 <li><p><strong>Local by design.</strong> The service binds to localhost by default. Do not expose
-port 5080 beyond the host without putting authentication and transport
-security in front of it.</p></li>
+the store’s published port (<code class="docutils literal notranslate"><span class="pre">services.openobserve.port</span></code>, 10050 by default)
+beyond the host without putting authentication and transport security in
+front of it.</p></li>
 </ul>
 </section>
 </section>

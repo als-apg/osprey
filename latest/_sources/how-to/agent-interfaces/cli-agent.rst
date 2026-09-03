@@ -73,18 +73,24 @@ global installation.
 Companion Services
 ------------------
 
-On startup, ``osprey chat`` launches the same companion servers as
-``osprey web``. Each server's URL is printed before the Osprey agent starts:
+On startup, ``osprey chat`` launches every framework companion server whose
+``auto_launch`` is on. Each server's URL is printed before the Osprey agent
+starts:
 
 .. code-block:: text
 
    Companion servers
-     Artifact gallery   http://127.0.0.1:10200
-     ARIEL server       http://127.0.0.1:10300
+     Artifact gallery   http://127.0.0.1:10200/?token=…
+     ARIEL server       http://127.0.0.1:10300/?token=…
 
-Open any of these URLs in a browser to access the service while the Osprey agent
-runs in your terminal. Which servers start depends on your ``config.yml`` —
-each server respects its own ``auto_launch`` setting.
+Each line is a login URL — the ``?token=`` carries this session's operator
+secret. Open it in a browser to reach the service while the Osprey agent runs
+in your terminal; the address without the token will not sign you in. Which
+servers start depends on your ``config.yml`` — each server respects its own
+``auto_launch`` setting. Unlike ``osprey web``, chat does not consult
+``web.panels``: a panel switched off there still gets its companion server
+here, because chat opens companions as browser tabs rather than as a panel
+rail.
 
 The servers run as background threads and stop automatically when you exit
 the Osprey agent.

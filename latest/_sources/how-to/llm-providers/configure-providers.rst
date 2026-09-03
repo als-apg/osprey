@@ -109,17 +109,41 @@ Ollama and vLLM run locally and do not require an API key.
    secret store, and nothing else re-reads your shell. See
    :ref:`profile-secrets`.
 
+
+.. _provider-configuration:
+
 Provider Configuration
 ----------------------
 
-Providers are configured in two sections of ``config.yml``:
+Providers are configured in the deployment repository's ``profile.yml``. Its
+top-level ``provider:`` and ``model:`` keys select the provider the Osprey
+agent uses and its default model tier (``osprey set provider=… model=…``
+writes them for you), and a gateway that is not built in is described with
+dotted overrides in the profile's ``config:`` block:
+
+.. code-block:: yaml
+
+   provider: my-gateway
+   config:
+     api.providers.my-gateway.api_key: ${MY_GATEWAY_API_KEY}
+     api.providers.my-gateway.base_url: https://my-gateway.example.com/v1
+     api.providers.my-gateway.models:
+       haiku: claude-haiku-4-5
+       sonnet: claude-sonnet-4-6
+       opus: claude-opus-4-6
+
+``osprey build`` renders the profile into ``build/config.yml``, which every
+build wipes and re-renders; edit the profile, never the rendered file. The
+rendered file has two relevant sections:
 
 1. ``api.providers`` — declares available providers with their endpoints and
    model IDs.
 2. ``claude_code`` — selects which provider the Osprey agent uses and at which
    model tier.
 
-**Declare providers** under ``api.providers``:
+The YAML blocks below show that **rendered** ``build/config.yml``, so you can
+see what the profile's overrides become. **Declared providers** appear under
+``api.providers``:
 
 .. note::
 
@@ -316,8 +340,11 @@ After configuring a provider, check that the API key and endpoint work:
 Adding a New Provider
 ---------------------
 
-To add a new OpenAI-compatible provider, add an entry to ``api.providers``
-in ``config.yml`` — no code changes required:
+To add a new OpenAI-compatible provider, add the dotted ``api.providers``
+overrides to ``profile.yml``'s ``config:`` block (see
+:ref:`Provider Configuration <provider-configuration>` above) and run
+``osprey build`` — no code changes required. The rendered result in
+``build/config.yml``:
 
 .. code-block:: yaml
 

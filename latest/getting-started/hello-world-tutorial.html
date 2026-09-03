@@ -725,7 +725,8 @@ containerized service, and this is the deployment lesson:</p>
 </div>
 <p>This needs a container runtime (Docker or Podman) and starts <strong>OpenObserve</strong>, a
 local telemetry store bound to localhost, with its UI at
-<a class="reference external" href="http://localhost:5080">http://localhost:5080</a>. The agent already emits its logs and metrics there, so
+<a class="reference external" href="http://localhost:10050">http://localhost:10050</a> (<code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code> + 50). The agent already
+emits its logs and metrics there, so
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> plus <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> gives you a queryable record of every
 session out of the box — see <a class="reference internal" href="../how-to/health-and-monitoring/monitor-agent.html"><span class="doc">Monitor Your OSPREY Agent</span></a>. Stop the stack
 with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code>; the agent itself keeps working without it.</p>
