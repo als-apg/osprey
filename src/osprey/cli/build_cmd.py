@@ -51,6 +51,12 @@ import click
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
 from osprey.errors import BuildProfileError
 from osprey.port_layout import resolve_port_base
+from osprey.utils.config_writer import (
+    config_edit_session,
+    flush_config_edits,
+    load_config_document,
+    save_config_document,
+)
 from osprey.utils.logger import get_logger
 from osprey.utils.workspace import (
     BUILD_DIR_NAME,
@@ -1250,7 +1256,9 @@ def _rendered_config(render_dir: Path) -> dict[str, Any]:
     file's bytes are read every time and the parse is cached under their
     digest: a rewrite changes the digest and is parsed afresh, an unchanged
     file is parsed once. Callers get their own copy, since some annotate the
-    mapping before handing it on.
+    mapping before handing it on. The render edits the file under one
+    :func:`~osprey.utils.config_writer.config_edit_session`, so the bytes are
+    only current once that session has flushed: this is the read that flushes.
     """
     import copy
     import hashlib
@@ -1258,6 +1266,7 @@ def _rendered_config(render_dir: Path) -> dict[str, Any]:
     from osprey_connectors import yaml_loader
 
     path = render_dir / "config.yml"
+    flush_config_edits(path)  # an open edit session may hold what we are about to read
     data = path.read_bytes()
     key = (str(path), hashlib.sha256(data).digest())
     parsed = _rendered_config_cache.get(key)
@@ -1298,16 +1307,11 @@ def _resolve_rendered_execution_method(render_dir: Path) -> list[str]:
     if written == method:
         return []
 
-    from ruamel.yaml import YAML
-
-    yaml = YAML()
-    with config_path.open("r", encoding="utf-8") as fh:
-        document = yaml.load(fh)
+    document = load_config_document(config_path)
     if not isinstance(document.get("execution"), Mapping):
         document["execution"] = {}
     document["execution"]["execution_method"] = method
-    with config_path.open("w", encoding="utf-8") as fh:
-        yaml.dump(document, fh)
+    save_config_document(config_path, document)
     return []
 
 
@@ -1350,14 +1354,9 @@ def _resolve_rendered_container_runtime(render_dir: Path, progress: Any) -> None
         logger.debug("Leaving container_runtime: auto in the render — %s", e)
         return
 
-    from ruamel.yaml import YAML
-
-    yaml = YAML()
-    with config_path.open("r", encoding="utf-8") as fh:
-        document = yaml.load(fh)
+    document = load_config_document(config_path)
     document["container_runtime"] = runtime
-    with config_path.open("w", encoding="utf-8") as fh:
-        yaml.dump(document, fh)
+    save_config_document(config_path, document)
     progress("  ✓ container_runtime: %s (resolved from auto; the runtime this build used)", runtime)
 
 
@@ -1755,221 +1754,239 @@ def _render_project(
         else derived_tier
     )
 
-    # The render. No `.env` is carried in from anywhere: the repo's own `.env`
-    # is the deployment's whole secret store, it is mounted from the repo root,
-    # and a build neither reads nor rewrites it — copying it into the disposable
-    # zone would put the facility's keys somewhere a `rm -rf build/` is
-    # documented to make safe. A persona render is inside that same zone and is
-    # a container build context on top of it, so it gets no `.env` either; its
-    # container is handed one at run time through compose.
-    manager.create_project(
-        project_name=project_name,
-        output_dir=output_dir,
-        data_bundle=build_profile.data_bundle,
-        context=context,
-        force=True,
-        artifacts=artifacts or None,
-        tier=pinned_tier,
-        data_root=build_profile.resolved_data_root(repo_root),
-    )
-    progress("  ✓ Base template rendered")
+    # Every edit of the render's config.yml — the template's own ownership
+    # registration, the overrides, the projections, the service injectors, the
+    # `auto` resolvers, the persisted servers — happens under one edit session:
+    # one comment-preserving load, one document. It is written when something
+    # reads the file's bytes (`_rendered_config`, the injectors and the limits
+    # reader flush it first) and at the session's end, which comes before the
+    # manifest and the Claude Code render read the file, so nothing below the
+    # block can see a stale file.
+    with config_edit_session(render_dir / "config.yml"):
+        # The render. No `.env` is carried in from anywhere: the repo's own `.env`
+        # is the deployment's whole secret store, it is mounted from the repo root,
+        # and a build neither reads nor rewrites it — copying it into the disposable
+        # zone would put the facility's keys somewhere a `rm -rf build/` is
+        # documented to make safe. A persona render is inside that same zone and is
+        # a container build context on top of it, so it gets no `.env` either; its
+        # container is handed one at run time through compose.
+        manager.create_project(
+            project_name=project_name,
+            output_dir=output_dir,
+            data_bundle=build_profile.data_bundle,
+            context=context,
+            force=True,
+            artifacts=artifacts or None,
+            tier=pinned_tier,
+            data_root=build_profile.resolved_data_root(repo_root),
+        )
+        progress("  ✓ Base template rendered")
 
-    # One fact, two homes: a profile that also spells a key the live stand-in
-    # derives is refused rather than silently overwritten below — the same rule
-    # the va_archiver block applies to the archive's coordinates, and here the
-    # duplicate is a real gateway address sitting in the profile while every
-    # session is on the stand-in.
-    standin_duplicates = live_standin_duplicate_key_errors(
-        build_profile.virtual_accelerator, build_profile.config
-    )
-    if standin_duplicates:
-        raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(standin_duplicates))
+        # One fact, two homes: a profile that also spells a key the live stand-in
+        # derives is refused rather than silently overwritten below — the same rule
+        # the va_archiver block applies to the archive's coordinates, and here the
+        # duplicate is a real gateway address sitting in the profile while every
+        # session is on the stand-in.
+        standin_duplicates = live_standin_duplicate_key_errors(
+            build_profile.virtual_accelerator, build_profile.config
+        )
+        if standin_duplicates:
+            raise BuildProfileError(
+                "Profile validation failed:\n  " + "\n  ".join(standin_duplicates)
+            )
 
-    # What the deploy, va_archiver and virtual_accelerator blocks contribute to
-    # the rendered config, applied with the profile's own `config:` entries in
-    # one pass. Derived keys the profile also spells are rejected at validation,
-    # so winning here can never silently overwrite a facility's own value.
-    derived_by_block = {
-        "deploy": deploy_config_overrides(build_profile.deploy, build_profile.config),
-        "va_archiver": va_archiver_config_overrides(build_profile.va_archiver),
-        # Reads the render because the stand-in's probe channel is the sandbox
-        # VA's: whatever the template put there is the fallback for a profile
-        # that named none of its own.
-        "virtual_accelerator": live_standin_config_overrides(
-            build_profile.virtual_accelerator, build_profile.config, _rendered_config(render_dir)
-        ),
-    }
-    derived = {key: value for block in derived_by_block.values() for key, value in block.items()}
-    config_overrides = {**build_profile.config, **derived}
-    if config_overrides:
-        _apply_config_overrides(render_dir, config_overrides)
-        progress("  ✓ Applied %d config override(s)", len(config_overrides))
-        for block, entries in derived_by_block.items():
-            for key, value in entries.items():
-                progress("      %s: %s (from the profile's %s block)", key, value, block)
+        # What the deploy, va_archiver and virtual_accelerator blocks contribute to
+        # the rendered config, applied with the profile's own `config:` entries in
+        # one pass. Derived keys the profile also spells are rejected at validation,
+        # so winning here can never silently overwrite a facility's own value.
+        derived_by_block = {
+            "deploy": deploy_config_overrides(build_profile.deploy, build_profile.config),
+            "va_archiver": va_archiver_config_overrides(build_profile.va_archiver),
+            # Reads the render because the stand-in's probe channel is the sandbox
+            # VA's: whatever the template put there is the fallback for a profile
+            # that named none of its own.
+            "virtual_accelerator": live_standin_config_overrides(
+                build_profile.virtual_accelerator,
+                build_profile.config,
+                _rendered_config(render_dir),
+            ),
+        }
+        derived = {
+            key: value for block in derived_by_block.values() for key, value in block.items()
+        }
+        config_overrides = {**build_profile.config, **derived}
+        if config_overrides:
+            _apply_config_overrides(render_dir, config_overrides)
+            progress("  ✓ Applied %d config override(s)", len(config_overrides))
+            for block, entries in derived_by_block.items():
+                for key, value in entries.items():
+                    progress("      %s: %s (from the profile's %s block)", key, value, block)
 
-    # What an attached render is told about the services its host deploys —
-    # the ports it publishes, the panel URLs its injectors derived — copied
-    # from the deployment's own render (the Reach Contract,
-    # osprey.deployment.reach). After the profile's overlay, because the
-    # projection is gated on what THIS render switches on; before the
-    # service injection and the Claude Code re-render, because a projected
-    # block is what makes a server render at all (`graphdb_configured`).
-    # A deploying project projects nothing: its injectors write the blocks.
-    if not build_profile.deploy_services:
-        if shared.host_config is not None:
-            host_config, told_by = shared.host_config, "the hosting deployment's render"
-        else:
-            # Built alone, with no deployment in this repo: the profile extends
-            # a deployment of the same app template, so that template rendered
-            # AS a deployment is what the host says at the shipped defaults —
-            # and the profile's own `config:` is where a host that differs is
-            # named, so it is laid over those defaults first.
-            host_config = _template_host_config(
+        # What an attached render is told about the services its host deploys —
+        # the ports it publishes, the panel URLs its injectors derived — copied
+        # from the deployment's own render (the Reach Contract,
+        # osprey.deployment.reach). After the profile's overlay, because the
+        # projection is gated on what THIS render switches on; before the
+        # service injection and the Claude Code re-render, because a projected
+        # block is what makes a server render at all (`graphdb_configured`).
+        # A deploying project projects nothing: its injectors write the blocks.
+        if not build_profile.deploy_services:
+            if shared.host_config is not None:
+                host_config, told_by = shared.host_config, "the hosting deployment's render"
+            else:
+                # Built alone, with no deployment in this repo: the profile extends
+                # a deployment of the same app template, so that template rendered
+                # AS a deployment is what the host says at the shipped defaults —
+                # and the profile's own `config:` is where a host that differs is
+                # named, so it is laid over those defaults first.
+                host_config = _template_host_config(
+                    shared,
+                    build_profile,
+                    project_name=project_name,
+                    render_dir=render_dir,
+                    profile_dir=repo_root,
+                    context=context,
+                    artifacts=artifacts or None,
+                )
+                told_by = "the app template's defaults"
+            projected = attached_render_overrides(
+                host_config,
+                _rendered_config(render_dir),
+                selected_panels=build_profile.web_panels or (),
+            )
+            # A `config:` spelling that contradicts the projection is refused;
+            # one that agrees (inherited from the hosting profile, or laid over
+            # the template's defaults when built alone) is the same fact.
+            duplicate_errors = reach_override_errors(build_profile.config, projected)
+            if duplicate_errors:
+                raise BuildProfileError(
+                    "Profile validation failed:\n  " + "\n  ".join(duplicate_errors)
+                )
+            if projected:
+                _apply_config_overrides(render_dir, projected)
+                progress(
+                    "  ✓ Told this attached render %d fact(s) about the host's services",
+                    len(projected),
+                )
+                for key, value in projected.items():
+                    progress("      %s: %s (from %s)", key, value, told_by)
+            # A tab this profile selects (`web_panels:`) that the projection gave
+            # no address — the host it was told about runs no such sidecar — would
+            # otherwise vanish from the render without a word.
+            tabless = selected_panel_errors(
+                build_profile.web_panels or (), _rendered_config(render_dir), told_by=told_by
+            )
+            if tabless:
+                raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(tabless))
+
+        injected = _inject_services(build_profile, repo_root, render_dir)
+        if injected_out is not None:
+            injected_out.extend(injected)
+
+        # The selection, projected. The tab strip is read from `web.panels` alone,
+        # and by now every block this render will carry is there: the template's
+        # own for a selected builtin, the profile's `config:` facts about a custom
+        # panel, the facts a persona inherits for a tab it excluded, the blocks the
+        # injectors just wrote for a tab only a persona selects. Each is told
+        # whether THIS render shows it — the facts stay (a persona cannot subtract
+        # `config:`, and the Reach Contract copies addresses from the host's
+        # render); only `enabled` moves, and it says one thing: selected here.
+        projected_tabs = panel_selection_overrides(
+            build_profile.web_panels or (), _rendered_config(render_dir)
+        )
+        if projected_tabs:
+            _apply_config_overrides(render_dir, projected_tabs)
+            off = sorted(key.split(".")[2] for key, shown in projected_tabs.items() if not shown)
+            if off:
+                progress(
+                    "  ✓ Switched off %d panel block(s) this profile does not select: %s",
+                    len(off),
+                    ", ".join(off),
+                )
+
+        # The ground truth every client loads is the rendered config, so this is
+        # where a consumer switched on with nothing to dial is refused — for a
+        # deployment that dropped a block its modules still use, and for an
+        # attached render that was told nothing (a host, or an app template, that
+        # deploys no such service) alike. AFTER the injectors: a deploying profile
+        # that pins only `web.panels.events.path` has its `url` written by the
+        # dispatch injector, and refusing before that would name a key the build
+        # was about to write. The execution backend is read here for the same
+        # reason: it is the render, not the profile, that a container loads.
+        unrunnable = [
+            *_resolve_rendered_execution_method(render_dir),
+            *reach_errors(_rendered_config(render_dir), repo_root=repo_root),
+            *_incomplete_limits_errors(render_dir),
+        ]
+        if unrunnable:
+            raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(unrunnable))
+        # And the runtime, for the same reason once more: the verbs that stop,
+        # restart and preflight this deployment read the render, and must act on
+        # the runtime that owns the containers rather than re-detect one.
+        _resolve_rendered_container_runtime(render_dir, progress)
+
+        applied = _apply_conventions(
+            repo_root,
+            render_dir,
+            _resolve_context_roster(render_dir),
+            extra_known=[
+                *_profile_known_root_entries(build_profile, profile_path),
+                *extra_known,
+            ],
+            excluded=resolved.excluded_artifacts,
+        )
+        if applied.copied:
+            progress(
+                "  ✓ Applied %d profile artifact(s): %s",
+                applied.copied,
+                ", ".join(f"{count} {key}" for key, count in sorted(applied.by_category.items())),
+            )
+            reg_count = _register_convention_artifacts(render_dir, applied)
+            if reg_count:
+                progress("  ✓ Registered %d profile artifact(s) in config.yml", reg_count)
+
+        if va_graph_deferred:
+            # The deferred half of the manifest step above: the render is on disk,
+            # so the rendered config can resolve the corpus the roster reads --
+            # the same resolution every other roster consumer applies. The refusal
+            # (a virtual accelerator with an unreadable or empty corpus) fires
+            # here, still before anything is published outside the render zone.
+            rendered = _rendered_config(render_dir)
+            rendered["config_dir"] = str(render_dir)
+            prepared_va_manifest = prepare_project_manifest(
+                va_data_root, va_key[1], config=rendered
+            )
+            shared.va_manifests[va_key] = prepared_va_manifest
+            _report_va_manifest_outcome(
                 shared,
                 build_profile,
-                project_name=project_name,
-                render_dir=render_dir,
-                profile_dir=repo_root,
-                context=context,
-                artifacts=artifacts or None,
+                data_root=va_data_root,
+                tier=va_key[1],
+                prepared=prepared_va_manifest,
+                config=rendered,
             )
-            told_by = "the app template's defaults"
-        projected = attached_render_overrides(
-            host_config,
-            _rendered_config(render_dir),
-            selected_panels=build_profile.web_panels or (),
-        )
-        # A `config:` spelling that contradicts the projection is refused;
-        # one that agrees (inherited from the hosting profile, or laid over
-        # the template's defaults when built alone) is the same fact.
-        duplicate_errors = reach_override_errors(build_profile.config, projected)
-        if duplicate_errors:
-            raise BuildProfileError(
-                "Profile validation failed:\n  " + "\n  ".join(duplicate_errors)
-            )
-        if projected:
-            _apply_config_overrides(render_dir, projected)
+
+        if prepared_va_manifest is not None:
+            write_project_manifest(prepared_va_manifest, render_dir / "data")
             progress(
-                "  ✓ Told this attached render %d fact(s) about the host's services", len(projected)
-            )
-            for key, value in projected.items():
-                progress("      %s: %s (from %s)", key, value, told_by)
-        # A tab this profile selects (`web_panels:`) that the projection gave
-        # no address — the host it was told about runs no such sidecar — would
-        # otherwise vanish from the render without a word.
-        tabless = selected_panel_errors(
-            build_profile.web_panels or (), _rendered_config(render_dir), told_by=told_by
-        )
-        if tabless:
-            raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(tabless))
-
-    injected = _inject_services(build_profile, repo_root, render_dir)
-    if injected_out is not None:
-        injected_out.extend(injected)
-
-    # The selection, projected. The tab strip is read from `web.panels` alone,
-    # and by now every block this render will carry is there: the template's
-    # own for a selected builtin, the profile's `config:` facts about a custom
-    # panel, the facts a persona inherits for a tab it excluded, the blocks the
-    # injectors just wrote for a tab only a persona selects. Each is told
-    # whether THIS render shows it — the facts stay (a persona cannot subtract
-    # `config:`, and the Reach Contract copies addresses from the host's
-    # render); only `enabled` moves, and it says one thing: selected here.
-    projected_tabs = panel_selection_overrides(
-        build_profile.web_panels or (), _rendered_config(render_dir)
-    )
-    if projected_tabs:
-        _apply_config_overrides(render_dir, projected_tabs)
-        off = sorted(key.split(".")[2] for key, shown in projected_tabs.items() if not shown)
-        if off:
-            progress(
-                "  ✓ Switched off %d panel block(s) this profile does not select: %s",
-                len(off),
-                ", ".join(off),
+                "  ✓ Generated virtual-accelerator channel manifest (%d channels)",
+                prepared_va_manifest.manifest["_metadata"]["total_channels"],
             )
 
-    # The ground truth every client loads is the rendered config, so this is
-    # where a consumer switched on with nothing to dial is refused — for a
-    # deployment that dropped a block its modules still use, and for an
-    # attached render that was told nothing (a host, or an app template, that
-    # deploys no such service) alike. AFTER the injectors: a deploying profile
-    # that pins only `web.panels.events.path` has its `url` written by the
-    # dispatch injector, and refusing before that would name a key the build
-    # was about to write. The execution backend is read here for the same
-    # reason: it is the render, not the profile, that a container loads.
-    unrunnable = [
-        *_resolve_rendered_execution_method(render_dir),
-        *reach_errors(_rendered_config(render_dir), repo_root=repo_root),
-        *_incomplete_limits_errors(render_dir),
-    ]
-    if unrunnable:
-        raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(unrunnable))
-    # And the runtime, for the same reason once more: the verbs that stop,
-    # restart and preflight this deployment read the render, and must act on
-    # the runtime that owns the containers rather than re-detect one.
-    _resolve_rendered_container_runtime(render_dir, progress)
+        # The limits database is read here and not in the `unrunnable` gate above,
+        # because it arrives with the conventions: the profile's `data/` tree is
+        # copied into the render after that gate, and a relative `database_path`
+        # resolves to exactly that copy. Same refusal shape as the gate.
+        limits_errors = limits_database_errors(render_dir)
+        if limits_errors:
+            raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(limits_errors))
 
-    applied = _apply_conventions(
-        repo_root,
-        render_dir,
-        _resolve_context_roster(render_dir),
-        extra_known=[
-            *_profile_known_root_entries(build_profile, profile_path),
-            *extra_known,
-        ],
-        excluded=resolved.excluded_artifacts,
-    )
-    if applied.copied:
-        progress(
-            "  ✓ Applied %d profile artifact(s): %s",
-            applied.copied,
-            ", ".join(f"{count} {key}" for key, count in sorted(applied.by_category.items())),
-        )
-        reg_count = _register_convention_artifacts(render_dir, applied)
-        if reg_count:
-            progress("  ✓ Registered %d profile artifact(s) in config.yml", reg_count)
-
-    if va_graph_deferred:
-        # The deferred half of the manifest step above: the render is on disk,
-        # so the rendered config can resolve the corpus the roster reads --
-        # the same resolution every other roster consumer applies. The refusal
-        # (a virtual accelerator with an unreadable or empty corpus) fires
-        # here, still before anything is published outside the render zone.
-        rendered = _rendered_config(render_dir)
-        rendered["config_dir"] = str(render_dir)
-        prepared_va_manifest = prepare_project_manifest(va_data_root, va_key[1], config=rendered)
-        shared.va_manifests[va_key] = prepared_va_manifest
-        _report_va_manifest_outcome(
-            shared,
-            build_profile,
-            data_root=va_data_root,
-            tier=va_key[1],
-            prepared=prepared_va_manifest,
-            config=rendered,
-        )
-
-    if prepared_va_manifest is not None:
-        write_project_manifest(prepared_va_manifest, render_dir / "data")
-        progress(
-            "  ✓ Generated virtual-accelerator channel manifest (%d channels)",
-            prepared_va_manifest.manifest["_metadata"]["total_channels"],
-        )
-
-    # The limits database is read here and not in the `unrunnable` gate above,
-    # because it arrives with the conventions: the profile's `data/` tree is
-    # copied into the render after that gate, and a relative `database_path`
-    # resolves to exactly that copy. Same refusal shape as the gate.
-    limits_errors = limits_database_errors(render_dir)
-    if limits_errors:
-        raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(limits_errors))
-
-    if build_profile.mcp_servers:
-        _persist_mcp_servers(render_dir, build_profile.mcp_servers)
-        progress("  ✓ Persisted %d MCP server(s) to config.yml", len(build_profile.mcp_servers))
-    if build_profile.artifact_server:
-        _persist_artifact_server(render_dir, build_profile.artifact_server)
-        progress("  ✓ Merged artifact_server overrides into config.yml")
+        if build_profile.mcp_servers:
+            _persist_mcp_servers(render_dir, build_profile.mcp_servers)
+            progress("  ✓ Persisted %d MCP server(s) to config.yml", len(build_profile.mcp_servers))
+        if build_profile.artifact_server:
+            _persist_artifact_server(render_dir, build_profile.artifact_server)
+            progress("  ✓ Merged artifact_server overrides into config.yml")
 
     if deployment:
         report_provider_credentials(render_dir, build_profile.provider, profile_dir=repo_root)
@@ -3433,6 +3450,10 @@ def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) 
             "scaffolded (it connects to a shared OSPREY services stack)."
         )
         return []
+
+    # Every injector rewrites config.yml with a loader of its own, over the
+    # file's bytes: what the render's edit session still holds has to land first.
+    flush_config_edits(project_path / "config.yml")
 
     injected: list[str] = []
 

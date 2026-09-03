@@ -120,13 +120,13 @@ def _resolve_context_roster(project_path: Path) -> list[str]:
     slots this copy fills.
     """
     from osprey.deployment.web_terminals.personas import as_dict, roster_user_names
-    from osprey.utils.config_writer import _load
+    from osprey.utils.config_writer import load_config_document
 
     config_path = project_path / "config.yml"
     if not config_path.exists():
         return []
 
-    modules = as_dict(as_dict(_load(config_path)).get("modules"))
+    modules = as_dict(as_dict(load_config_document(config_path)).get("modules"))
     return roster_user_names(modules.get("web_terminals"))
 
 
@@ -426,12 +426,12 @@ def _persist_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> Non
     ``.mcp.json`` and ``settings.json``.  Placeholders like ``{project_root}``
     are preserved as-is — resolution happens during regen.
     """
-    from osprey.utils.config_writer import _load, _save, anchored_put
+    from osprey.utils.config_writer import anchored_put, load_config_document, save_config_document
 
     from .build_profile import McpServerDef
 
     config_path = project_path / "config.yml"
-    data = _load(config_path)
+    data = load_config_document(config_path)
 
     # Collect the server specs first, then register them via anchored_put:
     # writing an empty ``servers:`` map and filling it afterwards would leave
@@ -491,7 +491,7 @@ def _persist_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> Non
         else:
             anchored_put(cc, "servers", specs)
 
-    _save(config_path, data)
+    save_config_document(config_path, data)
 
 
 def _persist_artifact_server(project_path: Path, overrides: dict[str, Any]) -> None:
@@ -503,10 +503,10 @@ def _persist_artifact_server(project_path: Path, overrides: dict[str, Any]) -> N
     """
     from ruamel.yaml import CommentedMap
 
-    from osprey.utils.config_writer import _load, _save, anchored_put
+    from osprey.utils.config_writer import anchored_put, load_config_document, save_config_document
 
     config_path = project_path / "config.yml"
-    data = _load(config_path)
+    data = load_config_document(config_path)
 
     if "artifact_server" not in data:
         # Root-level append: new top-level sections land at the file tail
@@ -528,4 +528,4 @@ def _persist_artifact_server(project_path: Path, overrides: dict[str, Any]) -> N
         else:
             anchored_put(block, "categories", categories)
 
-    _save(config_path, data)
+    save_config_document(config_path, data)

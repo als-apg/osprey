@@ -30,8 +30,11 @@ LIMITS_DATABASE_KEY = "control_system.limits_checking.database_path"
 
 
 def _rendered_config(render_dir: Path) -> dict[str, Any]:
+    from osprey.utils.config_writer import flush_config_edits
     from osprey_connectors import yaml_loader
 
+    # The render edits config.yml under one session; read what it holds.
+    flush_config_edits(render_dir / "config.yml")
     with (render_dir / "config.yml").open("r", encoding="utf-8") as fh:
         return yaml_loader.safe_load(fh) or {}
 

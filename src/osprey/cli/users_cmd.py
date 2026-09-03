@@ -204,9 +204,9 @@ def _drop_user_from_profile_roster(profile_path: Path, user: str) -> _RosterEdit
     """
     from ruamel.yaml.comments import CommentedMap
 
-    from osprey.utils.config_writer import _load, _save
+    from osprey.utils.config_writer import load_config_document, save_config_document
 
-    data = _load(profile_path)
+    data = load_config_document(profile_path)
     located = _locate_profile_roster(data.get("config") if isinstance(data, dict) else None)
     if located is None:
         return _RosterEdit(changed=False, expanded_bare_entries=False)
@@ -238,7 +238,7 @@ def _drop_user_from_profile_roster(profile_path: Path, user: str) -> _RosterEdit
         if isinstance(entry, dict) and entry.get("name") == user:
             del roster[position]
 
-    _save(profile_path, data)
+    save_config_document(profile_path, data)
     return _RosterEdit(changed=True, expanded_bare_entries=expanded)
 
 

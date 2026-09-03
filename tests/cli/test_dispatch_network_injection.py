@@ -28,13 +28,15 @@ from osprey.cli.build_profile import DispatchConfig
 
 # The exact config.yml this injection renders for the profile built by
 # ``_dispatch()`` below, captured from the injector as it stood before the
-# network axis existed. Any byte of drift in the default (bridge) render is a
-# regression, not a refresh: the axis is opt-in and unset means unchanged.
+# network axis existed and re-pinned when the injector joined the shared config
+# writer, whose style indents block sequences under their key. Any byte of
+# drift in the default (bridge) render is a regression, not a refresh: the
+# axis is opt-in and unset means unchanged.
 PRE_AXIS_CONFIG_YML = """\
 deployed_services:
-- postgresql
-- event_dispatcher
-- dispatch_worker
+  - postgresql
+  - event_dispatcher
+  - dispatch_worker
 services:
   postgresql: {}
   event_dispatcher:
@@ -43,8 +45,8 @@ services:
     facility_name: ALS
     pv_strip_prefix: 'ALS:'
     additional_dirs:
-    - src: triggers.yml
-      dst: triggers.yml
+      - src: triggers.yml
+        dst: triggers.yml
   dispatch_worker:
     path: ./services/dispatch_worker
     worker_count: 1
