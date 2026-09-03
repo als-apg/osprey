@@ -24,6 +24,7 @@ from osprey.errors import BuildProfileError
 from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
 from osprey.utils.config import resolve_env_vars
 from osprey.utils.facility import resolve_facility_name
+from osprey_connectors import yaml_loader
 
 logger = logging.getLogger("osprey.cli.templates")
 
@@ -2028,7 +2029,7 @@ def regenerate_claude_code(
         )
 
     with open(config_file, encoding="utf-8") as f:
-        config = yaml.safe_load(f) or {}
+        config = yaml_loader.safe_load(f) or {}
 
     config = resolve_env_vars(config)
 
