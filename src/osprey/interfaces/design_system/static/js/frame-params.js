@@ -107,6 +107,14 @@ export function stripQueryMode() {
  * web terminal's command palette, which must flip the mode with no display
  * menu on the page, since that menu is a bar item the operator may remove.
  *
+ * A pick of the mode already stamped on `<html>` persists and strips but does
+ * not broadcast: the listeners treat every broadcast as a flip (the web
+ * terminal's dock stashes the on-screen arrangement under the view being
+ * left), so re-broadcasting the current mode would file one view's layout
+ * under the other's key. The guard sits here, on the one sender, because the
+ * receivers share `data-ui-mode` as their state and a receive-side compare
+ * would silence every listener after the first.
+ *
  * @param {'expert'|'simple'} mode
  * @returns {void}
  */
@@ -117,6 +125,7 @@ export function pickUiMode(mode) {
     window.localStorage.setItem(scopedStorageKey(MODE_STORAGE_KEY), mode);
   } catch { /* storage blocked — the mode still applies for this session */ }
   stripQueryMode();
+  if (document.documentElement.getAttribute('data-ui-mode') === mode) return;
   window.postMessage({ type: 'osprey-mode-change', mode }, window.location.origin);
 }
 

@@ -161,9 +161,10 @@ function initUiModeFollowUps() {
     // Panels read the current mode off <html>, so broadcast only after the
     // swap (onModeChange stamped it before calling back).
     broadcastMode();
-    // Dock half of the flip: stash+lock into the simple layout, or reconcile+
-    // restore the expert layout. Runs after the CSS/attribute swap so the dock
-    // reads the target mode; no-ops until the workspace shell exists.
+    // Dock half of the flip: stash the outgoing view's arrangement, then
+    // restore the target view's own (or build its default). Runs after the
+    // CSS/attribute swap so the dock reads the target mode; no-ops until the
+    // workspace shell exists.
     applyDockMode(mode);
     // Panel half: a flip to expert ends the simple-UX chat-only suppression
     // and lets the default panel claim a still-empty workspace slot. Runs

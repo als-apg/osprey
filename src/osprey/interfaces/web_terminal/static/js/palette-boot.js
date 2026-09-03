@@ -11,13 +11,12 @@
  * The palette runs in BOTH ui modes — the header trigger is not mode-gated, so
  * the action cluster never shifts under an operator on an Expert/Simple flip.
  * What changes is the REGISTRY, not the entry points: simple mode hides the
- * terminal (the operator console takes its place) and locks the dock to a
- * single service tile, so `buildPaletteDeps` drops the terminal/session actions,
- * the Layouts group and the "Open … in a new tile" rows there rather than
- * offering picks that would silently do nothing. Everything simple mode can
- * honour — settings search, the panel show/focus verbs the rail already
- * exposes, popping a panel out to its own browser tab, rail placement, the
- * drawer tabs, the safety reference — stays.
+ * terminal (the operator console takes its place), so `buildPaletteDeps` drops
+ * the terminal/session actions there rather than offering picks that would act
+ * on a surface the operator cannot see. Everything else — settings search, the
+ * panel verbs including "Open … in a new tile", the Layouts group, popping a
+ * panel out to its own browser tab, Customize bars, rail placement, the drawer
+ * tabs, the safety reference — is the same in both views.
  */
 
 import { restartTerminal, startTerminal } from './terminal.js';
@@ -108,14 +107,11 @@ function buildPaletteDeps() {
     run: () => pickUiMode(otherMode),
   });
 
-  // Rearranging the bars is one of the three Expert-only entry points (the
-  // other two are a right-click on either bar and the display menu's projected
-  // row). The saved arrangement still RENDERS in simple mode — the bars are the
-  // operator's chrome, not the mode's — so what is withheld here is the way to
-  // change it, not the thing itself.
-  if (!simple) {
-    actions.push({ label: 'Customize bars', run: () => enterEditMode() });
-  }
+  // Rearranging the bars is offered in both modes, like the other two ways in
+  // (a right-click on either bar and the display menu's projected row): the
+  // bars are the operator's chrome, not the mode's, and Simple simplifies the
+  // workspace around them, not the operator's hand on them.
+  actions.push({ label: 'Customize bars', run: () => enterEditMode() });
 
   // Both rail directions are always offered (the palette is searched, not
   // browsed) — flipping to the current position is a harmless no-op.
@@ -147,17 +143,15 @@ function buildPaletteDeps() {
   /** @type {import('./palette-registry.js').PaletteDeps} */
   const deps = {
     // Panel show/focus is exactly what a rail click does, and the rail is
-    // present in both modes — in simple the show path takes over the single
-    // locked service tile, which is the rail's own behaviour there.
+    // present in both modes.
     getHiddenPanels,
     getVisiblePanels,
     showPanel,
     // "Focus" reports as a user-initiated activation so the server sees it.
     focusPanel: (id) => activateTab(id, { userInitiated: true }),
-    // Popping out is a browser-tab action, so it survives simple mode's locked
-    // layout untouched. getPopoutPanels is already narrowed to rail members
-    // whose standalone URL resolved, and INCLUDES the active panel — the
-    // context menu's "Open in a new window" reads the same way.
+    // getPopoutPanels is already narrowed to rail members whose standalone URL
+    // resolved, and INCLUDES the active panel — the context menu's "Open in a
+    // new window" reads the same way.
     getPopoutPanels,
     popoutPanel,
     actions,
@@ -167,21 +161,14 @@ function buildPaletteDeps() {
   // revealSetting, which opens the Config tab — so the dep is withheld with
   // the tab, and palette.js drops the group AND its /api/config read rather
   // than rendering rows that jump nowhere against a surface answering 403.
-  // Same idiom as the two simple-mode deps below: omitting the dep is what
-  // drops the rows.
+  // Omitting the dep is what drops the rows.
   if (configTabPresent()) deps.revealSetting = revealSetting;
 
-  // Both of the below place a SECOND service tile, which simple mode's locked
-  // layout cannot hold — omitting the dep is what drops the rows.
-  if (!simple) {
-    // "Open … in a new tile" shares getVisiblePanels with the Focus rows, so
-    // withholding the closure is the only thing that can separate the two.
-    deps.openPanelBeside = openPanelBeside;
-    // Layouts restore a multi-tile arrangement; omitting the getter drops the
-    // whole group from the registry.
-    deps.getPresets = getPresets;
-    deps.applyPreset = applyMenuPreset;
-  }
+  // "Open … in a new tile" and the Layouts group place tiles; both views hold
+  // as many tiles as the operator wants, so both are offered in both.
+  deps.openPanelBeside = openPanelBeside;
+  deps.getPresets = getPresets;
+  deps.applyPreset = applyMenuPreset;
 
   return deps;
 }

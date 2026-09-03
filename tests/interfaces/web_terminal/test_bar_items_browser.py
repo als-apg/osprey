@@ -31,10 +31,10 @@ Coverage (one test each):
   (g) a header item dragged onto the status bar moves there — every type may
       sit in either bar — and a type this deployment cannot render is a
       disabled tile carrying its reason.
-  (h) Simple mode renders the same saved arrangement and offers NO way into
-      edit mode — no right-click menu, no display-menu row, no palette action —
-      each absence paired with its presence in Expert on a cold page, because
-      an entry point that mounts in neither mode reads the same as a gated one.
+  (h) Simple mode renders the same saved arrangement and offers the same three
+      ways into edit mode — the right-click menu, the display-menu row and the
+      palette action — and the first of them is followed through to the open
+      sheet, so a row that mounts but does nothing cannot pass.
   (i) a header packed to the per-host cap with max-width gaps does not
       overflow a 1024 px viewport, the header chrome stays on screen, and the
       run's non-shrinking content leaves a stated margin rather than merely
@@ -598,16 +598,13 @@ def test_a_header_item_moves_to_the_status_bar(tmp_path, chromium_browser):
 # ---------------------------------------------------------------------------
 
 
-def test_simple_mode_renders_the_layout_and_offers_no_way_to_change_it(tmp_path, chromium_browser):
+def test_simple_mode_renders_the_layout_and_offers_the_same_ways_in(tmp_path, chromium_browser):
     """The mode axis is not the layout axis.
 
     Simple renders the same saved arrangement — the bars are the operator's
-    chrome, not the mode's — and withholds only the three ways in. Absent, not
-    disabled: a control that is visible and does nothing is worse than none.
-
-    Each of the three absences is paired with its presence in Expert, on a cold
-    page of the same server. An absence on its own is not evidence: an entry
-    point that fails to mount in BOTH modes reads identically here.
+    chrome, not the mode's — and offers the same three ways into editing it.
+    The right-click route is followed through to the open sheet: a menu row
+    that mounted but did nothing would pass a presence check and fail here.
     """
     with _launch_web_terminal(tmp_path) as (base_url, app):
         _seed_layout(
@@ -622,17 +619,21 @@ def test_simple_mode_renders_the_layout_and_offers_no_way_to_change_it(tmp_path,
         assert _types(page, "header") == ["logo", "space", "search", "display"]
         assert _types(page, "status") == ["clock", "docs"]
 
-        # 1. right-click either bar: no menu, and nothing was consumed.
+        # 1. right-click either bar: the menu, and its row opens the sheet.
         page.locator(HEADER_HOST).click(button="right", position={"x": 4, "y": 4})
-        expect(page.locator(CONTEXT_MENU)).to_have_count(0)
-        expect(page.locator(SHEET)).to_have_count(0)
+        customize = page.locator(f'{CONTEXT_MENU} [data-bar-action="customize"]')
+        expect(customize).to_be_visible()
+        customize.click()
+        expect(page.locator(SHEET)).to_have_class(re.compile(r"\bis-open\b"), timeout=5_000)
+        page.keyboard.press("Escape")
+        expect(page.locator(SHEET)).not_to_have_class(re.compile(r"\bis-open\b"), timeout=5_000)
 
         # 2. the display menu's projected row.
         page.locator(DISPLAY_MENU_BTN).click()
         expect(page.locator(DISPLAY_MENU_CARD)).to_have_class(
             re.compile(r"\bopen\b"), timeout=2_000
         )
-        expect(page.locator(CUSTOMIZE_ROW)).to_have_count(0)
+        expect(page.locator(CUSTOMIZE_ROW)).to_have_count(1)
         page.keyboard.press("Escape")
 
         # 3. the palette action.
@@ -640,35 +641,9 @@ def test_simple_mode_renders_the_layout_and_offers_no_way_to_change_it(tmp_path,
         palette_input = page.locator(PALETTE_INPUT)
         expect(palette_input).to_be_visible(timeout=5_000)
         palette_input.fill("Customize")
-        expect(page.locator(PALETTE_ITEM).filter(has_text="Customize bars")).to_have_count(0)
+        expect(page.locator(PALETTE_ITEM).filter(has_text="Customize bars")).to_have_count(1)
+
         page.close()
-
-        # The same three, in Expert, on a cold page. Without this the three
-        # absences above would pass just as well against entry points that never
-        # mount at all -- which is what the display-menu row used to do, before
-        # it learned to wait for `osprey-display-menu` to be defined.
-        app.state.web_ui_mode = "expert"
-        expert = _open(chromium_browser, base_url)
-        assert _types(expert, "header") == ["logo", "space", "search", "display"]
-
-        expert.locator(HEADER_HOST).click(button="right", position={"x": 4, "y": 4})
-        expect(expert.locator(f'{CONTEXT_MENU} [data-bar-action="customize"]')).to_be_visible()
-        expert.keyboard.press("Escape")
-
-        expert.locator(DISPLAY_MENU_BTN).click()
-        expect(expert.locator(DISPLAY_MENU_CARD)).to_have_class(
-            re.compile(r"\bopen\b"), timeout=2_000
-        )
-        expect(expert.locator(CUSTOMIZE_ROW)).to_have_count(1)
-        expert.keyboard.press("Escape")
-
-        expert.locator(PALETTE_BTN).click()
-        expert_palette = expert.locator(PALETTE_INPUT)
-        expect(expert_palette).to_be_visible(timeout=5_000)
-        expert_palette.fill("Customize")
-        expect(expert.locator(PALETTE_ITEM).filter(has_text="Customize bars")).to_have_count(1)
-
-        expert.close()
 
 
 # ---------------------------------------------------------------------------

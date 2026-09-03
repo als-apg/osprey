@@ -33,14 +33,16 @@ const PANEL_TERMINAL = 'terminal';
 const TERMINAL_TITLE = 'SESSION';
 
 /** localStorage key prefix; the per-project key from GET /api/panels is appended
- *  so one browser origin persists a separate expert layout per project. */
+ *  so one browser origin persists a separate layout per project — and, through
+ *  `layoutKey()`, per view. */
 const LAYOUT_KEY_PREFIX = 'osprey-dock-layout-';
 
 /** Per-project layout key BASE (prefix + project_key), or null until
  *  initPersistence has fetched the project key. No key ⇒ persistence is inert
  *  this session.
  *
- *  Never used bare: every read and write suffixes it per persona through
+ *  Never used bare: every read and write goes through `layoutKey()`, which
+ *  picks the view's variant and suffixes it per persona through
  *  `scopedStorageKey()`. Project key alone is not enough on a multi-user mount,
  *  where every persona shares one origin and would otherwise inherit — and
  *  overwrite — whichever arrangement another operator left behind for the same
@@ -48,6 +50,21 @@ const LAYOUT_KEY_PREFIX = 'osprey-dock-layout-';
  *  reflects the document actually being served (see storage-scope.js).
  *  @type {string|null} */
 let layoutStorageKeyBase = null;
+
+/**
+ * The storage key for one view's arrangement, or null while persistence is
+ * inert. Expert keeps the bare base, so an arrangement stored before Simple
+ * became editable still restores; Simple gets its own suffix. The two views
+ * start from different defaults and each remembers its own arrangement — that
+ * is what "Simple" means here: a simpler starting point, not a locked one.
+ * @param {'expert'|'simple'} mode
+ * @returns {string|null}
+ */
+function layoutKey(mode) {
+  if (!layoutStorageKeyBase) return null;
+  const base = mode === 'simple' ? `${layoutStorageKeyBase}-simple` : layoutStorageKeyBase;
+  return scopedStorageKey(base);
+}
 
 /** Pending debounce handle for a persist write (see schedulePersist).
  *  @type {ReturnType<typeof setTimeout>|null} */
@@ -63,8 +80,8 @@ const TERMINAL_WIDTH_FRACTION = 0.4;
 /**
  * Pixel width for the service-panel group when it first docks beside the
  * terminal — the service side of the old fixed split (terminal 40% / services
- * 60%). Consumed by dock-iframe.js's ensurePlaceholder and the locked simple
- * layout below, so both modes derive the same split from one definition.
+ * 60%). Consumed by dock-iframe.js's ensurePlaceholder and Simple's default
+ * arrangement below, so both views derive the same split from one definition.
  * @returns {number}
  */
 export function defaultServiceWidth() {
@@ -93,8 +110,8 @@ export function setServiceRedock(fn) {
 /**
  * Callback dock-sync registers to learn when the BOOT layout is final — i.e.
  * when initPersistence has finished deciding what this session starts with,
- * whether that is a restored expert layout, the synthesized simple layout, or
- * the plain default because no project key came back.
+ * whether that is a restored layout for the current view, Simple's synthesized
+ * default, or the plain default because no project key came back.
  *
  * It exists because the occupancy reporter must not describe a layout the
  * restore is about to replace, and the restore's timing is a network round trip,
@@ -248,7 +265,8 @@ export function initDockWorkspace() {
 
   // Fire-and-forget: the default layout above is already usable, so a slow or
   // failed /api/panels fetch just means "no persistence this session". A stored
-  // expert layout, once fetched, is reconciled and applied over the default.
+  // layout for the current view, once fetched, is reconciled and applied over
+  // the default.
   void initPersistence(dockApi);
 }
 
@@ -418,19 +436,14 @@ function wireDockTheme(root) {
 
 /* ---- Terminal tile presence (first-class open/close/reopen) ---- */
 
-/** @returns {boolean} whether the terminal tile currently exists in the grid. */
-export function isTerminalOpen() {
-  return !!dockApi?.getPanel(PANEL_TERMINAL);
-}
-
 /**
  * Surface the terminal tile: focus it when present, re-create it when closed
  * (the rail entry's activate path). Re-adding by the same component re-adopts
  * the live terminal subtree — createComponent still holds the source element,
  * so the running xterm/chat state survives close → reopen (the same mechanism
  * resetDockLayout relies on). A reopened tile docks at the grid's right edge,
- * the terminal's home side. Reopening is expert-only: the locked simple layout
- * always contains the terminal, so there is nothing to reopen there.
+ * the terminal's home side. The same in both views: in Simple the tile hosts
+ * the operator console, and closing and reopening it is as ordinary there.
  */
 export function openTerminalPanel() {
   if (!dockApi) return;
@@ -439,7 +452,6 @@ export function openTerminalPanel() {
     existing.api?.setActive?.();
     return;
   }
-  if (currentUiMode() !== 'expert') return;
   try {
     dockApi.addPanel({
       id: PANEL_TERMINAL,
@@ -456,10 +468,10 @@ export function openTerminalPanel() {
  * Close the terminal tile (the rail entry's Delete-key path). The dock tab's
  * own "×" goes through dockview directly; both end at the same removePanel.
  * The rail's SESSION entry is unaffected — it is the permanent reopen
- * affordance. No-op in simple mode — the locked layout is not user-editable.
+ * affordance.
  */
 export function closeTerminalPanel() {
-  if (!dockApi || currentUiMode() !== 'expert') return;
+  if (!dockApi) return;
   const panel = dockApi.getPanel(PANEL_TERMINAL);
   if (!panel) return;
   try {
@@ -493,16 +505,13 @@ function currentUiMode() {
 }
 
 /**
- * Serialize the CURRENT layout to localStorage — EXPERT mode only. The locked
- * simple layout is synthesized, never persisted (the mode-transition task owns
- * the synthesizer): while simple is active the stored value stays the stashed
- * expert layout, so a reload in simple mode restores the arrangement intact.
+ * Serialize the CURRENT layout to localStorage under the current view's key.
+ * Each view persists its own arrangement; a reload in either view restores
+ * what that view last looked like.
  */
 function persistCurrentLayout() {
-  if (!dockApi || !layoutStorageKeyBase || currentUiMode() !== 'expert') return;
-  try {
-    localStorage.setItem(scopedStorageKey(layoutStorageKeyBase), JSON.stringify(dockApi.toJSON()));
-  } catch { /* storage blocked/full — the layout still lives for this session */ }
+  if (!dockApi) return;
+  stashLayout(dockApi, currentUiMode());
 }
 
 /**
@@ -519,24 +528,30 @@ function schedulePersist() {
 }
 
 /**
- * Load, reconcile, and apply a persisted expert layout over the freshly-built
- * default. No stored value, a corrupt one, or a failed apply all leave the
- * default in place (full fallback only on parse/apply failure). A layout that
- * parsed but would not apply is dropped so the next reload starts clean.
+ * Load, reconcile, and apply the persisted layout of one view. Reconciled
+ * against the currently-registered panels, so panels added or removed while the
+ * other view was active are folded in. Returns whether a stored layout was
+ * applied: no stored value, a corrupt one, or a failed apply all return false
+ * and leave the grid to the caller, who knows which default the view starts
+ * from. A layout that parsed but would not apply is dropped so the next reload
+ * starts clean.
  * @param {any} api
+ * @param {'expert'|'simple'} mode
+ * @returns {boolean}
  */
-function applyStoredLayout(api) {
-  if (!layoutStorageKeyBase) return;
+function applyStoredLayout(api, mode) {
+  const key = layoutKey(mode);
+  if (!key) return false;
   let raw;
   try {
-    raw = localStorage.getItem(scopedStorageKey(layoutStorageKeyBase));
+    raw = localStorage.getItem(key);
   } catch {
-    return;
+    return false;
   }
-  if (!raw) return;
+  if (!raw) return false;
 
   const next = reconcile(raw, currentRegisteredPanels(api));
-  if (!next) return;
+  if (!next) return false;
   try {
     api.fromJSON(next);
     ensureTerminalPanel(api);
@@ -544,19 +559,21 @@ function applyStoredLayout(api) {
     // Let the adapter re-sync: ensure visible service placeholders exist and
     // prune any restored placeholder whose service no longer exists.
     redockServices?.();
+    return true;
   } catch (err) {
-    console.error('dock: stored layout failed to apply; keeping default', err);
+    console.error('dock: stored layout failed to apply; using the default', err);
     try {
-      localStorage.removeItem(scopedStorageKey(layoutStorageKeyBase));
+      localStorage.removeItem(key);
     } catch { /* non-fatal */ }
+    return false;
   }
 }
 
 /**
- * Resolve the per-project storage key, apply any stored expert layout over the
- * default, then wire settled-change persistence. onDidLayoutChange is subscribed
- * AFTER the stored layout is applied so the restore itself doesn't trigger a
- * redundant write-back.
+ * Resolve the per-project storage key, apply any stored layout for the current
+ * view over the default, then wire settled-change persistence.
+ * onDidLayoutChange is subscribed AFTER the stored layout is applied so the
+ * restore itself doesn't trigger a redundant write-back.
  *
  * Every exit announces the boot layout as final through the layoutRestored hook
  * — including the no-project-key early return, where the default arrangement IS
@@ -579,32 +596,33 @@ async function initPersistence(api) {
   }
   layoutStorageKeyBase = LAYOUT_KEY_PREFIX + projectKey;
 
-  // Boot into the mode the server rendered. In simple mode the locked layout is
-  // synthesized fresh (leaving the stored EXPERT value untouched for a later flip
-  // back); in expert mode the stored arrangement is restored over the default.
-  // Panels registered AFTER this point (late iframe placeholders / agent SSE) are
+  // Boot into the view the server rendered, restoring that view's stored
+  // arrangement over the default. With nothing stored, Expert's default is the
+  // grid initDockWorkspace already built; Simple's is synthesized here. Panels
+  // registered AFTER this point (late iframe placeholders / agent SSE) are
   // folded in by the iframe adapter and dock-sync, not here.
-  if (currentUiMode() === 'simple') {
-    applySimpleLayout(api);
-  } else {
-    applyStoredLayout(api);
-  }
+  const mode = currentUiMode();
+  if (!applyStoredLayout(api, mode) && mode === 'simple') applySimpleDefault(api);
   announceLayoutRestored();
   api.onDidLayoutChange(schedulePersist);
 }
 
 /**
- * Clear the stored layout and restore the default arrangement live. Exposed for
- * a "Reset layout" control (not yet bound to any chrome); the browser suite
- * exercises it as the canonical reset path.
+ * Clear the current view's stored layout and restore its default arrangement
+ * live. Exposed for a "Reset layout" control (not yet bound to any chrome); the
+ * browser suite exercises it as the canonical reset path.
  */
 export function resetDockLayout() {
-  if (layoutStorageKeyBase) {
+  const mode = currentUiMode();
+  const key = layoutKey(mode);
+  if (key) {
     try {
-      localStorage.removeItem(scopedStorageKey(layoutStorageKeyBase));
+      localStorage.removeItem(key);
     } catch { /* non-fatal */ }
   }
-  if (dockApi) arrangeDefaultLayout(dockApi);
+  if (!dockApi) return;
+  if (mode === 'simple') applySimpleDefault(dockApi);
+  else arrangeDefaultLayout(dockApi);
 }
 
 /* ---- Mode transition (expert ⇄ simple) ---- */
@@ -612,53 +630,50 @@ export function resetDockLayout() {
 /**
  * Apply the dock half of a UI-mode flip. Called by app.js's initModeToggle AFTER
  * the html[data-ui-mode] swap, so currentUiMode() already reflects the target.
- * No-ops before the workspace exists. Both directions are live — no reload.
- *  - expert→simple: stash the current expert layout as the persisted value, then
- *    apply the synthesized LOCKED layout (one tab-stack of every service panel |
- *    terminal/chat right; drag/float/close/resize off).
- *  - simple→expert: unlock, then reconcile + restore the stashed expert layout
- *    (falling back to the default arrangement if none is usable).
+ * No-ops before the workspace exists. Both directions are live — no reload, and
+ * symmetric: the arrangement on screen is stashed under the view being LEFT,
+ * then the target view's stored arrangement is restored, or its default built
+ * when there is none usable. Nothing is locked in either direction.
  * @param {'expert'|'simple'} mode
  */
 export function applyDockMode(mode) {
   if (!dockApi) return;
-  if (mode === 'simple') {
-    stashExpertLayout(dockApi);
-    applySimpleLayout(dockApi);
-  } else {
-    restoreExpertLayout(dockApi);
-    unlockLayout(dockApi);
-  }
+  stashLayout(dockApi, mode === 'simple' ? 'expert' : 'simple');
+  if (applyStoredLayout(dockApi, mode)) return;
+  if (mode === 'simple') applySimpleDefault(dockApi);
+  else arrangeDefaultLayout(dockApi);
 }
 
 /**
- * Write the CURRENT (expert) layout straight to the persisted value, bypassing
- * the expert-only guard on schedulePersist. Called at the instant of the
- * expert→simple flip — the arrangement is still the expert one (only the mode
- * attribute has changed) — so the stash IS the stored layout: a reload while in
- * simple mode restores it intact. No key ⇒ simple→expert falls back to default.
+ * Write the CURRENT layout straight to one view's persisted value. Called at
+ * the instant of a flip — the arrangement on screen is still the outgoing
+ * view's (only the mode attribute has changed) — and by the debounced persist
+ * for the current view. No key ⇒ nothing is stored and the next flip back
+ * falls back to that view's default.
  * @param {any} api
+ * @param {'expert'|'simple'} mode
  */
-function stashExpertLayout(api) {
-  if (!layoutStorageKeyBase) return;
+function stashLayout(api, mode) {
+  const key = layoutKey(mode);
+  if (!key) return;
   try {
-    localStorage.setItem(scopedStorageKey(layoutStorageKeyBase), JSON.stringify(api.toJSON()));
-  } catch { /* storage blocked — simple→expert will fall back to the default */ }
+    localStorage.setItem(key, JSON.stringify(api.toJSON()));
+  } catch { /* storage blocked/full — the layout still lives for this session */ }
 }
 
 /**
- * Synthesize and apply the LOCKED simple layout: ONE service tile on the left,
- * the terminal/chat card on the right (the chat keeps the right-hand column in
- * both modes, mirroring the expert default). One panel per tile is a workspace
- * invariant and the rail is the tab system, so the tile carries exactly the
- * service placeholder that was showing (preferring the focused one) — the
- * other panels stay one rail click from taking the tile over. The placeholder
- * is re-created by its own id, which is what lets the iframe adapter re-find
- * and re-overlay it (it resolves placeholders by id on every settle). Locks
- * last so every group and sash the rebuild created is covered.
+ * Synthesize and apply Simple's DEFAULT arrangement: ONE service tile on the
+ * left, the console card on the right (the console keeps the right-hand column
+ * in both views, mirroring the Expert default). It is a starting point, not a
+ * lock: the operator rearranges it, opens more tiles and closes them exactly as
+ * in Expert, and the result persists under Simple's own key. The tile carries
+ * the service placeholder that was showing (preferring the focused one) — the
+ * other panels stay one rail click away. The placeholder is re-created by its
+ * own id, which is what lets the iframe adapter re-find and re-overlay it (it
+ * resolves placeholders by id on every settle).
  * @param {any} api
  */
-function applySimpleLayout(api) {
+function applySimpleDefault(api) {
   const registered = currentRegisteredPanels(api);
   const terminal = registered.find((p) => p.id === PANEL_TERMINAL)
     ?? { id: PANEL_TERMINAL, contentComponent: PANEL_TERMINAL };
@@ -676,37 +691,6 @@ function applySimpleLayout(api) {
       defaultServiceWidth(),
     );
   }
-
-  lockLayout(api);
-}
-
-/**
- * Restore the stored expert layout: reconcile it against the currently-registered
- * panels (so panels added/removed while simple was active are folded in) and
- * apply it; fall back to the default arrangement when there is no usable stored
- * layout or the apply fails.
- * @param {any} api
- */
-function restoreExpertLayout(api) {
-  let raw = null;
-  if (layoutStorageKeyBase) {
-    try {
-      raw = localStorage.getItem(scopedStorageKey(layoutStorageKeyBase));
-    } catch { /* storage blocked — fall through to default */ }
-  }
-  const next = raw ? reconcile(raw, currentRegisteredPanels(api)) : null;
-  if (next) {
-    try {
-      api.fromJSON(next);
-      ensureTerminalPanel(api);
-      normalizeTerminalTitle(api);
-      redockServices?.();
-      return;
-    } catch (err) {
-      console.error('dock: expert layout restore failed; using default', err);
-    }
-  }
-  arrangeDefaultLayout(api);
 }
 
 /**
@@ -768,29 +752,6 @@ function addPanelFromDescriptor(api, descriptor, position, initialWidth) {
   if (position) opts.position = position;
   if (initialWidth != null && initialWidth > 0) opts.initialWidth = initialWidth;
   api.addPanel(opts);
-}
-
-/**
- * Lock the layout against user editing: disable all drag/float (runtime
- * disableDnd, which dockview merges and re-wires) and all sash resizing. Tab
- * clicks still activate panels; close controls are hidden via CSS under
- * html[data-ui-mode="simple"] (dockview-overrides.css).
- * @param {any} api
- */
-function lockLayout(api) {
-  api.updateOptions({ disableDnd: true });
-  api.locked = true;
-}
-
-/**
- * Release the simple-mode lock. disableDnd is an accessor option checked per
- * gesture; `locked` is cleared here and again is idempotent if a later restore
- * rebuilds the grid.
- * @param {any} api
- */
-function unlockLayout(api) {
-  api.updateOptions({ disableDnd: false });
-  api.locked = false;
 }
 
 /**

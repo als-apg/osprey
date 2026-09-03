@@ -29,9 +29,10 @@ What is proven here, grouped:
   * Layout persistence keyed by project_key: an expert arrangement survives a
     reload, two project cwds keep distinct layouts on one origin, reset restores
     the default, and a corrupt stored value falls back cleanly.
-  * Locked simple mode: no drag affordance (a drag is a no-op) and no per-tab
-    close control; an SSE register during simple mode is folded in with no dead
-    tabs once the operator flips back to expert.
+  * Simple mode is a simpler default, not a locked layout: the dock is not
+    locked, every tile keeps its close control, and a drag rearranges; an SSE
+    register during simple mode is folded in with no dead tabs once the
+    operator flips back to expert.
   * The "+" add menu: unclipped geometry beside the rail, URL-row gating, reveal a
     hidden panel INTO A NEW TILE beside the active one, register from URL, and
     inline register errors.
@@ -41,7 +42,7 @@ What is proven here, grouped:
   * The right-click context menu (``panel-context-menu.js``), the only home left
     for the open-beside and pop-out verbs: the rows a rail entry and a tile header
     offer, the surfaces that DECLINE (an offline entry by mouse or keyboard, a
-    contributed header input, the terminal in simple mode), and the dismissals
+    contributed header input), and the dismissals
     that need real focus and real event targets — a click into a panel iframe,
     and the scroll scoping that leaves the menu standing while xterm scrolls.
   * The command palette: it opens with the input focused and typing filters
@@ -358,9 +359,8 @@ _STRIP_HEIGHT_JS = r"""(terminal) => {
 def _strip_height(page: Page, *, terminal: bool) -> int:
     """Rendered height of a tile's header strip, in px.
 
-    Every tile carries the same fixed-height bar in expert mode
-    (dockview-overrides.css); simple mode collapses the service bars to zero.
-    Returns -1 when no such tile is docked.
+    Every tile carries the same fixed-height bar in both ui modes
+    (dockview-overrides.css). Returns -1 when no such tile is docked.
     """
     return page.evaluate(_STRIP_HEIGHT_JS, terminal)
 
@@ -1498,24 +1498,22 @@ def test_corrupt_stored_layout_falls_back_to_default(tmp_path, chromium_browser)
 
 
 # ===========================================================================
-# Group 5 — Locked simple mode and mode↔dock transitions
+# Group 5 — Simple mode's editable default and mode↔dock transitions
 # ===========================================================================
 
 
-def test_simple_mode_locks_layout_and_hides_close_controls(tmp_path, chromium_browser):
-    """Simple mode is a locked layout: no per-tab close, and drag is a no-op.
+def test_simple_mode_starts_simple_and_stays_editable(tmp_path, chromium_browser):
+    """Simple mode is a simpler starting point, not a locked layout.
 
-    The dock is api.locked with drag disabled and the per-tab close control
-    (.tile-tab-close) hidden by the simple-mode CSS; a service tile's strip
-    collapses to nothing at all there, since a bar that can neither drag nor
-    close is dead chrome. A Playwright drag of a tab leaves the arrangement
-    unchanged.
+    It boots into one service tile beside the console, but the dock is not
+    locked: every tile keeps its header strip and close control, and a
+    Playwright drag of the terminal tab rearranges the grid exactly as it does
+    in Expert.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
     # Non-empty workspace: an empty one makes a Simple hub boot chat-only
-    # (workspace suppressed) — this test's subject is the LOCKED simple
-    # layout, which needs the workspace docked.
+    # (workspace suppressed) — this test's subject is the docked default.
     (workspace / "seed_artifact.txt").write_text("seed\n")
 
     with _live_server(
@@ -1528,28 +1526,20 @@ def test_simple_mode_locks_layout_and_hides_close_controls(tmp_path, chromium_br
         expect(page.locator("html")).to_have_attribute("data-ui-mode", "simple")
         page.wait_for_timeout(1_000)
 
-        # Locked, and no per-tab close control is visible anywhere — neither
-        # on the single service tile the locked simple layout docks (per
-        # applySimpleLayout) nor on the terminal beside it.
-        assert _dock_locked(page) is True
-        expect(page.locator(".dv-tab .tile-tab-close:visible")).to_have_count(0)
-        # The service tile's whole strip collapses; the terminal's stays, since
-        # its bar is content (session id, "+ New") rather than a drag handle.
-        assert _strip_height(page, terminal=False) == 0
-        assert _strip_height(page, terminal=True) > 0
-
-        # The chat/terminal card keeps the right-hand column in simple mode
-        # (the single service tile on the left).
+        # The simplified DEFAULT: one service tile left, the console right.
         groups = _dock_groups(page)
+        assert len(groups) == 2, groups
         term = next(g for g in groups if g["tabs"] == ["SESSION"])
         assert term["x"] == max(g["x"] for g in groups), groups
 
-        # A drag is a no-op — the arrangement is byte-identical before/after.
-        # Dragged BY THE TERMINAL's bar: the service tile has no drag surface
-        # left to grab in simple mode (its strip is the 0px asserted above), so
-        # the terminal's is the only tab an operator could still attempt this
-        # with, and therefore the only one worth proving inert.
-        before = _dock_groups(page)
+        # Not locked, and every tile keeps a live header strip with its close.
+        assert _dock_locked(page) is False
+        assert _strip_height(page, terminal=False) > 0
+        assert _strip_height(page, terminal=True) > 0
+        expect(page.locator(".dv-tab .tile-tab-close:visible").first).to_be_visible()
+
+        # A drag rearranges: drop the terminal on the service tile's left edge
+        # and it becomes the leftmost group.
         first_group = page.locator(".dv-groupview").first
         fb = first_group.bounding_box()
         _drag_with_dock_shield(
@@ -1559,7 +1549,9 @@ def test_simple_mode_locks_layout_and_hides_close_controls(tmp_path, chromium_br
             target_position={"x": 8, "y": fb["height"] / 2},
         )
         page.wait_for_timeout(700)
-        assert _dock_groups(page) == before, "a drag rearranged the locked simple layout"
+        groups = _dock_groups(page)
+        term = next(g for g in groups if g["tabs"] == ["SESSION"])
+        assert term["x"] == min(g["x"] for g in groups), groups
 
         page.close()
 
@@ -1570,13 +1562,12 @@ def test_mode_flip_restores_expert_layout_and_folds_in_simple_registration(
     """expert→simple→expert restores expert; a register during simple folds in clean.
 
     In simple mode a panel registered over SSE appears on the rail. Flipping back
-    to expert unlocks the dock and restores the expert arrangement with no dead or
-    duplicate tabs; the newly-registered panel then docks as a single clean tab
-    when focused.
+    to expert restores the expert arrangement with no dead or duplicate tabs; the
+    newly-registered panel then docks as a single clean tab when focused.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
-    # Non-empty workspace — see test_simple_mode_locks_layout_and_hides_close_controls.
+    # Non-empty workspace — see test_simple_mode_starts_simple_and_stays_editable.
     (workspace / "seed_artifact.txt").write_text("seed\n")
 
     with _live_server(
@@ -1589,7 +1580,6 @@ def test_mode_flip_restores_expert_layout_and_folds_in_simple_registration(
         page = _open_page(chromium_browser, base_url)
         expect(page.locator("html")).to_have_attribute("data-ui-mode", "simple")
         page.wait_for_timeout(1_000)
-        assert _dock_locked(page) is True
 
         # Register a panel while simple mode is active → rail entry appears.
         with patch(
@@ -1610,7 +1600,7 @@ def test_mode_flip_restores_expert_layout_and_folds_in_simple_registration(
             timeout=5_000
         )
 
-        # Flip to expert — dock unlocks and the expert layout is restored.
+        # Flip to expert — the expert layout is restored.
         # (The mode toggle lives inside the display-menu popover — open it first.)
         page.locator("#display-menu .display-menu-trigger").click()
         page.locator(
@@ -1657,8 +1647,7 @@ def test_simple_mode_empty_workspace_boots_chat_only_until_agent_reveal(tmp_path
         expect(page.locator("html")).to_have_attribute("data-ui-mode", "simple")
         page.wait_for_timeout(1_000)
 
-        # Chat-only boot: the locked layout holds only the terminal/chat card.
-        assert _dock_locked(page) is True
+        # Chat-only boot: the dock holds only the terminal/chat card.
         expect(_service_tab(page, "WORKSPACE")).to_have_count(0)
         groups = _dock_groups(page)
         assert [g["tabs"] for g in groups] == [["SESSION"]], groups
@@ -2836,17 +2825,19 @@ def test_disabled_rail_entry_has_no_context_menu(tmp_path, chromium_browser):
         page.close()
 
 
-def test_simple_mode_drops_new_tile_row_and_terminal_menu(tmp_path, chromium_browser):
-    """Simple mode: no new-tile row, and the terminal surfaces decline outright.
+def test_simple_mode_keeps_new_tile_row_and_trims_terminal_menu_to_close(
+    tmp_path, chromium_browser
+):
+    """Simple mode: the service rows are Expert's, the terminal keeps only Close.
 
-    The layout is locked to a single service tile there, so the open-beside verb
-    has nowhere to go; and the xterm card is replaced by the operator console,
-    so every terminal verb would act on a surface the operator cannot see — the
+    The workspace is as editable there as in Expert, so the open-beside verb
+    stays; the xterm card is replaced by the operator console, so the two PTY
+    verbs would act on a surface the operator cannot see and are withheld — the
     same reason the palette drops those actions in simple mode.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
-    # Non-empty workspace — see test_simple_mode_locks_layout_and_hides_close_controls.
+    # Non-empty workspace — see test_simple_mode_starts_simple_and_stays_editable.
     (workspace / "seed_artifact.txt").write_text("seed\n")
 
     with _live_server(
@@ -2860,6 +2851,7 @@ def test_simple_mode_drops_new_tile_row_and_terminal_menu(tmp_path, chromium_bro
         _open_rail_menu(page, "artifacts")
         assert _menu_labels(page) == [
             "Focus WORKSPACE",
+            "Open in a new tile",
             "Open in a new window",
             "Remove from rail",
         ], _menu_labels(page)
@@ -2867,11 +2859,8 @@ def test_simple_mode_drops_new_tile_row_and_terminal_menu(tmp_path, chromium_bro
         page.keyboard.press("Escape")
         expect(_context_menu(page)).to_have_count(0, timeout=5_000)
 
-        # The SESSION entry declines: no rows means no menu at all, never an
-        # empty popover.
-        _rail_entry(page, "terminal").click(button="right")
-        page.wait_for_timeout(500)
-        expect(_context_menu(page)).to_have_count(0)
+        _open_rail_menu(page, "terminal")
+        assert _menu_labels(page) == ["Close terminal tile"], _menu_labels(page)
 
         page.close()
 

@@ -1174,9 +1174,7 @@ describe('dockPanelBesideActive — placeholder append (register/open path)', ()
     expect(api._added[0].position).toBeUndefined();
   });
 
-  test('is a no-op in simple mode — the locked layout has exactly one service tile', async () => {
-    // The add-menu pick then falls through to the plain show path, which takes
-    // the single tile over like a rail click (one panel per tile).
+  test('places beside the active group in simple mode too — the view is not a lock', async () => {
     document.documentElement.setAttribute('data-ui-mode', 'simple');
     try {
       const api = makeApi();
@@ -1185,7 +1183,8 @@ describe('dockPanelBesideActive — placeholder append (register/open path)', ()
 
       mod.dockPanelBesideActive('ariel');
 
-      expect(api.addPanel).not.toHaveBeenCalled();
+      expect(api.addPanel).toHaveBeenCalledTimes(1);
+      expect(api._added[0].position).toMatchObject({ referenceGroup: api.activeGroup });
     } finally {
       document.documentElement.removeAttribute('data-ui-mode');
     }
@@ -1327,13 +1326,14 @@ describe('dockPanelAt — placement at an explicit dock position (rail drag / dr
     expect(api.addPanel).not.toHaveBeenCalled();
   });
 
-  test('is a no-op in simple mode (locked layout)', async () => {
+  test('docks in simple mode exactly as in expert', async () => {
     document.documentElement.setAttribute('data-ui-mode', 'simple');
     try {
       const api = makeApi();
       const { mod } = await wire(api);
       mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: { id: 'g' }, direction: 'right' });
-      expect(api.addPanel).not.toHaveBeenCalled();
+      expect(api.addPanel).toHaveBeenCalledTimes(1);
+      expect(api._added[0]).toMatchObject({ id: 'iframe:okf', title: 'KNOWLEDGE' });
     } finally {
       document.documentElement.removeAttribute('data-ui-mode');
     }

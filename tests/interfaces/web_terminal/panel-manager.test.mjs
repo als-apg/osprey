@@ -1261,15 +1261,19 @@ describe("agent open_panel (panel_focus source:'agent') — focus or open BESIDE
     expect(api.getPanel('iframe:ariel').group).toBe(artifactsGroup);
   });
 
-  test('simple mode keeps the single-tile takeover (the placement verb no-ops there)', async () => {
+  test('simple mode places beside the active tile exactly as expert does', async () => {
     const { api, emit } = await bootWorkspace({ mode: 'simple' });
-    const artifactsGroup = api.getPanel('iframe:artifacts').group;
+    const artifactsTile = api.getPanel('iframe:artifacts');
+    const artifactsGroup = artifactsTile.group;
 
     emit({ type: 'panel_focus', panel: 'ariel', source: 'agent' });
 
-    expect(api.getPanel('iframe:artifacts')).toBeNull();
-    expect(api.getPanel('iframe:ariel').group).toBe(artifactsGroup);
-    expect(api.panels.filter((/** @type {any} */ p) => p.id.startsWith('iframe:'))).toHaveLength(1);
+    // Simple is a simpler default, not a single-tile lock: the switch opens a
+    // second tile beside the first rather than evicting it.
+    expect(api.getPanel('iframe:artifacts')).toBe(artifactsTile);
+    expect(api.getPanel('iframe:ariel')).not.toBeNull();
+    expect(api.getPanel('iframe:ariel').group).not.toBe(artifactsGroup);
+    expect(api.panels.filter((/** @type {any} */ p) => p.id.startsWith('iframe:'))).toHaveLength(2);
   });
 
   test('fallback mode (no dock shell) activates exactly as before — no focus re-POST', async () => {
@@ -1500,17 +1504,16 @@ describe('panel_arrange — the declarative whole-workspace rebuild', () => {
     expect(entry('no-such-panel')).toBeNull();
   });
 
-  test('simple mode skips the rebuild and takes the single tile over', async () => {
+  test('simple mode rebuilds the arrangement exactly as expert does', async () => {
     const { api, emit } = await bootWorkspace({ panels: THREE, mode: 'simple' });
     expect(dockedTiles(api)).toEqual(['artifacts']);
 
     emit({ type: 'panel_arrange', tiles: ['channel-finder', 'ariel'], focus: 'ariel' });
 
-    // One service tile by construction: the focus target takes it over, and no
-    // second tile is opened beside it.
-    expect(dockedTiles(api)).toEqual(['ariel']);
+    // Simple is a simpler default, not a single-tile lock: the region is
+    // rebuilt to the requested tiles, left to right, with the focus honoured.
+    expect(dockedTiles(api)).toEqual(['channel-finder', 'ariel']);
     expect(activeStamp()).toBe('ariel');
-    // Membership still applies in simple mode — the rail is not a dock feature.
     expect(entry('channel-finder')).not.toBeNull();
   });
 
@@ -1994,12 +1997,17 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(activeStamp()).toBe('ariel');
   });
 
-  test('simple mode drops the new-tile row — its layout is one service tile', async () => {
+  test('simple mode offers the same rows, the new-tile row included', async () => {
     await bootWorkspace({ mode: 'simple' });
 
     rightClick(entry('ariel'));
 
-    expect(menuLabels()).toEqual(['Focus ARIEL', 'Open in a new window', 'Remove from rail']);
+    expect(menuLabels()).toEqual([
+      'Focus ARIEL',
+      'Open in a new tile',
+      'Open in a new window',
+      'Remove from rail',
+    ]);
   });
 
   test('an entry with no standalone url yet renders the popout row inert', async () => {
@@ -2083,15 +2091,17 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(closeTerminalPanel).toHaveBeenCalled();
   });
 
-  test('simple mode declines the terminal menu entirely', async () => {
+  test('simple mode keeps only the close row on the terminal menu', async () => {
     await bootWorkspace({ mode: 'simple' });
 
-    // The terminal is replaced by the operator console there and
-    // closeTerminalPanel no-ops, so every row would act on an invisible
-    // surface — the native menu falls through instead.
+    // The tile hosts the operator console there, so the two PTY verbs would
+    // act on a surface the operator cannot see and are withheld; the tile
+    // itself closes exactly as in expert.
     const ev = rightClick(entry('terminal'));
 
-    expect(contextMenu()).toBeNull();
-    expect(ev.defaultPrevented).toBe(false);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(menuLabels()).toEqual(['Close terminal tile']);
+    /** @type {HTMLElement} */ (menuRow('Close terminal tile')).click();
+    expect(closeTerminalPanel).toHaveBeenCalled();
   });
 });

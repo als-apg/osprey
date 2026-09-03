@@ -457,11 +457,10 @@ function panelIdForTab(tab) {
  * the group the re-add would reference), and an already-docked panel with no
  * position at all (nothing meaningful to do).
  *
- * No-op in fallback mode and in SIMPLE mode — the locked simple layout has
- * exactly one service tile, so callers there fall through to the plain show
- * path and take the tile over like a rail click. Wrapped in the echo guard so
- * neither the removal's auto-activation nor the add's active-panel change is
- * read as a human focus — the caller's show path owns the focus POST.
+ * No-op in fallback mode (no dock to place into); the same in both ui views.
+ * Wrapped in the echo guard so neither the removal's auto-activation nor the
+ * add's active-panel change is read as a human focus — the caller's show path
+ * owns the focus POST.
  * @param {string} serviceId  panel-manager rail id
  * @param {string} [title]    dock tab title (defaults to the id)
  * @param {{referenceGroup?: any, direction: string} | null} [position]
@@ -470,7 +469,6 @@ function panelIdForTab(tab) {
 export function dockPanelAt(serviceId, title = serviceId, position = null) {
   const api = getDockApi();
   if (!api) return;
-  if (document.documentElement.getAttribute('data-ui-mode') === 'simple') return;
   const placeholderId = PLACEHOLDER_PREFIX + serviceId;
   const existing = api.getPanel(placeholderId);
   if (existing) {

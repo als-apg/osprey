@@ -4,7 +4,7 @@
  * drops the item sheet below the header, and the single funnel every change
  * passes through on its way to the server.
  *
- * Three rules govern this module.
+ * Two rules govern this module.
  *
  * 1. ONE WRITE PATH. Every edit — a tile click, the status-bar toggle, and the
  *    drag and options gestures that land on top of this — becomes
@@ -21,8 +21,9 @@
  *    `refusalFor()` is that judgment, asked once and answered the same way by
  *    the sheet's tiles and by anything that later drops an item into a bar.
  *
- * 3. SIMPLE MODE HAS NO EDIT MODE. The guard lives here rather than on each
- *    entry point, so a surface added later cannot forget it.
+ * Neither rule reads the ui mode. The bars are the operator's chrome, not the
+ * mode's, so Simple mode edits them exactly as Expert does; what Simple
+ * simplifies is the workspace around them.
  *
  * The DOM of the sheet itself lives in bar-customize-sheet.js; this file is the
  * state machine and the rules.
@@ -579,15 +580,15 @@ function onKeydown(event) {
 }
 
 /**
- * Enter edit mode. Returns false when the mode refuses it — today only Simple
- * mode does, and it refuses silently because no surface is open to speak into.
+ * Enter edit mode. Returns whether the page is now editing — always true
+ * today; the boolean stays so a caller can keep treating a refusal as a
+ * possibility should one ever be added.
  * @param {BarRoot} [root]
  * @returns {boolean}
  */
 export function enterEditMode(root = activeRoot) {
   if (editing) return true;
   const owner = docOf(root);
-  if (owner.documentElement.getAttribute('data-ui-mode') === 'simple') return false;
   activeRoot = root;
   editing = true;
   closeBarPopovers();

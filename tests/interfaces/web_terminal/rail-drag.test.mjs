@@ -274,14 +274,18 @@ describe('railDragStart / railDragEnd — payload + shields', () => {
     expect(setIframePointerShield).not.toHaveBeenCalled();
   });
 
-  test('cancels in simple mode (locked layout)', async () => {
+  test('proceeds in simple mode — the view is not a locked layout', async () => {
     const api = makeApi();
     const { mod, container } = await wire(api);
     document.documentElement.setAttribute('data-ui-mode', 'simple');
-
-    expect(mod.railDragStart('ariel', fakeDT())).toBe(false);
-    expect(container.classList.contains('dock-dragging')).toBe(false);
-    expect(setIframePointerShield).not.toHaveBeenCalled();
+    try {
+      expect(mod.railDragStart('ariel', fakeDT())).toBe(true);
+      expect(container.classList.contains('dock-dragging')).toBe(true);
+      expect(setIframePointerShield).toHaveBeenCalledWith(true);
+    } finally {
+      mod.railDragEnd();
+      document.documentElement.removeAttribute('data-ui-mode');
+    }
   });
 
   test('cancels in fallback mode (no dock to drop into)', async () => {

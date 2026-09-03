@@ -31,11 +31,12 @@
  *
  * MODE DEGRADATION
  * ----------------
- * The tile rebuild runs only with a dock shell in expert mode. Simple mode has
- * exactly one service tile by construction, and fallback mode (no dock shell)
- * has none at all: both skip the rebuild and let the focus step take the single
- * surface over. Rail MEMBERSHIP is applied in every mode — the launcher rail is
- * not a dock feature, and a preset must prune it wherever it is clicked.
+ * The tile rebuild runs wherever there is a dock shell — in Simple as in
+ * Expert; the ui view is a starting point, not a lock. Fallback mode (no dock
+ * shell) has no tiles at all and skips the rebuild, letting the focus step take
+ * the single surface over. Rail MEMBERSHIP is applied in every mode — the
+ * launcher rail is not a dock feature, and a preset must prune it wherever it
+ * is clicked.
  */
 
 import {
@@ -136,8 +137,8 @@ function revealOpenedPanel(panelId) {
 /**
  * Open a panel as a NEW tile beside the active group — the rail ⊞ corner's
  * action. An already-open panel is MOVED beside the active tile (dockPanelAt's
- * move semantics), never duplicated. In simple mode the placement no-ops in
- * dock-sync and the reveal tail takes the single tile over like a rail click.
+ * move semantics), never duplicated. In fallback mode the placement no-ops in
+ * dock-sync and the reveal tail takes the single surface over like a rail click.
  * @param {string} panelId
  */
 export function openPanelBeside(panelId) {
@@ -166,10 +167,9 @@ export function dropPanelAt(panelId, position) {
  * switch implies membership, and the server's own visibility broadcast then
  * lands on an already-current rail.
  *
- * Both mode degradations fall out of the placement verb rather than a branch
- * here: dockPanelBesideActive no-ops in simple mode (one service tile by
- * construction) and in fallback mode (no dock shell), leaving exactly the plain
- * activation takeover both had before.
+ * The fallback-mode degradation falls out of the placement verb rather than a
+ * branch here: dockPanelBesideActive no-ops with no dock shell, leaving exactly
+ * the plain activation takeover it had before.
  * @param {string} panelId
  */
 export function applyAgentSwitch(panelId) {
@@ -196,12 +196,12 @@ export function applyAgentSwitch(panelId) {
 }
 
 /**
- * Whether the service-tile region can be rebuilt: a dock shell must exist, and
- * the mode must not be the locked single-tile simple layout.
+ * Whether the service-tile region can be rebuilt: a dock shell must exist. The
+ * ui view does not enter into it.
  * @returns {boolean}
  */
 function canRebuildTiles() {
-  return !!getDockApi() && document.documentElement.getAttribute('data-ui-mode') !== 'simple';
+  return !!getDockApi();
 }
 
 /**
@@ -278,8 +278,8 @@ export function applyArrange({ tiles = [], focus, prune_rail: pruneRail = false,
 
   // MEMBERSHIP — every mode. A preset prunes to its members (today's exclusive
   // semantics); a plain tiles request only adds. A pruned panel loses its tile
-  // here too: in simple and fallback mode the rebuild below never runs, and its
-  // surface must not outlive its rail entry.
+  // here too: in fallback mode the rebuild below never runs, and its surface
+  // must not outlive its rail entry.
   if (pruneRail) {
     for (const id of c.members()) {
       if (wantedSet.has(id)) continue;

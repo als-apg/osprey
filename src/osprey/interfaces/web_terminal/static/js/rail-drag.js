@@ -146,14 +146,13 @@ function disarmFailsafe() {
 
 /**
  * Begin a rail drag: stamp the payload and raise the iframe shields. Returns
- * false — cancelling the drag (panel-rail preventDefaults) — in simple mode
- * (locked layout) and in fallback mode (no dock to drop into).
+ * false — cancelling the drag (panel-rail preventDefaults) — in fallback mode
+ * (no dock to drop into). Both ui views drag alike.
  * @param {string} id  panel-manager rail id
  * @param {DataTransfer | null} dataTransfer
  * @returns {boolean} whether the drag may proceed
  */
 export function railDragStart(id, dataTransfer) {
-  if (document.documentElement.getAttribute('data-ui-mode') === 'simple') return false;
   if (!getDockApi()) return false;
   if (dataTransfer) {
     dataTransfer.setData(RAIL_DRAG_MIME, id);

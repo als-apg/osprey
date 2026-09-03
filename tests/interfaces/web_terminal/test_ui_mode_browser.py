@@ -17,8 +17,8 @@ Coverage (one test each):
       the ``history.replaceState`` strip stops the spent URL param from
       out-ranking the fresh explicit choice.
   (e) ``?mode=`` out-ranks a conflicting localStorage value.
-  (f) the display menu's System Settings row — hub chrome's only route into the
-      settings drawer — is Expert-only, and a live flip to Simple removes it.
+  (f) the header action cluster — search, the display menu, and its System
+      Settings row — renders the same in both modes, across a live flip.
 
 "No flash" is asserted at the earliest observable point, not just on the settled
 DOM: an init script installed at document-start records the value of
