@@ -29,7 +29,9 @@ from typing import TYPE_CHECKING, Any, overload
 import yaml
 
 # Safe at module level despite this module's no-osprey-imports rule below:
-# ``workspace`` imports nothing from osprey itself, so there is no cycle.
+# ``workspace`` and ``yaml_loader`` import nothing from osprey itself, so
+# there is no cycle.
+from osprey_connectors import yaml_loader
 from osprey_connectors.workspace import (
     DEFAULT_AGENT_DATA_BASE_DIR,
     SIMULATION_STATE_DIR_CONFIG_KEY,
@@ -513,7 +515,7 @@ class ConfigBuilder:
         """Load and validate a YAML configuration file."""
         try:
             with open(file_path) as f:
-                config = yaml.safe_load(f)
+                config = yaml_loader.safe_load(f)
 
             if config is None:
                 logger.warning(f"Configuration file is empty: {file_path}")

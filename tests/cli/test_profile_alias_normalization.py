@@ -205,7 +205,7 @@ def test_profile_hash_is_blind_to_the_spelling(tmp_path: Path) -> None:
 # profile pipeline. Everything else must route through _read_profile_document,
 # or a new read would silently skip alias normalization.
 _ALLOWED_YAML_READS = {
-    ("build_profile_document.py", "_read_profile_document", "yaml.safe_load"),
+    ("build_profile_document.py", "_read_profile_document", "yaml_loader.safe_load"),
     # Scalar `--set` values, not documents — normalized as a layer instead.
     ("build_profile_resolve.py", "_parse_set_pairs", "yaml.safe_load"),
     # The emitter's ruamel round-trip is a comment source; it must keep the
@@ -252,4 +252,8 @@ def test_yaml_document_reads_happen_only_in_the_helper() -> None:
     assert found - _ALLOWED_YAML_READS == set()
     # The helper itself must still be the read point — an empty result would
     # otherwise pass vacuously.
-    assert ("build_profile_document.py", "_read_profile_document", "yaml.safe_load") in found
+    assert (
+        "build_profile_document.py",
+        "_read_profile_document",
+        "yaml_loader.safe_load",
+    ) in found

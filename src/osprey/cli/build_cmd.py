@@ -732,6 +732,8 @@ def _index_rendered_services(
     """
     import yaml
 
+    from osprey_connectors import yaml_loader
+
     owners = {}
     build_dir = str(config.get("build_dir", "./build"))
     for name, block in _mapping(config.get("services")).items():
@@ -741,7 +743,7 @@ def _index_rendered_services(
     indexed: list[_RenderedService] = []
     for path in compose_files:
         try:
-            document = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+            document = yaml_loader.safe_load(Path(path).read_text(encoding="utf-8"))
         except (OSError, yaml.YAMLError) as exc:
             logger.debug("Network checks skipped %s: %s", path, exc)
             continue
