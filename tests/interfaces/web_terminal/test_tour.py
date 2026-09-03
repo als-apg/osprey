@@ -11,8 +11,10 @@ Covers:
     - `resolve_tour_policy` (pure resolver): valid-policy passthrough,
       unknown -> warn + fallback to the default, never raises.
     - The API path: GET "/api/panels" carries ``tour.policy`` (config,
-      env-override, unknown-fallback, key-absent) and ``tour.capabilities``
-      (control-system read line, ARIEL logbook line).
+      env-override, unknown-fallback, key-absent), ``tour.capabilities``
+      (core executor lines, ARIEL logbook line, and never a reading line —
+      the browser derives that from the active target's kind) and
+      ``tour.logbook``.
 """
 
 from __future__ import annotations
@@ -137,9 +139,15 @@ class TestPanelsPayloadTourCapabilities:
         tour = _tour_payload(workspace_dir, {"web": {}})
         assert tour["capabilities"] == ["run Python analysis", "make plots"]
 
-    def test_control_system_adds_the_read_line_first(self, workspace_dir):
+    def test_control_system_adds_no_read_line(self, workspace_dir):
+        """A configured connector says nothing about what is behind it.
+
+        ``control_system.type`` is set on a mock deployment too, so the server
+        never claims a reading capability; the browser derives that wording
+        from the active control target's kind.
+        """
         tour = _tour_payload(workspace_dir, {"web": {}, "control_system": {"type": "mock"}})
-        assert tour["capabilities"][0] == "read live machine values"
+        assert tour["capabilities"] == ["run Python analysis", "make plots"]
 
     def test_ariel_panel_adds_the_logbook_line_last(self, workspace_dir):
         tour = _tour_payload(
@@ -147,8 +155,19 @@ class TestPanelsPayloadTourCapabilities:
             {"web": {"panels": {"ariel": True}}, "control_system": {"type": "mock"}},
         )
         assert tour["capabilities"] == [
-            "read live machine values",
             "run Python analysis",
             "make plots",
             "search the logbook",
         ]
+
+
+class TestPanelsPayloadTourLogbook:
+    """``tour.logbook`` mirrors ARIEL panel availability as its own fact."""
+
+    def test_logbook_false_without_the_ariel_panel(self, workspace_dir):
+        tour = _tour_payload(workspace_dir, {"web": {}})
+        assert tour["logbook"] is False
+
+    def test_logbook_true_with_the_ariel_panel(self, workspace_dir):
+        tour = _tour_payload(workspace_dir, {"web": {"panels": {"ariel": True}}})
+        assert tour["logbook"] is True

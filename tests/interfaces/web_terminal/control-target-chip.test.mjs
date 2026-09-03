@@ -859,6 +859,54 @@ describe('popover API', () => {
   });
 });
 
+/* ---- the active kind ---------------------------------------------------- */
+
+describe('activeKind', () => {
+  /** The CSS values the chip keys on, one per machine kind. */
+  /** @type {Record<string, string>} */
+  const ATTR = { live: 'live', standin: 'standin', va: 'va', simulated: 'simulated' };
+
+  test('answers null before anything has been read', () => {
+    expect(chipModule.activeKind()).toBeNull();
+  });
+
+  test('answers null for a roster with no rows', async () => {
+    await boot(viewOf({ targets: [] }));
+    expect(chipModule.activeKind()).toBeNull();
+  });
+
+  for (const [kindName, kind] of Object.entries(KINDS)) {
+    test(`answers ${kindName} for the row the chip speaks for`, async () => {
+      await boot(
+        viewOf({
+          session_target: kind.target,
+          targets: [rowOf({ ...kind, active: true, is_baseline: true })],
+        })
+      );
+      expect(chipModule.activeKind()).toBe(ATTR[kindName]);
+      // One derivation for the chip and for whoever phrases what a write means
+      // on this machine: they cannot disagree about a stand-in.
+      expect(chipModule.activeKind()).toBe(chipEl()?.dataset.targetKind);
+    });
+  }
+
+  test('subscribers see the new kind once a switch has landed', async () => {
+    await boot(viewOf({ targets: [rowOf({ ...KINDS.standin, active: true })] }));
+    expect(chipModule.activeKind()).toBe('standin');
+
+    const seen = /** @type {(string|null)[]} */ ([]);
+    const off = chipModule.subscribe(() => seen.push(chipModule.activeKind()));
+    served = viewOf({
+      session_target: KINDS.live.target,
+      targets: [rowOf({ ...KINDS.live, active: true })],
+    });
+    await chipModule.refetch();
+    expect(seen).toEqual(['live']);
+    expect(chipModule.activeKind()).toBe('live');
+    off();
+  });
+});
+
 /* ---- session changes ---------------------------------------------------- */
 
 describe('session changes', () => {

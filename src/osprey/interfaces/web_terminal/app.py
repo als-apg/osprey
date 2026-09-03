@@ -2099,24 +2099,22 @@ def _create_lifespan(
 
         # ── Tour capabilities ──
         # The "Ask in plain language" tour card lists what THIS deployment's
-        # agent can do — derived here, never claimed in the browser. Reads
-        # come from a configured control system; Python analysis and plots
-        # ride the core executor + workspace pipeline every deployment
-        # carries; the logbook line appears only when the ARIEL panel is
-        # enabled. Deployment-dependent sentences the server cannot verify
-        # are not emitted at all.
-        tour_capabilities = []
-        try:
-            from osprey.utils.workspace import load_osprey_config
-
-            if load_osprey_config().get("control_system", {}).get("type"):
-                tour_capabilities.append("read live machine values")
-        except Exception:  # noqa: BLE001 — capabilities are cosmetic, never block startup
-            logger.debug("Tour capabilities: config load failed", exc_info=True)
-        tour_capabilities += ["run Python analysis", "make plots"]
+        # agent can do — derived here, never claimed in the browser. Python
+        # analysis and plots ride the core executor + workspace pipeline every
+        # deployment carries; the logbook line appears only when the ARIEL
+        # panel is enabled. No reading sentence is emitted here: a configured
+        # ``control_system.type`` says a connector exists, not what is behind
+        # it, so the server cannot tell a live machine apart from a stand-in
+        # or a demo. The browser derives that wording from the active control
+        # target's ``kind`` instead. Deployment-dependent sentences the server
+        # cannot verify are not emitted at all.
+        tour_capabilities = ["run Python analysis", "make plots"]
         if "ariel" in enabled_panels:
             tour_capabilities.append("search the logbook")
         app.state.tour_capabilities = tour_capabilities
+        # Logbook availability as its own fact, so the browser can offer a
+        # logbook starter prompt without parsing the capability sentences.
+        app.state.tour_logbook = "ariel" in enabled_panels
 
         if panel_runtime.allow_runtime_panels and not panel_runtime.runtime_panel_allowlist:
             logger.warning(
