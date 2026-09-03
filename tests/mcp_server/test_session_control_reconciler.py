@@ -79,9 +79,19 @@ class FakeManager:
         #: put one caller *inside* the critical section and start the other.
         self.entered_switch = asyncio.Event()
         self.release_switch: asyncio.Event | None = None
+        #: How often the reconciler asked for the targets block to be restated.
+        self.display_publishes = 0
+        self.display_fails_with: Exception | None = None
 
     def active_target(self) -> str:
         return self._target
+
+    def publish_display(self) -> bool:
+        """Stand in for the real republication, which is fail-soft itself."""
+        self.display_publishes += 1
+        if self.display_fails_with is not None:
+            raise self.display_fails_with
+        return True
 
     def active_generation(self) -> int:
         return self._generation
@@ -649,6 +659,90 @@ class TestPostureRealignment:
         await reconciler.poll_once()
         assert manager.respawns == 0
         assert realign() is None
+
+
+# ------------------------------------------------------- display metadata
+
+
+class TestDisplayRepublication:
+    """The targets block follows the store, not just the switches.
+
+    Display metadata names the gateway a posture chose, and a narrowing can
+    land on a target no switch is about — where the writer would otherwise go
+    on naming a gateway the session may no longer use. So a move of the store
+    republishes the block on its own, and a store that has not moved buys
+    nothing: the steady state must cost no publication and no write at all,
+    or the reconciler would rewrite the state file once a second forever.
+    """
+
+    async def test_a_narrowing_on_another_target_republishes_without_realigning(self, monkeypatch):
+        """No switch runs for that machine, so nothing else would restate it."""
+        manager = FakeManager(target="live")
+        install_context(manager, monkeypatch)
+        reconciler = session_control.SessionControlReconciler()
+
+        await reconciler.poll_once()  # baseline: there is no store file yet
+        assert manager.display_publishes == 0
+
+        write_store({"va": "sandbox"})
+        await reconciler.poll_once()
+
+        assert manager.display_publishes == 1
+        assert manager.respawns == 0
+        assert realign() is None
+
+    async def test_a_narrowing_on_the_active_target_republishes_and_realigns(self, monkeypatch):
+        manager = FakeManager(target="live")
+        install_context(manager, monkeypatch)
+        reconciler = session_control.SessionControlReconciler()
+        await reconciler.poll_once()
+
+        write_store({"live": "sandbox"})
+        await reconciler.poll_once()
+
+        assert manager.display_publishes == 1
+        assert manager.respawns == 1
+        assert realign()["state"] == session_control.REALIGN_DONE
+
+    async def test_a_settled_store_republishes_nothing_and_writes_nothing(self, monkeypatch):
+        """Counted after the baseline pass, which legitimately does both."""
+        manager = FakeManager(target="live")
+        install_context(manager, monkeypatch)
+        reconciler = session_control.SessionControlReconciler()
+        write_store({"live": "sandbox"})
+        await reconciler.poll_once()
+
+        writes = 0
+        real_write = target_state._atomic_write_json
+
+        def counted(path, record):
+            nonlocal writes
+            writes += 1
+            real_write(path, record)
+
+        monkeypatch.setattr(target_state, "_atomic_write_json", counted)
+        manager.display_publishes = 0
+
+        for _ in range(10):
+            await reconciler.poll_once()
+
+        assert manager.display_publishes == 0
+        assert writes == 0
+
+    async def test_a_republication_that_raises_does_not_cost_the_realignment(self, monkeypatch):
+        """The rebuild is what the operator asked for; the block is a copy."""
+        manager = FakeManager(target="live")
+        manager.display_fails_with = OSError("the state file could not be written")
+        install_context(manager, monkeypatch)
+        reconciler = session_control.SessionControlReconciler()
+        await reconciler.poll_once()
+
+        write_store({"live": "sandbox"})
+        await reconciler.poll_once()
+
+        assert manager.display_publishes == 1
+        assert manager.respawns == 1
+        assert realign()["state"] == session_control.REALIGN_DONE
 
 
 # --------------------------------------------------------------------- races

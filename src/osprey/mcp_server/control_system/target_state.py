@@ -52,13 +52,14 @@ Record shape
       "server_pid": 4321,          # os.getpid() of the controls server
       "owner_ppid": 4200,          # os.getppid() at write-on-start: the Claude
                                    # Code process that spawned the server
-      "targets": {
+      "targets": {                 # probe_channel and selected_role are both
+                                   # optional; each is omitted when unresolved
         "live":    {"label": str, "endpoint": str, "real_machine": bool,
-                    "probe_channel": str},  # optional; omitted when unconfigured
+                    "probe_channel": str, "selected_role": str},
         "va":      {"label": str, "endpoint": str, "real_machine": bool,
-                    "probe_channel": str},
+                    "probe_channel": str, "selected_role": str},
         "standin": {"label": str, "endpoint": str, "real_machine": bool,
-                    "probe_channel": str}
+                    "probe_channel": str, "selected_role": str}
       },
       "children": [5001, 5002],    # connector-host child PIDs, may be empty
       "last_switch": {             # last switch terminus, or null
@@ -90,6 +91,13 @@ YAML to answer "which target am I on" would be a second opinion about identity.
 describer names the channel a switch would probe, and it names it from here. It
 is optional and never fabricated: a target with no configured probe channel
 carries no key, so a reader can tell "not configured" from "configured as".
+``selected_role`` names the role whose gateway the ``endpoint`` beside it is,
+and is optional on the same terms.
+
+Rendered once does not mean rendered forever. Identity depends on the session's
+posture, and a session can narrow itself after start, so :func:`publish_targets`
+lets the same single writer re-render the block and republish it. That is still
+one opinion — the writer's, restated — and readers keep rendering verbatim.
 
 ``children`` records the connector-host children a server owns so that
 :func:`sweep_stale` can hand a starting server the orphan PIDs left behind by a
@@ -339,14 +347,22 @@ def is_process_alive(pid: int) -> bool:
 # -- record normalization --------------------------------------------------
 
 
+#: Display keys written only when the caller supplied a non-empty string.
+#: ``probe_channel`` is the channel a switch would probe; ``selected_role`` is
+#: the role whose gateway the ``endpoint`` beside it belongs to. Neither is ever
+#: fabricated, so a reader can tell "not resolved" from "resolved as".
+_OPTIONAL_TARGET_KEYS = ("probe_channel", "selected_role")
+
+
 def _normalize_target_meta(value: Any) -> dict[str, Any]:
     """Coerce one target's display metadata to the shape readers expect.
 
     ``label`` / ``endpoint`` / ``real_machine`` are always present — a reader
-    branching on a missing key is a reader that can crash a hook. ``probe_channel``
-    is OPTIONAL and passes through only when the caller supplied a real one: the
-    approval describer renders it exclusively from this file, so an invented
-    placeholder would show an operator a channel nobody probes.
+    branching on a missing key is a reader that can crash a hook. The keys in
+    :data:`_OPTIONAL_TARGET_KEYS` pass through only when the caller supplied a
+    real one: the approval describer renders them exclusively from this file,
+    so an invented placeholder would show an operator a channel nobody probes
+    or a role nobody selected.
     """
     meta = value if isinstance(value, dict) else {}
     normalized: dict[str, Any] = {
@@ -354,9 +370,10 @@ def _normalize_target_meta(value: Any) -> dict[str, Any]:
         "endpoint": str(meta.get("endpoint") or ""),
         "real_machine": bool(meta.get("real_machine", False)),
     }
-    probe_channel = meta.get("probe_channel")
-    if isinstance(probe_channel, str) and probe_channel:
-        normalized["probe_channel"] = probe_channel
+    for key in _OPTIONAL_TARGET_KEYS:
+        optional = meta.get(key)
+        if isinstance(optional, str) and optional:
+            normalized[key] = optional
     return normalized
 
 
@@ -502,7 +519,8 @@ def publish_switch(
     Writes what it is told. Whether a generation is bumped — a same-target
     respawn does not bump — is the switch lifecycle's rule, not this module's:
     this file records the outcome so readers agree on it, and does not arbitrate
-    it. Display metadata written at start is preserved.
+    it. Display metadata written at start is preserved; :func:`publish_targets`
+    is the one publisher that moves it.
 
     Returns:
         ``True`` when the record was updated, ``False`` when no record exists
@@ -512,6 +530,38 @@ def publish_switch(
     if children is not None:
         changes["children"] = _normalize_children(children)
     return _update(server_pid, changes)
+
+
+def publish_targets(
+    targets_meta: dict[str, Any],
+    *,
+    server_pid: int | None = None,
+) -> bool:
+    """Replace the per-target display metadata with a freshly rendered mapping.
+
+    :func:`write_on_start` renders the ``targets`` block once from the deployment
+    config, which is the right answer only while the session's posture matches
+    the config ceiling. A session that narrows itself to read-only afterwards is
+    served by a gateway the start-time render never named, and every reader of
+    this file renders verbatim by contract — so the writer, not the readers, is
+    what has to say the new thing. This publisher is that move: the single writer
+    re-renders identity from the session it is actually in and republishes it.
+
+    Normalized exactly as at start (:func:`_normalize_targets`), so a slot the
+    caller omits is written empty rather than dropped, and the whole block is
+    REPLACED rather than merged — a half-updated ``targets`` would let one target
+    name its old gateway beside another naming its new one.
+
+    Args:
+        targets_meta: Prepared per-target display metadata, the same shape
+            :func:`write_on_start` takes.
+        server_pid: Owning PID; defaults to this process.
+
+    Returns:
+        ``True`` when the record was updated, ``False`` when no record exists
+        (nothing was written, and the caller has a start-ordering bug).
+    """
+    return _update(server_pid, {"targets": _normalize_targets(targets_meta)})
 
 
 # -- publication blocks ----------------------------------------------------

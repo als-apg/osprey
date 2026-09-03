@@ -31,6 +31,10 @@ may no longer use. Realignment is a rebuild of that child through
 :meth:`~osprey.mcp_server.control_system.server_context.ControlSystemContext.invalidate_connector`,
 which owns its own lock — this task takes none, deliberately, because a second
 lock around the same operation is how two things that must agree stop agreeing.
+A store that moved also republishes the ``targets`` block through
+:meth:`~osprey.mcp_server.control_system.connector_host_manager.ConnectorHostManager.publish_display`:
+display metadata names the gateway a posture chose, and a narrowing that lands
+without a switch to carry it has no other writer to restate that name.
 
 The rebuild waits for any execution in flight. A python execution is stamped
 with the target and generation it launched under, and retiring its child
@@ -301,7 +305,14 @@ class SessionControlReconciler:
     # -- the posture store -------------------------------------------------
 
     async def _reconcile_posture(self, context: Any) -> None:
-        """Realign the connector when the ACTIVE target's posture moved."""
+        """Republish on any move of the store; realign on the ACTIVE target's.
+
+        The two halves answer different questions. Display metadata names the
+        gateway a posture chose, so it is stale the moment the store moves for
+        ANY target, and it is republished on every move. The connector is only
+        wrong when the entry for the target the session is ON moved, so that is
+        the only case that rebuilds a child.
+        """
         signature = _signature(session_store.store_path())
         try:
             target = context.connector_hosts.active_target()
@@ -309,7 +320,12 @@ class SessionControlReconciler:
             logger.debug("No connector-host supervisor to read the session target from")
             return
 
-        if signature != self._store_signature or target != self._active_target:
+        store_moved = signature != self._store_signature
+        if store_moved:
+            # Only on a move of the store. A change of TARGET republished
+            # already, inside the switch that made it.
+            self._publish_display(context)
+        if store_moved or target != self._active_target:
             self._store_signature = signature
             self._observe(target)
 
@@ -384,6 +400,25 @@ class SessionControlReconciler:
             return
         self._realign_pending = False
         self._publish_realign(REALIGN_DONE)
+
+    def _publish_display(self, context: Any) -> None:
+        """Restate the target display metadata. Never costs the pass that ran it.
+
+        The writer renders identity from the posture it is actually in, so a
+        narrowing recorded for ANY target moves what the block should say —
+        including one the session is not on, where no switch runs and nothing
+        else would republish. A republication that fails is logged and left:
+        readers keep rendering the endpoint the last successful one named,
+        which is a stale identity line rather than a reconcile pass that
+        stopped before the realignment it was really there for.
+
+        Args:
+            context: The server context whose supervisor owns the block.
+        """
+        try:
+            context.connector_hosts.publish_display()
+        except Exception:
+            logger.warning("Could not republish the target display metadata", exc_info=True)
 
     def _publish_realign(self, state: str) -> None:
         """Publish a realignment note. Never costs the reconcile that made it."""

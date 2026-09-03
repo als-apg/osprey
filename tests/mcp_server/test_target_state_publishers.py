@@ -10,6 +10,8 @@ prompt line:
   - the three publishers (``last_switch``, ``reachability``,
     ``last_posture_realign``): each merges without clobbering a sibling block,
     each is synchronous, and ``write_on_start`` resets all three
+  - ``publish_targets``, which re-renders the display metadata a narrowed
+    session outgrew, on the same merge terms
   - the in-flight marker reader in its new home, still importable from
     ``tools/control_target.py`` under its old name
 
@@ -328,6 +330,7 @@ class TestPublishersAreSynchronous:
             "publish_reachability",
             "publish_posture_realign",
             "publish_switch",
+            "publish_targets",
         ],
     )
     def test_publisher_is_not_a_coroutine_function(self, name):
@@ -504,6 +507,61 @@ class TestPublishPostureRealign:
 
     def test_without_a_record_writes_nothing(self, state_root):
         assert target_state.publish_posture_realign({"state": "pending"}) is False
+
+
+class TestPublishTargets:
+    """Display metadata is re-rendered by the writer, never by a reader."""
+
+    NARROWED = {
+        "live": {
+            "label": "ALS storage ring",
+            "endpoint": "gw:5065",
+            "real_machine": True,
+            "selected_role": "read_only",
+        },
+        "va": {"label": "Virtual accelerator", "endpoint": "localhost:5074"},
+        "standin": {"label": "Live stand-in", "endpoint": "localhost:5084"},
+    }
+
+    def test_publishes_the_new_block(self, started):
+        assert target_state.publish_targets(self.NARROWED) is True
+
+        targets = target_state.read()["targets"]
+        assert targets["live"]["endpoint"] == "gw:5065"
+        assert targets["live"]["selected_role"] == "read_only"
+
+    def test_the_sibling_blocks_survive(self, started):
+        target_state.publish_last_switch({"request_id": "r", "status": "success"})
+        target_state.publish_reachability({"live": {"epics": {"state": "reached"}}})
+        target_state.publish_posture_realign({"state": "done"})
+        target_state.record_child_pids([901])
+
+        target_state.publish_targets(self.NARROWED)
+
+        record = target_state.read()
+        assert record["last_switch"]["request_id"] == "r"
+        assert record["reachability"]["targets"]["live"]["epics"]["state"] == "reached"
+        assert record["last_posture_realign"]["state"] == "done"
+        assert record["children"] == [901]
+
+    def test_the_selection_is_untouched(self, started):
+        """This publisher says what a target IS, never which one is active."""
+        target_state.publish_switch("live", 4)
+
+        target_state.publish_targets(self.NARROWED)
+
+        record = target_state.read()
+        assert record["target"] == "live"
+        assert record["generation"] == 4
+
+    def test_an_empty_selected_role_is_dropped(self, started):
+        target_state.publish_targets({"live": {"label": "Live", "selected_role": ""}})
+
+        assert "selected_role" not in target_state.read()["targets"]["live"]
+
+    def test_without_a_record_writes_nothing(self, state_root):
+        assert target_state.publish_targets(self.NARROWED) is False
+        assert target_state.read() is None
 
 
 class TestBlocksDoNotClobberOneAnother:

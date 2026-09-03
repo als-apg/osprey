@@ -3,7 +3,9 @@
 Covers:
   - the path contract a stdlib-only hook has to be able to restate
   - write_on_start: baseline reset, PID capture, display metadata
-  - publish_switch / record_child_pids merges
+  - publish_switch / publish_targets / record_child_pids merges
+  - the optional display keys (probe_channel, selected_role): preserved when
+    real, absent when the caller has none
   - fail-closed reads (absent, corrupt, non-object)
   - stale-PID sweep: deletion, orphan child PIDs, own file preserved
   - delete_on_shutdown idempotence
@@ -200,6 +202,137 @@ class TestProbeChannel:
         target_state.publish_switch("va", 1, server_pid=1234)
 
         assert target_state.read(1234)["targets"] == TARGETS_META
+
+
+# ---------------------------------------------------------------------------
+# selected_role round-tripping
+# ---------------------------------------------------------------------------
+
+
+class TestSelectedRole:
+    """The role whose gateway the endpoint belongs to travels with the endpoint."""
+
+    ROLED_META = {
+        "live": {
+            "label": "ALS storage ring",
+            "endpoint": "gateway.example.com:5064",
+            "real_machine": True,
+            "selected_role": "read_only",
+        },
+        "va": {
+            "label": "Virtual accelerator",
+            "endpoint": "localhost:5074",
+            "real_machine": False,
+            "selected_role": "writes",
+        },
+        "standin": {
+            "label": "Live stand-in",
+            "endpoint": "localhost:5084",
+            "real_machine": False,
+            "selected_role": "read_only",
+        },
+    }
+
+    def test_present_selected_role_is_preserved(self, state_root):
+        target_state.write_on_start("live", self.ROLED_META, server_pid=1234)
+
+        targets = target_state.read(1234)["targets"]
+        assert targets["live"]["selected_role"] == "read_only"
+        assert targets["va"]["selected_role"] == "writes"
+        assert targets["standin"]["selected_role"] == "read_only"
+
+    def test_absent_selected_role_stays_absent(self, state_root):
+        target_state.write_on_start("live", TARGETS_META, server_pid=1234)
+
+        targets = target_state.read(1234)["targets"]
+        assert "selected_role" not in targets["live"]
+        assert "selected_role" not in targets["va"]
+        assert "selected_role" not in targets["standin"]
+
+    @pytest.mark.parametrize("bogus", ["", None, 5064, ["read_only"]])
+    def test_unusable_selected_role_is_dropped_never_stringified(self, state_root, bogus):
+        meta = {"live": {"label": "Live", "selected_role": bogus}}
+        target_state.write_on_start("live", meta, server_pid=1234)
+
+        assert "selected_role" not in target_state.read(1234)["targets"]["live"]
+
+    def test_selected_role_survives_a_switch(self, state_root):
+        target_state.write_on_start("live", self.ROLED_META, server_pid=1234)
+        target_state.publish_switch("va", 1, server_pid=1234)
+
+        assert target_state.read(1234)["targets"] == self.ROLED_META
+
+    def test_selected_role_survives_a_republish(self, state_root):
+        target_state.write_on_start("live", TARGETS_META, server_pid=1234)
+
+        assert target_state.publish_targets(self.ROLED_META, server_pid=1234) is True
+
+        assert target_state.read(1234)["targets"] == self.ROLED_META
+
+    def test_an_empty_role_is_dropped_on_a_republish_too(self, state_root):
+        target_state.write_on_start("live", self.ROLED_META, server_pid=1234)
+
+        target_state.publish_targets(
+            {"live": {"label": "Live", "endpoint": "gw:5064", "selected_role": ""}},
+            server_pid=1234,
+        )
+
+        assert "selected_role" not in target_state.read(1234)["targets"]["live"]
+
+
+# ---------------------------------------------------------------------------
+# publish_targets
+# ---------------------------------------------------------------------------
+
+
+class TestPublishTargets:
+    """The one publisher that moves the display metadata written at start."""
+
+    NARROWED = {
+        "live": {
+            "label": "ALS storage ring",
+            "endpoint": "gateway.example.com:5065",
+            "real_machine": True,
+            "probe_channel": "SR:BeamCurrent",
+            "selected_role": "read_only",
+        },
+    }
+
+    def test_republishing_replaces_the_block(self, state_root):
+        target_state.write_on_start("live", TARGETS_META, server_pid=1234)
+
+        assert target_state.publish_targets(self.NARROWED, server_pid=1234) is True
+
+        targets = target_state.read(1234)["targets"]
+        assert targets["live"]["endpoint"] == "gateway.example.com:5065"
+        assert targets["live"]["selected_role"] == "read_only"
+
+    def test_an_omitted_slot_is_written_empty_not_dropped(self, state_root):
+        target_state.write_on_start("live", TARGETS_META, server_pid=1234)
+
+        target_state.publish_targets(self.NARROWED, server_pid=1234)
+
+        targets = target_state.read(1234)["targets"]
+        assert set(targets) == set(target_state.TARGET_NAMES)
+        assert targets["va"] == {"label": "", "endpoint": "", "real_machine": False}
+        assert targets["standin"] == {"label": "", "endpoint": "", "real_machine": False}
+
+    def test_identity_and_pids_are_untouched(self, state_root):
+        target_state.write_on_start("live", TARGETS_META, server_pid=1234, owner_ppid=99)
+        target_state.publish_switch("va", 2, children=[5001], server_pid=1234)
+
+        target_state.publish_targets(self.NARROWED, server_pid=1234)
+
+        record = target_state.read(1234)
+        assert record["target"] == "va"
+        assert record["generation"] == 2
+        assert record["children"] == [5001]
+        assert record["server_pid"] == 1234
+        assert record["owner_ppid"] == 99
+
+    def test_without_a_record_writes_nothing(self, state_root):
+        assert target_state.publish_targets(TARGETS_META, server_pid=1234) is False
+        assert target_state.read(1234) is None
 
 
 # ---------------------------------------------------------------------------

@@ -67,6 +67,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     Endpoint,
     TargetDerivation,
 )
+from osprey_connectors import session_store
 from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
@@ -101,6 +102,9 @@ DEAD_WRITE_PORT = 5555
 #: gateway it selects, or there would be nothing to verify.
 VA_READ_GATEWAY_PORT = 5065
 VA_WRITE_GATEWAY_PORT = 5066
+
+#: The posture-store key the narrowing tests stamp this process with.
+POSTURE_SESSION = "switch-lifecycle-session"
 
 FIXTURE_MODULE = '''\
 """A mock variant with the channels and the gateway selection the tests need.
@@ -352,6 +356,21 @@ async def started_on(factory, target, **overrides):
     return manager
 
 
+async def mixed_session(factory, va_armed_project):
+    """A started session whose 'va' block arms writes and whose 'live' does not.
+
+    The two targets then select different gateway roles, which is what lets a
+    case tell a per-target reading of the posture from a deployment-wide one.
+    """
+    manager = factory(
+        raw=gateway_config(writes_enabled=False, va_writes_enabled=True, va_gateways=True),
+        config_path=va_armed_project,
+    )
+    await manager.ensure_started()
+    assert manager.active_target() == "live"
+    return manager
+
+
 class _NeverBuilt:
     """Registered under the deployment's own connector type as a tripwire.
 
@@ -416,8 +435,12 @@ class TestSuccessfulSwitch:
         assert record["target"] == "va"
         assert record["generation"] == 1
         assert record["children"] == [result["child_pid"]]
-        # Display metadata written at start survives the switch.
+        # The display block is republished by the switch rather than merely
+        # surviving it, and it still describes every target. Neither connector
+        # here selects a gateway, so identity is the config rendering and the
+        # republication changes nothing an operator would read.
         assert record["targets"]["va"]["label"] == "virtual accelerator (simulation)"
+        assert record["targets"]["live"]["label"] == "LIVE MACHINE"
 
     async def test_the_previous_child_process_actually_exits(self, make_manager):
         manager = await started_on(make_manager, "live")
@@ -763,6 +786,25 @@ class TestDeadWriteGatewayFallback:
             await manager.active_proxy().read_channel(LIVE_PROBE, timeout=10.0), ChannelValue
         )
 
+    async def test_the_fallback_landing_is_published_as_the_read_gateway(
+        self, make_manager, write_armed_project
+    ):
+        """The state file names the gateway the session reached, not the armed one.
+
+        This deployment arms writes and configures a ``write_access`` row, so
+        re-deriving identity from config alone would tell every reader — the
+        approval banner, the refusal envelope, the header chip — that the
+        session is talking to the dead write gateway. The child that actually
+        landed reports ``read_only``, and that is what is published.
+        """
+        manager = await self._stranded_session(make_manager, write_armed_project)
+
+        await manager.switch("live")
+
+        live = target_state.read()["targets"]["live"]
+        assert live["selected_role"] == "read_only"
+        assert live["endpoint"] == f"{GATEWAY_HOST}:{READ_GATEWAY_PORT}"
+
     async def test_a_deployment_without_write_arming_never_needs_the_fallback(self, make_manager):
         """Read-only selection is untouched: no dead gateway is ever probed."""
         manager = make_manager(raw=gateway_config(writes_enabled=False))
@@ -855,16 +897,6 @@ class TestPerTargetPosture:
     it is actually serving.
     """
 
-    async def _mixed_session(self, make_manager, va_armed_project):
-        """A session whose 'va' block arms writes and whose 'live' does not."""
-        manager = make_manager(
-            raw=gateway_config(writes_enabled=False, va_writes_enabled=True, va_gateways=True),
-            config_path=va_armed_project,
-        )
-        await manager.ensure_started()
-        assert manager.active_target() == "live"
-        return manager
-
     async def test_each_target_lands_on_the_gateway_its_own_block_arms(
         self, make_manager, va_armed_project
     ):
@@ -877,7 +909,7 @@ class TestPerTargetPosture:
         'live' inherits the deployment-wide off and stays read-only — so a
         posture read once for the whole deployment would fail one of them.
         """
-        manager = await self._mixed_session(make_manager, va_armed_project)
+        manager = await mixed_session(make_manager, va_armed_project)
 
         armed = await manager.switch("va")
         unarmed = await manager.switch("live")
@@ -895,7 +927,7 @@ class TestPerTargetPosture:
         type's own key rather than the deployment-wide one — because that is
         the posture the connector serving this target actually read.
         """
-        manager = await self._mixed_session(make_manager, va_armed_project)
+        manager = await mixed_session(make_manager, va_armed_project)
         await manager.switch("va")
 
         armed = await manager.active_proxy().write_channel("VA:CORR:1:SP", 0.5, timeout=10.0)
@@ -906,6 +938,134 @@ class TestPerTargetPosture:
         assert refused.outcome is WriteOutcome.REFUSED
         assert refused.refusal_reason == "WRITES_DISABLED"
         assert f"control_system.connector.{GATEWAY_TYPE}.writes_enabled" in refused.error_message
+
+
+# --------------------------------------------------- republished identity
+
+
+@pytest.fixture
+def posture_store(tmp_path, monkeypatch):
+    """A scratch posture store this process and its children are stamped for.
+
+    Both stamps together, never one without the other: a process that knows
+    the session key and not the agent-data root reads a store nobody writes.
+    They go into the real environment rather than a patched lookup because the
+    connector-host children have to read the same store the parent does.
+    """
+    root = tmp_path / "agent_data"
+    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv("OSPREY_POSTURE_SESSION", POSTURE_SESSION)
+    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
+    session_store.invalidate_cache()
+    yield root
+    session_store.invalidate_cache()
+
+
+def narrow(root, *targets, session=POSTURE_SESSION):
+    """Record the operator's narrowing of *targets* for *session*."""
+    path = root / session_store.STATE_DIR_NAME / session_store.STORE_FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({session: dict.fromkeys(targets, session_store.POSTURE_SANDBOX)}),
+        encoding="utf-8",
+    )
+    session_store.invalidate_cache()
+
+
+class TestRepublishedDisplayMetadata:
+    """What readers are told about identity after the session has moved.
+
+    The ``targets`` block is rendered by this manager and rendered VERBATIM by
+    everyone else — the prompt hook, the approval banner, the refusal envelope,
+    the header chip. Rendering it once at start is right only while the session
+    still matches the deployment ceiling it was rendered from, so the writer
+    re-renders and republishes whenever the posture behind it moves.
+    """
+
+    async def test_a_switch_republishes_the_whole_block(self, make_manager, va_armed_project):
+        """Emptied on purpose first, so nothing found afterwards predates the switch.
+
+        Every slot comes back, not just the one that moved: a block written
+        one target at a time would let one reader name the new gateway while
+        another still named the old one.
+        """
+        manager = await mixed_session(make_manager, va_armed_project)
+        target_state.publish_targets({})
+        assert target_state.read()["targets"]["va"]["label"] == ""
+
+        await manager.switch("va")
+
+        targets = target_state.read()["targets"]
+        assert targets["va"]["selected_role"] == "write_access"
+        assert targets["va"]["endpoint"] == f"{GATEWAY_HOST}:{VA_WRITE_GATEWAY_PORT}"
+        assert targets["live"]["selected_role"] == "read_only"
+        assert targets["live"]["endpoint"] == f"{GATEWAY_HOST}:{READ_GATEWAY_PORT}"
+
+    async def test_a_narrowed_session_is_published_through_its_read_gateway(
+        self, make_manager, write_armed_project, posture_store
+    ):
+        """The operator narrows the session; the published identity follows.
+
+        The respawn is the realign path a narrowing takes: the child is
+        replaced by one on the read gateway, and the block readers render from
+        has to name that gateway rather than the write-capable one the
+        deployment still permits.
+        """
+        manager = make_manager(
+            raw=gateway_config(writes_enabled=True), config_path=write_armed_project
+        )
+        await manager.ensure_started()
+        armed = target_state.read()["targets"]["live"]
+        assert armed["selected_role"] == "write_access"
+        assert armed["endpoint"] == f"{GATEWAY_HOST}:{DEAD_WRITE_PORT}"
+
+        narrow(posture_store, "live")
+        await manager.respawn_same_target()
+
+        narrowed = target_state.read()["targets"]["live"]
+        assert narrowed["selected_role"] == "read_only"
+        assert narrowed["endpoint"] == f"{GATEWAY_HOST}:{READ_GATEWAY_PORT}"
+        # Identity did not move with the endpoint: this is the same machine.
+        assert narrowed["label"] == "LIVE MACHINE"
+
+    async def test_a_render_that_raises_leaves_the_switch_intact(self, make_manager, monkeypatch):
+        """The swap has already happened, so a failed render may not undo it.
+
+        The block is left at what the last successful publication wrote rather
+        than emptied: a stale identity line is worse than nothing only if
+        nobody is told, and the failure is logged.
+        """
+        manager = await started_on(make_manager, "live")
+
+        def unrenderable(*args, **kwargs):
+            raise RuntimeError("the config went out from under the render")
+
+        monkeypatch.setattr(connector_host_manager, "target_display_metadata", unrenderable)
+
+        result = await manager.switch("va")
+
+        assert result["target"] == "va"
+        assert result["generation"] == 1
+        assert manager.active_target() == "va"
+        record = target_state.read()
+        assert record["target"] == "va"
+        assert record["targets"]["va"]["label"] == "virtual accelerator (simulation)"
+
+    async def test_the_metadata_names_a_target_before_any_child_exists(self, make_manager):
+        """The first refusal can arrive before the first child does.
+
+        A describer asking for identity on a manager that has never started
+        gets the config rendering, which is the truthful answer for a session
+        that has not yet been served by anything.
+        """
+        manager = make_manager(raw=gateway_config(writes_enabled=False))
+
+        metadata = manager.display_metadata()
+
+        assert manager.has_child() is False
+        assert metadata["live"]["label"] == "LIVE MACHINE"
+        assert metadata["live"]["selected_role"] == "read_only"
+        assert metadata["live"]["endpoint"] == f"{GATEWAY_HOST}:{READ_GATEWAY_PORT}"
 
 
 # ----------------------------------------------------------------- draining
@@ -1453,6 +1613,7 @@ class TestConfigDerivedFacts:
             "label": "live machine (not configured)",
             "display_name": "Real machine",
             "endpoint": "",
+            "selected_role": "",
             "real_machine": False,
             "probe_channel": "",
         }

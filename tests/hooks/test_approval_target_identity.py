@@ -199,9 +199,10 @@ def test_live_target_names_the_machine_and_its_endpoint(
 ):
     """A real-machine target renders LOUD, with the endpoint the writer selected.
 
-    The endpoint is whichever role the writer chose — write_access when writes
-    are enabled, read_only otherwise — and reaches the prompt verbatim: picking
-    a role here would be a second opinion about which gateway the session holds.
+    The endpoint is whichever role the writer selects under the session's
+    effective posture, republished whenever that posture changes, and reaches
+    the prompt verbatim: picking a role here would be a second opinion about
+    which gateway the session holds.
     """
     write_state(state_dir, target="live")
 
