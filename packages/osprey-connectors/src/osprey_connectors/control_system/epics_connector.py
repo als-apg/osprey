@@ -1003,6 +1003,26 @@ class EPICSConnector(ControlSystemConnector):
                 error_message=f"Write to '{channel_address}' refused: validation error: {payload}",
             )
 
+        # pyepics answers a put whose callback never arrived with -1, not with
+        # a falsy value: ``ca.put`` waits for the callback and, on timeout,
+        # negates its return (``ret = -ret``). -1 is truthy, so it must be
+        # caught before the falsy check below or it would sail on to the
+        # confirming read as a success. The value was sent; nothing has said
+        # the IOC took it, so the outcome is unknown and no re-read is made.
+        if payload == -1:
+            logger.warning(
+                f"EPICS put not acknowledged within {timeout}s: {channel_address} = {value}"
+            )
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                outcome=WriteOutcome.UNCONFIRMED,
+                error_message=(
+                    f"Write to '{channel_address}' could not be confirmed — the control "
+                    f"system did not acknowledge the put within {timeout}s"
+                ),
+            )
+
         if not payload:
             return ChannelWriteResult(
                 channel_address=channel_address,

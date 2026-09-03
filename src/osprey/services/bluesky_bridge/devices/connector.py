@@ -140,7 +140,8 @@ class ConnectorSettable(StandardReadable):
                 not verifiably hold the value sent — ``FAILED`` (the control
                 system did not take it), ``MISMATCH`` (the channel holds a
                 different value, e.g. a clamped setpoint) or ``UNCONFIRMED``
-                (the confirming re-read itself raised). All three abort the
+                (sent, but not acknowledged in time or the confirming re-read
+                itself failed). All three abort the
                 plan: an unconfirmed or mismatched write is a false premise
                 for every step that follows it.
             ConnectionError: Propagated unchanged from the connector's

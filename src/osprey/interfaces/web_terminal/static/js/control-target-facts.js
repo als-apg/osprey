@@ -181,16 +181,19 @@ export function isChatSession(rows) {
 }
 
 /**
- * Whether nothing this session can do would turn this row's writes on.
+ * Whether the run, and nothing this session can do, is holding this row's
+ * writes off.
  *
- * The signature of a read-only run, read off the columns the route publishes:
- * the render's ceiling is up and this session has not narrowed the row, and
- * writes are STILL off. `effective` is `ceiling ∧ ¬readonly_run ∧ entry ≠
- * sandbox`, so with the other two terms true only the run can be holding it.
+ * Read from the route's own `readonly_run`, never inferred from the columns:
+ * "ceiling up, not narrowed, still off" is also what a posture store that
+ * failed to resolve leaves behind, and that must not be reported as the
+ * deployment running read-only. A row the deployment never armed is not held
+ * by the run either — the ceiling holds it, and {@link lockReason} says so.
  * @param {any} row
+ * @param {any} state
  */
-export function writesHeldByTheRun(row) {
-  return Boolean(row.ceiling_writes) && row.posture !== 'sandbox' && !row.effective;
+export function writesHeldByTheRun(row, state) {
+  return Boolean(state?.readonly_run) && Boolean(row.ceiling_writes);
 }
 
 /**
@@ -208,7 +211,7 @@ export function writesHeldByTheRun(row) {
 export function lockReason(row, state) {
   if (!state?.store_available) return 'changes cannot be recorded right now';
   if (!state.enforceable) return 'changes here would not reach the agent';
-  if (writesHeldByTheRun(row)) return 'the whole deployment is running read-only';
+  if (writesHeldByTheRun(row, state)) return 'the whole deployment is running read-only';
   if (!row.ceiling_writes) return 'kept read-only by the deployment';
   // Narrowing this row would select a gateway role the deployment has not
   // configured. The route only reports it for a row a narrowing would CHANGE,
@@ -222,17 +225,19 @@ export function lockReason(row, state) {
  * case: absence is the good news, and only a session that is not plain gets a
  * sentence. Same order as {@link lockReason} — the widest abnormal fact wins.
  * @param {any} state
- * @param {any[]} rows
  * @returns {{text: string, tone: string}|null}
  */
-export function bannerNote(state, rows) {
+export function bannerNote(state) {
   if (!state.store_available) {
     return { text: 'Changes cannot be recorded right now — the posture store is unavailable.', tone: 'error' };
   }
   if (!state.enforceable) {
     return { text: 'Changes here will not reach the agent yet.', tone: 'warn' };
   }
-  if (rows.length > 0 && rows.every(writesHeldByTheRun)) {
+  // The run alone decides this line. Keying it on every row would hide the
+  // banner from a readonly run with one unarmed row — that row is held by the
+  // ceiling, not the run, but the run is still the widest fact on the page.
+  if (state.readonly_run) {
     return { text: 'The whole deployment is running read-only.', tone: 'warn' };
   }
   return null;

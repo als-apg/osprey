@@ -27,7 +27,7 @@
       "high-bg": { "$value": "rgba(255, 255, 255, 0.15)", "$type": "color" },
       "medium": { "$value": "{color.mono.200}", "$type": "color", "$description": "13.08:1 vs high-contrast-dark's bg.primary." },
       "medium-bg": { "$value": "rgba(255, 255, 255, 0.12)", "$type": "color" },
-      "low": { "$value": "{color.mono.400}", "$type": "color", "$description": "7.37:1 vs high-contrast-dark's bg.primary — clears the AAA body-text floor even at the bottom of the ladder." },
+      "low": { "$value": "{color.mono.300}", "$type": "color", "$description": "10.02:1 vs high-contrast-dark's bg.primary — clears the AAA body-text floor even at the bottom of the ladder. Follows status.success (one step above text.muted), so a low score is never drawn in the inactive-label grey." },
       "low-bg": { "$value": "rgba(255, 255, 255, 0.08)", "$type": "color" }
     }
   },
@@ -37,7 +37,7 @@
       "high-bg": { "$value": "rgba(0, 0, 0, 0.12)", "$type": "color" },
       "medium": { "$value": "{color.mono.800}", "$type": "color", "$description": "11.29:1 vs high-contrast-light's bg.primary." },
       "medium-bg": { "$value": "rgba(0, 0, 0, 0.09)", "$type": "color" },
-      "low": { "$value": "{color.mono.600}", "$type": "color", "$description": "5.13:1 vs high-contrast-light's bg.primary." },
+      "low": { "$value": "{color.mono.700}", "$type": "color", "$description": "7.55:1 vs high-contrast-light's bg.primary. Follows status.success (one step above text.muted), so a low score is never drawn in the inactive-label grey." },
       "low-bg": { "$value": "rgba(0, 0, 0, 0.06)", "$type": "color" }
     }
   },

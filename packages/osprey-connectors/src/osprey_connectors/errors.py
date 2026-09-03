@@ -117,7 +117,8 @@ class ChannelWriteFailedError(Exception):
     """Raised when a channel write was attempted but was not confirmed.
 
     The control system was asked to write but the write failed, the channel now
-    holds a different value, or the confirming re-read could not be made.
+    holds a different value, or the write was sent but not acknowledged in time
+    or the confirming re-read itself failed.
     Distinct from ChannelWriteBlockedError (a refusal — no value was written).
     A scan consumer must abort on this.
 

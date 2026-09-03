@@ -270,6 +270,11 @@ def write_request_file(*, server_pid=SERVER_PID, target="va", age_s=0.0, request
     return path
 
 
+#: The 400's sentence for a target this render does not configure, spelled
+#: once in ``_unknown_target_message`` and pinned on both gesture routes.
+UNKNOWN_TARGET_SENTENCE = "This deployment configures no control target by that name."
+
+
 def post_target(client, session_id=SESSION_A, target="va"):
     return client.post(
         "/api/terminal/target",
@@ -297,6 +302,7 @@ class TestGrammar:
             resp = post_target(client, target="banana")
         assert resp.status_code == 400
         assert resp.json()["detail"]["error"] == "unknown_target"
+        assert resp.json()["detail"]["message"].startswith(UNKNOWN_TARGET_SENTENCE + " It has: ")
 
     def test_a_target_this_deployment_did_not_configure_is_400(self, client, tmp_path):
         """``va`` is a real target name; a render without its block has no such row.
@@ -316,6 +322,7 @@ class TestGrammar:
             resp = post_target(client, target="va")
         assert resp.status_code == 400
         assert resp.json()["detail"]["error"] == "unknown_target"
+        assert resp.json()["detail"]["message"] == UNKNOWN_TARGET_SENTENCE + " It has: live."
 
     def test_a_body_missing_a_field_is_422(self, client):
         assert client.post("/api/terminal/target", json={"target": "va"}).status_code == 422

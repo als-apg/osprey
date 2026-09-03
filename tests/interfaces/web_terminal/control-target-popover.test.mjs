@@ -137,6 +137,7 @@ const viewOf = (o = {}) => ({
   session_id: SESSION,
   session_target: 'standin',
   store_available: true,
+  readonly_run: false,
   enforceable: true,
   enforceable_reason: null,
   execution_in_flight: false,
@@ -538,6 +539,7 @@ describe('the banner', () => {
     const readonly = { ceiling_writes: true, posture: 'writes', effective: false };
     await bootOpen(
       viewOf({
+        readonly_run: true,
         targets: [
           rowOf(KINDS.live, readonly),
           rowOf(KINDS.standin, {
@@ -552,6 +554,40 @@ describe('the banner', () => {
     );
     expect(bannerEl()?.textContent).toBe('The whole deployment is running read-only.');
     expect(bannerEl()?.dataset.tone).toBe('warn');
+  });
+
+  test('a readonly run with one unarmed row is still named: the run is the widest fact', async () => {
+    const readonly = { ceiling_writes: true, posture: 'writes', effective: false };
+    await bootOpen(
+      viewOf({
+        readonly_run: true,
+        targets: [
+          rowOf(KINDS.live, { ...STATES['read-only'] }),
+          rowOf(KINDS.standin, {
+            ...readonly,
+            active: true,
+            available_now: false,
+            reason: 'already_active',
+          }),
+          rowOf(KINDS.va, readonly),
+        ],
+      })
+    );
+    expect(bannerEl()?.textContent).toBe('The whole deployment is running read-only.');
+  });
+
+  test('a store that failed to resolve is not called a readonly run', async () => {
+    // Ceiling up, nothing narrowed, writes still off: the columns a failed
+    // store read leaves behind. Without the route saying `readonly_run`,
+    // that signature is not the deployment running read-only.
+    const unresolved = { ceiling_writes: true, posture: 'writes', effective: false };
+    await bootOpen(
+      viewOf({
+        readonly_run: false,
+        targets: [rowOf(KINDS.live, unresolved), rowOf(KINDS.va, unresolved)],
+      })
+    );
+    expect(bannerEl()).toBeNull();
   });
 });
 
@@ -582,13 +618,26 @@ describe('the verb locks, one reason at a time', () => {
     expect(reason).toBe('changes here would not reach the agent');
   });
 
-  test('a readonly run: the ceiling is up, nothing is narrowed, writes are still off', async () => {
+  test('a readonly run: the route says so, and every armed row is locked on it', async () => {
     const readonly = { ceiling_writes: true, posture: 'writes', effective: false };
     const { reason } = await lockOn(
-      viewOf({ targets: [rowOf(KINDS.live, readonly), rowOf(KINDS.va, readonly)] }),
+      viewOf({
+        readonly_run: true,
+        targets: [rowOf(KINDS.live, readonly), rowOf(KINDS.va, readonly)],
+      }),
       'va'
     );
     expect(reason).toBe('the whole deployment is running read-only');
+  });
+
+  test('a store that failed to resolve does not lock the row on the run', async () => {
+    const unresolved = { ceiling_writes: true, posture: 'writes', effective: false };
+    const { toggle, reason } = await lockOn(
+      viewOf({ readonly_run: false, targets: [rowOf(KINDS.va, unresolved)] }),
+      'va'
+    );
+    expect(toggle?.disabled).toBe(false);
+    expect(reason).not.toContain('read-only');
   });
 
   test('a ceiling that never armed the target reads as the deployment holding it', async () => {

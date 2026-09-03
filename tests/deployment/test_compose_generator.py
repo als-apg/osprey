@@ -7944,6 +7944,59 @@ def test_the_gate_lets_the_shipped_demo_posture_build(
     _gate(config)
 
 
+def test_the_gate_lets_the_shipped_stand_in_posture_build(
+    tmp_path: Path, cold_roster_cache: None
+) -> None:
+    """The stand-in the preset deploys keeps building, on the posture it inherits.
+
+    The control-assistant preset makes the stand-in its baseline
+    (``control_system.type: live_standin``), arms the deployment-wide limits
+    pair, and writes NO ``connector.live_standin.limits_checking`` block of
+    its own: the preset's comment promises that the hardware-shaped stand-in
+    inherits the strict pair the real machine gets. The sibling test above
+    pins the simulator's per-type block; this one pins the inheritance. Both
+    halves are READ OUT of the preset, so a preset edit that handed the
+    stand-in a block of its own, or turned the global pair off, fails here
+    rather than shipping a demo the gate refuses at build time.
+
+    The lane is bound to ``standin`` the way the real single-lane build is:
+    the injector writes ``services.bluesky.target`` for the stand-in baseline
+    because it runs two soft IOCs. Writes are armed on the deployment-wide
+    key, since no shipped preset writes the stand-in's own ``writes_enabled``
+    leaf and the gate reads no limits for a lane whose target is unarmed.
+    """
+    from osprey.cli.build_profile_presets import _presets_dir
+
+    preset = yaml.safe_load((_presets_dir() / "control-assistant.yml").read_text(encoding="utf-8"))[
+        "config"
+    ]
+    assert preset["control_system.type"] == "live_standin", (
+        "this test pins the stand-in baseline the preset ships; if the baseline moved "
+        "deliberately, pin the new one"
+    )
+    assert preset["control_system.limits_checking.enabled"] is True, (
+        "the deployment-wide pair is the stand-in's posture -- if this preset changed "
+        "deliberately, the gate now refuses the shipped demo"
+    )
+    standin_prefix = "control_system.connector.live_standin.limits_checking."
+    assert [key for key in preset if key.startswith(standin_prefix)] == [], (
+        "the preset promises the stand-in INHERITS the deployment-wide pair; a block of "
+        "its own replaces that pair rather than merging with it"
+    )
+
+    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
+    config = _graph_devices_config(tmp_path, control_system_type="live_standin")
+    config["services"]["bluesky"]["target"] = "standin"
+    config["control_system"]["writes_enabled"] = True
+    config["control_system"]["limits_checking"] = {
+        "database_path": "data/channel_limits.json",
+        "enabled": preset["control_system.limits_checking.enabled"],
+        "allow_unlisted_channels": preset["control_system.limits_checking.allow_unlisted_channels"],
+    }
+
+    _gate(config)
+
+
 def test_the_gate_lets_a_read_only_lane_derive_without_limits(
     tmp_path: Path, cold_roster_cache: None
 ) -> None:

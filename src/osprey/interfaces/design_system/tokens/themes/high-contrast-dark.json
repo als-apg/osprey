@@ -25,8 +25,8 @@
     "hover": { "$value": "{color.mono.300}", "$type": "color" }
   },
   "status": {
-    "$description": "The monochrome emphasis ladder, brightest = most urgent: error (white) > warning > success (dim). Consuming surfaces carry the glyph and label that name the state; this only sets how loudly it is drawn.",
-    "success": { "$value": "{color.mono.400}", "$type": "color" },
+    "$description": "The monochrome emphasis ladder, brightest = most urgent: error (white) > warning > success (dim). Success sits one ramp step ABOVE text.muted (mono.300 vs mono.400), so a healthy dot and an inactive one never share a grey: on a monochrome canvas the lightness gap is the only thing telling them apart. mono.300 is also accent-secondary.hover and chart.series.4, neither of which is drawn beside a status dot. Consuming surfaces carry the glyph and label that name the state; this only sets how loudly it is drawn.",
+    "success": { "$value": "{color.mono.300}", "$type": "color", "$description": "10.02:1 vs bg.primary; one step above text.muted." },
     "warning": { "$value": "{color.mono.200}", "$type": "color" },
     "error": { "$value": "{color.mono.0}", "$type": "color" },
     "error-hover": { "$value": "{color.mono.150}", "$type": "color" }

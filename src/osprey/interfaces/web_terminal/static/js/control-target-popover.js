@@ -354,7 +354,7 @@ function render() {
   if (!state) return;
   const rows = Array.isArray(state.targets) ? state.targets : [];
 
-  const banner = bannerNote(state, rows);
+  const banner = bannerNote(state);
   if (banner) {
     const note = el('div', 'ctc-banner', banner.text);
     note.dataset.tone = banner.tone;

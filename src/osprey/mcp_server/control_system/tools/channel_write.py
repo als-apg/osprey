@@ -198,15 +198,14 @@ def _binding_from_record(record: object) -> tuple[str, int] | None:
 def _approval_stamp_key(operations: list[dict], confirm: bool | None) -> str | None:
     """The name the approval hook filed this write's stamp under, or ``None``.
 
-    A SHA-256 over the canonical JSON of the write's own arguments —
-    ``operations`` and ``confirm``, which are every parameter the tool accepts
-    and exactly what the hook finds in the ``tool_input`` it is handed. The hook
-    and this server share no call identifier — the hook is handed a tool-call
-    payload, the tool is handed its arguments — so the payload is the only thing
-    that provably crosses the gap between them, and it is what both sides key
-    on. The hook restates this derivation in stdlib-only Python (it runs outside
-    this venv and cannot import this module); a test pins the two spellings
-    against each other.
+    A SHA-256 over the canonical JSON of ``operations`` and ``confirm`` —
+    every parameter the tool accepts, and exactly what the hook finds in the
+    ``tool_input`` it is handed. The hook and this server share no call
+    identifier (the hook is handed a tool-call payload, the tool is handed its
+    arguments), so the payload is the only thing that provably crosses the gap
+    between them. Both sides key on it. The hook restates this derivation in
+    stdlib-only Python (it runs outside this venv and cannot import this
+    module); a test pins the two spellings against each other.
 
     ``None`` when no key can be formed, which the caller reads as "do not
     compare": no comparison is a better failure than a wrong one.
@@ -446,8 +445,8 @@ async def channel_write(
       MAJOR alarm is worth telling the operator about.
     - `mismatch` — the re-read holds a different value. `observed_value` is what
       the channel actually holds; a clamped or rounded setpoint appears here.
-    - `unconfirmed` — sent, but the re-read itself failed, so what the channel
-      holds now is unknown.
+    - `unconfirmed` — sent, but not acknowledged in time or the re-read itself
+      failed, so what the channel holds now is unknown.
     - `unrequested` — confirmation is switched off for this channel; the value
       was sent and nothing was checked.
 
