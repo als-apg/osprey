@@ -115,6 +115,13 @@ user's terminal:
            index: 0
            oidc_subject: "8f4c1e02-..."     # alice's value of that claim
 
+A login matches when the asserted claim equals the card's ``oidc_subject``.
+The comparison is exact for every claim except ``email``, which is compared
+case-insensitively: an address is the same mailbox in any case, and an
+identity provider is free to release the directory's spelling
+(``THellert@lbl.gov``) where the roster says ``thellert@lbl.gov``. ``sub`` is
+an opaque, case-sensitive identifier by specification and stays exact.
+
 Under ``password`` or ``oidc`` a small authentication service joins the stack
 and nginx asks it about every request under ``/u/<name>/`` before proxying
 anything. Optional keys: ``auth.port`` (the port layout's ``10001`` unless you
@@ -294,7 +301,8 @@ build verbs that run it:
   changes the question: the login service must resolve each identity to a
   single roster entry to know who opened it, so once any card is shared, such
   a person keeps ``oidc_subject:`` on one card only — a login by that
-  identity would otherwise be ambiguous, and is refused.
+  identity would otherwise be ambiguous, and is refused. Under
+  ``claim: email`` two subjects that differ only in case count as the same.
 
 
 .. _multi-user-https:

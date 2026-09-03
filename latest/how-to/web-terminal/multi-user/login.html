@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 02, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 03, 2026"/>
   </head>
   
   
@@ -749,6 +749,12 @@ user’s terminal:</p>
 <span class="w">        </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;8f4c1e02-...&quot;</span><span class="w">     </span><span class="c1"># alice&#39;s value of that claim</span>
 </pre></div>
 </div>
+<p>A login matches when the asserted claim equals the card’s <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code>.
+The comparison is exact for every claim except <code class="docutils literal notranslate"><span class="pre">email</span></code>, which is compared
+case-insensitively: an address is the same mailbox in any case, and an
+identity provider is free to release the directory’s spelling
+(<code class="docutils literal notranslate"><span class="pre">THellert&#64;lbl.gov</span></code>) where the roster says <code class="docutils literal notranslate"><span class="pre">thellert&#64;lbl.gov</span></code>. <code class="docutils literal notranslate"><span class="pre">sub</span></code> is
+an opaque, case-sensitive identifier by specification and stays exact.</p>
 <p>Under <code class="docutils literal notranslate"><span class="pre">password</span></code> or <code class="docutils literal notranslate"><span class="pre">oidc</span></code> a small authentication service joins the stack
 and nginx asks it about every request under <code class="docutils literal notranslate"><span class="pre">/u/&lt;name&gt;/</span></code> before proxying
 anything. Optional keys: <code class="docutils literal notranslate"><span class="pre">auth.port</span></code> (the port layout’s <code class="docutils literal notranslate"><span class="pre">10001</span></code> unless you
@@ -912,7 +918,8 @@ both, every login arriving through the card that was clicked. A shared card
 changes the question: the login service must resolve each identity to a
 single roster entry to know who opened it, so once any card is shared, such
 a person keeps <code class="docutils literal notranslate"><span class="pre">oidc_subject:</span></code> on one card only — a login by that
-identity would otherwise be ambiguous, and is refused.</p></li>
+identity would otherwise be ambiguous, and is refused. Under
+<code class="docutils literal notranslate"><span class="pre">claim:</span> <span class="pre">email</span></code> two subjects that differ only in case count as the same.</p></li>
 </ul>
 </section>
 <section id="serve-it-over-https">
