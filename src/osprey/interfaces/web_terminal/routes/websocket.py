@@ -10,6 +10,7 @@ import os
 import re
 import tempfile
 import uuid
+from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -2655,20 +2656,42 @@ def _row_availability(
     return bool(verdict.available_now), verdict.reason, detail
 
 
-def _target_display(config: Any, record: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+def _target_display(
+    config: Any,
+    record: dict[str, Any] | None,
+    effective_writes: Mapping[str, bool],
+) -> dict[str, dict[str, Any]]:
     """Per-target ``label`` / ``endpoint`` / ``real_machine``, published first.
 
     The controls server mints these once, for the target it is actually running,
     and every reader renders what it was handed. So a live record wins wherever
     it carries a label: it describes the process that owns the connector, while
     the render describes what a *new* server would do with the config as it
-    stands now.
+    stands now. A labelled row therefore names the gateway that server last
+    published, which after a narrowing is the gateway the previous posture
+    selected until the reconciler's next pass republishes the record.
 
     The render is the fallback, through the same
     :func:`~osprey.mcp_server.control_system.connector_host_manager.target_display_metadata`
     the writer uses — a card whose session has not started a controls server yet
     still has to name its targets, and naming them with a second derivation of
     this module's own is how a badge comes to disagree with a prompt.
+
+    That fallback is rendered under THIS session's effective posture, which is
+    what *effective_writes* carries. The renderer's own default resolves the
+    posture from ``OSPREY_POSTURE_SESSION``, a stamp the web server does not
+    carry, so an uninjected render would find no narrowing at all and name the
+    write gateway of a target the operator has already given up writes on. The
+    caller resolves the column once and hands it over, so the endpoint on a row
+    and the ``effective`` flag beside it are one answer rather than two.
+
+    Args:
+        config: The rendered config mapping, or ``_UNREADABLE_SECTION`` when
+            ``config.yml`` could not be read.
+        record: The session's published controls-server record, if it has one.
+        effective_writes: Per-target effective write posture for this session,
+            keyed by target name. A target the mapping does not answer for is
+            rendered from the deployment ceiling and this run's mode.
     """
     published = record.get("targets") if isinstance(record, dict) else None
     derived: dict[str, Any] = {}
@@ -2678,7 +2701,7 @@ def _target_display(config: Any, record: dict[str, Any] | None) -> dict[str, dic
                 target_display_metadata,
             )
 
-            derived = dict(target_display_metadata(config))
+            derived = dict(target_display_metadata(config, effective_writes=effective_writes))
         except Exception:  # noqa: BLE001 — the roster must render, not 500
             logger.warning("Could not derive the control targets' display metadata")
 
@@ -2743,29 +2766,39 @@ def _posture_view(app: Any, session_key: str, config_path: Path | None) -> dict[
     store_key = _posture_lookup_key(app, session_key)
     entry = _posture_entry(app, session_key)
     ceilings = _session_ceilings(section)
-    display = _target_display(config, record)
+    configured = list(_configured_target_names(section))
+    # Resolved BEFORE the render, and exactly once. The display metadata names
+    # one gateway per target, and WHICH gateway depends on the same effective
+    # answer the rows below publish — the renderer's own default would resolve
+    # it from a posture stamp this process does not carry, and name the write
+    # gateway of a target this session has narrowed.
+    #
+    # ONE ceiling per row. ``ceiling_writes`` reports ``session_posture``'s
+    # per-target map; ``effective`` runs through the store, whose own ceiling is
+    # ``target_writes_enabled`` for every configured target. On a NON-switch-
+    # capable render those two disagree — ``session_posture`` answers for the
+    # baseline alone, while ``configured_targets`` still lists the others — so
+    # an unarmed row would render ceiling-off beside effective-on: a filled dot
+    # for a target no connector here is ever built for. Gating on the ceiling
+    # the route already holds keeps the row internally consistent; where the two
+    # agree (every switch-capable deployment) this changes nothing.
+    effective_by_target = {
+        target: bool(ceilings.get(target, False)) and _effective_writes(section, store_key, target)
+        for target in configured
+    }
+    display = _target_display(config, record, effective_by_target)
     threshold_s = _probe_staleness_threshold_s(config)
     reachability = (record or {}).get("reachability")
     probed = reachability.get("targets") if isinstance(reachability, dict) else {}
 
     rows: list[dict[str, Any]] = []
-    for target in _configured_target_names(section):
+    for target in configured:
         meta = display.get(target) or {}
         real_machine = bool(meta.get("real_machine"))
         label = str(meta.get("label") or "") or target
         short_label, kind = _short_label_and_kind(label, real_machine)
-        # ONE ceiling per row. ``ceiling_writes`` reports ``session_posture``'s
-        # per-target map; ``effective`` runs through the store, whose own
-        # ceiling is ``target_writes_enabled`` for every configured target. On a
-        # NON-switch-capable render those two disagree — ``session_posture``
-        # answers for the baseline alone, while ``configured_targets`` still
-        # lists the others — so an unarmed row would render ceiling-off beside
-        # effective-on: a filled dot for a target no connector here is ever
-        # built for. Gating on the ceiling the route already holds keeps the row
-        # internally consistent; where the two agree (every switch-capable
-        # deployment) this changes nothing.
         ceiling_writes = bool(ceilings.get(target, False))
-        effective = ceiling_writes and _effective_writes(section, store_key, target)
+        effective = effective_by_target[target]
         posture = entry.get(target, POSTURE_WRITES)
         # Only for a row a narrowing would actually CHANGE, mirroring the POST's
         # "targets the request would touch" rule: a target already narrowed
