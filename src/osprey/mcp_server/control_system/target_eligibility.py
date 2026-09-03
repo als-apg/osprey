@@ -153,7 +153,9 @@ MODE_ADDR_LIST = "addr_list"
 
 #: The ports ``EPICSConnector.connect()`` falls back to when a gateway names
 #: none. The virtual accelerator never reaches the CA default: its unset ports
-#: are filled from ``services.virtual_accelerator.port`` first.
+#: are filled from ``services.virtual_accelerator.port`` first. The PVA default
+#: applies to name servers only (TCP); an address-list entry that names no port
+#: is passed to p4p without one, so its row carries ``None``.
 DEFAULT_CA_PORT = 5064
 DEFAULT_PVA_PORT = 5075
 
@@ -369,7 +371,7 @@ def _mode(gateway: dict[str, Any]) -> str:
     return MODE_NAME_SERVER if gateway.get("use_name_server", False) else MODE_ADDR_LIST
 
 
-def _row(gateway: Any, default_port: int) -> Endpoint | None:
+def _row(gateway: Any, default_port: int | None) -> Endpoint | None:
     """One endpoint row, or ``None`` for a gateway ``connect()`` would ignore.
 
     ``connect()`` guards its environment derivation with ``if gateway_config:``,
@@ -478,7 +480,11 @@ def derive_endpoints(
     # globs AND a gateway. Globs without a gateway import p4p but touch no PVA
     # environment variable, so there is no endpoint to report.
     if _pva_globs(block):
-        pva_row = _row(block.get("pva_gateway"), DEFAULT_PVA_PORT)
+        pva_gateway = block.get("pva_gateway")
+        # connect() appends no port to an address list unless one is set; the
+        # TCP default applies to name servers only.
+        name_server = isinstance(pva_gateway, dict) and _mode(pva_gateway) == MODE_NAME_SERVER
+        pva_row = _row(pva_gateway, DEFAULT_PVA_PORT if name_server else None)
         if pva_row is not None:
             endpoints[ROLE_PVA] = pva_row
 
