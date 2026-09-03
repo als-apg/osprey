@@ -331,7 +331,8 @@ containerized service, and this is the deployment lesson:
 
 This needs a container runtime (Docker or Podman) and starts **OpenObserve**, a
 local telemetry store bound to localhost, with its UI at
-http://localhost:5080. The agent already emits its logs and metrics there, so
+http://localhost:10050 (``deployment.port_base`` + 50). The agent already
+emits its logs and metrics there, so
 ``osprey up`` plus ``osprey web`` gives you a queryable record of every
 session out of the box — see :doc:`/how-to/health-and-monitoring/monitor-agent`. Stop the stack
 with ``osprey down``; the agent itself keeps working without it.
