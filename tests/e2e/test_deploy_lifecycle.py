@@ -84,6 +84,7 @@ from osprey.deployment.compose_generator import (
 from osprey.deployment.qmd_service import QMDServiceConfig
 from osprey.deployment.staleness import BUILD_DIRNAME
 from osprey.deployment.web_terminals.personas import normalize_users
+from osprey.deployment.web_terminals.ports import FAMILY_BASE_FIELDS
 from osprey.services.qmd.client import QMDClient
 from osprey.utils import config_writer
 
@@ -712,8 +713,33 @@ PREFIX_B = "e2eb"
 USERS_A = ("keeper", "keeper2", "second", "orphan")
 USERS_B = ("main", "orphan")
 
-PORTS_A = {"nginx": 19180, "web": 19500, "artifact": 19600, "ariel": 19700, "lattice": 19800}
-PORTS_B = {"nginx": 19181, "web": 19900, "artifact": 20000, "ariel": 20100, "lattice": 20200}
+# Every port family gets its own band in each project. The fixture config pins
+# its three panel families at 19500/19600/19700, which is exactly where A's
+# web/artifact/ariel bands sit, and a family left at the fixture value would
+# make one user's terminal claim the same host port twice -- the intra-deploy
+# duplicate `osprey up`'s host-port preflight refuses. The panel families sit at
+# the half-hundreds so the whole table stays inside the 19180-20201 range the
+# sibling e2e modules document as this test's.
+PORTS_A = {
+    "nginx": 19180,
+    "web": 19500,
+    "artifact": 19600,
+    "ariel": 19700,
+    "lattice": 19800,
+    "channel_finder": 19550,
+    "okf": 19650,
+    "system_health": 19750,
+}
+PORTS_B = {
+    "nginx": 19181,
+    "web": 19900,
+    "artifact": 20000,
+    "ariel": 20100,
+    "lattice": 20200,
+    "channel_finder": 19950,
+    "okf": 20050,
+    "system_health": 20150,
+}
 
 # Persona catalog "project" values chosen so that A's own roster reference
 # ("mainp") produces a tag distinct from B, while the "borrowed" persona
@@ -754,6 +780,9 @@ def _make_isolation_repo(
             "modules.web_terminals.artifact_base_port": ports["artifact"],
             "modules.web_terminals.ariel_base_port": ports["ariel"],
             "modules.web_terminals.lattice_base_port": ports["lattice"],
+            "modules.web_terminals.channel_finder_base_port": ports["channel_finder"],
+            "modules.web_terminals.okf_base_port": ports["okf"],
+            "modules.web_terminals.system_health_base_port": ports["system_health"],
         },
     )
     config_writer.config_replace_list(
@@ -1008,7 +1037,16 @@ HETERO_USERS = ("alice", "bob", "carol")
 
 # Disjoint from every other range in this file, including the two-project
 # isolation test's 19180-20201.
-HETERO_PORTS = {"nginx": 20280, "web": 20300, "artifact": 20400, "ariel": 20500, "lattice": 20600}
+HETERO_PORTS = {
+    "nginx": 20280,
+    "web": 20300,
+    "artifact": 20400,
+    "ariel": 20500,
+    "lattice": 20600,
+    "channel_finder": 20350,
+    "okf": 20450,
+    "system_health": 20550,
+}
 
 HETERO_DEFAULT_PERSONA = "assistant"
 HETERO_ALT_PERSONA = "alt"
@@ -1136,6 +1174,9 @@ def _hetero_config_dict(default_persona_path: Path, alt_persona_path: Path) -> d
                 "artifact_base_port": HETERO_PORTS["artifact"],
                 "ariel_base_port": HETERO_PORTS["ariel"],
                 "lattice_base_port": HETERO_PORTS["lattice"],
+                "channel_finder_base_port": HETERO_PORTS["channel_finder"],
+                "okf_base_port": HETERO_PORTS["okf"],
+                "system_health_base_port": HETERO_PORTS["system_health"],
                 "users": [
                     "alice",
                     "bob",
@@ -1217,6 +1258,31 @@ def _mount_destination(name: str, volume_name: str) -> str | None:
         if mount.get("Name") == volume_name:
             return mount.get("Destination")
     return None
+
+
+def test_deploy_lifecycle_port_tables_bind_every_family_once() -> None:
+    """Each throwaway project's port table gives every family its own band.
+
+    ``_make_isolation_repo`` and the heterogeneous configs overwrite the fixture
+    config's port keys from these tables, so a family the table leaves out keeps
+    the fixture's value -- and the fixture pins its panel families exactly where
+    A's older bands sit. One user's terminal would then claim the same host port
+    for two families, which ``osprey up``'s host-port preflight refuses as an
+    intra-deploy duplicate before it touches a container. Checked over the
+    roster each table is deployed with, the way the web-terminal lint checks a
+    real config.
+    """
+    families = {"nginx", *FAMILY_BASE_FIELDS.values()}
+    for label, table, users in (
+        ("PORTS_A", PORTS_A, USERS_A),
+        ("PORTS_B", PORTS_B, USERS_B),
+        ("HETERO_PORTS", HETERO_PORTS, HETERO_USERS),
+    ):
+        assert set(table) == families, f"{label} must name every port family"
+        bound = [table["nginx"]]
+        for family in FAMILY_BASE_FIELDS.values():
+            bound.extend(table[family] + index for index in range(len(users)))
+        assert len(set(bound)) == len(bound), f"{label} binds a host port twice: {sorted(bound)}"
 
 
 def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path, stub_image: str) -> None:
