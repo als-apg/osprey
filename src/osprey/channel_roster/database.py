@@ -41,6 +41,11 @@ from pathlib import Path
 from typing import Any
 
 from osprey.utils.logger import get_logger
+from osprey_connectors.control_system.limits_validator import (
+    LIMITS_DATABASE_CONFIG_KEY,
+    LimitsValidator,
+    mapping_config_lookup,
+)
 
 from .records import (
     ChannelDirection,
@@ -53,9 +58,6 @@ from .records import (
 
 logger = get_logger("channel_roster.database")
 
-#: Config key naming the channel limits database, shared with the runtime write
-#: path and with the knowledge graph's direction assignment.
-LIMITS_DATABASE_CONFIG_KEY = "control_system.limits_checking.database_path"
 
 #: Final address token the grammar fallback reads as a setpoint.
 WRITE_SUBFIELD = "SP"
@@ -84,36 +86,24 @@ def resolve_limits_path(config: Mapping[str, Any]) -> Path | None:
         is not probed here: an unreadable file is a direction-source question,
         answered in :func:`_load_writable_addresses`.
     """
-    control_system = config.get("control_system") or {}
-    if not isinstance(control_system, dict):
-        return None
-    limits_checking = control_system.get("limits_checking") or {}
-    if not isinstance(limits_checking, dict):
-        return None
-
-    raw = limits_checking.get("database_path")
-    if not isinstance(raw, str) or not raw.strip():
-        return None
-
-    path = Path(raw).expanduser()
-    if path.is_absolute():
-        return path
-
     config_dir = config.get("config_dir")
     anchor = Path(config_dir) if isinstance(config_dir, str) and config_dir.strip() else Path.cwd()
-    return anchor / path
+    # The validator anchors a relative path on the directory of the config it
+    # is told about, so the anchor is spelled as that config.
+    resolved = LimitsValidator.configured_database_path(
+        config_lookup=mapping_config_lookup(config), config_path=str(anchor / "config.yml")
+    )
+    return None if resolved is None else Path(resolved)
 
 
 def _load_writable_addresses(limits_path: Path) -> frozenset[str] | None:
     """Read the addresses a limits file declares writable, defaults-merged.
 
     Delegates to
-    :meth:`~osprey_connectors.control_system.limits_validator.LimitsValidator._load_limits_database`
+    :meth:`~osprey_connectors.control_system.limits_validator.LimitsValidator.writable_addresses`
     rather than re-reading the JSON, so the ``defaults`` block, the metadata
     keys and the per-entry validation are applied by the same code the write
-    path applies them with. The demo file grants writability by *omitting*
-    ``writable`` so entries inherit ``defaults.writable: true``; a reader that
-    looked only for explicit ``writable: true`` would find none at all.
+    path applies them with.
 
     Args:
         limits_path: Path to a ``channel_limits.json``-shaped file.
@@ -123,8 +113,6 @@ def _load_writable_addresses(limits_path: Path) -> frozenset[str] | None:
         parsed -- direction then falls through to the address grammar, which is
         a degraded answer rather than a wrong one.
     """
-    from osprey_connectors.control_system.limits_validator import LimitsValidator
-
     if not limits_path.is_file():
         # Probed here rather than left to the validator: a deployment that
         # enforces no limits is an ordinary one, and the validator answers an
@@ -136,7 +124,7 @@ def _load_writable_addresses(limits_path: Path) -> frozenset[str] | None:
         return None
 
     try:
-        limits, _raw = LimitsValidator._load_limits_database(str(limits_path))
+        return LimitsValidator.writable_addresses(limits_path)
     except ValueError as exc:
         # Named by its config key rather than by the file it resolved to: a
         # build resolves a relative path into its own staging tree, so the
@@ -147,7 +135,6 @@ def _load_writable_addresses(limits_path: Path) -> frozenset[str] | None:
             f"read ({exc}); deriving channel directions from the address grammar instead."
         )
         return None
-    return frozenset(address for address, entry in limits.items() if entry.writable)
 
 
 def _database_class(pipeline_type: str, db_config: Mapping[str, Any]) -> Any:

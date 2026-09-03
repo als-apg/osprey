@@ -567,14 +567,16 @@ keys:
       leaf, `_from_posture` returns the blocking failsafe and `osprey build`
       refuses it via `incomplete_limits_blocks`.
   control_system.limits_checking.database_path:
-    evidence: 'get_config_value\("control_system\.limits_checking\.database_path", None\)'
+    evidence: 'config_lookup\(LIMITS_DATABASE_CONFIG_KEY, None\)'
     note: >-
       Deliberately NOT per connector type: a deployment mounts one limits
       database (`compose_generator.py`), so the path stays deployment-wide and
       a per-type block that omits it is complete rather than half-written. The
-      one reader is `LimitsValidator._load_configured_database`, which is where
-      this call now lives; the dotted spelling is the anchor because it is the
-      only place the key is named.
+      one reader is `LimitsValidator.configured_database_path`, which every
+      other consumer (the compose mount, the build's parse, the bridge's
+      startup gate, the roster, the knowledge graph) resolves through; the key
+      is spelled once, as `LIMITS_DATABASE_CONFIG_KEY` beside it in
+      `limits_validator.py`, and that call is the anchor.
   control_system.limits_checking.allow_unlisted_channels:
     evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
     note: >-

@@ -18,8 +18,10 @@ import pytest
 
 from osprey.connectors.control_system.limits_validator import (
     DEFAULTS_FIELD,
+    LIMITS_DATABASE_CONFIG_KEY,
     ChannelLimitsConfig,
     LimitsValidator,
+    mapping_config_lookup,
 )
 from osprey.errors import ChannelLimitsViolationError
 from osprey_connectors.types import EPICS, VIRTUAL_ACCELERATOR, LimitsPosture
@@ -1437,3 +1439,244 @@ class TestUnlistedRefusalNamesKey:
             validator.validate("NOT:IN:DB", 5.0)
 
         assert exc.value.violation_type == "UNLISTED_CHANNEL"
+
+
+# ---------------------------------------------------------------------------
+# The one home of the limits-database key and loader
+# ---------------------------------------------------------------------------
+
+
+def _write_limits(path: Path, entries: dict[str, dict], defaults: dict | None = None) -> Path:
+    """Write a synthetic channel_limits.json-shaped file."""
+    payload: dict[str, object] = {
+        "_comment": "synthetic fixture",
+        "_version": "4.0",
+        "defaults": {"writable": True} if defaults is None else defaults,
+    }
+    payload.update(entries)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+class TestConfiguredDatabasePath:
+    """One reading of the key, for every caller that used to walk it itself."""
+
+    def test_the_key_is_spelled_once(self):
+        assert LIMITS_DATABASE_CONFIG_KEY == "control_system.limits_checking.database_path"
+
+    def test_a_mapping_lookup_walks_dotted_keys(self):
+        lookup = mapping_config_lookup({"control_system": {"limits_checking": {"enabled": True}}})
+
+        assert lookup("control_system.limits_checking.enabled", None) is True
+        assert lookup("control_system.limits_checking", None) == {"enabled": True}
+        assert lookup("control_system.missing.leaf", "dflt") == "dflt"
+        assert lookup("control_system.limits_checking.enabled.deeper", None) is None
+
+    @pytest.mark.parametrize("config", [{}, {"control_system": {}}, {"control_system": "x"}])
+    def test_an_absent_key_is_none(self, config):
+        assert (
+            LimitsValidator.configured_database_path(config_lookup=mapping_config_lookup(config))
+            is None
+        )
+
+    @pytest.mark.parametrize("value", ["", "   ", None, False, 3])
+    def test_a_key_naming_nothing_usable_is_none(self, value):
+        config = {"control_system": {"limits_checking": {"database_path": value}}}
+
+        assert (
+            LimitsValidator.configured_database_path(config_lookup=mapping_config_lookup(config))
+            is None
+        )
+
+    def test_a_relative_path_anchors_on_the_config_it_was_read_from(self, tmp_path):
+        config = {"control_system": {"limits_checking": {"database_path": "data/limits.json"}}}
+
+        resolved = LimitsValidator.configured_database_path(
+            config_lookup=mapping_config_lookup(config),
+            config_path=str(tmp_path / "render" / "config.yml"),
+        )
+
+        assert resolved == str(tmp_path / "render" / "data" / "limits.json")
+
+    def test_an_absolute_path_is_taken_as_written(self, tmp_path):
+        absolute = tmp_path / "elsewhere" / "limits.json"
+        config = {"control_system": {"limits_checking": {"database_path": str(absolute)}}}
+
+        resolved = LimitsValidator.configured_database_path(
+            config_lookup=mapping_config_lookup(config), config_path=str(tmp_path / "config.yml")
+        )
+
+        assert resolved == str(absolute)
+
+    def test_existence_is_not_probed_here(self, tmp_path):
+        config = {"control_system": {"limits_checking": {"database_path": "gone.json"}}}
+
+        resolved = LimitsValidator.configured_database_path(
+            config_lookup=mapping_config_lookup(config), config_path=str(tmp_path / "config.yml")
+        )
+
+        assert resolved is not None
+        assert not Path(resolved).exists()
+
+    def test_the_live_lookup_is_the_default(self, monkeypatch, tmp_path):
+        _patch_config(
+            monkeypatch,
+            {"control_system.limits_checking.database_path": str(tmp_path / "limits.json")},
+        )
+
+        assert LimitsValidator.configured_database_path() == str(tmp_path / "limits.json")
+
+
+class TestLoadConfiguredDatabase:
+    """Resolve and load, reporting rather than raising — for every caller."""
+
+    def _config(self, path) -> dict:
+        return {"control_system": {"limits_checking": {"database_path": str(path)}}}
+
+    def test_an_unconfigured_key_is_named(self):
+        loaded, reason = LimitsValidator.load_configured_database(
+            config_lookup=mapping_config_lookup({})
+        )
+
+        assert loaded is None
+        assert reason == f"{LIMITS_DATABASE_CONFIG_KEY} is not configured"
+
+    def test_a_missing_file_names_the_key_and_the_path(self, tmp_path):
+        missing = tmp_path / "limits.json"
+
+        loaded, reason = LimitsValidator.load_configured_database(
+            config_lookup=mapping_config_lookup(self._config(missing))
+        )
+
+        assert loaded is None
+        assert reason is not None
+        assert LIMITS_DATABASE_CONFIG_KEY in reason
+        assert str(missing) in reason
+        assert "could not be read or parsed" in reason
+        assert "not found" in reason
+
+    def test_a_broken_file_carries_the_validators_own_message(self, tmp_path):
+        broken = tmp_path / "limits.json"
+        broken.write_text("{not json", encoding="utf-8")
+
+        loaded, reason = LimitsValidator.load_configured_database(
+            config_lookup=mapping_config_lookup(self._config(broken))
+        )
+
+        assert loaded is None
+        assert reason is not None
+        assert "could not be read or parsed" in reason
+        assert "JSON" in reason
+
+    def test_a_readable_file_loads_with_no_reason(self, tmp_path):
+        limits = _write_limits(tmp_path / "limits.json", {"FOO": {"max_value": 1.0}})
+
+        loaded, reason = LimitsValidator.load_configured_database(
+            config_lookup=mapping_config_lookup(self._config(limits))
+        )
+
+        assert reason is None
+        assert loaded is not None
+        limits_db, raw_db = loaded
+        assert set(limits_db) == {"FOO"}
+        assert raw_db["FOO"] == {"max_value": 1.0}
+
+    def test_from_config_blocks_every_write_on_the_loaders_reason(self, monkeypatch, tmp_path):
+        """The connector's failsafe quotes the same sentence every other caller gets."""
+        _patch_config(
+            monkeypatch,
+            {
+                "control_system.limits_checking.enabled": True,
+                "control_system.limits_checking.allow_unlisted_channels": False,
+                "control_system.limits_checking.database_path": str(tmp_path / "gone.json"),
+            },
+        )
+
+        validator = LimitsValidator.from_config()
+
+        assert isinstance(validator, LimitsValidator)
+        assert validator.limits == {}
+        assert validator.failsafe_reason is not None
+        assert validator.failsafe_reason.startswith("limits checking is enabled but ")
+        assert "could not be read or parsed" in validator.failsafe_reason
+        with pytest.raises(ChannelLimitsViolationError) as exc:
+            validator.validate("FOO", 1.0)
+        assert exc.value.violation_type == "LIMITS_DATABASE_UNAVAILABLE"
+
+
+class TestWritableAddresses:
+    """Defaults-aware writability, the rule the runtime write path uses."""
+
+    """Defaults-aware writability, the rule the runtime write path uses."""
+
+    def test_entry_without_writable_inherits_the_default(self, tmp_path):
+        """The demo file grants writability by omission — that must be honored."""
+        limits = _write_limits(
+            tmp_path / "limits.json",
+            {"SR:MAG:DIPOLE:01:CURRENT:SP": {"min_value": 0.0, "max_value": 1.0}},
+            defaults={"writable": True},
+        )
+
+        assert LimitsValidator.writable_addresses(limits) == frozenset(
+            {"SR:MAG:DIPOLE:01:CURRENT:SP"}
+        )
+
+    def test_explicit_false_overrides_a_true_default(self, tmp_path):
+        """An explicit writable:false wins over defaults.writable:true."""
+        limits = _write_limits(
+            tmp_path / "limits.json",
+            {
+                "SR:MAG:DIPOLE:01:CURRENT:SP": {},
+                "SR:VAC:VALVE:01:CONTROL:OPEN": {"writable": False},
+            },
+            defaults={"writable": True},
+        )
+
+        assert LimitsValidator.writable_addresses(limits) == frozenset(
+            {"SR:MAG:DIPOLE:01:CURRENT:SP"}
+        )
+
+    def test_explicit_true_overrides_a_false_default(self, tmp_path):
+        """The merge runs both ways: an entry can opt in under a false default."""
+        limits = _write_limits(
+            tmp_path / "limits.json",
+            {
+                "SR:MAG:DIPOLE:01:CURRENT:SP": {"writable": True},
+                "SR:MAG:DIPOLE:01:CURRENT:RB": {},
+            },
+            defaults={"writable": False},
+        )
+
+        assert LimitsValidator.writable_addresses(limits) == frozenset(
+            {"SR:MAG:DIPOLE:01:CURRENT:SP"}
+        )
+
+    def test_metadata_and_defaults_keys_are_not_channels(self, tmp_path):
+        """Underscore keys and 'defaults' never become addresses."""
+        limits = _write_limits(
+            tmp_path / "limits.json",
+            {"SR:MAG:DIPOLE:01:CURRENT:SP": {}},
+            defaults={"writable": True},
+        )
+
+        writable = LimitsValidator.writable_addresses(limits)
+
+        assert writable == frozenset({"SR:MAG:DIPOLE:01:CURRENT:SP"})
+        assert not any(key.startswith("_") or key == "defaults" for key in writable)
+
+    def test_missing_defaults_block_falls_back_to_writable_true(self, tmp_path):
+        """No defaults block at all still matches the validator's ``get(..., True)``."""
+        path = tmp_path / "limits.json"
+        path.write_text(json.dumps({"SR:MAG:DIPOLE:01:CURRENT:SP": {}}), encoding="utf-8")
+
+        assert LimitsValidator.writable_addresses(path) == frozenset(
+            {"SR:MAG:DIPOLE:01:CURRENT:SP"}
+        )
+
+    def test_non_object_payload_is_a_legible_error(self, tmp_path):
+        """A JSON list is refused by name rather than raising AttributeError later."""
+        path = tmp_path / "limits.json"
+        path.write_text(json.dumps(["nope"]), encoding="utf-8")
+
+        with pytest.raises(ValueError, match="JSON object"):
+            LimitsValidator.writable_addresses(path)

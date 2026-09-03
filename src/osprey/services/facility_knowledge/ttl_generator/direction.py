@@ -32,7 +32,6 @@ This module is standard-library plus in-repo imports only: no ``rdflib``, no
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -43,7 +42,10 @@ from typing import Any
 # ``osprey_connectors.config``; importing from the real module keeps the two
 # connector-side helpers below spelled from one place.
 from osprey_connectors.config import default_config_path, get_config_value
-from osprey_connectors.control_system.limits_validator import LimitsValidator
+from osprey_connectors.control_system.limits_validator import (
+    LIMITS_DATABASE_CONFIG_KEY,
+    LimitsValidator,
+)
 
 from .model import GraphModel
 
@@ -55,15 +57,6 @@ DIRECTION_READ = "read"
 
 #: Subfield token the PV grammar treats as a setpoint.
 WRITE_SUBFIELD = "SP"
-
-#: Config key naming the channel limits database, shared with the write path.
-LIMITS_DATABASE_CONFIG_KEY = "control_system.limits_checking.database_path"
-
-#: Config key naming the project root, the last-resort path anchor.
-PROJECT_ROOT_CONFIG_KEY = "project_root"
-
-#: Keys in the limits file that name no channel.
-_LIMITS_DEFAULTS_KEY = "defaults"
 
 #: How many dissenting addresses a conflict message spells out before eliding.
 _MAX_NAMED_DISSENTERS = 10
@@ -201,59 +194,16 @@ def resolve_limits_path(
         return path, f"limits file given explicitly: {path}"
 
     lookup = get_config_value if config_lookup is None else config_lookup
-    configured = lookup(LIMITS_DATABASE_CONFIG_KEY, None)
-    if not configured or not isinstance(configured, str):
+    configured = LimitsValidator.configured_database_path(
+        config_lookup=lookup, config_path=default_config_path()
+    )
+    if configured is None:
         return None, f"{LIMITS_DATABASE_CONFIG_KEY} is not set in the OSPREY config"
 
-    project_root = lookup(PROJECT_ROOT_CONFIG_KEY, None)
-    resolved = Path(
-        LimitsValidator.resolve_database_path(
-            configured,
-            project_root if isinstance(project_root, str) else None,
-            config_path=default_config_path(),
-        )
-    )
+    resolved = Path(configured)
     if not resolved.is_file():
         return None, f"no limits file found at {resolved} (from {LIMITS_DATABASE_CONFIG_KEY})"
     return resolved, f"limits file from {LIMITS_DATABASE_CONFIG_KEY}: {resolved}"
-
-
-def load_writable_set(limits_path: Path) -> frozenset[str]:
-    """Read the addresses a channel limits file declares writable.
-
-    Writability is defaults-aware: the demo file grants it by *omitting* the
-    ``writable`` key so the entry inherits ``defaults.writable: true``.  Reading
-    only explicit ``writable: true`` entries would find none at all.
-
-    Args:
-        limits_path: Path to a ``channel_limits.json``-shaped file.
-
-    Returns:
-        The writable addresses.
-
-    Raises:
-        ValueError: If the file is not JSON, or is not a JSON object.
-    """
-    try:
-        raw = json.loads(Path(limits_path).read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Channel limits file {limits_path} is not valid JSON: {exc}") from exc
-    if not isinstance(raw, dict):
-        raise ValueError(
-            f"Channel limits file {limits_path} must contain a JSON object keyed by "
-            f"channel address, got {type(raw).__name__}"
-        )
-
-    defaults = raw.get(_LIMITS_DEFAULTS_KEY)
-    defaults = defaults if isinstance(defaults, dict) else {}
-    writable = {
-        address
-        for address, entry in raw.items()
-        if not address.startswith("_")
-        and address != _LIMITS_DEFAULTS_KEY
-        and {**defaults, **(entry if isinstance(entry, dict) else {})}.get("writable", True)
-    }
-    return frozenset(writable)
 
 
 def assign_directions(
@@ -279,7 +229,7 @@ def assign_directions(
         DirectionConflictError: If a signal group's members do not share one
             limits-derived direction.
         ValueError: If the limits file is unreadable (see
-            :func:`load_writable_set`).
+            :meth:`~osprey_connectors.control_system.limits_validator.LimitsValidator.writable_addresses`).
     """
     if limits_path is None:
         directions = {
@@ -294,7 +244,7 @@ def assign_directions(
         )
 
     path = Path(limits_path)
-    writable = load_writable_set(path)
+    writable = LimitsValidator.writable_addresses(path)
     directions: dict[tuple[str, str, str], str] = {}
     for group in model.signal_groups:
         by_direction: dict[str, list[str]] = {}

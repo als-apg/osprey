@@ -51,6 +51,12 @@ from osprey.utils.config import ConfigBuilder, load_project_config
 from osprey.utils.log_filter import quiet_logger
 from osprey.utils.logger import get_logger
 
+# The single config key naming the channel-limits database, spelled once in the
+# validator that enforces it: the bind source on the host, the mount target in
+# the container and every refusal that names the key back to the operator all
+# read it from there.
+from osprey_connectors.control_system.limits_validator import LIMITS_DATABASE_CONFIG_KEY
+
 logger = get_logger("deployment.compose")
 
 
@@ -136,12 +142,6 @@ QMD_ARIEL_COLLECTION = "ariel"
 #: host-side has to agree with the directory the container's own config lookup
 #: resolves relative paths against.
 _CONTAINER_PROJECT_ROOT = "/app/project"
-
-#: The single config key naming the channel-limits database. One value, one
-#: file, everywhere it is spoken about — the bind source on the host, the mount
-#: target in the container, the connector's own lookup, and every refusal that
-#: names the key back to the operator.
-LIMITS_DATABASE_CONFIG_KEY = "control_system.limits_checking.database_path"
 
 
 def resolve_repo_root(config=None, config_path=None):

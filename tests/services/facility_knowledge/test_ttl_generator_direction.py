@@ -1,8 +1,9 @@
 """Tests for the TTL generator's read/write direction resolution.
 
 Two halves: the path-resolution branches (which limits file, if any, do we
-read?) and the direction rules themselves (defaults-aware writability, the
-group-constant invariant, and the PV-grammar fallback).
+read?) and the direction rules themselves (the group-constant invariant and
+the PV-grammar fallback). Defaults-aware writability is the validator's own
+rule and is tested with it (``tests/connectors/test_limits_validator.py``).
 
 The last test is the one that matters most — it runs both rules over the real
 shipped demo data and asserts they agree, which is what turns "writable iff
@@ -21,16 +22,18 @@ from osprey.services.facility_knowledge.ttl_generator import direction as direct
 from osprey.services.facility_knowledge.ttl_generator.direction import (
     DIRECTION_READ,
     DIRECTION_WRITE,
-    LIMITS_DATABASE_CONFIG_KEY,
     DirectionConflictError,
     DirectionSource,
     LimitsFileMissing,
     assign_directions,
-    load_writable_set,
     resolve_and_assign,
     resolve_limits_path,
 )
 from osprey.services.facility_knowledge.ttl_generator.model import build_model
+from osprey_connectors.control_system.limits_validator import (
+    LIMITS_DATABASE_CONFIG_KEY,
+    LimitsValidator,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _CONTROL_ASSISTANT_DATA = _REPO_ROOT / "src/osprey/templates/apps/control_assistant/data"
@@ -206,79 +209,6 @@ class TestResolveLimitsPath:
 
         assert path is None
         assert str(missing) in message
-
-
-# ---------------------------------------------------------------------------
-# load_writable_set
-# ---------------------------------------------------------------------------
-
-
-class TestLoadWritableSet:
-    """Defaults-aware writability, the rule the runtime write path uses."""
-
-    def test_entry_without_writable_inherits_the_default(self, tmp_path):
-        """The demo file grants writability by omission — that must be honored."""
-        limits = _write_limits(
-            tmp_path / "limits.json",
-            {"SR:MAG:DIPOLE:01:CURRENT:SP": {"min_value": 0.0, "max_value": 1.0}},
-            defaults={"writable": True},
-        )
-
-        assert load_writable_set(limits) == frozenset({"SR:MAG:DIPOLE:01:CURRENT:SP"})
-
-    def test_explicit_false_overrides_a_true_default(self, tmp_path):
-        """An explicit writable:false wins over defaults.writable:true."""
-        limits = _write_limits(
-            tmp_path / "limits.json",
-            {
-                "SR:MAG:DIPOLE:01:CURRENT:SP": {},
-                "SR:VAC:VALVE:01:CONTROL:OPEN": {"writable": False},
-            },
-            defaults={"writable": True},
-        )
-
-        assert load_writable_set(limits) == frozenset({"SR:MAG:DIPOLE:01:CURRENT:SP"})
-
-    def test_explicit_true_overrides_a_false_default(self, tmp_path):
-        """The merge runs both ways: an entry can opt in under a false default."""
-        limits = _write_limits(
-            tmp_path / "limits.json",
-            {
-                "SR:MAG:DIPOLE:01:CURRENT:SP": {"writable": True},
-                "SR:MAG:DIPOLE:01:CURRENT:RB": {},
-            },
-            defaults={"writable": False},
-        )
-
-        assert load_writable_set(limits) == frozenset({"SR:MAG:DIPOLE:01:CURRENT:SP"})
-
-    def test_metadata_and_defaults_keys_are_not_channels(self, tmp_path):
-        """Underscore keys and 'defaults' never become addresses."""
-        limits = _write_limits(
-            tmp_path / "limits.json",
-            {"SR:MAG:DIPOLE:01:CURRENT:SP": {}},
-            defaults={"writable": True},
-        )
-
-        writable = load_writable_set(limits)
-
-        assert writable == frozenset({"SR:MAG:DIPOLE:01:CURRENT:SP"})
-        assert not any(key.startswith("_") or key == "defaults" for key in writable)
-
-    def test_missing_defaults_block_falls_back_to_writable_true(self, tmp_path):
-        """No defaults block at all still matches the validator's ``get(..., True)``."""
-        path = tmp_path / "limits.json"
-        path.write_text(json.dumps({"SR:MAG:DIPOLE:01:CURRENT:SP": {}}), encoding="utf-8")
-
-        assert load_writable_set(path) == frozenset({"SR:MAG:DIPOLE:01:CURRENT:SP"})
-
-    def test_non_object_payload_is_a_legible_error(self, tmp_path):
-        """A JSON list is refused by name rather than raising AttributeError later."""
-        path = tmp_path / "limits.json"
-        path.write_text(json.dumps(["nope"]), encoding="utf-8")
-
-        with pytest.raises(ValueError, match="JSON object"):
-            load_writable_set(path)
 
 
 # ---------------------------------------------------------------------------
@@ -502,7 +432,7 @@ class TestShippedDemoData:
 
     def test_shipped_limits_file_declares_the_expected_writable_count(self):
         """The 396 is a property of the committed file, pinned here directly."""
-        writable = load_writable_set(_CHANNEL_LIMITS)
+        writable = LimitsValidator.writable_addresses(_CHANNEL_LIMITS)
 
         assert len(writable) == _EXPECTED_WRITABLE
         assert all(address.endswith(":SP") for address in writable)

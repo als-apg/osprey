@@ -393,14 +393,15 @@ def test_demo_ttl_devices_match_the_pv_grammar(committed_graph: Any, directed_mo
 def test_demo_ttl_writes_exactly_the_limits_writable_set(committed_graph: Any) -> None:
     """``writesSignal`` bindings are exactly the limits file's writable set.
 
-    ``load_writable_set`` reads the file the way the runtime does — merging the
-    ``defaults`` block, where the demo machine grants write access by *omitting*
-    the key. Re-deriving it here from raw JSON would risk agreeing with the
-    corpus about the wrong thing.
+    ``LimitsValidator.writable_addresses`` reads the file the way the runtime
+    does — it IS the runtime's loader — merging the ``defaults`` block, where
+    the demo machine grants write access by *omitting* the key. Re-deriving it
+    here from raw JSON would risk agreeing with the corpus about the wrong
+    thing.
     """
-    from osprey.services.facility_knowledge.ttl_generator.direction import load_writable_set
+    from osprey_connectors.control_system.limits_validator import LimitsValidator
 
-    writable = set(load_writable_set(LIMITS_PATH))
+    writable = set(LimitsValidator.writable_addresses(LIMITS_PATH))
     written = _pvs_of_bindings_with(committed_graph, "writesSignal")
 
     assert len(writable) == EXPECTED_WRITABLE, (
@@ -422,9 +423,9 @@ def test_demo_ttl_reads_everything_the_limits_file_withholds(
     committed_graph: Any, corpus_pvs: set[str]
 ) -> None:
     """The read set is the complement — no channel is both, and none is neither."""
-    from osprey.services.facility_knowledge.ttl_generator.direction import load_writable_set
+    from osprey_connectors.control_system.limits_validator import LimitsValidator
 
-    writable = set(load_writable_set(LIMITS_PATH))
+    writable = set(LimitsValidator.writable_addresses(LIMITS_PATH))
     read = _pvs_of_bindings_with(committed_graph, "readsSignal")
     written = _pvs_of_bindings_with(committed_graph, "writesSignal")
 

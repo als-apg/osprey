@@ -35,6 +35,7 @@ from osprey.services.facility_knowledge.ttl_generator.ontology_map import (
     OntologyMap,
     load_demo_ontology,
 )
+from osprey_connectors.control_system.limits_validator import LimitsValidator
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _CONTROL_ASSISTANT_DATA = _REPO_ROOT / "src/osprey/templates/apps/control_assistant/data"
@@ -533,7 +534,7 @@ class TestShippedDemoMachine:
         assert all(pv.endswith(":SP") for pv in written)
 
     def test_limits_file_and_corpus_agree_on_the_writable_set(self, real_graph: Graph) -> None:
-        writable = direction.load_writable_set(_CHANNEL_LIMITS)
+        writable = LimitsValidator.writable_addresses(_CHANNEL_LIMITS)
         written = {
             str(next(real_graph.objects(subject, _prop("fullPv"))))
             for subject in real_graph.subjects(_prop("writesSignal"), None)

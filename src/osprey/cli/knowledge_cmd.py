@@ -899,11 +899,11 @@ def _assign_directions(graph_model: Any, limits: Path | None) -> tuple[Any, Any]
             disagrees with itself about a signal.
     """
     from osprey.services.facility_knowledge.ttl_generator.direction import (
-        LIMITS_DATABASE_CONFIG_KEY,
         DirectionConflictError,
         LimitsFileMissing,
         resolve_and_assign,
     )
+    from osprey_connectors.control_system.limits_validator import LIMITS_DATABASE_CONFIG_KEY
 
     try:
         return resolve_and_assign(graph_model, limits)

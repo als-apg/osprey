@@ -8,13 +8,15 @@ a superseded schema passed ``osprey build`` and surfaced twenty minutes into
 validator's message is the actionable one, and it was being produced in the
 one place nobody could read it.
 
-This is the same gate, run where the file is cheap to fix. It mirrors
-``_assert_limits_readable_if_writable`` in the bridge exactly — same posture
-readers, same resolution anchor (the render's own ``config.yml``), same loader
-— so a file the build accepts is a file the bridge starts on, and a file the
-bridge refuses is refused here first. A missing file is the bridge's refusal
-too, and stays one here: the compose renderer's mount-time check already says
-so for a deployment that arms writes, and this adds the parse.
+This is the same gate, run where the file is cheap to fix. It IS the bridge's
+read, not a mirror of it: the same posture readers, and the one resolver and
+loader every reader of the key shares
+(:meth:`~osprey_connectors.control_system.limits_validator.LimitsValidator.load_configured_database`),
+anchored on the render's own ``config.yml`` — so a file the build accepts is
+a file the bridge starts on, and a file the bridge refuses is refused here
+first. A missing file is the bridge's refusal too, and stays one here: the
+compose renderer's mount-time check already says so for a deployment that
+arms writes, and this adds the parse.
 
 Writes-gated for the same reason the bridge and the mount are. A deployment
 that leaves every target read-only may name a database it stages later, and
@@ -25,8 +27,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-
-LIMITS_DATABASE_KEY = "control_system.limits_checking.database_path"
 
 
 def _rendered_config(render_dir: Path) -> dict[str, Any]:
@@ -80,21 +80,20 @@ def limits_database_errors(render_dir: Path) -> list[str]:
         return []
     target, writes_key, limits_key = armed
 
-    limits_checking = section.get("limits_checking")
-    raw = limits_checking.get("database_path") if isinstance(limits_checking, dict) else None
-    if not isinstance(raw, str) or not raw.strip():
+    from osprey_connectors.control_system.limits_validator import (
+        LimitsValidator,
+        mapping_config_lookup,
+    )
+
+    lookup = mapping_config_lookup(config)
+    anchor = str(render_dir / "config.yml")
+    if LimitsValidator.configured_database_path(config_lookup=lookup, config_path=anchor) is None:
         return []
 
-    from osprey.connectors.control_system.limits_validator import LimitsValidator
-
-    db_path = LimitsValidator.resolve_database_path(
-        raw, config.get("project_root"), config_path=str(render_dir / "config.yml")
+    loaded, reason = LimitsValidator.load_configured_database(
+        config_lookup=lookup, config_path=anchor
     )
-    try:
-        LimitsValidator._load_limits_database(db_path)
-    except Exception as exc:  # noqa: BLE001 - the validator's message is the report
-        return [
-            f"{writes_key} and {limits_key} are both set for target {target}, but "
-            f"{LIMITS_DATABASE_KEY} ({raw}) could not be read or parsed: {exc}"
-        ]
+    if loaded is None:
+        # The loader's wording, not a paraphrase: it names the field that moved.
+        return [f"{writes_key} and {limits_key} are both set for target {target}, but {reason}"]
     return []

@@ -2,6 +2,7 @@
 
 import json
 import os
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,49 @@ METADATA_FIELDS = {"_comment", "_version", "_last_updated", "_description"}
 
 # Special functional field (not metadata)
 DEFAULTS_FIELD = "defaults"
+
+#: The one config key naming the channel-limits database. One value, one file,
+#: everywhere it is spoken about: the connector's own lookup, the compose bind
+#: mount, the build's parse, the bridge's startup gate, the roster's direction
+#: source, the knowledge graph's direction assignment, and every refusal that
+#: names the key back to the operator. Spelled here and imported everywhere
+#: else, because a key spelled six times is a key that drifts.
+LIMITS_DATABASE_CONFIG_KEY = "control_system.limits_checking.database_path"
+
+#: The config key the last-resort path anchor is read from.
+_PROJECT_ROOT_CONFIG_KEY = "project_root"
+
+#: The signature every ``config_lookup`` here has: that of
+#: :func:`osprey_connectors.config.get_config_value`.
+ConfigLookup = Callable[[str, Any], Any]
+
+
+def mapping_config_lookup(config: Mapping[str, Any]) -> ConfigLookup:
+    """A ``get_config_value``-shaped lookup over an already-loaded config.
+
+    For the callers that hold the config as a dict rather than through the
+    live configurable -- the build reading a render's ``config.yml``, the
+    roster reading the project config it was handed -- so they resolve the
+    limits database through the same path as the runtime instead of walking
+    the segments themselves.
+
+    Args:
+        config: The loaded configuration mapping.
+
+    Returns:
+        A callable ``(dotted_key, default) -> value`` that walks nested
+        mappings and answers *default* for any segment that is not there.
+    """
+
+    def lookup(path: str, default: Any = None) -> Any:
+        value: Any = config
+        for key in path.split("."):
+            if not isinstance(value, Mapping) or key not in value:
+                return default
+            value = value[key]
+        return value
+
+    return lookup
 
 
 @dataclass
@@ -99,8 +143,62 @@ class LimitsValidator:
         return db_path
 
     @classmethod
-    def _load_configured_database(
+    def configured_database_path(
         cls,
+        *,
+        config_lookup: ConfigLookup | None = None,
+        config_path: str | None = None,
+    ) -> str | None:
+        """The file :data:`LIMITS_DATABASE_CONFIG_KEY` names, resolved; or ``None``.
+
+        The one reading of that key. Every caller that used to walk the config
+        segments and call :meth:`resolve_database_path` itself asks here, so
+        the build, the bridge, the roster and the knowledge graph cannot resolve
+        the same relative path to different files.
+
+        ``None`` covers every way of naming nothing: key absent, not a string,
+        blank. Existence is not probed -- a configured file that is not there
+        is the loader's finding, with the loader's message.
+
+        Args:
+            config_lookup: Where the key is read from, with the signature of
+                :func:`osprey_connectors.config.get_config_value`. Defaults to
+                that function, which reads the live configurable; pass
+                :func:`mapping_config_lookup` for a config held as a dict.
+            config_path: The config file the lookup answers from, which is the
+                anchor a relative path resolves against (see
+                :meth:`resolve_database_path`). Defaults to
+                :func:`osprey_connectors.config.default_config_path` when the
+                lookup is the live one; a caller supplying its own lookup
+                names its own anchor, or leaves it to the fallbacks.
+
+        Returns:
+            The resolved path as a string, or ``None``.
+        """
+        if config_lookup is None:
+            from osprey_connectors.config import default_config_path, get_config_value
+
+            config_lookup = get_config_value
+            if config_path is None:
+                config_path = default_config_path()
+
+        raw = config_lookup(LIMITS_DATABASE_CONFIG_KEY, None)
+        if not isinstance(raw, str) or not raw.strip():
+            return None
+
+        project_root = config_lookup(_PROJECT_ROOT_CONFIG_KEY, None)
+        return cls.resolve_database_path(
+            str(Path(raw.strip()).expanduser()),
+            project_root if isinstance(project_root, str) else None,
+            config_path=config_path,
+        )
+
+    @classmethod
+    def load_configured_database(
+        cls,
+        *,
+        config_lookup: ConfigLookup | None = None,
+        config_path: str | None = None,
     ) -> tuple[tuple[dict[str, ChannelLimitsConfig], dict] | None, str | None]:
         """Resolve and load the deployment-wide limits database.
 
@@ -108,58 +206,66 @@ class LimitsValidator:
         deployment mounts one limits file (``compose_generator.py`` binds a
         single path), so a per-type block changes policy and never the data.
         This is the half of validator construction that is the same for every
-        posture, kept in one place so that the deployment-wide and per-type
-        entry points cannot drift in how they resolve a relative path or in
-        which load failures they treat as fatal.
+        posture, and the same read the build's pre-deploy parse and the bridge's
+        startup gate make -- kept in one place so that none of them can drift
+        in how they resolve a relative path or in which load failures they
+        report.
 
-        Failure is reported rather than raised because both entry points answer
-        it the same way — with a fail-safe validator that blocks every write.
-        Returning ``None`` instead would leave writes unchecked, and raising
-        would crash a connector on a deployment that never writes at all.
+        Failure is reported rather than raised because every caller answers it
+        its own way: the connector with a fail-safe validator that blocks every
+        write, the build with a refusal line, the bridge with a startup
+        refusal. Returning ``None`` alone would leave a connector's writes
+        unchecked, and raising would crash one on a deployment that never
+        writes at all.
+
+        Args:
+            config_lookup: As for :meth:`configured_database_path`.
+            config_path: As for :meth:`configured_database_path`.
 
         Returns:
-            A ``(loaded, failsafe_reason)`` pair with exactly one half set:
-            either the ``(limits_database, raw_database)`` tuple, or a reason
-            string naming what could not be read, ready to hand to
-            ``failsafe_reason``.
+            A ``(loaded, reason)`` pair with exactly one half set: either the
+            ``(limits_database, raw_database)`` tuple, or a sentence naming
+            what could not be read, complete enough to be quoted by any caller.
         """
-        from osprey_connectors.config import default_config_path, get_config_value
-
-        db_path = get_config_value("control_system.limits_checking.database_path", None)
-        # Validate db_path is actually a string path (not None, False, or other types)
-        if not db_path or not isinstance(db_path, str):
-            logger.warning(
-                "Limits checking enabled but no database path configured - blocking all writes"
-            )
-            return None, (
-                "limits checking is enabled but "
-                "control_system.limits_checking.database_path is not configured"
-            )
-
-        project_root = get_config_value("project_root", None)
-        resolved_path = cls.resolve_database_path(
-            db_path, project_root, config_path=default_config_path()
-        )
-        if resolved_path != db_path:
-            logger.debug(f"Resolved limits database path: {resolved_path}")
-        db_path = resolved_path
+        db_path = cls.configured_database_path(config_lookup=config_lookup, config_path=config_path)
+        if db_path is None:
+            return None, f"{LIMITS_DATABASE_CONFIG_KEY} is not configured"
 
         try:
             limits_db, raw_db = cls._load_limits_database(db_path)
         except ValueError as e:
-            # Same failsafe as the missing-database-path case above: a
-            # missing/unparseable database must never crash the connector
-            # (a read-only deployment needs no limits) nor silently disable
-            # checking (returning None would leave writes unchecked) — an
-            # empty DB blocks every write with a clear refusal instead.
-            logger.warning(
-                f"Limits checking enabled but the database at {db_path} could not "
-                f"be read or parsed - blocking all writes. {e}"
+            return None, (
+                f"the limits database at {db_path} ({LIMITS_DATABASE_CONFIG_KEY}) could not "
+                f"be read or parsed: {e}"
             )
-            return None, (f"the limits database at {db_path} could not be read or parsed: {e}")
 
-        logger.debug(f"Loaded limits database with {len(limits_db)} channels")
+        logger.debug(f"Loaded limits database with {len(limits_db)} channels from {db_path}")
         return (limits_db, raw_db), None
+
+    @staticmethod
+    def writable_addresses(db_path: str | Path) -> frozenset[str]:
+        """The addresses a limits database declares writable, defaults-merged.
+
+        Read through :meth:`_load_limits_database` rather than from the raw
+        JSON, so the ``defaults`` block, the metadata keys and the per-entry
+        validation are applied by the same code the write path applies them
+        with. That matters: the demo file grants writability by *omitting*
+        ``writable`` so entries inherit ``defaults.writable: true``, and a
+        reader that looked only for an explicit ``writable: true`` would find
+        none at all.
+
+        Args:
+            db_path: Path to a ``channel_limits.json``-shaped file.
+
+        Returns:
+            The writable addresses.
+
+        Raises:
+            ValueError: If the file is missing, is not JSON, is not a JSON
+                object, or carries an entry the validator refuses.
+        """
+        limits_db, _raw = LimitsValidator._load_limits_database(str(db_path))
+        return frozenset(address for address, entry in limits_db.items() if entry.writable)
 
     @classmethod
     def from_config(
@@ -314,10 +420,15 @@ class LimitsValidator:
             if posture.enabled is not True:
                 return None
 
-            loaded, failsafe_reason = cls._load_configured_database()
+            loaded, reason = cls.load_configured_database()
             if loaded is None:
-                # Empty DB = blocks all (failsafe)
-                return cls({}, {}, {}, failsafe_reason=failsafe_reason)
+                # Same failsafe as the incomplete-block case above: a missing
+                # or unparseable database must never crash the connector (a
+                # read-only deployment needs no limits) nor silently disable
+                # checking (returning None would leave writes unchecked) -- an
+                # empty DB blocks every write with a clear refusal instead.
+                logger.warning(f"Limits checking enabled but {reason} - blocking all writes")
+                return cls({}, {}, {}, failsafe_reason=f"limits checking is enabled but {reason}")
             limits_db, raw_db = loaded
 
             # Both entries are JSON-serialisable: the python executor embeds

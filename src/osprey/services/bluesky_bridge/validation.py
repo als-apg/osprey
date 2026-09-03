@@ -101,16 +101,16 @@ def _assert_limits_readable_if_writable() -> None:
     unsafe posture this guard exists to catch before any connector/CA work
     begins.
 
-    Mirrors `LimitsValidator.from_config`'s ``database_path`` resolution
-    (a relative path anchors on the directory of the config actually loaded,
-    falling back to the ``CONFIG_FILE`` env var's directory and then
-    ``project_root`` — container-correct, since the deploy flattens
-    ``project_root`` in as the HOST build path while the loaded config is the
-    one mounted in-container), but probes readability via
-    `LimitsValidator._load_limits_database`
-    directly rather than calling `from_config` — `from_config` swallows every
-    load failure to `None`, which would hide the exact failure this guard
-    must detect and raise on.
+    Resolves and loads the database through
+    `LimitsValidator.load_configured_database`, the same call
+    `LimitsValidator.from_config` makes (a relative path anchors on the
+    directory of the config actually loaded, falling back to the
+    ``CONFIG_FILE`` env var's directory and then ``project_root`` —
+    container-correct, since the deploy flattens ``project_root`` in as the
+    HOST build path while the loaded config is the one mounted in-container),
+    rather than calling `from_config` itself — `from_config` swallows every
+    load failure into a fail-safe validator, which would hide the exact
+    failure this guard must detect and raise on.
 
     No project config context at all (e.g. running outside a configured
     OSPREY project — most unit-test environments) is treated the same way
@@ -139,8 +139,6 @@ def _assert_limits_readable_if_writable() -> None:
 
     try:
         section = get_config_value("control_system", {})
-        db_path = get_config_value("control_system.limits_checking.database_path", None)
-        project_root = get_config_value("project_root", None)
     except (FileNotFoundError, KeyError, RuntimeError):
         return
 
@@ -163,31 +161,29 @@ def _assert_limits_readable_if_writable() -> None:
 
     limits_key = posture.key("enabled")
 
-    if not db_path or not isinstance(db_path, str):
-        raise RuntimeError(
-            f"refusing to start writable: lane {lane} serves target {lane_target}, "
-            f"where {writes_key} and {limits_key} are both set, but "
-            "control_system.limits_checking.database_path is not configured"
-        )
-
-    from osprey.connectors.control_system.limits_validator import LimitsValidator
-
-    # Same relative-path resolution as `LimitsValidator.from_config`.
-    from osprey.utils.config import default_config_path
-
-    db_path = LimitsValidator.resolve_database_path(
-        db_path, project_root, config_path=default_config_path()
+    from osprey_connectors.control_system.limits_validator import (
+        LIMITS_DATABASE_CONFIG_KEY,
+        LimitsValidator,
     )
 
     try:
-        LimitsValidator._load_limits_database(db_path)
-    except Exception as exc:
+        configured = LimitsValidator.configured_database_path()
+    except (FileNotFoundError, KeyError, RuntimeError):
+        return
+    if configured is None:
+        raise RuntimeError(
+            f"refusing to start writable: lane {lane} serves target {lane_target}, "
+            f"where {writes_key} and {limits_key} are both set, but "
+            f"{LIMITS_DATABASE_CONFIG_KEY} is not configured"
+        )
+
+    loaded, reason = LimitsValidator.load_configured_database()
+    if loaded is None:
         raise RuntimeError(
             f"refusing to start writable: lane {lane} serves target {lane_target}, "
             f"where {writes_key} and {limits_key} are both set, but the configured "
-            "control_system.limits_checking.database_path could not be read or "
-            "parsed"
-        ) from exc
+            f"{LIMITS_DATABASE_CONFIG_KEY} could not be read or parsed: {reason}"
+        )
 
 
 def _validate_launchable_request(request: Any) -> None:
