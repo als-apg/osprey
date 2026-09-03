@@ -410,18 +410,20 @@ deployment does not render is disabled and carries the reason. If an
 arrangement cannot be saved the sheet reads **Layout not saved**, and your edit
 was not stored.
 
-Customizing is an Expert-mode affordance. Simple mode renders the arrangement
-you saved but offers no way into the sheet; switch to Expert from the display
-menu to change it.
+Customizing works the same in Simple and Expert view. Simple simplifies the
+workspace — one service tile, the operator console in place of the terminal —
+and leaves the bars, and your hand on them, exactly as they are in Expert.
 
 Where the arrangement lives
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Your bar arrangement is kept on the server, so it follows you to any browser
 you sign in from. It is the only web terminal preference that does: the theme,
-Expert or Simple mode, and the panel layout are each remembered by the browser
+Expert or Simple view, and the panel layout are each remembered by the browser
 you set them in, so a different browser or a different machine starts those
-from the deployment's own defaults.
+from the deployment's own defaults. The panel layout is remembered once per
+view: Simple starts from a single panel beside the console and Expert from the
+full workspace, and each keeps the arrangement you make of it.
 
 With nothing saved yet you get the deployment's arrangement, which an operator
 sets with ``web.bar_items``. The keys, and what each one does, are in
