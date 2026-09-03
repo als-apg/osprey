@@ -104,8 +104,12 @@ export function putBodies() {
  * projected children and no card at all, which is the DOM every real page has
  * until `osprey-display-menu.js` is evaluated. Use it to test what happens when
  * that module has not run yet.
+ *
+ * `context` is what the server stamped on `<html>` as `data-bar-context`;
+ * omitting it stamps nothing, which is a page this build did not render and
+ * where every gated item reads as unavailable.
  * @param {{fetch?: any, uiMode?: string, statusHidden?: boolean,
- *          menu?: boolean | 'cold'}} [options]
+ *          menu?: boolean | 'cold', context?: Record<string, unknown>}} [options]
  * @returns {Promise<{customize: any, sync: any}>}
  */
 export async function boot({
@@ -113,9 +117,11 @@ export async function boot({
   uiMode = 'expert',
   statusHidden = false,
   menu = false,
+  context,
 } = {}) {
   vi.resetModules();
   document.documentElement.setAttribute('data-ui-mode', uiMode);
+  if (context) document.documentElement.setAttribute('data-bar-context', JSON.stringify(context));
   if (statusHidden) document.documentElement.setAttribute('data-status-bar', 'hidden');
   const COLD_MENU = `<osprey-display-menu id="display-menu">
          <button class="display-menu-settings" id="display-menu-settings" type="button"
@@ -156,6 +162,7 @@ export function teardown({ customize, sync } = {}) {
   document.documentElement.removeAttribute('data-ui-mode');
   document.documentElement.removeAttribute('data-header-bar');
   document.documentElement.removeAttribute('data-status-bar');
+  document.documentElement.removeAttribute('data-bar-context');
   globalThis.fetch = realFetch;
   fetchSpy = null;
   vi.restoreAllMocks();
