@@ -2990,6 +2990,21 @@ def test_seed_inputs_read_the_manifest_the_project_env_names(tmp_path):
     assert boot_values == {}
 
 
+def test_seed_inputs_refuse_when_nothing_names_a_manifest(tmp_path, monkeypatch):
+    """No pointer, no seed — never the framework's bundled channel set.
+
+    The bundled manifest is the demo namespace, and an archive seeded with it
+    under a facility's name is indistinguishable from that facility's history.
+    Every other reader of the channel roster dropped this fallback; the seed is
+    the last one, and it goes the same way.
+    """
+    monkeypatch.delenv("VA_CHANNELS_FILE", raising=False)
+    (tmp_path / ".env").write_text("OTHER=x\n")
+
+    with pytest.raises(RuntimeError, match="VA_CHANNELS_FILE"):
+        container_lifecycle._archiver_seed_inputs({}, tmp_path)
+
+
 def test_reapply_without_a_machine_model_is_a_no_op(tmp_path):
     """A store-only project has no scenarios to restore onto the rebuilt base."""
     container_lifecycle._reapply_active_scenarios({}, tmp_path, None)

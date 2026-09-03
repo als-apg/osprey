@@ -141,6 +141,16 @@ VA_LATTICE_KEY = "VA_LATTICE"
 
 #: What :func:`resolved_va_lattice` answers when no chain file pins the key —
 #: the value the build itself appends whenever it generates a channel manifest.
+#:
+#: The container reads an EMPTY ``VA_LATTICE`` the other way: the virtual
+#: accelerator's entrypoint (``entrypoint.LATTICE_NONE``) boots no lattice
+#: rather than the framework's tutorial ring. The two are never asked the same
+#: question. This one speaks for the render-side readers of a chain the build
+#: has not written yet; the entrypoint's speaks for a hand-run container. A
+#: deployed container only ever starts on a chain carrying the key, because the
+#: deploy preflight (``container_lifecycle._preflight_build_derived_env``)
+#: refuses to start a stack whose manifest is on disk and whose derived keys
+#: are not.
 VA_LATTICE_DEFAULT = "builtin"
 
 

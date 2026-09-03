@@ -73,8 +73,9 @@ class RosterAbsenceReason(Enum):
     Named rather than left to each caller's prose because these are different
     situations with different remedies, and every surface that reports one has
     to tell them apart: nothing was configured, graph mode was configured but
-    points at no readable corpus, a source was read but cannot say which
-    channels are settable, or a configured source is there and unreadable.
+    points at no readable corpus, graph mode was configured but its block
+    cannot be read, a source was read but cannot say which channels are
+    settable, or a configured source is there and unreadable.
     """
 
     #: No roster source is configured at all -- ``detect_pipeline_config``
@@ -84,6 +85,15 @@ class RosterAbsenceReason(Enum):
     #: Graph mode is configured but no corpus resolves. The store is never
     #: dialed to find out; the config keys are named instead.
     GRAPH_NO_TTL = "graph-no-ttl"
+
+    #: Graph mode is configured but the ``services.graphdb`` block itself
+    #: cannot be read -- a blank ``ttl_path``, a value of the wrong shape. Kept
+    #: apart from :attr:`GRAPH_NO_TTL` because the remedy is different: not
+    #: "declare a corpus" but "fix the line you declared it with", so the
+    #: message carries the parser's own complaint. Fail-soft like its sibling,
+    #: and deliberately NOT :attr:`CORRUPT_SOURCE`: no source was named, so
+    #: none is there to be broken.
+    GRAPH_MALFORMED = "graph-malformed"
 
     #: A database source enumerated its channels, but carries neither a
     #: write-limits database nor ``:SP`` addresses, so no direction can be
@@ -124,6 +134,11 @@ ABSENCE_TEMPLATES: Mapping[RosterAbsenceReason, str] = {
         "Graph mode is configured but names no readable knowledge-graph corpus, "
         "so the set of channels this facility has is unknown; the corpus is "
         "declared by {config_keys}."
+    ),
+    RosterAbsenceReason.GRAPH_MALFORMED: (
+        "Graph mode is configured but its services.graphdb block cannot be read "
+        "({detail}), so the set of channels this facility has is unknown; the "
+        "corpus is declared by {config_keys}."
     ),
     RosterAbsenceReason.DIRECTION_UNDERIVABLE: (
         "The channels in {path} are known, but which of them are settable is "
@@ -212,7 +227,8 @@ class RosterAbsence:
         config_keys: The configuration keys that would have declared a source,
             when naming them is the remedy.
         detail: The underlying failure, for
-            :attr:`RosterAbsenceReason.CORRUPT_SOURCE`.
+            :attr:`RosterAbsenceReason.CORRUPT_SOURCE` and
+            :attr:`RosterAbsenceReason.GRAPH_MALFORMED`.
 
     Raises:
         ValueError: If the reason's phrasing names a subject this absence did

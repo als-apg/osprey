@@ -66,6 +66,7 @@ from osprey.deployment.compose_generator import (
 from osprey.deployment.container_lifecycle import (
     ENV_CHAIN_STATE_RELPATH,
     _compose_interpolated_vars,
+    _preflight_build_derived_env,
     _preflight_env_chain_drift,
     _preflight_env_shadowing,
     _report_chain_overrides,
@@ -2095,3 +2096,192 @@ def test_the_advisory_runs_before_the_image_build(tmp_path, monkeypatch):
     )
 
     assert order == ["declared", "image"]
+
+
+# ---------------------------------------------------------------------------
+# A build-derived key lost from the chain: a refusal, because the build wrote it
+# ---------------------------------------------------------------------------
+
+
+_VA_COMPOSE = (
+    "services:\n"
+    "  virtual-accelerator:\n"
+    "    image: va:local\n"
+    "    environment:\n"
+    '      VA_CHANNELS_FILE: "${VA_CHANNELS_FILE:-}"\n'
+    '      VA_LATTICE: "${VA_LATTICE:-}"\n'
+)
+
+
+@pytest.fixture(autouse=True)
+def _no_inherited_build_derived_exports(monkeypatch):
+    for var in ("VA_CHANNELS_FILE", "VA_LATTICE"):
+        monkeypatch.delenv(var, raising=False)
+
+
+def _manifest(root: Path) -> Path:
+    """The channel manifest a build generates into the render's data dir."""
+    simulation = root / "build" / "data" / "simulation"
+    simulation.mkdir(parents=True, exist_ok=True)
+    path = simulation / "channel_manifest.json"
+    path.write_text('{"channels": []}', encoding="utf-8")
+    return path
+
+
+def test_a_lost_channels_pointer_refuses_and_names_the_key(tmp_path, caplog):
+    """The build writes BOTH keys whenever it generates a manifest.
+
+    So a manifest on disk beside a chain missing one of them is a key that was
+    lost, not a choice anybody made — and the container it would start refuses
+    to boot on an empty pointer, which is a worse place to learn it.
+    """
+    repo = _repo(tmp_path, "VA_LATTICE=builtin\n", _VA_COMPOSE)
+    _manifest(repo)
+
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as excinfo:
+        _preflight_build_derived_env(_files(), repo)
+
+    assert "VA_CHANNELS_FILE" in str(excinfo.value)
+    assert "VA_LATTICE" not in str(excinfo.value)
+    assert "osprey build" in caplog.text
+    assert "channel_manifest.json" in caplog.text
+
+
+def test_a_lost_lattice_key_refuses_and_names_the_key(tmp_path, caplog):
+    repo = _repo(tmp_path, "VA_CHANNELS_FILE=channel_manifest.json\n", _VA_COMPOSE)
+    _manifest(repo)
+
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as excinfo:
+        _preflight_build_derived_env(_files(), repo)
+
+    assert "VA_LATTICE" in str(excinfo.value)
+    assert "VA_CHANNELS_FILE" not in str(excinfo.value)
+
+
+def test_both_lost_keys_are_named(tmp_path):
+    repo = _repo(tmp_path, "OTHER=x\n", _VA_COMPOSE)
+    _manifest(repo)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        _preflight_build_derived_env(_files(), repo)
+
+    assert "VA_CHANNELS_FILE" in str(excinfo.value)
+    assert "VA_LATTICE" in str(excinfo.value)
+
+
+def test_an_empty_value_is_a_lost_key(tmp_path, caplog):
+    """``KEY=`` puts the same empty string in the container as no line at all.
+
+    And it is the shape that survives a rebuild: the build appends and never
+    rewrites a key already on file, so the empty line has to be named.
+    """
+    repo = _repo(tmp_path, "VA_CHANNELS_FILE=\nVA_LATTICE=builtin\n", _VA_COMPOSE)
+    _manifest(repo)
+
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as excinfo:
+        _preflight_build_derived_env(_files(), repo)
+
+    assert "VA_CHANNELS_FILE" in str(excinfo.value)
+    assert "never rewrites" in caplog.text
+
+
+def test_both_keys_on_file_is_silent(tmp_path, caplog):
+    repo = _repo(tmp_path, "VA_CHANNELS_FILE=channel_manifest.json\nVA_LATTICE=none\n", _VA_COMPOSE)
+    _manifest(repo)
+
+    with caplog.at_level(logging.INFO):
+        _preflight_build_derived_env(_files(), repo)
+
+    assert caplog.text == ""
+
+
+def test_no_manifest_is_not_this_checks_business(tmp_path, caplog):
+    """No manifest, no pointer to lose.
+
+    A build that generated none already warned about a stale pointer left on
+    file, and a chain with neither key names nothing a virtual accelerator
+    could boot from — that refusal is the container's own, by name.
+    """
+    repo = _repo(tmp_path, "OTHER=x\n", _VA_COMPOSE)
+
+    with caplog.at_level(logging.INFO):
+        _preflight_build_derived_env(_files(), repo)
+
+    assert caplog.text == ""
+
+
+def test_a_key_no_compose_file_interpolates_is_not_reported(tmp_path, caplog):
+    """A manifest beside a stack that deploys no reader of it is not a lost key."""
+    repo = _repo(tmp_path, "OTHER=x\n", _worker_compose("./.env"))
+    _manifest(repo)
+
+    with caplog.at_level(logging.INFO):
+        _preflight_build_derived_env(_files(), repo)
+
+    assert caplog.text == ""
+
+
+def test_the_recorder_compose_counts_as_a_reader(tmp_path):
+    """Any compose file that interpolates the key is a reader, not just the VA's."""
+    recorder = (
+        "services:\n  archiver-recorder:\n    image: rec:local\n    environment:\n"
+        '      VA_CHANNELS_FILE: "${VA_CHANNELS_FILE:-}"\n'
+    )
+    repo = _repo(tmp_path, "VA_LATTICE=none\n", recorder)
+    _manifest(repo)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        _preflight_build_derived_env(_files(), repo)
+
+    assert "VA_CHANNELS_FILE" in str(excinfo.value)
+
+
+def test_a_key_pinned_in_the_shared_file_counts(tmp_path, caplog):
+    repo = _repo(tmp_path, "VA_LATTICE=none\n", _VA_COMPOSE)
+    _shared(repo, "VA_CHANNELS_FILE=channel_manifest.json\n")
+    _manifest(repo)
+
+    with caplog.at_level(logging.INFO):
+        _preflight_build_derived_env(_files(), repo)
+
+    assert caplog.text == ""
+
+
+def test_an_exported_value_counts(tmp_path, caplog, monkeypatch):
+    """A shell export reaches compose too, so it is a value, not a lost key."""
+    repo = _repo(tmp_path, "VA_LATTICE=none\n", _VA_COMPOSE)
+    _manifest(repo)
+    monkeypatch.setenv("VA_CHANNELS_FILE", "channel_manifest.json")
+
+    with caplog.at_level(logging.INFO):
+        _preflight_build_derived_env(_files(), repo)
+
+    assert caplog.text == ""
+
+
+def test_a_missing_compose_file_is_skipped_not_raised_here_too(tmp_path):
+    repo = _repo(tmp_path, "OTHER=x\n")
+    _manifest(repo)
+
+    _preflight_build_derived_env(["build/services/docker-compose.gone.yml"], repo)
+
+
+def test_a_lost_key_refuses_the_deploy_before_the_image_build(tmp_path, monkeypatch):
+    """On the deploy path, and ahead of the build: the whole point is to be told early."""
+    repo = _repo(tmp_path, "VA_LATTICE=builtin\n", _VA_COMPOSE)
+    _manifest(repo)
+
+    order: list[str] = []
+    ran = _stub_runtime(monkeypatch, order)
+
+    with pytest.raises(RuntimeError):
+        container_lifecycle._start_stack(
+            {"project_name": "proj", "deployed_services": ["virtual_accelerator"]},
+            _files(),
+            repo,
+            detached=True,
+            env_path=repo / ".env",
+        )
+
+    assert order == []
+    assert not any("up" in cmd for cmd in ran)

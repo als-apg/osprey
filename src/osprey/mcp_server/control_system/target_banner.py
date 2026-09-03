@@ -79,6 +79,7 @@ import os
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from osprey.mcp_server.control_system import target_state
@@ -163,30 +164,30 @@ def resolve_baseline_target() -> str:
 
 
 def _int_or_none(value: object) -> int | None:
-    """Coerce a record field to ``int``, or ``None`` when it is not a number."""
+    """Coerce a caller-supplied pid to ``int``, or ``None`` when it is not a number.
+
+    For the pid a web client names, which arrives as whatever the transport
+    made of it. Record fields are never coerced: they are read strictly through
+    :func:`~osprey.mcp_server.control_system.target_state.record_pid`, because
+    the one writer emits ``int`` and anything else is a record nothing wrote.
+    """
     try:
         return int(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
 
 
-def _live_records() -> list[dict]:
-    """Every state record whose owning server process is still running."""
+def _state_entries() -> list[Path]:
+    """The state files on disk, sorted; empty when the directory cannot be listed."""
     try:
-        entries = sorted(target_state.state_dir().glob(target_state.STATE_FILE_GLOB))
+        return sorted(target_state.state_dir().glob(target_state.STATE_FILE_GLOB))
     except OSError:
         return []
 
-    records: list[dict] = []
-    for entry in entries:
-        record = target_state.read_file(entry)
-        if record is None:
-            continue
-        server_pid = _int_or_none(record.get("server_pid"))
-        if server_pid is None or not target_state.is_process_alive(server_pid):
-            continue
-        records.append(record)
-    return records
+
+def _live_records() -> list[dict]:
+    """Every state record whose owning server process is still running."""
+    return target_state.live_records(_state_entries())
 
 
 def resolve_session_target(baseline_target: str) -> str:
@@ -201,19 +202,12 @@ def resolve_session_target(baseline_target: str) -> str:
     Zero matches (no session has switched, or the switch happened under a
     different parent) and more than one match (ambiguous ownership) both mean
     the same thing: no answer. Both fall back to the baseline, so an unknown
-    state produces no refusal and no label rather than a guess.
+    state produces no refusal and no label rather than a guess. The match is
+    :func:`~osprey.mcp_server.control_system.target_state.session_record`, the
+    one rule every child of the same Claude Code process reads by.
     """
-    own_parent = os.getppid()
-    matches = [r for r in _live_records() if _int_or_none(r.get("owner_ppid")) == own_parent]
-    if len(matches) != 1:
-        if matches:
-            logger.debug("Ambiguous target state: %d records own ppid %s", len(matches), own_parent)
-        return baseline_target
-    target = matches[0].get("target")
-    if target not in target_state.TARGET_NAMES:
-        logger.debug("Target state names an unknown target %r; using baseline", target)
-        return baseline_target
-    return str(target)
+    record = target_state.session_record(_state_entries(), os.getppid())
+    return baseline_target if record is None else str(record["target"])
 
 
 # -- resolution for a process we are NOT inside ----------------------------
@@ -368,8 +362,8 @@ def _matched_record(pty_pid: object) -> dict | None:
 
     matches: list[dict] = []
     for record in records:
-        owner_ppid = _int_or_none(record.get("owner_ppid"))
-        if owner_ppid is None or owner_ppid <= 0:
+        owner_ppid = target_state.record_pid(record, "owner_ppid")
+        if owner_ppid is None:
             continue
         try:
             chain = _ancestor_pids(owner_ppid, stop_at=pid, parent_of=parent_of)

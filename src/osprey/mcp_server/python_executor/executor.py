@@ -402,22 +402,19 @@ def _session_target_record() -> dict[str, Any] | None:
     server's PID, which this process — a different MCP server — cannot know. It
     can know its own parent: both servers are spawned by the same Claude Code
     process, so the record whose ``owner_ppid`` equals ``os.getppid()`` here is
-    the one describing the session the execute call belongs to.
+    the one describing the session the execute call belongs to. That match is
+    :func:`osprey.mcp_server.control_system.target_state.session_record`, the
+    one rule every child of that process reads by; this asks it with
+    ``require_generation`` because a record without an ``int`` generation
+    cannot pin a run.
 
-    That is *exact parent equality*, deliberately narrower than the ancestor-
-    chain walk the prompt hook does. It holds for the servers Claude Code spawns
-    directly, which is how OSPREY's MCP servers are launched. A deployment that
-    interposes a process between Claude Code and this server would break the
-    equality, and the outcome of breaking it is an unstamped run on the
-    deployment baseline — the same fail-closed outcome as having no state at all,
-    never a wrong target.
-
-    Zero matches (no controls server, or a state directory this deployment never
-    created) and more than one match (an ``owner_ppid`` collision after a PID
-    was reused) both resolve to ``None``. The caller then stamps nothing, and
-    the sandbox routes off the deployment baseline: a run that is honestly
-    unstamped is recoverable, while a run stamped with a guessed target is a
-    tool call arriving somewhere nobody selected.
+    A deployment that interposes a process between Claude Code and this server
+    breaks the equality, and the outcome is an unstamped run on the deployment
+    baseline — the same fail-closed outcome as having no state at all, never a
+    wrong target. Zero matches and an ``owner_ppid`` collision both resolve to
+    ``None`` for the same reason: a run that is honestly unstamped is
+    recoverable, while a run stamped with a guessed target is a tool call
+    arriving somewhere nobody selected.
 
     Never raises — a missing, corrupt, or unreadable state directory is the
     documented "state unavailable" outcome, not an execution failure.
@@ -430,41 +427,7 @@ def _session_target_record() -> dict[str, Any] | None:
         logger.debug("Target state unavailable; execution runs unstamped", exc_info=True)
         return None
 
-    owner_ppid = os.getppid()
-    matches: list[dict[str, Any]] = []
-    for entry in entries:
-        record = target_state.read_file(entry)
-        if record is None or record.get("owner_ppid") != owner_ppid:
-            continue
-        server_pid = record.get("server_pid")
-        # A record whose owner died is residue: its target describes a server
-        # nobody is talking to any more.
-        if not isinstance(server_pid, int) or not target_state.is_process_alive(server_pid):
-            continue
-        if record.get("target") in target_state.TARGET_NAMES and isinstance(
-            record.get("generation"), int
-        ):
-            matches.append(record)
-
-    if len(matches) != 1:
-        if matches:
-            logger.warning(
-                "%d control-target records share owner_ppid %s; execution runs unstamped",
-                len(matches),
-                owner_ppid,
-            )
-        elif entries:
-            # Records exist but none is ours — another session's, or a parent
-            # this process does not have. Worth seeing when a switch appears to
-            # have had no effect on execute().
-            logger.debug(
-                "%d control-target record(s) present, none owned by ppid %s; "
-                "execution runs unstamped",
-                len(entries),
-                owner_ppid,
-            )
-        return None
-    return matches[0]
+    return target_state.session_record(entries, os.getppid(), require_generation=True)
 
 
 def _target_is_resolvable(target: str) -> bool:

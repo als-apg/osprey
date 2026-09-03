@@ -2574,6 +2574,24 @@ def _value_digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _interpolated_vars_across(compose_files: list[str], root: Path) -> set[str]:
+    """Every name some rendered compose file interpolates from the environment.
+
+    The union over the files a deploy will start, in ``-f`` order. Relative
+    entries resolve against *root*; unreadable ones are skipped, because a
+    missing render is the start's own error to raise, not a preflight's.
+    """
+    referenced: set[str] = set()
+    for compose_file in compose_files:
+        path = Path(compose_file)
+        path = path if path.is_absolute() else root / path
+        try:
+            referenced |= _compose_interpolated_vars(path.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+    return referenced
+
+
 def _read_chain_state(repo_root: Path) -> dict[str, str]:
     """The shared-file key digests recorded by the previous deploy.
 
@@ -3431,6 +3449,101 @@ def _preflight_env_chain_drift(compose_files: list[str], repo_root: Path | str) 
     )
 
 
+def _preflight_build_derived_env(
+    compose_files: list[str],
+    repo_root: Path | str,
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> None:
+    """Refuse the deploy when the build's own env keys are gone from the chain.
+
+    ``osprey build`` writes BOTH :data:`~osprey.utils.dotenv.BUILD_DERIVED_KEYS`
+    (``VA_CHANNELS_FILE``, ``VA_LATTICE``) into ``.env`` whenever it generates
+    ``build/data/simulation/channel_manifest.json``, and nothing else ever
+    writes them. So a manifest on disk beside a chain that carries only one of
+    them, or neither, is a key that was LOST — a line deleted by hand, a
+    ``.env`` restored from an older copy — and not a choice anybody made.
+
+    Left alone, the loss surfaces in the worst place: the compose templates
+    hand the container ``${VA_CHANNELS_FILE:-}``, the entrypoint refuses an
+    empty pointer rather than serving the framework's bundled demo namespace,
+    and the operator gets an unhealthy container whose compose log says only
+    that it exited. Named here instead, ahead of anything that costs time.
+
+    A refusal rather than a warning, for the reason
+    :func:`_preflight_env_chain_drift` gives: a stack started without the key
+    has no outcome anybody asked for.
+
+    Keyed on the names the rendered compose files actually interpolate, so a
+    stack that deploys no reader of the key (no virtual accelerator, no
+    recorder) is not refused over a manifest nothing reads. Existence is the
+    union of the chain and the process environment, as
+    :func:`_preflight_declared_env_unset` takes it, and an empty value counts
+    as no value: ``KEY=`` puts the same empty string in the container as no
+    line at all — and it is the shape that survives a rebuild, because the
+    build appends and never rewrites a key already on file.
+
+    :param compose_files: The compose files this deploy will start, in ``-f``
+        order. Relative entries resolve against *repo_root*.
+    :param repo_root: The deployment repo root, holding the chain and the
+        render.
+    :param environ: The environment to check against. ``None`` reads the live
+        one overlaid with the shell values the CLI's entry-time ``.env`` load
+        replaced, matching what the stack is actually started with.
+    :raises RuntimeError: The manifest exists, some compose file interpolates
+        a build-derived key, and neither the chain nor the environment gives
+        it a value.
+    """
+    from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
+    from osprey.utils.dotenv import BUILD_DERIVED_KEYS
+
+    root = Path(repo_root).expanduser().absolute()
+    manifest = Path(BUILD_DIRNAME) / "data" / "simulation" / MANIFEST_FILENAME
+    if not (root / manifest).is_file():
+        return
+
+    wanted = sorted(BUILD_DERIVED_KEYS & _interpolated_vars_across(compose_files, root))
+    if not wanted:
+        return
+
+    if environ is None:
+        from osprey.utils.config import dotenv_shell_overrides
+
+        process_env: Mapping[str, str] = {**os.environ, **dotenv_shell_overrides()}
+    else:
+        process_env = environ
+
+    chain = merge_chain(root)
+    missing = [
+        name
+        for name in wanted
+        if not (chain.get(name) or "").strip() and not (process_env.get(name) or "").strip()
+    ]
+    if not missing:
+        return
+
+    names = ", ".join(missing)
+    logger.error(
+        "Build-derived env lost: %s is on disk, but %s is unset in the env chain and the "
+        "environment.\n"
+        "  `osprey build` writes %s into %s whenever it generates that manifest, and the "
+        "container it points at refuses to start on an empty value rather than serve the "
+        "framework's bundled demo namespace. A manifest on disk beside a chain missing the "
+        "key is a key that was lost, not a choice.\n"
+        "  Run `osprey build` to write it back, then `osprey up`. Delete an empty `%s=` line "
+        "first: the build appends and never rewrites a key already on file.",
+        manifest,
+        names,
+        " and ".join(sorted(BUILD_DERIVED_KEYS)),
+        ENV_LOCAL_FILENAME,
+        names,
+    )
+    raise RuntimeError(
+        f"build-derived env preflight failed: {names} is unset while {manifest} exists "
+        "(see report above). Run `osprey build`, then `osprey up`."
+    )
+
+
 def _preflight_env_shadowing(
     compose_files: list[str],
     repo_root: Path | str,
@@ -3552,14 +3665,7 @@ def _preflight_env_shadowing(
     else:
         process_env = environ
 
-    referenced: set[str] = set()
-    for compose_file in compose_files:
-        path = Path(compose_file)
-        path = path if path.is_absolute() else root / path
-        try:
-            referenced |= _compose_interpolated_vars(path.read_text(encoding="utf-8"))
-        except OSError:
-            continue
+    referenced = _interpolated_vars_across(compose_files, root)
 
     shadowed = sorted(
         name
@@ -3756,14 +3862,7 @@ def _preflight_declared_env_unset(
         return []
 
     root = Path(repo_root).expanduser().absolute()
-    referenced: set[str] = set()
-    for compose_file in compose_files:
-        path = Path(compose_file)
-        path = path if path.is_absolute() else root / path
-        try:
-            referenced |= _compose_interpolated_vars(path.read_text(encoding="utf-8"))
-        except OSError:
-            continue
+    referenced = _interpolated_vars_across(compose_files, root)
     if not referenced:
         return []
 
@@ -4352,7 +4451,9 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
     seeded history covers precisely the channels the live half serves. It is read
     from the project's own ``.env`` first, because that is where the build wrote
     it; the ambient value is the fallback for a deploy whose environment carries
-    it instead.
+    it instead. Neither naming a manifest is a refusal, never the framework's
+    bundled channel set: a seed of another facility's namespace under this
+    deployment's name is indistinguishable, in the archive, from history.
 
     The value transform rides along because it is decided from the same two
     things this already has in hand — the config and the project's env chain —
@@ -4364,8 +4465,8 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
         empty for a project with no machine model — every channel is then
         procedural, which is a valid configuration, not a fault. The last two
         are ``None`` unless this deployment's archive is its stand-in's.
+    :raises RuntimeError: Nothing names a manifest to seed from.
     """
-    from osprey.services.virtual_accelerator.manifest.build import build_manifest
     from osprey.services.virtual_accelerator.manifest.loaders import (
         load_machine_json_channels,
         load_manifest_file,
@@ -4386,7 +4487,12 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
             manifest_path = project_dir / BUILD_DIRNAME / "data" / "simulation" / manifest_path
         channels = load_manifest_file(manifest_path)
     else:
-        channels = build_manifest()["channels"]
+        raise RuntimeError(
+            "The archiver seed has no channel set to build from: VA_CHANNELS_FILE is unset "
+            f"in {project_dir / '.env'} and in the environment. `osprey build` writes it "
+            "whenever it generates the channel manifest; the seed never falls back to the "
+            "framework's bundled channel set."
+        )
 
     transform, transform_fingerprint = _standin_seed_transform(
         config, project_dir, [str(channel["address"]) for channel in channels]
@@ -5817,6 +5923,13 @@ def _start_stack(
     # changes nothing about what the stack reads. Ahead of the advisory below
     # because there is no point reporting on a chain the render does not match.
     _preflight_env_chain_drift(compose_files, repo_root)
+
+    # Refuse a chain the build's own keys have gone missing from: the build
+    # writes VA_CHANNELS_FILE and VA_LATTICE together whenever it generates a
+    # channel manifest, so a manifest on disk beside a chain without them is a
+    # lost key, and the container would exit on the empty value. Reads only
+    # this deployment's own files, so it sits with the other refusals that do.
+    _preflight_build_derived_env(compose_files, repo_root)
 
     # Which compose implementation is behind the resolved runtime, answered once
     # for every invocation this start makes: the env-file fragment, the argv,
