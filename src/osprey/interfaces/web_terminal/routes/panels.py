@@ -115,6 +115,14 @@ async def lattice_server_config(request: Request):
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
+@router.get("/api/jupyter-server")
+async def jupyter_server_config(request: Request):
+    """Return the notebook sidecar URL for iframe embedding."""
+    url = getattr(request.app.state, "jupyter_server_url", None)
+    proxy_url = f"{compute_url_prefix()}/panel/jupyter" if url else None
+    return {"url": proxy_url, "available": proxy_url is not None}
+
+
 @router.get("/api/okf-server")
 async def okf_server_config(request: Request):
     """Return the OKF knowledge panel server URL for iframe embedding."""

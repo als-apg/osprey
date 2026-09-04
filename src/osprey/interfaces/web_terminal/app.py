@@ -7,6 +7,7 @@ via PTY) on the left and a live workspace file viewer on the right.
 from __future__ import annotations
 
 import asyncio
+import importlib
 import os
 from collections import deque
 from collections.abc import Callable
@@ -46,7 +47,12 @@ from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
 from osprey.port_layout import default_port
-from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS, panel_spec_enabled
+from osprey.profiles.web_panels import (
+    BUILTIN_PANELS,
+    SIDECAR_PANELS,
+    UNIVERSAL_PANELS,
+    panel_spec_enabled,
+)
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
 
 if TYPE_CHECKING:
@@ -90,14 +96,138 @@ def _launch_enabled_panel_servers(app: FastAPI, enabled_panels: set[str]) -> Non
     sync with :func:`_load_panel_config`, which already folds
     ``UNIVERSAL_PANELS`` into ``enabled_panels`` unconditionally.
 
+    Sidecar panel ids are diverted before the registry lookup: a sidecar is in
+    no companion registry and has no key to look up, so indexing
+    ``PANEL_ID_TO_REGISTRY_KEY`` with one raises. :func:`_launch_enabled_sidecars`
+    starts those, from the same ``enabled_panels`` set.
+
     Args:
         app: The web-terminal application whose ``state`` the URLs are published on.
         enabled_panels: Enabled panel ids from :func:`_load_panel_config`. Ids with
             no companion server behind them (URL-backed custom panels such as
             ``events``) are skipped — the framework serves nothing for those.
     """
-    for panel_id in sorted(enabled_panels & BUILTIN_PANELS):
+    for panel_id in sorted(enabled_panels & (BUILTIN_PANELS - set(SIDECAR_PANELS))):
         _launch_panel_server(app, PANEL_ID_TO_REGISTRY_KEY[panel_id])
+
+
+#: How long a sidecar gets to answer its own status endpoint after it is spawned.
+#: Generous: the first launch on a cold deployment builds the panel's assets.
+SIDECAR_READY_TIMEOUT = 60.0
+
+
+async def _launch_enabled_sidecars(app: FastAPI, enabled_panels: set[str]) -> None:
+    """Start every enabled sidecar panel and publish what the proxy needs.
+
+    The async peer of :func:`_launch_enabled_panel_servers`. Split from it
+    rather than folded in because a sidecar launch blocks — an interpreter
+    probe, then a server that has to come up — and the lifespan's loop is
+    already running by the time this is reached.
+
+    Args:
+        app: The web-terminal application whose ``state`` the URLs are published on.
+        enabled_panels: Enabled panel ids from :func:`_load_panel_config`.
+    """
+    for panel_id in sorted(enabled_panels & set(SIDECAR_PANELS)):
+        await _launch_sidecar(app, panel_id)
+
+
+async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
+    """Start the sidecar behind *panel_id* and publish its URL and credential.
+
+    The class comes from :data:`~osprey.profiles.web_panels.SIDECAR_PANELS` as a
+    dotted ``module:attribute`` path, resolved here the way
+    :func:`_launch_panel_server` resolves a registry key — so adding a sidecar
+    is an entry in that registry and nothing in this module.
+
+    Publishing is all-or-nothing, and it happens only once the sidecar answers:
+    the panel URL (``app.state.<id>_server_url``) is the sole input to panel
+    availability, and the credential (``app.state.panel_auth_headers[<id>]``) is
+    what the proxy re-issues on the operator's behalf. A launch that failed
+    anywhere leaves the URL unset, which is what a switched-off panel looks like.
+
+    The blocking halves run in a worker thread. ``spawn()`` blocks only for the
+    fork, so it stays on the loop.
+
+    A sidecar that dies later is retracted the same way it was published: its
+    ``on_exit`` hook, which the sidecar fires from its own watcher thread, hands
+    the loop a callback that clears the URL and drops the credential, so the
+    availability route answers unavailable at once and the next page load greys
+    the tab. The sidecar logs the exit itself, with its stderr tail. Nothing
+    restarts it; the object stays in ``app.state.sidecars`` so shutdown still
+    removes its per-launch tempdir.
+
+    Args:
+        app: The web-terminal application whose ``state`` the URL is published on.
+        panel_id: The sidecar's panel id, a key of ``SIDECAR_PANELS``.
+    """
+    attr = panel_url_state_attr(panel_id)
+    setattr(app.state, attr, None)
+    sidecar = None
+    try:
+        from osprey.interfaces.web_terminal.operator_session import resolve_agent_data_root
+
+        module_path, _, attribute = SIDECAR_PANELS[panel_id].factory_path.partition(":")
+        factory = getattr(importlib.import_module(module_path), attribute)
+        sidecar = factory(
+            Path(resolve_agent_data_root(app)),
+            compute_url_prefix(),
+            getattr(app.state, "web_theme_mode", None),
+        )
+        await asyncio.to_thread(sidecar.preflight)
+        sidecar.spawn()
+        await asyncio.to_thread(sidecar.wait_ready, SIDECAR_READY_TIMEOUT)
+    except Exception as exc:  # noqa: BLE001 — a dead panel must not block startup
+        # The readiness failures already quote the tail in their own message;
+        # the preflight ones carry none, so it is appended only when it is new.
+        tail = getattr(sidecar, "stderr_tail", "")
+        detail = f"{exc}\n{tail}" if tail and tail not in str(exc) else str(exc)
+        logger.warning("%s sidecar failed to start: %s", panel_id, detail)
+        if sidecar is not None:
+            await _stop_sidecar(panel_id, sidecar)
+        setattr(app.state, attr, None)
+        return
+
+    app.state.sidecars[panel_id] = sidecar
+    app.state.panel_auth_headers[panel_id] = sidecar.auth_headers
+    setattr(app.state, attr, sidecar.url)
+    logger.info("%s sidecar available at %s", panel_id, sidecar.url)
+
+    loop = asyncio.get_running_loop()
+
+    def retract() -> None:
+        setattr(app.state, attr, None)
+        app.state.panel_auth_headers.pop(panel_id, None)
+        logger.info("%s panel retracted; restart the terminal to bring it back", panel_id)
+
+    def on_exit() -> None:
+        # Runs on the sidecar's watcher thread; ``app.state`` belongs to the loop.
+        try:
+            loop.call_soon_threadsafe(retract)
+        except RuntimeError:
+            pass  # the loop is closed: shutdown has already torn the state down
+
+    # Registered last: a setter that fires when the exit already happened
+    # closes the gap between readiness and this line.
+    sidecar.on_exit = on_exit
+
+
+async def _stop_sidecar(panel_id: str, sidecar: object) -> None:
+    """Stop one sidecar off the loop, and never raise doing it.
+
+    Both callers have to survive a stop that fails: the launch path is already
+    handling one failure and must still retract the panel, and the lifespan
+    shutdown must reach the sidecars after this one. ``stop()`` also blocks
+    while the process is reaped, so it runs in a worker thread.
+
+    Args:
+        panel_id: The sidecar's panel id, for the log line.
+        sidecar: The sidecar object to stop.
+    """
+    try:
+        await asyncio.to_thread(sidecar.stop)  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 — one stuck sidecar must not block the rest
+        logger.warning("Could not stop the %s sidecar", panel_id, exc_info=True)
 
 
 def _launch_panel_server(app: FastAPI, key: str) -> None:
@@ -2279,7 +2409,14 @@ def _create_lifespan(
         except Exception:
             logger.warning("Local panel discovery failed; continuing.", exc_info=True)
 
+        # A sidecar's running process and the credential the proxy re-issues for
+        # it, keyed by panel id. Both stay empty when no sidecar panel is
+        # enabled, and a launch that failed adds to neither.
+        app.state.sidecars = {}
+        app.state.panel_auth_headers = {}
+
         _launch_enabled_panel_servers(app, enabled_panels)
+        await _launch_enabled_sidecars(app, enabled_panels)
 
         # Hook env placeholder — hooks read config.yml directly for
         # hot-reloadable settings (no env var propagation needed).
@@ -2331,6 +2468,9 @@ def _create_lifespan(
         from osprey.infrastructure.proxy.lifecycle import stop_proxy
 
         stop_proxy()
+
+        for panel_id, sidecar in app.state.sidecars.items():
+            await _stop_sidecar(panel_id, sidecar)
 
         app.state.watcher.stop()
         app.state.pty_registry.cleanup_all()
