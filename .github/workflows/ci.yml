@@ -3847,6 +3847,16 @@ jobs:
       with:
         fetch-depth: 0
 
+    # The workflow-level OSPREY_OPENOBSERVE_IMAGE points the compose template
+    # at the ghcr mirror; the pull needs this login, exactly as every other
+    # openobserve-deploying lane does.
+    - name: Log in to ghcr (openobserve mirror)
+      uses: docker/login-action@v4
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:

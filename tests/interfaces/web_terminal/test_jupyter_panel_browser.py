@@ -102,6 +102,12 @@ def shared_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
       attribute on its own module.
     * ``OSPREY_CONFIG`` only has to be SET — the sidecar's preflight refuses to
       launch without it and reads nothing out of it.
+    * ``routes.websocket`` binds ``resolve_agent_data_root`` with a
+      module-level ``from ... import``, so the name it calls is its own and the
+      patch on ``operator_session`` never reaches it. That is the root
+      ``write_binding`` writes under; unpatched it derives the cwd, dropping
+      ``var/agent_data/jupyter/session-binding.json`` into the repository and
+      failing the session posture leak guard.
     * ``OSPREY_WEB_THEME`` resolves to a pinned mode of ``dark`` during startup,
       which is the value that reaches the sidecar's labconfig override.
 
@@ -116,12 +122,14 @@ def shared_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         The shared root the sidecar will use.
     """
     from osprey.interfaces.web_terminal import operator_session
+    from osprey.interfaces.web_terminal.routes import websocket
 
     root = tmp_path / "agent_data"
     root.mkdir()
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "does-not-exist.yml"))
     monkeypatch.setenv("OSPREY_WEB_THEME", "dark")
     monkeypatch.setattr(operator_session, "resolve_agent_data_root", lambda app=None: str(root))
+    monkeypatch.setattr(websocket, "resolve_agent_data_root", lambda app=None: str(root))
     return root
 
 

@@ -115,6 +115,9 @@ _STDERR_TAIL_LINES = 20
 _PREFLIGHT_TIMEOUT = 30.0
 _STOP_GRACE = 5.0
 
+#: How long a straggling kernel is given to take SIGTERM before it is killed.
+_REAP_GRACE = 3.0
+
 
 def lab_theme_override(pinned_mode: str | None) -> dict[str, dict[str, str]] | None:
     """Return the labconfig override that pins JupyterLab's theme.
@@ -537,6 +540,7 @@ class JupyterSidecar:
     def stop(self) -> None:
         """Terminate the process group and remove the per-launch tempdir. Idempotent."""
         self._stopping.set()
+        runtime_dir = self._runtime_dir
         process, self._process = self._process, None
         if process is not None:
             if process.poll() is None:
@@ -549,8 +553,10 @@ class JupyterSidecar:
             # The stderr pipe is left to the tail thread: closing it here
             # blocks on the reader, and a kernel the group signal did not
             # reach (kernels start their own session) can hold the write end
-            # open long after the server is gone.
+            # open until the reap below collects it.
             logger.info("%s stopped (pid %s)", _NAME, process.pid)
+        if runtime_dir is not None:
+            _reap_stragglers(runtime_dir)
         if self._watcher is not None:
             self._watcher.join(timeout=1)
             self._watcher = None
@@ -562,6 +568,63 @@ class JupyterSidecar:
         self._runtime_dir = None
         if tempdir is not None:
             shutil.rmtree(tempdir, ignore_errors=True)
+
+
+def _pids_naming(runtime_dir: str) -> list[int]:
+    """Return the pids of live processes whose command line names *runtime_dir*.
+
+    Args:
+        runtime_dir: The sidecar's per-launch runtime directory.
+
+    Returns:
+        Matching pids, never including this process.
+    """
+    found = subprocess.run(
+        ["pgrep", "-f", runtime_dir], capture_output=True, text=True, check=False
+    )
+    own = os.getpid()
+    return [int(f) for f in found.stdout.split() if f.isdigit() and int(f) != own]
+
+
+def _reap_stragglers(runtime_dir: str) -> None:
+    """Terminate anything that outlived the server still naming *runtime_dir*.
+
+    Kernels are started in their own session, so the group signal that stops
+    the server never reaches them. jupyter-server closes its kernels on its own
+    shutdown, but on a loaded host that shutdown can exceed ``_STOP_GRACE`` and
+    the server is killed first — leaving a kernel running, with the control
+    target and write posture it launched with, and no terminal above it.
+
+    The runtime dir is a 0700 tempdir unique to this launch, and every kernel
+    names its connection file inside it, so matching on it cannot reach a
+    process belonging to anything else.
+
+    Args:
+        runtime_dir: The sidecar's per-launch runtime directory.
+    """
+    if shutil.which("pgrep") is None:  # pragma: no cover - POSIX hosts have it
+        return
+    survivors = _pids_naming(runtime_dir)
+    if not survivors:
+        return
+    logger.info("%s reaping %d process(es) that outlived it", _NAME, len(survivors))
+    for pid in survivors:
+        _signal_pid(pid, signal.SIGTERM)
+    deadline = time.monotonic() + _REAP_GRACE
+    while time.monotonic() < deadline:
+        if not _pids_naming(runtime_dir):
+            return
+        time.sleep(0.1)
+    for pid in _pids_naming(runtime_dir):
+        _signal_pid(pid, signal.SIGKILL)
+
+
+def _signal_pid(pid: int, signum: signal.Signals) -> None:
+    """Send *signum* to *pid*; a process already gone is fine."""
+    try:
+        os.kill(pid, signum)
+    except (ProcessLookupError, PermissionError):
+        pass
 
 
 def _signal_group(pid: int, signum: signal.Signals) -> None:
