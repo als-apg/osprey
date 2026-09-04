@@ -1939,20 +1939,14 @@ html[data-ui-mode="simple"] .filter-input {
 
 /* ================================================================
    Graph Explore
-   The graph paradigm's explorer: a panel of class-tree chrome plus a
-   hand-rendered SVG of the ontology. Two conventions worth knowing:
-
-   - The panel body deliberately has no max-height and no inner vertical
-     scroller. The page itself scrolls (html,body { overflow: auto }
-     near the top of this file), so a tall tree grows the page like every
-     other section does instead of trapping the reader in a nested
-     scrollbar. Only overflow-x is handled here, for a tree wider than
-     the panel.
-   - Per-class colour arrives as an inline `--c` custom property the
-     renderer sets on the legend chip and on the matching node, so the
-     markup stays declarative and this file stays colour-literal free.
-     Every read of it carries a token fallback, so an un-tinted element
-     still renders in the neutral/accent default.
+   The graph paradigm's explorer: the panel chrome that frames the
+   finder (title, store badge, MCP tool chips, truncation caution).
+   The panel body has no max-height and no inner vertical scroller —
+   the page itself scrolls (html,body { overflow: auto } near the top
+   of this file), so a tall body grows the page like every other
+   section instead of trapping the reader in a nested scrollbar. Only
+   overflow-x is handled here. The finder that fills it — facet rail,
+   results table, device card — is the section below.
    ================================================================ */
 
 .graph-panel {
@@ -2015,32 +2009,6 @@ html[data-ui-mode="simple"] .filter-input {
   font-size: var(--cf-text-xs);
 }
 
-/* Legend: one chip per class colour. The renderer sets `--c` inline. */
-.graph-legend {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--cf-space-2) var(--cf-space-4);
-  margin-bottom: var(--cf-space-3);
-}
-
-.graph-legend-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--cf-space-1);
-  font-size: var(--cf-text-xs);
-  color: var(--text-secondary);
-}
-
-.graph-legend-chip::before {
-  content: "";
-  width: 10px;
-  height: 10px;
-  flex-shrink: 0;
-  border-radius: var(--cf-radius-sm);
-  background: var(--c, var(--color-accent));
-}
-
 /* MCP tool name, as offered next to the legend. */
 .graph-tool-chip {
   display: inline-flex;
@@ -2055,7 +2023,7 @@ html[data-ui-mode="simple"] .filter-input {
   color: var(--text-accent);
 }
 
-/* Row above the tree, shown when the store held more than the query
+/* Row above the results, shown when the store held more than the query
    returned: a caution, not an error — the panel below it is still valid. */
 .graph-truncated {
   display: flex;
@@ -2072,76 +2040,621 @@ html[data-ui-mode="simple"] .filter-input {
   line-height: 1.4;
 }
 
-/* --- SVG tree ------------------------------------------------------ */
-
-/* Node box. The class tint colours the outline rather than the fill, so
-   the label keeps full contrast against the panel in every theme. */
-.g-node > rect {
-  fill: var(--bg-elevated);
-  stroke: var(--c, var(--neutral-tint-20));
-  stroke-width: 1;
-  rx: 4;
-  ry: 4;
-  transition: fill var(--transition-fast);
-}
-
-.g-node:hover > rect {
-  fill: var(--surface-hover);
-}
-
-.g-node-name {
-  fill: var(--text-primary);
-  font-family: var(--font-mono);
-  font-size: var(--cf-text-sm);
-  dominant-baseline: middle;
-}
-
-/* Instance count, in a soft pill at the right edge of the box. */
-.g-node-count-pill {
-  fill: var(--neutral-tint-10);
-  stroke: none;
-  rx: 7;
-  ry: 7;
-}
-
-.g-node-count {
-  fill: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--cf-text-xs);
-  dominant-baseline: middle;
-  text-anchor: middle;
-}
-
-/* Root of the tree: accented, so the eye finds the top of the hierarchy. */
-.g-node.root > rect {
-  fill: var(--accent-tint-08);
-  stroke: var(--border-accent);
-}
-
-.g-node.root .g-node-name {
-  fill: var(--text-accent);
-  font-weight: 600;
-}
-
-.g-node.root .g-node-count-pill {
-  fill: var(--accent-tint-20);
-}
-
-.g-edge {
-  fill: none;
-  stroke: var(--neutral-tint-20);
-  stroke-width: 1;
-}
-
-/* SUBCLASSOF is a taxonomy link, not a data link — dashed and neutral so
-   it reads as structure behind the boxes. */
-.g-edge.subclassof {
-  stroke-dasharray: 4 3;
-}
-
 /* Simple mode drops dense pipeline chrome, exactly as it does for the
    .db-source-badge on the file-backed pipelines. */
 html[data-ui-mode="simple"] .graph-store-badge,
 html[data-ui-mode="simple"] .graph-tool-chip {
   display: none;
+}
+
+/* ================================================================
+   Graph Finder
+   Search-first faceted finder for the graph paradigm's Explore view:
+   a fixed-width facet rail beside a results table, with an optional
+   device detail card above the results. Conventions worth knowing:
+
+   - Colour is tokens only. Every value below resolves through
+     tokens.css, which defines each one in :root and in all seven
+     [data-theme] blocks, so the finder themes with everything else
+     and needs no per-theme override of its own.
+   - Class-tree depth arrives as a `data-depth` attribute on the facet
+     item, which the enumerated rules below map to a `--depth` integer
+     that drives the indent. The renderer sets no inline style, so the
+     indent geometry lives here alone. Flat facets carry no attribute
+     and fall back to 0, sitting flush with the facet's own padding.
+   - The narrow-viewport rules are at the END of this section, not in
+     the shared breakpoint block far above. Media queries add no
+     specificity, so a rule up there would lose on source order to the
+     base rules below and silently do nothing.
+   ================================================================ */
+
+/* --- Layout -------------------------------------------------------- */
+
+/* Rail beside results. minmax(0, 1fr) rather than 1fr so the results
+   column may shrink below its table's intrinsic width — without it the
+   table's nowrap cells would push the grid wider than the panel. */
+.finder-layout {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: var(--cf-space-4);
+  margin-top: var(--cf-space-4);
+}
+
+.facet-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cf-space-3);
+}
+
+/* --- Facets -------------------------------------------------------- */
+
+.facet {
+  background: var(--bg-panel);
+  border: 1px solid var(--neutral-tint-10);
+  border-radius: var(--cf-radius-md);
+  overflow: hidden;
+}
+
+.facet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cf-space-2);
+  padding: var(--cf-space-1) var(--cf-space-3);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--neutral-tint-10);
+  color: var(--text-secondary);
+  font-size: var(--cf-text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* The rail is the one place a nested scroller is right: a facet with
+   hundreds of values must not push the results table off the page. */
+.facet-body {
+  max-height: 260px;
+  overflow-y: auto;
+  padding: var(--cf-space-1) 0;
+}
+
+/* A facet value is a <button>, so the UA's border, background, centred
+   text and shrunk font are all reset before the row is styled.
+
+   Tree depth arrives as `data-depth`, mapped to a `--depth` integer just
+   below so the indent formula lives here rather than in the renderer. A
+   flat facet carries no attribute and the fallback of 0 leaves it flush. */
+.facet-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--cf-space-1);
+  padding: 2px var(--cf-space-3);
+  padding-left: calc(var(--cf-space-3) + var(--depth, 0) * 14px);
+  border: 0;
+  border-left: 3px solid transparent;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: var(--cf-text-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+/* One step per level. CSS cannot read an attribute as a number, so depth
+   is mapped by an explicit ramp — but the taxonomy comes from the server
+   and its depth is data-dependent, so the ramp cannot be the only rule.
+
+   The catch-all below comes first and claims the deepest step. Every
+   exact match after it has equal specificity and so wins on order, which
+   leaves any depth past the end of the ramp clamped at the last step
+   rather than falling back to flush. A node too deep to indent further
+   still reads as nested, just no longer as *how* nested — the honest
+   failure for a rail only 240px wide, where step 12 already spends 180px
+   on indentation. */
+.facet-item[data-depth] { --depth: 12; }
+
+.facet-item[data-depth="0"] { --depth: 0; }
+.facet-item[data-depth="1"] { --depth: 1; }
+.facet-item[data-depth="2"] { --depth: 2; }
+.facet-item[data-depth="3"] { --depth: 3; }
+.facet-item[data-depth="4"] { --depth: 4; }
+.facet-item[data-depth="5"] { --depth: 5; }
+.facet-item[data-depth="6"] { --depth: 6; }
+.facet-item[data-depth="7"] { --depth: 7; }
+.facet-item[data-depth="8"] { --depth: 8; }
+.facet-item[data-depth="9"] { --depth: 9; }
+.facet-item[data-depth="10"] { --depth: 10; }
+.facet-item[data-depth="11"] { --depth: 11; }
+.facet-item[data-depth="12"] { --depth: 12; }
+
+.facet-item:hover {
+  background: var(--surface-hover);
+}
+
+.facet-item.on {
+  background: var(--accent-tint-08);
+  border-left-color: var(--color-accent-secondary);
+}
+
+/* A value no current result carries. Dimmed rather than hidden, so the
+   vocabulary stays visible and the rail does not reflow on every query. */
+.facet-item.zero {
+  opacity: 0.35;
+}
+
+/* An abstract class holds no devices of its own: it groups, rather than
+   being a kind of device. Muted italic label so it reads as structure. */
+.facet-item.abstract .k {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.facet-item .k {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+.facet-item .n {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--cf-text-xs);
+}
+
+/* Fixed gutter for the expand marker. A leaf hides its marker but keeps
+   the gutter, so labels at one depth stay aligned. */
+.facet-item .tw {
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: var(--cf-text-xs);
+  text-align: center;
+}
+
+.facet-item .tw.leaf {
+  visibility: hidden;
+}
+
+/* --- Search row and active filters --------------------------------- */
+
+.finder-search {
+  display: flex;
+  align-items: center;
+  gap: var(--cf-space-2);
+  margin-bottom: var(--cf-space-3);
+}
+
+/* Same input treatment as .filter-input, on the finder's own row. */
+.finder-search input {
+  flex: 1;
+  min-width: 120px;
+  padding: var(--cf-space-1) var(--cf-space-2);
+  border: 1px solid var(--neutral-tint-10);
+  border-radius: var(--cf-radius-sm);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--cf-text-sm);
+}
+
+.finder-search input:focus {
+  border-color: var(--color-accent);
+  outline: none;
+}
+
+.finder-search input::placeholder { color: var(--text-muted); }
+
+.finder-count {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--cf-text-xs);
+  white-space: nowrap;
+}
+
+.finder-count strong {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* Reserve the row's height so adding the first chip does not shift the
+   results table down. */
+.active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cf-space-1);
+  min-height: 22px;
+  margin-bottom: var(--cf-space-2);
+}
+
+.active-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cf-space-1);
+  padding: 1px 8px;
+  border: 1px solid var(--accent-tint-30);
+  border-radius: var(--cf-radius-full);
+  background: var(--accent-tint-12);
+  color: var(--text-accent);
+  font-family: var(--font-mono);
+  font-size: var(--cf-text-xs);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.active-filter:hover {
+  background: var(--accent-tint-20);
+}
+
+/* The chip's dismiss glyph — muted so the filter's own name leads. */
+.active-filter span {
+  color: var(--text-muted);
+}
+
+/* --- Results ------------------------------------------------------- */
+
+/* Scroll container for the sticky header to stick against. Capped in vh
+   rather than px so it tracks the viewport on a tall screen. */
+.result-wrap {
+  max-height: 62vh;
+  overflow: auto;
+  border: 1px solid var(--neutral-tint-10);
+  border-radius: var(--cf-radius-md);
+  background: var(--bg-panel);
+}
+
+.result-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--cf-text-sm);
+}
+
+.result-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: var(--cf-space-1) var(--cf-space-2);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--neutral-tint-10);
+  color: var(--text-secondary);
+  font-size: var(--cf-text-xs);
+  font-weight: 600;
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Denser than .data-table: the finder shows many more rows at once, and
+   middle alignment keeps the direction pill centred against its row. */
+.result-table td {
+  padding: var(--cf-space-1) var(--cf-space-2);
+  border-bottom: 1px solid var(--neutral-tint-06);
+  vertical-align: middle;
+}
+
+.result-table tr:hover td {
+  background: var(--surface-hover);
+}
+
+.result-table tr.checked td {
+  background: var(--accent-tint-06);
+}
+
+.result-table th.chk,
+.result-table td.chk {
+  width: 24px;
+  padding-right: 0;
+}
+
+.result-table td.pv {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.result-table td.dev {
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+/* The device name opens its detail card — a link's affordance without a
+   link's navigation, so it is a button wearing a dotted underline. */
+.result-table td.dev button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-accent);
+  font: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.result-table td.sec {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.result-table td.sig {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--cf-text-xs);
+  white-space: nowrap;
+}
+
+/* max-width: 0 with a percentage width is the table-layout idiom that
+   lets a cell actually ellipsis instead of growing to fit its text. */
+.result-table td.desc {
+  width: 40%;
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.result-table td.act {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.result-empty {
+  padding: var(--cf-space-6);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* Read/write direction. Same tint-plus-colour family as .filter-chip,
+   shrunk to a glyph-width pill that sits inside a table row. */
+.dir {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 var(--cf-space-1);
+  border-radius: var(--cf-radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--cf-text-xs);
+  font-weight: 600;
+  text-align: center;
+}
+
+.dir-R {
+  background: var(--success-tint-08);
+  color: var(--color-success);
+}
+
+.dir-W {
+  background: var(--cf-warning-tint-08);
+  color: var(--color-warning);
+}
+
+.dir-RW {
+  background: var(--accent-tint-10);
+  color: var(--text-accent);
+}
+
+/* Direction the graph does not record — neutral, so an unknown never
+   reads as a claim about whether the channel is writable. */
+.dir-none {
+  background: var(--neutral-tint-06);
+  color: var(--text-muted);
+}
+
+/* Per-row copy affordance: hidden until the row is hovered so it does
+   not add a column of noise, but revealed on keyboard focus too, and by
+   .copy-btn-static where the card shows it unconditionally. */
+.copy-btn {
+  padding: 0 var(--cf-space-1);
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+tr:hover .copy-btn,
+.copy-btn:focus-visible,
+.copy-btn-static {
+  opacity: 1;
+}
+
+.copy-btn:hover {
+  color: var(--text-accent);
+}
+
+.result-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cf-space-3);
+  padding: var(--cf-space-2) 0;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--cf-text-xs);
+}
+
+/* Pushes the selection actions to the trailing edge, leaving the count
+   and pager together on the leading one. */
+.result-foot .spacer {
+  flex: 1;
+}
+
+.result-foot strong {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.result-counts {
+  white-space: nowrap;
+}
+
+.pager {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cf-space-1);
+}
+
+/* "3 / 47" between the two arrows. A min-width holds the arrows still as
+   the page number grows a digit. */
+.pager-pos {
+  min-width: 5ch;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* Always in the DOM, so it stays quiet at zero and only the count itself
+   carries weight once a selection exists. */
+.sel-count {
+  white-space: nowrap;
+}
+
+/* --- Device detail card -------------------------------------------- */
+
+/* Accent left edge marks it as the drill-in that the results table
+   opened, rather than another section of the page. */
+.device-card {
+  margin-bottom: var(--cf-space-3);
+  border: 1px solid var(--accent-tint-30);
+  border-left: 3px solid var(--color-accent);
+  border-radius: var(--cf-radius-md);
+  background: var(--bg-panel);
+}
+
+/* Same card, failed lookup: the accent edge goes to the error colour so
+   the card reads as a miss at a glance, while keeping the ✕ and the head
+   in place so it is dismissed exactly the way a hit is. */
+.device-card-error {
+  border-color: var(--error-tint-30);
+  border-left-color: var(--color-error);
+}
+
+.device-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--cf-space-2) var(--cf-space-3);
+  padding: var(--cf-space-2) var(--cf-space-3);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--neutral-tint-10);
+}
+
+.device-card-head .name {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.device-card-head .meta {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--cf-text-xs);
+}
+
+.device-card-head .close {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.device-card-head .close:hover {
+  color: var(--text-primary);
+}
+
+.device-card-body {
+  padding: var(--cf-space-2) var(--cf-space-3);
+  font-size: var(--cf-text-sm);
+}
+
+.device-card-body .fam {
+  margin-bottom: var(--cf-space-2);
+  color: var(--text-secondary);
+}
+
+/* A device the graph knows but that carries no channels. A plain muted
+   line, not a warning — an empty device is a fact, not a fault. */
+.card-empty {
+  padding: var(--cf-space-2) 0;
+  color: var(--text-muted);
+  font-size: var(--cf-text-sm);
+}
+
+/* The server's own explanation of a failed device lookup. */
+.card-error {
+  padding: var(--cf-space-2) 0;
+  color: var(--color-error);
+  font-size: var(--cf-text-sm);
+  line-height: 1.4;
+}
+
+/* One row per signal on the device. Top-aligned because the trailing
+   description column is the only one that may wrap. */
+.sig-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.sig-table td {
+  padding: 3px var(--cf-space-1);
+  border-top: 1px solid var(--neutral-tint-06);
+  vertical-align: top;
+}
+
+.sig-table td.sig {
+  color: var(--text-accent);
+  font-family: var(--font-mono);
+  font-size: var(--cf-text-xs);
+  white-space: nowrap;
+}
+
+.sig-table td.pv {
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.sig-table td.sub {
+  color: var(--text-muted);
+  font-size: var(--cf-text-xs);
+}
+
+/* --- Narrow viewport ----------------------------------------------- */
+
+/* Must stay after the base rules above: a media query adds no
+   specificity, so the same selector placed in the shared breakpoint
+   block earlier in this file would lose on source order and do nothing.
+
+   The 240px rail has nowhere to go beside the table, so it stacks above
+   it as a wrapping row of facets. They shorten to stay skimmable rather
+   than burying the results under a screen of filters, and the results
+   drop their own scroller so the page scrolls once instead of twice. */
+@media (max-width: 768px) {
+  .finder-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .facet-rail {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .facet {
+    flex: 1 1 200px;
+  }
+
+  .facet-body {
+    max-height: 180px;
+  }
+
+  .result-wrap {
+    max-height: none;
+  }
 }
