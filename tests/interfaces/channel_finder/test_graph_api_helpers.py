@@ -32,24 +32,40 @@ from osprey.mcp_server.graph.server_context import (
 _SEM = "https://narad.example.org/schema/shared_semantics/"
 
 
-def _row(name: str, rollup: int, parents: list[str], alt: list[str] | None = None) -> dict:
-    """Build one ontology row in the shape the ontology query returns."""
+def _row(
+    name: str,
+    rollup: int,
+    parents: list[str],
+    alt: list[str] | None = None,
+    direct: int | None = None,
+) -> dict:
+    """Build one ontology row in the shape the ontology query returns.
+
+    ``direct`` defaults to the rollup, which is what the store answers for a
+    class with no subclasses; a branch states its own, normally zero.
+    """
     return {
         "uri": _SEM + name,
         "altLabel": alt,
         "parents": [_SEM + parent for parent in parents],
         "rollup": rollup,
+        "direct": rollup if direct is None else direct,
     }
 
 
 def _demo_rows() -> list[dict]:
-    """Return a demo-shaped corpus: 21 classes, two of them non-device leaves."""
+    """Return a demo-shaped corpus: 21 classes, two of them non-device leaves.
+
+    The rollups are illustrative rather than arithmetic: two classes name more
+    than one parent, so a branch's number is a union and not the sum of its
+    children. The pruner reads only whether a rollup is zero.
+    """
     return [
-        _row("AcceleratorDevice", 100, []),
-        _row("Magnet", 50, ["AcceleratorDevice"]),
-        _row("Instrumentation", 30, ["AcceleratorDevice"]),
-        _row("Vacuum", 12, ["AcceleratorDevice"]),
-        _row("RFSystem", 8, ["AcceleratorDevice"]),
+        _row("AcceleratorDevice", 100, [], direct=0),
+        _row("Magnet", 50, ["AcceleratorDevice"], direct=0),
+        _row("Instrumentation", 30, ["AcceleratorDevice"], direct=0),
+        _row("Vacuum", 12, ["AcceleratorDevice"], direct=0),
+        _row("RFSystem", 8, ["AcceleratorDevice"], direct=0),
         _row("Quadrupole", 20, ["Magnet"], ["QF", "Quad"]),
         _row("Dipole", 15, ["Magnet"], ["Bend"]),
         _row("HCorrector", 8, ["Magnet"]),
@@ -81,11 +97,12 @@ class TestCypherConstants:
         # An unbounded walk would never terminate on a SUBCLASSOF cycle.
         assert "[:SUBCLASSOF*0..10]" in GRAPH_ONTOLOGY_CYPHER
 
-    def test_ontology_query_returns_the_four_columns_the_pruner_reads(self):
+    def test_ontology_query_returns_the_five_columns_the_pruner_reads(self):
         assert "AS uri" in GRAPH_ONTOLOGY_CYPHER
         assert "AS altLabel" in GRAPH_ONTOLOGY_CYPHER
         assert "parents" in GRAPH_ONTOLOGY_CYPHER
         assert "AS rollup" in GRAPH_ONTOLOGY_CYPHER
+        assert "AS direct" in GRAPH_ONTOLOGY_CYPHER
 
     @pytest.mark.parametrize(
         "cypher",
@@ -150,6 +167,22 @@ class TestPruneDeviceTaxonomy:
         cryostat = next(entry for entry in kept if entry["name"] == "Cryostat")
         assert cryostat["rollup"] == 0
 
+    def test_a_class_with_no_devices_of_its_own_is_abstract(self):
+        kept = {entry["name"]: entry for entry in _prune_device_taxonomy(_demo_rows())}
+
+        # Magnet rolls up 50 devices but nothing is typed directly as one.
+        assert kept["Magnet"]["rollup"] == 50
+        assert kept["Magnet"]["abstract"] is True
+        # A leaf holds its own devices, so it is a kind rather than a grouping.
+        assert kept["Quadrupole"]["abstract"] is False
+
+    def test_a_row_without_a_direct_count_reads_as_abstract(self):
+        # A store that answers no `direct` column says nothing about what is
+        # typed directly, and the rail must not claim devices it cannot see.
+        rows = [{"uri": _SEM + "Magnet", "altLabel": [], "parents": [], "rollup": 4}]
+
+        assert _prune_device_taxonomy(rows)[0]["abstract"] is True
+
     def test_class_with_two_parents_keeps_both(self):
         kept = _prune_device_taxonomy(_demo_rows())
 
@@ -188,7 +221,7 @@ class TestPruneDeviceTaxonomy:
         kept = _prune_device_taxonomy(_demo_rows())
 
         for entry in kept:
-            assert set(entry) == {"uri", "name", "altLabel", "parents", "rollup"}
+            assert set(entry) == {"uri", "name", "altLabel", "parents", "rollup", "abstract"}
 
     def test_empty_input_yields_no_classes(self):
         assert _prune_device_taxonomy([]) == []
