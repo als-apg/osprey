@@ -61,7 +61,7 @@
     <link rel="icon" href="../../_static/logo.svg"/>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Send and Retrieve Feedback" href="send-feedback.html" />
+    <link rel="next" title="Notebooks" href="notebooks.html" />
     <link rel="prev" title="Theming" href="theming.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -401,6 +401,7 @@
 <li class="toctree-l2"><a class="reference internal" href="operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="theming.html">Theming</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="multi-user/tiers.html">Privilege Tiers</a></li>
@@ -706,7 +707,11 @@ re-injects the operator secret <em>only</em> toward backends declared as loopbac
 in your config. The practical consequence: a backend that authenticates its
 own callers with a cookie or an <code class="docutils literal notranslate"><span class="pre">Authorization</span></code> header — Grafana, for
 example — cannot be driven as a custom panel, because the proxy will never
-pass those credentials through to it.</p>
+pass those credentials through to it. A panel OSPREY starts itself is the
+one exception, and it is served rather than granted: the notebook sidecar
+(<a class="reference internal" href="notebooks.html"><span class="doc">Notebooks</span></a>) mints a token per launch, and the proxy attaches it to
+each request on the way to the loopback backend, so the token never reaches
+the browser.</p>
 <p>The return direction is just as strict. A panel’s response is served from
 the terminal’s own address, so any header that would act on <em>that</em> address
 rather than on the panel is stripped: <code class="docutils literal notranslate"><span class="pre">Set-Cookie</span></code>, <code class="docutils literal notranslate"><span class="pre">Clear-Site-Data</span></code>,
@@ -811,11 +816,11 @@ shape of it.</p>
       </div>
     </a>
     <a class="right-next"
-       href="send-feedback.html"
+       href="notebooks.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Send and Retrieve Feedback</p>
+        <p class="prev-next-title">Notebooks</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

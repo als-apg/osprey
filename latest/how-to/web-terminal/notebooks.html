@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Theming &#8212; Osprey Framework dev documentation</title>
+    <title>Notebooks &#8212; Osprey Framework dev documentation</title>
   
   
   
@@ -49,7 +49,7 @@
     <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../../_static/copybutton.js?v=30646c52"></script>
     <script src="../../_static/design-tabs.js?v=f930bc37"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/web-terminal/theming';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/web-terminal/notebooks';</script>
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
@@ -57,12 +57,12 @@
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
-    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/web-terminal/theming.html" />
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/web-terminal/notebooks.html" />
     <link rel="icon" href="../../_static/logo.svg"/>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Panels" href="panels.html" />
-    <link rel="prev" title="Run the Web Terminal" href="operate.html" />
+    <link rel="next" title="Send and Retrieve Feedback" href="send-feedback.html" />
+    <link rel="prev" title="Panels" href="panels.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
@@ -399,9 +399,9 @@
 </details></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Web Terminal</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="operate.html">Run the Web Terminal</a></li>
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="panels.html">Panels</a></li>
-<li class="toctree-l2"><a class="reference internal" href="notebooks.html">Notebooks</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="multi-user/tiers.html">Privilege Tiers</a></li>
@@ -499,7 +499,7 @@
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">Web Terminal</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Theming</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Notebooks</span></li>
   </ul>
 </nav>
 </div>
@@ -516,178 +516,175 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="theming">
-<h1>Theming<a class="headerlink" href="#theming" title="Link to this heading">#</a></h1>
-<p>Every OSPREY browser interface — the terminal and all of its panels — draws its
-colors and fonts from one shared design system. Pick a theme once and everything
-matches automatically, in light or dark. You can also design your own.</p>
-<div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
-<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-2 sd-g-xs-2 sd-g-sm-2 sd-g-md-2 sd-g-lg-2 docutils">
-<div class="sd-col sd-d-flex-column docutils">
-<a class="reference internal image-reference" href="../../_images/web_terminal_hero_light.png"><img alt="The Web Terminal in the light Osprey theme" src="../../_images/web_terminal_hero_light.png" style="width: 100%;" />
-</a>
-</div>
-<div class="sd-col sd-d-flex-column docutils">
-<a class="reference internal image-reference" href="../../_images/web_terminal_hero_dark.png"><img alt="The Web Terminal in the dark Osprey theme" src="../../_images/web_terminal_hero_dark.png" style="width: 100%;" />
-</a>
-</div>
-</div>
-</div>
-<section id="choosing-a-theme">
-<h2>Choosing a theme<a class="headerlink" href="#choosing-a-theme" title="Link to this heading">#</a></h2>
-<p>Themes come in <strong>families</strong>. OSPREY ships four:</p>
-<ul class="simple">
-<li><p><strong>main</strong> — the default look, in light and dark.</p></li>
-<li><p><strong>desy</strong> — the DESY corporate palette, in light and dark.</p></li>
-<li><p><strong>high-contrast</strong> — a stronger-contrast family for accessibility, also in
-light and dark.</p></li>
-<li><p><strong>retro</strong> — a navy-and-teal family, in light and dark, for teams who
-prefer that look.</p></li>
-</ul>
-<p>In the terminal, click the sliders button at the top right to open the
-display menu — it holds the light/dark switch, the Expert/Simple view toggle,
-and the theme family picker, as pictured below. Every panel opened as its own
-page (ARIEL, the workspace, Channel Finder, the lattice dashboard, the
-knowledge panel) has the same button and the same display controls in its
-own header.</p>
-<p>A pick made on any of those pages is remembered by your browser and becomes
-your preference for every OSPREY page served from the same address — set a
-theme in ARIEL and the terminal comes up in it the next time you load it.
-Until you pick Light or Dark, pages follow your operating system’s light/dark
-preference.</p>
-<p>Panels shown inside the terminal are a separate case. The terminal hands each
-one its theme and view in the page address, and an address outranks the
-remembered preference, so an embedded panel always matches the terminal
-around it. The JUPYTER panel is the exception: it starts on the deployment’s
-pinned theme and then keeps whatever theme you pick inside JupyterLab
-(<a class="reference internal" href="notebooks.html#notebooks-theming"><span class="std std-ref">How the tab is themed</span></a>).</p>
-<div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
-<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-2 sd-g-xs-2 sd-g-sm-2 sd-g-md-2 sd-g-lg-2 docutils">
-<div class="sd-col sd-d-flex-column docutils">
-<a class="reference internal image-reference" href="../../_images/display_menu_light.png"><img alt="The open display menu in the light Osprey theme" src="../../_images/display_menu_light.png" style="width: 100%;" />
-</a>
-</div>
-<div class="sd-col sd-d-flex-column docutils">
-<a class="reference internal image-reference" href="../../_images/display_menu_dark.png"><img alt="The open display menu in the dark Osprey theme" src="../../_images/display_menu_dark.png" style="width: 100%;" />
-</a>
-</div>
-</div>
-</div>
-<p>The display menu a standalone panel opens from its header, light and dark.
-Captured with OSPREY v2026.6.2.post1770+g08a2dceef.d20260825.</p>
-<p>To set the theme a deployment <em>starts</em> in, use <code class="docutils literal notranslate"><span class="pre">web.theme</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">theme</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">main</span><span class="w">        </span><span class="c1"># a family, or a specific theme like high-contrast-light</span>
+  <section id="notebooks">
+<h1>Notebooks<a class="headerlink" href="#notebooks" title="Link to this heading">#</a></h1>
+<p>The <strong>JUPYTER</strong> tab is a JupyterLab served from inside the Web Terminal. Its
+kernels import <code class="docutils literal notranslate"><span class="pre">osprey.runtime</span></code>, so a cell reads and writes the control
+system through the same connector the agent’s own Python uses, under the same
+write gates and with the same refusal text. Notebooks are ordinary files on a
+durable path, so they outlive the container, and the OSPREY agent can edit
+them alongside you.</p>
+<section id="turning-the-panel-on">
+<h2>Turning the panel on<a class="headerlink" href="#turning-the-panel-on" title="Link to this heading">#</a></h2>
+<p>The panel is a built-in with the id <code class="docutils literal notranslate"><span class="pre">jupyter</span></code>. Every persona built from the
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset family already selects it, so a standard build
+has the tab. The <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code>, <code class="docutils literal notranslate"><span class="pre">channel-finder-standalone</span></code> and
+<code class="docutils literal notranslate"><span class="pre">hello-world</span></code> presets do not select it.</p>
+<p>Name it under <code class="docutils literal notranslate"><span class="pre">web_panels</span></code> to add it to a build profile of your own:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web_panels</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter</span><span class="w">         </span><span class="c1"># JUPYTER tab</span>
 </pre></div>
 </div>
-<p>Name a family to start visitors in that family (light or dark then follows
-their operating-system preference), or name a specific theme to pin an exact
-look — including whether the deployment starts light or dark. Whatever you pick
-in the browser always wins over this and sticks across reloads.</p>
+<p>In a hand-written <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> it is enabled the way its peers are:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">panels</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">jupyter</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p><code class="docutils literal notranslate"><span class="pre">web.theme</span></code> (the browser interfaces) is separate from <code class="docutils literal notranslate"><span class="pre">cli.theme</span></code> (the
-colors of OSPREY’s plain terminal output). They never affect each other.</p>
+<p>JupyterLab, <code class="docutils literal notranslate"><span class="pre">jupyter-server</span></code> and <code class="docutils literal notranslate"><span class="pre">ipykernel</span></code> are core OSPREY
+dependencies, so an image grows by roughly 50 MB whether or not the panel
+is selected. Selecting it costs nothing beyond that. Leaving it out starts
+no process and opens no port.</p>
 </div>
 </section>
-<section id="giving-each-user-their-own-default">
-<h2>Giving each user their own default<a class="headerlink" href="#giving-each-user-their-own-default" title="Link to this heading">#</a></h2>
-<p>In a multi-user deployment every user gets their own terminal, but they all run
-the same image — so they all read the same <code class="docutils literal notranslate"><span class="pre">web.theme</span></code>. To start a particular
-user somewhere else, add <code class="docutils literal notranslate"><span class="pre">theme</span></code> to their entry in the user list:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">users</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>
-<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
-<span class="w">        </span><span class="nt">theme</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">desy-light</span>
-</pre></div>
-</div>
-<p>The value takes the same two forms as <code class="docutils literal notranslate"><span class="pre">web.theme</span></code>: a family, or a specific
-theme to also pin light or dark. It applies to that user only, and their own
-pick in the display menu still wins over it.</p>
-<p>The landing page that lists everyone’s terminals uses the deployment-wide
-<code class="docutils literal notranslate"><span class="pre">web.theme</span></code>. It is shown before anyone has said who they are, so there is no
-personal setting to apply yet.</p>
+<section id="where-notebooks-live">
+<h2>Where notebooks live<a class="headerlink" href="#where-notebooks-live" title="Link to this heading">#</a></h2>
+<p>Notebooks live in <code class="docutils literal notranslate"><span class="pre">notebooks/</span></code> under the deployment’s agent-data root —
+<code class="docutils literal notranslate"><span class="pre">var/agent_data/notebooks/</span></code> in a container build. That directory is on the
+durable volume, so notebooks survive <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">up</span></code>. Kernels do
+not: stopping the deployment stops every kernel.</p>
+<p>JupyterLab opens on that directory and cannot see above it. A path that
+resolves outside it is refused with a <code class="docutils literal notranslate"><span class="pre">404</span></code>, symlinks included — the check
+is against the resolved path, not the text of it. <em>Download</em> and <em>Copy
+Download Link</em> in the file browser obey the same rule: they serve files from
+<code class="docutils literal notranslate"><span class="pre">notebooks/</span></code> and nothing else.</p>
+<p><em>Delete</em> in the file browser removes the notebook from the volume. There is no
+trash to bring it back from.</p>
+<p>When the terminal starts the sidecar and <code class="docutils literal notranslate"><span class="pre">notebooks/</span></code> holds no notebook at
+all, it writes <code class="docutils literal notranslate"><span class="pre">getting-started.ipynb</span></code>, a two-cell notebook holding one note
+and one code cell. Any existing <code class="docutils literal notranslate"><span class="pre">.ipynb</span></code> suppresses it, and it is never
+rewritten once written, so it is yours to edit or delete.</p>
+<p>The code cell reads a channel where the deployment already names one it can
+serve, so running it returns a value rather than only importing two names.
+The channel comes from the deployment’s own configuration, in this order: the
+<code class="docutils literal notranslate"><span class="pre">archiver_freshness</span></code> health check’s channel, which a facility declares is
+still moving, then a control target’s <code class="docutils literal notranslate"><span class="pre">probe_channel</span></code>. A deployment that
+names neither — the <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> preset runs a mock connector and declares
+no channel — gets the import line alone, because a cell naming a channel
+nothing serves would fail on its first run.</p>
 </section>
-<section id="a-navy-and-teal-terminal">
-<h2>A navy-and-teal terminal<a class="headerlink" href="#a-navy-and-teal-terminal" title="Link to this heading">#</a></h2>
-<p>Two settings in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> give the terminal a navy-and-teal look with its
-panel buttons along the top:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">theme</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">retro</span><span class="w">            </span><span class="c1"># the navy/teal palette</span>
-<span class="w">  </span><span class="nt">rail_position</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">top</span><span class="w">      </span><span class="c1"># panel buttons along the top</span>
+<section id="which-session-a-kernel-follows">
+<h2>Which session a kernel follows<a class="headerlink" href="#which-session-a-kernel-follows" title="Link to this heading">#</a></h2>
+<p>A kernel has no control-system identity of its own. It follows a terminal
+session, and the rule is <strong>the session most recently attached</strong> in the
+browser. Open a chat session first, then start the kernel.</p>
+<p>At start the kernel stamps itself with that session’s control target, the
+target’s generation, and the write posture in force. A cell can read those
+back:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+
+<span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;OSPREY_CONTROL_TARGET&quot;</span><span class="p">]</span>    <span class="c1"># the target this kernel is pinned to</span>
+<span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;OSPREY_LAUNCH_POSTURE&quot;</span><span class="p">]</span>    <span class="c1"># what it was allowed to write at launch</span>
 </pre></div>
 </div>
-<p>Each user can still override both from the interface: the theme from the
-display menu in the header, and the rail position from the panel “+” menu.</p>
+<p>A running kernel keeps the target it started with and can never write more
+than it could at launch. Turning writes off takes effect on its next write.
+Switch the control target from the chip, or turn writes on, and the kernel
+does not follow — restart it. (The chip’s own “nothing restarts” wording
+covers the agent’s <code class="docutils literal notranslate"><span class="pre">execute()</span></code> runs, which are a fresh child process every
+time. A kernel is not.) The first write after the change says which case you
+are in:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>The session&#39;s control target changed. Restart the kernel to follow it.
+This kernel started with writes off. Turn writes on from the chip, then restart the kernel.
+</pre></div>
+</div>
+<p>Closing a session tile detaches the tile. It does not end the session, so the
+kernel keeps following that session — and can still write whatever it could
+write at launch — until the session itself ends. <em>+ New</em> in the tile ends the
+current session and starts another, and the running kernel’s next write is
+refused:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>The chat session this kernel followed has ended. Restart the kernel.
+</pre></div>
+</div>
+<p>A kernel started with no chat session open carries no target at all. Reads
+answer from the deployment’s baseline target, and every write is refused:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>No chat session was open when this kernel started. Open one, then restart the kernel.
+</pre></div>
+</div>
+<p>You meet that state in two places: before a terminal’s first session exists,
+and after the session a kernel followed has ended.</p>
+<p>A refusal for any other reason — a write ceiling, a limits violation — carries
+no extra line, because no restart would change it.</p>
+<p>A page reload keeps the kernel running, but the notebook comes back as it was
+last saved. Output from cells that ran since that save is gone.</p>
 </section>
-<section id="propose-a-theme">
-<h2>Propose a theme<a class="headerlink" href="#propose-a-theme" title="Link to this heading">#</a></h2>
-<p>Have a color of your own in mind? Run:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>theme-lab
-</pre></div>
-</div>
-<p>That opens the Theme Lab in your browser. Pick an accent color and the dark and
-light mock-ups of the terminal re-skin as you go, while the contrast badges tell
-you at a glance whether text stays readable against it — the same check every
-shipped theme has to pass. When you are happy, give the theme a name, copy the
-export block, and paste it into a GitHub issue. The lab doesn’t create the theme
-itself; the export spells out exactly what needs to change to make it real.</p>
-<p>A theme has two accents: the main one, and a second used for highlights and
-warnings. Switch between them with the <strong>Accent</strong> / <strong>Second accent</strong> buttons
-above the color wheel — one set of controls edits whichever is selected, and
-both previews update either way. The second accent gets a contrast badge of its
-own, because the build holds it to the stricter body-text standard: it is used
-for readable text, where the main accent mostly is not. If that badge goes red,
-drag the lightness slider for the mode it failed in until it clears.</p>
-<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
-<summary class="sd-summary-title sd-card-header">
-<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-paintbrush" viewBox="0 0 16 16" aria-hidden="true"><path d="M11.134 1.535c.7-.509 1.416-.942 2.076-1.155.649-.21 1.463-.267 2.069.34.603.601.568 1.411.368 2.07-.202.668-.624 1.39-1.125 2.096-1.011 1.424-2.496 2.987-3.775 4.249-1.098 1.084-2.132 1.839-3.04 2.3a3.744 3.744 0 0 1-1.055 3.217c-.431.431-1.065.691-1.657.861-.614.177-1.294.287-1.914.357A21.151 21.151 0 0 1 .797 16H.743l.007-.75H.749L.742 16a.75.75 0 0 1-.743-.742l.743-.008-.742.007v-.054a21.25 21.25 0 0 1 .13-2.284c.067-.647.187-1.287.358-1.914.17-.591.43-1.226.86-1.657a3.746 3.746 0 0 1 3.227-1.054c.466-.893 1.225-1.907 2.314-2.982 1.271-1.255 2.833-2.75 4.245-3.777ZM1.62 13.089c-.051.464-.086.929-.104 1.395.466-.018.932-.053 1.396-.104a10.511 10.511 0 0 0 1.668-.309c.526-.151.856-.325 1.011-.48a2.25 2.25 0 1 0-3.182-3.182c-.155.155-.329.485-.48 1.01a10.515 10.515 0 0 0-.309 1.67Zm10.396-10.34c-1.224.89-2.605 2.189-3.822 3.384l1.718 1.718c1.21-1.205 2.51-2.597 3.387-3.833.47-.662.78-1.227.912-1.662.134-.444.032-.551.009-.575h-.001V1.78c-.014-.014-.113-.113-.548.027-.432.14-.995.462-1.655.942Zm-4.832 7.266-.001.001a9.859 9.859 0 0 0 1.63-1.142L7.155 7.216a9.7 9.7 0 0 0-1.161 1.607c.482.302.889.71 1.19 1.192Z"></path></svg></span><span class="sd-summary-text">Going deeper — the design system</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
-<p class="sd-card-text">The colors above aren’t hand-written CSS scattered across each interface —
-they come from one small, machine-checked token system. You only need this if
-you are adding a theme or a new interface; the steps below and the design
-system’s source are the real reference. The tabs are the rough idea.</p>
-<div class="sd-tab-set docutils">
-<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-0">
-What a theme is</label><div class="sd-tab-content docutils">
-<p class="sd-card-text">A theme is a single JSON document listing named colors — backgrounds,
-text, accents, status colors, the terminal palette. Every theme defines
-the <em>same</em> set of names, so they are interchangeable, and a build step
-<strong>checks each one’s contrast automatically</strong> — more strictly for the
-high-contrast family. A theme that reads fine but fails the check does
-not ship until its colors are nudged; the gate is never loosened.</p>
-</div>
-<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-1">
-Author a theme</label><div class="sd-tab-content docutils">
-<p class="sd-card-text">Copy an existing theme’s JSON as a starting point, adjust its color
-values (and its name/family label), then run the generator:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>osprey.interfaces.design_system.generator.build
-</pre></div>
-</div>
-<p class="sd-card-text">It validates the whole set and rewrites the compiled CSS/JS. If a color
-is missing, a name doesn’t match its siblings, or a contrast gate fails,
-the build stops and tells you exactly where. Fix and re-run until clean,
-then commit the regenerated files alongside your theme.</p>
-</div>
-<input id="sd-tab-item-2" name="sd-tab-set-0" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-2">
-How it fits together</label><div class="sd-tab-content docutils">
-<p class="sd-card-text">Themes are authored as JSON and compiled into the CSS and JavaScript
-every interface loads. The compiled files are checked in, not built on
-deploy, so you regenerate and commit them whenever you change a color. A
-new interface opts in by loading those files and following the same
-theme boot every OSPREY page uses.</p>
-</div>
-</div>
-</div>
-</details><div class="admonition seealso">
+<section id="notebooks-the-agent-also-edits">
+<h2>Notebooks the agent also edits<a class="headerlink" href="#notebooks-the-agent-also-edits" title="Link to this heading">#</a></h2>
+<p>The OSPREY agent may edit a notebook under <code class="docutils literal notranslate"><span class="pre">notebooks/</span></code> (and, as before,
+under <code class="docutils literal notranslate"><span class="pre">artifacts/</span></code>); an edit anywhere else is refused by the memory guard.
+When it edits one, the rail’s JUPYTER entry badges and the history row reads
+<em>agent edited &lt;notebook&gt;</em>.</p>
+<p>What you see next depends on what the notebook was doing at the time:</p>
+<ul class="simple">
+<li><p><strong>Not open</strong> — it opens with the agent’s change already in it.</p></li>
+<li><p><strong>Open with no unsaved edits of yours</strong> — pick <em>File → Reload Notebook from
+Disk</em> to take the change.</p></li>
+<li><p><strong>Open with unsaved edits of yours</strong> — JupyterLab notices the file moved
+under it and offers <em>Overwrite</em> or <em>Revert</em> when you save. Your work is
+never silently replaced.</p></li>
+</ul>
+</section>
+<section id="notebooks-in-a-multi-user-deployment">
+<h2>Notebooks in a multi-user deployment<a class="headerlink" href="#notebooks-in-a-multi-user-deployment" title="Link to this heading">#</a></h2>
+<p>The multi-user stack gives every user their own container and their own
+volumes, which a redeploy never touches (<a class="reference internal" href="multi-user/index.html"><span class="doc">Multi-User Support</span></a>), so
+notebooks are per user. There is no shared notebook folder in this release.
+Sharing a notebook means handing over the file.</p>
+</section>
+<section id="how-the-tab-is-themed">
+<span id="notebooks-theming"></span><h2>How the tab is themed<a class="headerlink" href="#how-the-tab-is-themed" title="Link to this heading">#</a></h2>
+<p>JupyterLab starts in the deployment’s pinned theme. A <code class="docutils literal notranslate"><span class="pre">web.theme</span></code> that names
+a dark or a light look (<a class="reference internal" href="theming.html"><span class="doc">Theming</span></a>) starts the tab in JupyterLab’s matching
+built-in theme; a family name on its own pins nothing.</p>
+<p>Unlike the other panels, this one does not follow the terminal’s Appearance
+toggle. Switching the terminal between light and dark leaves JupyterLab as it
+is. Pick a theme inside the tab from <em>Settings → Theme</em> instead. That pick is
+stored on the durable volume, so it comes back after a sidecar restart.</p>
+</section>
+<section id="when-the-tab-is-grey">
+<h2>When the tab is grey<a class="headerlink" href="#when-the-tab-is-grey" title="Link to this heading">#</a></h2>
+<p>A grey JUPYTER entry means the sidecar did not start. The terminal log says
+why, with the last lines of the sidecar’s own error output. The rest of the
+terminal is unaffected — only that one tab is unavailable, and it stays grey
+until the terminal is restarted.</p>
+<p>A sidecar that dies after it started shows itself differently. JupyterLab
+reads <em>Disconnected</em> and saves fail, and there is nowhere else to save to, so
+copy any unsaved cells out of the browser before you restart the terminal. The
+terminal log carries one <code class="docutils literal notranslate"><span class="pre">notebook</span> <span class="pre">sidecar</span> <span class="pre">exited</span></code> line with the sidecar’s
+last error lines. The tab greys on the next page load.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> does not probe the panel. It reports one row per enabled
+sidecar reading <em>not probed — served inside the web terminal</em>, so it never
+claims a panel is healthy on evidence it does not have.</p>
+</section>
+<section id="not-in-this-release">
+<h2>Not in this release<a class="headerlink" href="#not-in-this-release" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p>The agent cannot run cells. It edits notebook files; you run them.</p></li>
+<li><p>No real-time collaborative editing. Two people in one notebook fall back to
+the save-time dialog above.</p></li>
+<li><p>No health probe of the sidecar, only the skip row.</p></li>
+<li><p>No live theme following. The tab starts in the pinned theme and stays there
+until you pick another one inside it.</p></li>
+<li><p>No per-panel restart. Restart the terminal.</p></li>
+</ul>
+<div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
-<dt><a class="reference internal" href="panels.html"><span class="doc">Panels</span></a></dt><dd><p>Panels use these same tokens, so they theme themselves for free.</p>
+<dt><a class="reference internal" href="panels.html"><span class="doc">Panels</span></a></dt><dd><p>The other tabs, and how the panel proxy treats credentials.</p>
+</dd>
+<dt><a class="reference internal" href="operate.html"><span class="doc">Run the Web Terminal</span></a></dt><dd><p>Running the terminal that hosts them.</p>
 </dd>
 </dl>
 </div>
@@ -705,20 +702,20 @@ theme boot every OSPREY page uses.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="operate.html"
+       href="panels.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Run the Web Terminal</p>
+        <p class="prev-next-title">Panels</p>
       </div>
     </a>
     <a class="right-next"
-       href="panels.html"
+       href="send-feedback.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Panels</p>
+        <p class="prev-next-title">Send and Retrieve Feedback</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -741,10 +738,14 @@ theme boot every OSPREY page uses.</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choosing-a-theme">Choosing a theme</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#giving-each-user-their-own-default">Giving each user their own default</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-navy-and-teal-terminal">A navy-and-teal terminal</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#propose-a-theme">Propose a theme</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#turning-the-panel-on">Turning the panel on</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-notebooks-live">Where notebooks live</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#which-session-a-kernel-follows">Which session a kernel follows</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#notebooks-the-agent-also-edits">Notebooks the agent also edits</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#notebooks-in-a-multi-user-deployment">Notebooks in a multi-user deployment</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-the-tab-is-themed">How the tab is themed</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#when-the-tab-is-grey">When the tab is grey</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#not-in-this-release">Not in this release</a></li>
 </ul>
   </nav></div>
 
@@ -752,7 +753,7 @@ theme boot every OSPREY page uses.</p>
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/web-terminal/theming.rst">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/web-terminal/notebooks.rst">
       <i class="fa-solid fa-pencil"></i>
       
       
