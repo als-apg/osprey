@@ -183,7 +183,7 @@ class TestHelloWorldBuildOutput:
         # hand-edited config.yml never silently runs stale settings (#244).
         assert (hooks_dir / "osprey_config_drift.py").exists()
         # memory-guard gates Write/MultiEdit to Claude memory files and
-        # NotebookEdit to the agent-data artifacts tree.
+        # NotebookEdit to the agent-data artifacts and notebooks trees.
         assert (hooks_dir / "osprey_memory_guard.py").exists()
 
 
