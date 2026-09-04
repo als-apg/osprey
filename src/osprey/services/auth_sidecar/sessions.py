@@ -6,7 +6,7 @@ lives in a single :mod:`itsdangerous`-signed cookie::
 
     {"v": 1, "sid": "<session id>", "iat": <epoch>, "users": {
         "alice": {"exp": <epoch>, "tag": "0123456789abcdef", "sub": "",
-                  "role": "", "source": "", "opener": ""}
+                  "role": "", "source": "", "opener": "", "admitted": ""}
     }}
 
 **Signed, not encrypted.** Anyone holding the cookie can read the payload; they
@@ -43,6 +43,22 @@ without a :data:`PAYLOAD_VERSION` bump, so a cookie minted before shared cards
 named their opener decodes with an empty one. And because the opener rides
 ``X-Osprey-Auth-Subject`` on shared password cards, it is header-checked at the
 same two points as the subject, the role and its source.
+
+An entry admitted by one of a card's ``access:`` principals, rather than by a
+roster entry of its own, carries the ``"admitted"`` identity — the identity the
+provider asserted at login, which is the value that principal set was matched
+against — or ``""`` for an own-card or roster login. Asserted, not configured:
+``"sub"`` holds the roster's spelling of a mapped user, which somebody the
+roster does not name has no entry to supply. *Which* principal admitted them is
+deliberately not stored. The card's current principal set is re-matched against
+this identity on every subrequest, so withdrawing a principal closes the card on
+the next request rather than at expiry, and a remembered arm would be a stale
+answer to a question that is asked again anyway. A rule-admitted entry carries
+``""`` in both ``"sub"`` and ``"opener"``; a non-empty admitted identity is
+therefore the whole test for rule admission, and verify forwards it in
+``X-Osprey-Auth-Subject`` where a roster entry's ``"sub"`` would go. Same
+additive pattern once more — read with a default, no :data:`PAYLOAD_VERSION`
+bump — and header-checked at both points, because it too rides that header.
 
 **A value that cannot cross the nginx boundary is never stored.** The subject,
 the role and its source all leave as HTTP headers (see
@@ -148,6 +164,19 @@ class UnlockedUser:
             own-card session, and for any session minted before the opener
             travelled. Identity, never privilege: it names who unlocked the
             card, and it rides an identity header, so it must be header-safe.
+        admitted_identity: The identity the provider asserted at login for an
+            entry admitted by one of the card's ``access:`` principals rather
+            than by a roster entry of its own, or ``""`` for an own-card or
+            roster login — and for any session minted before rule admission
+            existed. Distinct from :attr:`oidc_subject`, which carries the
+            roster's configured spelling for a mapped user and so cannot speak
+            for somebody the roster does not name. A rule-admitted entry
+            leaves :attr:`oidc_subject` and :attr:`opener` empty, so a
+            non-empty value here is the sole and sufficient test for rule
+            admission. It is the value the card's principal set is re-matched
+            against on every subrequest, and verify forwards it in
+            ``X-Osprey-Auth-Subject`` in place of the subject, so it must be
+            header-safe.
     """
 
     username: str
@@ -157,6 +186,7 @@ class UnlockedUser:
     role: str = ""
     role_source: str = ""
     opener: str = ""
+    admitted_identity: str = ""
 
     def is_expired(self, now: float) -> bool:
         """Whether this entry has reached its expiry at ``now``."""
@@ -232,6 +262,7 @@ class SessionState:
         role: str = "",
         role_source: str = "",
         opener: str = "",
+        admitted_identity: str = "",
     ) -> SessionState:
         """Return this state with ``username`` unlocked until ``expires_at``.
 
@@ -256,6 +287,10 @@ class SessionState:
                 is what a login resolving no role passes.
             opener: The roster username whose entry proved this login — set
                 for a shared password card, ``""`` for an own-card login.
+            admitted_identity: The identity the provider asserted, for a login
+                one of the card's ``access:`` principals admitted; ``""`` for an
+                own-card or roster login, which is what admission by the roster
+                already means.
 
         Raises:
             ValueError: If ``username`` is empty, or if the subject, the role or
@@ -263,8 +298,9 @@ class SessionState:
                 caller is refusing a login at that point, not repairing a
                 value: a substitute identity would authorize the wrong thing,
                 and a silently dropped role would authorize *something* under
-                a privilege nobody granted. An uncarryable opener is refused
-                on the same grounds: it rides an identity header too.
+                a privilege nobody granted. An uncarryable opener or
+                admitted identity is refused on the same grounds: they ride an
+                identity header too.
         """
         if not username:
             raise ValueError("username must not be empty")
@@ -276,6 +312,8 @@ class SessionState:
             raise ValueError("role source cannot be carried in an identity header")
         if opener and not is_header_safe(opener):
             raise ValueError("opener cannot be carried in an identity header")
+        if admitted_identity and not is_header_safe(admitted_identity):
+            raise ValueError("admitted identity cannot be carried in an identity header")
 
         entry = UnlockedUser(
             username=username,
@@ -285,6 +323,7 @@ class SessionState:
             role=role,
             role_source=role_source,
             opener=opener,
+            admitted_identity=admitted_identity,
         )
         if self.entry(username) is None:
             return replace(self, users=(*self.users, entry))
@@ -393,6 +432,7 @@ class SessionCodec:
                     "role": user.role,
                     "source": user.role_source,
                     "opener": user.opener,
+                    "admitted": user.admitted_identity,
                 }
                 for user in state.users
             },
@@ -458,14 +498,15 @@ class SessionCodec:
         ``tag``, ``sub``, ``role`` and ``source`` all default to ``""`` when
         absent, so a cookie minted before any of those keys existed decodes at
         the current payload version instead of signing that browser out.
-        ``opener`` defaults the same way.
+        ``opener`` and ``admitted`` default the same way.
 
-        A subject, role, role source or opener that could not be carried in an
-        identity header invalidates the whole cookie. Only this sidecar can have signed
-        it, and :meth:`SessionState.with_user` refuses to store such a value —
-        so a cookie carrying one is not a session to salvage, and refusing it
-        here is what keeps the verify route's answer a plain 401 rather than an
-        encoding failure on the hot path.
+        A subject, role, role source, opener or admitted identity that could
+        not be carried in an identity header invalidates the whole cookie.
+        Only this sidecar can have signed it, and :meth:`SessionState.with_user`
+        refuses to store such a value — so a cookie carrying one is not a
+        session to salvage, and refusing it here is what keeps the verify
+        route's answer a plain 401 rather than an encoding failure on the hot
+        path.
 
         Raises:
             InvalidSessionError: If the map or any entry is malformed.
@@ -516,6 +557,15 @@ class SessionCodec:
                 raise InvalidSessionError(
                     f"session entry for {username!r} carries an uncarryable opener"
                 )
+            admitted_identity = entry.get("admitted", "")
+            if not isinstance(admitted_identity, str):
+                raise InvalidSessionError(
+                    f"session entry for {username!r} has a non-string admitted identity"
+                )
+            if admitted_identity and not is_header_safe(admitted_identity):
+                raise InvalidSessionError(
+                    f"session entry for {username!r} carries an uncarryable admitted identity"
+                )
             users.append(
                 UnlockedUser(
                     username=username,
@@ -525,6 +575,7 @@ class SessionCodec:
                     role=role,
                     role_source=role_source,
                     opener=opener,
+                    admitted_identity=admitted_identity,
                 )
             )
         return tuple(users)

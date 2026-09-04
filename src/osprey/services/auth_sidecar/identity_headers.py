@@ -34,7 +34,10 @@ module exists to prevent.
 The module also owns :func:`same_value`, the constant-time comparator every
 check of an identity value uses, and :func:`same_identity`, the one rule for
 when a *mapped identity* may match under a different spelling — an ``email``
-claim is a mailbox, and a mailbox does not change with its case.
+claim is a mailbox, and a mailbox does not change with its case. Beside them
+sits :func:`same_domain`, which answers the one question a mapped identity
+cannot: whether an asserted address belongs to a named domain, so an admission
+rule can admit a whole domain without naming each mailbox in it.
 """
 
 from __future__ import annotations
@@ -48,6 +51,7 @@ __all__ = [
     "SUBJECT_HEADER",
     "CASE_INSENSITIVE_CLAIMS",
     "is_header_safe",
+    "same_domain",
     "same_identity",
     "same_value",
 ]
@@ -131,8 +135,18 @@ def same_value(left: str, right: str) -> bool:
     one accented character in it would be an unhandled 500 rather than a
     refusal; a mapped identity like ``jörg@example.org`` would raise on the
     comparison that was about to *succeed*, locking that operator out for good.
+
+    Encoded with ``surrogatepass`` for the same reason one step further out. A
+    JSON string may carry a lone surrogate — ``"\\ud800"`` is a well-formed
+    escape an identity provider can put in a claim — and plain UTF-8 refuses to
+    encode one, so the strict codec would turn that claim into a 500 at the
+    callback instead of a refusal. Surrogates are compared like any other code
+    point here; nothing downstream can carry one, because
+    :func:`is_header_safe` admits ASCII only.
     """
-    return secrets.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
+    return secrets.compare_digest(
+        left.encode("utf-8", "surrogatepass"), right.encode("utf-8", "surrogatepass")
+    )
 
 
 CASE_INSENSITIVE_CLAIMS: frozenset[str] = frozenset({"email"})
@@ -176,3 +190,62 @@ def same_identity(asserted: str, configured: str, *, claim: str) -> bool:
     if claim in CASE_INSENSITIVE_CLAIMS:
         return same_value(asserted.casefold(), configured.casefold())
     return same_value(asserted, configured)
+
+
+_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+"""The A-Z fold both sides of a domain comparison are put through.
+
+Deliberately not ``str.lower()`` or ``str.casefold()``: those apply the full
+Unicode case mapping, which rewrites the bytes of an internationalised domain —
+and the *authored* side was already folded, once, with exactly this table
+before it crossed the process boundary. A comparator that folded more than the
+config did would answer ``False`` for a domain the operator wrote and the
+provider asserted in the same spelling, which is a lockout nothing in the
+config could explain. The two folds have to agree byte for byte, so there is
+one rule and it is this one.
+"""
+
+
+def same_domain(identity: str, domain: str) -> bool:
+    """Whether an asserted identity's domain is exactly ``domain``.
+
+    The comparator behind a ``domain:`` admission rule. The identity is split
+    at its **last** ``@`` — the separator mail itself uses, so a quoted local
+    part containing one cannot move the domain — and only what follows is
+    looked at: the local part is never inspected and never folded, because RFC
+    5321 leaves its interpretation to the destination host, so ``Alice`` and
+    ``alice`` are the same person only if that host says so.
+
+    The match is exact, never by suffix. ``lbl.gov`` admits ``alice@lbl.gov``
+    and refuses ``alice@als.lbl.gov``: a rule that admitted subdomains would
+    hand every host under a domain the grant its operator wrote for one, and a
+    subdomain is often delegated to someone else entirely. A trailing dot is a
+    different string and so is a different domain here; the resolver refuses
+    it at author time, so it never reaches this comparator.
+
+    Both sides are folded with :data:`_ASCII_LOWER` rather than
+    ``str.lower()``, which is what keeps this comparator in step with the fold
+    the authored value already went through at render time. A domain carrying
+    non-ASCII therefore matches only when both spellings agree outside A-Z,
+    which is the honest answer: a Unicode-authored domain and a punycode-
+    asserted one are different bytes, and this module never invents the
+    translation between them.
+
+    Args:
+        identity: The value the identity provider asserted for the configured
+            claim — an address when that claim is ``email``, and anything at
+            all when a deployment maps on something else.
+        domain: The domain the admission rule names, already ASCII-folded on
+            the config side and folded again here so the two cannot drift.
+
+    Returns:
+        ``True`` only when the identity carries a domain and that domain is
+        ``domain``. Anything that names no mailbox in a domain — no ``@``,
+        nothing before it, nothing after it — is ``False`` rather than an
+        error: an admission check asks a yes-or-no question about untrusted
+        input, and the closed answer is the one it can act on.
+    """
+    local, separator, asserted = identity.rpartition("@")
+    if not separator or not local or not asserted or not domain:
+        return False
+    return same_value(asserted.translate(_ASCII_LOWER), domain.translate(_ASCII_LOWER))
