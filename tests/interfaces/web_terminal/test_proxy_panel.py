@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import threading
+from collections.abc import Iterator
 from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+import websockets
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS, create_app
+from osprey.interfaces.web_terminal.routes.proxy import _PANEL_STATE_MAP
 
 
 def _make_client(workspace_dir, custom_panels):
@@ -286,3 +293,275 @@ class TestProxyCacheControlDefault:
         resp = client.get("/panel/my-dash/static/js/vendor/plotly-3.3.1.min.js")
         assert resp.status_code == 200
         assert resp.headers["cache-control"] == immutable
+
+
+#: One framework panel, read from the registry-derived map rather than named, so
+#: a panel that is renamed or added does not quietly stop being covered here.
+LAUNCHED_PANEL_ID, LAUNCHED_STATE_ATTR = sorted(_PANEL_STATE_MAP.items())[0]
+
+#: Where that panel's backend listens, and the header its launcher published.
+LAUNCHED_BACKEND_URL = "http://127.0.0.1:9500"
+LAUNCH_TOKEN = "panel-launch-token"
+LAUNCH_HEADERS = {"Authorization": f"Bearer {LAUNCH_TOKEN}"}
+
+
+def _lower(headers):
+    return {k.lower(): v for k, v in headers.items()}
+
+
+class _FakeUpstreamSocket:
+    """A websocket upstream that stays open until the relay task is cancelled."""
+
+    def __init__(self):
+        self.sent: list[object] = []
+
+    async def send(self, data):
+        self.sent.append(data)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        await asyncio.Event().wait()  # pragma: no cover - cancelled at teardown
+        raise AssertionError("unreachable")
+
+
+class _FakeConnect:
+    """Stands in for ``websockets.connect``, recording the handshake arguments."""
+
+    def __init__(self):
+        self.target = None
+        self.kwargs = None
+
+    def __call__(self, target, **kwargs):
+        self.target = target
+        self.kwargs = kwargs
+        return self
+
+    async def __aenter__(self):
+        return _FakeUpstreamSocket()
+
+    async def __aexit__(self, *exc_info):
+        return False
+
+
+class TestPanelLaunchCredentialInjection:
+    """A launched panel's own credential rides both legs, and only where earned.
+
+    The launcher publishes the credential on ``app.state.panel_auth_headers``
+    and the proxy injects it, so the browser never holds it. The gate is the one
+    the operator secret already uses — declared by OSPREY *and* addressed at
+    loopback — so a runtime registration squatting the id, or a declared panel
+    pointing off-box, is handed nothing.
+    """
+
+    @pytest.fixture
+    def app_and_client_launched(self, workspace_dir):
+        custom = [
+            # Declared by config but off-box: the credential must not leave the machine.
+            {
+                "id": "offbox",
+                "label": "OFFBOX",
+                "url": "http://panel.facility.lan:9500",
+                "configDefined": True,
+            },
+            # Loopback but registered at runtime — the shape an agent can create.
+            {"id": "registered", "label": "REGISTERED", "url": "http://127.0.0.1:9501"},
+        ]
+        for app, client in _make_client(workspace_dir, custom):
+            # A framework panel's URL is written to app.state by its launcher.
+            setattr(app.state, LAUNCHED_STATE_ATTR, LAUNCHED_BACKEND_URL)
+            # Published under all three ids on purpose: the gate, not the map, is
+            # what must keep the credential away from the two unearned panels.
+            app.state.panel_auth_headers = {
+                LAUNCHED_PANEL_ID: dict(LAUNCH_HEADERS),
+                "offbox": dict(LAUNCH_HEADERS),
+                "registered": dict(LAUNCH_HEADERS),
+            }
+            yield app, client
+
+    @staticmethod
+    def _capture_request(app):
+        captured: dict[str, str] = {}
+
+        async def fake_request(*, method, url, headers, content, follow_redirects=True):
+            captured.update(headers)
+            return httpx.Response(
+                200, json={"ok": True}, headers={"content-type": "application/json"}
+            )
+
+        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
+        return captured
+
+    @staticmethod
+    def _connect(client, path):
+        fake = _FakeConnect()
+        with patch("websockets.connect", fake):
+            with client.websocket_connect(path):
+                pass
+        return fake
+
+    def test_http_leg_injects_for_a_declared_loopback_panel(self, app_and_client_launched):
+        app, client = app_and_client_launched
+        captured = self._capture_request(app)
+
+        resp = client.get(f"/panel/{LAUNCHED_PANEL_ID}/api/status")
+
+        assert resp.status_code == 200
+        assert _lower(captured)["authorization"] == f"Bearer {LAUNCH_TOKEN}"
+
+    def test_ws_leg_injects_for_a_declared_loopback_panel(self, app_and_client_launched):
+        _app, client = app_and_client_launched
+
+        fake = self._connect(client, f"/panel/{LAUNCHED_PANEL_ID}/api/kernels/k1/channels")
+
+        assert fake.kwargs["additional_headers"]["Authorization"] == f"Bearer {LAUNCH_TOKEN}"
+
+    @pytest.mark.parametrize("panel_id", ["offbox", "registered"])
+    def test_http_leg_withholds_from_an_unearned_panel(self, app_and_client_launched, panel_id):
+        app, client = app_and_client_launched
+        captured = self._capture_request(app)
+
+        resp = client.get(f"/panel/{panel_id}/api/status")
+
+        assert resp.status_code == 200
+        assert "authorization" not in _lower(captured)
+        assert LAUNCH_TOKEN not in " ".join(captured.values())
+
+    @pytest.mark.parametrize("panel_id", ["offbox", "registered"])
+    def test_ws_leg_withholds_from_an_unearned_panel(self, app_and_client_launched, panel_id):
+        _app, client = app_and_client_launched
+
+        fake = self._connect(client, f"/panel/{panel_id}/ws/stream")
+
+        sent = fake.kwargs["additional_headers"] or {}
+        assert LAUNCH_TOKEN not in " ".join(sent.values())
+
+    def test_ws_upstream_carries_the_browser_query(self, app_and_client_launched):
+        """A backend that keys a socket off a query parameter gets to see it."""
+        _app, client = app_and_client_launched
+
+        fake = self._connect(
+            client, f"/panel/{LAUNCHED_PANEL_ID}/api/kernels/k1/channels?session_id=s1"
+        )
+
+        assert fake.target == "ws://127.0.0.1:9500/api/kernels/k1/channels?session_id=s1"
+
+    def test_ws_upstream_without_a_query_is_unchanged(self, app_and_client_launched):
+        _app, client = app_and_client_launched
+
+        fake = self._connect(client, f"/panel/{LAUNCHED_PANEL_ID}/api/kernels/k1/channels")
+
+        assert fake.target == "ws://127.0.0.1:9500/api/kernels/k1/channels"
+
+
+@contextlib.contextmanager
+def _echo_upstream(subprotocols: list[str] | None = None) -> Iterator[int]:
+    """A real websocket echo server on loopback; yields its port.
+
+    It runs on its own loop in a thread so the proxy under test reaches it over
+    a real socket, and the subprotocol negotiation is the library's, not a
+    stub's. With *subprotocols* the server picks the first it offers that the
+    client also offered; without, it negotiates nothing.
+    """
+    ready = threading.Event()
+    state: dict[str, object] = {}
+
+    async def _serve() -> None:
+        stop = asyncio.Event()
+        state["loop"] = asyncio.get_running_loop()
+        state["stop"] = stop
+
+        async def handler(connection):
+            async for frame in connection:
+                await connection.send(frame)
+
+        async with websockets.serve(handler, "127.0.0.1", 0, subprotocols=subprotocols) as server:
+            state["port"] = server.sockets[0].getsockname()[1]
+            ready.set()
+            await stop.wait()
+
+    thread = threading.Thread(target=lambda: asyncio.run(_serve()), daemon=True)
+    thread.start()
+    assert ready.wait(10), "the echo upstream did not start"
+    try:
+        yield int(state["port"])  # type: ignore[call-overload]
+    finally:
+        loop = state["loop"]
+        stop = state["stop"]
+        loop.call_soon_threadsafe(stop.set)  # type: ignore[attr-defined]
+        thread.join(10)
+
+
+class TestPanelSubprotocolNegotiation:
+    """The browser's subprotocol offer reaches the upstream, and its pick comes back.
+
+    A browser that offers a subprotocol and is accepted without one treats the
+    handshake as failed. So the proxy relays the offer, lets the upstream choose,
+    and accepts the browser with that choice — which means the upstream connects
+    first. What that ordering must not change: a failed upstream handshake still
+    ends in an accepted-then-closed browser socket, as before.
+    """
+
+    PANEL = "echo"
+    OFFER = "v1.example.protocol"
+
+    @staticmethod
+    def _client(workspace_dir, port):
+        custom = [{"id": "echo", "label": "ECHO", "url": f"http://127.0.0.1:{port}"}]
+        return _make_client(workspace_dir, custom)
+
+    def test_accepts_the_subprotocol_the_upstream_selects(self, workspace_dir):
+        with _echo_upstream(subprotocols=[self.OFFER]) as port:
+            for _app, client in self._client(workspace_dir, port):
+                with client.websocket_connect(
+                    f"/panel/{self.PANEL}/ws", subprotocols=[self.OFFER]
+                ) as session:
+                    session.send_text("ping")
+
+                    assert session.accepted_subprotocol == self.OFFER
+                    assert session.receive_text() == "ping"
+
+    def test_offering_none_is_accepted_with_none(self, workspace_dir):
+        with _echo_upstream() as port:
+            for _app, client in self._client(workspace_dir, port):
+                with client.websocket_connect(f"/panel/{self.PANEL}/ws") as session:
+                    session.send_text("ping")
+
+                    assert session.accepted_subprotocol is None
+                    assert session.receive_text() == "ping"
+
+    def test_upstream_selecting_none_is_accepted_with_none(self, workspace_dir):
+        """An offer the upstream does not take up is answered the way it answered."""
+        with _echo_upstream() as port:
+            for _app, client in self._client(workspace_dir, port):
+                with client.websocket_connect(
+                    f"/panel/{self.PANEL}/ws", subprotocols=[self.OFFER]
+                ) as session:
+                    session.send_text("ping")
+
+                    assert session.accepted_subprotocol is None
+                    assert session.receive_text() == "ping"
+
+    def test_binary_frames_relay_unchanged_both_ways(self, workspace_dir):
+        """A negotiated binary protocol rides bytes frames; the echo proves both legs."""
+        payload = bytes(range(256))
+        with _echo_upstream(subprotocols=[self.OFFER]) as port:
+            for _app, client in self._client(workspace_dir, port):
+                with client.websocket_connect(
+                    f"/panel/{self.PANEL}/ws", subprotocols=[self.OFFER]
+                ) as session:
+                    session.send_bytes(payload)
+
+                    assert session.receive_bytes() == payload
+
+    def test_failed_upstream_handshake_still_closes_the_accepted_socket(self, workspace_dir):
+        """The upstream requires a subprotocol the browser did not offer and
+        refuses the handshake; the browser is accepted and closed normally."""
+        with _echo_upstream(subprotocols=[self.OFFER]) as port:
+            for _app, client in self._client(workspace_dir, port):
+                with client.websocket_connect(f"/panel/{self.PANEL}/ws") as session:
+                    with pytest.raises(WebSocketDisconnect) as closed:
+                        session.receive_text()
+
+                assert closed.value.code == 1000

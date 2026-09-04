@@ -676,10 +676,10 @@ class TestResponseBoundary:
     def test_websocket_handshake_relays_nothing_from_the_backend(self, panels_app):
         """The WS accept is built by this app, so no upstream header can ride it.
 
-        The upstream connection is established *after* ``websocket.accept()``,
-        and accept carries no headers — pinned here so a later change that
-        forwarded the upstream handshake's response headers (``Set-Cookie``
-        included) would be caught.
+        The upstream connects first, and ``websocket.accept()`` then carries
+        only the negotiated subprotocol, no headers — pinned here so a later
+        change that forwarded the upstream handshake's response headers
+        (``Set-Cookie`` included) would be caught.
         """
         app, _client = panels_app
         fake = _FakeConnect()
