@@ -118,7 +118,9 @@ and a refused control-system write alike. One JSON object per line:
      - Short machine-readable reason --- ``protected_key``, ``reserved path``,
        ``reserved path in ownership store``; a control-system write the
        session posture refused reads ``posture`` on every surface (the hook,
-       the MCP server and the Python executor all spell it the same way)
+       the MCP server and the Python executor all spell it the same way). The
+       login service has a vocabulary of its own --- see
+       :ref:`audit-trail-login-refusals`
    * - ``detail``
      - Surface-specific context: for a protected-set refusal, the file the
        write was aimed at (``target=``) and the channel that owns it, named
@@ -167,19 +169,24 @@ part of the message:
        is recorded rather than refused
    * - ``oidc_subject=``
      - Who proved the login. Under ``oidc`` that is the identity the provider
-       asserted --- an opaque id or an email; on a shared
-       (:ref:`access: any <multi-user-shared-card>`) card under ``password``
-       it is the opener's roster name. Written only where it differs from the
-       account, so a password deployment sees the key on shared cards alone,
-       recording the person beside the card they opened
+       asserted --- an opaque id or an email; on a :ref:`shared card
+       <multi-user-shared-card>` under ``password`` it is the opener's roster
+       name. Written only where it differs from the account, so a password
+       deployment sees the key on shared cards alone, recording the person
+       beside the card they opened. Where the card's ``access:`` rule admitted
+       the session --- somebody the roster does not name, covered by a
+       ``user:`` or ``domain:`` principal --- the key holds the identity the
+       provider asserted, which is the value that principal was matched
+       against. Such a session has no opener, and none is recorded
 
 Two forwarded headers carry that from the login service through nginx:
 ``X-Osprey-Auth-Account`` names the card, ``X-Osprey-Auth-Subject`` names the
 login that proved it. Under ``auth.method: password`` they hold the same value
 on a person's own card, because the roster username *is* the proof; on a shared
 card the subject header names the opener instead, and under ``oidc`` the two
-part on every card. Either way only the account is a name a container can
-compare itself against.
+part on every card. Where a card's ``access:`` rule admitted the session, that
+header carries the asserted identity rather than a roster name. Either way only
+the account is a name a container can compare itself against.
 
 A deployment that pins an older login-service image with ``auth.image`` gets no
 account header. The container then falls back to comparing the subject, as it
@@ -187,6 +194,50 @@ did before this release. Where the mapped subject is not the roster name --- an
 opaque ``sub`` or an email, the usual case --- it never matches, so
 ``expected_account=`` and a warning ride every audited request. Building against
 this release's image is what clears it.
+
+.. _audit-trail-login-refusals:
+
+Why a login was refused
+-----------------------
+
+``auth_sidecar.jsonl`` records every login and every login refusal, and
+``reason`` is the category it was refused under. Four of those categories
+belong to a card whose ``access:`` key names a
+:ref:`principal set <multi-user-shared-card>`:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - ``reason``
+     - What was refused
+   * - ``hosted_domain_mismatch``
+     - The token's ``hd`` claim disagrees with the domain of the email address
+       the same token asserts --- one token saying two different things about
+       where its subject belongs
+   * - ``unverified_email``
+     - The token carries ``email_verified: false``. Only that explicit denial
+       counts: a provider that leaves the claim out has said nothing, and
+       silence is not read as a refusal
+   * - ``no_covering_principal``
+     - Every principal on the card was consulted and none of them admits the
+       asserted identity. The set only ever grants, so an identity nothing on
+       the card covers is refused
+   * - ``unsafe_asserted_identity``
+     - The identity the provider asserted cannot be carried in an identity
+       header, so no session naming it could be minted
+
+**The first two are login-time gates, and they do not re-evaluate.** Neither
+claim is written into the session, so no later request can be measured against
+it: a token is refused for either reason at the moment it arrives, and a
+session already open is untouched by what those claims would say now. Principal
+coverage is the opposite --- the card's principal set is matched against the
+session's identity on *every* request, so withdrawing a principal closes the
+card on the next one.
+
+``detail`` on these records names a claim at most. The asserted address, its
+domain, and the value of the hosted-domain claim are never written to the
+trail.
 
 Who can read it
 ===============
