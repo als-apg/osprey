@@ -407,21 +407,20 @@ TARGETS: list[VisualTarget] = [
         path="/?embedded=true",
         modes=MODES,
     ),
-    # The graph paradigm's Explore view: a drawn class taxonomy rather than the
-    # channel tree the file-backed pipelines browse. Path stays "/" — the router
+    # The graph paradigm's Explore view: a search-first faceted finder, where the
+    # file-backed pipelines browse a channel tree. Path stays "/" — the router
     # (``routeFromHash`` in app.js) already defaults an empty hash to ``explore``,
     # and a literal "/#explore" would push this suite's ``?theme=``/``&mode=``
     # query into the fragment, where neither the theme nor the mode hook reads
-    # it. The wait selector is a laid-out tree node, so the screenshot is taken
-    # after the ontology fetch has resolved and rendered, not over the spinner —
-    # narrowed to the first match because a drawn taxonomy is many ``.g-node``
-    # groups at once, and the harness hands the raw selector to ``page.locator``,
-    # which is strict: the bare class would fail on "resolved to 19 elements".
+    # it. The wait selector is the finder's first result row, so the screenshot
+    # is taken after the search has resolved and rendered, not over the spinner —
+    # narrowed to the first row because the harness hands the raw selector to
+    # ``page.locator``, which is strict about multiple matches.
     VisualTarget(
         "channel_finder_graph",
         _channel_finder_graph_server,
         path="/",
-        wait_selector=".g-node >> nth=0",
+        wait_selector="#graph-finder-table .result-table tbody tr[data-pv]:first-child",
         modes=MODES,
     ),
     VisualTarget("lattice_dashboard", _lattice_dashboard_server, path="/", modes=MODES),
