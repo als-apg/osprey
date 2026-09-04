@@ -17,11 +17,16 @@ different one, is refused with 403. Searching the roster for whichever user the
 subject happens to match would turn a mis-click into someone else's terminal,
 which is exactly the isolation this sidecar exists to establish. The one
 deliberate exception is a *shared* card — a roster entry whose rendered access
-rule is ``any`` (:meth:`~osprey.services.auth_sidecar.app.AuthSettings.shared`):
-any roster entry's mapped identity may open it, so the callback reverse-matches
-the asserted identity against every configured subject, refuses an identity
-matching none or more than one, and records who opened the card. The card's
-role still rides the card: the claims binding decides nothing on a shared card.
+rule admits somebody beyond its own user
+(:meth:`~osprey.services.auth_sidecar.app.AuthSettings.shared`). That rule is a
+set of principals, and each answers for itself: ``roster`` admits any roster
+entry's mapped identity, so the callback reverse-matches the asserted identity
+against every configured subject and records who opened the card, while
+``user:<id>`` and ``domain:<d>`` admit an identity the roster need not carry at
+all (:meth:`~osprey.services.auth_sidecar.app.AuthSettings.card_admits`). An
+identity no principal covers is refused, and so is one that two of them cover.
+The card's role still rides the card: the claims binding decides nothing on a
+shared card.
 
 **Which user was clicked is server-side state.** It travels in the pinned
 Starlette session cookie (:data:`PENDING_FLOW_SESSION_KEY`) alongside Authlib's
@@ -81,6 +86,9 @@ from fastapi.responses import RedirectResponse
 
 from .. import audit
 from ..app import (
+    ACCESS_DOMAIN_PREFIX,
+    ACCESS_ROSTER,
+    ACCESS_USER_PREFIX,
     AuthSettings,
     get_audit_throttle,
     get_revocation_store,
@@ -88,7 +96,7 @@ from ..app import (
     get_settings,
 )
 from ..exceptions import InvalidSessionError
-from ..identity_headers import is_header_safe, same_identity, same_value
+from ..identity_headers import is_header_safe, same_domain, same_identity, same_value
 from ..return_to import safe_return_to
 from ..sessions import SESSION_COOKIE_NAME, SessionState
 from ..throttle import AttemptThrottle
@@ -171,8 +179,26 @@ REASON_NO_ASSERTED_IDENTITY = audit.REASON_NO_ASSERTED_IDENTITY
 REASON_IDENTITY_MISMATCH = audit.REASON_IDENTITY_MISMATCH
 """The asserted identity belongs to a different roster user, or to none."""
 
+REASON_AMBIGUOUS_IDENTITY = audit.REASON_AMBIGUOUS_IDENTITY
+"""More than one authority on a shared card admits the asserted identity."""
+
+REASON_NO_COVERING_PRINCIPAL = audit.REASON_NO_COVERING_PRINCIPAL
+"""No principal in the card's access rule covers the asserted identity."""
+
+REASON_UNSAFE_ASSERTED_IDENTITY = audit.REASON_UNSAFE_ASSERTED_IDENTITY
+"""A rule would have admitted an identity that cannot be carried in a header."""
+
+REASON_NON_ASCII_SUBJECT = audit.REASON_NON_ASCII_SUBJECT
+"""The mapped identity this login matched cannot be carried in a header."""
+
 REASON_UNVALIDATED_TOKEN = audit.REASON_UNVALIDATED_TOKEN
 """The token response carried no ID token, so no claim from it is trustworthy."""
+
+REASON_HOSTED_DOMAIN_MISMATCH = audit.REASON_HOSTED_DOMAIN_MISMATCH
+"""The token's hosted-domain claim disagrees with the identity it asserts."""
+
+REASON_UNVERIFIED_EMAIL = audit.REASON_UNVERIFIED_EMAIL
+"""The provider asserted an address it explicitly declined to vouch for."""
 
 REASON_MISSING_ROLE_CLAIM = audit.REASON_MISSING_ROLE_CLAIM
 """The group claim did not arrive, or arrived in a shape carrying no value."""
@@ -326,6 +352,106 @@ def _claim_names(claims: Mapping[str, Any]) -> str:
     diagnosis.
     """
     return ", ".join(sorted(str(name) for name in claims))
+
+
+HOSTED_DOMAIN_CLAIM = "hd"
+"""Google's hosted-domain claim: the Workspace domain a token was issued under.
+
+Read only as corroboration for the identity in the same token, never as the
+grant itself — the domain a login is *admitted* by is the one an admission rule
+names, and that rule is evaluated against the asserted identity.
+"""
+
+EMAIL_VERIFIED_CLAIM = "email_verified"
+"""The claim by which a provider vouches for the address it asserts."""
+
+
+@dataclass(frozen=True)
+class TokenAdmission:
+    """Whether a verified ID token may be used for rule-based admission at all.
+
+    Attributes:
+        admissible: ``True`` when neither login-only check objected. It does not
+            say the login is allowed — the card's principal set decides that.
+        reason: The audit category naming the check that refused, or ``""`` when
+            nothing did. Carried so the caller files the refusal under the
+            category the operator has to act on rather than a generic one.
+    """
+
+    admissible: bool
+    reason: str = ""
+
+
+def token_admissible(claims: Mapping[str, Any], *, identity_claim: str) -> TokenAdmission:
+    """Whether ``claims`` may be used to admit a login by rule. Login-only.
+
+    Two checks that can be made **once**, here, and never again: the claims of
+    an ID token are read at the callback and are not persisted, so nothing
+    downstream — least of all ``/verify``, which re-runs the admission rule on
+    every subrequest — can revisit them. That asymmetry is why this gate is a
+    separate function from the rule evaluation itself and is deliberately not
+    named after it: what it answers is "is this token's own story consistent
+    enough to admit anybody on", asked at the one moment the token exists.
+
+    The first check is corroboration. A token carrying Google's ``hd`` claim
+    states the hosted domain it was issued under; when the asserted identity is
+    an address, that address's domain has to be the same one. One token saying
+    two different things about where its subject belongs is refused rather than
+    reconciled, because admitting on either half would admit a login the other
+    half contradicts. An identity that names no domain at all — a ``sub`` like
+    ``idp|alice``, a directory GUID, anything a deployment mapping on a
+    non-email claim asserts — contradicts nothing and passes: no ``domain:``
+    principal can admit a value with no domain in it either, so there is
+    nothing here for the cross-check to protect. An identity claim that carries
+    no usable value *is* refused when ``hd`` is present: a token asserting a
+    hosted domain and no identity is the self-contradiction this check exists
+    for. Callers resolve the asserted identity before reaching this gate, so
+    that arm is the closed answer to a token no login could have used anyway.
+
+    The second check is what the provider will stand behind. An explicit
+    ``email_verified`` of false refuses; an absent claim does not, because
+    reading silence as a denial would lock out every deployment whose IdP does
+    not emit it. Both the JSON boolean and the string spelling ``"false"`` are
+    read as that explicit false — the string is the one non-boolean shape whose
+    meaning is unambiguous, and admitting a login the provider declined to
+    vouch for on an encoding difference is the wrong direction to be wrong in.
+    Every other shape says nothing and passes.
+
+    ``hd`` is checked first, so a token failing both is filed under the
+    disagreement rather than the unverified address: the contradiction is the
+    finding an operator can act on.
+
+    Args:
+        claims: The claims of an ID token Authlib has already validated. Read,
+            never logged: an identity value belongs in neither a log line nor a
+            ledger record.
+        identity_claim: The name of the claim this deployment maps identities
+            on, as configured — ``sub`` unless the deployment says otherwise.
+
+    Returns:
+        A :class:`TokenAdmission` naming the check that refused, if one did.
+        Never raises: it answers a yes-or-no question about untrusted input.
+    """
+    hosted_domain = claims.get(HOSTED_DOMAIN_CLAIM)
+    if isinstance(hosted_domain, str) and hosted_domain:
+        asserted = claims.get(identity_claim)
+        if not isinstance(asserted, str) or not asserted:
+            return TokenAdmission(admissible=False, reason=REASON_HOSTED_DOMAIN_MISMATCH)
+        # Whether the identity names a mailbox in a domain is asked here, on
+        # the same terms `same_domain` asks it, so the values this gate
+        # cross-checks are exactly the ones a `domain:` principal could admit.
+        # The comparison itself stays in the comparator, which owns the
+        # ASCII-only fold the authored value went through at render time.
+        local, separator, asserted_domain = asserted.rpartition("@")
+        if separator and local and asserted_domain:
+            if not same_domain(asserted, hosted_domain):
+                return TokenAdmission(admissible=False, reason=REASON_HOSTED_DOMAIN_MISMATCH)
+
+    verified = claims.get(EMAIL_VERIFIED_CLAIM)
+    if verified is False or (isinstance(verified, str) and verified.strip().lower() == "false"):
+        return TokenAdmission(admissible=False, reason=REASON_UNVERIFIED_EMAIL)
+
+    return TokenAdmission(admissible=True)
 
 
 FOLDED_DETAIL_KEY = "folded_refusals"
@@ -715,9 +841,10 @@ async def oidc_login(
     Raises:
         HTTPException: 404 when this deployment is not in OIDC mode or ``user``
             is not on the roster; 403 when ``user`` has no mapped IdP identity
-            — for a shared card, when no roster entry has one — because the
-            handshake could only end in a refusal, so it does not start;
-            502 when the issuer's discovery document cannot be fetched or read.
+            — for a shared card, when its access rule could admit nobody —
+            because the handshake could only end in a refusal, so it does not
+            start; 502 when the issuer's discovery document cannot be fetched
+            or read.
     """
     settings = get_settings(request)
     _require_oidc_mode(settings)
@@ -732,23 +859,45 @@ async def oidc_login(
         # applied is what keeps the ledger from enumerating accounts.
         raise HTTPException(status_code=404, detail="no such user")
     if settings.shared(user):
-        # A shared card is opened by whichever roster entry's mapped identity
-        # the IdP asserts, so its own mapping is not what decides whether the
-        # handshake is worth starting — one mapped entry anywhere on the
-        # roster is. Only a roster with no mapped identity at all could end
-        # nowhere but in a refusal.
-        if not settings.oidc_subjects:
-            logger.warning(
-                "oidc login refused for shared card %r: no roster entry carries a mapped identity",
-                user,
-            )
-            raise _refuse_login(
-                user,
-                reason=REASON_UNMAPPED_USER,
-                message="no roster entry carries a mapped identity",
-                # Reachable by an unauthenticated GET, one request per record.
-                bound=_ledger_bound(request),
-            )
+        # A shared card is opened by somebody other than its own user, so its
+        # own mapping is not what decides whether the handshake is worth
+        # starting — its access rule is, and each kind of principal answers
+        # that question differently. A `user:` or `domain:` principal is
+        # answerable from the asserted identity alone and needs no roster
+        # mapping anywhere, so a card naming one always starts. `roster` is
+        # opened by whichever roster entry's mapped identity the IdP asserts,
+        # so one mapped entry anywhere on the roster is what it needs. Only a
+        # card whose rule can admit nobody could end nowhere but in a refusal
+        # — which is also where an unreadable rule lands, since it degrades to
+        # a set admitting nobody rather than to the card's own user.
+        principals = settings.access(user)
+        if not any(
+            member.startswith((ACCESS_USER_PREFIX, ACCESS_DOMAIN_PREFIX)) for member in principals
+        ):
+            if ACCESS_ROSTER not in principals:
+                logger.warning(
+                    "oidc login refused for shared card %r: its access rule admits nobody", user
+                )
+                raise _refuse_login(
+                    user,
+                    reason=REASON_UNMAPPED_USER,
+                    message="this card's access rule admits nobody",
+                    # Reachable by an unauthenticated GET, one per record.
+                    bound=_ledger_bound(request),
+                )
+            if not settings.oidc_subjects:
+                logger.warning(
+                    "oidc login refused for shared card %r: no roster entry carries a mapped "
+                    "identity",
+                    user,
+                )
+                raise _refuse_login(
+                    user,
+                    reason=REASON_UNMAPPED_USER,
+                    message="no roster entry carries a mapped identity",
+                    # Reachable by an unauthenticated GET, one per record.
+                    bound=_ledger_bound(request),
+                )
     elif settings.oidc_subject(user) is None:
         logger.warning("oidc login refused for %r: no IdP identity is mapped to that user", user)
         raise _refuse_login(
@@ -888,7 +1037,7 @@ async def oidc_callback(request: Request) -> Response:
             )
             raise _refuse_login(
                 user,
-                reason=audit.REASON_NON_ASCII_SUBJECT,
+                reason=REASON_NON_ASCII_SUBJECT,
                 message="this user's mapped identity cannot be carried",
                 # Pre-exchange, same bound as the refusal above.
                 bound=_ledger_bound(request),
@@ -970,64 +1119,198 @@ async def oidc_callback(request: Request) -> Response:
         )
 
     if shared:
-        # The one deliberate exception to the anti-lookup rule in the branch
-        # below: a shared card may be opened by ANY roster entry whose
-        # configured subject the IdP asserted, so this is a reverse match over
-        # the configured subjects — gated on `settings.shared`, and living
-        # nowhere else in this service. Every entry is compared, each in
-        # constant time, with no early break: stopping at the first hit would
-        # let the comparison count say which entry matched and how early it
-        # sits in the roster, and a subject two entries share must surface as
-        # ambiguity rather than be resolved by declaration order. The card's
-        # own subject, when it carries one, participates like every other
-        # entry's.
-        matches = [
-            (name, configured)
-            for name, configured in settings.oidc_subjects.items()
-            if same_identity(asserted, configured, claim=settings.oidc_claim)
-        ]
-        if not matches:
+        principals = settings.access(user)
+        # Three authorities can open a shared card, and ALL THREE are asked
+        # before any of them is acted on. Asking them in sequence and stopping
+        # at the first yes would make which authority admitted a login — and
+        # therefore what the session records about it — depend on the order
+        # this code happens to ask in, and would hide the collisions below.
+        #
+        # The card's OWN user, first, because the owner is not a guest on
+        # their own card: `self` among the principals says the rule shares the
+        # terminal without handing it over, so `[self, domain:x]` keeps this
+        # login working where `[domain:x]` alone deliberately does not.
+        own_admitted = (
+            settings.owner_admitted(user)
+            and expected_subject is not None
+            and same_identity(asserted, expected_subject, claim=settings.oidc_claim)
+        )
+        # The roster, second. This is the one deliberate exception to the
+        # anti-lookup rule in the branch below, and the only principal that
+        # needs one: `roster` admits ANY roster entry whose configured subject
+        # the IdP asserted, so answering it means a reverse match over the
+        # configured subjects — gated on the card naming that principal, and
+        # living nowhere else in this service. Every entry is compared, each
+        # in constant time, with no early break: stopping at the first hit
+        # would let the comparison count say which entry matched and how early
+        # it sits in the roster, and a subject two entries share must surface
+        # as ambiguity rather than be resolved by declaration order. The
+        # card's own subject, when it carries one, participates like every
+        # other entry's. A card that does not name `roster` does not
+        # reverse-match at all: naming identities or a domain instead is
+        # exactly the statement that the roster is no longer what admits, and
+        # a card that still reverse-matched would make `roster` an unremovable
+        # member of every rule.
+        matches = settings.subject_matches(asserted) if ACCESS_ROSTER in principals else ()
+        # The `user:` principals covering that same identity, compared on the
+        # same terms and under the same no-early-break discipline. They are
+        # gathered here rather than left to `card_admits` because what is
+        # being asked of them is not "does anything admit" but "does more than
+        # one authority admit": an identity covered by a roster entry AND by a
+        # named principal, or by two named principals that collide, is the
+        # same class of configuration fault as two roster entries sharing a
+        # subject. Resolving it would let declaration order decide what the
+        # session records — an opener, or an admitted identity — and those two
+        # are re-validated on different terms on every later request.
+        named = tuple(
+            member
+            for member in sorted(principals)
+            if member.startswith(ACCESS_USER_PREFIX)
+            and same_identity(
+                asserted, member[len(ACCESS_USER_PREFIX) :], claim=settings.oidc_claim
+            )
+        )
+        # The rule, third and as one question: `card_admits` is the same
+        # predicate `/verify` re-runs on every subrequest, so what admits a
+        # login here is exactly what keeps admitting it afterwards.
+        rule_admitted = settings.card_admits(user, asserted)
+
+        if not own_admitted and not rule_admitted:
+            # Nothing admits. The caller is told what the roster arm has
+            # always told them, whichever principal was asked — a shared card
+            # must not become an oracle for which identities, domains or
+            # entries a deployment names — while the ledger carries the
+            # category an operator can act on. A card that names nothing
+            # beyond the roster (including one whose rule could not be read,
+            # which names nothing at all) keeps the category it has always
+            # been refused under; a card that named a principal and had it
+            # cover nobody is the new finding.
+            names_a_principal = any(
+                member.startswith((ACCESS_USER_PREFIX, ACCESS_DOMAIN_PREFIX))
+                for member in principals
+            )
             logger.warning(
-                "oidc callback refused for shared card %r: the asserted identity is mapped to "
-                "no roster entry",
+                "oidc callback refused for shared card %r: no principal of its access rule "
+                "admits the asserted identity",
                 user,
             )
             raise _refuse_login(
                 user,
-                reason=REASON_IDENTITY_MISMATCH,
+                reason=(
+                    REASON_NO_COVERING_PRINCIPAL if names_a_principal else REASON_IDENTITY_MISMATCH
+                ),
                 message="this identity is not permitted for this user",
             )
-        if len(matches) > 1:
-            # Two entries mapped to one identity is a configuration fault, and
-            # picking either would make who-opened-this-card depend on roster
-            # declaration order. Refused under its own category so the ledger
-            # says what the operator has to fix.
+        if len(matches) + len(named) > 1:
+            # Refused under its own category so the ledger says what the
+            # operator has to fix, and named without saying which authorities
+            # collided: that is a claim value and a rule, and the operator has
+            # both in their own configuration.
             logger.warning(
-                "oidc callback refused for shared card %r: the asserted identity is mapped to "
-                "more than one roster entry",
+                "oidc callback refused for shared card %r: the asserted identity is admitted by "
+                "more than one authority",
                 user,
             )
             raise _refuse_login(
                 user,
-                reason=audit.REASON_AMBIGUOUS_IDENTITY,
-                message="this identity matches more than one roster entry",
+                reason=REASON_AMBIGUOUS_IDENTITY,
+                message="this identity matches more than one rule",
             )
-        opener_name, matched_subject = matches[0]
-        if not is_header_safe(matched_subject):
-            # The own-card path refuses this before the token exchange; here
-            # the entry it belongs to is only known now, so it is refused
-            # post-match — and refused HERE rather than left to `with_user`,
-            # whose ValueError would surface as a 500 on what is a denial.
-            logger.warning(
-                "oidc callback refused for shared card %r: the matched identity cannot be "
-                "carried in an identity header",
-                user,
-            )
-            raise _refuse_login(
-                user,
-                reason=audit.REASON_NON_ASCII_SUBJECT,
-                message="the matched identity cannot be carried",
-            )
+        if own_admitted or not matches:
+            # The two arms whose grant comes from the token itself are subject
+            # to the login-only checks; the roster arm is not, because there
+            # the grant is a mapping an operator wrote rather than a claim the
+            # provider vouches for. Asked once, here: these are the two things
+            # a token says about itself that nothing downstream can re-ask,
+            # and a token contradicting itself must not be what a rule is
+            # evaluated against.
+            admission = token_admissible(claims, identity_claim=settings.oidc_claim)
+            if not admission.admissible:
+                logger.warning(
+                    "oidc callback refused for shared card %r: the token is not admissible (%s)",
+                    user,
+                    admission.reason,
+                )
+                raise _refuse_login(
+                    user,
+                    reason=admission.reason,
+                    message="this identity is not permitted for this user",
+                )
+
+        # Precedence where more than one arm still stands: the owner is the
+        # owner, then the roster entry that opened the card, then the rule.
+        if own_admitted:
+            # The own-card shape, minted inside the shared branch: no opener,
+            # because nobody else opened this, and no admitted identity,
+            # because the card's own mapping is what proved it — the same
+            # session the non-shared path below produces. `or ""` is the type
+            # checker's, not a fallback: `own_admitted` is false without a
+            # mapped subject.
+            opener_name = ""
+            admitted_identity = ""
+            proved_subject = expected_subject or ""
+            if not is_header_safe(proved_subject):
+                # The own-card branch refuses an uncarryable mapping before
+                # the token exchange, but those gates are the own-card path's
+                # alone — a shared card's own mapping decides nothing until
+                # this point, so the check belongs here too. Same category as
+                # the roster arm's: what cannot be carried is a mapping an
+                # operator wrote, not the identity the provider asserted.
+                logger.warning(
+                    "oidc callback refused for shared card %r: the matched identity cannot be "
+                    "carried in an identity header",
+                    user,
+                )
+                raise _refuse_login(
+                    user,
+                    reason=REASON_NON_ASCII_SUBJECT,
+                    message="the matched identity cannot be carried",
+                )
+        elif matches:
+            opener_name, matched_subject = matches[0]
+            admitted_identity = ""
+            proved_subject = matched_subject
+            if not is_header_safe(matched_subject):
+                # The own-card path refuses this before the token exchange;
+                # here the entry it belongs to is only known now, so it is
+                # refused post-match — and refused HERE rather than left to
+                # `with_user`, whose ValueError would surface as a 500 on what
+                # is a denial.
+                logger.warning(
+                    "oidc callback refused for shared card %r: the matched identity cannot be "
+                    "carried in an identity header",
+                    user,
+                )
+                raise _refuse_login(
+                    user,
+                    reason=REASON_NON_ASCII_SUBJECT,
+                    message="the matched identity cannot be carried",
+                )
+        else:
+            opener_name = ""
+            admitted_identity = asserted
+            proved_subject = asserted
+            if not is_header_safe(asserted):
+                # The rule admits this login, and the identity it admits is
+                # the one the session has to carry — there is no configured
+                # spelling to fall back on, as the roster arm has. Refused
+                # here for the same reason that arm refuses post-match:
+                # `with_user` would raise a ValueError, and a 500 is the wrong
+                # answer to a denial. The caller is told what every other rule
+                # refusal tells them, though: a body saying the identity could
+                # not be CARRIED would confirm that the rule COVERED it, which
+                # is exactly what a shared card must not answer. The log line
+                # and the ledger category keep the distinction.
+                logger.warning(
+                    "oidc callback refused for shared card %r: the admitted identity cannot be "
+                    "carried in an identity header",
+                    user,
+                )
+                raise _refuse_login(
+                    user,
+                    reason=REASON_UNSAFE_ASSERTED_IDENTITY,
+                    message="this identity is not permitted for this user",
+                )
 
         # The claims binding is not consulted on a shared card: the card's
         # role rides the card, so a person the binding would refuse for their
@@ -1041,7 +1324,11 @@ async def oidc_callback(request: Request) -> Response:
                 method=settings.method,
                 user=user,
                 roster_roles=roster_roles(request),
-                asserted_subject=matched_subject,
+                # The matched entry's configured spelling on the roster arm,
+                # and the asserted value itself where a rule admitted it:
+                # there the deployment named a principal rather than an
+                # identity, so the provider's spelling is the only one there is.
+                asserted_subject=proved_subject,
                 claim_role="",
             )
         except RecheckRefused as refused:
@@ -1049,6 +1336,7 @@ async def oidc_callback(request: Request) -> Response:
             raise _refuse_login(user, reason=refused.reason, message=refused.message) from None
     else:
         opener_name = ""
+        admitted_identity = ""
         # `expected_subject is None` was refused before the exchange on this
         # same (own-card) branch; the re-check here is for the type checker,
         # which cannot carry that narrowing across the two `shared` branches.
@@ -1120,6 +1408,13 @@ async def oidc_callback(request: Request) -> Response:
         # account (`oidc_subject`), so the opener is the session's record of
         # WHICH roster entry that account was matched to.
         opener=opener_name,
+        # The identity a `user:`/`domain:` principal admitted, and `""` on
+        # every other login — an own card, or a shared one a roster entry
+        # opened, where the opener already says by what authority. It is the
+        # ASSERTED value, not a configured one: no roster mapping was
+        # consulted to admit it, so nothing else records who is behind this
+        # session, and verify re-runs the rule against it on every subrequest.
+        admitted_identity=admitted_identity,
         # The matrix's answer, not this route's: the claim's role where this
         # deployment binds claims (cross-checked there against the role the
         # render bound for this user), and the roster's own where it binds
@@ -1161,6 +1456,10 @@ async def oidc_callback(request: Request) -> Response:
         user=user,
         method=settings.method,
         role=role,
-        detail=f"opener={opener_name}" if shared else None,
+        # Only where there is an opener to name. A rule-admitted login has
+        # none, and `opener=` with nothing after it would put an empty value in
+        # a field that carries identifiers — the asserted identity that WOULD
+        # go there is a claim value, which the ledger does not take.
+        detail=f"opener={opener_name}" if opener_name else None,
     )
     return response

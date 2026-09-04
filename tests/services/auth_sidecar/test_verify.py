@@ -95,6 +95,7 @@ def _unlocked(
     ttl: float = 600.0,
     subject: str = "",
     opener: str = "",
+    admitted_identity: str = "",
 ) -> UnlockedUser:
     """An unlocked-user entry expiring ``ttl`` seconds from now.
 
@@ -107,6 +108,10 @@ def _unlocked(
             entry and any session minted before the subject was carried.
         opener: The roster user whose credential proved the login, for an entry
             on a shared card, or ``""`` for an own-card entry.
+        admitted_identity: The identity a card principal admitted, for an entry
+            belonging to somebody the roster does not name, or ``""`` for an
+            own-card or roster login. A roster entry never carries both this
+            and an opener.
     """
     return UnlockedUser(
         username=username,
@@ -114,6 +119,7 @@ def _unlocked(
         generation_tag="" if stored is None else generation_tag(stored),
         oidc_subject=subject,
         opener=opener,
+        admitted_identity=admitted_identity,
     )
 
 
@@ -443,26 +449,50 @@ class TestAccountHeader:
 
 
 class TestSharedCardOpener:
-    """A shared card's session lives and dies with the entry that opened it.
+    """A shared card's session lives and dies with what admitted it.
 
-    A shared (``access: any``) card's session names its opener — the roster
-    entry whose credential proved the login — and verify re-validates that
-    opener against the roster's current mapping on every subrequest. Both
-    directions of the correspondence are pinned too: a shared card refuses a
-    session naming no opener, and a card no longer shared refuses one that
-    does, so flipping the access rule in either direction retires the sessions
+    A card admitting the whole roster is opened by a roster entry, and its
+    session names that opener — the entry whose credential proved the login —
+    which verify re-validates against the roster's current mapping on every
+    subrequest. A card naming particular identities or domains is opened by
+    somebody the roster need not name at all, and its session records the
+    identity that was matched instead; that match is re-run against the card's
+    *current* principals on every subrequest, so withdrawing a principal closes
+    the card on the next request rather than at expiry.
+
+    Every direction is pinned: a shared card refuses a session naming neither,
+    a card no longer shared refuses one naming an opener, a card narrowed away
+    from the roster refuses one too, and no session may name both an opener and
+    an admitted identity. Editing an access rule therefore retires the sessions
     minted under the old one instead of letting them lapse.
+
+    One case deliberately does not appear here: an admitted identity that could
+    not ride an identity header never reaches this route at all, because the
+    codec refuses it on the way in and again on the way out
+    (``test_an_uncarryable_admitted_identity_invalidates_the_cookie`` and
+    ``test_an_uncarryable_admitted_identity_is_refused_at_login`` in
+    ``test_sessions.py``). Repeating it here would pin the codec's rule in a
+    second place rather than this route's.
     """
 
     ACCOUNT_HEADER = "X-Osprey-Auth-Account"
     SUBJECT_HEADER = "X-Osprey-Auth-Subject"
     BOB_SUBJECT = "idp|bob"
+    CAROL_IDENTITY = "carol@example.org"
 
     SHARED_ENV = {
         **OIDC_ENV,
         "OSPREY_AUTH_ROSTER_ACCESS_ALICE": "any",
         "OSPREY_AUTH_OIDC_SUBJECT_BOB": BOB_SUBJECT,
     }
+
+    RULE_ENV = {
+        **OIDC_ENV,
+        "OSPREY_AUTH_OIDC_CLAIM": "email",
+        "OSPREY_AUTH_ROSTER_ACCESS_ALICE": '["domain:example.org"]',
+    }
+    """Alice's card admits a domain and nothing else — no roster principal, so
+    nobody is admitted for merely being on the roster."""
 
     def test_a_valid_opener_authorizes_and_names_both_identities(self) -> None:
         """The account is the card the request is on, the subject the opener's
@@ -540,6 +570,319 @@ class TestSharedCardOpener:
         with TestClient(_app(env)) as client:
             assert _verify(client, "alice", own).status_code == 200
             assert _verify(client, "bob", shared).status_code == 401
+
+    def test_a_rule_admitted_session_authorizes_and_names_the_admitted_identity(self) -> None:
+        """The card's ``domain:`` principal admitted somebody the roster does
+        not name, so there is no mapped roster entry and no opener to report —
+        the subject header names the identity that was matched, and the account
+        header the card it was matched against. The two diverge, and neither is
+        the other: the person behind the request is reported as themselves and
+        not as the roster name whose card they are on.
+
+        Minted the way the callback mints one: a rule-admitted login stores the
+        ASSERTED identity as the session's OIDC subject and again as the
+        admitted identity, so both fields carry it (``oidc.py``'s
+        ``proved_subject = asserted``). A fixture with one of them empty would
+        pin a shape no login produces.
+        """
+        cookie = _mint(
+            _unlocked(
+                "alice",
+                stored=None,
+                subject=self.CAROL_IDENTITY,
+                admitted_identity=self.CAROL_IDENTITY,
+            )
+        )
+        with TestClient(_app(self.RULE_ENV)) as client:
+            response = _verify(client, "alice", cookie)
+        assert response.status_code == 200
+        assert response.headers[self.ACCOUNT_HEADER] == "alice"
+        assert response.headers[self.SUBJECT_HEADER] == self.CAROL_IDENTITY
+
+    def test_the_admitting_principal_is_re_matched_on_every_subrequest(self) -> None:
+        """Nothing about the admission is remembered, so asking twice is the
+        same question twice and the second answer is not a cached first."""
+        cookie = _mint(
+            _unlocked(
+                "alice",
+                stored=None,
+                subject=self.CAROL_IDENTITY,
+                admitted_identity=self.CAROL_IDENTITY,
+            )
+        )
+        with TestClient(_app(self.RULE_ENV)) as client:
+            assert _verify(client, "alice", cookie).status_code == 200
+            assert _verify(client, "alice", cookie).status_code == 200
+
+    def test_withdrawing_the_covering_principal_closes_the_card(self) -> None:
+        """The revocation contract: re-pointing the card at another domain
+        denies the very next subrequest of a session the old one admitted."""
+        cookie = _mint(
+            _unlocked(
+                "alice",
+                stored=None,
+                subject=self.CAROL_IDENTITY,
+                admitted_identity=self.CAROL_IDENTITY,
+            )
+        )
+        env = {**self.RULE_ENV, "OSPREY_AUTH_ROSTER_ACCESS_ALICE": '["domain:elsewhere.example"]'}
+        with TestClient(_app(env)) as client:
+            assert _verify(client, "alice", cookie).status_code == 401
+
+    def test_a_rule_admitted_session_on_a_card_no_longer_shared_is_denied(self) -> None:
+        """Removing the rule outright is the same withdrawal: an own card
+        admits its own user by logging in, never by a principal."""
+        cookie = _mint(
+            _unlocked(
+                "alice",
+                stored=None,
+                subject=self.CAROL_IDENTITY,
+                admitted_identity=self.CAROL_IDENTITY,
+            )
+        )
+        with TestClient(_app(OIDC_ENV)) as client:
+            assert _verify(client, "alice", cookie).status_code == 401
+
+    def test_a_roster_opener_still_authorizes_on_a_mixed_card(self) -> None:
+        """A card naming both ``roster`` and a domain keeps admitting roster
+        logins: the opener path is unchanged by the principal beside it."""
+        env = {
+            **OIDC_ENV,
+            "OSPREY_AUTH_ROSTER_ACCESS_ALICE": '["domain:example.org","roster"]',
+            "OSPREY_AUTH_OIDC_SUBJECT_BOB": self.BOB_SUBJECT,
+        }
+        cookie = _mint(_unlocked("alice", stored=None, subject=self.BOB_SUBJECT, opener="bob"))
+        with TestClient(_app(env)) as client:
+            response = _verify(client, "alice", cookie)
+        assert response.status_code == 200
+        assert response.headers[self.ACCOUNT_HEADER] == "alice"
+        assert response.headers[self.SUBJECT_HEADER] == self.BOB_SUBJECT
+
+    def test_an_opener_on_a_card_narrowed_away_from_the_roster_is_denied(self) -> None:
+        """``roster`` is the only principal that admits a login for being on
+        the roster, so dropping it retires the sessions it opened — the same
+        rule as flipping the card back to own, one principal finer."""
+        env = {**self.RULE_ENV, "OSPREY_AUTH_OIDC_SUBJECT_BOB": self.BOB_SUBJECT}
+        cookie = _mint(_unlocked("alice", stored=None, subject=self.BOB_SUBJECT, opener="bob"))
+        with TestClient(_app(env)) as client:
+            assert _verify(client, "alice", cookie).status_code == 401
+
+    def test_coverage_moving_between_principals_keeps_the_session_open(self) -> None:
+        """Withdrawal is about coverage, not about the principal that happened
+        to do the admitting. Replacing the domain member with a ``user:`` one
+        naming the same identity leaves the session verifying — nothing in the
+        entry remembers which member matched at login, precisely so that this
+        is one question asked afresh rather than two answers to reconcile."""
+        cookie = _mint(
+            _unlocked(
+                "alice",
+                stored=None,
+                subject=self.CAROL_IDENTITY,
+                admitted_identity=self.CAROL_IDENTITY,
+            )
+        )
+        moved = {
+            **self.RULE_ENV,
+            "OSPREY_AUTH_ROSTER_ACCESS_ALICE": f'["user:{self.CAROL_IDENTITY}"]',
+        }
+        with TestClient(_app(self.RULE_ENV)) as client:
+            assert _verify(client, "alice", cookie).status_code == 200
+        with TestClient(_app(moved)) as client:
+            response = _verify(client, "alice", cookie)
+        assert response.status_code == 200
+        assert response.headers[self.SUBJECT_HEADER] == self.CAROL_IDENTITY
+
+    def test_a_mixed_card_admits_an_opener_and_a_rule_admission_at_once(self) -> None:
+        """Both kinds of session on one card under one set of settings, which
+        is what a ``[roster, domain:…]`` card is for. The account header names
+        the card either way; the subject names whoever is behind the request —
+        the opener's mapped identity on the roster session, exactly the stored
+        admitted identity on the other, and neither is the roster username."""
+        env = {
+            **OIDC_ENV,
+            "OSPREY_AUTH_OIDC_CLAIM": "email",
+            "OSPREY_AUTH_ROSTER_ACCESS_ALICE": '["domain:example.org","roster"]',
+            "OSPREY_AUTH_OIDC_SUBJECT_BOB": "bob@example.org",
+        }
+        opened = _mint(_unlocked("alice", stored=None, subject="bob@example.org", opener="bob"))
+        admitted = _mint(
+            _unlocked(
+                "alice",
+                stored=None,
+                subject=self.CAROL_IDENTITY,
+                admitted_identity=self.CAROL_IDENTITY,
+            )
+        )
+        with TestClient(_app(env)) as client:
+            by_opener = _verify(client, "alice", opened)
+            by_rule = _verify(client, "alice", admitted)
+        assert by_opener.status_code == 200
+        assert by_opener.headers[self.ACCOUNT_HEADER] == "alice"
+        assert by_opener.headers[self.SUBJECT_HEADER] == "bob@example.org"
+        assert by_rule.status_code == 200
+        assert by_rule.headers[self.ACCOUNT_HEADER] == "alice"
+        assert by_rule.headers[self.SUBJECT_HEADER] == self.CAROL_IDENTITY
+
+    def test_a_session_naming_both_an_opener_and_an_admitted_identity_is_denied(self) -> None:
+        """No login mints that shape. Refused whole rather than resolved in
+        whichever direction happens to be checked first."""
+        env = {
+            **OIDC_ENV,
+            "OSPREY_AUTH_ROSTER_ACCESS_ALICE": '["domain:example.org","roster"]',
+            "OSPREY_AUTH_OIDC_SUBJECT_BOB": self.BOB_SUBJECT,
+        }
+        cookie = _mint(
+            _unlocked(
+                "alice",
+                stored=None,
+                subject=self.BOB_SUBJECT,
+                opener="bob",
+                admitted_identity=self.CAROL_IDENTITY,
+            )
+        )
+        with TestClient(_app(env)) as client:
+            assert _verify(client, "alice", cookie).status_code == 401
+
+    @pytest.mark.parametrize(
+        "entry_kwargs",
+        [
+            {"subject": CAROL_IDENTITY, "admitted_identity": CAROL_IDENTITY},
+            {"subject": BOB_SUBJECT, "opener": "bob"},
+            {},
+        ],
+        ids=["rule-admitted", "opener", "neither"],
+    )
+    def test_an_unreadable_access_rule_denies_every_session_on_the_card(
+        self, entry_kwargs: dict[str, str]
+    ) -> None:
+        """A malformed ``OSPREY_AUTH_ROSTER_ACCESS_*`` admits nobody at all —
+        not the identities the operator meant to name, not the roster, and not
+        the card's own user. The card is visibly unusable until it is fixed,
+        which is the point: a value nobody can read must not degrade into a
+        working card of any width."""
+        env = {
+            **OIDC_ENV,
+            "OSPREY_AUTH_ROSTER_ACCESS_ALICE": "domain:example.org",
+            "OSPREY_AUTH_OIDC_SUBJECT_BOB": self.BOB_SUBJECT,
+        }
+        cookie = _mint(_unlocked("alice", stored=None, **entry_kwargs))
+        with TestClient(_app(env)) as client:
+            assert _verify(client, "alice", cookie).status_code == 401
+
+    def test_a_rule_denial_looks_like_every_other_denial(self) -> None:
+        """A session the card no longer admits is refused with the same bare
+        401 as an unknown user: no body, no challenge header, and none of the
+        identity headers — so nothing tells the caller that this card exists,
+        or that the identity it holds was once admitted to it."""
+        cookie = _mint(
+            _unlocked(
+                "alice",
+                stored=None,
+                subject=self.CAROL_IDENTITY,
+                admitted_identity=self.CAROL_IDENTITY,
+            )
+        )
+        env = {**self.RULE_ENV, "OSPREY_AUTH_ROSTER_ACCESS_ALICE": '["domain:elsewhere.example"]'}
+        with TestClient(_app(env)) as client:
+            response = _verify(client, "alice", cookie)
+        assert response.status_code == 401
+        assert response.content == b""
+        assert "www-authenticate" not in response.headers
+        assert self.ACCOUNT_HEADER.lower() not in response.headers
+        assert self.SUBJECT_HEADER.lower() not in response.headers
+
+
+class TestOwnerAdmissionOnASharedCard:
+    """``self`` beside other principals keeps the card's own user logging in.
+
+    A card's owner is admitted by their own credential exactly when ``self`` is
+    one of the card's principals — trivially on an own card, and just as much on
+    ``[self, domain:…]``, which is how an operator opens a terminal to a domain
+    *without* shutting its owner out of it. A card that names only other
+    principals does not admit the owner, and neither does one whose rule cannot
+    be read: in both cases the owner's own session is refused like anyone
+    else's, on the next subrequest.
+
+    The owner's session is the own shape — no opener and no admitted identity,
+    because neither is what let them in — so it is that shape, under both
+    methods, these pin. Everything else about an own-card session is unchanged:
+    the credential checked is the card's own, and there is no opener to
+    re-derive.
+    """
+
+    ACCOUNT_HEADER = "X-Osprey-Auth-Account"
+    SUBJECT_HEADER = "X-Osprey-Auth-Subject"
+    ALICE_IDENTITY = "alice@example.org"
+
+    def test_the_owner_of_a_self_and_domain_card_still_authorizes(self) -> None:
+        """Password mode: the card's own hash still proves the card's own user,
+        and the headers name that user on both — the domain principal beside
+        ``self`` widens who else may come in, never who the owner is."""
+        cookie = _mint(_unlocked("alice"))
+        env = {**PASSWORD_ENV, "OSPREY_AUTH_ROSTER_ACCESS_ALICE": '["domain:example.org","self"]'}
+        with TestClient(_app(env)) as client:
+            response = _verify(client, "alice", cookie)
+        assert response.status_code == 200
+        assert response.headers[self.ACCOUNT_HEADER] == "alice"
+        assert response.headers[self.SUBJECT_HEADER] == "alice"
+
+    def test_the_owner_of_a_domain_only_card_is_denied(self) -> None:
+        """Dropping ``self`` is a real narrowing and not a formality: the owner
+        reaches this card only by being admitted like everybody else, which an
+        own-shape session is not evidence of."""
+        cookie = _mint(_unlocked("alice"))
+        env = {**PASSWORD_ENV, "OSPREY_AUTH_ROSTER_ACCESS_ALICE": '["domain:example.org"]'}
+        with TestClient(_app(env)) as client:
+            assert _verify(client, "alice", cookie).status_code == 401
+
+    def test_the_owner_of_a_self_and_domain_card_still_authorizes_under_oidc(self) -> None:
+        """The same rule under the federated method, where the session names
+        the owner's own provider account rather than the roster username."""
+        cookie = _mint(_unlocked("alice", stored=None, subject=self.ALICE_IDENTITY))
+        env = {
+            **OIDC_ENV,
+            "OSPREY_AUTH_OIDC_CLAIM": "email",
+            "OSPREY_AUTH_ROSTER_ACCESS_ALICE": '["domain:example.org","self"]',
+            "OSPREY_AUTH_OIDC_SUBJECT_ALICE": self.ALICE_IDENTITY,
+        }
+        with TestClient(_app(env)) as client:
+            response = _verify(client, "alice", cookie)
+        assert response.status_code == 200
+        assert response.headers[self.ACCOUNT_HEADER] == "alice"
+        assert response.headers[self.SUBJECT_HEADER] == self.ALICE_IDENTITY
+
+    def test_the_owner_of_a_domain_only_card_is_denied_under_oidc(self) -> None:
+        cookie = _mint(_unlocked("alice", stored=None, subject=self.ALICE_IDENTITY))
+        env = {
+            **OIDC_ENV,
+            "OSPREY_AUTH_OIDC_CLAIM": "email",
+            "OSPREY_AUTH_ROSTER_ACCESS_ALICE": '["domain:example.org"]',
+            "OSPREY_AUTH_OIDC_SUBJECT_ALICE": self.ALICE_IDENTITY,
+        }
+        with TestClient(_app(env)) as client:
+            assert _verify(client, "alice", cookie).status_code == 401
+
+    def test_the_owner_denial_looks_like_every_other_denial(self) -> None:
+        """No body, no challenge, no identity headers — a card that stopped
+        admitting its owner tells the browser nothing it did not already know."""
+        cookie = _mint(_unlocked("alice"))
+        env = {**PASSWORD_ENV, "OSPREY_AUTH_ROSTER_ACCESS_ALICE": '["domain:example.org"]'}
+        with TestClient(_app(env)) as client:
+            response = _verify(client, "alice", cookie)
+        assert response.status_code == 401
+        assert response.content == b""
+        assert "www-authenticate" not in response.headers
+        assert self.ACCOUNT_HEADER.lower() not in response.headers
+        assert self.SUBJECT_HEADER.lower() not in response.headers
+
+    def test_a_whole_roster_card_still_refuses_an_own_shape_session(self) -> None:
+        """``any`` resolves to ``[roster]`` and names no ``self``, so the owner
+        reaches their own card there as a roster member — with an opener — and
+        an own-shape session on it stays refused exactly as before."""
+        cookie = _mint(_unlocked("alice"))
+        env = {**PASSWORD_ENV, "OSPREY_AUTH_ROSTER_ACCESS_ALICE": "any"}
+        with TestClient(_app(env)) as client:
+            assert _verify(client, "alice", cookie).status_code == 401
 
 
 class TestSharedCardPassword:

@@ -762,6 +762,28 @@ class TestTheCategorySetIsClosed:
         # Categories no route files yet are pinned here by name, so the
         # vars() sweep above is not their only tie to the closed set.
         assert audit.REASON_AMBIGUOUS_IDENTITY in audit.LOGIN_REASONS
+        for reason in RULE_ADMISSION_REASONS:
+            assert reason in audit.LOGIN_REASONS
+
+    def test_every_category_is_exported_under_its_own_name(self) -> None:
+        """``__all__`` is checked against the categories in both directions.
+
+        The closed set is the vocabulary an operator reads off ``reason``; the
+        export list is how the routes reach the spellings. A category in one
+        and not the other is a category that either cannot be named at a call
+        site or is named there under a symbol nothing documents.
+        """
+        defined = {
+            name
+            for name, value in vars(audit).items()
+            if name.startswith("REASON_") and isinstance(value, str)
+        }
+        exported = {
+            name
+            for name in audit.__all__
+            if name.startswith("REASON_") and isinstance(getattr(audit, name), str)
+        }
+        assert exported == defined
 
     def test_the_oidc_routes_name_the_same_categories(self) -> None:
         """The route module keeps its own spellings for readability at the point
@@ -771,6 +793,56 @@ class TestTheCategorySetIsClosed:
         for name, value in vars(oidc_routes).items():
             if name.startswith("REASON_") and isinstance(value, str):
                 assert value in audit.LOGIN_REASONS, name
+
+
+RULE_ADMISSION_REASONS = (
+    audit.REASON_HOSTED_DOMAIN_MISMATCH,
+    audit.REASON_NO_COVERING_PRINCIPAL,
+    audit.REASON_UNSAFE_ASSERTED_IDENTITY,
+    audit.REASON_UNVERIFIED_EMAIL,
+)
+"""The categories a card's principal set refuses a login under."""
+
+
+class TestTheRuleAdmissionCategories:
+    """The four categories a principal-set refusal is filed under.
+
+    Pinned by behaviour and not only by the closed-set sweep above, because
+    each one exists to be *distinguishable* in the ledger: an operator counting
+    them is deciding whether to widen a card's principal set, fix a claim their
+    IdP emits, or leave a refusal alone. A category that files under a
+    neighbour's spelling answers none of those.
+    """
+
+    @pytest.mark.parametrize("reason", RULE_ADMISSION_REASONS)
+    def test_each_category_reaches_the_ledger_under_its_own_name(
+        self, zone: Path, reason: str
+    ) -> None:
+        audit.record_login_refusal(user="bob", reason=reason, detail="hd")
+        stored = _records(zone)
+        assert len(stored) == 1
+        assert stored[0]["decision"] == "refused"
+        assert stored[0]["reason"] == reason
+        assert stored[0]["subject"] == "bob"
+        assert stored[0]["detail"] == "hd"
+
+    @pytest.mark.parametrize("reason", RULE_ADMISSION_REASONS)
+    def test_no_category_is_a_spelling_of_another(self, reason: str) -> None:
+        """Four distinct strings, so a reader can tell the four apart."""
+        assert sum(other == reason for other in RULE_ADMISSION_REASONS) == 1
+
+    @pytest.mark.parametrize("reason", RULE_ADMISSION_REASONS)
+    def test_the_detail_is_stored_as_the_identifier_the_caller_passed(
+        self, zone: Path, reason: str
+    ) -> None:
+        """``detail`` is echoed verbatim, so what a caller passes is what an
+        operator reads. The discipline that a caller passes the claim's NAME
+        and never the address or domain the token carried is the caller's to
+        keep; the refusal sites pin it where the claim values enter.
+        """
+        audit.record_login_refusal(user="bob", reason=reason, detail="email_verified")
+        line = _ledger(zone).read_text("utf-8")
+        assert "email_verified" in line
 
 
 class TestTheWriterShapesTheLine:

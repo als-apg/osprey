@@ -11,9 +11,25 @@ user, so this page is addressed per user and asks for a password and nothing
 else. On an own card there is no username field: a name typed here could only
 disagree with the one the link named, and the page would then either lie about
 who is being unlocked or refuse an operator who typed their own name correctly.
-The one exception is a card whose access rule is ``any``: there the person
-opening it types their OWN roster name (:data:`FIELD_OPENER`) — naming
-themselves, never the terminal, which the clicked card still names.
+The one exception is a card whose access rule admits the whole roster — the
+``roster`` principal, which ``any`` is the sugar for: there the person opening
+it types their OWN roster name (:data:`FIELD_OPENER`) — naming themselves,
+never the terminal, which the clicked card still names.
+
+**Only ``self`` and ``roster`` mean anything here.** An access rule is a set of
+principals, and the other two kinds — ``user:<id>`` and ``domain:<d>`` — name
+identities an identity provider asserts. Password mode has no provider, so those
+two are inert on this route: they neither open a card to an opener nor keep its
+owner out of one. ``roster`` is what renders the opener field; ``self`` — which
+the ordinary own card carries, and which a mixed rule such as
+``[self, domain:lab.example]`` keeps — is what accepts the card owner's own
+password.
+
+A rule carrying neither admits nobody at all, the owner included, and the card
+refuses every password login: a rule naming only asserted identities (config
+lint refuses that combination, so it should never reach a deployment) and one
+the sidecar could not read both land there. The deployment is misconfigured
+either way, and the reading that cannot over-admit is the only safe one.
 
 **Every method's unauthenticated browser arrives here.** nginx's 401 handler
 knows nothing about how this deployment authenticates, so it emits the same
@@ -98,6 +114,9 @@ from starlette.datastructures import FormData
 
 from .. import audit
 from ..app import (
+    ACCESS_ROSTER,
+    NOBODY,
+    OWNER_ONLY,
     AuthSettings,
     get_attempt_throttle,
     get_revocation_store,
@@ -345,9 +364,10 @@ def _page(
         status_code: 200 for the prompt, 401 for a refusal, 429 when throttled.
         error: The message to show, or ``None`` for a first prompt.
         headers: Extra response headers, merged over the no-store default.
-        shared: Whether this card admits any roster user (``access: any``), in
-            which case the template shows a username field for the person
-            opening it. Required, no default: every render of this page states
+        shared: Whether this card admits the whole roster (the ``roster``
+            principal, spelled ``any``), in which case the template shows a
+            username field for the person opening it. Required, no default:
+            every render of this page states
             which of the two shapes it is, so no re-render can silently drop
             the username field on a retry.
         opener: What to prefill that field with — the opener's own roster name
@@ -626,7 +646,11 @@ async def login_page(
         # where a credential *is* evaluated, deliberately does not distinguish.
         raise HTTPException(status_code=404, detail="no such user", headers=_NO_STORE_HEADERS)
 
-    return _page(request, user=username, target=target, shared=settings.shared(username), opener="")
+    # Only the roster principal produces an opener field. Every other rule
+    # renders the own-card page — see the module docstring — including one that
+    # admits nobody, which is refused at the POST rather than at the prompt.
+    opens_to_roster = ACCESS_ROSTER in settings.access(username)
+    return _page(request, user=username, target=target, shared=opens_to_roster, opener="")
 
 
 @router.post(LOGIN_PATH)
@@ -678,7 +702,7 @@ async def login_submit(
     one status, one page and one message. A form that named no user was never a
     credential attempt.
 
-    **A shared card (``access: any``) is opened by someone else's credential.**
+    **A card admitting the roster is opened by someone else's credential.**
     The form gains one field — the opener's own roster name — and exactly two
     things change hands: the credential checked is the *opener's* stored hash,
     looked up under the opener's unclamped name on the same oversize rule as the
@@ -690,7 +714,16 @@ async def login_submit(
     identity, never privilege. A form that did not name exactly one opener is
     handled exactly like one that did not name exactly one user, before the
     throttle is touched; a present-but-empty opener is an evaluated attempt that
-    meets the one shared refusal.
+    meets the one shared refusal. Only the ``roster`` principal reaches this
+    branch: a rule naming asserted identities alone never does, and no opener
+    field is read there.
+
+    **A card whose rule admits nobody refuses every attempt.** A rule naming
+    only identities an identity provider asserts, and one the sidecar could not
+    read, leave no principal this route may evaluate — not even the card
+    owner's own password. Both take the ordinary refusal path, indistinguishable
+    from a wrong password, and say once in the log why a correct one did not
+    work.
 
     Args:
         request: The inbound request, carrying the submitted form.
@@ -763,12 +796,24 @@ async def login_submit(
     if oversize:
         logger.warning("login submitted an impossible username of %d characters", len(username))
 
-    # The UNCLAMPED name decides whether this is a shared card, on the rule the
+    # The UNCLAMPED name decides what this card admits, on the rule the
     # credential lookup below already follows: an over-long submission must
     # never take the shared branch, where a prefix of it could name a real
     # shared card the browser never posted to. It stays on the ordinary deny
     # path instead, exactly as it did before shared cards existed.
-    card_shared = not oversize and settings.shared(username)
+    card_access = OWNER_ONLY if oversize else settings.access(username)
+    # Only `roster` puts somebody else's credential under test.
+    card_shared = ACCESS_ROSTER in card_access
+    # And only `self` accepts the card owner's own — the predicate the sidecar
+    # owns, asked rather than re-derived here, so login and verify cannot come
+    # to different answers about the same card. An over-long name never reaches
+    # it: it stays on the ordinary own-card deny path, as it did before shared
+    # cards existed.
+    admits_owner = oversize or settings.owner_admitted(username)
+    # A rule naming only asserted identities, or one that could not be read,
+    # leaves nothing a password login may evaluate. Refused below on the
+    # ordinary deny path, never by a shape of its own.
+    card_admits_nobody = not card_shared and not admits_owner
 
     opener = ""
     opener_oversize = False
@@ -835,15 +880,34 @@ async def login_submit(
     # OPENER's, under the opener's unclamped name. Clamping either before the
     # lookup could resolve a prefix of an over-long submission to a real roster
     # user and unlock a credential the browser never named — so oversize forces
-    # None on both spellings instead.
+    # None on both spellings instead. A card admitting nobody has no third
+    # spelling: there is no credential it could look one up for.
     if card_shared:
         stored = None if opener_oversize else settings.password_hash(opener)
+    elif card_admits_nobody:
+        # Said here rather than at the refusal, which stays the one line every
+        # miss gets: this is the operator's answer to "why is the right password
+        # not working", and it names no credential to get it. One line either
+        # way, naming which of the two rules produced it.
+        logger.warning(
+            "login refused for %r: this card admits nobody under password login — %s",
+            shown,
+            (
+                "its access rule could not be read"
+                if card_access == NOBODY
+                else "its access rule names only identities an identity provider asserts"
+            ),
+        )
+        stored = None
     else:
         stored = None if oversize else settings.password_hash(username)
     # `stored is None` covers a roster user with no provisioned credential, a
-    # username that is not on the roster at all, and one too long to be either.
-    # None derives a key — see the module docstring — and all three leave through
-    # the identical refusal below, including the same call into the throttle.
+    # username that is not on the roster at all, one too long to be either, and
+    # a card whose rule admits no password principal. None short-circuits this
+    # check, so no key is derived for any of them — see the module docstring for
+    # why that work is not worth equalising — and all four leave through the
+    # identical refusal below: the same status, the same page, the same headers
+    # and the same call into the throttle.
     if stored is None or not verify_password(password, stored):
         throttle.record_failure(throttle_key)
         if card_shared:

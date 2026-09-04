@@ -4,8 +4,8 @@ Three properties carry most of the weight here, and each is pinned from several
 directions:
 
 * **The page is addressed per user.** It states the username and — on an own
-  card — never asks for one; the one exception is a shared card (``access:
-  any``), where the opener names *themselves*, never the terminal. The username
+  card — never asks for one; the one exception is a card admitting the whole
+  roster, where the opener names *themselves*, never the terminal. The username
   it unlocks travels into the session cookie byte for byte — verify
   exact-matches it against the roster, so any normalisation here would break
   the chain open rather than closed.
@@ -613,6 +613,193 @@ def test_a_shared_cards_return_to_belongs_to_the_card() -> None:
     assert empty.status_code == hostile.status_code == 303
     assert empty.headers["location"] == "/u/bob/"
     assert hostile.headers["location"] == "/u/bob/"
+
+
+BOB_PASSWORD = "bob-password"
+"""Bob's own credential, whose hash :data:`PASSWORD_ENV` provisions."""
+
+IDP_ONLY_ACCESS = ('["user:bob@lab.example"]', '["domain:lab.example"]')
+"""Rules naming only an identity an identity provider asserts.
+
+Password mode has no provider, so neither principal can be evaluated here and
+neither card admits anybody — not even its own user, who is not named by it.
+Config lint refuses the combination outright; these pin the runtime's answer if
+it is ever deployed anyway.
+"""
+
+OWNER_PLUS_IDP_ACCESS = ('["self","user:carol@lab.example"]', '["self","domain:lab.example"]')
+"""The same rules with the owner kept: ``self`` is what a password login reads."""
+
+UNREADABLE_ACCESS = "sometimes"
+"""A value the sidecar cannot read, which admits nobody rather than the owner."""
+
+ADMITS_NOBODY_ACCESS = (*IDP_ONLY_ACCESS, UNREADABLE_ACCESS)
+"""Every rule under which no password opens the card, its owner's included."""
+
+UNREADABLE_ENV = {**PASSWORD_ENV, "OSPREY_AUTH_ROSTER_ACCESS_BOB": UNREADABLE_ACCESS}
+"""The default roster with bob's rule unreadable."""
+
+
+def _access_env(access: str) -> dict[str, str]:
+    """The default roster with bob's card carrying ``access`` on the wire."""
+    return {**PASSWORD_ENV, "OSPREY_AUTH_ROSTER_ACCESS_BOB": access}
+
+
+@pytest.mark.parametrize("access", IDP_ONLY_ACCESS)
+def test_a_card_admitting_only_asserted_identities_renders_the_own_card_page(
+    access: str,
+) -> None:
+    """No opener field: password mode cannot assert the identity such a rule
+    names, so falling back to the roster picker would open the card to everyone
+    its author did not name. The credential is refused at the POST, not here —
+    a 404 belongs to a name that is not on the roster, and this one is."""
+    params = {"user": "bob", "next": "/u/bob/"}
+    page = _client(_access_env(access)).get(LOGIN_PATH, params=params)
+    own = _client().get(LOGIN_PATH, params=params)
+
+    assert page.status_code == 200
+    assert page.text == own.text
+    assert 'name="username"' not in page.text
+    assert "Sign in to" not in page.text
+
+
+@pytest.mark.parametrize("access", IDP_ONLY_ACCESS)
+def test_a_card_admitting_only_asserted_identities_refuses_its_own_owner(
+    access: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``self`` is what admits the owner, and such a rule does not name it.
+
+    Password mode can evaluate ``self`` and ``roster`` and nothing else, so a
+    card listing neither admits nobody: the owner's own password is refused, and
+    so is a neighbour's, whatever the form claims about who is opening it.
+    """
+    caplog.set_level(logging.WARNING)
+    client = _client(_access_env(access))
+
+    own = _login(client, user="bob", password=BOB_PASSWORD)
+
+    assert own.status_code == 401
+    assert DENIAL_MESSAGE in own.text
+    assert 'name="username"' not in own.text
+    assert "set-cookie" not in own.headers
+    assert (
+        "login refused for 'bob': this card admits nobody under password login — "
+        "its access rule names only identities an identity provider asserts"
+    ) in caplog.text
+    assert BOB_PASSWORD not in caplog.text
+
+    borrowed = _post(
+        _client(_access_env(access)),
+        {"user": "bob", "username": "alice", "next": "", "password": ALICE_PASSWORD},
+    )
+
+    assert borrowed.status_code == 401
+    assert "set-cookie" not in borrowed.headers
+
+
+@pytest.mark.parametrize("access", OWNER_PLUS_IDP_ACCESS)
+def test_the_owner_kept_beside_an_asserted_identity_still_opens_the_card(
+    access: str,
+) -> None:
+    """``[self, domain:x]`` shares the card *and* keeps its own user's login.
+
+    The asserted principal is inert in password mode, so the page is the
+    own-card page and the card's own password is the one credential it takes —
+    the distinction an operator can only express because ``self`` is read.
+    """
+    client = _client(_access_env(access))
+
+    page = client.get(LOGIN_PATH, params={"user": "bob", "next": "/u/bob/"})
+    unlocked = _login(client, user="bob", password=BOB_PASSWORD)
+
+    assert page.status_code == 200
+    assert 'name="username"' not in page.text
+    assert unlocked.status_code == 303
+    entry = _codec().decode(_issued_cookie(unlocked)).entry("bob")
+    assert entry is not None
+    assert entry.opener == ""
+
+
+def test_an_array_naming_the_roster_is_the_page_the_any_sugar_renders() -> None:
+    """``["roster"]`` and ``any`` are one rule, so they are one page — and the
+    opener's credential opens both."""
+    params = {"user": "bob", "next": "/u/bob/"}
+    array = _client(_access_env('["roster"]')).get(LOGIN_PATH, params=params)
+    sugar = _client(SHARED_ENV).get(LOGIN_PATH, params=params)
+
+    assert array.status_code == 200
+    assert array.text == sugar.text
+    assert 'name="username"' in array.text
+    assert _shared_login(_client(_access_env('["roster"]'))).status_code == 303
+
+
+@pytest.mark.parametrize("access", ('["roster","self"]', '["roster","user:carol@lab.example"]'))
+def test_a_rule_carrying_the_roster_still_asks_for_an_opener(access: str) -> None:
+    """The picker is the roster member's doing, not the whole set's shape: a set
+    that also names the owner, or an asserted identity, keeps the opener field
+    the roster earns it."""
+    client = _client(_access_env(access))
+
+    page = client.get(LOGIN_PATH, params={"user": "bob", "next": "/u/bob/"})
+
+    assert page.status_code == 200
+    assert 'name="username"' in page.text
+    assert _shared_login(client).status_code == 303
+
+
+def test_a_card_whose_rule_admits_nobody_still_renders_the_own_card_page() -> None:
+    """The GET half of the same rule: a 404 here is reserved for a name that is
+    not on the roster, and this one is. The page it gets is the own-card page,
+    byte for byte — the refusal belongs to the credential, not to the prompt."""
+    params = {"user": "bob", "next": "/u/bob/"}
+    page = _client(UNREADABLE_ENV).get(LOGIN_PATH, params=params)
+    own = _client().get(LOGIN_PATH, params=params)
+
+    assert page.status_code == 200
+    assert page.text == own.text
+    assert 'name="username"' not in page.text
+    assert "Sign in to" not in page.text
+
+
+def test_a_card_whose_rule_cannot_be_read_refuses_its_own_owner(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An unreadable rule admits no principal, so no password opens the card.
+
+    Fail-closed: the deployment is misconfigured, and reading the rule as
+    owner-only would quietly hand out the access the operator can no longer see.
+    The log says which of the two rules refused, without naming a credential,
+    and the card's neighbours are untouched.
+    """
+    caplog.set_level(logging.WARNING)
+    client = _client(UNREADABLE_ENV)
+
+    refused = _login(client, user="bob", password=BOB_PASSWORD)
+
+    assert refused.status_code == 401
+    assert DENIAL_MESSAGE in refused.text
+    assert 'name="username"' not in refused.text
+    assert "set-cookie" not in refused.headers
+    assert (
+        "login refused for 'bob': this card admits nobody under password login — "
+        "its access rule could not be read"
+    ) in caplog.text
+    assert BOB_PASSWORD not in caplog.text
+    # One broken rule locks one card, not the roster.
+    assert _login(client, user="alice").status_code == 303
+
+
+@pytest.mark.parametrize("access", ADMITS_NOBODY_ACCESS)
+def test_the_admits_nobody_refusal_is_the_ordinary_refusal(access: str) -> None:
+    """It must not be distinguishable from a wrong password: the page tells an
+    attacker nothing the roster does not already say."""
+    locked = _login(_client(_access_env(access)), user="bob", password=BOB_PASSWORD)
+    wrong = _login(_client(), user="bob", password="not-the-password")
+
+    assert locked.status_code == wrong.status_code == 401
+    assert locked.text == wrong.text
+    assert locked.headers["cache-control"] == wrong.headers["cache-control"]
 
 
 # --- Nothing a client sends is assumed to be small --------------------------
