@@ -53,6 +53,7 @@ from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS, create_app
 from osprey.interfaces.web_terminal.routes.proxy import (
     _PANEL_STATE_MAP,
     TERMINAL_SECRET_HEADER,
+    UPSTREAM_OPEN_TIMEOUT,
     _backend_is_loopback,
     _is_stripped_header,
 )
@@ -1133,6 +1134,28 @@ class TestWebSocketBoundary:
         assert fake.kwargs["additional_headers"] is None
         # No secret in flight → the default redirect handling is left in place.
         assert getattr(fake, "process_redirect", None) is None
+
+    def test_upstream_handshake_outlasts_a_kernel_start(self, panels_app):
+        """The upstream open timeout covers a handshake the panel holds on purpose.
+
+        jupyter-server answers a kernel-channel upgrade only once the kernel
+        behind it has replied to a kernel-info request, and it allows that reply
+        its ``MappingKernelManager.kernel_info_timeout``. A kernel that joins a
+        bound session imports the framework before it answers anything, so on a
+        loaded host that reply lands after ``websockets``' default ten-second
+        opening timeout — and the proxy, not the panel, hung up: the browser got
+        a normal close before its first frame, with the kernel alive and well
+        behind it. The proxy's budget for an upstream handshake must therefore
+        be no shorter than the longest one a panel is allowed to hold.
+        """
+        from jupyter_server.services.kernels.kernelmanager import MappingKernelManager
+
+        _app, client = panels_app
+
+        fake = self._connect(client, "/panel/trusted/ws/stream")
+
+        assert fake.kwargs["open_timeout"] == UPSTREAM_OPEN_TIMEOUT
+        assert UPSTREAM_OPEN_TIMEOUT >= MappingKernelManager.kernel_info_timeout.default_value
 
     def test_offbox_panel_ws_carries_no_headers(self, panels_app):
         _app, client = panels_app

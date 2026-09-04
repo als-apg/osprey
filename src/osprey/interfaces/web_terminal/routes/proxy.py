@@ -1022,6 +1022,20 @@ async def proxy_panel_root(panel_id: str, request: Request):
     return await proxy_panel(panel_id, "", request)
 
 
+#: Seconds the upstream WebSocket handshake may take before the proxy gives up
+#: on it. ``websockets`` allows ten by default, and a panel is entitled to hold
+#: a handshake longer than that on purpose: jupyter-server answers a
+#: kernel-channel upgrade only once the kernel behind it has replied to a
+#: kernel-info request, and gives that reply a full minute
+#: (``MappingKernelManager.kernel_info_timeout``). A kernel joining a bound
+#: session imports the framework before it answers, so on a loaded host its
+#: reply lands after ten seconds — and it was this proxy, not the panel, that
+#: hung up, closing the browser normally before its first frame while the
+#: kernel came up fine behind it. The budget is the panel's, plus room for the
+#: upgrade itself; a handshake still unanswered after this is not going to be.
+UPSTREAM_OPEN_TIMEOUT = 90.0
+
+
 @router.websocket("/panel/{panel_id}/{path:path}")
 async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
     """Forward a WebSocket connection to the companion panel server.
@@ -1076,6 +1090,7 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
         target,
         additional_headers=upstream_headers or None,
         subprotocols=offered or None,
+        open_timeout=UPSTREAM_OPEN_TIMEOUT,
     )
     if upstream_headers:
         # ``process_redirect`` returns the new URI to follow a redirect, or the

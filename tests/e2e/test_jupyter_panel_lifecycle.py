@@ -80,6 +80,7 @@ import httpx
 import nbformat
 import pytest
 import yaml
+from websockets.exceptions import ConnectionClosed
 from websockets.sync.client import connect as ws_connect
 
 from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
@@ -537,7 +538,16 @@ def _run_cell(socket: Any, code: str, session_id: str) -> CellResult:
         },
         session_id,
     )
-    socket.send(json.dumps(request))
+    try:
+        socket.send(json.dumps(request))
+    except ConnectionClosed as exc:
+        # The proxy closes the browser side normally whatever happened upstream,
+        # so the close alone says nothing about why. The terminal's log holds
+        # the proxy's own account of it and the sidecar's stderr behind that.
+        raise AssertionError(
+            f"the kernel channel was closed before the cell could be sent: {exc}\n"
+            f"{_logs(_web_container())}"
+        ) from exc
     result = CellResult("", "", None, "", "")
     deadline = time.monotonic() + CELL_TIMEOUT_SEC
     while time.monotonic() < deadline:
