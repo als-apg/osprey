@@ -224,7 +224,11 @@ ones are skipped and logged, so one bad panel never breaks the others.
    in your config. The practical consequence: a backend that authenticates its
    own callers with a cookie or an ``Authorization`` header — Grafana, for
    example — cannot be driven as a custom panel, because the proxy will never
-   pass those credentials through to it.
+   pass those credentials through to it. A panel OSPREY starts itself is the
+   one exception, and it is served rather than granted: the notebook sidecar
+   (:doc:`notebooks`) mints a token per launch, and the proxy attaches it to
+   each request on the way to the loopback backend, so the token never reaches
+   the browser.
 
    The return direction is just as strict. A panel's response is served from
    the terminal's own address, so any header that would act on *that* address

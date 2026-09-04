@@ -324,7 +324,7 @@ def _create_registry_from_config(config_path: str | None = None) -> RegistryMana
     Supports multiple configuration formats for registry path specification:
 
     1. Environment variable (highest priority, for container overrides):
-       REGISTRY_PATH=/jupyter/repo_src/my_app/registry.py
+       REGISTRY_PATH=/app/repo_src/my_app/registry.py
 
     2. Top-level format (simple, for single-app projects):
        registry_path: ./src/my_app/registry.py
