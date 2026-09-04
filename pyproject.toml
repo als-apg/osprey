@@ -55,6 +55,12 @@ dependencies = [
     "nbformat>=5.0.0",
     "nbclient",
     "nbconvert>=7.0.0",
+    # JupyterLab and the server it runs on, launched by the notebook sidecar via
+    # ServerApp traits and a ContentsManager subclass. Capped below the next major
+    # so adopting it is a reviewed change, not a lock-refresh surprise.
+    "jupyterlab>=4.6,<5",
+    "jupyter-server>=2.21,<3",
+    "ipykernel",
     # AI/ML provider integrations
     "litellm>=1.56.0",  # Unified LLM provider interface (100+ providers)
     # Capped below 3.x: the 3.0 major is a client rewrite (new httpx2 stack).
