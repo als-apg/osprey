@@ -129,10 +129,12 @@ import re
 from collections import Counter
 from pathlib import Path
 
+import pytest
 import yaml
 
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.port_layout import default_port, resolve_port_base
+from osprey.services.auth_sidecar.app import ENV_ROSTER_ACCESS_PREFIX
 from osprey.services.auth_sidecar.routes.recheck import ENV_ROSTER_ROLE_PREFIX
 
 from .test_golden_render import EXAMPLE_CONFIG, _rendered_repo_id
@@ -666,6 +668,33 @@ def test_no_authorization_vocabulary_reaches_a_roles_off_render() -> None:
                 f"{key}: {marker!r} reached a render with no authentication and no "
                 f"authorization block"
             )
+
+
+@pytest.mark.parametrize(
+    "access",
+    ["any", ["roster"], ["domain:lbl.gov"], ["self", "user:carol@lbl.gov"]],
+)
+def test_no_admission_rule_reaches_a_wall_less_render(access) -> None:
+    """A card's `access` says who may OPEN it, which only has meaning behind a
+    login wall. With none standing there is no session to open a card with, so
+    no spelling of the rule — the `any` token or a principal list — may leave a
+    marker in any artifact.
+
+    Pinned for the list forms too, because they are the ones that carry data
+    about people: a `user:`/`domain:` list naming identities must not be
+    written into a render that has no sidecar to read it.
+    """
+    config = copy.deepcopy(EXAMPLE_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "ops", "index": 0, "access": access},
+        {"name": "alice", "index": 1},
+    ]
+
+    for key, text in render_web_terminals(config).items():
+        assert ENV_ROSTER_ACCESS_PREFIX not in text, (
+            f"{key}: an admission rule reached a render with no authentication"
+        )
+        assert "carol@lbl.gov" not in text, f"{key}: a named identity reached a wall-less render"
 
 
 def test_the_token_render_has_no_auth_sidecar_service_at_all() -> None:

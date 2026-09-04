@@ -11,6 +11,7 @@ from osprey.deployment.web_terminals import personas as personas_module
 from osprey.deployment.web_terminals.personas import (
     EVENTS_PANEL_ID,
     UnresolvedRoleError,
+    access_wire_value,
     bluesky_server_enabled,
     config_archiver_password_env,
     config_declares_panel,
@@ -32,6 +33,7 @@ from osprey.deployment.web_terminals.personas import (
     personas_needing_graphdb_password,
     personas_needing_launch_token_by_lane,
     personas_not_denying_bash,
+    resolve_access_principals,
     resolve_authorization_roles,
     resolve_personas,
     settings_json_denies_bash,
@@ -1266,8 +1268,9 @@ def test_resolve_personas_carries_no_login_marker() -> None:
 
 
 def test_normalize_users_carries_access_any_through() -> None:
-    """`access: any` — the one value that changes anything — rides onto the
-    normalized entry."""
+    """`access: any` — the shorthand for the whole roster — rides onto the
+    normalized entry as the string it was authored as, so the render and the
+    decommission write-back both see exactly what the operator wrote."""
     # Act
     result = normalize_users([{"name": "control", "index": 3, "access": "any"}])
 
@@ -1275,14 +1278,81 @@ def test_normalize_users_carries_access_any_through() -> None:
     assert result == [{"name": "control", "index": 3, "access": "any"}]
 
 
-def test_normalize_users_drops_every_other_access_spelling() -> None:
-    """`own`, absence, and every malformed spelling all normalize to "owner
-    only" — a typo can lock an entry down, never share it with the roster."""
-    # Act / Assert — the explicit default and non-string spellings alike leave
-    # the plain two-key shape, so downstream reads them all as owner-only
-    for spelling in ("own", "ANY", "Any", True, 1, None, ["any"], ""):
+@pytest.mark.parametrize(
+    "authored",
+    [
+        ["roster"],
+        ["domain:lbl.gov"],
+        ["user:alice@lbl.gov"],
+        ["self", "domain:lbl.gov"],
+    ],
+)
+def test_normalize_users_carries_a_principal_list_verbatim(authored: list[str]) -> None:
+    """A list rides onto the normalized entry whole. This is the fail-open
+    being retired: the old normalizer kept only the literal `"any"`, so a card
+    admitting a domain arrived downstream looking owner-only."""
+    # Act
+    result = normalize_users([{"name": "control", "index": 3, "access": authored}])
+
+    # Assert — the authored form, and answerable as the same principal set
+    assert result == [{"name": "control", "index": 3, "access": authored}]
+    assert resolve_access_principals(result[0]) == resolve_access_principals(
+        {"name": "control", "access": authored}
+    )
+
+
+def test_normalize_users_carries_the_authored_case_not_a_folded_one() -> None:
+    """The carried value is verbatim: a domain is folded by the parser, on
+    every read, and never written back onto the entry in its folded spelling."""
+    # Act
+    result = normalize_users([{"name": "control", "index": 3, "access": ["domain:LBL.Gov"]}])
+
+    # Assert
+    assert result[0]["access"] == ["domain:LBL.Gov"]
+    assert resolve_access_principals(result[0]) == frozenset({"domain:lbl.gov"})
+
+
+def test_normalize_users_drops_every_owner_only_spelling() -> None:
+    """`own`, an absent key, an empty `access:` and `[self]` all resolve to the
+    owner-only set, so none of them reaches the normalized entry — a roster
+    that shares nothing normalizes exactly as it did before the principal set
+    existed."""
+    # Act / Assert — each leaves the plain two-key shape
+    for spelling in ("own", None, ["self"], ["self", "self"]):
         result = normalize_users([{"name": "control", "index": 3, "access": spelling}])
         assert result == [{"name": "control", "index": 3}], repr(spelling)
+
+
+@pytest.mark.parametrize("spelling", ["ANY", "Any", True, 1, "", ["any"], ["group:ops"], []])
+def test_normalize_users_refuses_an_unreadable_access(spelling: Any) -> None:
+    """A value the vocabulary does not recognise stops the normalization by
+    default, naming the entry. It must never normalize into an owner-only card:
+    that is the reading the deployment guards then have nothing to say about,
+    while the surface that admits logins may read the same value as sharing."""
+    # Act / Assert
+    with pytest.raises(ValueError, match="'control'"):
+        normalize_users([{"name": "control", "index": 3, "access": spelling}])
+
+
+def test_normalize_users_lenient_drops_the_entry_rather_than_owning_it() -> None:
+    """The lenient degrade — what the lifecycle verbs resolve with — drops the
+    offending entry whole. Its neighbours survive with their own indices, so a
+    typo on one user never blocks or rewrites the rest of the roster."""
+    # Arrange
+    users_raw = [
+        "alice",
+        {"name": "control", "index": 1, "access": "ANY"},
+        {"name": "bob", "index": 2, "access": "any"},
+    ]
+
+    # Act
+    result = normalize_users(users_raw, strict=False)
+
+    # Assert — dropped entirely, never carried through as an owner-only card
+    assert result == [
+        {"name": "alice", "index": 0},
+        {"name": "bob", "index": 2, "access": "any"},
+    ]
 
 
 def test_shared_card_privileged_problems_names_entry_privileges_and_remedy() -> None:
@@ -1305,6 +1375,27 @@ def test_shared_card_privileged_problems_names_entry_privileges_and_remedy() -> 
     assert "the web Config panel" in problems[0]
     assert "access: own" in problems[0]
     assert "carol" not in problems[0]
+    assert "[" not in problems[0]
+
+
+def test_shared_card_privileged_problems_quotes_the_authored_access() -> None:
+    """`any` is one of four spellings that share a card, so the message quotes
+    what the entry actually carries. A list is spelled as its members, not as
+    its repr: `osprey build` renders these through rich, which eats `[...]` —
+    and the word "members" carries the list-vs-scalar cue the brackets did."""
+    # Arrange
+    resolved = [
+        {"name": "control", "index": 0, "persona": "admin", "access": ["domain:lbl.gov"]},
+    ]
+
+    # Act
+    problems = shared_card_privileged_problems(resolved, {"admin": ("the web Config panel",)})
+
+    # Assert
+    assert len(problems) == 1
+    assert "access members 'domain:lbl.gov'" in problems[0]
+    assert "access: any" not in problems[0]
+    assert "whole roster" not in problems[0]
     assert "[" not in problems[0]
 
 
@@ -1336,14 +1427,271 @@ def test_shared_card_privileged_problems_silent_for_an_owner_only_card() -> None
     assert shared_card_privileged_problems(no_persona, privileges) == []
 
 
-def test_entry_is_shared_reads_only_the_literal_any() -> None:
-    """The shared predicate: one reading of the key for provisioning, the
-    deploy summary, the passwd refusal, the render, and lint."""
+def test_resolve_access_principals_resolves_the_two_shorthands_and_absence() -> None:
+    """`own`, `any` and an unwritten key are sugar for one-member principal
+    sets — the equivalence every consumer reads instead of the raw value."""
+    assert resolve_access_principals({"name": "alice", "index": 0, "access": "own"}) == frozenset(
+        {"self"}
+    )
+    assert resolve_access_principals({"name": "control", "index": 3, "access": "any"}) == frozenset(
+        {"roster"}
+    )
+    assert resolve_access_principals({"name": "alice", "index": 0}) == frozenset({"self"})
+    # An authored `access:` with nothing after it reads as unwritten, not as a
+    # typo: YAML hands it over as None, and owner-only is the fail-closed answer.
+    assert resolve_access_principals({"name": "alice", "index": 0, "access": None}) == frozenset(
+        {"self"}
+    )
+
+
+@pytest.mark.parametrize(
+    ("authored", "expected"),
+    [
+        (["self"], {"self"}),
+        (["roster"], {"roster"}),
+        (["user:alice@lbl.gov"], {"user:alice@lbl.gov"}),
+        (["domain:lbl.gov"], {"domain:lbl.gov"}),
+        (["self", "domain:lbl.gov"], {"self", "domain:lbl.gov"}),
+        (["user:a@lbl.gov", "user:b@lbl.gov"], {"user:a@lbl.gov", "user:b@lbl.gov"}),
+        # The union is a set: a member written twice grants once.
+        (["self", "self"], {"self"}),
+    ],
+)
+def test_resolve_access_principals_unions_every_typed_principal(
+    authored: list[str], expected: set[str]
+) -> None:
+    """A list is the general form: allow-only, unioned, one member per kind."""
+    resolved = resolve_access_principals({"name": "control", "index": 3, "access": authored})
+
+    assert resolved == frozenset(expected)
+    assert isinstance(resolved, frozenset)
+
+
+def test_resolve_access_principals_lowercases_a_domain_and_leaves_a_user_byte_exact() -> None:
+    """A domain is compared case-insensitively, so it is folded once here; a
+    `user:` value is an identity string the IdP owns and is never rewritten."""
+    resolved = resolve_access_principals(
+        {"name": "control", "index": 3, "access": ["domain:LBL.Gov", "user:Alice@LBL.gov"]}
+    )
+
+    assert resolved == frozenset({"domain:lbl.gov", "user:Alice@LBL.gov"})
+
+
+@pytest.mark.parametrize("member", ["domain:MÜ.de", "domain:münchen.de", "domain:lbl.göv"])
+def test_resolve_access_principals_refuses_a_non_ascii_domain(member: str) -> None:
+    """An IdP asserts an internationalised domain in punycode, and nothing on
+    either side translates between the two spellings — so a Unicode-authored
+    domain is a rule that could never admit anybody. Refused at author time
+    rather than deployed as a grant that silently never fires."""
+    with pytest.raises(ValueError, match="'control'") as excinfo:
+        resolve_access_principals({"name": "control", "index": 3, "access": [member]})
+
+    message = str(excinfo.value)
+    assert repr(member) in message
+    assert "punycode" in message
+
+
+def test_resolve_access_principals_accepts_a_punycode_domain_and_folds_its_ascii() -> None:
+    """The spelling the provider actually asserts is authorable, and folds
+    across A-Z like any other domain."""
+    resolved = resolve_access_principals(
+        {"name": "control", "index": 3, "access": ["domain:XN--Mnchen-3ya.de"]}
+    )
+
+    assert resolved == frozenset({"domain:xn--mnchen-3ya.de"})
+
+
+def test_resolve_access_principals_refuses_an_empty_list() -> None:
+    """An empty list admits nobody, not even the entry's own user — a shape
+    that can only be an editing accident, so it is refused rather than read."""
+    with pytest.raises(ValueError, match="'control'") as excinfo:
+        resolve_access_principals({"name": "control", "index": 3, "access": []})
+
+    assert "empty" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "authored",
+    ["ANY", "Any", "own ", "self", "roster", "user:a@lbl.gov", "", True, 1, 0, {}, ("self",)],
+)
+def test_resolve_access_principals_refuses_a_value_outside_the_authored_forms(
+    authored: Any,
+) -> None:
+    """Only the two shorthands and a list are authored forms. A scalar that is
+    neither is refused by name rather than read as owner-only: a silent reading
+    is how an unrecognised value reaches a consumer that fails open."""
+    with pytest.raises(ValueError, match="'control'"):
+        resolve_access_principals({"name": "control", "index": 3, "access": authored})
+
+
+@pytest.mark.parametrize(
+    "member",
+    [
+        "own",
+        "any",
+        "everyone",
+        "SELF",
+        " self",
+        "tenant:lbl",
+        ":lbl.gov",
+        "user:",
+        "user: ",
+        "user:a b@lbl.gov",
+        "domain:",
+        "domain: ",
+        "domain:lbl gov",
+        "domain:alice@lbl.gov",
+        "domain:lbl.gov:8080",
+        "domain:lbl.gov/path",
+        "domain:.lbl.gov",
+        "domain:lbl.gov.",
+    ],
+)
+def test_resolve_access_principals_refuses_a_malformed_member(member: str) -> None:
+    """Every member is typed: bare `self`/`roster`, or a known prefix carrying a
+    well-formed value. Anything else names the entry and the member."""
+    with pytest.raises(ValueError, match="'control'") as excinfo:
+        resolve_access_principals({"name": "control", "index": 3, "access": [member]})
+
+    assert repr(member) in str(excinfo.value)
+
+
+@pytest.mark.parametrize("member", [None, True, 7, ["self"], {"user": "a@lbl.gov"}])
+def test_resolve_access_principals_refuses_a_non_string_member(member: Any) -> None:
+    """A non-string member is a config typo (a YAML boolean, a nested list), not
+    a principal — refused with the entry named."""
+    with pytest.raises(ValueError, match="'control'") as excinfo:
+        resolve_access_principals({"name": "control", "index": 3, "access": [member]})
+
+    assert "not a string" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "member",
+    [
+        "user:alice$@lbl.gov",
+        "user:$ALICE",
+        "user:${ALICE}",
+        "domain:lbl$.gov",
+        "domain:$LBL.gov",
+    ],
+)
+def test_resolve_access_principals_refuses_a_dollar_in_a_principal(member: str) -> None:
+    """The resolved member is written into the deployment's compose file, where
+    docker compose substitutes `$NAME`/`${NAME}` before the sidecar ever reads
+    it — the card would then admit something other than what the roster says.
+    Refused at the one parser, so lint and `osprey init` say the same thing."""
+    with pytest.raises(ValueError, match="'control'") as excinfo:
+        resolve_access_principals({"name": "control", "index": 3, "access": [member]})
+
+    message = str(excinfo.value)
+    assert repr(member) in message
+    assert "'$'" in message
+
+
+def test_resolve_access_principals_names_group_as_not_supported_yet() -> None:
+    """`group:` is the reserved next kind: refusing it by name says the
+    vocabulary is known and unfinished, which "unknown principal" would not."""
+    with pytest.raises(ValueError, match="'control'") as excinfo:
+        resolve_access_principals({"name": "control", "index": 3, "access": ["group:operators"]})
+
+    message = str(excinfo.value)
+    assert "group:" in message
+    assert "not supported yet" in message
+
+
+@pytest.mark.parametrize(
+    ("entry", "expected"),
+    [
+        ({"index": 3, "access": ["group:operators"]}, "unnamed"),
+        ({"index": 3, "access": ["group:operators"]}, "index 3"),
+        ({"name": "", "index": 3, "access": "maybe"}, "index 3"),
+        ({"access": []}, "an unnamed"),
+        ({"name": 7, "index": 3, "access": ["everyone"]}, "index 3"),
+    ],
+)
+def test_resolve_access_principals_names_a_nameless_entry_by_position(
+    entry: dict[str, Any], expected: str
+) -> None:
+    """Lint reads the authored roster, where a dropped `name` is exactly the
+    kind of edit that also breaks `access` — and "entry None" would send the
+    operator looking for an entry called None. The declared index identifies it
+    instead, and an entry without one is still named as unnamed."""
+    with pytest.raises(ValueError) as excinfo:
+        resolve_access_principals(entry)
+
+    message = str(excinfo.value)
+    assert expected in message
+    assert "None" not in message
+
+
+def test_resolve_access_principals_does_not_mutate_the_entry() -> None:
+    """The parser reads the authored entry; folding a domain never writes the
+    folded form back onto the caller's config dict."""
+    entry: dict[str, Any] = {"name": "control", "index": 3, "access": ["domain:LBL.gov"]}
+
+    resolve_access_principals(entry)
+
+    assert entry == {"name": "control", "index": 3, "access": ["domain:LBL.gov"]}
+
+
+@pytest.mark.parametrize(
+    ("authored", "shared"),
+    [
+        ("own", False),
+        ("any", True),
+        (["self"], False),
+        (["roster"], True),
+        (["domain:lbl.gov"], True),
+        (["user:alice@lbl.gov"], True),
+        (["self", "user:alice@lbl.gov"], True),
+    ],
+)
+def test_entry_is_shared_answers_from_the_resolved_principal_set(
+    authored: Any, shared: bool
+) -> None:
+    """Shared means "admits somebody beyond this entry's own user": the
+    resolved set is anything other than the owner-only one. The single
+    predicate for provisioning, the deploy summary, the passwd refusal, the
+    render and lint, which must never disagree about who may open an entry."""
+    assert entry_is_shared({"name": "control", "index": 3, "access": authored}) is shared
+
+
+@pytest.mark.parametrize(
+    ("principals", "expected"),
+    [
+        (frozenset({"self"}), ""),
+        (frozenset({"roster"}), "any"),
+        (frozenset({"domain:lbl.gov"}), '["domain:lbl.gov"]'),
+        (frozenset({"self", "user:carol@lbl.gov"}), '["self","user:carol@lbl.gov"]'),
+        # A `roster` member inside a set is not collapsed back to the `any`
+        # shorthand: the render spells the set it was given, and the sidecar is
+        # what decides that a roster member covers everyone.
+        (frozenset({"roster", "domain:x.org"}), '["domain:x.org","roster"]'),
+    ],
+)
+def test_access_wire_value_spells_each_set_for_the_sidecar(
+    principals: frozenset[str], expected: str
+) -> None:
+    """The inverse of the authored vocabulary, and the contract the sidecar
+    parses back: nothing for owner-only, the unchanged `any` token for the
+    whole roster, else a compact sorted JSON array of the members."""
+    assert access_wire_value(principals) == expected
+
+
+def test_entry_is_shared_is_false_for_an_entry_that_never_mentions_access() -> None:
+    """Owner-only is the default, so a roster written before the key existed
+    reads exactly as it always did."""
     assert entry_is_shared({"name": "alice", "index": 0}) is False
-    assert entry_is_shared({"name": "control", "index": 3, "access": "any"}) is True
-    assert entry_is_shared({"name": "control", "index": 3, "access": "own"}) is False
-    assert entry_is_shared({"name": "control", "index": 3, "access": "ANY"}) is False
-    assert entry_is_shared({"name": "control", "index": 3, "access": True}) is False
+
+
+@pytest.mark.parametrize("authored", ["ANY", "own ", True, 1, ["any"], ["group:ops"], []])
+def test_entry_is_shared_refuses_an_unreadable_access(authored: Any) -> None:
+    """The predicate raises rather than answering `False`. Reading an
+    unrecognised value as an own card is the fail-open: the guards would pass a
+    deployment whose admitting surface reads that same value as sharing."""
+    with pytest.raises(ValueError, match="'control'"):
+        entry_is_shared({"name": "control", "index": 3, "access": authored})
 
 
 def test_resolve_personas_threads_access_any_through_both_branches() -> None:
@@ -1367,6 +1715,90 @@ def test_resolve_personas_threads_access_any_through_both_branches() -> None:
     assert zero_migration[0]["access"] == "any"
     assert persona_branch[0]["access"] == "any"
     assert "access" not in undeclared[0]
+
+
+def test_resolve_personas_preserves_the_resolved_principal_set() -> None:
+    """A list-valued card survives resolution whole, on both branches. The
+    resolved entry is what the render and the deployment guards read, so the
+    reduction that kept only `any` here is what disarmed the shared-card rule
+    for every other form."""
+    # Arrange
+    authored = ["domain:LBL.gov", "user:alice@lbl.gov"]
+
+    # Act
+    zero_migration = resolve_personas(
+        {"users": [{"name": "control", "index": 0, "access": authored}]}, _REGISTRY, "als"
+    )
+    persona_branch = resolve_personas(
+        {
+            "users": [{"name": "control", "index": 0, "persona": "gui", "access": authored}],
+            "personas": {"gui": {"project": "als-gui"}},
+        },
+        _REGISTRY,
+        "als",
+    )
+
+    # Assert — carried verbatim, and still resolving to the same principals
+    for resolved in (zero_migration, persona_branch):
+        assert resolved[0]["access"] == authored
+        assert resolve_access_principals(resolved[0]) == frozenset(
+            {"domain:lbl.gov", "user:alice@lbl.gov"}
+        )
+        assert entry_is_shared(resolved[0]) is True
+
+
+def test_resolve_personas_shows_a_domain_card_to_the_shared_card_guard() -> None:
+    """The end the reduction broke: `shared_card_privileged_problems` reads
+    resolved entries, so a `domain:` card on a privileged persona is now
+    reported exactly as an `access: any` one is."""
+    # Act
+    resolved = resolve_personas(
+        {
+            "users": [
+                {"name": "control", "index": 0, "persona": "admin", "access": ["domain:lbl.gov"]}
+            ],
+            "personas": {"admin": {"project": "als-admin"}},
+        },
+        _REGISTRY,
+        "als",
+    )
+
+    # Assert
+    problems = shared_card_privileged_problems(resolved, {"admin": ("the web Config panel",)})
+    assert len(problems) == 1
+    assert "control" in problems[0]
+
+
+def test_resolve_personas_lenient_drops_an_entry_with_an_unreadable_access() -> None:
+    """The lenient resolution the lifecycle verbs use degrades by dropping the
+    entry, so a typo on one user never blocks decommissioning another. The
+    strict resolution the render uses refuses instead."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "control", "index": 0, "access": "ANY"}, {"name": "bob", "index": 1}]
+    }
+
+    # Act
+    lenient = resolve_personas(web_terminals, _REGISTRY, "als", strict=False)
+
+    # Assert
+    assert [entry["name"] for entry in lenient] == ["bob"]
+    with pytest.raises(ValueError, match="'control'"):
+        resolve_personas(web_terminals, _REGISTRY, "als")
+
+
+def test_freeze_user_indices_refuses_an_unreadable_access_rather_than_shortening() -> None:
+    """The decommission write-back reaches `normalize_users` at the strict
+    default, so an unreadable `access` refuses the migration. The alternative
+    is the dangerous one: a lenient drop here would write the roster back to
+    config.yml without that user, deleting a survivor from the file to remove a
+    different one."""
+    # Arrange
+    users_raw = ["alice", {"name": "control", "index": 1, "access": "ANY"}]
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="'control'"):
+        freeze_user_indices(users_raw)
 
 
 def test_freeze_user_indices_access_any_survives_a_freeze_round_trip() -> None:

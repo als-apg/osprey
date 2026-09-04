@@ -30,7 +30,8 @@ self-consistently wrong. Every variable name is imported from the sidecar rather
 than spelled out here, so a rename on that side fails here instead of silently
 rendering a variable nothing reads.
 
-The roster's `access: any` marker rides the same seam under its own family
+The roster's `access` rule — WHO may open each card, from the `any` shorthand
+to a `user:`/`domain:` principal list — rides the same seam under its own family
 (`OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>`, read back by `AuthSettings.from_env`),
 and is pinned here the same way — the render spells the prefix literally for
 the same import-weight reason the role prefix is, so this round trip is the
@@ -48,7 +49,13 @@ import yaml
 from osprey.deployment.web_terminals import render as render_module
 from osprey.deployment.web_terminals.personas import env_var_suffix
 from osprey.deployment.web_terminals.render import render_web_terminals
-from osprey.services.auth_sidecar.app import ENV_ROSTER_ACCESS_PREFIX, ENV_USERS, AuthSettings
+from osprey.services.auth_sidecar.app import (
+    ENV_ROSTER_ACCESS_PREFIX,
+    ENV_USERS,
+    OWNER_ONLY,
+    WHOLE_ROSTER,
+    AuthSettings,
+)
 from osprey.services.auth_sidecar.routes.oidc import ENV_ROLE_CLAIM, ENV_ROLE_MAP, RoleBinding
 from osprey.services.auth_sidecar.routes.recheck import ENV_ROSTER_ROLE_PREFIX, RosterRoles
 
@@ -565,4 +572,97 @@ class TestTheSharedCardMarkerReachesTheSidecar:
         # Assert
         assert settings.shared("control-room") is True
         assert settings.shared("alice") is False
-        assert settings.shared_users == frozenset({"control-room"})
+        assert settings.access("control-room") == WHOLE_ROSTER
+
+    @pytest.mark.parametrize(
+        ("authored", "wire", "resolved"),
+        [
+            (["domain:lbl.gov"], '["domain:lbl.gov"]', {"domain:lbl.gov"}),
+            (
+                ["self", "user:carol@lbl.gov"],
+                '["self","user:carol@lbl.gov"]',
+                {"self", "user:carol@lbl.gov"},
+            ),
+            # A `roster` member beside another is NOT collapsed to the `any`
+            # token on the way out, and comes back as both members: the render
+            # spells the set it was given, and deciding that a roster member
+            # covers everyone is the sidecar's call, made against this set.
+            (["roster", "domain:x.org"], '["domain:x.org","roster"]', {"roster", "domain:x.org"}),
+        ],
+    )
+    def test_a_principal_list_crosses_the_seam_member_for_member(
+        self, authored: list[str], wire: str, resolved: set[str]
+    ) -> None:
+        """The seam that the two ends must not disagree on, for the general form.
+
+        Before the principal set existed this line carried one token, so a card
+        admitting one domain crossed as `any` and the sidecar admitted the whole
+        roster. What the render spells is now what the sidecar resolves, member
+        for member.
+        """
+        # Act
+        env_lines = _sidecar_env(
+            _config(
+                method="password",
+                users=[{"name": "control-room", "index": 0, "access": authored}, "alice"],
+            )
+        )
+        settings = _settings(env_lines)
+
+        # Assert — the line the render wrote, and the set the sidecar read off it
+        assert _access_lines(env_lines) == [f"{_access_var('control-room')}={wire}"]
+        assert settings.access("control-room") == frozenset(resolved)
+        assert settings.shared("control-room") is True
+        assert settings.access("alice") == OWNER_ONLY
+
+    @pytest.mark.parametrize(
+        ("shorthand", "spelled_out", "wire", "resolved", "shared"),
+        [
+            ("own", ["self"], None, OWNER_ONLY, False),
+            ("any", ["roster"], "any", WHOLE_ROSTER, True),
+        ],
+    )
+    def test_each_sugar_pair_crosses_the_seam_identically(
+        self,
+        shorthand: str,
+        spelled_out: list[str],
+        wire: str | None,
+        resolved: frozenset[str],
+        shared: bool,
+    ) -> None:
+        """`own` ≡ `[self]` and `any` ≡ `[roster]` are the same sets, so they
+        must cross as the same bytes and come back as the same answer.
+
+        This is what lets a roster be rewritten into the list form without
+        changing what the deployment admits — and, for `any`, what keeps an
+        upgrade from rewriting a compose file that was already correct.
+        """
+        # Act
+        as_written = _sidecar_env(
+            _config(method="password", users=[{"name": "ops", "index": 0, "access": shorthand}])
+        )
+        as_listed = _sidecar_env(
+            _config(method="password", users=[{"name": "ops", "index": 0, "access": spelled_out}])
+        )
+
+        # Assert — byte-identical on the wire, identical resolution behind it
+        expected = [] if wire is None else [f"{_access_var('ops')}={wire}"]
+        assert _access_lines(as_written) == expected
+        assert _access_lines(as_listed) == _access_lines(as_written)
+        for env_lines in (as_written, as_listed):
+            settings = _settings(env_lines)
+            assert settings.access("ops") == resolved
+            assert settings.shared("ops") is shared
+
+    def test_an_entry_that_never_mentions_access_resolves_owner_only(self) -> None:
+        """The third owner-only spelling, and the one every roster written
+        before this key existed uses: no line crosses, and the sidecar reads the
+        absent variable as owner-only rather than as a sharing value named ""."""
+        # Act
+        env_lines = _sidecar_env(_config(method="password", users=["ops"]))
+        settings = _settings(env_lines)
+
+        # Assert
+        assert _access_lines(env_lines) == []
+        assert settings.access("ops") == OWNER_ONLY
+        assert settings.shared("ops") is False

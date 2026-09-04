@@ -276,11 +276,49 @@ class TestSharedCardPrivileged:
         problems = shared_card_privileged_problems([self.ALICE, self.CAROL], self.PRIVILEGES)
         assert len(problems) == 1
         assert "'carol'" in problems[0]
-        assert "access: any" in problems[0]
+        assert "access: 'any'" in problems[0]
         assert "'admin'" in problems[0]
         assert PRIVILEGE_SETUP_TOOL in problems[0]
         assert "access: own" in problems[0]
         assert "'readonly'" in problems[0]
+
+    @pytest.mark.parametrize(
+        "access",
+        ["any", ["roster"], ["domain:lbl.gov"], ["user:carol@lbl.gov"], ["self", "user:x@y.gov"]],
+    )
+    def test_every_shared_spelling_reaches_the_rule(self, access):
+        """The rule is "admits somebody beyond its own user", not "says any".
+
+        A card handed to one named identity puts the setup tool and the Config
+        panel in that person's hands exactly as the whole-roster spelling does,
+        so every form the vocabulary admits is refused on a privileged persona.
+        """
+        carol = dict(self.CAROL, access=access)
+
+        problems = shared_card_privileged_problems([self.ALICE, carol], self.PRIVILEGES)
+
+        assert len(problems) == 1
+        assert "'carol'" in problems[0]
+        assert "access: own" in problems[0]
+
+    def test_a_principal_list_is_named_as_members_not_as_a_repr(self):
+        """rich eats `[...]`, so the members are spelled out — and the phrase
+        says they are members, which is the list-vs-scalar cue the brackets
+        used to carry. A shorthand keeps `access: <word>`."""
+        carol = dict(self.CAROL, access=["self", "domain:lbl.gov"])
+
+        problems = shared_card_privileged_problems([carol], self.PRIVILEGES)
+
+        assert "access members 'self', 'domain:lbl.gov'" in problems[0]
+        assert "['self'" not in problems[0]
+
+    @pytest.mark.parametrize("access", ["own", ["self"], ["self", "self"]])
+    def test_no_owner_only_spelling_reaches_the_rule(self, access):
+        """The other side of the same line: `[self]` is the list spelling of
+        `own`, and neither is a shared card."""
+        carol = dict(self.CAROL, access=access)
+
+        assert shared_card_privileged_problems([carol], self.PRIVILEGES) == []
 
     def test_a_privileged_persona_on_an_own_card_is_fine(self):
         entry = dict(self.CAROL)
@@ -1042,7 +1080,7 @@ class TestRenderedProjectBelt:
         message = _messages(lint_web_terminals(config), UNKNOWN_PRIVILEGE_CODE)[0]
         assert "default_persona" in message
         assert "'carol'" in message
-        assert "shared with the whole roster" in message
+        assert "shared with somebody beyond its own user" in message
         assert "or set access: own for 'carol'" in message
 
     def test_every_open_entry_on_one_unreadable_persona_is_named(self, tmp_path: Path, monkeypatch):
@@ -1059,7 +1097,9 @@ class TestRenderedProjectBelt:
         _unrender(tmp_path, "ca-admin")
         messages = _messages(lint_web_terminals(config), UNKNOWN_PRIVILEGE_CODE)
         assert len(messages) == 1
-        assert "users 'carol' and 'dave' are shared with the whole roster" in messages[0]
+        assert (
+            "users 'carol' and 'dave' are shared with somebody beyond their own user" in messages[0]
+        )
         assert "or set access: own for 'carol' and 'dave'" in messages[0]
         assert "[" not in messages[0]
 

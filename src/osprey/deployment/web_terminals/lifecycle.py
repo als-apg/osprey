@@ -108,6 +108,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
 )
 from osprey.deployment.web_terminals.naming import web_container_name, web_container_prefix
 from osprey.deployment.web_terminals.personas import (
+    access_phrase,
     as_dict,
     effective_image_source,
     entry_is_shared,
@@ -996,13 +997,22 @@ def rotate_user_password(config_path: str | Path, user: str, password: str) -> N
     # OPENER's credential for a shared card, so no hash of its own is ever
     # provisioned or consulted — "changing its password" would store a
     # credential nothing checks while telling the operator it took effect.
-    if any(entry["name"] == user and entry_is_shared(entry) for entry in roster):
+    shared = [entry for entry in roster if entry["name"] == user and entry_is_shared(entry)]
+    if shared:
+        # The authored value, quoted rather than named: `any` is one of four
+        # spellings that share a card, and an operator told their `user:` list
+        # is "access: any" would go looking for a key the file does not have.
+        # Through `access_phrase` so this refusal and the build-time one spell
+        # a list the same way — as its members, since the `[...]` repr is eaten
+        # by the rich console both are printed through. `normalize_users`
+        # carries the key onto the entry exactly when the entry is shared, so
+        # it is present here.
         raise ValueError(
-            f"User {user!r} has 'access: any' in modules.web_terminals.users, so its "
-            "card is opened with another roster user's password and has no password of "
-            "its own to change. Rotate the opener's password to end their shared "
-            "sessions, or remove the 'access' key to make the card its own again; "
-            "nothing was modified."
+            f"User {user!r} has {access_phrase(shared[0])} in "
+            "modules.web_terminals.users, so its card is opened with an admitted user's "
+            "own password and has no password of its own to change. Rotate the opener's "
+            "password to end their shared sessions, or remove the 'access' key to make "
+            "the card its own again; nothing was modified."
         )
 
     _require_running_runtime(config)
