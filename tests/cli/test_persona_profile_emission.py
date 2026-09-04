@@ -38,6 +38,7 @@ from osprey.cli.build_profile_emit import (
     persona_catalog,
 )
 from osprey.cli.init_cmd import init
+from osprey.cli.profile_cmd import profile
 
 # The bundled preset(s) that stand up the multi-user stack themselves.
 TRIGGER_PRESETS = ("control-assistant",)
@@ -592,6 +593,156 @@ def test_the_build_renders_every_catalog_entry_the_emitter_wrote(
     monkeypatch.chdir(target)
     users = resolve_personas(web_terminals, config.get("registry", {}), "test", strict=False)
     persona_images.verify_persona_renders(config, users, repo_root=target)
+
+
+# ---------------------------------------------------------------------------
+# Rejections: a roster card somebody else may open, on a privileged persona
+# ---------------------------------------------------------------------------
+
+
+def _card_override(tmp_path: Path, access: object) -> Path:
+    """An ``-O`` layer adding one admin card, carrying *access*, to the roster.
+
+    Roster lists concatenate across profile layers rather than merging entry by
+    entry, so this ADDS a sixth card to the preset's five; ``dana`` is a name
+    the preset does not use and index 9 is clear of the ports it pins. The
+    ``admin`` persona is the shipped stack's privileged tier — the agent's
+    setup tool and the web Config panel.
+    """
+    path = tmp_path / "card-override.yml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "config": {
+                    "modules.web_terminals": {
+                        "users": [
+                            {"name": "dana", "index": 9, "persona": "admin", "access": access}
+                        ]
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _shared_card_refusals(output: str) -> set[str]:
+    """The shared-card sentences in an accumulated refusal, one per entry."""
+    return {
+        line.strip().removeprefix("- ")
+        for line in output.splitlines()
+        if "is a shared card" in line
+    }
+
+
+@pytest.mark.parametrize(
+    ("access", "phrase"),
+    [
+        (["domain:lbl.gov"], "access members 'domain:lbl.gov'"),
+        (["user:dana@lbl.gov"], "access members 'user:dana@lbl.gov'"),
+        (["self", "user:dana@lbl.gov"], "access members 'self', 'user:dana@lbl.gov'"),
+        ("any", "access: 'any'"),
+    ],
+)
+def test_a_shared_privileged_card_is_refused(
+    runner: CliRunner, tmp_path: Path, access: object, phrase: str
+) -> None:
+    """``access`` is a principal set, and every set naming somebody beyond the
+    entry's own user shares the card — the two shorthands no more than a
+    ``user:`` or ``domain:`` list. A persona holding the deployment-editing
+    surfaces behind any of them hands those edits to whoever the set admits, so
+    materialization refuses and quotes the value as authored — as members when
+    the file holds a list, as ``access: <word>`` when it holds a shorthand, so
+    the phrase says which shape to go looking for."""
+    override = _card_override(tmp_path, access)
+    target = tmp_path / "my-facility"
+
+    result = _new(runner, target, "control-assistant", "-O", str(override))
+
+    assert result.exit_code == 2
+    assert f"user 'dana' is a shared card ({phrase})" in result.output
+    assert "resolves to persona 'admin'" in result.output
+    assert "Set access: own for 'dana'" in result.output
+    assert not target.exists()  # fail-before-mutating
+
+
+@pytest.mark.parametrize("access", ["own", ["self"]])
+def test_an_owner_only_card_on_the_same_persona_materializes(
+    runner: CliRunner, tmp_path: Path, access: object
+) -> None:
+    """The counter-case: the privileged persona itself is not the problem. Both
+    spellings of owner-only resolve to the entry's own user, nobody else may
+    open the card, and the same roster materializes."""
+    override = _card_override(tmp_path, access)
+    target = tmp_path / "my-facility"
+
+    result = _new(runner, target, "control-assistant", "-O", str(override))
+
+    assert result.exit_code == 0
+    assert (target / "personas" / "admin.yml").is_file()
+
+
+def test_init_and_the_deploy_lint_refuse_the_shared_card_in_the_same_words(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """The build-time brace and the deploy-time belt say ONE sentence.
+
+    Both surfaces import the rule from the personas module rather than stating
+    it themselves, so this pins what that delegation is for: the sentence
+    ``osprey init`` refuses with is the sentence ``osprey profile validate``
+    reports for the same roster, character for character. Two spellings of the
+    same refusal would leave an operator fixing one message and meeting the
+    other.
+    """
+    # Materialized owner-only, then flipped in the emitted profile: `init` is
+    # what refuses the shared card, so a profile carrying one cannot be
+    # materialized for the lint to read.
+    owner_only = _card_override(tmp_path, "own")
+    linted = tmp_path / "linted-facility"
+    assert _new(runner, linted, "control-assistant", "-O", str(owner_only)).exit_code == 0
+
+    profile_path = linted / "profile.yml"
+    document = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+    for entry in document["config"]["modules.web_terminals"]["users"]:
+        if entry.get("name") == "dana":
+            entry["access"] = ["domain:lbl.gov"]
+    profile_path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+
+    lint_result = runner.invoke(profile, ["validate", str(linted)])
+    init_result = _new(
+        runner,
+        tmp_path / "refused-facility",
+        "control-assistant",
+        "-O",
+        str(_card_override(tmp_path, ["domain:lbl.gov"])),
+    )
+
+    assert lint_result.exit_code == 2 and init_result.exit_code == 2
+    refusals = _shared_card_refusals(lint_result.output)
+    assert refusals  # the lint really did report it, so the comparison means something
+    assert refusals == _shared_card_refusals(init_result.output)
+
+
+def test_an_unreadable_access_value_is_refused_rather_than_raised(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """A value the vocabulary does not recognise stops materialization with the
+    parser's own sentence — the one the deploy lint prints for the same entry —
+    instead of surfacing as a traceback from whichever reader parses the roster
+    first. The privileged rule says nothing about that entry: the value it
+    would be judged on is the unreadable one.
+    """
+    override = _card_override(tmp_path, ["group:ops"])
+    target = tmp_path / "my-facility"
+
+    result = _new(runner, target, "control-assistant", "-O", str(override))
+
+    assert result.exit_code == 2
+    assert "entry 'dana' has an access member 'group:ops'" in result.output
+    assert "the 'group:' prefix is reserved" in result.output
+    assert "is a shared card" not in result.output
+    assert not target.exists()  # fail-before-mutating
 
 
 # ---------------------------------------------------------------------------

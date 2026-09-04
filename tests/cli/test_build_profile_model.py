@@ -49,6 +49,58 @@ def _dispatch_profile(**dispatch: Any) -> BuildProfile:
     return _profile(dispatch={"triggers": _TRIGGERS, **dispatch})
 
 
+def test_an_unreadable_user_access_seeds_no_ports_instead_of_failing_validate(tmp_path):
+    """The ledger is a port sweep, not an admission check.
+
+    A roster entry whose `access` the vocabulary refuses would otherwise raise a
+    bare ValueError out of `validate` — reached for any profile carrying a
+    live stand-in — where nothing is there to turn it into a report. It drops
+    out of the ledger instead, seeding no ports of its own while its neighbour
+    keeps hers, and lint reports the value by name on its own path.
+    """
+    profile = _profile(
+        virtual_accelerator={"port": 5064, "live_standin": True},
+        config={
+            "modules.web_terminals.enabled": True,
+            "modules.web_terminals.users": [
+                {"name": "alice", "index": 0, "access": "ANY"},
+                {"name": "bob", "index": 1},
+            ],
+        },
+    )
+
+    claimed = profile._claimed_ports()
+    profile.validate(tmp_path)
+
+    web_keys = [key for key in claimed if key.startswith("modules.web_terminals.web_base_port")]
+    assert web_keys == ["modules.web_terminals.web_base_port + 1"]
+
+
+def test_the_refused_user_access_is_still_reported_by_lint():
+    """The other half of the division of labour above: the value the ledger
+    declines to build on is named, with the entry, by the profile-altitude
+    lint the same commands run."""
+    from osprey.deployment.web_terminals.lint import lint_profile_config
+
+    findings = lint_profile_config(
+        {
+            "modules": {
+                "web_terminals": {
+                    "enabled": True,
+                    "users": [{"name": "alice", "index": 0, "access": "ANY"}],
+                }
+            }
+        }
+    )
+
+    access = [
+        finding for finding in findings if finding.code == "web_terminals.invalid_user_access"
+    ]
+    assert len(access) == 1
+    assert access[0].severity == "error"
+    assert "'alice'" in access[0].message
+
+
 def _errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
     """Validate ``profile`` and return the individual accumulated failures."""
     with pytest.raises(BuildProfileError) as exc:

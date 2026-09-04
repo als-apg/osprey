@@ -1177,7 +1177,13 @@ class BuildProfile:
         except ValueError:
             return seed
         users_raw = web_terminals.get("users")
-        for user in normalize_users(users_raw if isinstance(users_raw, list) else []):
+        # Lenient: this is a port ledger, not an admission check. An `access`
+        # value the vocabulary refuses would otherwise raise out of `validate`,
+        # where the lint reports it by name as `web_terminals.invalid_user_access`
+        # — the same division of labour the two refusals below already follow. A
+        # dropped entry seeds no ports, which is what an entry that cannot be
+        # built deserves.
+        for user in normalize_users(users_raw if isinstance(users_raw, list) else [], strict=False):
             index = user.get("index")
             try:
                 allocation = allocate_ports(base_ports, index)

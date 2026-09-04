@@ -184,6 +184,73 @@ def test_a_shared_card_says_so(exemplar_lines: list[str]) -> None:
     assert "no login" not in logbook
 
 
+def _roster_card(access: object) -> list[str]:
+    """The card for a one-user password deployment whose entry carries ``access``."""
+    user: dict[str, object] = {"name": "ops", "index": 0}
+    if access is not None:
+        user["access"] = access
+    profile = BuildProfile(
+        name="roster",
+        config={
+            "modules.web_terminals.enabled": True,
+            "modules.web_terminals.auth.method": "password",
+            "modules.web_terminals.users": [user],
+        },
+    )
+    return format_profile_card(profile, {})
+
+
+def test_a_card_admitting_a_domain_says_shared() -> None:
+    """`any` is not the only spelling that shares a card. The card reads the
+    entry through the same predicate the deployment does, so a principal list
+    carries the marker too — it used to compare the raw key against `"any"` and
+    show a domain-admitting card as though it were the operator's own."""
+    assert "password · shared" in line_with(_roster_card(["domain:lbl.gov"]), "ops")
+    assert "password · shared" in line_with(_roster_card(["user:alice@lbl.gov"]), "ops")
+    assert "password · shared" in line_with(_roster_card("any"), "ops")
+
+
+def test_an_owner_only_card_carries_no_shared_marker() -> None:
+    """`own`, an unwritten key and `[self]` are the owner-only set: the cell is
+    the method alone."""
+    for access in ("own", None, ["self"]):
+        row = line_with(_roster_card(access), "ops")
+        assert "password" in row
+        assert "shared" not in row
+
+
+def test_an_unreadable_access_is_named_rather_than_shown_as_unshared() -> None:
+    """The card cannot say whether the entry is shared, and the plain method
+    cell reads as "not shared" — the one answer that is certainly wrong for a
+    value lint refuses. The card must not disagree with the refusal the
+    operator is about to get from `osprey up`."""
+    row = line_with(_roster_card("ANY"), "ops")
+
+    assert "access invalid" in row
+    assert "shared" not in row
+
+
+def test_an_unreadable_access_never_fails_the_card() -> None:
+    """The card is advisory: a roster it cannot read must still print, with the
+    other users' rows intact."""
+    profile = BuildProfile(
+        name="roster",
+        config={
+            "modules.web_terminals.enabled": True,
+            "modules.web_terminals.auth.method": "password",
+            "modules.web_terminals.users": [
+                {"name": "ops", "index": 0, "access": ["group:operators"]},
+                {"name": "alice", "index": 1},
+            ],
+        },
+    )
+
+    lines = format_profile_card(profile, {})
+
+    assert "access invalid" in line_with(lines, "ops")
+    assert "access invalid" not in line_with(lines, "alice")
+
+
 def test_the_panels_row_is_the_union_across_personas(exemplar_lines: list[str]) -> None:
     # EVENTS and BLUESKY are declared by the readwrite persona, not the host
     # profile; a card that read only the host would miss them. Their labels

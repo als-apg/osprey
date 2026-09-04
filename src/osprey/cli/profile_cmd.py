@@ -629,6 +629,54 @@ def _off_chain_problem(persona_name: str, persona_preset: str, host_preset: str)
     )
 
 
+def _unreadable_access_problems(config: Mapping[str, Any]) -> list[str]:
+    """Every roster entry whose ``access`` value the vocabulary cannot resolve.
+
+    ``users[].access`` is authored as a principal set — the ``own``/``any``
+    shorthands, or a list of ``self``, ``roster``, ``user:<id>`` and
+    ``domain:<domain>`` members — and
+    :func:`~osprey.deployment.web_terminals.personas.resolve_access_principals`
+    is its single parser. That parser REFUSES an unreadable value rather than
+    answering, because a value one surface reads as owner-only while another
+    reads it as admitting somebody is the failure the whole key exists to
+    avoid.
+
+    So the refusal has to be caught at an altitude that can explain it. Every
+    later reader in this materialization parses the same values strictly — the
+    per-user context slots, the deploy summary printed at the end — and one of
+    them would otherwise surface the parser's ``ValueError`` as a traceback.
+    Reported here instead, before anything is written, in the deploy lint's own
+    words: this returns the parser's message verbatim, exactly as
+    ``web_terminals.invalid_user_access`` does, so both surfaces say the same
+    sentence about the same entry. Every offending entry is named at once,
+    because a roster is fixed in one edit.
+
+    Args:
+        config: The host profile's ``config:`` block, from which the roster is
+            folded out.
+
+    Returns:
+        One message per unreadable entry, in roster order; empty when every
+        authored ``access`` resolves.
+    """
+    from osprey.deployment.web_terminals.personas import resolve_access_principals
+
+    from .build_profile_emit import effective_web_terminals
+
+    users = effective_web_terminals(config).get("users")
+    problems: list[str] = []
+    for entry in users if isinstance(users, list) else []:
+        # Bare-string entries carry no `access` at all, and a non-dict entry is
+        # a different (separately reported) mistake.
+        if not isinstance(entry, dict) or "access" not in entry:
+            continue
+        try:
+            resolve_access_principals(entry)
+        except ValueError as refusal:
+            problems.append(str(refusal))
+    return problems
+
+
 def _privileged_persona_problems(
     config: Mapping[str, Any],
     privileges: Mapping[str, tuple[str, ...]],
@@ -645,7 +693,10 @@ def _privileged_persona_problems(
 
     * ``default_persona`` must not be a privileged tier — it is what every entry
       that names no tier inherits;
-    * no shared card (``access: any``) may resolve to one.
+    * no shared card may resolve to one. Shared is the whole of
+      :func:`~osprey.deployment.web_terminals.personas.entry_is_shared` —
+      ``access: any``, but equally a ``[user:…]`` or ``[domain:…]`` list, or
+      any principal set naming somebody beyond the entry's own user.
 
     **The two rules read two different maps**, and handing one map to both
     would leave this surface exempt on a floorless host preset: every persona
@@ -687,9 +738,13 @@ def _privileged_persona_problems(
     if default_problem is not None:
         problems.append(default_problem)
 
-    # Lenient resolution: an entry naming a persona that is not in the catalog
-    # is a different mistake, reported by the deploy lint that owns it, and
-    # raising here would replace that report with a worse one.
+    # Lenient resolution, exactly as the lint belt resolves it: an entry naming
+    # a persona that is not in the catalog — or carrying an `access` value the
+    # vocabulary does not recognise — is a different mistake, reported by the
+    # rule that owns it (`_unreadable_access_problems` here, and the deploy
+    # lint's `web_terminals.invalid_user_access` there), and raising from this
+    # rule would replace that report with a worse one. The unreadable entry is
+    # dropped, so this rule says nothing about it — again as lint does.
     resolved = resolve_personas(web_terminals, {}, "", strict=False)
     problems.extend(shared_card_privileged_problems(resolved, absolute_privileges))
     return problems
@@ -1003,7 +1058,9 @@ def _materialize_profile_directory(
 
     Raises:
         click.UsageError: For user errors — existing target, an ``extends``
-            override, or layers that produce an invalid profile.
+            override, a roster carrying an unreadable ``access`` value
+            (:func:`_unreadable_access_problems`), or layers that produce an
+            invalid profile.
         BuildProfileError: For packaging problems (missing seed or data tree).
     """
     import shutil
@@ -1066,6 +1123,18 @@ def _materialize_profile_directory(
     # profile owns a copy of it (FR-3) and the emitted key names that copy.
     # Located before the first mkdir like everything else here.
     triggers_src = _triggers_source(resolved, preset_dir)
+
+    # The roster's `access` values are resolved before anything else reads
+    # them: every later step here parses them strictly, so an unreadable one
+    # has to refuse at this altitude — with the message the deploy lint prints
+    # for the same entry — rather than reach whichever reader runs first as a
+    # traceback. Before the first mkdir, like every other refusal here.
+    access_problems = _unreadable_access_problems(resolved.config)
+    if access_problems:
+        raise click.UsageError(
+            "This profile's web-terminal roster carries an access value that does not "
+            "resolve:\n  - " + "\n  - ".join(access_problems)
+        )
 
     persona_texts = _persona_profile_texts(
         resolved, profile_name_default, persona_dirname, normalized_preset
