@@ -38,7 +38,9 @@ from osprey.interfaces.web_terminal.operator_session import (
     build_operator_child_env,
     resolve_agent_data_root,
 )
+from osprey.interfaces.web_terminal.session_binding import write_binding
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
+from osprey.profiles.web_panels import JUPYTER_PANEL_ID
 from osprey_connectors import session_store
 from osprey_connectors.control_system.base import is_readonly_run
 
@@ -406,6 +408,48 @@ def _spawn_posture_key(app, session_key: str) -> str:
         return session_key
     spawn_key = resolve(session_key)
     return spawn_key if isinstance(spawn_key, str) and spawn_key else session_key
+
+
+def _bind_notebook_session(app, registry, session, session_key: str) -> None:
+    """Point the notebook session binding at the PTY session just attached.
+
+    Called from both attach paths — the connect and the switch — so the
+    binding always names the session the operator is looking at, and a
+    notebook kernel started afterwards joins that one. Chat-pool children are
+    never bound: they have no PTY, and a kernel has nothing to join.
+
+    A deployment without the notebook panel is left alone entirely. Nothing
+    would ever read the binding there, and writing one creates
+    ``<root>/jupyter/`` under whatever the resolver answers — which, for a
+    server whose config does not resolve, is the process's own tree.
+
+    Nothing here may fail the attach. A binding that could not be written
+    costs a notebook its session, which the kernel handles by running
+    sandboxed; an exception escaping into the handler would cost the operator
+    their terminal.
+
+    Args:
+        app: The FastAPI app, for the enabled panels and the shared
+            agent-data root.
+        registry: The PTY registry holding *session_key*.
+        session: The live :class:`~...pty_manager.PtySession`, for its pid.
+        session_key: The pool key just attached.
+    """
+    enabled = getattr(getattr(app, "state", None), "enabled_panels", None) or set()
+    if JUPYTER_PANEL_ID not in enabled:
+        return
+    try:
+        root = resolve_agent_data_root(app)
+        resolve = getattr(registry, "audit_session_key", None)
+        spawn_key = resolve(session_key) if resolve is not None else session_key
+        write_binding(
+            root,
+            spawn_key if isinstance(spawn_key, str) and spawn_key else session_key,
+            session.pid,
+            root,
+        )
+    except Exception:  # noqa: BLE001 — an attach must not fail on a binding write
+        logger.debug("Could not bind the notebook session to %s", session_key, exc_info=True)
 
 
 def _posture_entry(app, session_key: str | None) -> dict[str, str]:
@@ -1229,6 +1273,7 @@ async def terminal_ws(websocket: WebSocket):
         cwd=websocket.app.state.project_cwd,
     )
     registry.attach_session(current_key)
+    _bind_notebook_session(websocket.app, registry, session, current_key)
 
     # Confirm the id immediately, whichever path spawned it. A new session's
     # id is the one this handler put on the CLI's command line; a resume's is
@@ -1341,6 +1386,7 @@ async def terminal_ws(websocket: WebSocket):
                                 cwd=websocket.app.state.project_cwd,
                             )
                             registry.attach_session(target_id)
+                            _bind_notebook_session(websocket.app, registry, session, target_id)
 
                             # 5. Notify client
                             await websocket.send_text(

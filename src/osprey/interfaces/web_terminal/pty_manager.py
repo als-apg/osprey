@@ -24,6 +24,30 @@ from osprey.utils.logger import get_logger
 logger = get_logger("pty_manager")
 
 
+def _clear_notebook_binding(session_id: str) -> None:
+    """Drop the notebook session binding if it still names *session_id*.
+
+    A session that goes away takes its binding with it, so a kernel started
+    afterwards does not join a dead PTY. The check inside ``clear_binding``
+    means a session superseded before it died leaves the live binding alone.
+
+    Imported inside the function: the resolver reads deployment config, and a
+    registry built in a test that never touches notebooks should not pay for
+    it. Failure is swallowed — a leftover binding costs a notebook its
+    session, and must not cost the pool its teardown.
+
+    Args:
+        session_id: The pool key being terminated or evicted.
+    """
+    try:
+        from osprey.interfaces.web_terminal.operator_session import resolve_agent_data_root
+        from osprey.interfaces.web_terminal.session_binding import clear_binding
+
+        clear_binding(resolve_agent_data_root(), session_id)
+    except Exception:  # noqa: BLE001 — teardown must not fail on the binding
+        logger.debug("Could not clear the notebook session binding for %s", session_id)
+
+
 def build_pty_env(extra_env: dict[str, str] | None = None) -> dict[str, str]:
     """Build the environment for the PTY child process.
 
@@ -579,9 +603,11 @@ class PtyRegistry:
         for key in list(self._sessions):
             if key not in self._attached:
                 evicted = self._sessions.pop(key)
+                bound_as = self.audit_session_key(key)
                 self._env_fingerprints.pop(key, None)
                 self._audit_keys.pop(key, None)
                 evicted.terminate()
+                _clear_notebook_binding(bound_as)
                 logger.info("Evicted LRU session %s", key)
                 return
 
@@ -634,14 +660,19 @@ class PtyRegistry:
 
         Drops the entry's recorded env fingerprint and audit alias with it, so
         the key is fully forgotten and a later spawn under the same key records
-        its own.
+        its own. The notebook session binding goes too, resolved through the
+        audit alias *before* it is dropped — the binding names a session by the
+        key its child stamps, which for a rekeyed session is not the pool key
+        being terminated here.
         """
         session = self._sessions.pop(session_id, None)
+        bound_as = self.audit_session_key(session_id)
         self._env_fingerprints.pop(session_id, None)
         self._audit_keys.pop(session_id, None)
         if session is not None:
             session.terminate()
         self._attached.discard(session_id)
+        _clear_notebook_binding(bound_as)
 
     def terminate_session_if_owner(self, session_id: str, owner: PtySession) -> None:
         """Terminate only if the caller still owns the session.

@@ -187,6 +187,10 @@
       "reason": "Runs the claude CLI with a deliberately bogus API key and reads only the pre-model stream-json init record's skills list — no model is ever contacted."
     },
     {
+      "path": "tests/e2e/test_jupyter_panel_lifecycle.py",
+      "reason": "Builds the persona image and drives one real `osprey up --dev`, then exercises the notebook panel over HTTP and the kernel's websocket channels. No agent session runs and nothing here contacts a model: the fixture writes a fake ANTHROPIC_API_KEY, and the assertions are the kernel's stamps, its refusal text and the audit ledger. Also needs Docker, which the bench box lacks. Runs in its own CI job (jupyter-panel-e2e)."
+    },
+    {
       "path": "tests/e2e/test_target_switch_agentic.py",
       "reason": "Docker-bound two-container fixture, bespoke pinned init."
     }

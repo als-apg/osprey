@@ -12,12 +12,13 @@ store, and the rest report the paradigm and point at the tools that read it.
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 from collections.abc import Callable, Iterable, Mapping
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -28,10 +29,15 @@ from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
 
 # The channel census comes from the shared census module rather than being
 # spelled again, so the number the explorer shows is the number the benchmark
-# harness counts; the relationship-vocabulary query comes from the seeder's
-# schema snapshot, which is what bakes that same vocabulary into the agent
-# prompt.
-from osprey.services.channel_finder.graph_queries import GRAPH_CHANNEL_COUNT_CYPHER
+# harness counts; the finder's search and device reads come from the same
+# module, so a test can import the query text without starting the app. The
+# relationship-vocabulary query comes from the seeder's schema snapshot, which
+# is what bakes that same vocabulary into the agent prompt.
+from osprey.services.channel_finder.graph_queries import (
+    GRAPH_CHANNEL_COUNT_CYPHER,
+    GRAPH_DEVICE_CYPHER,
+    GRAPH_SEARCH_CYPHER,
+)
 from osprey.services.facility_knowledge.seeder.prompt_snapshot import RELATIONSHIP_TYPES_CYPHER
 
 if TYPE_CHECKING:
@@ -59,6 +65,11 @@ GRAPH_PARADIGM_TOOLS: tuple[str, ...] = tuple(CHANNEL_FINDER_TOOLS_BY_PIPELINE["
 #: least one channel binding — so the counts the explorer shows and the counts
 #: the agent computes cannot disagree.
 #:
+#: ``direct`` counts only the devices typed as the class itself, taken from the
+#: same traversal by counting the ones whose subclass *is* the class. It is the
+#: difference between a branch and a leaf: a class with a rollup but no direct
+#: devices is an abstract grouping, which the rail draws differently.
+#:
 #: The descent is bounded at ten hops rather than left unbounded: a corpus whose
 #: ``SUBCLASSOF`` edges contain a cycle would otherwise walk forever, and no
 #: real ontology nests device classes ten deep.
@@ -69,8 +80,9 @@ WITH c, collect(DISTINCT p.uri) AS parents
 OPTIONAL MATCH (sub:Class)-[:SUBCLASSOF*0..10]->(c)
 OPTIONAL MATCH (d:Resource)-[:TYPE]->(sub)
 WHERE (d)-[:HASBINDING]->(:ChannelBinding)
-WITH c, parents, count(DISTINCT d) AS rollup
-RETURN c.uri AS uri, c.altLabel AS altLabel, parents, rollup
+WITH c, parents, count(DISTINCT d) AS rollup,
+     count(DISTINCT CASE WHEN sub = c THEN d END) AS direct
+RETURN c.uri AS uri, c.altLabel AS altLabel, parents, rollup, direct
 ORDER BY uri
 """.strip()
 
@@ -97,6 +109,33 @@ GRAPH_SECTION_COUNT_CYPHER = (
 #: population that must arrive whole or the drawn taxonomy silently loses
 #: branches. Five hundred is well above any real ontology and still a bound.
 _GRAPH_EXPLORE_MAX_ROWS = 500
+
+#: Rows one page of the finder holds. Fifty is fixed *inside*
+#: :data:`GRAPH_SEARCH_CYPHER` rather than passed to it, so this is the route's
+#: copy of the store's own slice width: it is what the page offset is computed
+#: from and what the answer reports, and the two cannot disagree without this
+#: number and the query drifting apart.
+_GRAPH_SEARCH_PAGE_SIZE = 50
+
+#: The facets the search answers with, in the order the rail draws them. Named
+#: here rather than read off the store's row so a facet the query stopped
+#: returning arrives as an empty list instead of vanishing from the payload
+#: and taking the rail's control with it.
+_GRAPH_SEARCH_FACETS: tuple[str, ...] = ("section", "system", "class", "signal", "dir")
+
+#: How a channel binding relates to the signal it carries: read, written, both,
+#: or neither. Declared as a type rather than checked in the body so a value
+#: outside it is refused as a 422 by the request layer, before the store is
+#: asked a question it has no answer for.
+GraphDirection = Literal["R", "W", "RW", "none"]
+
+#: What an operator is told when a device URI is not in the store. A miss is
+#: not a store failure — the finder that produced the link is simply older than
+#: the corpus behind it — so the remedy is to search again rather than to touch
+#: the service.
+_NO_DEVICE_SUGGESTIONS = [
+    "Search again — the store may have been re-seeded.",
+]
 
 #: Row cap for a census query. Each census aggregates to a single row, so
 #: anything above one is already slack; ten leaves room for a query to grow a
@@ -171,11 +210,12 @@ def _prune_device_taxonomy(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, 
     Args:
         rows: One mapping per ``:Class`` node, as
             :data:`GRAPH_ONTOLOGY_CYPHER` returns them — ``uri``, ``altLabel``,
-            ``parents`` and ``rollup``.
+            ``parents``, ``rollup`` and ``direct``.
 
     Returns:
         The surviving classes, each carrying its ``uri``, derived ``name``,
-        ``altLabel`` list, ``parents`` list and ``rollup``, sorted by name.
+        ``altLabel`` list, ``parents`` list, ``rollup`` and whether it is
+        ``abstract``, sorted by name.
     """
     materialised = list(rows)
 
@@ -204,6 +244,9 @@ def _prune_device_taxonomy(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, 
                 "altLabel": list(row.get("altLabel") or []),
                 "parents": list(row.get("parents") or []),
                 "rollup": rollup,
+                # A class nothing is typed directly as is a grouping rather than
+                # a kind of device, whatever its subclasses roll up to it.
+                "abstract": (row.get("direct") or 0) == 0,
             }
         )
 
@@ -860,6 +903,292 @@ async def _read_graph_ontology(ctx: Any) -> dict[str, Any]:
         "truncated": classes_truncated or relationships.truncated,
         "empty": False,
         "suggestions": [],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Graph finder: search and device
+# ---------------------------------------------------------------------------
+
+
+def _clip_search_facets(
+    raw: Mapping[str, Any],
+) -> tuple[dict[str, list[dict[str, Any]]], bool]:
+    """Cut each facet list to what the rail may draw, reporting any clipping.
+
+    The store is asked for one entry more than the explorer shows. A list that
+    comes back at that length is a list the store had more values for, which is
+    the only signal a facet can give that it is not the whole story — the row
+    cap the driver reports says nothing here, because the search answers in a
+    single row however many values it counted.
+
+    Args:
+        raw: The ``facets`` map as :data:`GRAPH_SEARCH_CYPHER` returns it.
+
+    Returns:
+        The five facet lists, each cut to the cap, and whether any of them was.
+    """
+    facets: dict[str, list[dict[str, Any]]] = {}
+    clipped = False
+    for name in _GRAPH_SEARCH_FACETS:
+        entries = list(raw.get(name) or [])
+        if len(entries) > _GRAPH_EXPLORE_MAX_ROWS:
+            clipped = True
+            entries = entries[:_GRAPH_EXPLORE_MAX_ROWS]
+        facets[name] = [
+            {"value": entry.get("value"), "count": int(entry.get("count") or 0)}
+            for entry in entries
+        ]
+    return facets, clipped
+
+
+def _device_signal_groups(groups: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Reduce a device's signal groups to what the device card draws.
+
+    The store hands back more than the card shows — a binding's protocol and
+    the confidence it was matched with — so those are dropped here. The signal
+    edges travel on untouched: the card derives direction from them exactly as
+    the result table does, which is why the two cannot disagree.
+
+    Args:
+        groups: The ``signals`` list as :data:`GRAPH_DEVICE_CYPHER` returns it.
+
+    Returns:
+        One entry per signal, each carrying its bindings in store order.
+    """
+    return [
+        {
+            "name": group.get("name"),
+            "uri": group.get("uri"),
+            "bindings": [
+                {
+                    "fullPv": binding.get("fullPv"),
+                    "edges": list(binding.get("edges") or []),
+                    "description": binding.get("description"),
+                    "subfieldDescription": binding.get("subfieldDescription"),
+                    "fieldDescription": binding.get("fieldDescription"),
+                }
+                for binding in group.get("bindings") or []
+            ],
+        }
+        for group in groups
+    ]
+
+
+@router.get("/graph/search")
+async def graph_search(
+    request: Request,
+    q: str = Query(""),
+    section: list[str] = Query([]),
+    system: list[str] = Query([]),
+    signal: list[str] = Query([]),
+    dir: list[GraphDirection] = Query([]),
+    cls: str | None = Query(None),
+    page: int = Query(1, ge=1),
+):
+    """Answer one page of the graph finder, with the facets around it.
+
+    The four multi-select facets arrive as repeated parameters — ``section=SR01C
+    &section=SR02C`` — and are ORed within a facet and ANDed across facets by
+    the query. ``cls`` is single-select and rolls its subclasses up, which is
+    what lets a selection on an abstract branch stand for the devices under it.
+
+    Args:
+        request: FastAPI request, carrying the app's graph context on its state.
+        q: Free-text query, split on whitespace into tokens that must all match.
+        section: Section codes to keep, or none for no section filter.
+        system: System codes to keep.
+        signal: Semantic signal names to keep.
+        dir: Directions to keep, drawn from ``R``, ``W``, ``RW`` and ``none``.
+        cls: One class URI, or nothing for no class filter.
+        page: 1-based page of fifty rows.
+
+    Returns:
+        ``total`` and ``devices`` over every match, the ``page`` of ``rows``
+        and the ``pages`` and ``page_size`` around it, the five ``facets``,
+        whether a facet was ``truncated``, and — only when an unfiltered search
+        found nothing in a store that holds no corpus — ``empty`` with the
+        ``suggestions`` that name the seeding command.
+
+    Raises:
+        HTTPException: 404 when the active paradigm is not the graph, 400 when
+            no paradigm is configured at all, 500 when the read fails for a
+            reason the store does not classify.
+    """
+    if _pipeline_type(request) != "graph":
+        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    read = functools.partial(
+        _read_graph_search,
+        # The query lower-cases nothing, so the tokens arrive folded; splitting
+        # on whitespace drops the empty token an empty query would otherwise be.
+        tokens=q.lower().split(),
+        sections=list(section),
+        systems=list(system),
+        signals=list(signal),
+        dirs=[str(value) for value in dir],
+        # '' is a class no device is typed by; no filter is null.
+        cls=cls or None,
+        page=page,
+    )
+    return await _serve_graph_read(request, "search", read)
+
+
+async def _read_graph_search(
+    ctx: Any,
+    *,
+    tokens: list[str],
+    sections: list[str],
+    systems: list[str],
+    signals: list[str],
+    dirs: list[str],
+    cls: str | None,
+    page: int,
+) -> dict[str, Any]:
+    """Run the faceted search off the event loop and shape its single row.
+
+    Every parameter is passed on every call: the query declares no defaults, and
+    a list left out arrives as null, which is not the same as the empty list
+    that means "no filter".
+
+    Nothing found has two causes, and only one of them is worth a remedy. A
+    search that filtered and matched nothing is an ordinary answer. A search
+    that filtered nothing and still matched nothing may be looking at an
+    unseeded store, and only then is the store asked which it is — the same
+    distinction, and the same remedy, the ontology route draws.
+
+    Args:
+        ctx: The app's graph store context.
+        tokens: Lower-cased search tokens, all of which must match.
+        sections: Section codes to keep, empty for no filter.
+        systems: System codes to keep, empty for no filter.
+        signals: Signal names to keep, empty for no filter.
+        dirs: Directions to keep, empty for no filter.
+        cls: One class URI, or ``None`` for no filter.
+        page: 1-based page number.
+
+    Returns:
+        The search payload.
+
+    Raises:
+        GraphStoreError: Whatever the store raises when the read fails.
+    """
+    params = {
+        "tokens": tokens,
+        "sections": sections,
+        "systems": systems,
+        "cls": cls,
+        "signals": signals,
+        "dirs": dirs,
+        "skip": (page - 1) * _GRAPH_SEARCH_PAGE_SIZE,
+        # One over what the rail draws, so a full list is a clipped list.
+        "facet_cap": _GRAPH_EXPLORE_MAX_ROWS + 1,
+    }
+    result = await asyncio.to_thread(ctx.run_read, GRAPH_SEARCH_CYPHER, params, max_rows=1)
+    # The search aggregates to one row, and answers none at all when the store
+    # holds nothing to aggregate over.
+    row: Mapping[str, Any] = result.rows[0] if result.rows else {}
+    facets, truncated = _clip_search_facets(row.get("facets") or {})
+    total = int(row.get("total") or 0)
+    filtered = bool(tokens or sections or systems or signals or dirs or cls)
+
+    empty = False
+    suggestions: list[str] = []
+    if total == 0 and not filtered and await asyncio.to_thread(ctx.is_empty):
+        empty = True
+        suggestions = list(_EMPTY_GRAPH_SUGGESTIONS)
+
+    return {
+        "total": total,
+        "devices": int(row.get("devices") or 0),
+        "page": page,
+        # No matches is no pages. The finder clamps a page into [1, pages] with
+        # a floor of 1, so a zero here reads as "the one page there is".
+        "pages": (total + _GRAPH_SEARCH_PAGE_SIZE - 1) // _GRAPH_SEARCH_PAGE_SIZE,
+        "page_size": _GRAPH_SEARCH_PAGE_SIZE,
+        "truncated": truncated,
+        "rows": list(row.get("rows") or []),
+        "facets": facets,
+        "empty": empty,
+        "suggestions": suggestions,
+    }
+
+
+@router.get("/graph/device")
+async def graph_device(request: Request, uri: str = Query(..., min_length=1)):
+    """Answer one device of the store, with its channels grouped by signal.
+
+    Args:
+        request: FastAPI request, carrying the app's graph context on its state.
+        uri: The device URI, as a search row carries it in ``device_uri``.
+
+    Returns:
+        The device's properties — its class by name and by URI, its placement
+        and its descriptions — and its ``signals``, each holding the bindings
+        that carry it with the direction each one has.
+
+    Raises:
+        HTTPException: 404 when the active paradigm is not the graph, 400 when
+            no paradigm is configured at all, 500 when the read fails for a
+            reason the store does not classify.
+    """
+    if _pipeline_type(request) != "graph":
+        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    return await _serve_graph_read(
+        request, "device", functools.partial(_read_graph_device, uri=uri)
+    )
+
+
+async def _read_graph_device(ctx: Any, *, uri: str) -> Any:
+    """Read one device off the event loop, or answer that the store has none.
+
+    A URI the store does not hold answers with no row at all, which is a 404
+    rather than an empty card. It travels in the same three-key shape every
+    other graph answer uses — the panel branches on ``error_type``, not on the
+    status — and carries its own remedy: a link the finder minted against an
+    older corpus is a search away from being right again. The store is not
+    asked whether it is empty: a device that is not there says nothing about
+    whether anything else is.
+
+    Args:
+        ctx: The app's graph store context.
+        uri: The device URI to read.
+
+    Returns:
+        The device payload, or a 404 :class:`JSONResponse` when the store holds
+        no such device.
+
+    Raises:
+        GraphStoreError: Whatever the store raises when the read fails.
+    """
+    result = await asyncio.to_thread(ctx.run_read, GRAPH_DEVICE_CYPHER, {"uri": uri}, max_rows=1)
+    if not result.rows:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "detail": f"No device at {uri}",
+                "error_type": "not_found",
+                "suggestions": list(_NO_DEVICE_SUGGESTIONS),
+            },
+        )
+
+    row = result.rows[0]
+    class_uri = row.get("class")
+    return {
+        "uri": row.get("uri"),
+        "device": row.get("device"),
+        # The card shows the class the way the tree labels it, and keeps the
+        # URI beside it because that is what the class filter is sent back as.
+        "class": _class_name(class_uri) if class_uri else None,
+        "class_uri": class_uri,
+        "rawType": row.get("rawType"),
+        "section": row.get("section"),
+        "system": row.get("system"),
+        "sPositionM": row.get("sPositionM"),
+        "ordinalInSection": row.get("ordinalInSection"),
+        "systemDescription": row.get("systemDescription"),
+        "familyDescription": row.get("familyDescription"),
+        "ringDescription": row.get("ringDescription"),
+        "signals": _device_signal_groups(row.get("signals") or []),
     }
 
 

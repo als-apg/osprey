@@ -1,12 +1,15 @@
 """The control-target stamp: host stamps it, sandbox routes and pins on it.
 
-Two processes are involved and neither can see the other's state directly. The
+Three processes are involved and none can see the other's state directly. The
 host (``python_executor.executor``) resolves which controls server belongs to
 this session and writes the target into the sandbox environment; the sandbox
 (``osprey.runtime``) builds its connector from that stamp and refuses writes
-once the generation it was stamped at has moved on.
+once the generation it was stamped at has moved on. The third is the notebook
+kernel launcher (``osprey.jupyter_kernel``), a second producer of the same
+stamp: it resolves the record from a session binding rather than from its own
+parent, and stamps it into its own environment before the kernel starts.
 
-Every test here drives one of those two halves against a real state file in
+Every test here drives one of those halves against a real state file in
 ``tmp_path``. Nothing touches EPICS: the sandbox half registers a fake connector
 class inside ``isolated_connector_registries`` and asserts on the config that
 class was handed, which is the only evidence that routing actually happened.
@@ -21,9 +24,12 @@ from typing import Any
 
 import pytest
 
+from osprey import jupyter_kernel
+from osprey.audit import posture
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey.runtime import ControlTargetChangedError
+from osprey_connectors import session_store
 
 # ---------------------------------------------------------------------------
 # Fixtures and helpers
@@ -96,8 +102,6 @@ def posture_store(state_root, monkeypatch):
     bound resolver, and the store follows the ``OSPREY_AGENT_DATA_ROOT`` stamp,
     so this points the stamp at the same directory. Returns a writer.
     """
-    from osprey_connectors import session_store
-
     monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(state_root))
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", POSTURE_SESSION_KEY)
     monkeypatch.delenv(session_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
@@ -724,3 +728,202 @@ class TestWritePin:
         runtime._runtime_connector = _Reader()
 
         assert runtime.read_channel("TEST:PV") == 42.0
+
+
+# ---------------------------------------------------------------------------
+# Third party: the notebook kernel launcher, stamping from a session binding
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def kernel_env(monkeypatch):
+    """This process's environment, restored whole afterwards.
+
+    The launcher stamps ``os.environ`` and nothing else: the resolvers it calls
+    read the process environment, so a dict handed in would be invisible to
+    them. Declared with ``monkeypatch`` so the restore below runs inside the
+    same teardown the other environment fixtures use.
+    """
+    saved = dict(os.environ)
+    yield os.environ
+    os.environ.clear()
+    os.environ.update(saved)
+
+
+def binding_for(root, *, pty_pid, session_id: str = POSTURE_SESSION_KEY) -> dict[str, Any]:
+    """A session binding naming *pty_pid*, in the shape the terminal writes."""
+    return {"session_id": session_id, "pty_pid": pty_pid, "agent_data_root": str(root)}
+
+
+@pytest.fixture
+def unstamped_kernel(kernel_env, posture_store, monkeypatch):
+    """A kernel process that has joined nothing yet.
+
+    The identity the launcher is supposed to stamp is removed first, so a test
+    asserting on it is reading the launcher's work rather than the fixture's.
+    ``posture_store`` is still what anchors the store and the state file to one
+    directory. Returns the store writer.
+    """
+    monkeypatch.delenv(session_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(posture.POSTURE_SESSION_ENV_VAR, raising=False)
+    session_store.invalidate_cache()
+    return posture_store
+
+
+class TestNotebookLauncherStamps:
+    """What a kernel carries after joining the session its binding names.
+
+    The launcher is the second producer of the routing stamp, so the cases
+    below are the executor's cases asked of a different resolver: the record is
+    found from the bound PTY's pid rather than from this process's parent, and
+    the fail-closed branch has one more way to arrive — a binding that names no
+    live session at all.
+    """
+
+    def test_the_bound_session_is_stamped_whole(
+        self, state_root, deployment_config, unstamped_kernel, kernel_env
+    ):
+        """Identity, target and pin, from one binding and one record."""
+        write_record(target="va", generation=7, owner_ppid=os.getpid())
+
+        jupyter_kernel.compute_stamps(binding_for(state_root, pty_pid=os.getpid()), kernel_env)
+
+        assert kernel_env[session_store.AGENT_DATA_ROOT_ENV_VAR] == str(state_root)
+        assert kernel_env[posture.POSTURE_SESSION_ENV_VAR] == POSTURE_SESSION_KEY
+        assert kernel_env[host_executor.ENV_CONTROL_TARGET] == "va"
+        assert kernel_env[host_executor.ENV_CONTROL_TARGET_GENERATION] == "7"
+        assert kernel_env[host_executor.ENV_CONTROL_TARGET_STATE_PID] == str(os.getpid())
+        assert kernel_env[host_executor.ENV_LAUNCH_POSTURE] == "va=writes"
+
+    def test_the_launcher_stamps_what_the_executor_stamps(
+        self, state_root, deployment_config, unstamped_kernel, kernel_env
+    ):
+        """One record, two producers, the same three routing names.
+
+        The executor matches on ``owner_ppid == os.getppid()`` and the launcher
+        walks the ancestors of the record's owner up to the bound pid, so this
+        record is written to satisfy both at once — which is the arrangement in
+        production, where the controls server runs inside the bound PTY.
+        """
+        write_record(target="va", generation=4, owner_ppid=os.getppid())
+        sandbox_env: dict[str, str] = {}
+        host_executor._apply_target_stamp(sandbox_env)
+
+        stamps = jupyter_kernel.compute_stamps(
+            binding_for(state_root, pty_pid=os.getppid()), kernel_env
+        )
+
+        for name in host_executor._STAMP_ENV_NAMES:
+            assert stamps[name] == sandbox_env[name]
+
+    def test_a_narrowed_target_pins_the_kernel_sandboxed(
+        self, state_root, deployment_config, unstamped_kernel, kernel_env
+    ):
+        unstamped_kernel({POSTURE_SESSION_KEY: {"va": "sandbox"}})
+        write_record(target="va", generation=7, owner_ppid=os.getpid())
+
+        jupyter_kernel.compute_stamps(binding_for(state_root, pty_pid=os.getpid()), kernel_env)
+
+        assert kernel_env[host_executor.ENV_CONTROL_TARGET] == "va"
+        assert kernel_env[host_executor.ENV_LAUNCH_POSTURE] == "va=sandbox"
+
+    def test_a_binding_with_no_pty_yet_stamps_no_target(
+        self, state_root, deployment_config, unstamped_kernel, kernel_env
+    ):
+        """``pty_pid`` is ``None`` between a session being created and started."""
+        write_record(target="va", generation=7, owner_ppid=os.getpid())
+
+        jupyter_kernel.compute_stamps(binding_for(state_root, pty_pid=None), kernel_env)
+
+        for name in host_executor._STAMP_ENV_NAMES:
+            assert name not in kernel_env
+        assert kernel_env[host_executor.ENV_LAUNCH_POSTURE] == "*=sandbox"
+
+    def test_a_binding_naming_a_dead_pty_stamps_no_target(
+        self, state_root, deployment_config, unstamped_kernel, kernel_env
+    ):
+        """A session that ended leaves a binding no live record answers for."""
+        write_record(target="va", generation=7, owner_ppid=os.getpid())
+        stranger = os.getpid() + 1_000_000
+
+        jupyter_kernel.compute_stamps(binding_for(state_root, pty_pid=stranger), kernel_env)
+
+        for name in host_executor._STAMP_ENV_NAMES:
+            assert name not in kernel_env
+        assert kernel_env[host_executor.ENV_LAUNCH_POSTURE] == "*=sandbox"
+
+    def test_no_binding_pins_sandboxed_even_where_the_store_permits(
+        self, state_root, deployment_config, unstamped_kernel, kernel_env
+    ):
+        """The one place the launcher parts company with the executor.
+
+        An executor run that cannot name its target still belongs to a session,
+        so its pin is whatever the store answers for that session. A kernel with
+        no binding belongs to no session, and a pin computed for one it is not
+        in would grant writes nobody asked for — so the pin is the literal
+        ``*=sandbox``, with an unnarrowed store in place.
+        """
+        write_record(target="va", generation=7, owner_ppid=os.getpid())
+
+        jupyter_kernel.compute_stamps(None, kernel_env)
+
+        for name in host_executor._STAMP_ENV_NAMES:
+            assert name not in kernel_env
+        assert kernel_env[host_executor.ENV_LAUNCH_POSTURE] == "*=sandbox"
+
+    def test_an_inherited_target_stamp_is_stripped(
+        self, state_root, deployment_config, unstamped_kernel, kernel_env
+    ):
+        """The sidecar's environment reaches the kernel; its stamp must not.
+
+        The kernel inherits from the Jupyter server, which inherited from the
+        terminal, so a stale routing stamp can be sitting there — pointing at
+        whatever that process was launched under, not at the bound session.
+        """
+        kernel_env[host_executor.ENV_CONTROL_TARGET] = "live"
+        kernel_env[host_executor.ENV_CONTROL_TARGET_GENERATION] = "2"
+        kernel_env[host_executor.ENV_CONTROL_TARGET_STATE_PID] = "4321"
+
+        jupyter_kernel.compute_stamps(binding_for(state_root, pty_pid=None), kernel_env)
+
+        for name in host_executor._STAMP_ENV_NAMES:
+            assert name not in kernel_env
+
+    def test_a_target_this_deployment_cannot_build_is_declined(
+        self, state_root, unstamped_kernel, kernel_env, monkeypatch
+    ):
+        """Same rule as the executor's: an unresolvable target is not stamped.
+
+        Stamping 'live' on a mock-only checkout would turn every cell that
+        touches the control system into a ValueError the operator did not cause.
+        """
+        monkeypatch.setattr(
+            "osprey_connectors.config.get_config_value", _section_reader(MOCK_ONLY_SECTION)
+        )
+        write_record(target="live", generation=1, owner_ppid=os.getpid())
+
+        jupyter_kernel.compute_stamps(binding_for(state_root, pty_pid=os.getpid()), kernel_env)
+
+        for name in host_executor._STAMP_ENV_NAMES:
+            assert name not in kernel_env
+        assert kernel_env[host_executor.ENV_LAUNCH_POSTURE] == "*=sandbox"
+
+    def test_a_record_without_a_generation_cannot_pin_a_kernel(
+        self, state_root, deployment_config, unstamped_kernel, kernel_env
+    ):
+        """The bar the executor sets with ``require_generation``.
+
+        ``session_record_for_pid`` does not apply it, so the launcher does: a
+        record carrying no int generation cannot say which generation a cell's
+        writes would be refused against.
+        """
+        path = write_record(target="va", generation=0, owner_ppid=os.getpid())
+        record = json.loads(path.read_text())
+        record.pop("generation")
+        path.write_text(json.dumps(record), encoding="utf-8")
+
+        jupyter_kernel.compute_stamps(binding_for(state_root, pty_pid=os.getpid()), kernel_env)
+
+        for name in host_executor._STAMP_ENV_NAMES:
+            assert name not in kernel_env
+        assert kernel_env[host_executor.ENV_LAUNCH_POSTURE] == "*=sandbox"

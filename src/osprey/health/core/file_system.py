@@ -78,6 +78,64 @@ def file_system(
     return _run
 
 
+def _check_users_env(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
+    """The ``users_env`` row: ``.env.users`` still agrees with the env chain.
+
+    Every other row here, and every service in the deployment, reads ``.env``;
+    the web terminals alone run with ``.env.users``, rendered from the chain
+    once. A key rotated in ``.env`` afterwards leaves every terminal failing
+    authentication on its first prompt while ``.env`` looks fine — the one
+    drift a healthy ``env_file`` row cannot reveal, so it gets a row of its own:
+
+    * no ``.env.users`` — no row (single-user deploys never have one);
+    * agrees with the chain — ok;
+    * a provider secret differs — **error**, naming the variable and the
+      remedy (values never appear);
+    * a file OSPREY rendered is behind on something other than a secret —
+      warning; the next ``osprey up`` re-renders it.
+    """
+    users_env = cwd / ".env.users"
+    if not users_env.is_file():
+        return []
+    try:
+        from osprey.deployment.web_terminals.env_production import users_env_drift
+
+        drift = users_env_drift(config, cwd)
+    except Exception as exc:  # a config the drift check cannot interpret
+        return [
+            CheckResult(
+                "users_env",
+                _CATEGORY,
+                Status.WARNING,
+                "Could not compare .env.users with the env chain",
+                details=str(exc),
+            )
+        ]
+    if drift is None:
+        return [CheckResult("users_env", _CATEGORY, Status.OK, ".env.users agrees with .env")]
+    if drift.stale_vars:
+        stale = ", ".join(drift.stale_vars)
+        return [
+            CheckResult(
+                "users_env",
+                _CATEGORY,
+                Status.ERROR,
+                f".env.users is stale: {stale} differs from .env, so web terminals "
+                "authenticate with the old value; run "
+                "`osprey users env --output .env.users`, then `osprey up`",
+            )
+        ]
+    changed = ", ".join(drift.changed_vars)
+    return [
+        CheckResult(
+            "users_env",
+            _CATEGORY,
+            Status.WARNING,
+            f".env.users is behind .env ({changed}); the next `osprey up` re-renders it",
+        )
+    ]
+
+
 def _check_file_system(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
     """Produce all ``file_system`` category rows for the given config and cwd."""
     results: list[CheckResult] = []
@@ -91,6 +149,10 @@ def _check_file_system(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
         results.append(CheckResult("env_file", _CATEGORY, Status.OK, ".env file found"))
     else:
         results.append(CheckResult("env_file", _CATEGORY, Status.WARNING, ".env file not found"))
+
+    # Check .env.users -- the file the web terminals run with -- against the
+    # chain it was rendered from. Multi-user deploys only; no file, no row.
+    results.extend(_check_users_env(config, cwd))
 
     # Check registry file (if specified in config).
     #

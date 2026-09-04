@@ -911,8 +911,10 @@ def env_production(repo: Path | None, env_file: str | None, output: str | None) 
 
     Values come only from those files, never from the surrounding environment,
     so the result depends on what is on disk and nothing else.
-    Unlike a deploy, which never overwrites an existing .env.users, an
-    explicit --output is taken as an instruction and replaces what is there.
+    An explicit --output replaces what is there, whoever wrote it. A deploy
+    re-renders only a file it rendered itself and never touches one you have
+    edited; it does refuse to start when such a file disagrees with .env on a
+    provider key, and this verb is the remedy it names.
 
     Examples:
 

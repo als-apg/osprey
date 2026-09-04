@@ -133,16 +133,31 @@ const SIMPLE_INPUT = '#operator-container .op-input-area textarea';
  * the same input, so the operator's next Enter is their own decision — a chip
  * that submitted would be the agent acting on a click that only said "ask me
  * this".
+ *
+ * `append` is for the callers that CONTRIBUTE to a prompt rather than propose
+ * one: a panel handing over the addresses it just found is an ingredient of
+ * whatever the operator is already writing, and replacing that half-written
+ * sentence would destroy the only copy of it. A chip, which offers a whole
+ * question, still replaces. Nothing is appended in the terminal view: the
+ * terminal has no value to read back, and pasting is already additive there.
  * @param {string} text
+ * @param {{append?: boolean}} [options]  `append`: add below existing text
+ *   instead of replacing it
  */
-export function insertPrompt(text) {
+export function insertPrompt(text, { append = false } = {}) {
   if (document.documentElement.getAttribute('data-ui-mode') === 'simple') {
     const input = /** @type {HTMLTextAreaElement|null} */ (document.querySelector(SIMPLE_INPUT));
     // Disabled means a turn is streaming: the chat owns the input until it is
     // done, and overwriting a value it is about to clear would be a no-op the
     // operator watched happen.
     if (!input || input.disabled) return;
-    input.value = text;
+    // An input holding only whitespace has nothing to preserve, so appending to
+    // it would just open the prompt with a blank line. The trailing run is
+    // collapsed to the single newline that separates the two, rather than
+    // stacked on: the operator's half-typed line and the contribution belong
+    // next to each other, not a screen apart.
+    input.value =
+      append && input.value.trim() ? `${input.value.replace(/\s*$/, '\n')}${text}` : text;
     // What the chat's autoResize listens for; typing raises the same event.
     input.dispatchEvent(new Event('input'));
     input.focus();

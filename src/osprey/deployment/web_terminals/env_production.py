@@ -9,6 +9,7 @@ exists-check it (CI is expected to have produced it). Called from
 
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
@@ -951,6 +952,187 @@ def render_env_users(subset: dict[str, str]) -> str:
     )
 
 
+#: The first banner line, which is how a file OSPREY rendered is told from one
+#: an operator authored. The first line alone, so a later rewording of the
+#: banner's explanatory lines does not turn every file rendered before it into
+#: an "authored" one that is never re-rendered again.
+_USERS_ENV_MARKER = ENV_USERS_BANNER.splitlines()[0]
+
+
+def _write_users_env(users_env_path: Path, text: str) -> None:
+    """Write a rendered ``.env.users``, at mode 0600 from the first byte on disk.
+
+    Not write-then-chmod: ``write_text()`` would create the file at the process
+    umask (typically 0644) and write every secret before a later ``os.chmod``
+    tightened permissions, leaving a window on a multi-user host where a
+    co-tenant could read it. ``os.open`` with ``O_CREAT`` + an explicit mode is
+    atomic -- there is no instant the file exists at a wider mode. The trailing
+    ``chmod`` covers the file already existing (a leftover from a prior run, or
+    the file being re-rendered) at a wider mode ``O_CREAT`` would not reset.
+    """
+    fd = os.open(users_env_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    os.chmod(users_env_path, 0o600)
+
+
+def _expected_credential_vars(config: dict, project_root: Path) -> dict[str, str]:
+    """The provider secrets this deploy's web terminals authenticate with.
+
+    ``{var: origin}`` — every ``claude_code`` auth secret in play except the
+    keyless providers' (ollama, vllm, ds4: a terminal that authenticates to
+    nothing has no credential to get wrong), plus the legacy
+    ``llm.api_key_env_var``. One derivation shared by the stale-file advisory
+    and the drift check, so the two cannot disagree about which variables are
+    credentials.
+    """
+    required_cc_vars, extra_cc_vars, keyless_cc_vars = _claude_code_auth_secret_vars(
+        config, project_root
+    )
+    expected: dict[str, str] = {
+        var: origin for var, origin in extra_cc_vars.items() if var not in keyless_cc_vars
+    }
+    expected.update(required_cc_vars)
+    llm_var = (config.get("llm") or {}).get("api_key_env_var")
+    if isinstance(llm_var, str) and llm_var:
+        expected.setdefault(llm_var, "llm.api_key_env_var")
+    return expected
+
+
+@dataclass(frozen=True)
+class UsersEnvDrift:
+    """An existing ``.env.users`` that is not what the env chain renders.
+
+    Attributes:
+        path: The file.
+        sources: The chain files it should agree with, in merge order.
+        generated: Whether the file is OSPREY's own render — it opens with the
+            banner and carries no variable the render would not write — and so
+            is OSPREY's to re-render. ``False`` means an operator authored or
+            edited it, and it is never rewritten.
+        stale_vars: The provider secrets (see :func:`_expected_credential_vars`)
+            whose value in the file differs from the chain's. Non-empty for an
+            authored file by construction; may be empty for a generated one
+            whose drift is elsewhere (a timezone, a module variable).
+        changed_vars: Every variable the file and the render disagree on —
+            added, removed or changed. Names only, for the report line.
+        subset: What a fresh render would carry.
+        rendered: The full text a fresh render would write.
+    """
+
+    path: Path
+    sources: tuple[Path, ...]
+    generated: bool
+    stale_vars: tuple[str, ...]
+    changed_vars: tuple[str, ...]
+    subset: dict[str, str]
+    rendered: str
+
+
+def users_env_drift(config: dict, project_root: str | Path) -> UsersEnvDrift | None:
+    """Compare the ``.env.users`` on disk with what the env chain renders now.
+
+    The file is rendered from the chain once and handed to every per-user web
+    terminal. When the chain moves afterwards — a provider key rotated in
+    ``.env`` — the terminals keep running on the value the file still holds,
+    and every one of them fails authentication on its first prompt while
+    ``.env`` looks fine and every service that reads ``.env`` directly works.
+    This is the question ``osprey up`` and ``osprey health`` both ask about it.
+
+    Answers ``None`` — nothing to report — when there is no ``.env.users``, no
+    chain to compare it with (registry-mode hosts that were handed the file),
+    the file is byte-for-byte what the chain renders, or the file is an
+    operator's own and agrees with the chain on every provider secret (whatever
+    else it carries is theirs).
+
+    Pure: reads the chain, the file and each referenced persona's rendered
+    ``config.yml``; writes nothing. Values never leave it except inside the
+    returned render.
+
+    :param config: Raw deploy config.
+    :param project_root: Project root; the file and the chain are resolved
+        relative to it.
+    :return: The drift, or ``None``.
+    """
+    root = Path(project_root)
+    users_env_path = root / USERS_ENV_FILENAME
+    if not users_env_path.is_file():
+        return None
+    sources = chain_files(root)
+    if not sources:
+        return None
+    try:
+        text = users_env_path.read_text(encoding="utf-8")
+    except OSError:
+        return None  # unreadable file surfaces as compose's own env_file error
+
+    dotenv = merge_chain(root)
+    required_cc_vars, extra_cc_vars, _keyless_cc_vars = _claude_code_auth_secret_vars(config, root)
+    subset = _build_env_production_subset(config, dotenv, {**required_cc_vars, **extra_cc_vars})
+    rendered = render_env_users(subset)
+    if text == rendered:
+        return None
+
+    present = parse_dotenv_file(users_env_path)
+    # Ours to re-render only when nothing in it is the operator's: the banner
+    # says OSPREY wrote it, and a variable the render would not write is a
+    # hand edit that a re-render would silently drop.
+    generated = text.startswith(_USERS_ENV_MARKER) and set(present) <= set(subset)
+    expected = _expected_credential_vars(config, root)
+    stale_vars = tuple(
+        sorted(
+            var
+            for var in expected
+            if var in present and var in subset and present[var] != subset[var]
+        )
+    )
+    if not generated and not stale_vars:
+        return None
+    changed_vars = tuple(
+        sorted(key for key in set(present) | set(subset) if present.get(key) != subset.get(key))
+    )
+    return UsersEnvDrift(
+        path=users_env_path,
+        sources=tuple(sources),
+        generated=generated,
+        stale_vars=stale_vars,
+        changed_vars=changed_vars,
+        subset=subset,
+        rendered=rendered,
+    )
+
+
+def _users_env_drift_refusal(drift: UsersEnvDrift) -> str:
+    """The sentence an authored, stale ``.env.users`` refuses the deploy with."""
+    sources_desc = " + ".join(str(path) for path in drift.sources)
+    stale = ", ".join(drift.stale_vars)
+    return (
+        f"{drift.path} disagrees with {sources_desc} on {stale}. Web terminals run "
+        f"with {USERS_ENV_FILENAME}, not .env, so every terminal would authenticate "
+        "with a value the rest of the deployment no longer uses and fail on its "
+        "first prompt. The file is not OSPREY's render (no banner, or lines the "
+        "render would not write), so it is treated as yours and was not rewritten: "
+        f"run `osprey users env --output {USERS_ENV_FILENAME}` to re-render it from "
+        "the chain, or change the line yourself."
+    )
+
+
+def users_env_drift_problem(config: dict, project_root: str | Path) -> str | None:
+    """Whether an authored ``.env.users`` would send the terminals a stale secret.
+
+    The question :func:`ensure_env_production` refuses on, for the collect-all
+    preflight — the same pairing as :func:`users_env_generation_problem`. Only
+    an authored file is a problem to report: a file OSPREY rendered is
+    re-rendered by the gate instead.
+
+    :return: The refusal sentence, or ``None``.
+    """
+    drift = users_env_drift(config, project_root)
+    if drift is None or drift.generated:
+        return None
+    return _users_env_drift_refusal(drift)
+
+
 def ensure_env_production(config: dict, project_root: str | Path) -> Path:
     """Ensure ``<project_root>/.env.users`` exists, generating it when possible.
 
@@ -960,14 +1142,18 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
     front, with different rules per ``modules.web_terminals.image_source``
     (default ``"registry"``):
 
-    - **Already present** (either mode): returned as-is, untouched. This is
-      always checked first, so an operator-authored or previously-generated
-      file is never clobbered. When the config declares LLM credentials
+    - **Already present** (either mode): compared with what the env chain
+      renders now (:func:`users_env_drift`). A file OSPREY rendered — banner,
+      nothing added by hand — that the chain has moved away from is
+      re-rendered in place, so a key rotated in ``.env`` reaches the terminals
+      on the next ``up``. A file an operator authored or edited is never
+      rewritten; it is returned as-is unless a provider secret in it disagrees
+      with the chain, which raises (every terminal would fail authentication
+      on its first prompt, and ``.env`` would look fine). When such a file
+      contains *none* of the credentials the config declares
       (``llm.api_key_env_var`` or any ``claude_code.provider`` in play — see
-      :func:`_claude_code_auth_secret_vars`) and the existing file contains
-      *none* of them, a warning names the missing var(s) — a stale file from
-      before a provider change otherwise produces web terminals that fail
-      authentication with nothing in the deploy output to say why.
+      :func:`_claude_code_auth_secret_vars`), a warning names the missing
+      var(s) instead.
     - **Registry mode, absent**: raises. Registry-mode deploys expect the file
       to have been rendered already by ``osprey users env``,
       which the emitted CI pipeline's deploy job runs
@@ -1011,14 +1197,39 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
     root = Path(project_root)
     users_env_path = root / USERS_ENV_FILENAME
     if users_env_path.is_file():
+        # The file the terminals RUN with versus the chain it was rendered
+        # from. A file OSPREY rendered is OSPREY's to re-render when the chain
+        # has moved; an operator's file is never rewritten, but a provider
+        # secret in it that disagrees with the chain is every terminal failing
+        # authentication on its first prompt, so that refuses the deploy. The
+        # refusal sentence is users_env_drift_problem's, so the collect-all
+        # preflight reports exactly what this raises on.
+        drift = users_env_drift(config, root)
+        if drift is not None:
+            if not drift.generated:
+                raise RuntimeError(_users_env_drift_refusal(drift))
+            # Same check the generate path makes, for the same reason and in
+            # the same position: before anything is written.
+            offenders = compose_unsafe_vars(drift.subset)
+            if offenders:
+                raise ComposeInterpolationError(offenders, users_env_path)
+            _write_users_env(users_env_path, drift.rendered)
+            sources_desc = " + ".join(str(path) for path in drift.sources)
+            report_fact(
+                logger,
+                f"Re-rendered {users_env_path} from {sources_desc} (mode 0600): "
+                f"{', '.join(drift.changed_vars)} changed",
+            )
+            return users_env_path
+
         _warn_if_env_production_lacks_credentials(config, root, users_env_path)
         # Scan the file we are about to hand to every web terminal, not just
         # one this run generated. Registry mode -- the DEFAULT -- never reaches
         # the generator below at all: CI assembles .env.users from masked
         # variables and ships it beside the image. An operator-authored file
-        # takes the same path, since an existing one is never regenerated. Both
-        # carry values OSPREY never saw, which is exactly the case the
-        # generate-path check cannot cover (same reasoning as
+        # takes the same path, since one is never regenerated. Both carry
+        # values OSPREY never saw, which is exactly the case the generate-path
+        # check cannot cover (same reasoning as
         # provision._raise_if_auth_env_would_be_interpolated).
         offenders = compose_unsafe_vars(parse_dotenv_file(users_env_path))
         if offenders:
@@ -1077,9 +1288,8 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
     # for ARIEL_DSN, straight out of facility config), and this file is handed to
     # every per-user web terminal as `env_file: .env.users`. A `$` in any
     # of them is interpolated away en route to the container. Checked before the
-    # open() below, not after: a refused deploy must not leave a half-written
-    # secrets file that a later run would mistake for one the operator authored
-    # (an existing .env.users is never regenerated).
+    # write below, not after: a refused deploy must not leave a half-written
+    # secrets file that a later run would take for the operator's.
     offenders = compose_unsafe_vars(subset)
     if offenders:
         raise ComposeInterpolationError(offenders, users_env_path)
@@ -1087,20 +1297,7 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
     # The shared renderer (header + format_env_line-quoted lines), so this file
     # and one rendered by `osprey users env` are byte-identical for the same
     # subset.
-    lines = render_env_users(subset)
-    # Create with mode 0600 from the FIRST byte on disk, not write-then-chmod:
-    # write_text() would create the file at the process umask (typically
-    # 0644) and write every secret before a later os.chmod tightened
-    # permissions, leaving a window on a multi-user host where a co-tenant
-    # could read it. os.open with O_CREAT + an explicit mode is atomic --
-    # there is no instant the file exists at a wider mode.
-    fd = os.open(users_env_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(lines)
-    # Belt-and-suspenders: also covers the file already existing (e.g. a
-    # leftover from a prior run) with a wider mode O_CREAT wouldn't have
-    # reset on its own.
-    os.chmod(users_env_path, 0o600)
+    _write_users_env(users_env_path, render_env_users(subset))
 
     report_fact(
         logger,
@@ -1141,21 +1338,11 @@ def _warn_if_env_production_lacks_credentials(
     """
     _warn_if_telemetry_account_absent(config, project_root, users_env_path)
 
-    required_cc_vars, extra_cc_vars, keyless_cc_vars = _claude_code_auth_secret_vars(
-        config, project_root
-    )
     # Keyless providers' vars (ollama, vllm, ds4) are left out: a terminal
     # that authenticates to nothing has no credential to miss, so their
     # absence from an operator-authored file is not a breadcrumb worth
-    # leaving. Same classification _claude_code_auth_secret_vars already
-    # decided — not re-derived here.
-    expected: dict[str, str] = {
-        var: origin for var, origin in extra_cc_vars.items() if var not in keyless_cc_vars
-    }
-    expected.update(required_cc_vars)
-    llm_var = (config.get("llm") or {}).get("api_key_env_var")
-    if isinstance(llm_var, str) and llm_var:
-        expected.setdefault(llm_var, "llm.api_key_env_var")
+    # leaving. Same classification the drift check uses — not re-derived here.
+    expected = _expected_credential_vars(config, project_root)
     if not expected:
         return
     try:

@@ -282,6 +282,116 @@ describe('insertPrompt', () => {
   });
 });
 
+describe('insertPrompt({ append: true })', () => {
+  /** Every submit that reached the document while the body ran. */
+  function countingSubmits(/** @type {() => void} */ body) {
+    let submits = 0;
+    const onSubmit = () => {
+      submits += 1;
+    };
+    document.addEventListener('submit', onSubmit, true);
+    try {
+      body();
+    } finally {
+      document.removeEventListener('submit', onSubmit, true);
+    }
+    return submits;
+  }
+
+  test('appends below what the operator already typed, on its own line', () => {
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    const input = mountSimpleInput();
+    input.value = 'set these to nominal:';
+
+    fc.insertPrompt('SR:BPM1:X SR:BPM2:X', { append: true });
+
+    expect(input.value).toBe('set these to nominal:\nSR:BPM1:X SR:BPM2:X');
+    expect(document.activeElement).toBe(input);
+  });
+
+  test('does not stack blank lines on trailing whitespace', () => {
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    const input = mountSimpleInput();
+    input.value = 'first line\n\n  ';
+
+    fc.insertPrompt('SR:BPM1:X', { append: true });
+
+    expect(input.value).toBe('first line\nSR:BPM1:X');
+  });
+
+  test('replaces an empty input rather than opening with a newline', () => {
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    const input = mountSimpleInput();
+
+    fc.insertPrompt('SR:BPM1:X', { append: true });
+
+    expect(input.value).toBe('SR:BPM1:X');
+  });
+
+  test('an input holding only whitespace is replaced, not appended to', () => {
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    const input = mountSimpleInput();
+    input.value = '   \n ';
+
+    fc.insertPrompt('SR:BPM1:X', { append: true });
+
+    expect(input.value).toBe('SR:BPM1:X');
+  });
+
+  test('raises one input event, so the textarea regrows exactly once', () => {
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    const input = mountSimpleInput();
+    input.value = 'already typed';
+    let seen = 0;
+    input.addEventListener('input', () => {
+      seen += 1;
+    });
+
+    fc.insertPrompt('SR:BPM1:X', { append: true });
+
+    expect(seen).toBe(1);
+  });
+
+  test('leaves a disabled input untouched, appended text and all', () => {
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    const input = mountSimpleInput({ disabled: true });
+    input.value = 'mid-turn text';
+
+    fc.insertPrompt('SR:BPM1:X', { append: true });
+
+    expect(input.value).toBe('mid-turn text');
+    expect(document.activeElement).not.toBe(input);
+  });
+
+  test('never submits: the operator still presses Enter themselves', () => {
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    const input = mountSimpleInput();
+    input.value = 'already typed';
+
+    const submits = countingSubmits(() => fc.insertPrompt('SR:BPM1:X', { append: true }));
+
+    expect(submits).toBe(0);
+    expect(input.value.endsWith('\n')).toBe(false);
+  });
+
+  test('expert ignores append and pastes the text as-is', () => {
+    document.documentElement.setAttribute('data-ui-mode', 'expert');
+    fc.insertPrompt('SR:BPM1:X SR:BPM2:X', { append: true });
+    expect(term.paste).toHaveBeenCalledWith('SR:BPM1:X SR:BPM2:X');
+    expect(term.focus).toHaveBeenCalledTimes(1);
+  });
+
+  test('the default is still replace, for the prompt chips', () => {
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    const input = mountSimpleInput();
+    input.value = 'half a question';
+
+    fc.insertPrompt('What can you read right now?');
+
+    expect(input.value).toBe('What can you read right now?');
+  });
+});
+
 /* ---- the settled moment ------------------------------------------------- */
 
 /** Announce a session id, the way terminal.js's onSessionChange does. */

@@ -230,11 +230,25 @@ def test_local_mode_generation_writes_env_users(tmp_path):
 
 
 def test_an_existing_env_users_is_returned_untouched(tmp_path):
+    """An operator's file (no banner) is never rewritten. Agreeing with the
+    chain on the provider key, it is simply the file the deploy uses."""
+    users_path = tmp_path / USERS_ENV_FILENAME
+    users_path.write_text("CBORG_API_KEY=authored\nMY_OWN=line\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("CBORG_API_KEY=authored\n", encoding="utf-8")
+
+    assert ensure_env_production(_LOCAL_CONFIG, tmp_path) == users_path
+    assert users_path.read_text(encoding="utf-8") == "CBORG_API_KEY=authored\nMY_OWN=line\n"
+
+
+def test_an_existing_env_users_that_disagrees_on_the_key_is_refused_not_rewritten(tmp_path):
+    """Still never rewritten -- but a provider key that differs from the chain
+    would 401 every terminal, so the deploy refuses instead of shipping it."""
     users_path = tmp_path / USERS_ENV_FILENAME
     users_path.write_text("CBORG_API_KEY=authored\n", encoding="utf-8")
     (tmp_path / ".env").write_text("CBORG_API_KEY=derived\n", encoding="utf-8")
 
-    assert ensure_env_production(_LOCAL_CONFIG, tmp_path) == users_path
+    with pytest.raises(RuntimeError, match="CBORG_API_KEY"):
+        ensure_env_production(_LOCAL_CONFIG, tmp_path)
     assert users_path.read_text(encoding="utf-8") == "CBORG_API_KEY=authored\n"
 
 

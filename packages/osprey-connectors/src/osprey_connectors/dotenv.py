@@ -227,8 +227,10 @@ ENV_USERS_BANNER = (
     "# need — LLM provider credentials and module runtime vars — never\n"
     "# build/CI-only variables, and never auth secrets (.env.auth is the auth\n"
     "# sidecar's file). Derived from .env.shared + .env (later file wins) by\n"
-    "# `osprey up` or `osprey users env`; a deploy never overwrites an existing\n"
-    "# file. .env.example documents the variables themselves.\n"
+    "# `osprey up` or `osprey users env`. `osprey up` re-renders a file that\n"
+    "# carries this header whenever the chain has changed; add a line of your\n"
+    "# own and it is yours from then on, never rewritten. .env.example\n"
+    "# documents the variables themselves.\n"
 )
 
 #: Header stamped when the auth-credential writer CREATES ``.env.auth``

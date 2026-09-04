@@ -195,8 +195,11 @@ def test_the_panels_row_is_the_union_across_personas(exemplar_lines: list[str]) 
     # EVENTS and BLUESKY are declared by the readwrite persona, not the host
     # profile; a card that read only the host would miss them. Their labels
     # come from `web.panels.<id>.label` — they are not built-ins.
+    # The order is declaration order: the host profile's `web_panels` first, in
+    # the order it lists them, then whatever the persona deltas add. JUPYTER
+    # follows SYSTEM because the profile lists `jupyter` after `system-health`.
     panels = line_with(exemplar_lines, "panels")
-    assert "ARIEL · CHANNELS · KNOWLEDGE · SYSTEM · EVENTS · BLUESKY" in panels
+    assert "ARIEL · CHANNELS · KNOWLEDGE · SYSTEM · JUPYTER · EVENTS · BLUESKY" in panels
 
 
 def test_the_agent_group_names_servers_and_counts_its_toolkit(
