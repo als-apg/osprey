@@ -5,29 +5,75 @@ validator (``cli/templates/manifest.py``), and the preset profile validator
 (``cli/build_profile_model.py``) all gate on this set. Drift between them is what
 let unknown panel IDs slip past for two registries simultaneously.
 
-The set itself is derived from ``registry.web.FRAMEWORK_WEB_SERVERS`` — the panel
-ids and the companion servers behind them are one fact, and every place that
-kept its own copy of the panel-id ↔ registry-key relation drifted from the
-others. Cross between the two namespaces via
+The set itself is derived from ``registry.web.FRAMEWORK_WEB_SERVERS`` and
+:data:`SIDECAR_PANELS` — the panel ids and the servers behind them are one fact,
+and every place that kept its own copy of the panel-id ↔ registry-key relation
+drifted from the others. Cross between the two namespaces via
 ``registry.web.PANEL_ID_TO_REGISTRY_KEY`` or ``WebServerDefinition.panel_id``,
-never a local table.
+never a local table; a sidecar panel id is in neither, so cross with ``.get``.
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS
 
 UNIVERSAL_PANELS: set[str] = {"artifacts"}
 
-#: Every panel id the framework serves itself, derived from the companion
-#: web-server registry rather than re-listed here.
+
+@dataclass(frozen=True)
+class SidecarPanel:
+    """A built-in panel served by a process the web terminal starts itself.
+
+    The companion-server registry (``registry.web``) is scoped to servers
+    ``ServerLauncher`` runs from a config section with a host, a port and an
+    ``auto_launch`` key. A sidecar has none of those: it is started by the
+    terminal's lifespan, listens on an ephemeral loopback port, and is reached
+    only through the terminal's own panel proxy. Registering one there would
+    hand it a port band, a port env var and a health probe that mean nothing.
+
+    Attributes:
+        name: One-line description, used as the build interview's menu entry
+            for the panel id.
+        factory_path: ``module:attribute`` of the sidecar class the terminal
+            imports to start it. A dotted path rather than the object so this
+            module stays importable without pulling the sidecar's dependencies
+            into every process that reads the panel registry.
+    """
+
+    name: str
+    factory_path: str
+
+
+#: The notebook panel's id. Named rather than spelled, because the terminal
+#: reads it on a path that has nothing to do with panels — the session binding
+#: an attach writes is only worth writing where this panel is served.
+JUPYTER_PANEL_ID = "jupyter"
+
+#: Built-in panels the web terminal serves from a sidecar process rather than a
+#: registered companion server. Keyed by panel id, exactly like the ids derived
+#: from the companion registry, so every consumer of :data:`BUILTIN_PANELS`
+#: covers them without a second lookup.
+SIDECAR_PANELS: dict[str, SidecarPanel] = {
+    JUPYTER_PANEL_ID: SidecarPanel(
+        "JupyterLab notebooks",
+        "osprey.interfaces.web_terminal.jupyter_sidecar:JupyterSidecar",
+    ),
+}
+
+#: Every panel id the framework serves itself: the companion web servers, plus
+#: the sidecars the terminal starts. Derived from both registries rather than
+#: re-listed here.
 #:
 #: Registering a companion server IS registering its panel: the registry entry
 #: already declares the panel id it is reached by
 #: (``WebServerDefinition.panel_id``), and a second hand-written copy of that
 #: namespace could only ever agree with the first by luck. Keeping it derived
 #: also means a new panel needs no edit in this file at all.
-BUILTIN_PANELS: set[str] = {definition.panel_id for definition in FRAMEWORK_WEB_SERVERS.values()}
+BUILTIN_PANELS: set[str] = {
+    definition.panel_id for definition in FRAMEWORK_WEB_SERVERS.values()
+} | set(SIDECAR_PANELS)
 
 # The event-dispatcher dashboard (``events``) is intentionally NOT a builtin: it
 # is a URL-backed custom panel (the control-assistant preset sets
@@ -44,6 +90,7 @@ BUILTIN_PANEL_LABELS: dict[str, str] = {
     "ariel": "ARIEL",
     "channel-finder": "CHANNELS",
     "lattice": "LATTICE",
+    JUPYTER_PANEL_ID: "JUPYTER",
     "okf": "KNOWLEDGE",
     "system-health": "SYSTEM",
 }

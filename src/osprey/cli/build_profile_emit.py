@@ -537,7 +537,7 @@ def artifact_menu_catalog() -> dict[str, list[tuple[str, str]]]:
     Universal panels (always served) are excluded: they are not opt-ins.
     """
     from osprey.cli.templates.artifact_library import _TYPE_TO_SUBDIR, list_artifacts
-    from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
+    from osprey.profiles.web_panels import BUILTIN_PANELS, SIDECAR_PANELS, UNIVERSAL_PANELS
     from osprey.registry.web import FRAMEWORK_WEB_SERVERS
     from osprey.services.build_artifacts import BuildArtifactCatalog
 
@@ -550,6 +550,7 @@ def artifact_menu_catalog() -> dict[str, list[tuple[str, str]]]:
             entries.append((name, _first_sentence(artifact.description) if artifact else ""))
         menu[artifact_type] = entries
     labels = {d.panel_id: d.name for d in FRAMEWORK_WEB_SERVERS.values()}
+    labels |= {panel_id: entry.name for panel_id, entry in SIDECAR_PANELS.items()}
     menu["web_panels"] = [
         (panel, labels.get(panel, "")) for panel in sorted(BUILTIN_PANELS - UNIVERSAL_PANELS)
     ]

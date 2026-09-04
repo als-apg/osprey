@@ -1,17 +1,31 @@
 """Tests for the osprey_notebook_update PostToolUse hook.
 
 This hook invalidates cached rendered HTML when a notebook is edited
-via NotebookEdit, ensuring the gallery re-renders on next view.
+via NotebookEdit, ensuring the gallery re-renders on next view, and badges the
+JUPYTER panel when the edit landed in the agent's own notebooks tree.
 
 The observable contract is small: delete ``_notebook_cache/{stem}_rendered.html``
 when it is there, leave the tree alone when it is not, log which of the two
-happened under debug, and never fail the tool call — whatever the input or the
-state of the filesystem.
+happened under debug, post exactly one agent-activity frame for an edit under
+``<agent-data root>/notebooks/`` and none for an edit anywhere else, and never
+fail the tool call — whatever the input, the state of the filesystem, or
+whether a web terminal is listening.
 """
+
+import json
+import socket
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
+from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+
 HOOK_NAME = "osprey_notebook_update.py"
+
+#: The agent-data subdirectory the badge fires for. Kept in step with the
+#: hook's own ``_NOTEBOOKS_SUBDIR`` and the rendered ``NotebookEdit`` allow.
+NOTEBOOKS_SUBDIR = "notebooks"
 
 
 def snapshot(root):
@@ -199,3 +213,179 @@ def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
     assert stdout.strip() == ""
     assert "Traceback" not in stderr
     assert snapshot(tmp_path) == before
+
+
+# --- JUPYTER panel badge -------------------------------------------------
+#
+# An edit inside ``<agent-data root>/notebooks/`` is reported to the web
+# terminal as an agent-activity frame, so the JUPYTER rail entry glows and
+# badges. The contract is the payload, the tree it fires for, and that a web
+# terminal which is not there costs a badge and nothing else.
+
+
+@pytest.fixture
+def activity_server():
+    """Stub web terminal recording POST /api/agent-activity bodies.
+
+    Yields ``(port, received)``; ``received`` grows a decoded body per POST,
+    appended before the response is written, so a hook subprocess that has
+    exited has necessarily already been recorded.
+    """
+    received = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802 - http.server API
+            length = int(self.headers.get("Content-Length", 0))
+            received.append(
+                {
+                    "path": self.path,
+                    "body": json.loads(self.rfile.read(length) or b"{}"),
+                    "content_type": self.headers.get("Content-Type"),
+                }
+            )
+            self.send_response(200)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, *args):  # silence test output
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server.server_address[1], received
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def closed_port():
+    """A port with nothing listening (bound momentarily, then released)."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def make_notebook(tmp_path, relpath, subdir=NOTEBOOKS_SUBDIR):
+    """Create an empty notebook at ``<agent-data root>/<subdir>/<relpath>``."""
+    path = tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / subdir / relpath
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{}")
+    return path
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "relpath, detail",
+    [("scan.ipynb", "scan.ipynb"), ("runs/day2/scan.ipynb", "runs/day2/scan.ipynb")],
+    ids=["top-level", "nested"],
+)
+def test_notebooks_edit_posts_one_activity_frame(
+    tmp_path, monkeypatch, run_notebook_update_hook, activity_server, relpath, detail
+):
+    """An edit under ``notebooks/`` badges the jupyter panel, once, with the path.
+
+    The frame is the route's fixed contract, and ``detail`` is the path
+    *relative to* the notebooks root — an absolute path would name a container
+    directory the operator never sees.
+    """
+    port, received = activity_server
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(port))
+    nb_path = make_notebook(tmp_path, relpath)
+
+    run_notebook_update_hook({"notebook_path": str(nb_path)}, cwd=tmp_path)
+
+    assert len(received) == 1
+    assert received[0]["path"] == "/api/agent-activity"
+    assert received[0]["content_type"] == "application/json"
+    assert received[0]["body"] == {
+        "tool": "NotebookEdit",
+        "target": {"kind": "panel", "panel": "jupyter", "detail": detail},
+    }
+
+
+@pytest.mark.unit
+def test_artifacts_edit_posts_nothing(
+    tmp_path, monkeypatch, run_notebook_update_hook, activity_server
+):
+    """An edit under ``artifacts/`` badges nothing.
+
+    Notebooks the agent writes into the gallery tree belong to WORKSPACE;
+    glowing the JUPYTER entry for one would point the operator at a panel
+    that does not hold the file.
+    """
+    port, received = activity_server
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(port))
+    nb_path = make_notebook(tmp_path, "plot.ipynb", subdir="artifacts")
+
+    run_notebook_update_hook({"notebook_path": str(nb_path)}, cwd=tmp_path)
+
+    assert received == []
+
+
+@pytest.mark.unit
+def test_notebook_outside_agent_data_posts_nothing(
+    tmp_path, monkeypatch, run_notebook_update_hook, activity_server
+):
+    """A notebook edited anywhere else in the project badges nothing either."""
+    port, received = activity_server
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(port))
+    nb_path = tmp_path / "loose.ipynb"
+    nb_path.write_text("{}")
+
+    run_notebook_update_hook({"notebook_path": str(nb_path)}, cwd=tmp_path)
+
+    assert received == []
+
+
+@pytest.mark.unit
+def test_badge_survives_down_web_terminal(tmp_path, monkeypatch, run_notebook_update_hook):
+    """No web terminal costs a badge, not the tool call — and not the cache.
+
+    The invalidation runs before the emit, so the one observable effect the
+    hook owns unconditionally still happens with nothing listening.
+    """
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(closed_port()))
+    nb_path = make_notebook(tmp_path, "scan.ipynb")
+    cached_html = nb_path.parent / "_notebook_cache" / "scan_rendered.html"
+    cached_html.parent.mkdir()
+    cached_html.write_text("<html>cached</html>")
+
+    run_notebook_update_hook({"notebook_path": str(nb_path)}, cwd=tmp_path)
+
+    assert not cached_html.exists()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "token, expected",
+    [("panel-secret", "Bearer panel-secret"), ("  ", None), ("", None)],
+    ids=["token", "whitespace-only", "empty"],
+)
+def test_activity_request_carries_the_panel_token(hook_module, monkeypatch, token, expected):
+    """The bearer rides along only when the carrier holds a real value.
+
+    A blank ``OSPREY_PANEL_TOKEN`` — an uninterpolated compose variable, a
+    hand-edited one — is a credential this hook cannot back, so the header is
+    omitted entirely rather than sent empty. Exercised in-process because the
+    hook subprocess runs on a curated environment that does not forward the
+    carrier.
+    """
+    hook = hook_module("osprey_notebook_update")
+    monkeypatch.setenv("OSPREY_PANEL_TOKEN", token)
+
+    request = hook._activity_request("scan.ipynb")
+
+    assert request.headers.get("Authorization") == expected
+
+
+@pytest.mark.unit
+def test_activity_request_targets_the_configured_web_port(hook_module, monkeypatch):
+    """The emit dials ``OSPREY_WEB_PORT`` on loopback."""
+    hook = hook_module("osprey_notebook_update")
+    monkeypatch.setenv("OSPREY_WEB_PORT", "10999")
+
+    request = hook._activity_request("scan.ipynb")
+
+    assert request.full_url == "http://127.0.0.1:10999/api/agent-activity"

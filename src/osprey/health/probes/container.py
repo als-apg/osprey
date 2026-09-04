@@ -19,7 +19,8 @@ state — and its healthcheck status, when the runtime reports one — to a
 Container matching uses a fuzzy short-name rule: the target's last dotted
 segment, lower-cased, is matched
 against each container's ``Names`` with underscore/hyphen variants, so
-``osprey.jupyter`` matches a container named ``project-osprey_jupyter-1``.
+``services.archiver_recorder`` matches a container named
+``project-archiver-recorder-1``.
 
 Spec keys:
     container: The container/service name to look up (required; alias ``service``).

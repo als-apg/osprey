@@ -79,6 +79,9 @@ export function formatActivity(frame, opts = {}) {
       }
       const verb = PANEL_VERBS[frame.tool];
       if (verb) return { verb, subject: label(t.panel) };
+      if (frame.tool === 'NotebookEdit') {
+        return { verb: 'agent edited', subject: t.detail || label(t.panel) };
+      }
       // Generic fallback: a panel-kind frame from some other tool.
       return { verb: 'agent touched', subject: t.panel || frame.tool };
     }

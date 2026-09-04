@@ -50,6 +50,14 @@ created, and switch between companion tools without ever leaving the page.
 
       Add your own tools as themed side panels that sit beside the chat.
 
+   .. grid-item-card:: Notebooks
+      :link: notebooks
+      :link-type: doc
+      :shadow: md
+
+      Run JupyterLab in a tab, with kernels that read and write the control
+      system through the session you already have open.
+
    .. grid-item-card:: Multi-user
       :link: multi-user/index
       :link-type: doc
@@ -64,5 +72,6 @@ created, and switch between companion tools without ever leaving the page.
    operate
    theming
    panels
+   notebooks
    send-feedback
    multi-user/index

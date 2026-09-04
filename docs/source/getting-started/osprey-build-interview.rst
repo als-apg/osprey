@@ -28,7 +28,7 @@ and you can stop, build, and resume at any point.
 
    * **A container runtime (Docker or Podman)** — not needed for the interview
      itself, but your generated project will likely include containerized
-     services (Jupyter, simulation IOCs, databases). Without one, ``osprey build``
+     services (simulation IOCs, databases, the observability stack). Without one, ``osprey build``
      still works but ``osprey up`` won't. See the "Container Runtime"
      dropdown in :doc:`installation` for install instructions.
    * **A list or spreadsheet of EPICS PV names** for your subsystem, if you have

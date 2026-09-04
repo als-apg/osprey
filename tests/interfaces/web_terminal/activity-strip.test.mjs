@@ -319,6 +319,25 @@ describe('panel action verbs', () => {
     strip.handleActivity(frame({ kind: 'panel', panel: 'lattice' }, 'close_panel'));
     expect(mount.textContent).toContain('agent closed');
   });
+
+  test('NotebookEdit with a detail reads "agent edited <notebook>"', () => {
+    const strip = makeStrip();
+    strip.handleActivity(
+      frame({ kind: 'panel', panel: 'jupyter', detail: 'getting-started.ipynb' }, 'NotebookEdit'),
+    );
+
+    expect(mount.textContent).toContain('agent edited');
+    expect(mount.textContent).toContain('getting-started.ipynb');
+  });
+
+  test('NotebookEdit with no detail falls back to the panel label', () => {
+    const strip = makeStrip();
+    strip.handleActivity(frame({ kind: 'panel', panel: 'jupyter' }, 'NotebookEdit'));
+
+    expect(mount.textContent).toContain('agent edited');
+    expect(mount.textContent).toContain('jupyter');
+    expect(mount.textContent).not.toContain('agent touched');
+  });
 });
 
 describe('arrange coalescing', () => {
