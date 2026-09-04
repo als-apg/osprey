@@ -11,6 +11,7 @@ Environment Setup
 -----------------
 
 **Prerequisites:** Python 3.11+, Git, a GitHub account, and `uv <https://docs.astral.sh/uv/>`_.
+Building the docs also needs `Graphviz <https://graphviz.org/download/>`_ (the ``dot`` command).
 
 **1. Fork and Clone**
 
