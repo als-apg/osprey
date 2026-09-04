@@ -18,6 +18,7 @@ import { initDockWorkspace, applyDockMode } from './dock-workspace.js';
 import { initHeaderContrib } from './tile-header-contrib.js';
 import { initIdentityMenu } from './identity-menu.js';
 import { initControlTargetChip } from './control-target-chip.js';
+import { insertPrompt } from './first-contact.js';
 import { initControlTargetPopover } from './control-target-popover.js';
 import { followThemeFamily, getRailPosition, setRailPosition } from './rail-position.js';
 import { initFeedback } from './feedback-boot.js';
@@ -310,13 +311,27 @@ function initBars() {
 
 /* ---- Iframe Paste Bridge ---- */
 
-function initIframePasteBridge() {
+/**
+ * Let an embedded panel put text where the operator is composing.
+ *
+ * A panel cannot type for the operator, so it posts what it has and the hub
+ * decides where that lands. `insertPrompt` is the one seam that knows where
+ * that is in each view — the terminal in expert, the chat textarea in Simple,
+ * which the terminal branch alone would never reach — and it appends here
+ * rather than replaces: what a panel contributes (the addresses just picked,
+ * say) is an ingredient of a prompt the operator may already be writing, and
+ * overwriting that would destroy the only copy of it. It is never sent; the
+ * operator's next Enter is still their own.
+ *
+ * Exported so the bridge can be driven directly in tests: the bootstrap below
+ * runs on DOMContentLoaded, which has already fired by then.
+ */
+export function initIframePasteBridge() {
   window.addEventListener('message', (e) => {
     if (e.origin !== window.location.origin) return;
     // Accept paste-to-terminal messages from embedded iframes
     if (e.data && e.data.type === 'osprey-paste-to-terminal' && e.data.text) {
-      pasteToTerminal(e.data.text);
-      focusTerminal();
+      insertPrompt(e.data.text, { append: true });
     }
     // A panel asking its host to move THIS client to another panel — the
     // sender-local twin of the panel_focus SSE path (the gallery's logbook

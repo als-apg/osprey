@@ -203,8 +203,8 @@ instead of a database: whether it is reachable, and how many resources it holds
 (:doc:`health-and-monitoring/configure-health-checks`).
 
 The web explorer opens on this pipeline too, and reads the same store: its
-Explore view draws the device classes the corpus holds rather than a channel
-tree. See `Web Interface`_ below.
+Explore view searches the graph rather than browsing a channel tree. See
+`Web Interface`_ below.
 
 
 Web Interface
@@ -218,20 +218,36 @@ Launch the browser-based channel explorer:
    osprey channel-finder web --port 9000
 
 The explorer browses a channel database. On the graph pipeline there is no such
-file, so its Explore view shows the facility ontology instead: the store's
-device classes drawn as a tree, each class carrying the number of devices under
-it and its subclasses, below a legend of the relationship types the store uses.
-A badge names the corpus file and the store it was loaded into, and chips name
-the tools the OSPREY agent queries that same store with. The header counts
-devices, channels, classes, signals and sections read live from the store; if
-the store is unreachable the view says so and offers a Retry, and if it is
-reachable but empty it names the ``osprey knowledge seed-graph`` command that
-fills it. Channel validation is not offered on this pipeline. Ask the OSPREY
-agent for the channels you need — it answers from the graph. The
-channel-suggestion typeahead in the web panels still works in graph mode:
-``osprey build`` reads the channel names out of the Turtle corpus named by
-``services.graphdb.ttl_path`` and writes them into the snapshot the panels
-use.
+file, so its Explore view is a finder over the store instead. Type words into
+the search box and it keeps the channels that match all of them — against the
+address, the description, the device or signal name, and the name or synonyms
+of the device's class or any class above it. A facet rail narrows further:
+Section, System and Signal count matching channels, Device class counts devices
+and rolls each class up over its subclasses, and Direction splits them into
+read, write, read/write and undirected. A class that groups devices without
+being a kind of device itself is shown in muted italic. Every facet is counted with its own
+filter lifted, so a number says what a second pick in that facet would add.
+Active filters show as chips you can click to remove, and when a facet list is
+capped the panel says so.
+
+Results come fifty to a page: device, section, address, direction, signal and
+description. Clicking a device name opens a card for it — where it sits in the
+machine, and every channel bound to it grouped by signal. Tick the rows you
+want, and **Copy addresses** puts them on the clipboard one per line, while
+**Send to assistant**, offered only when the panel runs inside the terminal,
+puts them into the prompt on one line for you to send. The panel never submits
+anything itself.
+
+The badge naming the corpus file and the store it was loaded into, the chips
+naming the tools the OSPREY agent queries that same store with, and the header
+counts of devices, channels, classes, signals and sections read live from the
+store are all unchanged. If the store is unreachable the view says so and
+offers a Retry, and if it is reachable but empty it names the ``osprey
+knowledge seed-graph`` command that fills it. Channel validation is not offered
+on this pipeline. The channel-suggestion typeahead in the web panels still
+works in graph mode: ``osprey build`` reads the channel names out of the Turtle
+corpus named by ``services.graphdb.ttl_path`` and writes them into the snapshot
+the panels use.
 
 
 The ``config.yml`` keys for every pipeline, and how the active one is served to
