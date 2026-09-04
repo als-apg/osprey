@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 03, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 04, 2026"/>
   </head>
   
   
@@ -902,12 +902,13 @@ gates and disable the categories you do not want to leave the machine.</p>
 the root credentials. Rebuilding the project moves <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> onto the
 ingest account, and the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> creates the account and saves its
 token — both automatic.</p>
-<p>One file is deliberately left alone: <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>, the environment your web
-terminals run with. It is never regenerated once it exists, which is exactly
-what keeps a file you have edited by hand intact. So if your deployment serves
-web terminals that emit telemetry, the deploy prints an advisory naming
-<code class="docutils literal notranslate"><span class="pre">ZO_INGEST_USER_EMAIL</span></code> as missing from that file, and the fix is a write of
-your own: <strong>append</strong> the variable.</p>
+<p>One file may need a hand: <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>, the environment your web terminals
+run with. If OSPREY rendered it and you never edited it, the next
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> re-renders it from the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> and the variable
+arrives on its own. A file you have edited by hand is never rewritten — that is
+what keeps your edits intact — so on such a deployment the deploy prints an
+advisory naming <code class="docutils literal notranslate"><span class="pre">ZO_INGEST_USER_EMAIL</span></code> as missing from that file, and the
+fix is a write of your own: <strong>append</strong> the variable.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># use the same value the project&#39;s .env has</span>
 grep<span class="w"> </span><span class="s1">&#39;^ZO_INGEST_USER_EMAIL=&#39;</span><span class="w"> </span>~/my-project/.env<span class="w"> </span>&gt;&gt;<span class="w"> </span>~/my-project/.env.users
 </pre></div>
@@ -915,8 +916,7 @@ grep<span class="w"> </span><span class="s1">&#39;^ZO_INGEST_USER_EMAIL=&#39;</s
 <p>A later assignment wins in an environment file, so appending disturbs nothing
 already in it. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">env</span> <span class="pre">--output</span> <span class="pre">.env.users</span></code> re-renders the file
 instead — that <strong>replaces it whole</strong>, so reach for it only if nothing in the
-file was added by hand. Do not delete the file to regenerate it; that discards
-anything you added.</p>
+file was added by hand.</p>
 <p>Until the variable is present, those terminals authenticate as whatever the
 reference falls back to inside the container, and the store rejects their
 records.</p>
