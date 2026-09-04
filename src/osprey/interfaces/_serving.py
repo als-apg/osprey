@@ -13,6 +13,7 @@ importing it from shipped code drags nothing extra along.
 
 from __future__ import annotations
 
+import logging
 import socket
 import threading
 import time
@@ -25,6 +26,29 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from fastapi import FastAPI
+
+logger = logging.getLogger(__name__)
+
+#: Seconds uvicorn may spend draining open connections once it is told to
+#: exit, before it cancels whatever is still running and moves on to the
+#: application's lifespan shutdown. Uvicorn's default is *no* bound: it waits
+#: for every connection and every in-flight handler to finish, and only then
+#: runs the lifespan shutdown. A proxied WebSocket still closing upstream, or a
+#: handler stuck behind a slow peer, therefore holds the lifespan shutdown open
+#: for as long as it likes — and everything that shutdown owns (the notebook
+#: sidecar and its kernels, the file watcher, PTY children) keeps running with
+#: it. The callers here have already closed their pages by the time they stop
+#: the server, so a connection that has not gone in this long is not going to.
+_DRAIN_TIMEOUT = 5.0
+
+#: Seconds to wait for the serving thread to finish after ``should_exit``.
+#: Covers the drain above plus a lifespan shutdown that terminates
+#: subprocesses with a grace period of its own (the notebook sidecar gives its
+#: server five seconds on ``SIGTERM`` before ``SIGKILL``, then reaps kernels).
+#: The earlier five-second join returned before such a shutdown could possibly
+#: have finished, so a test that checked for leaked processes afterwards was
+#: racing the shutdown it was meant to observe.
+_SHUTDOWN_JOIN = 30.0
 
 
 def free_port() -> int:
@@ -100,7 +124,13 @@ def run_app_server(app: FastAPI) -> Iterator[str]:
     sock.listen(128)
     port = int(sock.getsockname()[1])
 
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+    config = uvicorn.Config(
+        app,
+        host="127.0.0.1",
+        port=port,
+        log_level="warning",
+        timeout_graceful_shutdown=_DRAIN_TIMEOUT,
+    )
     server = uvicorn.Server(config)
     thread_error: list[BaseException] = []
 
@@ -116,7 +146,18 @@ def run_app_server(app: FastAPI) -> Iterator[str]:
 
     def _shutdown() -> None:
         server.should_exit = True
-        t.join(timeout=5)
+        t.join(timeout=_SHUTDOWN_JOIN)
+        if t.is_alive():
+            # Said out loud rather than raised: this runs in the caller's
+            # ``finally``, where an exception would replace the test's own.
+            # What it names is a lifespan shutdown that has not finished, which
+            # is what a process-leak check further down will report in detail.
+            logger.warning(
+                "Server on port %d still shutting down after %.0f s; "
+                "its lifespan shutdown has not completed",
+                port,
+                _SHUTDOWN_JOIN,
+            )
         with suppress(OSError):
             sock.close()
 
