@@ -40,6 +40,7 @@ from osprey.interfaces.web_terminal.operator_session import (
 )
 from osprey.interfaces.web_terminal.session_binding import write_binding
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
+from osprey.profiles.web_panels import JUPYTER_PANEL_ID
 from osprey_connectors import session_store
 from osprey_connectors.control_system.base import is_readonly_run
 
@@ -417,17 +418,26 @@ def _bind_notebook_session(app, registry, session, session_key: str) -> None:
     notebook kernel started afterwards joins that one. Chat-pool children are
     never bound: they have no PTY, and a kernel has nothing to join.
 
+    A deployment without the notebook panel is left alone entirely. Nothing
+    would ever read the binding there, and writing one creates
+    ``<root>/jupyter/`` under whatever the resolver answers — which, for a
+    server whose config does not resolve, is the process's own tree.
+
     Nothing here may fail the attach. A binding that could not be written
     costs a notebook its session, which the kernel handles by running
     sandboxed; an exception escaping into the handler would cost the operator
     their terminal.
 
     Args:
-        app: The FastAPI app, for resolving the shared agent-data root.
+        app: The FastAPI app, for the enabled panels and the shared
+            agent-data root.
         registry: The PTY registry holding *session_key*.
         session: The live :class:`~...pty_manager.PtySession`, for its pid.
         session_key: The pool key just attached.
     """
+    enabled = getattr(getattr(app, "state", None), "enabled_panels", None) or set()
+    if JUPYTER_PANEL_ID not in enabled:
+        return
     try:
         root = resolve_agent_data_root(app)
         resolve = getattr(registry, "audit_session_key", None)

@@ -186,3 +186,50 @@ def test_evicting_a_background_session_clears_its_binding(bound_root: Path) -> N
 
     assert "sess-1" not in registry._sessions
     assert not binding_path(bound_root).exists()
+
+
+# ── the attach-time gate ───────────────────────────────────────────────────
+
+
+def _attach(tmp_path: Path, enabled: set[str]) -> Path:
+    """Run one attach against an app serving *enabled*, and return its root.
+
+    Args:
+        tmp_path: The throwaway agent-data root the attach should resolve to.
+        enabled: The panel ids the app has enabled.
+
+    Returns:
+        The root, so the caller can assert on what the attach left in it.
+    """
+    from osprey.interfaces.web_terminal.routes import websocket
+
+    app = MagicMock()
+    app.state.enabled_panels = enabled
+    registry = MagicMock()
+    registry.audit_session_key.return_value = "sess-1"
+    session = MagicMock()
+    session.pid = 4321
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(websocket, "resolve_agent_data_root", lambda app=None: str(tmp_path))
+        websocket._bind_notebook_session(app, registry, session, "sess-1")
+    return tmp_path
+
+
+def test_attaching_writes_the_binding_where_the_panel_is_served(tmp_path: Path) -> None:
+    _attach(tmp_path, {"artifacts", "jupyter"})
+
+    assert _document(tmp_path)["session_id"] == "sess-1"
+
+
+def test_attaching_writes_nothing_where_the_panel_is_absent(tmp_path: Path) -> None:
+    """No notebook panel, no notebook state — not even the directory.
+
+    Nothing would ever read the binding in such a deployment, and creating
+    ``<root>/jupyter/`` under a root the server only guessed at is how an
+    empty directory ends up in a tree that has nothing to do with notebooks.
+    """
+    _attach(tmp_path, {"artifacts"})
+
+    assert not binding_path(tmp_path).exists()
+    assert not (tmp_path / "jupyter").exists()
