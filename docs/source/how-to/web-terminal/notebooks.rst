@@ -57,8 +57,17 @@ trash to bring it back from.
 
 When the terminal starts the sidecar and ``notebooks/`` holds no notebook at
 all, it writes ``getting-started.ipynb``, a two-cell notebook holding one note
-and one import line. Any existing ``.ipynb`` suppresses it, and it is never
+and one code cell. Any existing ``.ipynb`` suppresses it, and it is never
 rewritten once written, so it is yours to edit or delete.
+
+The code cell reads a channel where the deployment already names one it can
+serve, so running it returns a value rather than only importing two names.
+The channel comes from the deployment's own configuration, in this order: the
+``archiver_freshness`` health check's channel, which a facility declares is
+still moving, then a control target's ``probe_channel``. A deployment that
+names neither — the ``hello-world`` preset runs a mock connector and declares
+no channel — gets the import line alone, because a cell naming a channel
+nothing serves would fail on its first run.
 
 Which session a kernel follows
 ------------------------------

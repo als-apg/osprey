@@ -32,6 +32,7 @@ from osprey.interfaces.web_terminal.jupyter_sidecar import (
     lab_page_config,
     lab_theme_override,
     seed_starter_notebook,
+    starter_read_channel,
 )
 from osprey.mcp_server.python_executor.executor import resolve_agent_interpreter
 
@@ -411,8 +412,12 @@ def test_the_argv_pins_the_server_traits(shared_root: Path) -> None:
 
 
 def test_the_starter_notebook_is_written_into_an_empty_notebooks_dir(
-    shared_root: Path, tmp_path: Path
+    shared_root: Path, tmp_path: Path, monkeypatch
 ) -> None:
+    # Pinned to a deployment that declares no channel, so this asserts the
+    # starter's shape rather than whatever config the test host happens to
+    # resolve. The channel-bearing case is covered separately.
+    monkeypatch.setattr(jupyter_sidecar, "_deployment_config", dict)
     sidecar = JupyterSidecar(shared_root, "", None)
 
     sidecar._seed(tmp_path / "config")
@@ -778,3 +783,188 @@ def test_a_straggler_that_takes_sigterm_is_not_killed(monkeypatch) -> None:
 
     assert (7, signal.SIGTERM) in sent
     assert (7, signal.SIGKILL) not in sent
+
+
+class TestTheStarterNotebooksExampleRead:
+    """Which channel the starter notebook reads, and when it reads nothing.
+
+    A deployment is entitled to serve no channel at all — the hello-world
+    preset runs a mock connector and stands up no server of its own — so the
+    read line is earned, never assumed. Two config blocks already name a
+    channel the deployment says it can read; nothing here invents a third.
+    """
+
+    def test_the_archivers_canary_channel_is_the_example(self) -> None:
+        """A freshness canary is declared to keep moving, so it shows a value.
+
+        The archiver check names the one channel a facility promises is still
+        changing. That is what makes a demo read worth running twice.
+        """
+        config = {
+            "health": {
+                "categories": {
+                    "archiver": {
+                        "checks": [
+                            {
+                                "type": "archiver_freshness",
+                                "channel": "SR:DIAG:DCCT:01:CURRENT:RB",
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+
+        assert starter_read_channel(config) == "SR:DIAG:DCCT:01:CURRENT:RB"
+
+    def test_a_targets_probe_channel_is_the_fallback(self) -> None:
+        """Without an archiver, the target switch still names a readable channel."""
+        config = {
+            "control_system": {
+                "connector": {"va": {"probe_channel": "SR:VAC:GAUGE:SR01:PRESSURE:RB"}}
+            }
+        }
+
+        assert starter_read_channel(config) == "SR:VAC:GAUGE:SR01:PRESSURE:RB"
+
+    def test_the_canary_outranks_a_probe_channel(self) -> None:
+        config = {
+            "health": {
+                "categories": {
+                    "archiver": {
+                        "checks": [
+                            {
+                                "type": "archiver_freshness",
+                                "channel": "SR:DIAG:DCCT:01:CURRENT:RB",
+                            }
+                        ]
+                    }
+                }
+            },
+            "control_system": {
+                "connector": {"va": {"probe_channel": "SR:VAC:GAUGE:SR01:PRESSURE:RB"}}
+            },
+        }
+
+        assert starter_read_channel(config) == "SR:DIAG:DCCT:01:CURRENT:RB"
+
+    def test_the_generic_templates_placeholder_is_not_a_channel(self) -> None:
+        """``YOUR:PROBE:CHANNEL`` ships unfilled and names nothing.
+
+        The build refuses to write a placeholder probe channel for the same
+        reason: it would make a target look reachable while naming a channel
+        nothing serves. A starter cell reading it fails on its first run.
+        """
+        config = {
+            "control_system": {"connector": {"live": {"probe_channel": "YOUR:PROBE:CHANNEL"}}}
+        }
+
+        assert starter_read_channel(config) is None
+
+    def test_a_mock_only_deployment_names_no_channel(self) -> None:
+        """The hello-world shape: a mock connector, no server, no declaration."""
+        config = {"control_system": {"type": "mock", "writes_enabled": False}}
+
+        assert starter_read_channel(config) is None
+
+    def test_the_starter_reads_the_channel_it_is_given(self, tmp_path: Path) -> None:
+        notebooks_dir = tmp_path / "notebooks"
+        notebooks_dir.mkdir()
+
+        seed_starter_notebook(notebooks_dir, "SR:DIAG:DCCT:01:CURRENT:RB")
+
+        notebook = nbformat.read(notebooks_dir / "getting-started.ipynb", as_version=4)
+        code = [cell.source for cell in notebook.cells if cell.cell_type == "code"]
+        assert code == [
+            "from osprey.runtime import read_channel, write_channel\n\n"
+            'read_channel("SR:DIAG:DCCT:01:CURRENT:RB")'
+        ]
+
+    def test_no_channel_leaves_the_import_line_alone(self, tmp_path: Path) -> None:
+        notebooks_dir = tmp_path / "notebooks"
+        notebooks_dir.mkdir()
+
+        seed_starter_notebook(notebooks_dir, None)
+
+        notebook = nbformat.read(notebooks_dir / "getting-started.ipynb", as_version=4)
+        code = [cell.source for cell in notebook.cells if cell.cell_type == "code"]
+        assert code == ["from osprey.runtime import read_channel, write_channel"]
+
+    def test_a_built_control_assistant_offers_its_beam_current(self, tmp_path: Path) -> None:
+        """The resolver is pinned to the shape the build really emits.
+
+        The canary is declared as ``va_archiver.freshness_channel`` and reaches
+        the deployed config only after the build derives a health check from it
+        and writes that under a dotted key. Hand-building the nested dict here
+        would test the resolver against an assumption; this renders the config
+        through ``osprey build``'s own override machinery instead, so a change
+        in how those keys are written fails here rather than in a deployment.
+        """
+        import yaml
+
+        from osprey.cli.build_cmd import _apply_config_overrides
+        from osprey.cli.build_profile_archiver import (
+            VAArchiverConfig,
+            va_archiver_config_overrides,
+        )
+
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / "config.yml").write_text(
+            "control_system:\n"
+            "  type: mock\n"
+            "  connector:\n"
+            "    va:\n"
+            "      probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB\n",
+            encoding="utf-8",
+        )
+        # The channel the control-assistant preset names as its canary.
+        overrides = va_archiver_config_overrides(
+            VAArchiverConfig(freshness_channel="SR:DIAG:DCCT:01:CURRENT:RB")
+        )
+        _apply_config_overrides(project, overrides)
+        config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
+
+        assert starter_read_channel(config) == "SR:DIAG:DCCT:01:CURRENT:RB"
+
+    def test_the_seed_reads_the_deployments_own_channel(
+        self, shared_root: Path, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The sidecar resolves the channel from the deployment it runs in."""
+        monkeypatch.setattr(
+            jupyter_sidecar,
+            "_deployment_config",
+            lambda: {
+                "control_system": {"connector": {"va": {"probe_channel": "SR:MY:OWN:CHANNEL"}}}
+            },
+        )
+        sidecar = JupyterSidecar(shared_root, "", None)
+
+        sidecar._seed(tmp_path / "config")
+
+        notebook = nbformat.read(sidecar.notebooks_dir / "getting-started.ipynb", as_version=4)
+        code = [cell.source for cell in notebook.cells if cell.cell_type == "code"]
+        assert code == [
+            'from osprey.runtime import read_channel, write_channel\n\nread_channel("SR:MY:OWN:CHANNEL")'
+        ]
+
+    def test_an_unreadable_config_still_seeds_a_notebook(
+        self, shared_root: Path, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A config that will not load costs the read line, never the panel.
+
+        The starter notebook is a convenience. Failing the sidecar's seed over
+        it would take the whole tab down for a cosmetic line.
+        """
+
+        def _boom() -> dict[str, object]:
+            raise RuntimeError("no config here")
+
+        monkeypatch.setattr(jupyter_sidecar, "_deployment_config", _boom)
+        sidecar = JupyterSidecar(shared_root, "", None)
+
+        sidecar._seed(tmp_path / "config")
+
+        notebook = nbformat.read(sidecar.notebooks_dir / "getting-started.ipynb", as_version=4)
+        code = [cell.source for cell in notebook.cells if cell.cell_type == "code"]
+        assert code == ["from osprey.runtime import read_channel, write_channel"]

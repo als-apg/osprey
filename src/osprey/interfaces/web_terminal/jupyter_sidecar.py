@@ -62,9 +62,9 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import IO
+from typing import IO, Any
 
 import nbformat
 
@@ -109,6 +109,79 @@ STARTER_NOTEBOOK_NAME = "getting-started.ipynb"
 _STARTER_MARKDOWN = "This kernel follows your terminal session. Open a chat session before writing."
 _STARTER_CODE = "from osprey.runtime import read_channel, write_channel"
 
+#: The health check that names a channel the facility declares is still
+#: moving. Its whole purpose is to tell a live archive from a wedged one, so
+#: the channel it watches is the one a demo read can count on to show a value.
+_FRESHNESS_CHECK = "archiver_freshness"
+
+#: The probe channel the generic project template ships unfilled. The build
+#: refuses to write a real-looking one because a placeholder makes a target
+#: look reachable while naming a channel nothing serves; a starter cell that
+#: read it would fail on its first run, so it is skipped here for the same
+#: reason.
+_PROBE_PLACEHOLDER = "YOUR:PROBE:CHANNEL"
+
+
+def _mapping(value: Any) -> Mapping[str, Any]:
+    """Return *value* when it is a mapping, else an empty one.
+
+    Config reaches here as whatever the deployment's YAML parsed to. A block
+    that is absent, ``None`` or the wrong shape is a deployment that declares
+    nothing, which is an answer rather than an error.
+    """
+    return value if isinstance(value, Mapping) else {}
+
+
+def _deployment_config() -> Mapping[str, Any]:
+    """Return the deployment's resolved configuration.
+
+    Imported at call time: the loader pulls in the workspace machinery, which
+    a sidecar has no other reason to carry.
+    """
+    from osprey.utils.workspace import load_osprey_config
+
+    return load_osprey_config()
+
+
+def starter_read_channel(config: Mapping[str, Any]) -> str | None:
+    """Return a channel *config* says this deployment can read, or ``None``.
+
+    The starter notebook shows a real read only where the deployment has
+    already named a channel it can serve. Nothing is guessed and no facility
+    name is baked in: a mock-only deployment such as the hello-world preset
+    declares no channel, and gets no read line.
+
+    Two declarations qualify, in this order:
+
+    1. an ``archiver_freshness`` health check's ``channel`` — the facility's
+       canary, chosen because it keeps moving;
+    2. a control target's ``probe_channel`` — the channel the target switch
+       reads to prove that target is reachable.
+
+    Args:
+        config: The deployment's resolved configuration.
+
+    Returns:
+        The channel address, or ``None`` when the deployment names none.
+    """
+    categories = _mapping(_mapping(config.get("health")).get("categories"))
+    for category in categories.values():
+        checks = _mapping(category).get("checks")
+        for check in checks if isinstance(checks, list) else []:
+            entry = _mapping(check)
+            channel = entry.get("channel")
+            if entry.get("type") == _FRESHNESS_CHECK and isinstance(channel, str) and channel:
+                return channel
+
+    targets = _mapping(_mapping(config.get("control_system")).get("connector"))
+    for target in targets.values():
+        probe = _mapping(target).get("probe_channel")
+        if isinstance(probe, str) and probe and probe != _PROBE_PLACEHOLDER:
+            return probe
+
+    return None
+
+
 #: How many stderr lines are kept for the failure report.
 _STDERR_TAIL_LINES = 20
 
@@ -150,11 +223,16 @@ def lab_page_config() -> dict[str, dict[str, bool]]:
     return {"disabledExtensions": dict.fromkeys(LAB_DISABLED_EXTENSIONS, True)}
 
 
-def seed_starter_notebook(notebooks_dir: Path) -> Path | None:
+def seed_starter_notebook(notebooks_dir: Path, example_channel: str | None = None) -> Path | None:
     """Write the starter notebook when *notebooks_dir* holds no notebook at all.
 
     Args:
         notebooks_dir: The directory JupyterLab opens.
+        example_channel: A channel this deployment can read, from
+            :func:`starter_read_channel`. When given, the code cell reads it,
+            so the first cell run returns a value instead of importing two
+            names and stopping. When ``None`` the cell is the import alone —
+            a deployment that names no channel is not given one to fail on.
 
     Returns:
         The path written, or ``None`` when a notebook already exists anywhere
@@ -162,10 +240,13 @@ def seed_starter_notebook(notebooks_dir: Path) -> Path | None:
     """
     if next(notebooks_dir.rglob("*.ipynb"), None) is not None:
         return None
+    code = _STARTER_CODE
+    if example_channel:
+        code = f'{_STARTER_CODE}\n\nread_channel("{example_channel}")'
     notebook = nbformat.v4.new_notebook(
         cells=[
             nbformat.v4.new_markdown_cell(_STARTER_MARKDOWN),
-            nbformat.v4.new_code_cell(_STARTER_CODE),
+            nbformat.v4.new_code_cell(code),
         ],
         metadata={
             "kernelspec": {
@@ -361,7 +442,12 @@ class JupyterSidecar:
             (labconfig / "default_setting_overrides.json").write_text(
                 json.dumps(override, indent=2) + "\n", encoding="utf-8"
             )
-        seed_starter_notebook(self.notebooks_dir)
+        try:
+            example_channel = starter_read_channel(_deployment_config())
+        except Exception:  # noqa: BLE001 — the read line is cosmetic, the panel is not
+            logger.debug("Starter notebook: config load failed", exc_info=True)
+            example_channel = None
+        seed_starter_notebook(self.notebooks_dir, example_channel)
 
     def _write_kernelspec(self) -> None:
         spec = {
