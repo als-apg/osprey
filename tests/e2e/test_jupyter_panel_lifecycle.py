@@ -542,18 +542,41 @@ def _run_cell(socket: Any, code: str, session_id: str) -> CellResult:
         socket.send(json.dumps(request))
     except ConnectionClosed as exc:
         # The proxy closes the browser side normally whatever happened upstream,
-        # so the close alone says nothing about why. The terminal's log holds
-        # the proxy's own account of it and the sidecar's stderr behind that.
+        # so the close alone says nothing about why. The terminal's log carries
+        # the proxy's own account of it. It does NOT carry the kernel's: the
+        # sidecar's stderr is drained into a short in-memory tail that is
+        # printed only when the sidecar itself exits, so a kernel traceback
+        # never reaches this log. Read it for the proxy's side and no further.
         raise AssertionError(
             f"the kernel channel was closed before the cell could be sent: {exc}\n"
             f"{_logs(_web_container())}"
         ) from exc
     result = CellResult("", "", None, "", "")
+    # Every frame this call sees, matched or not. A kernel that dies at start
+    # is restarted by ``jupyter_client``'s restarter and finally declared dead,
+    # and the two frames that say so — ``status: restarting`` and
+    # ``status: dead`` — carry an empty parent header, so the match below drops
+    # them. Dropping them silently is what makes a crash loop and a slow start
+    # look identical from here, which is the whole difficulty of this failure.
+    seen: list[str] = []
     deadline = time.monotonic() + CELL_TIMEOUT_SEC
     while time.monotonic() < deadline:
-        raw = socket.recv(timeout=max(1.0, deadline - time.monotonic()))
+        try:
+            raw = socket.recv(timeout=max(1.0, deadline - time.monotonic()))
+        except TimeoutError as exc:
+            raise AssertionError(
+                f"the kernel channel went quiet within {CELL_TIMEOUT_SEC:.0f} s: {exc}\n"
+                f"frames seen while waiting: {seen or '(none at all)'}"
+            ) from exc
         message = json.loads(raw)
-        if (message.get("parent_header") or {}).get("msg_id") != request["header"]["msg_id"]:
+        parent = (message.get("parent_header") or {}).get("msg_id")
+        state = (message.get("content") or {}).get("execution_state")
+        seen.append(
+            f"{message['header']['msg_type']}"
+            f"{'/' + state if state else ''}"
+            f"{'' if parent == request['header']['msg_id'] else ' (other parent)'}"
+        )
+        if parent != request["header"]["msg_id"]:
             continue
         msg_type = message["header"]["msg_type"]
         content = message.get("content") or {}
@@ -841,13 +864,29 @@ def test_a_target_switch_is_refused_until_the_kernel_restarts(terminal: Terminal
         assert new_records[0]["surface"] == SURFACE
 
         restarted = terminal.post(f"{PANEL}/api/kernels/{terminal.kernel_id}/restart")
+        # A 200 here means a process was spawned, not that it came up: the
+        # handler writes the model without awaiting the future that resolves on
+        # the restarted kernel's ``kernel_info_reply``. Nor does the websocket
+        # handshake below settle it — the server caches the kernel-info future
+        # on the kernel manager and never invalidates it on restart, so a
+        # reconnect resolves instantly against the kernel that just went away.
+        # The REST model is the one reading of kernel liveness that no proxy
+        # and no cache sits in front of, so it is what the failure quotes.
         assert restarted.status_code == 200, restarted.text
         channel_session = uuid.uuid4().hex
-        with terminal.kernel_channels(terminal.kernel_id, channel_session) as socket:
-            followed = _run_ok(
-                socket, 'import os\nprint(os.environ["OSPREY_CONTROL_TARGET"])\n', channel_session
-            )
-            assert followed.strip() == other, followed
+        try:
+            with terminal.kernel_channels(terminal.kernel_id, channel_session) as socket:
+                followed = _run_ok(
+                    socket,
+                    'import os\nprint(os.environ["OSPREY_CONTROL_TARGET"])\n',
+                    channel_session,
+                )
+                assert followed.strip() == other, followed
+        except AssertionError as exc:
+            model = terminal.get(f"{PANEL}/api/kernels/{terminal.kernel_id}")
+            raise AssertionError(
+                f"{exc}\nkernel model after the restart: {model.status_code} {model.text.strip()}"
+            ) from exc
     finally:
         terminal.delete(f"{PANEL}/api/sessions/{terminal.notebook_session_id}")
 
