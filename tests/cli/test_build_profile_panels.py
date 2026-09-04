@@ -237,3 +237,24 @@ def test_nothing_to_judge_warns_nothing(config) -> None:
     """Shape problems are the server loader's to report; this only speaks to a
     readable entry naming a gated item."""
     assert bar_items_selection_warnings(config, []) == []
+
+
+# ---------------------------------------------------------------------------
+# artifact_menu_catalog — what the build interview offers
+# ---------------------------------------------------------------------------
+
+
+def test_every_offered_panel_carries_a_description() -> None:
+    """An entry with an empty description is a menu line the reader cannot judge.
+
+    Descriptions came from the companion-server registry alone, so a panel
+    served any other way — a sidecar the web terminal starts itself — was
+    offered as a bare id with a trailing blank comment.
+    """
+    from osprey.cli.build_profile_emit import artifact_menu_catalog
+    from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
+
+    entries = artifact_menu_catalog()["web_panels"]
+
+    assert {name for name, _ in entries} == BUILTIN_PANELS - UNIVERSAL_PANELS
+    assert [name for name, description in entries if not description] == []

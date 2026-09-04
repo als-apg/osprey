@@ -259,11 +259,53 @@ class TestBuiltinAddressResolution:
         The health category's own copy of the panel-id → registry-key map had
         already drifted from the CLI's copy (it carried an `artifacts` entry the
         CLI omitted). Derived from the registry, the two cannot disagree.
+
+        Sidecar panels are the one class outside that map: nothing launches them
+        from a config section, so they carry no registry key and are never
+        probed at an address.
         """
-        from osprey.profiles.web_panels import BUILTIN_PANELS
+        from osprey.profiles.web_panels import BUILTIN_PANELS, SIDECAR_PANELS
         from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY
 
-        assert set(PANEL_ID_TO_REGISTRY_KEY) == BUILTIN_PANELS
+        assert set(PANEL_ID_TO_REGISTRY_KEY) | set(SIDECAR_PANELS) == BUILTIN_PANELS
+
+
+class TestSidecarPanels:
+    """A panel the web terminal serves itself is reported, never probed."""
+
+    async def test_enabled_sidecar_gets_a_skip_row(self):
+        """Skip, not OK: this category never established the sidecar is up.
+
+        The sidecar has no address of its own — it is reached through the
+        terminal's panel proxy — so an OK row would assert a liveness nothing
+        here measured, and a warning would call every terminal-less host broken.
+        """
+        rows = await _run(_cfg({"jupyter": True}))
+        row = rows["web_panels.jupyter"]
+
+        assert row.status is Status.SKIP
+        assert row.message == (
+            "NOTEBOOKS: not probed — served inside the web terminal; a grey tab "
+            "means the sidecar did not start, see the terminal log"
+        )
+
+    async def test_disabled_sidecar_gets_no_row(self):
+        rows = await _run(_cfg({"jupyter": {"enabled": False}}))
+
+        assert "web_panels.jupyter" not in rows
+
+    async def test_sidecar_is_never_fetched(self):
+        """No request leaves the category for a sidecar panel."""
+        seen: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(str(request.url))
+            return httpx.Response(200)
+
+        await _run(_cfg({"jupyter": True}), handler=handler)
+
+        # Only the universal artifacts panel is probed.
+        assert seen == [f"http://127.0.0.1:{default_port('artifact')}/health"]
 
 
 class TestMisplacedConfigKeys:
