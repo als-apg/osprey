@@ -706,3 +706,75 @@ def test_stop_returns_while_an_orphan_still_holds_the_stderr_pipe(
         if orphan is not None and _alive(orphan):
             os.kill(orphan, signal.SIGKILL)
         sidecar.stop()
+
+
+# ---------------------------------------------------------------------------
+# The straggler reap
+# ---------------------------------------------------------------------------
+
+
+def _reap_with(monkeypatch, snapshots: list[list[int]]) -> list[tuple[int, int]]:
+    """Run ``_reap_stragglers`` against a scripted sequence of pgrep results.
+
+    Args:
+        monkeypatch: The fixture used to stub the reaper's two shell touchpoints.
+        snapshots: One ``_pids_naming`` return per call; the last repeats once
+            the script runs out, so a test only spells out the interesting head.
+
+    Returns:
+        The ``(pid, signal)`` pairs the reap sent, in order.
+    """
+    calls = iter(snapshots)
+    last: list[list[int]] = [snapshots[-1]]
+
+    def _naming(_runtime_dir: str) -> list[int]:
+        last[0] = next(calls, last[0])
+        return list(last[0])
+
+    sent: list[tuple[int, int]] = []
+    monkeypatch.setattr(jupyter_sidecar.shutil, "which", lambda _name: "/usr/bin/pgrep")
+    monkeypatch.setattr(jupyter_sidecar, "_pids_naming", _naming)
+    monkeypatch.setattr(jupyter_sidecar, "_signal_pid", lambda pid, sig: sent.append((pid, sig)))
+    jupyter_sidecar._reap_stragglers("/tmp/does-not-matter")
+    return sent
+
+
+def test_a_kernel_that_appears_after_the_first_snapshot_is_still_reaped(monkeypatch) -> None:
+    """The reap waits for a straggler rather than trusting one sample.
+
+    A kernel the server forked just before it died does not name the runtime
+    dir until it execs, so the first snapshot can legitimately come back empty
+    while a kernel is still on its way up. Returning there left it running with
+    the control target and write posture it launched with, and nothing above it.
+    """
+    sent = _reap_with(monkeypatch, [[], [], [4242], []])
+
+    assert (4242, signal.SIGTERM) in sent
+
+
+def test_a_clean_stop_signals_nothing_and_does_not_wait_out_the_grace(monkeypatch) -> None:
+    """Nothing to reap is the common path: no signals, and no _REAP_GRACE spent."""
+    started = time.monotonic()
+    sent = _reap_with(monkeypatch, [[]])
+    elapsed = time.monotonic() - started
+
+    assert sent == []
+    # The settle window is bounded and the SIGTERM grace is never entered.
+    assert elapsed < jupyter_sidecar._REAP_SETTLE + jupyter_sidecar._REAP_GRACE
+
+
+def test_a_straggler_that_ignores_sigterm_is_killed(monkeypatch) -> None:
+    """SIGTERM first, then SIGKILL once the grace elapses with it still listed."""
+    sent = _reap_with(monkeypatch, [[99]])
+
+    assert (99, signal.SIGTERM) in sent
+    assert (99, signal.SIGKILL) in sent
+    assert sent.index((99, signal.SIGTERM)) < sent.index((99, signal.SIGKILL))
+
+
+def test_a_straggler_that_takes_sigterm_is_not_killed(monkeypatch) -> None:
+    """A process that goes away during the grace never receives SIGKILL."""
+    sent = _reap_with(monkeypatch, [[7], [7], []])
+
+    assert (7, signal.SIGTERM) in sent
+    assert (7, signal.SIGKILL) not in sent

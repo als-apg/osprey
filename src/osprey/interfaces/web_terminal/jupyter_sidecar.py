@@ -118,6 +118,11 @@ _STOP_GRACE = 5.0
 #: How long a straggling kernel is given to take SIGTERM before it is killed.
 _REAP_GRACE = 3.0
 
+#: How long the reap waits for a straggler to *appear* before calling it clean.
+#: A kernel forked just before the server died is invisible to a command-line
+#: match until it execs, so the reap cannot trust its first snapshot.
+_REAP_SETTLE = 1.0
+
 
 def lab_theme_override(pinned_mode: str | None) -> dict[str, dict[str, str]] | None:
     """Return the labconfig override that pins JupyterLab's theme.
@@ -597,16 +602,28 @@ def _reap_stragglers(runtime_dir: str) -> None:
 
     The runtime dir is a 0700 tempdir unique to this launch, and every kernel
     names its connection file inside it, so matching on it cannot reach a
-    process belonging to anything else.
+    process belonging to anything else. That uniqueness is the whole safety
+    argument, and it is why the match is not widened to the shared root: that
+    one is shared across launches, and a signal sent on it could reach another
+    deployment's kernels.
+
+    A straggler is waited *for*, not merely sampled. A kernel the server forked
+    just before it died does not name the runtime dir until it execs — its
+    connection file is an argv entry — so a single snapshot taken the moment the
+    server dies races that exec and, losing, leaves the kernel running with
+    nothing above it. Hence the settle window: only a quiet
+    ``_REAP_SETTLE`` means there is genuinely nothing to reap.
 
     Args:
         runtime_dir: The sidecar's per-launch runtime directory.
     """
     if shutil.which("pgrep") is None:  # pragma: no cover - POSIX hosts have it
         return
-    survivors = _pids_naming(runtime_dir)
-    if not survivors:
-        return
+    appear_by = time.monotonic() + _REAP_SETTLE
+    while not (survivors := _pids_naming(runtime_dir)):
+        if time.monotonic() >= appear_by:
+            return
+        time.sleep(0.05)
     logger.info("%s reaping %d process(es) that outlived it", _NAME, len(survivors))
     for pid in survivors:
         _signal_pid(pid, signal.SIGTERM)

@@ -289,19 +289,39 @@ def _assert_nothing_outlived(*patterns: str) -> None:
     if shutil.which("pgrep") is None:  # pragma: no cover - POSIX runners have it
         return
     deadline = time.monotonic() + 15.0
-    listing = ""
+    pids: list[str] = []
     while time.monotonic() < deadline:
         found = subprocess.run(
-            ["pgrep", "-fl", "|".join(str(p) for p in patterns)],
+            ["pgrep", "-f", "|".join(str(p) for p in patterns)],
             capture_output=True,
             text=True,
             check=False,
         )
         if found.returncode != 0:
             return
-        listing = found.stdout
+        pids = found.stdout.split()
         time.sleep(0.5)
-    raise AssertionError(f"Processes outlived the server:\n{listing}")
+    raise AssertionError(f"Processes outlived the server:\n{_describe(pids)}")
+
+
+def _describe(pids: list[str]) -> str:
+    """Render *pids* as one ``pid: command line`` per line, for a failure message.
+
+    ``pgrep -l`` is not enough: on Linux it prints the process *name*, so every
+    survivor reads ``python`` and the report cannot say which of the two paths
+    it was matched on. ``pgrep -a`` would print the command line but is not in
+    macOS's pgrep, so the lookup goes through ``ps``, which both have.
+    """
+    described = []
+    for pid in pids:
+        shown = subprocess.run(
+            ["ps", "-p", pid, "-o", "command="],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        described.append(f"  {pid}: {shown.stdout.strip() or '<gone>'}")
+    return "\n".join(described)
 
 
 # ===========================================================================
