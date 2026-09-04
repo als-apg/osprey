@@ -1088,8 +1088,9 @@ class TestUsersEnv:
         assert "out.env" in caplog.text
 
     def test_output_overwrites_an_existing_file(self, cli_runner, tmp_path, monkeypatch):
-        """An explicit --output is an instruction, so a re-render replaces it —
-        unlike a deploy, which never overwrites an existing .env.users."""
+        """An explicit --output is an instruction, so a re-render replaces it
+        whoever wrote it — unlike a deploy, which never rewrites a hand-edited
+        .env.users."""
         repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
         (repo_root / ".env").write_text("CBORG_API_KEY=llm-secret\n", encoding="utf-8")
         (repo_root / "out.env").write_text("STALE=leftover\n", encoding="utf-8")

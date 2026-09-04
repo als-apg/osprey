@@ -355,12 +355,13 @@ the root credentials. Rebuilding the project moves ``config.yml`` onto the
 ingest account, and the next ``osprey up`` creates the account and saves its
 token — both automatic.
 
-One file is deliberately left alone: ``.env.users``, the environment your web
-terminals run with. It is never regenerated once it exists, which is exactly
-what keeps a file you have edited by hand intact. So if your deployment serves
-web terminals that emit telemetry, the deploy prints an advisory naming
-``ZO_INGEST_USER_EMAIL`` as missing from that file, and the fix is a write of
-your own: **append** the variable.
+One file may need a hand: ``.env.users``, the environment your web terminals
+run with. If OSPREY rendered it and you never edited it, the next
+``osprey up`` re-renders it from the project's ``.env`` and the variable
+arrives on its own. A file you have edited by hand is never rewritten — that is
+what keeps your edits intact — so on such a deployment the deploy prints an
+advisory naming ``ZO_INGEST_USER_EMAIL`` as missing from that file, and the
+fix is a write of your own: **append** the variable.
 
 .. code-block:: bash
 
@@ -370,8 +371,7 @@ your own: **append** the variable.
 A later assignment wins in an environment file, so appending disturbs nothing
 already in it. ``osprey users env --output .env.users`` re-renders the file
 instead — that **replaces it whole**, so reach for it only if nothing in the
-file was added by hand. Do not delete the file to regenerate it; that discards
-anything you added.
+file was added by hand.
 
 Until the variable is present, those terminals authenticate as whatever the
 reference falls back to inside the container, and the store rejects their

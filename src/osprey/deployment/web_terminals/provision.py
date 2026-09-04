@@ -70,6 +70,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
 )
 from osprey.deployment.web_terminals.env_production import (
     ensure_env_production,
+    users_env_drift_problem,
     users_env_generation_problem,
 )
 from osprey.deployment.web_terminals.lint import lint_web_terminals
@@ -422,6 +423,11 @@ def web_terminal_preflight_report(
     if open_missing := open_mode_missing_by_persona(config, root):
         findings.append((str(OpenModeEgressError(open_missing)), ""))
     if (problem := users_env_generation_problem(config, root)) is not None:
+        findings.append((problem, ""))
+    # The same file's other failure: it exists, but a provider secret in it no
+    # longer matches the chain. A file OSPREY rendered is re-rendered by the
+    # gate, so only an operator's file is a problem to report here.
+    if (problem := users_env_drift_problem(config, root)) is not None:
         findings.append((problem, ""))
 
     blocking, advisories = _privilege_lint_halves(config, root)
