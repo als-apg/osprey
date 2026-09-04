@@ -321,6 +321,12 @@ _ECHO_ALLOWLIST: dict[str, tuple[int, str]] = {
         "alone -- for a caller redirecting it into a file, the same class as "
         "users_cmd's byte render.",
     ),
+    "cli/profile_cmd.py": (
+        1,
+        "profile card's `click.echo(json.dumps(rows))`. The --json branch runs "
+        "inside output.machine_mode(), so every human line is on stderr and this "
+        "is the one document on stdout, the same class as audit_cmd's report.",
+    ),
     "cli/query_cmd.py": (
         2,
         "The two machine seams: the --json document, and the agent-text "
