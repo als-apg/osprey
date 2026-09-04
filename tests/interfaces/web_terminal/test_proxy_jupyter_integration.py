@@ -123,6 +123,21 @@ def proxied(sidecar: JupyterSidecar, notebook_env: Path) -> Iterator[TestClient]
             "osprey.interfaces.web_terminal.app._load_panel_config",
             return_value=(set(UNIVERSAL_PANELS), [], None),
         ),
+        # Entering the TestClient runs the app's lifespan, which auto-launches a
+        # companion server for every enabled panel — and ``UNIVERSAL_PANELS`` is
+        # ``{"artifacts"}``, so the artifact server starts for real: a daemon
+        # thread running uvicorn on a configured port, whose app factory resolves
+        # the shared data root. Two consequences, both observed: unstamped, that
+        # root is the repository, so the thread creates ``var/agent_data/artifacts``
+        # and trips the repo-leak guard; and the port is fixed rather than
+        # OS-assigned, so under xdist a second worker's launch loses the bind and
+        # the thread dies in uvicorn's startup path. This module exercises
+        # ``/panel/jupyter`` and nothing else, and publishes that URL by hand
+        # below, so it needs no companion server at all.
+        patch(
+            "osprey.infrastructure.server_launcher.ensure_web_server",
+            lambda key: None,
+        ),
     ):
         app = create_app(shell_command="echo")
         with TestClient(app) as client:
