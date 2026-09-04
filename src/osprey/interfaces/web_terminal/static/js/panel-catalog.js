@@ -54,7 +54,7 @@ export const PANELS = [
   },
   {
     id: 'jupyter',
-    label: 'NOTEBOOKS',
+    label: 'JUPYTER',
     configEndpoint: '/api/jupyter-server',
     healthEndpoint: '/api/status', // the sidecar's own status route, reached through the panel proxy
   },

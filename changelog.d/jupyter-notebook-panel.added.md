@@ -1,4 +1,4 @@
-Web terminal: a **NOTEBOOKS** panel (`jupyter`) serving JupyterLab in a tab,
+Web terminal: a **JUPYTER** panel (`jupyter`) serving JupyterLab in a tab,
 with kernels that read and write the control system through `osprey.runtime`
 under the same write gates as the agent's own Python. A kernel follows the
 terminal session most recently attached. It keeps the target it started with

@@ -37,7 +37,7 @@ SIDECAR_IDS = sorted(SIDECAR_PANELS)
 def test_the_notebooks_panel_is_the_registered_sidecar():
     """The one entry, pinned so the id and its label cannot drift apart."""
     assert SIDECAR_IDS == ["jupyter"]
-    assert BUILTIN_PANEL_LABELS["jupyter"] == "NOTEBOOKS"
+    assert BUILTIN_PANEL_LABELS["jupyter"] == "JUPYTER"
 
 
 @pytest.mark.parametrize("panel_id", SIDECAR_IDS)

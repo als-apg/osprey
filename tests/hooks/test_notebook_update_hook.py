@@ -2,7 +2,7 @@
 
 This hook invalidates cached rendered HTML when a notebook is edited
 via NotebookEdit, ensuring the gallery re-renders on next view, and badges the
-NOTEBOOKS panel when the edit landed in the agent's own notebooks tree.
+JUPYTER panel when the edit landed in the agent's own notebooks tree.
 
 The observable contract is small: delete ``_notebook_cache/{stem}_rendered.html``
 when it is there, leave the tree alone when it is not, log which of the two
@@ -215,10 +215,10 @@ def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
     assert snapshot(tmp_path) == before
 
 
-# --- NOTEBOOKS panel badge -------------------------------------------------
+# --- JUPYTER panel badge -------------------------------------------------
 #
 # An edit inside ``<agent-data root>/notebooks/`` is reported to the web
-# terminal as an agent-activity frame, so the NOTEBOOKS rail entry glows and
+# terminal as an agent-activity frame, so the JUPYTER rail entry glows and
 # badges. The contract is the payload, the tree it fires for, and that a web
 # terminal which is not there costs a badge and nothing else.
 
@@ -312,7 +312,7 @@ def test_artifacts_edit_posts_nothing(
     """An edit under ``artifacts/`` badges nothing.
 
     Notebooks the agent writes into the gallery tree belong to WORKSPACE;
-    glowing the NOTEBOOKS entry for one would point the operator at a panel
+    glowing the JUPYTER entry for one would point the operator at a panel
     that does not hold the file.
     """
     port, received = activity_server

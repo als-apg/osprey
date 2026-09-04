@@ -201,7 +201,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # already-deployed control-assistant projects is the correct signal.
     # Moved once more, and all seven control-assistant entries together, when
     # the base preset gained the `jupyter` web panel: a rebuilt project's
-    # terminals grow a NOTEBOOKS tab running JupyterLab, with kernels that
+    # terminals grow a JUPYTER tab running JupyterLab, with kernels that
     # follow the terminal session. Deploy-visible — the rebuilt deployment
     # serves one more panel — so the staleness advisory firing on
     # already-deployed control-assistant projects is the correct signal. The
@@ -220,7 +220,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: graph channel finder.
     # Moved with the base above: the `knowledge` card joined the roster.
     # Moved with the base above: the plan queue comes up armed.
-    # Moved with the base above: the NOTEBOOKS tab.
+    # Moved with the base above: the JUPYTER tab.
     "control-assistant-admin": (
         "sha256:184f6c4f1a377f29007d713aabc3bb24aa7ddda79d48d24b2459d3594d944442"
     ),
@@ -231,7 +231,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: graph channel finder.
     # Moved with the base above: the `knowledge` card joined the roster.
     # Moved with the base above: the plan queue comes up armed.
-    # Moved with the base above: the NOTEBOOKS tab.
+    # Moved with the base above: the JUPYTER tab.
     "control-assistant-logbook": (
         "sha256:aaf0d35ccf2d2c3219d196e2888fcea36450489d197d2412c714197aa6cb82b5"
     ),
@@ -241,7 +241,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # writes pinned off on all three keys, and the one bundle-writing tool
     # (`draft_concept`) denied.
     # Moved with the base above: the plan queue comes up armed.
-    # Moved with the base above: the NOTEBOOKS tab.
+    # Moved with the base above: the JUPYTER tab.
     "control-assistant-knowledge": (
         "sha256:0777311b1d4e018fcb27a8d3c178c7591ef3cee4c94bece650dbb673b78ad96a"
     ),
@@ -306,7 +306,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: graph channel finder.
     # Moved with the base above: the `knowledge` card joined the roster.
     # Moved with the base above: the plan queue comes up armed.
-    # Moved with the base above: the NOTEBOOKS tab.
+    # Moved with the base above: the JUPYTER tab.
     "control-assistant-readonly": (
         "sha256:cfeb9f033ceab1ebf1c9353b681512370ecb89494463738861ace01ab58db36a"
     ),
@@ -316,7 +316,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: graph channel finder.
     # Moved with the base above: the `knowledge` card joined the roster.
     # Moved with the base above: the plan queue comes up armed.
-    # Moved with the base above: the NOTEBOOKS tab.
+    # Moved with the base above: the JUPYTER tab.
     "control-assistant-readwrite": (
         "sha256:32ccac3d13793f322596f51a440b6e9ce1f93ef3469c35ed4a763f70a334ce40"
     ),
@@ -332,7 +332,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: graph channel finder.
     # Moved with the base above: the `knowledge` card joined the roster.
     # Moved with the base above: the plan queue comes up armed.
-    # Moved with the base above: the NOTEBOOKS tab.
+    # Moved with the base above: the JUPYTER tab.
     "control-assistant-va-readwrite": (
         "sha256:161d353e06f81965954d1d3c56f98053460ff9af02e1b2519e9f1758690237f9"
     ),

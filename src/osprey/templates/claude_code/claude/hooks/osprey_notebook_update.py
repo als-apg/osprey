@@ -2,7 +2,7 @@
 """
 ---
 name: Notebook Update
-description: Invalidates the cached notebook HTML after NotebookEdit and badges the NOTEBOOKS panel when the edit lands in the notebooks tree
+description: Invalidates the cached notebook HTML after NotebookEdit and badges the JUPYTER panel when the edit lands in the notebooks tree
 summary: Tracks notebook edits as workspace artifacts and shows the operator which notebook the agent edited
 event: PostToolUse
 tools: NotebookEdit
@@ -54,8 +54,8 @@ operator should see: the hook reports it to the web terminal as
 ``POST /api/agent-activity`` with
 ``{"tool": "NotebookEdit", "target": {"kind": "panel", "panel": "jupyter",
 "detail": "<path relative to notebooks/>"}}``, which the frontend turns into a
-glow and a badge on the NOTEBOOKS rail entry. Only that tree emits — an edit
-under ``artifacts/`` belongs to the gallery, and badging NOTEBOOKS for it would
+glow and a badge on the JUPYTER rail entry. Only that tree emits — an edit
+under ``artifacts/`` belongs to the gallery, and badging JUPYTER for it would
 point the operator at the wrong panel.
 
 ## Notebooks tree
@@ -157,7 +157,7 @@ def _agent_data_base_dir(config):
 
 
 def resolve_notebooks_dirs(hook_input=None):
-    """Resolve the notebook directories whose edits badge the NOTEBOOKS panel.
+    """Resolve the notebook directories whose edits badge the JUPYTER panel.
 
     A relative ``agent_data.base_dir`` — the normal case — needs an anchor, and
     under the four-zone layout there are two plausible ones: the repo root that
@@ -255,7 +255,7 @@ def _activity_request(detail):
 
 
 def notify_notebook_edit(detail):
-    """Badge the NOTEBOOKS panel with the notebook the agent just edited.
+    """Badge the JUPYTER panel with the notebook the agent just edited.
 
     Fire-and-forget: an unreachable, refusing or slow web terminal costs the
     operator a badge and nothing else.
@@ -295,7 +295,7 @@ def main():
     except Exception:
         pass  # Never block on cache invalidation failure
 
-    # Badge the NOTEBOOKS panel, but only for the agent's own notebooks tree.
+    # Badge the JUPYTER panel, but only for the agent's own notebooks tree.
     try:
         detail = notebook_relpath(notebook_path, resolve_notebooks_dirs(hook_input))
         if detail:

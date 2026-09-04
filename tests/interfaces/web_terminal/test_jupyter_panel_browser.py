@@ -1,4 +1,4 @@
-"""Browser smoke: the NOTEBOOKS panel, from the rail entry to a cell's output.
+"""Browser smoke: the JUPYTER panel, from the rail entry to a cell's output.
 
 One flow through the whole stack a real operator touches, with nothing stubbed
 below the browser: the terminal's lifespan spawns a real ``jupyter_server``
@@ -135,7 +135,7 @@ def shared_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 @contextmanager
 def _live_server(workspace_dir: Path):
-    """Launch a real web terminal with the NOTEBOOKS panel enabled.
+    """Launch a real web terminal with the JUPYTER panel enabled.
 
     The patch set is the sibling dock suite's, minus the parts this flow does
     not need: the artifacts panel is published at the shared unserved address
@@ -214,7 +214,7 @@ def _enabled_rail_entry(page: Page, panel_id: str):
 
 
 def _lab(page: Page):
-    """A frame locator scoped to the NOTEBOOKS panel's overlay iframe.
+    """A frame locator scoped to the JUPYTER panel's overlay iframe.
 
     Service panels render into an overlay iframe layer that tracks the dock
     group's geometry (``dock-iframe.js``), so the iframe is addressed by its
@@ -312,7 +312,7 @@ def _assert_nothing_outlived(*patterns: str) -> None:
 def test_notebooks_panel_opens_jupyterlab_and_runs_cells_on_a_real_kernel(
     tmp_path, chromium_browser, shared_root
 ):
-    """The NOTEBOOKS panel, end to end: rail entry, JupyterLab, a live kernel.
+    """The JUPYTER panel, end to end: rail entry, JupyterLab, a live kernel.
 
     Ordered so a failure names its own step. The rail entry is asserted enabled
     BEFORE it is clicked: a disabled entry is ``pointer-events: none``, so a
@@ -341,7 +341,7 @@ def test_notebooks_panel_opens_jupyterlab_and_runs_cells_on_a_real_kernel(
 
         # A rail click takes the focused tile over (one panel per tile).
         _rail_entry(page, "jupyter").click()
-        expect(page.locator('.tile-tab[aria-label="NOTEBOOKS"]')).to_have_count(1, timeout=10_000)
+        expect(page.locator('.tile-tab[aria-label="JUPYTER"]')).to_have_count(1, timeout=10_000)
 
         lab = _lab(page)
         expect(lab.locator("#jp-main-dock-panel")).to_be_visible(timeout=_LAB_BOOT_MS)

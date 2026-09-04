@@ -46,12 +46,17 @@ class SidecarPanel:
     factory_path: str
 
 
+#: The notebook panel's id. Named rather than spelled, because the terminal
+#: reads it on a path that has nothing to do with panels — the session binding
+#: an attach writes is only worth writing where this panel is served.
+JUPYTER_PANEL_ID = "jupyter"
+
 #: Built-in panels the web terminal serves from a sidecar process rather than a
 #: registered companion server. Keyed by panel id, exactly like the ids derived
 #: from the companion registry, so every consumer of :data:`BUILTIN_PANELS`
 #: covers them without a second lookup.
 SIDECAR_PANELS: dict[str, SidecarPanel] = {
-    "jupyter": SidecarPanel(
+    JUPYTER_PANEL_ID: SidecarPanel(
         "JupyterLab notebooks",
         "osprey.interfaces.web_terminal.jupyter_sidecar:JupyterSidecar",
     ),
@@ -85,7 +90,7 @@ BUILTIN_PANEL_LABELS: dict[str, str] = {
     "ariel": "ARIEL",
     "channel-finder": "CHANNELS",
     "lattice": "LATTICE",
-    "jupyter": "NOTEBOOKS",
+    JUPYTER_PANEL_ID: "JUPYTER",
     "okf": "KNOWLEDGE",
     "system-health": "SYSTEM",
 }

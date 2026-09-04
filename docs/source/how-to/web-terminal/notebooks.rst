@@ -1,7 +1,7 @@
 Notebooks
 =========
 
-The **NOTEBOOKS** tab is a JupyterLab served from inside the Web Terminal. Its
+The **JUPYTER** tab is a JupyterLab served from inside the Web Terminal. Its
 kernels import ``osprey.runtime``, so a cell reads and writes the control
 system through the same connector the agent's own Python uses, under the same
 write gates and with the same refusal text. Notebooks are ordinary files on a
@@ -21,7 +21,7 @@ Name it under ``web_panels`` to add it to a build profile of your own:
 .. code-block:: yaml
 
    web_panels:
-     - jupyter         # NOTEBOOKS tab
+     - jupyter         # JUPYTER tab
 
 In a hand-written ``config.yml`` it is enabled the way its peers are:
 
@@ -122,7 +122,7 @@ Notebooks the agent also edits
 
 The OSPREY agent may edit a notebook under ``notebooks/`` (and, as before,
 under ``artifacts/``); an edit anywhere else is refused by the memory guard.
-When it edits one, the rail's NOTEBOOKS entry badges and the history row reads
+When it edits one, the rail's JUPYTER entry badges and the history row reads
 *agent edited <notebook>*.
 
 What you see next depends on what the notebook was doing at the time:
@@ -159,7 +159,7 @@ stored on the durable volume, so it comes back after a sidecar restart.
 When the tab is grey
 --------------------
 
-A grey NOTEBOOKS entry means the sidecar did not start. The terminal log says
+A grey JUPYTER entry means the sidecar did not start. The terminal log says
 why, with the last lines of the sidecar's own error output. The rest of the
 terminal is unaffected — only that one tab is unavailable, and it stays grey
 until the terminal is restarted.

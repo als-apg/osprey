@@ -285,7 +285,7 @@ class TestSidecarPanels:
 
         assert row.status is Status.SKIP
         assert row.message == (
-            "NOTEBOOKS: not probed — served inside the web terminal; a grey tab "
+            "JUPYTER: not probed — served inside the web terminal; a grey tab "
             "means the sidecar did not start, see the terminal log"
         )
 

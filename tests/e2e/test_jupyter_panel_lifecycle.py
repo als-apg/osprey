@@ -1,4 +1,4 @@
-"""Real-container lifecycle of the NOTEBOOKS panel: a kernel that follows the terminal.
+"""Real-container lifecycle of the JUPYTER panel: a kernel that follows the terminal.
 
 The unit tests pin the kernel launcher's stamps against a synthetic binding,
 and the proxy integration test pins the panel's HTTP and websocket legs against
@@ -11,7 +11,7 @@ THE DEPLOYMENT THIS BUILDS
 --------------------------
 One ``osprey up --dev`` of a ``control-assistant`` render, trimmed to one
 roster user (``alice``) on one persona that keeps the preset's write gate armed
-and inherits the preset's panel set — which is what selects the NOTEBOOKS
+and inherits the preset's panel set — which is what selects the JUPYTER
 panel. The control system is the virtual accelerator, baselined as the ``va``
 target, with the live stand-in deployed beside it as the ``standin`` target: a
 switch needs two targets, and the mock connector cannot be one — its baseline

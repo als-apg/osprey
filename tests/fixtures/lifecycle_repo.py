@@ -245,7 +245,7 @@ web_panels:
   - channel-finder  # Interactive channel-finder web UI
   - okf             # KNOWLEDGE tab, for browsing the facility knowledge bundle
   - system-health   # SYSTEM tab, a framework health dashboard
-  - jupyter         # NOTEBOOKS tab, JupyterLab with kernels that follow the terminal session
+  - jupyter         # JUPYTER tab, JupyterLab with kernels that follow the terminal session
   # The events and bluesky panels are declared by the write-armed personas
   # (readwrite and admin) instead, so the read-only login is built without them.
   # Available — uncomment to enable:

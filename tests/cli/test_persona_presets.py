@@ -503,7 +503,7 @@ class TestControlAssistantWebTier:
         assert "ariel" in base.web_panels
 
     def test_notebook_tab_is_a_family_wide_default(self) -> None:
-        """The NOTEBOOKS tab is declared once, in the base, and every tier gets it.
+        """The JUPYTER tab is declared once, in the base, and every tier gets it.
 
         Both groups are derived from the bundled presets on disk rather than
         listed here, so a tier added later is covered without editing this

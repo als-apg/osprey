@@ -48,7 +48,7 @@ preference.
 Panels shown inside the terminal are a separate case. The terminal hands each
 one its theme and view in the page address, and an address outranks the
 remembered preference, so an embedded panel always matches the terminal
-around it. The NOTEBOOKS panel is the exception: it starts on the deployment's
+around it. The JUPYTER panel is the exception: it starts on the deployment's
 pinned theme and then keeps whatever theme you pick inside JupyterLab
 (:ref:`notebooks-theming`).
 
