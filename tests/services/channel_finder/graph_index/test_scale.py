@@ -7,7 +7,7 @@ question this file answers is whether the flat table and its seven-statement
 search stay inside an operator's patience when the ``bindings`` table holds a
 hundred thousand rows rather than three thousand.
 
-Three things are measured, and every one of them prints what it measured before
+Four things are measured, and every one of them prints what it measured before
 it asserts anything. What the printed lines are for is the *trend* -- a build
 that goes from forty seconds to ninety has regressed even though it never
 failed, and the run history is where that is visible.
@@ -93,6 +93,13 @@ logger = logging.getLogger(__name__)
 #: else. A build that lands near it should be read as the columnar path having
 #: quietly become a per-row one again, not as a flake.
 BUILD_BUDGET_SECONDS = 20.0
+
+#: The whole build -- read, parse, derive, write -- over the shipped demo corpus,
+#: the one every deployment's first ``osprey build`` runs. A workstation takes
+#: about a second. The same build took 7.8 s on a saturated four-worker macOS
+#: runner in the shared lane, with a 156-second sibling on the same worker,
+#: which is the measurement that moved this guard here from ``test_build.py``.
+DEMO_BUILD_SECONDS = 5.0
 
 #: The median of twenty varied searches over the hundred-thousand-row index.
 #: The finder redraws its page on every filter click, so this is the number the
@@ -565,7 +572,8 @@ class TestDemoCorpusOverTheParityMatrix:
     """The corpus a deployment actually ships, over every shape parity replays."""
 
     @pytest.fixture(scope="class")
-    def demo_index_path(self, tmp_path_factory: pytest.TempPathFactory) -> Path:
+    def demo_build(self, tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, float]:
+        """The demo index, built once for the class, and how long the build took."""
         resource = (
             files("osprey.templates")
             .joinpath("apps")
@@ -575,8 +583,24 @@ class TestDemoCorpusOverTheParityMatrix:
         )
         index_path = tmp_path_factory.mktemp("demo") / "graph.duckdb"
         with as_file(resource) as path:
+            started = time.perf_counter()
             build_graph_index(path, index_path)
-        return index_path
+            elapsed = time.perf_counter() - started
+        return index_path, elapsed
+
+    @pytest.fixture(scope="class")
+    def demo_index_path(self, demo_build: tuple[Path, float]) -> Path:
+        return demo_build[0]
+
+    def test_building_the_demo_corpus_stays_inside_its_budget(self, demo_build: tuple[Path, float]):
+        _, elapsed = demo_build
+
+        line = f"build_graph_index over the demo corpus: {elapsed:.2f} s"
+        print(line)
+        logger.info(line)
+        assert elapsed < DEMO_BUILD_SECONDS, (
+            f"building the demo index took {elapsed:.2f} s, budget {DEMO_BUILD_SECONDS} s"
+        )
 
     def test_the_parity_matrix_covers_every_filter_the_rail_offers(self):
         assert len(PARITY_MATRIX) >= 40, len(PARITY_MATRIX)

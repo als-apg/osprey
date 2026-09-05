@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import time
 from importlib.resources import as_file, files
 from pathlib import Path
 
@@ -52,9 +51,6 @@ DEMO_SIGNALS = 113
 #: search facet in ``tests/integration/test_graph_mcp.py``, which asserts the
 #: seeded demo store answers ``{"SR", "BR", "BTS"}`` for the section facet.
 DEMO_SECTIONS = 3
-
-#: The whole build -- read, parse, derive, write -- for the shipped corpus.
-BUILD_BUDGET_SECONDS = 5.0
 
 
 @pytest.fixture(scope="module")
@@ -98,14 +94,12 @@ class TestDemoCorpus:
     """The shipped corpus, built end to end."""
 
     @pytest.fixture(scope="class")
-    def built(self, demo_path: Path, tmp_path_factory) -> tuple[IndexBuildReport, Path, float]:
+    def built(self, demo_path: Path, tmp_path_factory) -> tuple[IndexBuildReport, Path]:
         index_path = tmp_path_factory.mktemp("demo") / "graph.duckdb"
-        started = time.perf_counter()
-        report = build_graph_index(demo_path, index_path)
-        return report, index_path, time.perf_counter() - started
+        return build_graph_index(demo_path, index_path), index_path
 
     def test_the_report_states_the_store_s_census(self, built, demo_path: Path):
-        report, index_path, _ = built
+        report, index_path = built
 
         assert report.path == index_path
         assert report.binding_count == DEMO_BINDINGS
@@ -116,7 +110,7 @@ class TestDemoCorpus:
         assert report.corpus_sha256 == ttl_sha256(demo_path.read_text(encoding="utf-8"))
 
     def test_the_meta_row_carries_the_same_census(self, built, demo_path: Path):
-        _, index_path, _ = built
+        _, index_path = built
 
         assert _meta_row(index_path) == {
             "schema_version": SCHEMA_VERSION,
@@ -130,7 +124,7 @@ class TestDemoCorpus:
         }
 
     def test_the_tables_hold_the_rows_the_report_counted(self, built):
-        report, index_path, _ = built
+        report, index_path = built
 
         assert _read(index_path, "SELECT count(*) FROM bindings") == [(DEMO_BINDINGS,)]
         assert _read(index_path, "SELECT count(*) FROM classes") == [(DEMO_CLASSES,)]
@@ -141,14 +135,14 @@ class TestDemoCorpus:
 
     def test_the_device_count_is_the_bound_subjects_the_census_counts(self, built, demo_path: Path):
         """``GRAPH_DEVICE_COUNT_CYPHER``: a DISTINCT ``:Resource`` with a binding."""
-        report, _, _ = built
+        report, _ = built
         parsed = parse_corpus(demo_path.read_text(encoding="utf-8"))
 
         assert report.device_count == len({row.device_uri for row in parsed.binding_rows})
 
     def test_the_class_count_is_the_pruned_taxonomy(self, built, demo_path: Path):
         """The classes written are the ones the explorer draws, not every ``:Class``."""
-        report, _, _ = built
+        report, _ = built
         parsed = parse_corpus(demo_path.read_text(encoding="utf-8"))
         raw = [
             {
@@ -176,7 +170,7 @@ class TestDemoCorpus:
         would pass on any index the writer and the reader agreed to truncate
         together. The census the report states is asserted alongside it.
         """
-        report, index_path, _ = built
+        report, index_path = built
         expected = channels_from_corpus(
             parse_corpus(demo_path.read_text(encoding="utf-8")),
             RosterSource(kind=RosterSourceKind.GRAPH, path=demo_path),
@@ -190,16 +184,6 @@ class TestDemoCorpus:
             (row.address, row.direction, row.readback) for row in expected
         ]
         assert len(records) == report.channel_count == DEMO_BINDINGS
-
-    def test_the_whole_build_stays_inside_its_budget(self, built):
-        _, _, elapsed = built
-
-        logging.getLogger(__name__).info(
-            "build_graph_index over the demo corpus took %.2f s", elapsed
-        )
-        assert elapsed < BUILD_BUDGET_SECONDS, (
-            f"building the demo index took {elapsed:.2f} s, budget {BUILD_BUDGET_SECONDS} s"
-        )
 
     def test_the_build_logs_one_line_naming_its_counts(
         self, demo_path: Path, tmp_path: Path, caplog
