@@ -18,10 +18,13 @@ against ``init``'s stdout sticks to lines that fit any width.
 from __future__ import annotations
 
 import io
+import json
 import re
 from pathlib import Path
 
+import click
 import pytest
+import yaml
 from click.testing import CliRunner
 from rich.console import Console
 
@@ -29,8 +32,12 @@ from osprey.cli.build_profile import resolve_build_profile
 from osprey.cli.build_profile_model import BuildProfile
 from osprey.cli.main import cli
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
-from osprey.cli.profile_card import format_profile_card, print_profile_card
-from osprey.cli.profile_cmd import _parsed_persona_deltas, _persona_profile_texts
+from osprey.cli.profile_card import card_rows, format_profile_card, print_profile_card
+from osprey.cli.profile_cmd import (
+    _parsed_persona_deltas,
+    _persona_profile_texts,
+    read_persona_deltas,
+)
 from osprey.cli.styles import osprey_theme
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 
@@ -349,3 +356,354 @@ def test_init_prints_the_card_after_its_report(tmp_path: Path) -> None:
     assert "shared" in result.output
     report_at = result.output.index("✓ Created")
     assert result.output.index(f"  web terminal  :{_PORTS['nginx']}") > report_at
+
+
+# ---------------------------------------------------------------------------
+# read_persona_deltas: the persona facts the card derives from, read off disk
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def exemplar_config(lifecycle_repo: Path) -> dict:
+    """The exemplar repo's ``config:`` block, straight off its ``profile.yml``."""
+    document = yaml.safe_load((lifecycle_repo / "profile.yml").read_text(encoding="utf-8"))
+    return document["config"]
+
+
+def test_read_persona_deltas_reads_one_delta_per_catalog_entry(
+    lifecycle_repo: Path, exemplar_config: dict
+) -> None:
+    deltas = read_persona_deltas(lifecycle_repo, exemplar_config)
+
+    assert set(deltas) == {"readonly", "readwrite", "admin", "logbook", "knowledge"}
+    # Every one was really read: a delta the reader could not open is empty.
+    assert all(delta for delta in deltas.values())
+    # And it is the file's own content, not the host profile's.
+    assert deltas["logbook"] == yaml.safe_load(
+        (lifecycle_repo / "personas" / "logbook.yml").read_text(encoding="utf-8")
+    )
+
+
+def test_read_persona_deltas_ignores_a_file_the_catalog_does_not_name(
+    lifecycle_repo: Path, exemplar_config: dict
+) -> None:
+    # A persona the profile dropped leaves its file behind. The catalog is the
+    # list, never the directory, so the stale file is invisible.
+    (lifecycle_repo / "personas" / "old-admin.yml").write_text("provider: gone\n", encoding="utf-8")
+
+    deltas = read_persona_deltas(lifecycle_repo, exemplar_config)
+
+    assert "old-admin" not in deltas
+    assert len(deltas) == 5
+
+
+def test_read_persona_deltas_warns_when_a_persona_file_is_missing(
+    lifecycle_repo: Path, exemplar_config: dict, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (lifecycle_repo / "personas" / "logbook.yml").unlink()
+
+    deltas = read_persona_deltas(lifecycle_repo, exemplar_config)
+
+    assert deltas["logbook"] == {}
+    # The persona is still deployed, so it keeps its place in the result.
+    assert len(deltas) == 5
+    assert all(delta for name, delta in deltas.items() if name != "logbook")
+    err = capsys.readouterr().err
+    assert "no persona file at personas/logbook.yml" in err
+    assert "'logbook'" in err
+    assert err.count("no persona file") == 1
+
+
+def test_read_persona_deltas_warns_for_a_preset_reference(
+    lifecycle_repo: Path, exemplar_config: dict, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A catalog entry may name a bundled preset instead of a file in this repo.
+    # There is nothing under the repo root to read, and that is not an error.
+    catalog = exemplar_config["modules.web_terminals"]["personas"]
+    catalog["readonly"]["build_profile"] = "control-assistant-readonly"
+
+    deltas = read_persona_deltas(lifecycle_repo, exemplar_config)
+
+    assert deltas["readonly"] == {}
+    assert len(deltas) == 5
+    err = capsys.readouterr().err
+    assert "'readonly'" in err
+    assert "'control-assistant-readonly' is not a file in this repo" in err
+
+
+def test_read_persona_deltas_refuses_an_unparsable_file(
+    lifecycle_repo: Path, exemplar_config: dict
+) -> None:
+    (lifecycle_repo / "personas" / "admin.yml").write_text("config:\n  - [\n", encoding="utf-8")
+
+    with pytest.raises(click.ClickException) as excinfo:
+        read_persona_deltas(lifecycle_repo, exemplar_config)
+
+    message = str(excinfo.value)
+    # The path named is the one the operator opens, and the parser's own
+    # complaint rides along with it.
+    assert "personas/admin.yml" in message
+    assert "not valid YAML" in message
+
+
+def test_read_persona_deltas_refuses_a_file_that_is_not_a_mapping(
+    lifecycle_repo: Path, exemplar_config: dict
+) -> None:
+    # Valid YAML, but nothing a delta can be merged from. Carried as an empty
+    # delta it would read as a persona that overrides nothing.
+    (lifecycle_repo / "personas" / "admin.yml").write_text("- readonly\n", encoding="utf-8")
+
+    with pytest.raises(click.ClickException) as excinfo:
+        read_persona_deltas(lifecycle_repo, exemplar_config)
+
+    assert "personas/admin.yml is not a YAML mapping" in str(excinfo.value)
+
+
+# ---------------------------------------------------------------------------
+# card_rows: the same cells, flattened for a machine reader
+# ---------------------------------------------------------------------------
+
+
+def group_and_label_pairs(lines: list[str]) -> list[tuple[str, str]]:
+    """``(group, label)`` per row of a plain card, read off the card itself.
+
+    Against the real layout rather than an assumed one: a group title is the
+    line indented once, a row is indented twice, and a row's label is its first
+    column — everything up to the padding that separates it from the next one,
+    which is never narrower than the gutter.
+    """
+    pairs: list[tuple[str, str]] = []
+    group = ""
+    for line in lines:
+        if not line.strip():
+            continue
+        if not line.startswith("    "):
+            # The title, without the address the web tier hangs beside it.
+            group = re.split(r" {2,}", line.strip())[0]
+            continue
+        pairs.append((group, re.split(r" {3,}", line[4:], maxsplit=1)[0]))
+    return pairs
+
+
+def test_card_rows_carry_exactly_the_three_string_keys(
+    exemplar: tuple[BuildProfile, dict],
+) -> None:
+    profile, deltas = exemplar
+    rows = card_rows(profile, deltas)
+
+    assert rows
+    for row in rows:
+        assert set(row) == {"group", "label", "value"}
+        assert all(isinstance(value, str) for value in row.values())
+
+
+def test_card_rows_follow_the_printed_card_row_for_row(
+    exemplar: tuple[BuildProfile, dict], exemplar_lines: list[str]
+) -> None:
+    """The rows ARE the card: same groups, same labels, same order.
+
+    The one assertion that keeps a JSON reader and an operator reading the same
+    deployment — a row added, dropped or reordered on either side breaks here.
+    """
+    profile, deltas = exemplar
+    rows = card_rows(profile, deltas)
+
+    assert [(row["group"], row["label"]) for row in rows] == group_and_label_pairs(exemplar_lines)
+
+
+def test_card_rows_say_what_their_printed_line_says(
+    exemplar: tuple[BuildProfile, dict], exemplar_lines: list[str]
+) -> None:
+    # Label plus value is the whole line, once the column padding that only
+    # exists to line the card up is collapsed.
+    profile, deltas = exemplar
+    printed = [line for line in exemplar_lines if line.startswith("    ")]
+    rows = card_rows(profile, deltas)
+
+    assert len(rows) == len(printed)
+    for row, line in zip(rows, printed, strict=True):
+        assert " ".join(f"{row['label']} {row['value']}".split()) == " ".join(line.split())
+
+
+def test_card_rows_are_empty_when_the_card_is() -> None:
+    # The profile with nothing to say: no groups, so no rows either.
+    profile = BuildProfile(
+        name="silent",
+        config={
+            "claude_code.servers.controls.enabled": False,
+            "claude_code.servers.python.enabled": False,
+            "claude_code.servers.osprey_workspace.enabled": False,
+            "claude_code.servers.ariel.enabled": False,
+            "claude_code.servers.osprey_facility_knowledge.enabled": False,
+        },
+    )
+
+    assert format_profile_card(profile, {}) == []
+    assert card_rows(profile, {}) == []
+
+
+def test_card_rows_carry_the_persona_deltas_read_off_disk(
+    lifecycle_repo: Path, exemplar_config: dict
+) -> None:
+    """A deployed repo end to end: its own profile, its own persona files.
+
+    The rights on a roster row come from the persona's own file, not from the
+    host profile — so the same profile read with no deltas says something
+    different about the same login.
+    """
+    profile = BuildProfile(name="als-exemplar", config=exemplar_config)
+    deltas = read_persona_deltas(lifecycle_repo, exemplar_config)
+
+    rows = card_rows(profile, deltas)
+
+    roster = {row["label"]: row["value"] for row in rows if row["group"] == "web terminal"}
+    assert {"alice", "bob"} <= set(roster)
+    assert roster["alice"].startswith("readwrite")
+    assert roster["bob"].startswith("readonly")
+    # The readonly persona pins both connectors read-only in its own file.
+    assert "read-only" in roster["bob"]
+    bare = {row["label"]: row["value"] for row in card_rows(profile, {})}
+    assert bare["bob"] != roster["bob"]
+
+
+# ---------------------------------------------------------------------------
+# `osprey profile card`: the same card, on demand, for a repo that already exists
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def deployed(lifecycle_repo: Path) -> tuple[BuildProfile, dict]:
+    """The exemplar repo's own profile, and the deltas its persona files hold.
+
+    Resolved the way the command resolves them, so a test asserting on what the
+    command printed is comparing against the same two inputs it printed from.
+    """
+    profile, _profile_dir = resolve_build_profile(lifecycle_repo / "profile.yml", None)
+    return profile, read_persona_deltas(lifecycle_repo, profile.config)
+
+
+def break_the_card(repo: Path) -> None:
+    """Leave the repo with a profile that resolves and a card that cannot.
+
+    ``claude_code.servers`` as a string: a value the profile loader accepts —
+    the block is the operator's to write — and the card's MCP reader walks as a
+    mapping. The deeper ``claude_code.servers.<name>`` keys go first, because a
+    profile spelling one subtree both ways is refused before any card is
+    derived, and that refusal is a different failure from this one.
+    """
+    path = repo / "profile.yml"
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    config = document["config"]
+    for key in [key for key in config if key.startswith("claude_code.servers.")]:
+        del config[key]
+    config["claude_code.servers"] = "all"
+    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+
+
+def test_the_card_command_prints_the_plain_renderer_line_for_line(
+    lifecycle_repo: Path, deployed: tuple[BuildProfile, dict], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Run from inside a repo, the verb prints the card and nothing else.
+
+    The same equality the ``init`` card's parity test pins, asserted through
+    the command: what an operator reads here is the plain renderer's output,
+    line for line, with no report above it and no summary below.
+    """
+    profile, deltas = deployed
+    # One delta per persona the exemplar deploys — the facts the roster rows
+    # are made of, so an empty read would print a card that says less.
+    assert len(deltas) == 5
+    monkeypatch.chdir(lifecycle_repo)
+
+    result = CliRunner().invoke(cli, ["profile", "card"], catch_exceptions=False)
+
+    assert result.exit_code == 0, result.stderr
+    assert result.stdout.splitlines() == format_profile_card(profile, deltas)
+
+
+def test_the_card_command_reads_the_repo_the_repo_flag_names(
+    lifecycle_repo: Path,
+    deployed: tuple[BuildProfile, dict],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Standing nowhere near the deployment: --repo moves the search, and the
+    # card is the one that repo's profile derives.
+    profile, deltas = deployed
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(
+        cli, ["profile", "card", "--repo", str(lifecycle_repo)], catch_exceptions=False
+    )
+
+    assert result.exit_code == 0, result.stderr
+    assert result.stdout.splitlines() == format_profile_card(profile, deltas)
+
+
+def test_the_json_card_is_one_document_of_group_label_value_rows(
+    lifecycle_repo: Path, deployed: tuple[BuildProfile, dict], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profile, deltas = deployed
+    monkeypatch.chdir(lifecycle_repo)
+
+    result = CliRunner().invoke(cli, ["profile", "card", "--json"], catch_exceptions=False)
+
+    assert result.exit_code == 0, result.stderr
+    rows = json.loads(result.stdout)
+    assert rows == card_rows(profile, deltas)
+    for row in rows:
+        assert set(row) == {"group", "label", "value"}
+    # The document is the whole of stdout: a reader parses it without stripping
+    # anything off either end.
+    assert result.stdout.strip() == json.dumps(rows)
+
+
+def test_a_persona_warning_never_reaches_the_json_document(
+    lifecycle_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A missing persona file warns, and the warning lands on stderr alone."""
+    (lifecycle_repo / "personas" / "logbook.yml").unlink()
+    monkeypatch.chdir(lifecycle_repo)
+
+    result = CliRunner().invoke(cli, ["profile", "card", "--json"], catch_exceptions=False)
+
+    assert result.exit_code == 0, result.stderr
+    rows = json.loads(result.stdout)
+    assert rows
+    assert result.stdout.strip() == json.dumps(rows)
+    assert "no persona file at personas/logbook.yml" in result.stderr
+
+
+@pytest.mark.parametrize("mode", [[], ["--json"]], ids=["plain", "json"])
+def test_an_underivable_card_refuses_in_both_modes(
+    lifecycle_repo: Path, monkeypatch: pytest.MonkeyPatch, mode: list[str]
+) -> None:
+    """The card IS the output here, so a shape it cannot read is a failure.
+
+    Unlike ``init``'s card, which is advisory and swallows what it cannot
+    derive: there the repo is already made, here there is nothing else to
+    print. Both modes fail the same way, and neither prints half a card first.
+    """
+    break_the_card(lifecycle_repo)
+    monkeypatch.chdir(lifecycle_repo)
+
+    result = CliRunner().invoke(cli, ["profile", "card", *mode], catch_exceptions=False)
+
+    assert result.exit_code == 1
+    assert "Cannot derive the card" in result.stderr
+    assert result.stdout == ""
+
+
+def test_the_card_command_outside_a_repo_says_where_it_looked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The shared resolver's refusal, not one of this command's own.
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    result = CliRunner().invoke(cli, ["profile", "card"], catch_exceptions=False)
+
+    assert result.exit_code == 1
+    assert "No OSPREY deployment repo found" in result.stderr
+    assert result.stdout == ""

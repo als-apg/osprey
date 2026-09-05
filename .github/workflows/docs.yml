@@ -131,6 +131,11 @@ jobs:
     - name: Set up Python
       run: uv python install 3.11
 
+    # sphinx.ext.graphviz shells out to `dot`; without it a graphviz
+    # directive publishes as a warning and an empty spot on the page.
+    - name: Install graphviz
+      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends graphviz
+
     - name: Install dependencies
       run: uv sync --extra docs
 

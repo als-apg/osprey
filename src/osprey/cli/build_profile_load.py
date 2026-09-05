@@ -29,7 +29,11 @@ from osprey_connectors.types import SET_CONTROL_SYSTEM_TYPES
 
 from .build_profile_archiver import parse_va_archiver_block
 from .build_profile_deploy import parse_deploy_block
-from .build_profile_document import _normalize_profile_aliases, _read_profile_document
+from .build_profile_document import (
+    _normalize_empty_collections,
+    _normalize_profile_aliases,
+    _read_profile_document,
+)
 from .build_profile_merge import resolve_profile_document
 from .build_profile_model import BuildProfile
 from .build_profile_schema import (
@@ -779,20 +783,50 @@ def _apply_port_base_shorthand(raw: dict[str, Any]) -> dict[str, Any]:
     return raw
 
 
+def _block(raw: Mapping[str, Any], key: str) -> dict[str, Any]:
+    """Read one block-shaped key, reading a present-but-empty one as ``{}``.
+
+    A block written with nothing under it — every entry commented out — parses
+    to ``None``, and its author means "nothing here", exactly as omitting the
+    key does. The selection keys (``hooks``, ``web_panels``, ...) get the same
+    flattening from :func:`~.build_profile_document._normalize_empty_collections`
+    before any merge; the blocks are deliberately left out of that pass, so this
+    is where their empty spelling is narrowed, at the one reader each has.
+
+    Without this, ``None`` reaches a ``.items()`` or ``.get()`` and dies with a
+    bare ``TypeError`` far from the profile that caused it. ``or {}`` is
+    deliberately not used: it would also swallow a value of the *wrong* shape,
+    which the validator must still see.
+
+    Args:
+        raw: The profile mapping being parsed.
+        key: The block key to read.
+
+    Returns:
+        The key's value, or ``{}`` when the key is absent or empty.
+    """
+    value = raw.get(key)
+    return {} if value is None else value
+
+
 def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     """Parse raw YAML dict into a BuildProfile.
 
     Callers that read documents have already normalized their YAML-surface
     spellings; normalizing again here covers the hand-assembled dicts that
     reach the parser directly, where an ``app_template`` key would otherwise
-    be allowlisted, ignored, and silently replaced by the loader default.
+    be allowlisted, ignored, and silently replaced by the loader default. The
+    same goes for a present-but-empty selection key: the document pass
+    flattens it before the merge, and this pass flattens it for a mapping that
+    never went through one.
     """
     _normalize_profile_aliases(raw, "profile")
+    _normalize_empty_collections(raw)
     _reject_unknown_keys(raw)
     _apply_connector_shorthand(raw)
     _apply_port_base_shorthand(raw)
     mcp_servers: dict[str, McpServerDef] = {}
-    for name, sdef in raw.get("mcp_servers", {}).items():
+    for name, sdef in _block(raw, "mcp_servers").items():
         if not isinstance(sdef, dict):
             raise BuildProfileError(f"MCP server '{name}' must be a mapping")
         perms = sdef.get("permissions", {})
@@ -849,7 +883,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         )
 
     services: dict[str, ServiceDef] = {}
-    for name, sdef in raw.get("services", {}).items():
+    for name, sdef in _block(raw, "services").items():
         if not isinstance(sdef, dict):
             raise BuildProfileError(f"Service '{name}' must be a mapping")
         services[name] = ServiceDef(
@@ -857,14 +891,14 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             config=sdef.get("config", {}),
         )
 
-    lifecycle_raw = raw.get("lifecycle", {})
+    lifecycle_raw = _block(raw, "lifecycle")
     lifecycle = LifecycleConfig(
         pre_build=[LifecycleStep(**s) for s in lifecycle_raw.get("pre_build", [])],
         post_build=[LifecycleStep(**s) for s in lifecycle_raw.get("post_build", [])],
         validate=[LifecycleStep(**s) for s in lifecycle_raw.get("validate", [])],
     )
 
-    env_raw = raw.get("env", {})
+    env_raw = _block(raw, "env")
     env = EnvConfig(
         required=env_raw.get("required", []),
         pinned=env_raw.get("pinned", []),
@@ -1090,7 +1124,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         default_panel=raw.get("default_panel"),
         panel_presets=raw.get("panel_presets", {}),
         claude_md_template=raw.get("claude_md_template"),
-        artifact_server=raw.get("artifact_server", {}),
+        artifact_server=_block(raw, "artifact_server"),
         dispatch=dispatch,
         bluesky=bluesky,
         virtual_accelerator=virtual_accelerator,

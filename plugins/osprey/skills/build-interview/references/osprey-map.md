@@ -10,15 +10,17 @@ providers), run the command and read the live output instead of recalling one.
 | --- | --- |
 | Which presets ship with this version? | `osprey profile presets` |
 | Which build artifacts does the framework manage? | `osprey scaffold list` |
-| Which artifacts can the six profile lists name? | `osprey profile artifacts` — the emitted profile also offers unselected ones as commented entries in each list |
+| Which artifacts can the six profile lists name? | `osprey profile artifacts` — the emitted profile also offers unselected ones as commented entries in each list. A `web_panels:` entry outside this menu is valid when `config:` backs it with `web.panels.<id>.url` |
 | What is the whole config surface, with defaults? | `osprey config --defaults` |
 | What does a command accept? | `osprey <command> --help` |
 | Is this profile or project safe? | `osprey audit <profile.yml\|project-dir>` |
+| What is an existing deployment repo made of? | `osprey profile card [--json]` |
 
-None of these needs a source checkout. `osprey profile presets`, `osprey config
---defaults` and `--help` run from any directory; `osprey scaffold list` acts on a
-deployment repo (the nearest `profile.yml` at or above the working directory, or
-`--repo DIR`).
+None of these needs a source checkout. `osprey profile presets`, `osprey profile artifacts`,
+`osprey config --defaults` and `--help` run from any directory and take no `--repo` — the
+artifacts menu is installation-wide, not a property of a repo; `osprey scaffold list`, `osprey profile
+card`, `osprey scaffold pull`, and `osprey scaffold personas` act on a deployment repo
+(the nearest `profile.yml` at or above the working directory, or `--repo DIR`).
 
 ## Start a deployment repo
 
@@ -26,9 +28,11 @@ deployment repo (the nearest `profile.yml` at or above the working directory, or
 osprey init <dir> --preset <name>
 ```
 
-`--preset` is required; pick one from `osprey profile presets`. It refuses to
-re-materialize an existing repo's source zone unless `--force` is given. `-O <file>`
-and `--set KEY=VALUE` bake overrides into the written profile.
+`--preset` is required; pick one from `osprey profile presets`. By rule, a build starts
+from `--preset hello-world`; `control-assistant` is the reference package later steps
+pull pieces from. It refuses to re-materialize an existing repo's source zone unless
+`--force` is given. `-O <file>` and `--set KEY=VALUE` bake overrides into the written
+profile.
 
 `<dir>` becomes a git repo that is the deployment, holding four zones:
 
@@ -36,12 +40,21 @@ and `--set KEY=VALUE` bake overrides into the written profile.
 | --- | --- |
 | `profile.yml` | SOURCE. The manifest: everything the preset configures, written out explicitly |
 | `data/`, `personas/`, `triggers.yml`, `web-terminal-context/` | SOURCE. The material the manifest names — yours to edit |
+| `profiles/` | SOURCE. One `<name>.yml` host-variant overlay per variant the deployment has. Which one this host builds is the single line `OSPREY_PROFILE_VARIANT=<name>` in the git-ignored `.env.variant`; with none set, the tracked `profile.yml` builds |
 | `rules/`, `skills/`, `agents/`, `commands/`, `output-styles/`, `hooks/`, `mcp_servers/`, `services/`, `project/` | SOURCE. Convention directories: the directory name is the declaration, so there is nothing to list in `profile.yml`. `project/` is the catch-all mirrored onto the built project's root |
 | `.gitlab-ci.yml`, `scripts/verify.sh` | SOURCE. Generated pipeline and post-deploy health check — emitted by `osprey scaffold ci` once the `deploy:` block is filled in, then re-emitted, never hand-edited |
 | `ci-extra.yml` | SOURCE. The facility's own CI jobs; written once, never rewritten |
-| `.env` | SECRETS. Provider keys, plus the service tokens `osprey up` mints. Git-ignored, durable |
+| `.env` | SECRETS. Provider keys, plus the service tokens `osprey up` mints. Git-ignored, durable. **`osprey init` does not write it** — it writes `.env.example` and `.env.shared`, and its summary line names `.env` for the file you are to create from the example. Until you do, there is no `.env` on disk |
 | `build/` | OUTPUT. Rendered by `osprey build`; git-ignored, 100% disposable |
 | `var/` | STATE. Agent memory, sessions, audit log; git-ignored, durable. No build touches it |
+
+Pull one piece of a preset's app template into this repo with `osprey scaffold pull
+<preset>[:path] [--list] [--force] [--with-content]`; the recipe lives in
+`references/map.md` and `references/knowledge-starter.md`.
+
+Write this repo's own persona files from another preset's catalog with
+`osprey scaffold personas --from <preset> [--force]`; the recipe (the web-terminal step
+in BUILD) lives in `references/map.md`.
 
 Every verb finds the repo by walking up from the working directory, so none of them is
 given a project or config path — `--repo DIR` overrides the starting point.
@@ -57,6 +70,14 @@ land at the matching nested path in the rendered `config.yml`; find the key you 
 in the defaults above.
 
 Build from the edited profile: `osprey build`
+
+`osprey build` renders `build/`, and it also writes one thing back into the SOURCE zone:
+`web-terminal-context/<roster user>/.gitkeep`, one directory per entry in
+`modules.web_terminals.users`, so per-user context has a home in version control. It
+reports them as `seeded N empty context dir(s) in the profile`. They are yours from then
+on — nothing removes them, so a roster entry deleted later leaves its directory behind and
+every later build warns that `web-terminal-context/` holds context for users not on the
+roster.
 
 ## Read the source of truth
 
