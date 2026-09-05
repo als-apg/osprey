@@ -83,8 +83,8 @@ function ontologyPayload(overrides = {}) {
 }
 
 /**
- * One page row shaped as `GRAPH_SEARCH_CYPHER` projects it, matching the
- * Python fixture's `DEMO_SEARCH_ROW` rows.
+ * One page row shaped as the search index returns it, matching the Python
+ * fixture's `DEMO_ROWS` rows.
  *
  * @param {string} device - Device name.
  * @param {string} suffix - Address suffix appended to the device name.
