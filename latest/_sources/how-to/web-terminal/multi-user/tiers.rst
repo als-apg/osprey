@@ -416,8 +416,9 @@ Checked, not merely conventional
 
 The one capability it would be worst to leave open — editing the deployment —
 is guarded by the commands themselves, not only by the preset's choices.
-``osprey profile validate`` and ``osprey build`` refuse a shared card
-(``access: any``) that resolves to a persona holding either deployment-editing
+``osprey profile validate`` and ``osprey build`` refuse a shared card — one
+whose ``access:`` admits anybody but the card's own login — that resolves to
+a persona holding either deployment-editing
 surface, and refuse a privileged ``default_persona`` in a deployment that
 draws a tier split at all; ``osprey up`` asks the same question of the render
 before it starts anything. Each refusal names the user, or the persona, and
@@ -427,9 +428,12 @@ the remedy.
    :icon: shield-check
 
    ``osprey profile validate`` and ``osprey build`` refuse any shared card
-   (``access: any``) that resolves to a persona holding either
-   deployment-editing surface — the agent's ``setup_patch`` tool or the web
-   Config panel — naming the user. That refusal does not ask whether your
+   that resolves to a persona holding either deployment-editing surface — the
+   agent's ``setup_patch`` tool or the web Config panel — naming the user.
+   Shared means the card's ``access:`` admits anybody but its own login,
+   whether that is ``any``, one ``domain:`` or a single ``user:``; the
+   question the rule asks is how far the card reaches, not which words say
+   so. That refusal does not ask whether your
    profile drew a tier split: a profile that floors neither surface hands both
    of them to every persona it has, so a shared card there is the most exposed
    version of this rather than an exempt one. The remedy is the card's own

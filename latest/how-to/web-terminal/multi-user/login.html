@@ -839,13 +839,46 @@ block in <code class="docutils literal notranslate"><span class="pre">.env.share
 variables and nothing else, and no site CA is mounted into its image. See
 <a class="reference internal" href="../../deploy-project/env-chain.html#deployment-env-chain"><span class="std std-ref">Environment Variables (the .env chain)</span></a> for what the chain delivers to which container.</p>
 </section>
-<section id="share-a-card-with-the-whole-roster">
-<span id="multi-user-shared-card"></span><h2>Share a card with the whole roster<a class="headerlink" href="#share-a-card-with-the-whole-roster" title="Link to this heading">#</a></h2>
-<p>A roster entry admits one person. <code class="docutils literal notranslate"><span class="pre">access:</span></code> is the key that changes that —
-<code class="docutils literal notranslate"><span class="pre">own</span></code>, the default, is that rule spelled out: the entry’s own login and
-nobody else’s. <code class="docutils literal notranslate"><span class="pre">any</span></code> marks a <strong>shared card</strong>: one terminal, one persona,
-one audit directory, that anyone on the roster opens with their own
-credential:</p>
+<section id="share-a-card-with-more-than-one-person">
+<span id="multi-user-shared-card"></span><h2>Share a card with more than one person<a class="headerlink" href="#share-a-card-with-more-than-one-person" title="Link to this heading">#</a></h2>
+<p>A roster entry admits one person. <code class="docutils literal notranslate"><span class="pre">access:</span></code> is the key that changes that.
+Its value is a <strong>principal set</strong> — the principals allowed to open the card,
+and nobody else. The two words you already know name one-principal sets:
+<code class="docutils literal notranslate"><span class="pre">own</span></code>, the default, is <code class="docutils literal notranslate"><span class="pre">[self]</span></code>, the entry’s own login and nobody else’s;
+<code class="docutils literal notranslate"><span class="pre">any</span></code> is <code class="docutils literal notranslate"><span class="pre">[roster]</span></code>, everyone this deployment can authenticate. Every
+other set is written as a list.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 75.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Principal</p></th>
+<th class="head"><p>Who it admits</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">self</span></code></p></td>
+<td><p>The entry’s own login. <code class="docutils literal notranslate"><span class="pre">access:</span> <span class="pre">own</span></code> is this set, spelled shorter.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">roster</span></code></p></td>
+<td><p>Everyone this deployment can authenticate. <code class="docutils literal notranslate"><span class="pre">access:</span> <span class="pre">any</span></code> is this
+set, spelled shorter.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">user:&lt;id&gt;</span></code></p></td>
+<td><p>One identity, written exactly as your provider asserts it under
+<code class="docutils literal notranslate"><span class="pre">auth.oidc.claim</span></code>. Needs <code class="docutils literal notranslate"><span class="pre">method:</span> <span class="pre">oidc</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">domain:&lt;domain&gt;</span></code></p></td>
+<td><p>Everyone whose asserted email address is in that domain. Needs
+<code class="docutils literal notranslate"><span class="pre">method:</span> <span class="pre">oidc</span></code> and <code class="docutils literal notranslate"><span class="pre">claim:</span> <span class="pre">email</span></code>.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A card whose set is anything but <code class="docutils literal notranslate"><span class="pre">[self]</span></code> is a <strong>shared card</strong>: one
+terminal, one persona, one audit directory, opened by more than one person.
+Here is one shared with the whole roster:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">tls</span><span class="p">:</span>
@@ -875,29 +908,87 @@ credential:</p>
 <span class="w">        </span><span class="nt">access</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">any</span><span class="w">                </span><span class="c1"># any roster login opens this card</span>
 </pre></div>
 </div>
+<p>And here are two cards that nobody needs a roster entry to open — one shared
+with a whole single sign-on domain, one with two named people:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">oidc</span>
+<span class="w">      </span><span class="nt">oidc</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">issuer</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://sso.example.org/realms/accelerator</span>
+<span class="w">        </span><span class="nt">client_id_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OSPREY_AUTH_OIDC_CLIENT_ID</span>
+<span class="w">        </span><span class="nt">client_secret_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OSPREY_AUTH_OIDC_CLIENT_SECRET</span>
+<span class="w">        </span><span class="nt">claim</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">email</span><span class="w">             </span><span class="c1"># domain: reads the email address</span>
+<span class="w">    </span><span class="nt">users</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ops-desk</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+<span class="w">        </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
+<span class="w">        </span><span class="nt">access</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">domain</span><span class="p p-Indicator">:</span><span class="nv">example.org</span><span class="p p-Indicator">]</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">controls</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
+<span class="w">        </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readwrite</span>
+<span class="w">        </span><span class="nt">access</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">user</span><span class="p p-Indicator">:</span><span class="nv">ada@example.org</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">user</span><span class="p p-Indicator">:</span><span class="nv">bo@example.org</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
 <p>The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships its two standalone cards this way —
 <code class="docutils literal notranslate"><span class="pre">logbook</span></code> and <code class="docutils literal notranslate"><span class="pre">knowledge</span></code>, each <code class="docutils literal notranslate"><span class="pre">access:</span> <span class="pre">any</span></code> under <code class="docutils literal notranslate"><span class="pre">password</span></code> — so
 the logbook research and facility knowledge terminals are opened with any
 roster login’s own password and carry no credential of their own.</p>
-<p>Who can open it: anyone this deployment can authenticate. Under <code class="docutils literal notranslate"><span class="pre">password</span></code>
-that is every roster entry with a provisioned password; under <code class="docutils literal notranslate"><span class="pre">oidc</span></code>, every
-entry that carries an <code class="docutils literal notranslate"><span class="pre">oidc_subject:</span></code>, the shared card itself included when
-it carries one. On a shared card the password
-form gains a username field: the person types their <em>own</em> roster name beside
-the password, and it is that name’s stored password that is checked — and that
-name the rate limit counts against. A card that never had a password of its
-own has no credential to offer here; one flipped from <code class="docutils literal notranslate"><span class="pre">own</span></code> still does,
-until you decommission it — see
-<a class="reference internal" href="#multi-user-shared-card-removal"><span class="std std-ref">Removing someone</span></a> below.</p>
-<p>The session carries who opened it — the <em>opener</em> — and re-checks that person
-against the roster on every request. Rotating the opener’s password or
-decommissioning them ends every shared session they opened at the next
-request, and under <code class="docutils literal notranslate"><span class="pre">oidc</span></code> so does editing or removing their
-<code class="docutils literal notranslate"><span class="pre">oidc_subject:</span></code> — that per-person revocation is how a shared card is taken
-away from one user without touching the rest. Flipping the <code class="docutils literal notranslate"><span class="pre">access</span></code> key
-settles the same way: a card flipped to <code class="docutils literal notranslate"><span class="pre">any</span></code> refuses sessions minted while
-it was its owner’s, and a card flipped back to <code class="docutils literal notranslate"><span class="pre">own</span></code> refuses the shared
-ones. The ledger records the opener beside the card
+<p>Who can open it is answered one principal at a time. <code class="docutils literal notranslate"><span class="pre">roster</span></code> admits
+anyone this deployment can authenticate: under <code class="docutils literal notranslate"><span class="pre">password</span></code> that is every roster entry
+with a provisioned password; under <code class="docutils literal notranslate"><span class="pre">oidc</span></code>, every entry that carries an
+<code class="docutils literal notranslate"><span class="pre">oidc_subject:</span></code>, the shared card itself included when it carries one.
+<code class="docutils literal notranslate"><span class="pre">user:</span></code> admits the one identity it names, and <code class="docutils literal notranslate"><span class="pre">domain:</span></code> admits every
+asserted email address in that domain — in both cases whether or not that
+person has a roster entry of their own. The set only ever grants: a card
+admits someone when at least one of its principals covers them, nothing on
+the card takes admission back again, and a person no principal covers is
+refused.</p>
+<p>Write <code class="docutils literal notranslate"><span class="pre">self</span></code> into the list where the card’s own login has to keep working
+beside the rest. <code class="docutils literal notranslate"><span class="pre">[self,</span> <span class="pre">domain:example.org]</span></code> admits the card’s owner by
+their own credential and everyone in the domain; <code class="docutils literal notranslate"><span class="pre">[domain:example.org]</span></code>
+alone does not admit the owner, unless the identity they sign in with is
+itself in that domain. <code class="docutils literal notranslate"><span class="pre">roster</span></code> covers the owner too, as one roster member
+among the others.</p>
+<p><code class="docutils literal notranslate"><span class="pre">domain:</span></code> compares the domain exactly. <code class="docutils literal notranslate"><span class="pre">domain:example.org</span></code> admits
+<code class="docutils literal notranslate"><span class="pre">ada&#64;example.org</span></code> and refuses <code class="docutils literal notranslate"><span class="pre">ada&#64;labs.example.org</span></code>; name the subdomain
+as a principal of its own where you want it too. Case in the domain is
+ignored, because domain names ignore it, and there is a domain to read only
+where the identity claim is the email address — so <code class="docutils literal notranslate"><span class="pre">domain:</span></code> is refused
+before the deployment starts unless <code class="docutils literal notranslate"><span class="pre">claim:</span> <span class="pre">email</span></code> is set. Two further
+checks run once, at login, on claims the login service never stores: a token
+whose <code class="docutils literal notranslate"><span class="pre">hd</span></code> claim disagrees with the domain of its email address is refused,
+and so is one carrying <code class="docutils literal notranslate"><span class="pre">email_verified:</span> <span class="pre">false</span></code>. A provider that never
+verifies addresses — a Keycloak realm with <em>Verify email</em> switched off, say —
+emits that claim for everyone, so its <code class="docutils literal notranslate"><span class="pre">user:</span></code> principals refuse everybody
+until the address is verified, which is the provider behaving to spec rather
+than a fault.</p>
+<p>Under <code class="docutils literal notranslate"><span class="pre">password</span></code> only <code class="docutils literal notranslate"><span class="pre">self</span></code> and <code class="docutils literal notranslate"><span class="pre">roster</span></code> are evaluated: nothing there
+asserts an identity or an email domain, so a card listing only <code class="docutils literal notranslate"><span class="pre">user:</span></code> or
+<code class="docutils literal notranslate"><span class="pre">domain:</span></code> principals would admit nobody at all. The lint refuses that card
+before it can be deployed. A card whose set names <code class="docutils literal notranslate"><span class="pre">roster</span></code> gains a username
+field on its login form:
+the person types their <em>own</em> roster name beside the password, and it is that
+name’s stored password that is checked — and that name the rate limit counts
+against. A card that never had a password of its own has no credential to
+offer here; one flipped from <code class="docutils literal notranslate"><span class="pre">own</span></code> still does, until you decommission it —
+see <a class="reference internal" href="#multi-user-shared-card-removal"><span class="std std-ref">Removing someone</span></a> below.</p>
+<p>A session opened by someone the roster names carries who opened it — the
+<em>opener</em> — and re-checks that person against the roster on every request.
+Rotating the opener’s password or decommissioning them ends every shared
+session they opened at the next request, and under <code class="docutils literal notranslate"><span class="pre">oidc</span></code> so does editing
+or removing their <code class="docutils literal notranslate"><span class="pre">oidc_subject:</span></code> — that per-person revocation is how a
+shared card is taken away from one user without touching the rest.</p>
+<p>A session admitted by a <code class="docutils literal notranslate"><span class="pre">user:</span></code> or <code class="docutils literal notranslate"><span class="pre">domain:</span></code> principal has no roster
+entry behind it. It carries the identity the provider asserted, and every
+request re-checks that identity against the set the card carries <em>now</em>.
+Revocation is the same move made in a different place: drop the principal
+that covers someone, and their next request on that card is refused. Editing
+the <code class="docutils literal notranslate"><span class="pre">access</span></code> key settles the same way throughout — a card widened from
+<code class="docutils literal notranslate"><span class="pre">own</span></code> refuses the sessions minted while it was its owner’s, a card returned
+to <code class="docutils literal notranslate"><span class="pre">own</span></code> refuses the shared ones, and a narrowed list refuses whoever it no
+longer covers.</p>
+<p>The ledger records who opened a session beside the card
 (<a class="reference internal" href="../../../reference/contracts/audit-trail.html#audit-trail-identity-keys"><span class="std std-ref">The login behind the record</span></a>), so a shared terminal’s records still say
 who did what.</p>
 <p>The card’s role rides the card. The claims binding
@@ -905,13 +996,32 @@ who did what.</p>
 card’s terminal is only ever built as its own tier — so a person the binding
 would refuse for their own card can still open a shared one. If the binding
 is your membership gate, do not share a card.</p>
-<p>Two rosters are refused by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code> and the
+<p>These rosters are refused by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code> and the
 build verbs that run it:</p>
 <ul class="simple">
 <li><p><strong>A deployment-editing card cannot be shared</strong>
 (<code class="docutils literal notranslate"><span class="pre">web_terminals.shared_card_privileged</span></code>). A persona holding the setup
 tool or the Config panel was lifted for named people behind their own
-cards; <code class="docutils literal notranslate"><span class="pre">access:</span> <span class="pre">any</span></code> would hand it to every login the deployment has.</p></li>
+cards; any set wider than <code class="docutils literal notranslate"><span class="pre">[self]</span></code> would hand it to people it was never
+lifted for.</p></li>
+<li><p><strong>A principal OSPREY does not recognise is an error, never a wider card</strong>
+(<code class="docutils literal notranslate"><span class="pre">web_terminals.invalid_user_access</span></code>). An empty list, a value that is not
+a list, an unknown prefix and a misspelled one are all refused where they
+are written, rather than quietly leaving the card owner-only. <code class="docutils literal notranslate"><span class="pre">group:</span></code>
+gets its own wording: the prefix is reserved and not supported yet.</p></li>
+<li><p><strong>Both new principal kinds need</strong> <code class="docutils literal notranslate"><span class="pre">method:</span> <span class="pre">oidc</span></code>
+(<code class="docutils literal notranslate"><span class="pre">web_terminals.access_principal_without_idp</span></code>). Under <code class="docutils literal notranslate"><span class="pre">password</span></code>
+nothing asserts an identity or an email domain, so a card written that way
+could not mean what it says.</p></li>
+<li><p><strong>A</strong> <code class="docutils literal notranslate"><span class="pre">domain:</span></code> <strong>principal needs</strong> <code class="docutils literal notranslate"><span class="pre">claim:</span> <span class="pre">email</span></code>
+(<code class="docutils literal notranslate"><span class="pre">web_terminals.access_domain_without_email_claim</span></code>). Every other claim is
+refused, because there is no email address to read a domain from and the
+card would admit nobody.</p></li>
+<li><p><strong>Two</strong> <code class="docutils literal notranslate"><span class="pre">user:</span></code> <strong>principals on one card must not name the same
+identity</strong> (<code class="docutils literal notranslate"><span class="pre">web_terminals.duplicate_access_principal</span></code>). Identical values
+are refused, and so are values differing only in case under
+<code class="docutils literal notranslate"><span class="pre">claim:</span> <span class="pre">email</span></code>, because the login service has to resolve an identity to a
+single grant.</p></li>
 <li><p><strong>With a shared card on an</strong> <code class="docutils literal notranslate"><span class="pre">oidc</span></code> <strong>roster, two entries must not carry
 the same</strong> <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code> (<code class="docutils literal notranslate"><span class="pre">web_terminals.shared_card_duplicate_subject</span></code>).
 One person could always hold two cards — the same <code class="docutils literal notranslate"><span class="pre">oidc_subject:</span></code> on
@@ -922,6 +1032,15 @@ a person keeps <code class="docutils literal notranslate"><span class="pre">oidc
 identity would otherwise be ambiguous, and is refused. Under
 <code class="docutils literal notranslate"><span class="pre">claim:</span> <span class="pre">email</span></code> two subjects that differ only in case count as the same.</p></li>
 </ul>
+<p>The three principal refusals — <code class="docutils literal notranslate"><span class="pre">web_terminals.access_principal_without_idp</span></code>,
+<code class="docutils literal notranslate"><span class="pre">web_terminals.access_domain_without_email_claim</span></code> and
+<code class="docutils literal notranslate"><span class="pre">web_terminals.duplicate_access_principal</span></code> — say nothing where no login wall
+stands. Under <code class="docutils literal notranslate"><span class="pre">token</span></code> or <code class="docutils literal notranslate"><span class="pre">none</span></code> there is no door for a principal to open,
+and a profile’s passive base is allowed to carry the key for the variant that
+arms it. Once the deployment is running, a card whose
+<code class="docutils literal notranslate"><span class="pre">OSPREY_AUTH_ROSTER_ACCESS_*</span></code> value the login service cannot read admits
+nobody, its owner included, and the service logs a warning naming the
+variable until the deployment is rendered again from a corrected profile.</p>
 </section>
 <section id="serve-it-over-https">
 <span id="multi-user-https"></span><h2>Serve it over HTTPS<a class="headerlink" href="#serve-it-over-https" title="Link to this heading">#</a></h2>
@@ -977,8 +1096,8 @@ the way to set a password you chose. <code class="docutils literal notranslate">
 <li><p>Otherwise a password is generated, hashed, and printed once. Capture it.</p></li>
 </ol>
 <p>To change one later, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span> <span class="pre">alice</span></code> prompts, rewrites that hash
-and ends alice’s sessions — her own card’s, and every shared-card
-(<a class="reference internal" href="#multi-user-shared-card"><span class="std std-ref">access: any</span></a>) session she opened, since those
+and ends alice’s sessions — her own card’s, and every
+<a class="reference internal" href="#multi-user-shared-card"><span class="std std-ref">shared-card</span></a> session she opened, since those
 are held open by this same credential. Sessions held open by other people’s
 passwords stay up. Password login is rate-limited per user but never locks
 anyone out — a control-room operator must not be shut out of the terminals.</p>
@@ -998,13 +1117,13 @@ along with her own (see above); under <code class="docutils literal notranslate"
 <code class="docutils literal notranslate"><span class="pre">oidc_subject:</span></code> ends her shared-card sessions at the next request — her
 <em>own</em> card’s session is different, lapsing at expiry or logout as it always
 has, unless <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">decommission</span> <span class="pre">alice</span></code> ends it now.</p></li>
-<li><p><strong>Flipping a card to</strong> <code class="docutils literal notranslate"><span class="pre">access:</span> <span class="pre">any</span></code> <strong>does not retire the card’s own
-password</strong> — the hash stays in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> and still works: anyone who
-knows it can open the shared card by typing the card’s own name into the
-username field. Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">decommission</span> <span class="pre">&lt;card&gt;</span></code> when you share a
-card that used to have its own password; flipping back to <code class="docutils literal notranslate"><span class="pre">own</span></code> revives
-an unretired hash. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span> <span class="pre">&lt;card&gt;</span></code> is refused while the card
-is shared — there is no password of its own to change.</p></li>
+<li><p><strong>Sharing a card does not retire the card’s own password</strong> — the hash stays
+in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> and still works: anyone who knows it can open the shared
+card by typing the card’s own name into the username field. Run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">decommission</span> <span class="pre">&lt;card&gt;</span></code> when you share a card that used to
+have its own password; returning the card to <code class="docutils literal notranslate"><span class="pre">own</span></code> revives an unretired
+hash. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span> <span class="pre">&lt;card&gt;</span></code> is refused while the card is shared —
+there is no password of its own to change.</p></li>
 <li><p><strong>A plaintext</strong> <code class="docutils literal notranslate"><span class="pre">OSPREY_AUTH_PW_ALICE</span></code> <strong>in</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code> <strong>survives
 decommission</strong> and would be hashed straight back in for the next alice.
 Delete the line by hand when the person leaves.</p></li>
@@ -1081,7 +1200,7 @@ read <a class="reference internal" href="#multi-user-open-mode"><span class="std
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choose-a-method">Choose a method</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#let-single-sign-on-pick-the-tier">Let single sign-on pick the tier</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#share-a-card-with-the-whole-roster">Share a card with the whole roster</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#share-a-card-with-more-than-one-person">Share a card with more than one person</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#serve-it-over-https">Serve it over HTTPS</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#passwords-and-where-they-live">Passwords, and where they live</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#removing-someone-and-turning-it-off">Removing someone, and turning it off</a></li>

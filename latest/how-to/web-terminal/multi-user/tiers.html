@@ -1048,8 +1048,9 @@ that make an edit real.</p>
 <h2>Checked, not merely conventional<a class="headerlink" href="#checked-not-merely-conventional" title="Link to this heading">#</a></h2>
 <p>The one capability it would be worst to leave open — editing the deployment —
 is guarded by the commands themselves, not only by the preset’s choices.
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuse a shared card
-(<code class="docutils literal notranslate"><span class="pre">access:</span> <span class="pre">any</span></code>) that resolves to a persona holding either deployment-editing
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuse a shared card — one
+whose <code class="docutils literal notranslate"><span class="pre">access:</span></code> admits anybody but the card’s own login — that resolves to
+a persona holding either deployment-editing
 surface, and refuse a privileged <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> in a deployment that
 draws a tier split at all; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> asks the same question of the render
 before it starts anything. Each refusal names the user, or the persona, and
@@ -1058,9 +1059,12 @@ the remedy.</p>
 <summary class="sd-summary-title sd-card-header">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-shield-check" viewBox="0 0 16 16" aria-hidden="true"><path d="m8.533.133 5.25 1.68A1.75 1.75 0 0 1 15 3.48V7c0 1.566-.32 3.182-1.303 4.682-.983 1.498-2.585 2.813-5.032 3.855a1.697 1.697 0 0 1-1.33 0c-2.447-1.042-4.049-2.357-5.032-3.855C1.32 10.182 1 8.566 1 7V3.48a1.75 1.75 0 0 1 1.217-1.667l5.25-1.68a1.748 1.748 0 0 1 1.066 0Zm-.61 1.429.001.001-5.25 1.68a.251.251 0 0 0-.174.237V7c0 1.36.275 2.666 1.057 3.859.784 1.194 2.121 2.342 4.366 3.298a.196.196 0 0 0 .154 0c2.245-.957 3.582-2.103 4.366-3.297C13.225 9.666 13.5 8.358 13.5 7V3.48a.25.25 0 0 0-.174-.238l-5.25-1.68a.25.25 0 0 0-.153 0ZM11.28 6.28l-3.5 3.5a.75.75 0 0 1-1.06 0l-1.5-1.5a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215l.97.97 2.97-2.97a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042Z"></path></svg></span><span class="sd-summary-text">Exactly what <code class="docutils literal notranslate"><span class="pre">validate</span></code>, <code class="docutils literal notranslate"><span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">up</span></code> refuse</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuse any shared card
-(<code class="docutils literal notranslate"><span class="pre">access:</span> <span class="pre">any</span></code>) that resolves to a persona holding either
-deployment-editing surface — the agent’s <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> tool or the web
-Config panel — naming the user. That refusal does not ask whether your
+that resolves to a persona holding either deployment-editing surface — the
+agent’s <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> tool or the web Config panel — naming the user.
+Shared means the card’s <code class="docutils literal notranslate"><span class="pre">access:</span></code> admits anybody but its own login,
+whether that is <code class="docutils literal notranslate"><span class="pre">any</span></code>, one <code class="docutils literal notranslate"><span class="pre">domain:</span></code> or a single <code class="docutils literal notranslate"><span class="pre">user:</span></code>; the
+question the rule asks is how far the card reaches, not which words say
+so. That refusal does not ask whether your
 profile drew a tier split: a profile that floors neither surface hands both
 of them to every persona it has, so a shared card there is the most exposed
 version of this rather than an exempt one. The remedy is the card’s own

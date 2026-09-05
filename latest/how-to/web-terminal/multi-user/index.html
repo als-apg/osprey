@@ -686,7 +686,7 @@ read-only, with nothing that touches the machine. It reads the same graph
 store the operator terminals do. Nothing special makes either possible. A
 persona is already a whole project, so it can differ in what it <em>is</em> as
 easily as in what it may write. Both cards are shared — any roster login
-opens them with their own password (<a class="reference internal" href="login.html#multi-user-shared-card"><span class="std std-ref">Share a card with the whole roster</span></a>).</p>
+opens them with their own password (<a class="reference internal" href="login.html#multi-user-shared-card"><span class="std std-ref">Share a card with more than one person</span></a>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders one persona project per delta in <code class="docutils literal notranslate"><span class="pre">personas/</span></code>, and
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds each one’s container image locally, so no registry or CI is
 involved.</p>
@@ -784,8 +784,10 @@ becomes that user’s browser tab title. An entry may name a <strong>role</stron
 instead of a persona — one mapping written once rather than a persona
 pinned per user, and the half a single sign-on provider’s groups can
 decide; see <a class="reference internal" href="login.html#multi-user-role-from-sso"><span class="std std-ref">Let single sign-on pick the tier</span></a>. Behind a login wall an
-entry may also set <code class="docutils literal notranslate"><span class="pre">access:</span> <span class="pre">any</span></code>, opening it to every roster login
-as a shared card — see <a class="reference internal" href="login.html#multi-user-shared-card"><span class="std std-ref">Share a card with the whole roster</span></a>. The roster sets
+entry may also set <code class="docutils literal notranslate"><span class="pre">access:</span></code>, the set of principals allowed to open
+it as a shared card: <code class="docutils literal notranslate"><span class="pre">any</span></code> for every roster login, or a list naming
+single sign-on identities or a whole email domain — see
+<a class="reference internal" href="login.html#multi-user-shared-card"><span class="std std-ref">Share a card with more than one person</span></a>. The roster sets
 no ports.
 Each user’s host ports come from the deployment’s port layout — one
 hundred-port family per companion panel (artifact gallery, ARIEL,
