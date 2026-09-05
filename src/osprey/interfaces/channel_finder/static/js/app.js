@@ -6,7 +6,7 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
-import { applyEmbedded, isEmbedded } from '/design-system/js/frame-params.js';
+import { applyEmbedded, isEmbedded, onModeChange } from '/design-system/js/frame-params.js';
 import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
 import '/design-system/js/components/osprey-display-menu.js';
 import { fetchJSON, putJSON } from './api.js';
@@ -29,18 +29,12 @@ applyEmbedded();
 
 // Live Expert<->Simple switch broadcast by the hub's header toggle. The
 // pre-paint rung (mode-boot.js) already set the initial data-ui-mode; this is
-// the runtime flip. Coerce anything non-"simple" to "expert", re-stamp the
-// attribute (CSS deltas key off it), then re-mount the active view so the
+// the runtime flip. frame-params.js's shared receive side normalizes the
+// mode, re-stamps the attribute (CSS deltas key off it) and calls back only
+// on an actual change; the follow-up re-mounts the active view so the
 // in-context renderer repaints its plain cards <-> dense table. Mirrors the
 // ARIEL panel's app.js listener.
-window.addEventListener('message', (e) => {
-  if (e.origin !== window.location.origin) return;
-  if (e.data && e.data.type === 'osprey-mode-change' && e.data.mode) {
-    const mode = e.data.mode === 'simple' ? 'simple' : 'expert';
-    document.documentElement.setAttribute('data-ui-mode', mode);
-    remountCurrentView();
-  }
-});
+onModeChange(() => remountCurrentView());
 
 /** @typedef {{ mount: (container: HTMLElement) => void, unmount: () => void }} ViewModule */
 

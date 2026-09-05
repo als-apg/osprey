@@ -142,6 +142,19 @@ export function pickUiMode(mode) {
  * fixup, ...). Pages whose Simple/Expert deltas are pure CSS pass no
  * callback.
  *
+ * The callback runs only when the mode actually changed. The hub resends
+ * the current mode to a panel on every tab activation and posts a flip both
+ * as a broadcast and again on activation, so a follower that re-mounted on
+ * every message did so twice per flip and once per tab switch. A repeat of
+ * the mode already on `<html>` (stamped pre-paint by mode-boot.js or by an
+ * earlier message) is not a flip.
+ *
+ * Several callers register on one window (the page itself, every
+ * `<osprey-display-menu>`), and the first listener to see a message is the
+ * one that stamps `<html>`. "Did this message change the mode" is therefore
+ * decided once per message event and shared by every listener, so no later
+ * listener mistakes the stamp its sibling just made for a repeat.
+ *
  * @param {(mode: 'expert'|'simple') => void} [callback]
  * @returns {void}
  */
@@ -150,7 +163,20 @@ export function onModeChange(callback) {
     if (e.origin !== window.location.origin) return;
     if (!e.data || e.data.type !== 'osprey-mode-change' || !e.data.mode) return;
     const mode = e.data.mode === 'simple' ? 'simple' : 'expert';
-    document.documentElement.setAttribute('data-ui-mode', mode);
+    let changed = modeChangeVerdicts.get(e);
+    if (changed === undefined) {
+      changed = document.documentElement.getAttribute('data-ui-mode') !== mode;
+      modeChangeVerdicts.set(e, changed);
+      document.documentElement.setAttribute('data-ui-mode', mode);
+    }
+    if (!changed) return;
     if (callback) callback(mode);
   });
 }
+
+/**
+ * Per-message verdict of {@link onModeChange}: whether the message flipped
+ * the mode. Keyed weakly on the event so entries vanish with it.
+ * @type {WeakMap<MessageEvent, boolean>}
+ */
+const modeChangeVerdicts = new WeakMap();

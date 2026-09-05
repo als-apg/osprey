@@ -207,6 +207,52 @@ describe('onModeChange', () => {
 
     expect(document.documentElement.getAttribute('data-ui-mode')).toBe('simple');
   });
+
+  test('a repeat of the mode already stamped invokes no callback', () => {
+    // The hub sends the mode twice on a flip — once as the broadcast, once
+    // again on tab activation — and once more every time a tab is activated.
+    // A follower's callback re-mounts its view or re-fetches, so it must run
+    // only when the mode actually changed.
+    const callback = vi.fn();
+    onModeChange(callback);
+
+    deliverMessage({ type: 'osprey-mode-change', mode: 'simple' });
+    deliverMessage({ type: 'osprey-mode-change', mode: 'simple' });
+
+    expect(callback).toHaveBeenCalledTimes(1);
+
+    deliverMessage({ type: 'osprey-mode-change', mode: 'expert' });
+    expect(callback).toHaveBeenCalledTimes(2);
+    expect(callback).toHaveBeenLastCalledWith('expert');
+  });
+
+  test('every listener on the window sees one flip, not just the first to stamp', () => {
+    // A page registers its own callback and its <osprey-display-menu>
+    // registers another. The first listener stamps <html>; the second must
+    // not read that stamp as "already this mode" and skip.
+    const page = vi.fn();
+    const menu = vi.fn();
+    onModeChange(page);
+    onModeChange(menu);
+
+    deliverMessage({ type: 'osprey-mode-change', mode: 'simple' });
+
+    expect(page).toHaveBeenCalledWith('simple');
+    expect(menu).toHaveBeenCalledWith('simple');
+  });
+
+  test('a repeat of the mode stamped pre-paint invokes no callback either', () => {
+    // mode-boot.js stamps data-ui-mode before this listener exists; the hub's
+    // activation-time resend of that same mode is not a flip.
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    const callback = vi.fn();
+    onModeChange(callback);
+
+    deliverMessage({ type: 'osprey-mode-change', mode: 'simple' });
+
+    expect(callback).not.toHaveBeenCalled();
+    expect(document.documentElement.getAttribute('data-ui-mode')).toBe('simple');
+  });
 });
 
 describe('pickUiMode', () => {

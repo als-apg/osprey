@@ -448,6 +448,27 @@ def test_seam_tls_on_a_non_default_port_moves_the_whole_encrypted_seam() -> None
     assert "ssl_certificate_key /etc/nginx/certs/dls.key;" in content
 
 
+def test_seam_tls_content_server_speaks_http2_and_cleartext_servers_do_not() -> None:
+    """SEAM 2 (TLS brings HTTP/2): the encrypted content server enables HTTP/2.
+    Browsers cap HTTP/1.1 at six connections per host, and every hub tab holds
+    several long-lived event streams against that budget; multiplexing removes
+    the ceiling wherever TLS is already terminated here. The redirect-only
+    server has nothing to multiplex, and a plain-http render cannot negotiate
+    HTTP/2 with a browser at all, so neither emits the directive."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["modules"]["web_terminals"]["tls"] = copy.deepcopy(_TLS_STANZA)
+
+    # Act
+    redirect, content = _server_blocks(_render_nginx(config))
+    plain = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
+
+    # Assert
+    assert "http2 on;" in content
+    assert "http2" not in redirect
+    assert "http2" not in plain
+
+
 def _nginx_volumes(config: dict) -> list[str]:
     """The rendered nginx service's ``volumes`` list, parsed from the overlay."""
     overlay = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])

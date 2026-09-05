@@ -221,7 +221,8 @@
     becomes a redirect-only server and a second `listen <tls_port> ssl` server
     — `tls_port` is 443 unless the deployment set `tls.port`, which is what a
     rootless nginx needs — carrying `ssl_certificate`/`ssl_certificate_key`
-    from the configured paths, becomes the sole content server. The redirect
+    from the configured paths and speaking HTTP/2, becomes the sole content
+    server. The redirect
     names that port too whenever it is not 443. render.py refuses to render at
     all if either path is missing, so this template never has to guard against
     an incoherent pair.
@@ -400,6 +401,12 @@ server {
     listen [::]:{{ tls_port }} ssl;
     ssl_certificate {{ tls_cert }};
     ssl_certificate_key {{ tls_key }};
+    # HTTP/2 rides on the TLS handshake (ALPN), so it exists only here. It
+    # multiplexes every request on one connection, which lifts the browser's
+    # six-connections-per-host HTTP/1.1 cap — a hub tab holds several
+    # long-lived event streams against that budget. WebSockets are unaffected:
+    # the browser opens them on their own HTTP/1.1 connection regardless.
+    http2 on;
 {% else %}
     listen {{ nginx_port }};
     listen [::]:{{ nginx_port }};

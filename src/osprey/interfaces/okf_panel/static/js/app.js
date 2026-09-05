@@ -29,7 +29,7 @@
  */
 
 import { initTheme } from "/design-system/js/theme-manager.js";
-import { applyEmbedded, isEmbedded } from "/design-system/js/frame-params.js";
+import { applyEmbedded, isEmbedded, onModeChange } from "/design-system/js/frame-params.js";
 import { debounce } from "/design-system/js/dom.js";
 import {
   contributeHeader,
@@ -81,18 +81,12 @@ function publishHeaderContribution() {
 // Live Expert<->Simple switch broadcast by the hub (same-origin postMessage),
 // the mode-axis sibling of the osprey-theme-change follower wired by initTheme
 // above. mode-boot.js already stamped the initial data-ui-mode pre-paint; this
-// is the runtime flip. The Simple layout is pure CSS gated on the attribute
-// (see style.css), so stamping <html> covers the body; the tile-bar
+// is the runtime flip. frame-params.js's shared receive side stamps <html> and
+// calls back only on an actual change. The Simple layout is pure CSS gated on
+// the attribute (see style.css), so the stamp covers the body; the tile-bar
 // contribution is mode-dependent, so re-publish it too — that is what moves the
 // search box between the bar and the body on a live flip.
-window.addEventListener("message", (e) => {
-  if (e.origin !== window.location.origin) return;
-  if (e.data && e.data.type === "osprey-mode-change" && e.data.mode) {
-    const mode = e.data.mode === "simple" ? "simple" : "expert";
-    document.documentElement.setAttribute("data-ui-mode", mode);
-    publishHeaderContribution();
-  }
-});
+onModeChange(() => publishHeaderContribution());
 
 applyEmbedded();
 
