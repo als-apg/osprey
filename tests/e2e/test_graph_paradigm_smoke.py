@@ -93,7 +93,7 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.agent_runner import expected_mcp_servers
+from osprey.agent_runner import ToolTrace, expected_mcp_servers
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
@@ -327,6 +327,36 @@ def _real_addresses_named(text: str) -> list[str]:
     return sorted(pv for pv in PROBE_DEVICE_BINDINGS if pv in plain)
 
 
+def _unwrapped_json_object(text: str) -> dict[str, Any] | None:
+    """One tool result as a JSON object, out of however much transport wraps it.
+
+    ``None`` when the text is not JSON, or carries something other than an
+    object once the wrapping is off — both of which read as "this call
+    returned no addresses" rather than raising.
+
+    The loop consumes exactly one step per pass — parse a string, peel one
+    envelope, or return the object — so a bare body costs 2 and the live
+    single-envelope shape costs 4. Eight therefore tolerates three nested
+    envelopes; below four it would silently revert to reading the envelope
+    instead of the body.
+    """
+    body: Any = text
+    for _ in range(8):
+        if isinstance(body, str):
+            try:
+                body = json.loads(body)
+            except (TypeError, ValueError):
+                return None
+            continue
+        if not isinstance(body, dict):
+            return None
+        if set(body) == {"result"}:  # FastMCP str-return transport envelope
+            body = body["result"]
+            continue
+        return body
+    return None
+
+
 def _addresses_returned_by(call: Any) -> list[str]:
     """The probe device's genuine addresses in what one retrieval call returned.
 
@@ -337,6 +367,17 @@ def _addresses_returned_by(call: Any) -> list[str]:
     ``read_cypher`` returns whatever the subagent's ``RETURN`` clause happened to
     name, so there is no key to read and the whole result text is scanned
     instead — the same rule floor 3 applies to the agent's prose.
+
+    The envelope has to come off first. FastMCP surfaces a ``str``-returning
+    tool as structured content under a single ``result`` key, so what a real
+    run records is ``{"result": "<the tool's JSON>"}`` — the documented
+    envelope one layer down, inside a re-encoded string. A direct call yields
+    the bare body instead. Reading ``rows`` off the outer object finds nothing
+    on every real run while hand-written bodies stay green, which is the same
+    trap ``_add_body`` in ``test_plan_stack_agentic.py`` is written against;
+    see its docstring for the fuller account. Peeling is bounded and happens
+    only when ``result`` is the sole key, so a body carrying its own ``result``
+    field is never mistaken for transport.
 
     Deliberately defensive: a result that is not JSON, or JSON without the keys
     this expects, yields no addresses rather than raising. A malformed answer
@@ -354,11 +395,8 @@ def _addresses_returned_by(call: Any) -> list[str]:
     if call.name != _SEARCH_CHANNELS:
         return _real_addresses_named(text)
 
-    try:
-        payload = json.loads(text)
-    except (TypeError, ValueError):
-        return []
-    if not isinstance(payload, dict):
+    payload = _unwrapped_json_object(text)
+    if payload is None:
         return []
     rows = payload.get("rows")
     if not isinstance(rows, list):
@@ -369,6 +407,66 @@ def _addresses_returned_by(call: Any) -> list[str]:
             for row in rows
             if isinstance(row, dict) and row.get("fullPv") in PROBE_DEVICE_BINDINGS
         }
+    )
+
+
+#: One ``search_channels`` answer in the shape a real run records, reduced from
+#: the transcript of a CI run of the test below. The envelope, the escaping and
+#: the first row are as captured; the remaining rows and the row's ``signals``
+#: list are dropped, because the assertion that printed it truncates at 400
+#: characters and the tail was never recorded. What matters here is the
+#: wrapping, and that is complete.
+#:
+#: Read the pin against this rather than a hand-written body: a body written
+#: from the same assumption as the reader agrees with the reader whatever that
+#: assumption was, and the assumption is the thing that was wrong.
+_LIVE_ENVELOPED_SEARCH_RESULT = (
+    r'{"result":"{\"total\": 216, \"devices\": 36, \"page\": 1, \"pages\": 5, '
+    r"\"rows\": [{\"fullPv\": \"SR:MAG:DIPOLE:01:CURRENT:GOLDEN\", "
+    r"\"description\": \"Storage ring dipole bending magnet 01 current golden "
+    r"setpoint\", \"device\": \"DIPOLE01\", \"section\": \"SR\", \"system\": "
+    r'\"MAG\", \"direction\": \"R\", \"signals\": []}]}"}'
+)
+
+
+@pytest.mark.harness_benchmark
+def test_floor_two_reads_the_transport_envelope_a_live_run_produces() -> None:
+    """Floor 2 must read the shape the SDK records, not the shape the tool returns.
+
+    These differ by one layer, and the difference is invisible offline: FastMCP
+    re-encodes a ``str``-returning tool's answer under a single ``result`` key,
+    so a reader that takes ``rows`` off the outer object finds nothing on every
+    real run while hand-written bodies keep passing. That is not hypothetical
+    here — it is what this floor did, and the failure it produced accused the
+    store of being unreachable and the index of being stale while the addresses
+    sat in the payload it had just been handed.
+
+    The bare form is pinned beside it because a direct, non-MCP call still
+    produces one, and a reader that only understands the envelope would break
+    the other direction.
+    """
+    enveloped = ToolTrace(
+        name=_SEARCH_CHANNELS, input={"query": "dipole"}, result=_LIVE_ENVELOPED_SEARCH_RESULT
+    )
+    assert _addresses_returned_by(enveloped) == ["SR:MAG:DIPOLE:01:CURRENT:GOLDEN"]
+
+    outer = json.loads(_LIVE_ENVELOPED_SEARCH_RESULT)
+    assert set(outer) == {"result"}, "the FastMCP envelope carries exactly one key"
+    body = json.loads(outer["result"])
+    assert {"total", "devices", "page", "pages", "rows"} <= set(body), (
+        "the tool's documented envelope — see search_channels' own docstring"
+    )
+
+    bare = ToolTrace(name=_SEARCH_CHANNELS, input={"query": "dipole"}, result=json.dumps(body))
+    assert _addresses_returned_by(bare) == ["SR:MAG:DIPOLE:01:CURRENT:GOLDEN"]
+
+    facet_echo = ToolTrace(
+        name=_SEARCH_CHANNELS,
+        input={"query": "dipole"},
+        result=json.dumps({"total": 0, "rows": [], "suggestions": [PROBE_PV]}),
+    )
+    assert _addresses_returned_by(facet_echo) == [], (
+        "an address echoed outside a row's fullPv is not an address the call returned"
     )
 
 
