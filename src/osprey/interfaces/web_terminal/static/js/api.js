@@ -260,7 +260,25 @@ export function createWebSocket(url, { onOpen, onMessage, onClose, onError } = {
 }
 
 /**
- * Create an EventSource with reconnection.
+ * The live shared streams, keyed by the caller's (unprefixed) URL. One entry
+ * per distinct URL for as long as it has at least one subscriber; the last
+ * `stop()` closes the socket and drops the entry. See createEventSource.
+ * @type {Map<string, {subscribe: (handlers: EventSourceHandlers) => {stop: () => void}}>}
+ */
+const sharedStreams = new Map();
+
+/**
+ * Subscribe to a server-sent event stream, with reconnection.
+ *
+ * One socket per URL, however many subscribers. Browsers cap HTTP/1.1 at six
+ * connections per host across every tab, and an idle EventSource counts the
+ * same as an in-flight fetch. Three hub modules read `/api/files/events` on
+ * one page (panel-sse, the activity strip, the control-target chip); a socket
+ * each left one tab a single connection under the cap, so a second tab — or
+ * one more streaming panel — pushed every later fetch into an indefinite
+ * queue. Subscribers to the same URL now share the socket; each frame is
+ * parsed once and handed to every subscriber's `onMessage` (treat it as
+ * read-only), and the socket closes when the last subscriber stops.
  *
  * The browser's built-in retry covers only network-level failures on a
  * still-live source; a non-2xx response or wrong content type (a proxy 502
@@ -272,11 +290,30 @@ export function createWebSocket(url, { onOpen, onMessage, onClose, onError } = {
  * `onOpen` fires on EVERY open — first connect, browser auto-retry, and this
  * wrapper's own reconnects. SSE has no replay (no event ids are sent), so
  * anything published while disconnected is gone; the hook is the caller's
- * seam for re-fetching authoritative state instead.
+ * seam for re-fetching authoritative state instead. A subscriber that joins
+ * a socket already open gets its `onOpen` immediately, so the resync it
+ * drives happens whether or not this subscriber was the one to connect.
  * @param {string} url
  * @param {EventSourceHandlers} [handlers]
+ * @returns {{stop: () => void}}
  */
 export function createEventSource(url, { onMessage, onError, onOpen } = {}) {
+  let stream = sharedStreams.get(url);
+  if (!stream) {
+    stream = openSharedStream(url);
+    sharedStreams.set(url, stream);
+  }
+  return stream.subscribe({ onMessage, onError, onOpen });
+}
+
+/**
+ * The socket behind createEventSource for one URL: connect, fan out, back
+ * off, close when the last subscriber leaves.
+ * @param {string} url
+ */
+function openSharedStream(url) {
+  /** @type {Set<EventSourceHandlers>} */
+  const subscribers = new Set();
   /** @type {EventSource|null} */
   let es = null;
   let stopped = false;
@@ -295,24 +332,23 @@ export function createEventSource(url, { onMessage, onError, onOpen } = {}) {
       attempt = 0;
       sseState = 'connected';
       notifyStateChange();
-      if (onOpen) onOpen();
+      for (const sub of subscribers) if (sub.onOpen) sub.onOpen();
     };
 
     es.onmessage = (e) => {
-      if (onMessage) {
-        try {
-          const data = JSON.parse(e.data);
-          onMessage(data);
-        } catch {
-          onMessage(e.data);
-        }
+      let data;
+      try {
+        data = JSON.parse(e.data);
+      } catch {
+        data = e.data;
       }
+      for (const sub of subscribers) if (sub.onMessage) sub.onMessage(data);
     };
 
     es.onerror = () => {
       sseState = 'disconnected';
       notifyStateChange();
-      if (onError) onError();
+      for (const sub of subscribers) if (sub.onError) sub.onError();
       // readyState 2 is CLOSED (spec constant): the browser has given up on
       // this source for good, so reconnection is ours from here. While
       // CONNECTING/OPEN the built-in retry is still running — never race it.
@@ -333,8 +369,9 @@ export function createEventSource(url, { onMessage, onError, onOpen } = {}) {
     }, delay);
   }
 
-  function stop() {
+  function close() {
     stopped = true;
+    sharedStreams.delete(url);
     if (reconnectTimer != null) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
@@ -344,8 +381,27 @@ export function createEventSource(url, { onMessage, onError, onOpen } = {}) {
     notifyStateChange();
   }
 
+  /**
+   * @param {EventSourceHandlers} handlers
+   * @returns {{stop: () => void}}
+   */
+  function subscribe(handlers) {
+    subscribers.add(handlers);
+    // readyState 1 is OPEN: the resync hook fires now for a late joiner.
+    if (es && es.readyState === 1 && handlers.onOpen) handlers.onOpen();
+    let active = true;
+    return {
+      stop() {
+        if (!active) return;
+        active = false;
+        subscribers.delete(handlers);
+        if (subscribers.size === 0) close();
+      },
+    };
+  }
+
   connect();
-  return { stop };
+  return { subscribe };
 }
 
 /**

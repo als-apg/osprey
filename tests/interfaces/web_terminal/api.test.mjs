@@ -693,3 +693,178 @@ describe('createEventSource: reconnection and resync hook', () => {
     expect(instances).toHaveLength(1);
   });
 });
+
+describe('createEventSource: one connection per URL, shared by every subscriber', () => {
+  /**
+   * Browsers cap HTTP/1.1 at six connections per host, and an idle SSE socket
+   * counts the same as an in-flight fetch. Three hub modules subscribe to
+   * `/api/files/events` on one page (panel-sse, the activity strip, the
+   * control-target chip); one socket each ate half the budget, and a second
+   * tab pushed every later fetch into an indefinite queue. The helper now
+   * multiplexes: one EventSource per URL, handlers fanned out, the socket
+   * closed by the last unsubscribe.
+   * @returns {any[]}
+   */
+  function stubEventSourceRich() {
+    /** @type {any[]} */
+    const instances = [];
+    vi.stubGlobal(
+      'EventSource',
+      class {
+        /** @param {string} url */
+        constructor(url) {
+          this.url = url;
+          this.readyState = 0;
+          this.closed = false;
+          instances.push(this);
+        }
+        close() {
+          this.closed = true;
+          this.readyState = 2;
+        }
+      }
+    );
+    return instances;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:5000', reload: vi.fn() });
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test('two subscribers to the same URL open a single EventSource', () => {
+    const instances = stubEventSourceRich();
+    api.createEventSource('/api/files/events');
+    api.createEventSource('/api/files/events');
+    expect(instances).toHaveLength(1);
+  });
+
+  test('different URLs still get their own connection', () => {
+    const instances = stubEventSourceRich();
+    api.createEventSource('/api/files/events');
+    api.createEventSource('/api/other/events');
+    expect(instances).toHaveLength(2);
+  });
+
+  test('a frame is fanned out to every subscriber of that URL', () => {
+    const instances = stubEventSourceRich();
+    const a = vi.fn();
+    const b = vi.fn();
+    api.createEventSource('/api/files/events', { onMessage: a });
+    api.createEventSource('/api/files/events', { onMessage: b });
+
+    instances[0].onmessage({ data: JSON.stringify({ type: 'agent_activity', tool: 'x' }) });
+    expect(a).toHaveBeenCalledWith({ type: 'agent_activity', tool: 'x' });
+    expect(b).toHaveBeenCalledWith({ type: 'agent_activity', tool: 'x' });
+  });
+
+  test('a subscriber joining an already-open stream gets its onOpen at once', () => {
+    // panel-sse resyncs authoritative state from onOpen. If the chip opened
+    // the shared socket first, panel-sse's subscription must still see one
+    // open, or it never converges.
+    const instances = stubEventSourceRich();
+    const first = vi.fn();
+    api.createEventSource('/api/files/events', { onOpen: first });
+    instances[0].readyState = 1;
+    instances[0].onopen();
+    expect(first).toHaveBeenCalledTimes(1);
+
+    const late = vi.fn();
+    api.createEventSource('/api/files/events', { onOpen: late });
+    expect(late).toHaveBeenCalledTimes(1);
+    expect(first).toHaveBeenCalledTimes(1);
+  });
+
+  test('a subscriber joining a still-connecting stream waits for the real open', () => {
+    const instances = stubEventSourceRich();
+    api.createEventSource('/api/files/events');
+    const late = vi.fn();
+    api.createEventSource('/api/files/events', { onOpen: late });
+    expect(late).not.toHaveBeenCalled();
+
+    instances[0].readyState = 1;
+    instances[0].onopen();
+    expect(late).toHaveBeenCalledTimes(1);
+  });
+
+  test('a reconnect open reaches every subscriber', () => {
+    const instances = stubEventSourceRich();
+    const a = vi.fn();
+    const b = vi.fn();
+    api.createEventSource('/api/files/events', { onOpen: a });
+    api.createEventSource('/api/files/events', { onOpen: b });
+
+    instances[0].readyState = 2;
+    instances[0].onerror();
+    vi.advanceTimersByTime(1000);
+    expect(instances).toHaveLength(2);
+    instances[1].readyState = 1;
+    instances[1].onopen();
+    expect(a).toHaveBeenCalledTimes(1);
+    expect(b).toHaveBeenCalledTimes(1);
+  });
+
+  test('a stream error runs the session-expiry probe once, not once per subscriber', () => {
+    const fetchMock = /** @type {import('vitest').Mock} */ (globalThis.fetch);
+    const instances = stubEventSourceRich();
+    api.createEventSource('/api/files/events');
+    api.createEventSource('/api/files/events');
+    api.createEventSource('/api/files/events');
+
+    instances[0].readyState = 2;
+    instances[0].onerror();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('stopping one subscriber keeps the socket alive for the others', () => {
+    const instances = stubEventSourceRich();
+    const a = api.createEventSource('/api/files/events');
+    const b = vi.fn();
+    api.createEventSource('/api/files/events', { onMessage: b });
+
+    a.stop();
+    expect(instances[0].closed).toBe(false);
+    instances[0].onmessage({ data: '{"type":"x"}' });
+    expect(b).toHaveBeenCalledTimes(1);
+  });
+
+  test('a stopped subscriber receives nothing more', () => {
+    const instances = stubEventSourceRich();
+    const a = vi.fn();
+    const sub = api.createEventSource('/api/files/events', { onMessage: a });
+    api.createEventSource('/api/files/events');
+
+    sub.stop();
+    instances[0].onmessage({ data: '{"type":"x"}' });
+    expect(a).not.toHaveBeenCalled();
+  });
+
+  test('the last unsubscribe closes the socket, and a later subscribe opens a fresh one', () => {
+    const instances = stubEventSourceRich();
+    const a = api.createEventSource('/api/files/events');
+    const b = api.createEventSource('/api/files/events');
+
+    a.stop();
+    b.stop();
+    expect(instances[0].closed).toBe(true);
+
+    api.createEventSource('/api/files/events');
+    expect(instances).toHaveLength(2);
+    expect(instances[1].closed).toBe(false);
+  });
+
+  test('stop() is idempotent per subscriber (a double stop does not evict a sibling)', () => {
+    const instances = stubEventSourceRich();
+    const a = api.createEventSource('/api/files/events');
+    api.createEventSource('/api/files/events');
+
+    a.stop();
+    a.stop();
+    expect(instances[0].closed).toBe(false);
+  });
+});
