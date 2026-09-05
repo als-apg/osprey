@@ -2,9 +2,10 @@
 
 One question, answered once: *given this project's configuration, what does the
 roster read?* The answer is settled by :func:`detect_pipeline_config` and
-nothing else --- the graph paradigm reads the Turtle corpus the build stages
-for the graph store, every other paradigm reads its channel-finder database
-file, and a project that configures neither gets an honest
+nothing else --- the graph paradigm reads the search index the build derives
+from the Turtle corpus it stages for the graph store, every other paradigm
+reads its channel-finder database file, and a project that configures neither
+gets an honest
 :class:`~osprey.channel_roster.records.RosterAbsence` rather than a silent
 empty roster.
 
@@ -12,21 +13,19 @@ The mode decides, never the artifacts. A hierarchical project that also runs a
 graph store still resolves its database: probing ``services.graphdb.ttl_path``
 independently of the mode is how a facility ends up with two disagreeing
 enumerations of its own channels, which is the whole reason this package
-exists. For the same reason the graph store is never dialed here: the corpus on
-disk is what the deploy seeds the store from, so a graph project naming no
-corpus is an absence that names the config keys that would have declared one,
-not a network probe.
+exists. For the same reason the graph store is never dialed here: the files on
+disk are what the deploy builds from the project's own configuration, so a
+graph project naming neither a corpus nor an index is an absence that names the
+config keys that would have declared one, not a network probe.
 
-This module also owns the two path rules the roster needs, moved here so the
+This module also owns the path rule the roster needs, moved here so the
 snapshot, the plan-device derivation and the build's fact lines resolve one
-configured string to one file:
-
-- :func:`resolve_database_path` --- ``database.path`` is anchored on the process
-  working directory, which the build sets to the project root before generating
-  service files.
-- :func:`resolve_corpus_path` --- ``services.graphdb.ttl_path`` is the one
-  render-relative key (:mod:`osprey.utils.config_paths`), anchored on the
-  directory of the ``config.yml`` this build rendered.
+configured string to one file: :func:`resolve_database_path` anchors
+``database.path`` on the process working directory, which the build sets to the
+project root before generating service files. The graph paradigm's index is
+render-relative instead, and
+:func:`~osprey.deployment.graphdb_service.resolve_graph_index_path` is the one
+resolver for it.
 """
 
 from __future__ import annotations
@@ -41,7 +40,7 @@ from osprey.channel_roster.records import (
     RosterSource,
     RosterSourceKind,
 )
-from osprey.utils.config_paths import resolve_render_relative_path
+from osprey.deployment.graphdb_service import GRAPHDB_INDEX_PATH_CONFIG_KEY
 from osprey.utils.logger import get_logger
 
 logger = get_logger("channel_roster.sources")
@@ -50,13 +49,16 @@ logger = get_logger("channel_roster.sources")
 #: because a graph store is a service rather than a database file.
 GRAPH_PARADIGM = "graph"
 
-#: The keys a graph-mode project declares its corpus with, named in the absence
-#: it gets when it declares neither. ``ttl_path`` is the corpus this build
-#: stages; ``uri`` is how a project points at a store it does not run --- and a
-#: store is not enumerable from the build host, so naming it is the remedy for
-#: an operator who expected one, not a source.
+#: The keys a graph-mode project declares its roster with, named in the absence
+#: it gets when it declares none of them. ``ttl_path`` is the corpus this build
+#: stages; ``index_path`` is where the build writes the search index derived
+#: from it, which is what the roster actually reads; ``uri`` is how a project
+#: points at a store it does not run --- and a store is not enumerable from the
+#: build host, so naming it is the remedy for an operator who expected one, not
+#: a source.
 GRAPH_CORPUS_CONFIG_KEYS: tuple[str, ...] = (
     "services.graphdb.ttl_path",
+    GRAPHDB_INDEX_PATH_CONFIG_KEY,
     "services.graphdb.uri",
 )
 
@@ -129,20 +131,6 @@ def _render_dir(config: dict) -> Path | None:
     return None
 
 
-def resolve_corpus_path(value: str | Path, config: dict) -> Path:
-    """Resolve a configured ``services.graphdb.ttl_path`` to a file on disk.
-
-    Args:
-        value: The configured value, as read from the ``services.graphdb`` block.
-        config: Full project configuration dictionary, for its recorded
-            ``config_dir`` (see :func:`_render_dir`).
-
-    Returns:
-        Absolute path to the Turtle corpus.
-    """
-    return resolve_render_relative_path(value, _render_dir(config))
-
-
 def resolve_database_path(db_config: dict) -> Path:
     """Resolve a paradigm's ``database.path`` to a file on disk.
 
@@ -163,12 +151,23 @@ def resolve_database_path(db_config: dict) -> Path:
 
 
 def _graph_source(config: dict) -> RosterSourceResolution:
-    """Resolve the graph paradigm's corpus, or say why there is none.
+    """Resolve the graph paradigm's search index, or say why there is none.
 
-    The store is never dialed: a graph-mode project that stages no corpus gets
-    an absence naming :data:`GRAPH_CORPUS_CONFIG_KEYS`, which is what an
-    operator has to edit, rather than a connection attempt whose failure would
-    be reported as an empty facility.
+    The roster reads the search index the build derives from the corpus, not the
+    corpus itself: one file, resolved by
+    :func:`~osprey.deployment.graphdb_service.resolve_graph_index_path`, so the
+    roster and every other index reader look in the place the build wrote.
+
+    The store is never dialed: a graph-mode project that declares no roster at
+    all gets an absence naming :data:`GRAPH_CORPUS_CONFIG_KEYS`, which is what
+    an operator has to edit, rather than a connection attempt whose failure
+    would be reported as an empty facility. "Declares none" means no
+    ``ttl_path`` *and* no explicit ``index_path``: ``index_path`` defaults
+    rather than being optional, so a ``uri``-only project -- one pointing at a
+    store it does not run and staging no corpus -- would otherwise be handed a
+    defaulted path to a file nothing in this deployment ever builds. An explicit
+    ``index_path`` is a declaration in its own right, and names the source even
+    with no corpus staged here.
 
     A block the service resolver cannot read is its own absence
     (:attr:`~osprey.channel_roster.records.RosterAbsenceReason.GRAPH_MALFORMED`),
@@ -181,12 +180,20 @@ def _graph_source(config: dict) -> RosterSourceResolution:
         config: Full project configuration dictionary.
 
     Returns:
-        The corpus source, or a
+        The index source, or a
         :attr:`~osprey.channel_roster.records.RosterAbsenceReason.GRAPH_NO_TTL`
         / :attr:`~osprey.channel_roster.records.RosterAbsenceReason.GRAPH_MALFORMED`
         absence.
     """
-    from osprey.deployment.graphdb_service import resolve_graphdb_service_config
+    # Private, deliberately: asking "did the operator write this key?" has to
+    # read the block exactly as the resolver that defaults it does, and a second
+    # copy of the services.graphdb lookup here would disagree with it on the
+    # shapes YAML allows (a bare ``graphdb:``, a non-mapping value).
+    from osprey.deployment.graphdb_service import (
+        _graphdb_block,
+        resolve_graph_index_path,
+        resolve_graphdb_service_config,
+    )
 
     try:
         settings = resolve_graphdb_service_config(config)
@@ -203,7 +210,8 @@ def _graph_source(config: dict) -> RosterSourceResolution:
             )
         )
 
-    if settings is None or settings.ttl_path is None:
+    declares_index = "index_path" in (_graphdb_block(config) or {})
+    if settings is None or (settings.ttl_path is None and not declares_index):
         return RosterSourceResolution(
             absence=RosterAbsence(
                 reason=RosterAbsenceReason.GRAPH_NO_TTL,
@@ -214,8 +222,8 @@ def _graph_source(config: dict) -> RosterSourceResolution:
     return RosterSourceResolution(
         source=RosterSource(
             kind=RosterSourceKind.GRAPH,
-            path=resolve_corpus_path(settings.ttl_path, config),
-            spelled=str(settings.ttl_path),
+            path=resolve_graph_index_path(config, _render_dir(config)),
+            spelled=str(settings.index_path),
         ),
         paradigm=GRAPH_PARADIGM,
     )

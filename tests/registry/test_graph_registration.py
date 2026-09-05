@@ -28,6 +28,14 @@ from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 #: The full graph tool vocabulary, spelled as a literal so a renamed or dropped
 #: tool fails here rather than silently shrinking the allowlist.
+#:
+#: This is the standalone server's set, and it is deliberately not the
+#: channel-finder ``graph`` pipeline's: that one additionally carries
+#: ``search_channels``, which reads the build's DuckDB search index rather
+#: than the store. Serving address lookups is the channel finder's job, so
+#: the tool is registered on that pipeline only and this server stays a pure
+#: Cypher surface. ``CHANNEL_FINDER_TOOLS_BY_PIPELINE['graph']`` in
+#: ``osprey.registry.mcp`` is where the two sets diverge.
 _GRAPH_TOOLS = {"capabilities", "example_queries", "get_schema", "read_cypher"}
 
 #: The context key that gates the server. Produced by ``config_derived_context``

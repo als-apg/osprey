@@ -40,6 +40,7 @@ from osprey.services.virtual_accelerator.manifest.paths import (
     PACKAGE_PATHS,
     ManifestPaths,
 )
+from tests._graph_index import build_index_from_ttl, default_index_path
 
 # The tiered paradigm databases the manifest expands, derived by subtracting
 # ``graph`` from the paradigm registry: a graph store is seeded from the corpus
@@ -507,6 +508,11 @@ def _binding(name: str, address: str, predicate: str | None) -> str:
     return f'<https://narad.example.org/binding/{name}> narad_p:fullPv "{address}"{direction} .\n'
 
 
+#: How a graph-mode project spells the search index the roster reads: the
+#: ``services.graphdb.index_path`` default, which is what every absence about
+#: it puts in front of an operator.
+_INDEX_SPELLING = "./data/channel_databases/graph.duckdb"
+
 #: Two settable channels, three readable ones -- both directions have to reach
 #: the manifest, because membership is the roster's whole answer.
 _SMALL_CORPUS = _TTL_PREAMBLE + "".join(
@@ -520,8 +526,15 @@ _SMALL_CORPUS = _TTL_PREAMBLE + "".join(
 )
 
 
-def _graph_tree(root: Path, corpus: str | None = _SMALL_CORPUS) -> tuple[Path, dict]:
+def _graph_tree(
+    root: Path, corpus: str | None = _SMALL_CORPUS, *, index: bool = True
+) -> tuple[Path, dict]:
     """A graph-mode facility tree: per-tree sources plus a corpus, no databases.
+
+    The manifest is built from the channel roster, and on this paradigm the
+    roster reads the search index a build derives from the corpus -- so the
+    tree stages both, exactly as a rendered project holds both. ``index=False``
+    stages the corpus alone, for the cases about a tree nothing derived.
 
     Returns the data root and the config a graph-mode render resolves the
     corpus from -- ``ttl_path`` spelled relative, as a project writes it.
@@ -530,13 +543,15 @@ def _graph_tree(root: Path, corpus: str | None = _SMALL_CORPUS) -> tuple[Path, d
     (root / "simulation" / "machine.json").write_text(json.dumps({"channels": {}}))
     (root / "machine_state_channels.json").write_text(json.dumps({"_comment": "empty"}))
     (root / LIMITS_FILENAME).write_text("{}\n")
-    if corpus is not None:
-        (root / "facility.ttl").write_text(corpus)
     config = {
         "channel_finder": {"pipeline_mode": "graph"},
         "services": {"graphdb": {"ttl_path": "./facility.ttl"}},
         "config_dir": str(root),
     }
+    if corpus is not None:
+        (root / "facility.ttl").write_text(corpus)
+        if index:
+            build_index_from_ttl(root / "facility.ttl", config)
     return root, config
 
 
@@ -578,8 +593,9 @@ class TestGraphSourcedManifest:
 
         metadata = prepared.manifest["_metadata"]
         assert metadata["source_paradigms"] == ["graph"]
-        # The configured spelling, which an operator can retype and edit.
-        assert metadata["source_corpus"] == "./facility.ttl"
+        # The configured spelling, which an operator can retype and edit. The
+        # roster reads the search index, so that is the file named here.
+        assert metadata["source_corpus"] == _INDEX_SPELLING
         # Graph mode stages no tier database by design: nothing is "absent",
         # nothing is corrupt, and no reader is owed either clause.
         assert metadata["absent_paradigms"] == []
@@ -852,21 +868,26 @@ class TestStagedDatabasesWinOverTheGraph:
 class TestGraphYieldsNothing:
     """The refusal names the corpus, never the absent database files."""
 
-    def test_a_missing_corpus_backs_no_manifest_and_is_named(self, tmp_path):
+    def test_an_unbuilt_index_backs_no_manifest_and_is_named(self, tmp_path):
         root, config = _graph_tree(tmp_path / "data", corpus=None)
 
         assert prepare_project_manifest(root, DEFAULT_TIER, config=config) is None
         reason = manifest_gap_reason(root, DEFAULT_TIER, config=config)
-        assert "./facility.ttl" in reason
+        assert _INDEX_SPELLING in reason
         assert "is not there" in reason
+        # The remedy is the one that puts the file there, not a hunt for it.
+        assert "osprey knowledge build-index" in reason
         assert "are all absent" not in reason
 
-    def test_an_unreadable_corpus_backs_no_manifest_and_is_named(self, tmp_path):
-        root, config = _graph_tree(tmp_path / "data", corpus="not turtle at all {{{\n")
+    def test_an_unreadable_index_backs_no_manifest_and_is_named(self, tmp_path):
+        root, config = _graph_tree(tmp_path / "data", index=False)
+        index_path = default_index_path(root)
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        index_path.write_bytes(b"not a database at all {{{")
 
         assert prepare_project_manifest(root, DEFAULT_TIER, config=config) is None
         reason = manifest_gap_reason(root, DEFAULT_TIER, config=config)
-        assert "./facility.ttl" in reason
+        assert _INDEX_SPELLING in reason
         assert "could not be read" in reason
         # Never conflated with the paradigm wordings: the operator repairs the
         # corpus, not database files that were never part of graph mode.
@@ -878,7 +899,7 @@ class TestGraphYieldsNothing:
 
         assert prepare_project_manifest(root, DEFAULT_TIER, config=config) is None
         reason = manifest_gap_reason(root, DEFAULT_TIER, config=config)
-        assert "./facility.ttl" in reason
+        assert _INDEX_SPELLING in reason
         assert "declares no channels" in reason
 
     def test_a_graph_tree_missing_its_scenario_seed_is_named(self, tmp_path):

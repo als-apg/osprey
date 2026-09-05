@@ -860,6 +860,29 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
    :doc:`/how-to/facility-knowledge/use-facility-graph` runs the command in a
    rendered project and in the source tree, and shows what it prints.
 
+``osprey knowledge build-index [--ttl PATH] [--output PATH]``
+   Build the graph channel finder's search index from a TTL corpus. The index
+   is a DuckDB file holding the corpus's channel bindings, its device classes
+   and its channel roster, so a search reads a table instead of parsing Turtle
+   — which is what lets the channel explorer, the channel roster and the
+   agent's keyword tool answer in milliseconds at any corpus size. ``osprey
+   build`` writes it into a graph-mode project; run the verb by hand whenever
+   the corpus changes, and seed the store from the same file so the two
+   describe one machine.
+
+   Unnamed, ``--ttl`` is ``services.graphdb.ttl_path`` — the file
+   ``seed-graph`` loads — and ``--output`` is ``services.graphdb.index_path``,
+   ``data/channel_databases/graph.duckdb`` in a rendered project. Both resolve
+   against the ``config.yml`` directory, so run the command inside the render,
+   or with ``OSPREY_CONFIG`` naming that config. With no corpus configured the
+   command refuses in one sentence and names the key to set. Missing parent
+   directories are created, and an existing index is replaced only once the new
+   one is complete.
+
+   A channel finder already running on the host keeps the index it opened, so
+   restart it to read a rebuilt one. A deployed stack needs nothing: its build
+   writes the index into the image it starts from.
+
 ``osprey knowledge seed-graph [TTL] [--force]``
    Load a TTL corpus into the deployed graph store. ``--force`` wipes the store
    and imports from scratch, which is what a changed store configuration needs.
@@ -867,6 +890,7 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
 .. code-block:: bash
 
    osprey knowledge build-ttl data/demo_machine.ttl
+   osprey knowledge build-index --ttl data/demo_machine.ttl
    osprey knowledge seed-graph data/demo_machine.ttl
    osprey knowledge validate
 

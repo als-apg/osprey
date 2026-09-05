@@ -47,14 +47,18 @@ _PARADIGM = "graph"
 _SERVER_NAME = "channel-finder"
 
 _DESCRIPTION = (
-    "Find control-system channel addresses by writing read-only Cypher against "
-    "the facility knowledge graph. There is no resolution API behind this "
-    "server: the search strategy is yours, and the graph is the only source of "
-    "an address."
+    "Find control-system channel addresses by keyword lookup in the search "
+    "index, or by writing read-only Cypher against the facility knowledge "
+    "graph. There is no resolution API behind this server: the search strategy "
+    "is yours, and the graph is the only source of an address."
 )
 
 #: Tools in reading order — the order the workflow below uses them.
 _TOOLS: tuple[dict[str, str], ...] = (
+    {
+        "name": "search_channels",
+        "purpose": "Find addresses by keyword and facet in the search index, one page at a time.",
+    },
     {
         "name": "example_queries",
         "purpose": "Return curated, runnable Cypher for the ways a channel question is asked.",
@@ -74,6 +78,12 @@ _TOOLS: tuple[dict[str, str], ...] = (
 )
 
 _WORKFLOW: tuple[str, ...] = (
+    "Route by the question. search_channels reads the flat index the build "
+    "derives from this corpus, and answers keyword, section, system, class, "
+    "signal and direction lookups of addresses as paged rows with facets. "
+    "read_cypher reads the store, and answers structure: how devices and "
+    "classes relate, and everything one device carries. Ask search_channels "
+    "for an address and read_cypher for a shape.",
     "Start at example_queries. Half the catalogue matches an operator's words "
     "against the prose the corpus carries; the other half walks the machine "
     "from a section, a device or an address you already have. Adapt the closest "
@@ -197,7 +207,8 @@ _NOTES: tuple[str, ...] = (
 def capabilities() -> str:
     """Report how this channel finder searches and what it needs from you.
 
-    Returns the paradigm and the tools it offers, the order to use them in, and
+    Returns the paradigm and the tools it offers, which of the two search
+    surfaces a question belongs on, the order to use them in, and
     the corpus conventions a query has to respect: where an address comes from,
     which prose each kind of node carries for a phrase search, that class
     synonyms are a list, and how a deployment says which corpus it seeded. The

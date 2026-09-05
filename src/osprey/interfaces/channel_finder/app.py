@@ -23,6 +23,10 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
 
     from osprey.channel_roster import RosterResult
+    from osprey.services.channel_finder.graph_index.reader import (
+        GraphIndex,
+        GraphIndexAbsence,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +117,76 @@ def _graph_ttl_filename(config) -> str | None:
     if graphdb_config is None or not graphdb_config.ttl_path:
         return None
     return Path(graphdb_config.ttl_path).name
+
+
+def _open_graph_index(config) -> GraphIndex | GraphIndexAbsence:
+    """Open the search index this deployment reads the graph paradigm through.
+
+    The index is a file the build derives from the same corpus the store is
+    seeded from, so it is opened once here rather than per request: the open
+    costs a driver import and a ``meta`` read, and the connection it returns
+    hands every query its own cursor.
+
+    Fail-soft, exactly as the store context and the roster are. An index that
+    is not there, cannot be read, or was written by another schema version is
+    not a reason to refuse to start — it is a state the routes answer 503 from,
+    and everything the app serves that is not the search index keeps working.
+    So the absence itself is what lands on ``app.state.graph_index``, carrying
+    the sentence the routes show.
+
+    The imports are local because they pull DuckDB's driver in behind them, and
+    a deployment serving a file-backed paradigm never opens an index at all.
+
+    Args:
+        config: The loaded project config.
+
+    Returns:
+        The open index, or the absence saying why there is none.
+    """
+    from osprey.deployment.graphdb_service import (
+        GRAPHDB_BUILD_INDEX_COMMAND,
+        resolve_graph_index_path,
+    )
+    from osprey.interfaces.channel_finder.database_api import unresolved_index_path
+    from osprey.services.channel_finder.graph_index.reader import (
+        GraphIndexAbsence,
+        open_graph_index,
+    )
+
+    # No ``config_dir``: the render is found through ``OSPREY_CONFIG``, which is
+    # what a deployed process gets and how the corpus beside it is resolved too.
+    try:
+        path = resolve_graph_index_path(config)
+    except ValueError as exc:
+        # The 503 the routes build from it recognises this absence by its type
+        # and adds no build step, since a build would read the same bad key.
+        absent = unresolved_index_path(exc)
+        logger.warning("%s", absent.detail)
+        return absent
+
+    opened = open_graph_index(path)
+    if isinstance(opened, GraphIndexAbsence):
+        # An index that has not been built yet is an ordinary state of a
+        # serving app, so INFO, as for the roster's absence: the routes that
+        # need one say so on the request that needs it. A file the driver
+        # refused, or one written by another schema version, is not ordinary,
+        # and an operator grepping WARNING for why search answers 503 must
+        # find it.
+        log = logger.info if opened.reason == "missing" else logger.warning
+        log(
+            "%s Build it with `%s`, or re-run `osprey build`. Search, the ontology and "
+            "the statistics report this.",
+            opened.detail,
+            GRAPHDB_BUILD_INDEX_COMMAND,
+        )
+    else:
+        logger.info(
+            "Search index opened at %s: %d channel bindings over %d devices",
+            opened.path,
+            opened.meta.binding_count,
+            opened.meta.device_count,
+        )
+    return opened
 
 
 def _read_channel_roster(config) -> RosterResult | None:
@@ -266,6 +340,12 @@ def _create_lifespan(project_cwd: str | None = None):
                 )
             app.state.graph_ttl_filename = _graph_ttl_filename(config)
 
+            # The search index, opened beside the store context and held for
+            # the same reason: one open per process rather than one per click.
+            # What lands here is either the index or the absence explaining it,
+            # so a route never has to ask a second question to answer 503.
+            app.state.graph_index = _open_graph_index(config)
+
             # The paradigm's channels come from the staged corpus, read once
             # here. A file-backed paradigm gets no roster: its database is its
             # own enumeration, and reading a second one for it is the
@@ -373,6 +453,12 @@ def _create_lifespan(project_cwd: str | None = None):
         graph_context = getattr(app.state, "graph_context", None)
         if graph_context is not None:
             graph_context.shutdown()
+        # An absence has no connection to close, so the handle is asked for one
+        # rather than type-checked — which also lets a test install its own.
+        # ``GraphIndex.close`` is idempotent, so closing twice is not an error.
+        close_index = getattr(getattr(app.state, "graph_index", None), "close", None)
+        if close_index is not None:
+            close_index()
         await app.state.http_client.aclose()
 
     return lifespan

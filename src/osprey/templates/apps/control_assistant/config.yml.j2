@@ -268,6 +268,12 @@ services:
   # `username:` (default neo4j) here, and leave `graphdb` OUT of
   # `deployed_services`. Nothing is minted on that path — set GRAPHDB_PASSWORD
   # in the project .env yourself, or the store refuses the connection.
+  # `ttl_path` still applies on that path: the search index is built from the
+  # corpus file, not from the store, so a deployment holding no corpus of its
+  # own, and no `index_path` naming an index built elsewhere, keeps the device
+  # card and the agent's graph tools, while the channel explorer and the
+  # channel roster report that they have nothing to enumerate and name this
+  # key.
   graphdb:
     path: ./services/graphdb
     image: neo4j:5.26-community  # Pinned to the 5.26 LTS line: neosemantics
@@ -285,8 +291,11 @@ services:
                           # on the project-wide `deployment.bind_address`
                           # (default 127.0.0.1); no per-service bind_address.
     ttl_path: ./data/demo_machine.ttl
-                          # Corpus to seed the store from, resolved against this
-                          # file's directory — the render — unlike
+                          # The corpus: the source of truth for this facility's
+                          # devices and channels. The store is seeded from it,
+                          # and the build derives the search index below from
+                          # it, so both describe one machine. Resolved against
+                          # this file's directory — the render — unlike
                           # `facility_knowledge.bundle_path` and every other
                           # config-relative path, which resolve against the
                           # project root: the store is seeded from the `data/`
@@ -297,6 +306,7 @@ services:
                           # search agree. Regenerate it after editing the
                           # channel database with:
                           #   osprey knowledge build-ttl data/demo_machine.ttl
+                          #   osprey knowledge build-index
                           # (in a four-zone repo the render under build/ is
                           # disposable — regenerate into your profile's data
                           # tree and rebuild). A build profile that ships its
@@ -304,7 +314,23 @@ services:
                           # so it must set this key in its `config:` overlay.
                           # Point this key at your own TTL to seed that
                           # instead, or comment it out to bring the store up
-                          # bootstrapped but empty.
+                          # bootstrapped but empty — with no corpus there is
+                          # nothing to index, so the channel explorer and the
+                          # channel roster have nothing to enumerate and say so.
+    # index_path: ./data/channel_databases/graph.duckdb
+                          # Search index derived from the corpus above at build
+                          # time, and the default — uncomment only to move it.
+                          # The channel explorer's search, the channel roster
+                          # and the agent's keyword tool read this file rather
+                          # than querying the store, so it answers in
+                          # milliseconds at any corpus size. Resolved against
+                          # this file's directory, like `ttl_path` and for the
+                          # same reason: `osprey build` writes it into the
+                          # `data/` tree it assembled here. Rebuild it by hand
+                          # after regenerating the TTL with:
+                          #   osprey knowledge build-index
+                          # A host-side `osprey web` must be restarted to see a
+                          # rebuilt index; a deployed stack rebuilds its image.
     # JVM memory. Neo4j sizes nothing automatically inside a container — left
     # unset it reads the HOST's memory and picks numbers the container's own
     # limit will not honour — so all three are spelled out. Budget roughly

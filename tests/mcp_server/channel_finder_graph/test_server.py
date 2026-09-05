@@ -22,7 +22,13 @@ import pytest
 
 from osprey.mcp_server.channel_finder_graph import server as cf_graph_server
 
-TOOL_MODULES = ("capabilities", "example_queries", "get_schema", "read_cypher")
+TOOL_MODULES = (
+    "capabilities",
+    "example_queries",
+    "get_schema",
+    "read_cypher",
+    "search_channels",
+)
 
 
 def _tool_names(mcp) -> set[str]:
@@ -89,11 +95,13 @@ def test_wire_name_is_channel_finder():
 
 @pytest.mark.unit
 def test_instructions_route_the_agent_through_the_read_path():
-    """The agent is told to learn the shapes first and that results are bounded."""
+    """The agent is told to search the index first, to learn the shapes before
+    writing Cypher, and that results are bounded."""
     instructions = cf_graph_server.mcp.instructions
     assert instructions is not None
-    for tool in ("example_queries", "get_schema", "read_cypher"):
+    for tool in ("search_channels", "example_queries", "get_schema", "read_cypher"):
         assert tool in instructions, f"instructions never name {tool}"
+    assert instructions.index("search_channels") < instructions.index("read_cypher")
     assert "bounded" in instructions
 
 

@@ -46,17 +46,29 @@ from typing import Any
 import pytest
 from fastmcp.exceptions import ToolError
 
-from osprey.interfaces.channel_finder.database_api import GRAPH_ONTOLOGY_CYPHER
 from osprey.services.channel_finder.graph_queries import (
     GRAPH_CHANNEL_COUNT_CYPHER,
     GRAPH_DEVICE_CYPHER,
-    GRAPH_SEARCH_CYPHER,
 )
 from tests._container_support import start_or_skip, stop_quietly
 from tests._graphdb_container import (
     GRAPHDB_TEST_PASSWORD,
     GRAPHDB_TEST_USERNAME,
     NEO4J_IMAGE,
+)
+from tests.integration._graph_oracles import (
+    GRAPH_DEVICE_COUNT_CYPHER,
+    GRAPH_ONTOLOGY_CYPHER,
+    GRAPH_SEARCH_CYPHER,
+    GRAPH_SECTION_COUNT_CYPHER,
+    GRAPH_SIGNAL_COUNT_CYPHER,
+    normalise_rows,
+    oracle_search,
+    shape_id,
+)
+from tests.services.channel_finder.graph_index.test_scale import (
+    DEMO_EMPTY_SHAPES,
+    PARITY_MATRIX,
 )
 
 logger = logging.getLogger(__name__)
@@ -104,6 +116,17 @@ def graph_mcp_plugin_dir(graphdb_plugin_dir: Path) -> Path:
     reported once, with its reason, instead of as a wall of unexplained skips.
     """
     return graphdb_plugin_dir
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _requires_a_real_store(graph_mcp_plugin_dir: Path) -> None:
+    """Skip the whole module, once and with its reason, on a host without Docker.
+
+    Every test here but one reaches the store through a fixture that already
+    carries the gate. The exception reads only the search index, and would
+    otherwise pass on a host that cannot run a store at all — reporting a
+    parity lane as green when the half of it that proves parity never ran.
+    """
 
 
 def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[str]:
@@ -154,9 +177,13 @@ def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[str]:
         stop_quietly(container)
 
 
-@pytest.fixture(scope="module")
-def demo_store(graph_mcp_plugin_dir: Path) -> Iterator[str]:
-    """A store seeded with the generated demo-machine corpus."""
+def _demo_ttl_text() -> str:
+    """The shipped demo-machine corpus, as text.
+
+    One reader for both backends: the store is seeded from this string and the
+    search index is built from a file holding the same bytes, so a parity
+    failure can never be two corpora wearing one name.
+    """
     resource = (
         files("osprey.templates")
         .joinpath("apps")
@@ -164,7 +191,13 @@ def demo_store(graph_mcp_plugin_dir: Path) -> Iterator[str]:
         .joinpath("data")
         .joinpath("demo_machine.ttl")
     )
-    yield from _seeded_store(graph_mcp_plugin_dir, resource.read_text(encoding="utf-8"), "demo")
+    return resource.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def demo_store(graph_mcp_plugin_dir: Path) -> Iterator[str]:
+    """A store seeded with the generated demo-machine corpus."""
+    yield from _seeded_store(graph_mcp_plugin_dir, _demo_ttl_text(), "demo")
 
 
 # ---------------------------------------------------------------------------
@@ -972,3 +1005,173 @@ def test_search_unfiltered_answers_inside_the_interaction_budget(demo_ctx: Any) 
 
     assert row["total"] == EXPECTED_BINDINGS, row["total"]
     assert elapsed < 5.0, f"the unfiltered search took {elapsed:.2f}s"
+
+
+# ---------------------------------------------------------------------------
+# Parity: the search index against the store it was carved out of
+# ---------------------------------------------------------------------------
+#
+# The finder used to answer every search, every taxonomy read and every count
+# by running the Cypher in ``tests/integration/_graph_oracles`` against this
+# store.  It now reads a DuckDB index built ahead of time from the same Turtle.
+# Nothing else in the suite can say the two answer the same question: the unit
+# tests know only the index, and the tests above know only the store.
+#
+# So the lane below runs both, over the same corpus, for every filter shape the
+# rail can produce, and compares what an operator would have seen: the totals,
+# the page, and the five facet lists.  The store is the reference — when the
+# two disagree, the index has a bug.
+
+
+@pytest.fixture(scope="module")
+def demo_index(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Any]:
+    """The search index of the corpus :func:`demo_store` was seeded with.
+
+    Built once for the module, from the same bytes: both backends are handed
+    ``demo_machine.ttl``, so a disagreement between them is a disagreement
+    about the corpus rather than about which corpus.
+    """
+    from osprey.services.channel_finder.graph_index import GraphIndexAbsence, open_graph_index
+    from tests._graph_index import build_demo_index
+
+    path = build_demo_index(tmp_path_factory.mktemp("graph-index-parity") / "graph.duckdb")
+    index = open_graph_index(path)
+    if isinstance(index, GraphIndexAbsence):
+        pytest.fail(f"the demo index could not be opened: {index.detail}")
+    try:
+        yield index
+    finally:
+        index.close()
+
+
+def _oracle(context: Any) -> Any:
+    """A runner for :func:`oracle_search` bound to *context*'s store."""
+
+    def run(params: Any) -> Any:
+        result = context.run_read(GRAPH_SEARCH_CYPHER, dict(params), max_rows=1)
+        assert len(result.rows) == 1, f"the search must answer in exactly one row: {result.rows}"
+        return result.rows[0]
+
+    return run
+
+
+def _store_taxonomy(context: Any) -> list[dict[str, Any]]:
+    """The taxonomy the retired route served: the store's rows, pruned.
+
+    Pruning is the route's own post-processing, kept here so the comparison is
+    against what a browser received rather than against a raw query result.
+    ``direct`` is carried back in from the unpruned rows because the pruning
+    spends it on ``abstract`` and drops it, and the index reports both.
+    Pruning is shared code on both sides, so this lane does not cover the
+    pruning rule itself; the taxonomy unit tests do.
+    """
+    from osprey.services.channel_finder.graph_index import prune_device_taxonomy
+
+    rows = context.run_read(GRAPH_ONTOLOGY_CYPHER, max_rows=500).rows
+    direct = {row["uri"]: int(row.get("direct") or 0) for row in rows}
+    return [{**entry, "direct": direct[entry["uri"]]} for entry in prune_device_taxonomy(rows)]
+
+
+def _normalise_classes(classes: Any) -> list[dict[str, Any]]:
+    """One class row's comparable fields, with its two lists in one order."""
+    return [
+        {
+            "uri": entry["uri"],
+            "name": entry["name"],
+            "altLabel": sorted(entry.get("altLabel") or []),
+            "parents": sorted(entry.get("parents") or []),
+            "rollup": int(entry["rollup"]),
+            "direct": int(entry["direct"]),
+            "abstract": bool(entry["abstract"]),
+        }
+        for entry in classes
+    ]
+
+
+def test_the_demo_corpus_binds_each_address_once(demo_index: Any) -> None:
+    """No address in the demo corpus is bound twice, so a page has one order.
+
+    The store orders its hit list by address alone and the index orders by
+    address and then device: over a corpus where two bindings share an address
+    the two could cut a page at different rows and still both be right.  They
+    cannot here — which is what makes comparing a *page* below meaningful, and
+    which is why the tie corpus in ``test_graph_index_parity_ties`` compares
+    whole result sets instead.
+    """
+    cursor = demo_index.cursor()
+    try:
+        repeated = cursor.execute(
+            "SELECT full_pv, count(*) AS n FROM bindings GROUP BY full_pv HAVING count(*) > 1"
+        ).fetchall()
+    finally:
+        cursor.close()
+
+    assert repeated == [], repeated
+
+
+@pytest.mark.parametrize("shape", PARITY_MATRIX, ids=[shape_id(shape) for shape in PARITY_MATRIX])
+def test_the_index_answers_what_the_store_answered(
+    demo_ctx: Any, demo_index: Any, shape: dict[str, Any]
+) -> None:
+    """One filter shape, both backends, the same answer.
+
+    Everything an operator sees is compared: how many bindings and devices
+    matched, the page itself, and each facet list in the order the rail draws
+    it.  ``edges`` and ``signals`` are compared as sets — both backends collect
+    them per binding and neither promises an order — and everything else,
+    including the counts inside the facets, has to match exactly.
+    """
+    expected = oracle_search(_oracle(demo_ctx), shape)
+    actual = demo_index.search(**shape)
+
+    assert actual["total"] == expected["total"], shape
+    assert actual["devices"] == expected["devices"], shape
+    assert normalise_rows(actual["rows"]) == normalise_rows(expected["rows"]), shape
+    assert actual["facets"] == expected["facets"], shape
+    assert actual["truncated"] == expected["truncated"], shape
+
+    # The page arithmetic the route did around the query, which the index now
+    # does itself: a page number derived from the offset, and a page count that
+    # covers every match.
+    page_size = int(shape.get("page_size", 50))
+    skip = int(shape.get("skip", 0))
+    assert actual["page_size"] == page_size, shape
+    assert actual["page"] == skip // page_size + 1, shape
+    assert actual["pages"] == (expected["total"] + page_size - 1) // page_size, shape
+    assert len(actual["rows"]) <= page_size, shape
+
+    # The matrix says which shapes the demo corpus answers with nothing. The
+    # store has to agree, or a shape is sitting in the matrix looking like
+    # coverage while matching nothing on either side.
+    assert (expected["total"] == 0) is (shape in DEMO_EMPTY_SHAPES), shape
+
+
+def test_the_index_taxonomy_is_the_stores_taxonomy(demo_ctx: Any, demo_index: Any) -> None:
+    """The class tree the rail draws is the one the store would have drawn.
+
+    Every class, in the same order, with the same parents, the same rollup and
+    the same direct count — so an abstract branch stays abstract and a leaf
+    keeps its devices.
+    """
+    expected = _normalise_classes(_store_taxonomy(demo_ctx))
+    actual = _normalise_classes(demo_index.ontology()["classes"])
+
+    assert actual == expected
+
+
+def test_the_index_statistics_are_the_stores_census(demo_ctx: Any, demo_index: Any) -> None:
+    """The five badges count what the store counts.
+
+    ``total_channels`` is the one worth naming: the index counts
+    ``(device, binding)`` pairs, and the store counts ``:ChannelBinding``
+    nodes.  The two agree on the shipped corpus because it hangs no binding
+    under two devices; the tie corpus in ``test_graph_index_parity_ties`` is
+    where they part, and pins the difference.
+    """
+    stats = demo_index.statistics()
+
+    assert stats["total_devices"] == _count(demo_ctx, GRAPH_DEVICE_COUNT_CYPHER)
+    assert stats["total_signals"] == _count(demo_ctx, GRAPH_SIGNAL_COUNT_CYPHER)
+    assert stats["total_sections"] == _count(demo_ctx, GRAPH_SECTION_COUNT_CYPHER)
+    assert stats["total_channels"] == _count(demo_ctx, GRAPH_CHANNEL_COUNT_CYPHER)
+    assert stats["total_classes"] == len(_store_taxonomy(demo_ctx))

@@ -5,8 +5,10 @@ type. The three file-backed paradigms (hierarchical, middle_layer, in_context)
 are served by calling their database instances directly via app.state, avoiding
 MCP server dependencies. The graph paradigm has no database file behind it: the
 two routes that answer which channels exist — membership and enumeration — read
-the channel roster the app resolved at startup, the explorer's routes query the
-store, and the rest report the paradigm and point at the tools that read it.
+the channel roster the app resolved at startup, the explorer's search, class
+tree and statistics read the search index the app opened, the device card
+queries the store, and the rest report the paradigm and point at the tools
+that read it.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ import functools
 import json
 import logging
 from collections.abc import Callable, Iterable, Mapping
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -23,22 +26,31 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
-from osprey.deployment.graphdb_service import GRAPHDB_SEED_COMMAND, GRAPHDB_SERVICE_NAME
+from osprey.deployment.graphdb_service import (
+    DEFAULT_INDEX_PATH,
+    GRAPHDB_BUILD_INDEX_COMMAND,
+    GRAPHDB_SERVICE_NAME,
+    GRAPHDB_TTL_PATH_CONFIG_KEY,
+    UNRESOLVED_INDEX_PATH_REMEDY,
+    graph_corpus_configured,
+    unresolved_index_path_detail,
+)
 from osprey.mcp_server.graph.server_context import GraphStoreError
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
-
-# The channel census comes from the shared census module rather than being
-# spelled again, so the number the explorer shows is the number the benchmark
-# harness counts; the finder's search and device reads come from the same
-# module, so a test can import the query text without starting the app. The
-# relationship-vocabulary query comes from the seeder's schema snapshot, which
-# is what bakes that same vocabulary into the agent prompt.
-from osprey.services.channel_finder.graph_queries import (
-    GRAPH_CHANNEL_COUNT_CYPHER,
-    GRAPH_DEVICE_CYPHER,
-    GRAPH_SEARCH_CYPHER,
+from osprey.services.channel_finder.graph_index.reader import (
+    DEFAULT_PAGE_SIZE,
+    GraphIndex,
+    GraphIndexAbsence,
 )
-from osprey.services.facility_knowledge.seeder.prompt_snapshot import RELATIONSHIP_TYPES_CYPHER
+
+# The device card is the one explorer read still answered by the store, and its
+# query comes from the shared query module so a test can import the text
+# without starting the app. Search, the ontology and the statistics read the
+# search index the app opened at startup instead.
+from osprey.services.channel_finder.graph_index.taxonomy import (
+    class_name as _class_name,
+)
+from osprey.services.channel_finder.graph_queries import GRAPH_DEVICE_CYPHER
 
 if TYPE_CHECKING:
     from osprey.channel_roster import RosterAbsence
@@ -53,79 +65,23 @@ router = APIRouter()
 GRAPH_PARADIGM_TOOLS: tuple[str, ...] = tuple(CHANNEL_FINDER_TOOLS_BY_PIPELINE["graph"])
 
 # ---------------------------------------------------------------------------
-# Graph store queries
+# Graph explorer limits
 # ---------------------------------------------------------------------------
 
-#: The class tree the explorer draws, one row per ``:Class`` node.
-#:
-#: ``rollup`` counts the devices that fall under a class *including* its
-#: subclasses, which is what makes an abstract branch like ``Magnet`` show a
-#: number even though nothing is typed directly as one. A "device" is defined
-#: exactly as the curated example queries define it — a ``:Resource`` with at
-#: least one channel binding — so the counts the explorer shows and the counts
-#: the agent computes cannot disagree.
-#:
-#: ``direct`` counts only the devices typed as the class itself, taken from the
-#: same traversal by counting the ones whose subclass *is* the class. It is the
-#: difference between a branch and a leaf: a class with a rollup but no direct
-#: devices is an abstract grouping, which the rail draws differently.
-#:
-#: The descent is bounded at ten hops rather than left unbounded: a corpus whose
-#: ``SUBCLASSOF`` edges contain a cycle would otherwise walk forever, and no
-#: real ontology nests device classes ten deep.
-GRAPH_ONTOLOGY_CYPHER = """
-MATCH (c:Class)
-OPTIONAL MATCH (c)-[:SUBCLASSOF]->(p:Class)
-WITH c, collect(DISTINCT p.uri) AS parents
-OPTIONAL MATCH (sub:Class)-[:SUBCLASSOF*0..10]->(c)
-OPTIONAL MATCH (d:Resource)-[:TYPE]->(sub)
-WHERE (d)-[:HASBINDING]->(:ChannelBinding)
-WITH c, parents, count(DISTINCT d) AS rollup,
-     count(DISTINCT CASE WHEN sub = c THEN d END) AS direct
-RETURN c.uri AS uri, c.altLabel AS altLabel, parents, rollup, direct
-ORDER BY uri
-""".strip()
-
-#: Devices in the store, counted the same way :data:`GRAPH_ONTOLOGY_CYPHER`
-#: rolls them up: a bound ``:Resource``. Counted ``DISTINCT`` because a device
-#: with several channels binds several times.
-GRAPH_DEVICE_COUNT_CYPHER = (
-    "MATCH (d:Resource)-[:HASBINDING]->(:ChannelBinding) RETURN count(DISTINCT d) AS n"
-)
-
-#: Semantic signals in the store — the readings and settings devices expose,
-#: which is a different population from the channels that address them.
-GRAPH_SIGNAL_COUNT_CYPHER = "MATCH (s:SemanticSignal) RETURN count(s) AS n"
-
-#: How many sections of the machine the corpus covers. Devices without a
-#: section code — anything not placed along the ring — are simply not counted.
-GRAPH_SECTION_COUNT_CYPHER = (
-    "MATCH (d:Resource) WHERE d.sectionCode IS NOT NULL RETURN count(DISTINCT d.sectionCode) AS n"
-)
-
-#: Row cap for the explorer's own reads, passed explicitly rather than left to
-#: the store's default. That default bounds an *agent's* ad-hoc query, where a
-#: couple of hundred rows is the point; a class tree is a fixed, small
-#: population that must arrive whole or the drawn taxonomy silently loses
-#: branches. Five hundred is well above any real ontology and still a bound.
+#: How many entries each facet list of a search carries. The rail cannot draw
+#: more than a few hundred values of one facet and still be a rail, and the
+#: index reports a list it had to cut as ``truncated`` so the explorer can say
+#: so. Five hundred is well above any real facet and still a bound.
 _GRAPH_EXPLORE_MAX_ROWS = 500
 
-#: Rows one page of the finder holds. Fifty is fixed *inside*
-#: :data:`GRAPH_SEARCH_CYPHER` rather than passed to it, so this is the route's
-#: copy of the store's own slice width: it is what the page offset is computed
-#: from and what the answer reports, and the two cannot disagree without this
-#: number and the query drifting apart.
-_GRAPH_SEARCH_PAGE_SIZE = 50
-
-#: The facets the search answers with, in the order the rail draws them. Named
-#: here rather than read off the store's row so a facet the query stopped
-#: returning arrives as an empty list instead of vanishing from the payload
-#: and taking the rail's control with it.
-_GRAPH_SEARCH_FACETS: tuple[str, ...] = ("section", "system", "class", "signal", "dir")
+#: Rows one page of the finder holds, as the reader defines it. Passed to the
+#: index on every search and reported back in the answer, so the page offset the
+#: route computes and the slice the index cuts cannot disagree.
+_GRAPH_SEARCH_PAGE_SIZE = DEFAULT_PAGE_SIZE
 
 #: How a channel binding relates to the signal it carries: read, written, both,
 #: or neither. Declared as a type rather than checked in the body so a value
-#: outside it is refused as a 422 by the request layer, before the store is
+#: outside it is refused as a 422 by the request layer, before the index is
 #: asked a question it has no answer for.
 GraphDirection = Literal["R", "W", "RW", "none"]
 
@@ -137,25 +93,81 @@ _NO_DEVICE_SUGGESTIONS = [
     "Search again — the store may have been re-seeded.",
 ]
 
-#: Row cap for a census query. Each census aggregates to a single row, so
-#: anything above one is already slack; ten leaves room for a query to grow a
-#: grouping column without silently truncating, while still refusing to stream a
-#: store that answers a count with a result set.
-_GRAPH_COUNT_MAX_ROWS = 10
-
-#: What an operator is told when the store answers but holds nothing. The
-#: wording mirrors the read_cypher tool's empty-store envelope, so the web UI
-#: and the agent name the same remedy.
-_EMPTY_GRAPH_SUGGESTIONS = [
-    f"The graph store is running but holds no corpus. Seed it with `{GRAPHDB_SEED_COMMAND}`.",
-]
-
 #: Detail and remedy for a graph-mode request that arrives with no store seam
 #: at all — the app started without a graph context, so there is nothing to ask.
 _NO_GRAPH_CONTEXT_DETAIL = "Graph store is not available."
 _NO_GRAPH_CONTEXT_SUGGESTIONS = [
     f"Check that a 'services.{GRAPHDB_SERVICE_NAME}' block is configured and that the "
     "channel finder was started against it.",
+]
+
+#: Detail for a search-index request that arrives with no index handle at all —
+#: the app is serving a paradigm whose lifespan never opened one.
+_NO_GRAPH_INDEX_DETAIL = "The search index is not open."
+
+#: What an operator does about an index that is missing, unreadable or stale.
+#: Two facts: the verb that writes one, and the build that runs that verb as
+#: part of rendering the project.
+_NO_GRAPH_INDEX_SUGGESTIONS = [
+    f"Build the index with `{GRAPHDB_BUILD_INDEX_COMMAND}`.",
+    "`osprey build` renders the project and builds the index in one step.",
+]
+
+#: Said when a read of an *open* index failed: the file was there and was
+#: built, so the build pair would be untrue. A request that raced shutdown
+#: succeeds on retry; a file that went away under the connection does not, and
+#: only then is a rebuild the remedy.
+_INDEX_READ_FAILED_SUGGESTIONS = [
+    f"Retry the request; if it keeps failing, rebuild the index with "
+    f"`{GRAPHDB_BUILD_INDEX_COMMAND}` and restart the channel finder.",
+]
+
+
+class UnresolvedIndexPath(GraphIndexAbsence):
+    """The absence a config that spells ``index_path`` wrongly resolves to.
+
+    Its own type rather than a sentence to match on: the 503 builder has to
+    tell this state apart from an index that is merely not built yet, because
+    it answers no build remedy — a build would read the same malformed key —
+    and recognising it by the tail of its prose would come undone the first
+    time that prose is edited.
+
+    An ``unreadable`` absence to every other reader, which is what it is: the
+    config named no path this process could read the index from.
+    """
+
+
+def unresolved_index_path(exc: ValueError) -> UnresolvedIndexPath:
+    """Build the absence a malformed ``index_path`` puts on the app's state.
+
+    A config typo is not a missing artifact, and there is no resolved path to
+    name — so the absence carries the key's default location, and its own
+    sentence says which key to fix.
+
+    Args:
+        exc: What :func:`~osprey.deployment.graphdb_service.resolve_graph_index_path`
+            refused with.
+
+    Returns:
+        The absence, carrying the resolver's own sentence and the remedy.
+    """
+    # The remedy travels in the sentence itself, so every surface that shows the
+    # detail — the 503 body, the log line — shows the fix.
+    return UnresolvedIndexPath(
+        "unreadable",
+        Path(DEFAULT_INDEX_PATH),
+        f"{unresolved_index_path_detail(exc).rstrip('.')}. {UNRESOLVED_INDEX_PATH_REMEDY}",
+    )
+
+
+#: Said instead when the project configures no corpus: there is nothing to
+#: build an index *from*, so naming the build verb would name the wrong step —
+#: the build refuses in exactly that state. Whether an index *location* is
+#: configured does not change that, so it is not consulted; the wording is the
+#: MCP tool's, so both surfaces say the same thing.
+_NO_GRAPH_CORPUS_SUGGESTIONS = [
+    f"No corpus is configured: set {GRAPHDB_TTL_PATH_CONFIG_KEY} to the facility's Turtle "
+    "file, then build the index.",
 ]
 
 #: Said when the roster read failed in a way the roster does not model — the
@@ -177,81 +189,6 @@ _NO_ROSTER_SUGGESTIONS = [
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _class_name(uri: str) -> str:
-    """Return the display name of a class URI: its trailing fragment.
-
-    Ontology URIs end in the class name after either a path separator or a
-    fragment marker, and which one is used is the corpus author's choice rather
-    than something the explorer should care about.
-
-    Args:
-        uri: The class URI as the store holds it.
-
-    Returns:
-        The text after the last ``/`` or ``#``, or the whole URI when it
-        carries neither.
-    """
-    cut = max(uri.rfind("/"), uri.rfind("#"))
-    return uri[cut + 1 :] if cut >= 0 else uri
-
-
-def _prune_device_taxonomy(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    """Reduce raw ontology rows to the classes worth drawing as a device tree.
-
-    The store's ``:Class`` nodes describe more than devices — signal and binding
-    classes live in the same tree — and drawing all of them buries the taxonomy
-    an operator came for. A class earns its place by either holding devices
-    (its rollup is non-zero) or by being an abstract parent of a class that
-    does; anything else is a leaf about something other than devices and is
-    dropped.
-
-    Args:
-        rows: One mapping per ``:Class`` node, as
-            :data:`GRAPH_ONTOLOGY_CYPHER` returns them — ``uri``, ``altLabel``,
-            ``parents``, ``rollup`` and ``direct``.
-
-    Returns:
-        The surviving classes, each carrying its ``uri``, derived ``name``,
-        ``altLabel`` list, ``parents`` list, ``rollup`` and whether it is
-        ``abstract``, sorted by name.
-    """
-    materialised = list(rows)
-
-    #: A class is abstract-but-wanted when another class declares it a parent.
-    #: A row naming itself does not count, so a self-referential SUBCLASSOF edge
-    #: cannot keep an otherwise empty class alive.
-    parent_uris: set[str] = set()
-    for row in materialised:
-        own_uri = row.get("uri")
-        for parent in row.get("parents") or []:
-            if parent is not None and parent != own_uri:
-                parent_uris.add(parent)
-
-    kept: list[dict[str, Any]] = []
-    for row in materialised:
-        uri = row.get("uri")
-        if uri is None:
-            continue
-        rollup = row.get("rollup") or 0
-        if rollup == 0 and uri not in parent_uris:
-            continue
-        kept.append(
-            {
-                "uri": uri,
-                "name": _class_name(uri),
-                "altLabel": list(row.get("altLabel") or []),
-                "parents": list(row.get("parents") or []),
-                "rollup": rollup,
-                # A class nothing is typed directly as is a grouping rather than
-                # a kind of device, whatever its subclasses roll up to it.
-                "abstract": (row.get("direct") or 0) == 0,
-            }
-        )
-
-    kept.sort(key=lambda entry: (entry["name"], entry["uri"]))
-    return kept
 
 
 def _graph_error_payload(exc: GraphStoreError | None) -> tuple[int, dict[str, Any]]:
@@ -283,38 +220,145 @@ def _graph_error_payload(exc: GraphStoreError | None) -> tuple[int, dict[str, An
     }
 
 
-async def _read_device_taxonomy(ctx: Any) -> tuple[list[dict[str, Any]], bool]:
-    """Read the store's class rows and reduce them to the device taxonomy.
+def _graph_index_error_payload(
+    absence: GraphIndexAbsence | None,
+    config: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Turn a missing search index into the body a route replies 503 with.
 
-    Shared by the two routes that need the tree — the ontology the explorer
-    draws and the class count the statistics badge shows — so a change to how a
-    class earns its place in the taxonomy cannot move one number without moving
-    the other. The read runs off the event loop: the store's driver is
-    synchronous, and awaiting it inline would stall every other request the app
-    is serving for the length of the query.
+    Same three keys the store's own unavailable answer carries, for the same
+    reason: the explorer branches on ``error_type`` and shows ``suggestions``,
+    so an index that is not there and a store that is down must arrive in the
+    same shape. The reason is the absence's own sentence — written once in
+    :mod:`osprey.services.channel_finder.graph_index.reader` — and the remedy is
+    added here, because only a surface knows what an operator can do about it.
+
+    Which remedy depends on what the project has, decided the way the MCP
+    tool decides it so the two surfaces never name different steps. An
+    An
+    :class:`UnresolvedIndexPath` — the absence a malformed ``index_path``
+    resolves to — gets no further remedy, since a build would read the same
+    malformed key. A deployment that
+    configures no corpus has nothing to build an index *from*, and the build
+    refuses in that state, so it is told to configure one. Everything else is
+    one build away from an answer.
 
     Args:
-        ctx: The app's graph store context.
+        absence: Why there is no index, or ``None`` when the app holds no index
+            handle at all and there is no modelled reason to render.
+        config: The loaded project config, read only for the key that says
+            whether a corpus is configured.
 
     Returns:
-        The pruned taxonomy and whether the underlying read hit the row cap.
+        The response body: the detail, ``service_unavailable``, and the remedy.
+    """
+    if isinstance(absence, UnresolvedIndexPath):
+        suggestions: list[str] = []
+    elif not graph_corpus_configured(config):
+        suggestions = _NO_GRAPH_CORPUS_SUGGESTIONS
+    else:
+        suggestions = _NO_GRAPH_INDEX_SUGGESTIONS
+    return {
+        "detail": absence.detail if absence is not None else _NO_GRAPH_INDEX_DETAIL,
+        "error_type": "service_unavailable",
+        "suggestions": list(suggestions),
+    }
+
+
+def _index_unavailable(index: GraphIndex, exc: BaseException) -> bool:
+    """Whether a failed read of an *open* index is unavailability, not a bug.
+
+    Everything DuckDB raises — a file deleted under the open connection, a
+    disk that went away — arrives as ``duckdb.Error``. A ``RuntimeError`` is
+    the index reporting that it has been closed, which a request racing
+    shutdown can see — but only when the index *is* closed: any other
+    ``RuntimeError`` is a defect in the read and must reach the 500 path
+    rather than hide behind an operator remedy.
+
+    The driver is imported here rather than at module scope: by the time a read
+    can fail the index is open, so ``duckdb`` is already in the process, and a
+    deployment serving a file-backed paradigm never pays for it.
+
+    Args:
+        index: The index the read ran against.
+        exc: What the read raised.
+
+    Returns:
+        ``True`` when the deployment cannot serve the read right now.
+    """
+    import duckdb
+
+    if isinstance(exc, duckdb.Error):
+        return True
+    return isinstance(exc, RuntimeError) and index.closed
+
+
+async def _serve_index_read(request: Request, subject: str, read: Any) -> Any:
+    """Answer a graph-paradigm request from the search index the app opened.
+
+    The mirror of :func:`_serve_graph_read` for the reads that come from the
+    index rather than from the store: where the handle lives, what an app
+    without a usable one answers, and how a failed read travels. Search, the
+    ontology and the statistics share it, so they cannot drift into reporting
+    the same missing index three ways.
+
+    The read runs off the event loop. DuckDB's driver is synchronous, and
+    awaiting a scan inline would stall every other request the app is serving
+    for its duration.
+
+    Args:
+        request: FastAPI request, carrying the index on its app state.
+        subject: What is being read, for the log lines.
+        read: Callable taking the index and returning the payload, run in a
+            worker thread.
+
+    Returns:
+        Whatever *read* returns, or a 503 :class:`JSONResponse` carrying the
+        remedy when there is no index to read.
 
     Raises:
-        GraphStoreError: Whatever the store raises when the read fails.
+        HTTPException: 500 when the read fails for a reason the index does not
+            model.
     """
-    result = await asyncio.to_thread(
-        ctx.run_read, GRAPH_ONTOLOGY_CYPHER, max_rows=_GRAPH_EXPLORE_MAX_ROWS
-    )
-    return _prune_device_taxonomy(result.rows), result.truncated
+    index = getattr(request.app.state, "graph_index", None)
+    if index is None or isinstance(index, GraphIndexAbsence):
+        # Read here rather than held on app state: this is the failure path, the
+        # loader is a cached singleton, and the alternative is a copy of the
+        # config kept alive for the two keys a 503 names.
+        from osprey.utils.workspace import load_osprey_config
+
+        return JSONResponse(
+            status_code=503,
+            content=_graph_index_error_payload(index, load_osprey_config()),
+        )
+
+    try:
+        return await asyncio.to_thread(read, index)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        if not _index_unavailable(index, exc):
+            logger.exception("Failed to read the search index %s", subject)
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.warning("Search index %s read failed: %s", subject, exc)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": f"The search index at {index.path} could not be read: {exc}",
+                "error_type": "service_unavailable",
+                "suggestions": list(_INDEX_READ_FAILED_SUGGESTIONS),
+            },
+        )
 
 
 async def _serve_graph_read(request: Request, subject: str, read: Any) -> Any:
     """Answer a graph-paradigm request through the app's store context.
 
-    The graph reads the app serves share everything around the read itself:
+    The store reads the app serves share everything around the read itself:
     where the context lives, what an app without one answers, and how a store
-    failure travels. That contract lives here once, so the statistics and the
-    ontology cannot drift into reporting the same broken store differently.
+    failure travels. That contract lives here once — the device card is the
+    read that uses it today, and a second one cannot drift into reporting the
+    same broken store differently.
 
     A missing context means the app started without a usable store
     configuration: the read is never attempted, so there is no store error to
@@ -352,27 +396,6 @@ async def _serve_graph_read(request: Request, subject: str, read: Any) -> Any:
     except Exception as exc:
         logger.exception("Failed to read the graph %s", subject)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-async def _graph_count(ctx: Any, cypher: str) -> int:
-    """Run a census query off the event loop and return the number it counted.
-
-    Args:
-        ctx: The app's graph store context.
-        cypher: A census query returning its single count as column ``n``.
-
-    Returns:
-        The count. A store that answers with no row at all — which a census
-        over an empty label does on some drivers — counts as zero rather than
-        failing the whole statistics read.
-
-    Raises:
-        GraphStoreError: Whatever the store raises when the read fails.
-    """
-    result = await asyncio.to_thread(ctx.run_read, cypher, max_rows=_GRAPH_COUNT_MAX_ROWS)
-    if not result.rows:
-        return 0
-    return int(result.rows[0].get("n") or 0)
 
 
 def _roster_unavailable(absence: RosterAbsence | None) -> JSONResponse:
@@ -684,7 +707,8 @@ async def get_statistics(request: Request):
     """Return database statistics for the active pipeline."""
     pt = _pipeline_type(request)
     if pt == "graph":
-        return await _serve_graph_read(request, "statistics", _read_graph_statistics)
+        # The reader answers the badge counts off the index's own meta row.
+        return await _serve_index_read(request, "statistics", lambda index: index.statistics())
 
     try:
         db = _get_database(request)
@@ -786,160 +810,70 @@ def _validate_against_roster(addresses: frozenset[str], channels: list[str]) -> 
     }
 
 
-async def _read_graph_statistics(ctx: Any) -> dict[str, int]:
-    """Read the graph paradigm's answer to database statistics.
-
-    The file-backed paradigms count rows in a database file; the graph counts
-    populations in a store. Each census is a separate query rather than one
-    aggregate, because the populations live under different labels and a single
-    query joining them would multiply rows against each other.
-
-    ``total_classes`` is deliberately not a census: it is the size of the same
-    pruned taxonomy the explorer draws, so the badge and the tree cannot report
-    a different number of device classes.
-
-    Args:
-        ctx: The app's graph store context.
-
-    Returns:
-        The five counts.
-
-    Raises:
-        GraphStoreError: Whatever the store raises when a read fails.
-    """
-    classes, _ = await _read_device_taxonomy(ctx)
-    return {
-        "total_devices": await _graph_count(ctx, GRAPH_DEVICE_COUNT_CYPHER),
-        "total_channels": await _graph_count(ctx, GRAPH_CHANNEL_COUNT_CYPHER),
-        "total_classes": len(classes),
-        "total_signals": await _graph_count(ctx, GRAPH_SIGNAL_COUNT_CYPHER),
-        "total_sections": await _graph_count(ctx, GRAPH_SECTION_COUNT_CYPHER),
-    }
-
-
-def _relationship_type_names(rows: Iterable[Mapping[str, Any]]) -> list[str]:
-    """Return the relationship-type names carried by schema-query rows.
-
-    Args:
-        rows: Rows as :data:`RELATIONSHIP_TYPES_CYPHER` returns them, each
-            carrying a ``relationshipType``.
-
-    Returns:
-        The type names, in the order the store reported them, with any row
-        missing the column dropped rather than rendered as a null entry.
-    """
-    names: list[str] = []
-    for row in rows:
-        name = row.get("relationshipType")
-        if name:
-            names.append(str(name))
-    return names
-
-
 @router.get("/graph/ontology")
 async def graph_ontology(request: Request):
-    """Return the device class tree and relationship vocabulary of the store.
+    """Return the device class tree of the search index.
 
     The graph paradigm's answer to the tree the file-backed paradigms read from
-    a database file. Both reads run off the event loop: the store's driver is
+    a database file. The read runs off the event loop: the index's driver is
     synchronous, and awaiting it inline would stall every other request the app
-    is serving for the length of the query.
+    is serving for the length of the scan.
 
-    A store that cannot be reached answers 503 carrying the error's own remedy
-    rather than a bare status, and a store that answers with nothing is
-    distinguished from one that is down — an empty corpus is a seeding gap, and
-    the payload says which command closes it.
+    An app without a usable index answers 503 carrying the build remedy rather
+    than a bare status, and an index that binds nothing is distinguished from
+    one that is missing — an empty corpus is a corpus gap, and the payload says
+    which command closes it.
 
     Args:
-        request: FastAPI request, carrying the app's graph context on its state.
+        request: FastAPI request, carrying the index on its app state.
 
     Returns:
         ``classes`` (the pruned device taxonomy), ``relationship_types``,
-        ``truncated`` (either read hit the row cap), ``empty`` and
-        ``suggestions``.
+        ``truncated``, ``empty`` and ``suggestions``.
 
     Raises:
         HTTPException: 404 when the active paradigm is not the graph, 400 when
             no paradigm is configured at all, 500 when the read fails for a
-            reason the store does not classify.
+            reason the index does not model.
     """
     if _pipeline_type(request) != "graph":
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
-    return await _serve_graph_read(request, "ontology", _read_graph_ontology)
+    return await _serve_index_read(request, "ontology", _read_graph_ontology)
 
 
-async def _read_graph_ontology(ctx: Any) -> dict[str, Any]:
-    """Read the class tree and relationship vocabulary the ontology route serves.
+def _read_graph_ontology(index: GraphIndex) -> dict[str, Any]:
+    """Read the class tree the ontology route serves.
+
+    The rows are already the pruned device taxonomy: the build applied the
+    pruning once, over the whole corpus, and the ``total_classes`` badge counts
+    those same rows. They are not pruned again here — a second pass would drop
+    an abstract parent whose only subclass the first pass removed, and the tree
+    would then disagree with the badge.
+
+    An index that binds nothing answers the empty-corpus shape the explorer
+    already branches on: no classes to draw, and the remedy in
+    ``suggestions``. The index still holds the ontology's class rows in that
+    case, and blanking them keeps the answer the shape the store's empty
+    answer had.
 
     Args:
-        ctx: The app's graph store context.
+        index: The search index the app opened.
 
     Returns:
-        The ontology payload, in either its drawn or its empty-store shape.
+        The ontology payload, in either its drawn or its empty-corpus shape.
 
     Raises:
-        GraphStoreError: Whatever the store raises when a read fails.
+        RuntimeError: If the index has been closed.
     """
-    classes, classes_truncated = await _read_device_taxonomy(ctx)
-    relationships = await asyncio.to_thread(
-        ctx.run_read, RELATIONSHIP_TYPES_CYPHER, max_rows=_GRAPH_EXPLORE_MAX_ROWS
-    )
-
-    # Nothing to draw has two very different causes. Ask the store which
-    # one this is only when there is nothing to draw, so the common path
-    # costs one round trip less.
-    if not classes and await asyncio.to_thread(ctx.is_empty):
-        return {
-            "classes": [],
-            "relationship_types": [],
-            "truncated": False,
-            "empty": True,
-            "suggestions": list(_EMPTY_GRAPH_SUGGESTIONS),
-        }
-
-    return {
-        "classes": classes,
-        "relationship_types": _relationship_type_names(relationships.rows),
-        "truncated": classes_truncated or relationships.truncated,
-        "empty": False,
-        "suggestions": [],
-    }
+    payload = index.ontology()
+    if payload["empty"]:
+        payload["classes"] = []
+    return payload
 
 
 # ---------------------------------------------------------------------------
 # Graph finder: search and device
 # ---------------------------------------------------------------------------
-
-
-def _clip_search_facets(
-    raw: Mapping[str, Any],
-) -> tuple[dict[str, list[dict[str, Any]]], bool]:
-    """Cut each facet list to what the rail may draw, reporting any clipping.
-
-    The store is asked for one entry more than the explorer shows. A list that
-    comes back at that length is a list the store had more values for, which is
-    the only signal a facet can give that it is not the whole story — the row
-    cap the driver reports says nothing here, because the search answers in a
-    single row however many values it counted.
-
-    Args:
-        raw: The ``facets`` map as :data:`GRAPH_SEARCH_CYPHER` returns it.
-
-    Returns:
-        The five facet lists, each cut to the cap, and whether any of them was.
-    """
-    facets: dict[str, list[dict[str, Any]]] = {}
-    clipped = False
-    for name in _GRAPH_SEARCH_FACETS:
-        entries = list(raw.get(name) or [])
-        if len(entries) > _GRAPH_EXPLORE_MAX_ROWS:
-            clipped = True
-            entries = entries[:_GRAPH_EXPLORE_MAX_ROWS]
-        facets[name] = [
-            {"value": entry.get("value"), "count": int(entry.get("count") or 0)}
-            for entry in entries
-        ]
-    return facets, clipped
 
 
 def _device_signal_groups(groups: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -990,11 +924,11 @@ async def graph_search(
 
     The four multi-select facets arrive as repeated parameters — ``section=SR01C
     &section=SR02C`` — and are ORed within a facet and ANDed across facets by
-    the query. ``cls`` is single-select and rolls its subclasses up, which is
+    the index. ``cls`` is single-select and rolls its subclasses up, which is
     what lets a selection on an abstract branch stand for the devices under it.
 
     Args:
-        request: FastAPI request, carrying the app's graph context on its state.
+        request: FastAPI request, carrying the index on its app state.
         q: Free-text query, split on whitespace into tokens that must all match.
         section: Section codes to keep, or none for no section filter.
         system: System codes to keep.
@@ -1006,20 +940,20 @@ async def graph_search(
     Returns:
         ``total`` and ``devices`` over every match, the ``page`` of ``rows``
         and the ``pages`` and ``page_size`` around it, the five ``facets``,
-        whether a facet was ``truncated``, and — only when an unfiltered search
-        found nothing in a store that holds no corpus — ``empty`` with the
-        ``suggestions`` that name the seeding command.
+        whether a facet was ``truncated``, and — for an index that binds
+        nothing — ``empty`` with the ``suggestions`` that name the corpus and
+        the command that regenerates it.
 
     Raises:
         HTTPException: 404 when the active paradigm is not the graph, 400 when
             no paradigm is configured at all, 500 when the read fails for a
-            reason the store does not classify.
+            reason the index does not model.
     """
     if _pipeline_type(request) != "graph":
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
     read = functools.partial(
         _read_graph_search,
-        # The query lower-cases nothing, so the tokens arrive folded; splitting
+        # The index matches folded text, so the tokens arrive folded; splitting
         # on whitespace drops the empty token an empty query would otherwise be.
         tokens=q.lower().split(),
         sections=list(section),
@@ -1030,11 +964,11 @@ async def graph_search(
         cls=cls or None,
         page=page,
     )
-    return await _serve_graph_read(request, "search", read)
+    return await _serve_index_read(request, "search", read)
 
 
-async def _read_graph_search(
-    ctx: Any,
+def _read_graph_search(
+    index: GraphIndex,
     *,
     tokens: list[str],
     sections: list[str],
@@ -1044,20 +978,16 @@ async def _read_graph_search(
     cls: str | None,
     page: int,
 ) -> dict[str, Any]:
-    """Run the faceted search off the event loop and shape its single row.
+    """Run the faceted search and answer the page it cuts.
 
-    Every parameter is passed on every call: the query declares no defaults, and
-    a list left out arrives as null, which is not the same as the empty list
-    that means "no filter".
-
-    Nothing found has two causes, and only one of them is worth a remedy. A
-    search that filtered and matched nothing is an ordinary answer. A search
-    that filtered nothing and still matched nothing may be looking at an
-    unseeded store, and only then is the store asked which it is — the same
-    distinction, and the same remedy, the ontology route draws.
+    The index answers in the shape the finder reads, so nothing is reshaped
+    here: only the request's 1-based page is turned into the row offset the
+    index takes, and the caps the explorer draws to are passed along. The
+    index asks one facet entry more than the cap itself, which is how a full
+    list is told apart from a clipped one.
 
     Args:
-        ctx: The app's graph store context.
+        index: The search index the app opened.
         tokens: Lower-cased search tokens, all of which must match.
         sections: Section codes to keep, empty for no filter.
         systems: System codes to keep, empty for no filter.
@@ -1070,47 +1000,19 @@ async def _read_graph_search(
         The search payload.
 
     Raises:
-        GraphStoreError: Whatever the store raises when the read fails.
+        RuntimeError: If the index has been closed.
     """
-    params = {
-        "tokens": tokens,
-        "sections": sections,
-        "systems": systems,
-        "cls": cls,
-        "signals": signals,
-        "dirs": dirs,
-        "skip": (page - 1) * _GRAPH_SEARCH_PAGE_SIZE,
-        # One over what the rail draws, so a full list is a clipped list.
-        "facet_cap": _GRAPH_EXPLORE_MAX_ROWS + 1,
-    }
-    result = await asyncio.to_thread(ctx.run_read, GRAPH_SEARCH_CYPHER, params, max_rows=1)
-    # The search aggregates to one row, and answers none at all when the store
-    # holds nothing to aggregate over.
-    row: Mapping[str, Any] = result.rows[0] if result.rows else {}
-    facets, truncated = _clip_search_facets(row.get("facets") or {})
-    total = int(row.get("total") or 0)
-    filtered = bool(tokens or sections or systems or signals or dirs or cls)
-
-    empty = False
-    suggestions: list[str] = []
-    if total == 0 and not filtered and await asyncio.to_thread(ctx.is_empty):
-        empty = True
-        suggestions = list(_EMPTY_GRAPH_SUGGESTIONS)
-
-    return {
-        "total": total,
-        "devices": int(row.get("devices") or 0),
-        "page": page,
-        # No matches is no pages. The finder clamps a page into [1, pages] with
-        # a floor of 1, so a zero here reads as "the one page there is".
-        "pages": (total + _GRAPH_SEARCH_PAGE_SIZE - 1) // _GRAPH_SEARCH_PAGE_SIZE,
-        "page_size": _GRAPH_SEARCH_PAGE_SIZE,
-        "truncated": truncated,
-        "rows": list(row.get("rows") or []),
-        "facets": facets,
-        "empty": empty,
-        "suggestions": suggestions,
-    }
+    return index.search(
+        tokens=tokens,
+        sections=sections,
+        systems=systems,
+        cls=cls,
+        signals=signals,
+        dirs=dirs,
+        skip=(page - 1) * _GRAPH_SEARCH_PAGE_SIZE,
+        page_size=_GRAPH_SEARCH_PAGE_SIZE,
+        facet_cap=_GRAPH_EXPLORE_MAX_ROWS,
+    )
 
 
 @router.get("/graph/device")

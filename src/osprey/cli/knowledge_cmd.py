@@ -4,9 +4,11 @@ Two kinds of verb live here, and the pair that seeds is the pair worth telling
 apart.  ``regen-index``, ``validate`` and ``seed-from-ttl`` operate on an OKF
 bundle: a directory of markdown documents on disk.  ``seed-graph`` operates on
 the deployed Neo4j graph store, loading the same NARAD TTL into it through
-neosemantics.  One TTL, two destinations.
+neosemantics.  ``build-index`` reads that same TTL and writes a DuckDB search
+index from it, which is what the graph channel finder searches instead of
+parsing Turtle at run time.  One TTL, three destinations.
 
-``build-ttl`` stands upstream of both: it derives that TTL from the project's
+``build-ttl`` stands upstream of all three: it derives that TTL from the project's
 channel database, so a facility with no hand-written corpus still has one to
 seed.  ``compile-ontology`` stands upstream of ``build-ttl`` in turn: it is the
 authoring verb, turning a LinkML schema into the compiled FAMILY-to-class table
@@ -1226,3 +1228,130 @@ def compile_ontology(source: Path, output: Path, check: bool) -> None:
         f"Emit a corpus against it with: osprey knowledge build-ttl <corpus.ttl> "
         f"--ontology {output}"
     )
+
+
+# ---------------------------------------------------------------------------
+# build-index
+# ---------------------------------------------------------------------------
+
+
+def _resolve_index_output(output: Path | None) -> Path:
+    """Return *output*, or the index path this project's config names.
+
+    A path typed on the command line is used as typed, like every other
+    filename an operator types.  The configured default goes through
+    :func:`~osprey.deployment.graphdb_service.resolve_graph_index_path`, the one
+    resolver every reader of that key uses -- the build step that writes the
+    index, the channel roster, the agent's keyword tool and the health row that
+    compares the index against the store's seed marker all go through it, so
+    this verb cannot write the index somewhere none of them looks.
+
+    Args:
+        output: The ``--output`` value, or ``None``.
+
+    Returns:
+        Where the index goes.  It need not exist yet.
+
+    Raises:
+        click.ClickException: When ``services.graphdb.index_path`` is present
+            but not a usable string.
+    """
+    if output is not None:
+        return output
+
+    from osprey.deployment.graphdb_service import (
+        GRAPHDB_INDEX_PATH_CONFIG_KEY,
+        resolve_graph_index_path,
+    )
+
+    block = _graphdb_block()
+    config = {"services": {"graphdb": block}} if block is not None else None
+    try:
+        # No config_dir, exactly as _resolve_ttl passes none: the render is
+        # found through OSPREY_CONFIG, so the corpus and the index it is built
+        # into are read out of the one project.
+        return resolve_graph_index_path(config)
+    except ValueError as exc:
+        raise click.ClickException(f"Cannot use {GRAPHDB_INDEX_PATH_CONFIG_KEY}: {exc}") from exc
+
+
+@knowledge.command("build-index")
+@click.option(
+    # Deliberately not exists=True: a corpus that is not there is reported with
+    # the resolved path on it, which is the answer whether the path was typed
+    # or read from config.  click's own "does not exist" can only say the first.
+    "--ttl",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Turtle corpus to index. Defaults to services.graphdb.ttl_path.",
+)
+@click.option(
+    "--output",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Index file to write. Defaults to services.graphdb.index_path.",
+)
+def build_index(ttl: Path | None, output: Path | None) -> None:
+    """Build the graph channel finder's search index from a TTL corpus.
+
+    The index is a DuckDB file holding the corpus's channel bindings, its
+    device classes and its channel roster, so the graph channel finder answers
+    a search by reading a table rather than by parsing Turtle. It is derived
+    from the corpus and nothing else, so rebuild it whenever the corpus
+    changes, and seed the graph store from the same file so the two agree.
+
+    Where each path comes from when you do not name it:
+
+    \b
+      --ttl     services.graphdb.ttl_path from the OSPREY config, resolved
+                against the config file's own directory. That is the file
+                'osprey knowledge seed-graph' loads into the store.
+      --output  services.graphdb.index_path, resolved the same way. In a
+                rendered project that is
+                data/channel_databases/graph.duckdb.
+
+    Missing parent directories are created, and an existing index is replaced
+    only once the new one is complete.
+
+    A channel finder already running on the host keeps the index it opened, so
+    restart it to read a rebuilt one. The deployed stack needs nothing: its
+    build writes the index into the image it starts from.
+    """
+    from osprey.deployment.graphdb_service import (
+        GRAPHDB_BUILD_INDEX_COMMAND,
+        GRAPHDB_TTL_PATH_CONFIG_KEY,
+    )
+    from osprey.services.channel_finder.graph_index import GraphIndexBuildError, build_graph_index
+
+    try:
+        ttl_path = _resolve_ttl(ttl)
+    except click.UsageError as exc:
+        # One sentence, and exit 1 rather than click's usage exit 2: nothing is
+        # wrong with how the verb was called, only with what the project says.
+        raise click.ClickException(
+            f"set {GRAPHDB_TTL_PATH_CONFIG_KEY} to the corpus this store was seeded from, "
+            f"then run {GRAPHDB_BUILD_INDEX_COMMAND}"
+        ) from exc
+
+    index_path = _resolve_index_output(output)
+    try:
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise click.ClickException(f"Cannot create {index_path.parent}: {exc}") from exc
+
+    try:
+        built = build_graph_index(ttl_path, index_path)
+    except FileNotFoundError as exc:
+        raise click.ClickException(f"There is no corpus at {ttl_path}.") from exc
+    except (OSError, UnicodeDecodeError) as exc:
+        raise click.ClickException(f"Cannot read the corpus at {ttl_path}: {exc}") from exc
+    except GraphIndexBuildError as exc:
+        raise click.ClickException(f"{exc} Corpus: {ttl_path}.") from exc
+
+    report(f"Wrote {built.path}.")
+    note(
+        f"{built.binding_count:,} bindings, {built.device_count:,} devices, "
+        f"{built.class_count:,} classes, {built.signal_count:,} signals, "
+        f"{built.section_count:,} sections, {built.channel_count:,} channels."
+    )
+    note(f"Built from {ttl_path}, corpus sha256 {built.corpus_sha256[:12]}.")

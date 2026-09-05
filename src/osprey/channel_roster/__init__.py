@@ -22,10 +22,9 @@ renders identically. See :mod:`osprey.channel_roster.records`.
 
 **Reading a source is memoized per build process.** Several consumers ask the
 same question during one build -- both bridge lanes render from it and the
-channel snapshot is written from it -- and the corpus behind the answer is a
-multi-megabyte Turtle file. It is parsed once per (source path, mtime, size),
-so a build pays for it once and a source that changed on disk is re-read rather
-than served stale. See :func:`registered_channels` for what else the key
+channel snapshot is written from it -- and every answer is a file on disk. It
+is read once per (source path, mtime, size), so a build pays for it once and a
+source that changed on disk is re-read rather than served stale. See :func:`registered_channels` for what else the key
 carries and what is deliberately never cached.
 
 Import-graph constraints this package keeps: it must not import
@@ -60,7 +59,6 @@ from .records import (
 )
 from .sources import (
     RosterSourceResolution,
-    resolve_corpus_path,
     resolve_database_path,
     resolve_roster_source,
 )

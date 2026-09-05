@@ -5,7 +5,7 @@ name: Channel Finder Feedback Capture
 description: Silently captures channel finder search results into pending review store
 summary: Captures CF tool results for operator review
 event: PostToolUse
-tools: mcp__channel-finder__build_channels, mcp__channel-finder__ask_channels, mcp__channel-finder__run_sql, mcp__channel-finder__read_cypher
+tools: mcp__channel-finder__build_channels, mcp__channel-finder__ask_channels, mcp__channel-finder__run_sql, mcp__channel-finder__read_cypher, mcp__channel-finder__search_channels
 ---
 
 ## Flow
@@ -85,6 +85,7 @@ try:
         "mcp__channel-finder__ask_channels",
         "mcp__channel-finder__run_sql",
         "mcp__channel-finder__read_cypher",
+        "mcp__channel-finder__search_channels",
     }
     if tool_name not in CAPTURE_TOOLS:
         log_hook("cf-feedback-capture", hook_input, status="skip-tool", detail=tool_name)
@@ -126,11 +127,13 @@ try:
         else:
             tool_response = inner  # already a dict/list
 
-    # Two answer shapes reach this hook. The table pipelines return
-    # `channels`/`total`; the graph pipeline returns read_cypher's QueryResult
-    # envelope — `rows`, `row_count`, `truncated`. Reading both counts keeps one
+    # Three answer shapes reach this hook. The table pipelines return
+    # `channels`/`total`; read_cypher returns its QueryResult envelope — `rows`,
+    # `row_count`, `truncated`; search_channels returns the search index's
+    # `total` beside a `rows` list of hits. Reading every count keeps one
     # capture path for every pipeline mode, so an operator reviews graph answers
-    # on the same card as table answers.
+    # on the same card as table answers. A response that carries a `rows` list
+    # is harvested for addresses below, whichever of the two counts it uses.
     total = 0
     graph_envelope = None
     if isinstance(tool_response, dict):
@@ -142,6 +145,8 @@ try:
                 total = len(rows) if isinstance(rows, list) else 0
         else:
             total = tool_response.get("total", 0)
+            if isinstance(tool_response.get("rows"), list):
+                graph_envelope = tool_response
     if not total or total <= 0:
         resp_type = type(tool_response).__name__
         resp_keys = list(tool_response.keys()) if isinstance(tool_response, dict) else None

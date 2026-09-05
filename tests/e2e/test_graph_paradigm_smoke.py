@@ -6,8 +6,8 @@ through the **facility-knowledge-graph subagent** — answers a structural
 question about the machine. This one proves the **fourth
 channel-finder paradigm**: a deployment built with
 ``channel_finder_mode: graph`` answers an ordinary "which channel do I write
-to?" question through the **channel-finder subagent**, whose four tools are the
-read-only Cypher vocabulary shipped under the ``channel-finder`` server name.
+to?" question through the **channel-finder subagent**, whose vocabulary is the
+read-only graph toolset shipped under the ``channel-finder`` server name.
 
 Three claims, in the order the chain makes them:
 
@@ -15,9 +15,9 @@ Three claims, in the order the chain makes them:
    channel_finder_mode=graph`` followed by ``osprey build`` puts
    ``-m osprey.mcp_server.channel_finder_graph`` in the render's ``.mcp.json``
    under the ``channel-finder`` key, and arms the rendered subagent with
-   exactly ``capabilities``, ``example_queries``, ``get_schema`` and
-   ``read_cypher`` (plus ``submit_response``) — and with no ``mcp__graph__``
-   entry, because the subagent reaches the store through its own server name.
+   exactly the paradigm's vocabulary as the registry spells it (plus
+   ``submit_response``) — and with no ``mcp__graph__`` entry, because the
+   subagent reaches the store through its own server name.
    ``tests/cli/test_channel_finder_graph_tools.py`` pins the same shape off
    ``create_project``; this module pins it off the render ``osprey build``
    actually produces, which is a second code path (``regenerate_claude_code``).
@@ -28,11 +28,19 @@ Three claims, in the order the chain makes them:
    two lanes cannot drift on how a graph store is stood up.
 3. **The agent uses it, unprompted, through the subagent.** One operator-style
    question naming no tool, no server and no query language. The floor is
-   deterministic: a ``mcp__channel-finder__read_cypher`` call that originated
-   in a sub-agent context, at least one real ``fullPv`` from the corpus in what
-   that call returned *and* in the agent's prose, and no fabricated address —
-   graded by :func:`tests.e2e.test_graph_mcp_smoke.fabricated_addresses`, the
-   same helper, so the two lanes share one definition of "invented".
+   deterministic: a call to one of the paradigm's two retrieval tools —
+   ``mcp__channel-finder__read_cypher`` or
+   ``mcp__channel-finder__search_channels`` — that originated in a sub-agent
+   context, at least one real ``fullPv`` from the corpus in what that call
+   returned *and* in the agent's prose, and no fabricated address — graded by
+   :func:`tests.e2e.test_graph_mcp_smoke.fabricated_addresses`, the same
+   helper, so the two lanes share one definition of "invented". Either tool
+   satisfies the floor, and deliberately so: the rendered subagent is told to
+   try the search index first for keyword-shaped questions and to fall through
+   to Cypher for structural ones, and which of the two an address question
+   looks like is the model's judgement, not this gate's. Both read the same
+   seeded corpus, so an answer built from either is an answer built from the
+   store.
 
 There is no LLM judge here. The sibling needs one because "where does this sit
 along the ring" is prose that only a reader can grade; a channel-address answer
@@ -85,7 +93,7 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.agent_runner import expected_mcp_servers
+from osprey.agent_runner import ToolTrace, expected_mcp_servers
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
@@ -120,8 +128,8 @@ GRAPH_MODE = "graph"
 #: What the subagent's ``tools:`` frontmatter must carry, qualified. Derived
 #: from the registry so this module cannot drift from the vocabulary the render
 #: reads; ``tests/cli/test_channel_finder_graph_tools.py`` holds the literal
-#: four-name spelling, so a registry edit still has to be made deliberately in
-#: two places.
+#: spelling of each name, so a registry edit still has to be made deliberately
+#: in two places.
 _SUBMIT_RESPONSE = "mcp__osprey_workspace__submit_response"
 _EXPECTED_AGENT_TOOLS = [
     *(f"mcp__channel-finder__{tool}" for tool in CHANNEL_FINDER_TOOLS_BY_PIPELINE[GRAPH_MODE]),
@@ -129,6 +137,18 @@ _EXPECTED_AGENT_TOOLS = [
 ]
 
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
+
+#: The tool whose answer is a JSON envelope this module can read structurally.
+_SEARCH_CHANNELS = "mcp__channel-finder__search_channels"
+
+#: The paradigm's retrieval tools — the two that can *answer* an address
+#: question rather than describe the store. ``read_cypher`` traverses the graph;
+#: ``search_channels`` scans the flat index the build derives from the same
+#: corpus. Floor 2 accepts either, because the subagent chooses between them on
+#: the shape of the question and an address lookup sits on the boundary. The
+#: other three tools in the vocabulary — ``capabilities``, ``example_queries``
+#: and ``get_schema`` — describe the store and are not retrieval.
+_RETRIEVAL_TOOLS = frozenset({"mcp__channel-finder__read_cypher", _SEARCH_CHANNELS})
 
 
 # ---------------------------------------------------------------------------
@@ -255,7 +275,7 @@ def test_render_targets_the_graph_channel_finder_server(graph_paradigm_repo: Pat
 def test_render_arms_the_subagent_with_the_paradigm_vocabulary(
     graph_paradigm_repo: Path,
 ) -> None:
-    """Exactly the four paradigm tools, and nothing from the standalone server.
+    """Exactly the paradigm's tools, and nothing from the standalone server.
 
     ``mcp__graph__*`` belongs to the facility-knowledge-graph subagent. Its
     appearance here would mean the channel-finder subagent had a second,
@@ -307,6 +327,149 @@ def _real_addresses_named(text: str) -> list[str]:
     return sorted(pv for pv in PROBE_DEVICE_BINDINGS if pv in plain)
 
 
+def _unwrapped_json_object(text: str) -> dict[str, Any] | None:
+    """One tool result as a JSON object, out of however much transport wraps it.
+
+    ``None`` when the text is not JSON, or carries something other than an
+    object once the wrapping is off — both of which read as "this call
+    returned no addresses" rather than raising.
+
+    The loop consumes exactly one step per pass — parse a string, peel one
+    envelope, or return the object — so a bare body costs 2 and the live
+    single-envelope shape costs 4. Eight therefore tolerates three nested
+    envelopes; below four it would silently revert to reading the envelope
+    instead of the body.
+    """
+    body: Any = text
+    for _ in range(8):
+        if isinstance(body, str):
+            try:
+                body = json.loads(body)
+            except (TypeError, ValueError):
+                return None
+            continue
+        if not isinstance(body, dict):
+            return None
+        if set(body) == {"result"}:  # FastMCP str-return transport envelope
+            body = body["result"]
+            continue
+        return body
+    return None
+
+
+def _addresses_returned_by(call: Any) -> list[str]:
+    """The probe device's genuine addresses in what one retrieval call returned.
+
+    The two retrieval tools answer in two shapes, so this reads each on its own
+    terms. ``search_channels`` returns a documented envelope, so its rows are
+    read structurally: an address counts only when it is a row's ``fullPv``, not
+    when the same string is echoed in a facet, a suggestion or an error message.
+    ``read_cypher`` returns whatever the subagent's ``RETURN`` clause happened to
+    name, so there is no key to read and the whole result text is scanned
+    instead — the same rule floor 3 applies to the agent's prose.
+
+    The envelope has to come off first. FastMCP surfaces a ``str``-returning
+    tool as structured content under a single ``result`` key, so what a real
+    run records is ``{"result": "<the tool's JSON>"}`` — the documented
+    envelope one layer down, inside a re-encoded string. A direct call yields
+    the bare body instead. Reading ``rows`` off the outer object finds nothing
+    on every real run while hand-written bodies stay green, which is the same
+    trap ``_add_body`` in ``test_plan_stack_agentic.py`` is written against;
+    see its docstring for the fuller account. Peeling is bounded and happens
+    only when ``result`` is the sole key, so a body carrying its own ``result``
+    field is never mistaken for transport.
+
+    Deliberately defensive: a result that is not JSON, or JSON without the keys
+    this expects, yields no addresses rather than raising. A malformed answer
+    then fails floor 2's own assertion, which prints the tool name and the
+    offending text — considerably more use than a traceback out of
+    :func:`json.loads`.
+
+    Args:
+        call: One ``ToolTrace`` whose ``name`` is in :data:`_RETRIEVAL_TOOLS`.
+
+    Returns:
+        The corpus addresses the call returned, sorted and deduplicated.
+    """
+    text = call.result or ""
+    if call.name != _SEARCH_CHANNELS:
+        return _real_addresses_named(text)
+
+    payload = _unwrapped_json_object(text)
+    if payload is None:
+        return []
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        return []
+    return sorted(
+        {
+            row["fullPv"]
+            for row in rows
+            if isinstance(row, dict) and row.get("fullPv") in PROBE_DEVICE_BINDINGS
+        }
+    )
+
+
+#: One ``search_channels`` answer in the shape a real run records, reduced from
+#: the transcript of a CI run of the test below. The envelope, the escaping and
+#: the first row are as captured; the remaining rows and the row's ``signals``
+#: list are dropped, because the assertion that printed it truncates at 400
+#: characters and the tail was never recorded. What matters here is the
+#: wrapping, and that is complete.
+#:
+#: Read the pin against this rather than a hand-written body: a body written
+#: from the same assumption as the reader agrees with the reader whatever that
+#: assumption was, and the assumption is the thing that was wrong.
+_LIVE_ENVELOPED_SEARCH_RESULT = (
+    r'{"result":"{\"total\": 216, \"devices\": 36, \"page\": 1, \"pages\": 5, '
+    r"\"rows\": [{\"fullPv\": \"SR:MAG:DIPOLE:01:CURRENT:GOLDEN\", "
+    r"\"description\": \"Storage ring dipole bending magnet 01 current golden "
+    r"setpoint\", \"device\": \"DIPOLE01\", \"section\": \"SR\", \"system\": "
+    r'\"MAG\", \"direction\": \"R\", \"signals\": []}]}"}'
+)
+
+
+@pytest.mark.harness_benchmark
+def test_floor_two_reads_the_transport_envelope_a_live_run_produces() -> None:
+    """Floor 2 must read the shape the SDK records, not the shape the tool returns.
+
+    These differ by one layer, and the difference is invisible offline: FastMCP
+    re-encodes a ``str``-returning tool's answer under a single ``result`` key,
+    so a reader that takes ``rows`` off the outer object finds nothing on every
+    real run while hand-written bodies keep passing. That is not hypothetical
+    here — it is what this floor did, and the failure it produced accused the
+    store of being unreachable and the index of being stale while the addresses
+    sat in the payload it had just been handed.
+
+    The bare form is pinned beside it because a direct, non-MCP call still
+    produces one, and a reader that only understands the envelope would break
+    the other direction.
+    """
+    enveloped = ToolTrace(
+        name=_SEARCH_CHANNELS, input={"query": "dipole"}, result=_LIVE_ENVELOPED_SEARCH_RESULT
+    )
+    assert _addresses_returned_by(enveloped) == ["SR:MAG:DIPOLE:01:CURRENT:GOLDEN"]
+
+    outer = json.loads(_LIVE_ENVELOPED_SEARCH_RESULT)
+    assert set(outer) == {"result"}, "the FastMCP envelope carries exactly one key"
+    body = json.loads(outer["result"])
+    assert {"total", "devices", "page", "pages", "rows"} <= set(body), (
+        "the tool's documented envelope — see search_channels' own docstring"
+    )
+
+    bare = ToolTrace(name=_SEARCH_CHANNELS, input={"query": "dipole"}, result=json.dumps(body))
+    assert _addresses_returned_by(bare) == ["SR:MAG:DIPOLE:01:CURRENT:GOLDEN"]
+
+    facet_echo = ToolTrace(
+        name=_SEARCH_CHANNELS,
+        input={"query": "dipole"},
+        result=json.dumps({"total": 0, "rows": [], "suggestions": [PROBE_PV]}),
+    )
+    assert _addresses_returned_by(facet_echo) == [], (
+        "an address echoed outside a row's fullPv is not an address the call returned"
+    )
+
+
 def _all_assistant_text(result: Any) -> str:
     """Every assistant text block of the run, joined — not just the last one.
 
@@ -345,9 +508,9 @@ async def test_channel_finder_graph_paradigm_answers_an_address_question(
 
     The whole deterministic floor, in order: the readiness barrier saw
     ``channel-finder`` connect, the agent delegated rather than answering from
-    training data, the subagent wrote Cypher against the seeded store, the store
-    returned a real address, the prose passed one on, and nothing anywhere in
-    the run invented a channel this device does not have.
+    training data, the subagent reached the corpus through one of its retrieval
+    tools, that call returned a real address, the prose passed one on, and
+    nothing anywhere in the run invented a channel this device does not have.
     """
     render = render_dir(seeded_graph_paradigm_project)
     assert "channel-finder" in expected_mcp_servers(render), (
@@ -398,26 +561,25 @@ async def test_channel_finder_graph_paradigm_answers_an_address_question(
         f"delegating: {[t.name for t in direct]}. Those tools belong to the subagent."
     )
 
-    # --- Floor 2: it wrote Cypher, and the store answered ------------------
-    cypher_calls = [t for t in cf_calls if t.name == "mcp__channel-finder__read_cypher"]
-    assert cypher_calls, (
-        "the subagent never called mcp__channel-finder__read_cypher — the graph "
-        "paradigm's only retrieval tool. It called "
-        f"{sorted({t.name for t in cf_calls})}, which can describe the store but "
-        "cannot answer a question about it."
+    # --- Floor 2: it queried the corpus, and the corpus answered -----------
+    retrieval = [t for t in cf_calls if t.name in _RETRIEVAL_TOOLS]
+    assert retrieval, (
+        "the subagent called none of the paradigm's retrieval tools "
+        f"({sorted(_RETRIEVAL_TOOLS)}). It called {sorted({t.name for t in cf_calls})}, "
+        "which can describe the store but cannot answer a question about it."
     )
-    answered = [t for t in cypher_calls if not t.is_error and t.result]
+    answered = [t for t in retrieval if not t.is_error and t.result]
     assert answered, (
-        "every read_cypher call errored or came back empty: "
-        f"{[(t.is_error, (t.result or '')[:300]) for t in cypher_calls]}"
+        "every retrieval call errored or came back empty: "
+        f"{[(t.name, t.is_error, (t.result or '')[:300]) for t in retrieval]}"
     )
 
-    from_store = sorted({pv for t in answered for pv in _real_addresses_named(t.result or "")})
+    from_store = sorted({pv for t in answered for pv in _addresses_returned_by(t)})
     assert from_store, (
-        "no read_cypher call returned any of this device's channel addresses. The "
-        "store may be seeded but unreachable, or the query missed. Corpus binds "
-        f"{list(PROBE_DEVICE_BINDINGS)}; results were "
-        f"{[(t.result or '')[:400] for t in answered]}"
+        "no retrieval call returned any of this device's channel addresses. The "
+        "store may be seeded but unreachable, the search index missing or stale, or "
+        f"the query simply missed. Corpus binds {list(PROBE_DEVICE_BINDINGS)}; "
+        f"results were {[(t.name, (t.result or '')[:400]) for t in answered]}"
     )
 
     # --- Floor 3: the answer carries a real address, and invents none -------

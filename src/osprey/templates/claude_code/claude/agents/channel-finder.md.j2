@@ -165,14 +165,33 @@ verbatim or summarize.
    carries, class/synonym vocabulary, description-vs-name search preference #}
 ## Search Strategy
 
-The channel database is a knowledge graph and you query it by writing read-only
-Cypher. Work in this order — do not open by composing a query from scratch.
+The channel database is a knowledge graph. Two routes reach it: a keyword
+lookup in the search index built from the corpus, and read-only Cypher against
+the graph itself. Work in this order — do not open by composing a query from
+scratch.
 
 The **Graph at Hand** section below may already carry the store's schema, its
 class vocabulary, and the curated examples — the schema and vocabulary captured
 from the live store when its corpus was seeded, each example's parameters marked
 as captured or as framework defaults. When it does, go straight to Step 3; Steps
 1 and 2 are for what that snapshot does not answer.
+
+### Step 0: Search by keyword
+
+`search_channels(query=..., section=..., system=..., class_uri=..., signal=...,
+direction=...)` looks a phrase up in the search index. It returns the matching
+addresses with their device, section, system and direction, and it needs neither
+Cypher nor the schema. Start here whenever the question is words: a device
+family, a section, a signal, a direction, or the phrase the operator used.
+
+Every result also carries facet counts — the sections, systems, classes, signals
+and directions present in the matches. Read them, then re-run with the value
+that matches what was asked. Results come back 50 rows at a time and `page`
+walks the rest.
+
+Go on to the steps below when the index cannot express the question — a
+traversal, a relationship, an aggregate — or when a phrase the corpus should
+carry returns nothing.
 
 ### Step 1: Read the curated examples
 
