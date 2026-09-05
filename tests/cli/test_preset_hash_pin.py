@@ -199,7 +199,15 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # separate Start. Deploy-visible on the bridge: a rebuilt project's queue
     # starts in the armed posture, so the staleness advisory firing on
     # already-deployed control-assistant projects is the correct signal.
-    "control-assistant": "sha256:f20e0a2a42d1f0fd054505c1e5a35d4c9afb6acc33aa3e399ccdeef008264ef1",
+    # Moved once more, and all seven control-assistant entries together, when
+    # the base preset gained the `jupyter` web panel: a rebuilt project's
+    # terminals grow a JUPYTER tab running JupyterLab, with kernels that
+    # follow the terminal session. Deploy-visible — the rebuilt deployment
+    # serves one more panel — so the staleness advisory firing on
+    # already-deployed control-assistant projects is the correct signal. The
+    # three standalone digests are unchanged, which is the check that the tab
+    # reached the control-assistant family and nothing else.
+    "control-assistant": "sha256:56c00c4b3c1792fc62aa8df77482da07e6b7cfcb530a811c5ff1affae0f3e511",
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
     # Moved alone when the admin tier gained the EVENTS/BLUESKY `web_panels`
@@ -212,8 +220,9 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: graph channel finder.
     # Moved with the base above: the `knowledge` card joined the roster.
     # Moved with the base above: the plan queue comes up armed.
+    # Moved with the base above: the JUPYTER tab.
     "control-assistant-admin": (
-        "sha256:c087379741bf8a14679cb6b46973d3e7e37e2208e99970ca38942decd65949fa"
+        "sha256:184f6c4f1a377f29007d713aabc3bb24aa7ddda79d48d24b2459d3594d944442"
     ),
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
@@ -222,8 +231,9 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: graph channel finder.
     # Moved with the base above: the `knowledge` card joined the roster.
     # Moved with the base above: the plan queue comes up armed.
+    # Moved with the base above: the JUPYTER tab.
     "control-assistant-logbook": (
-        "sha256:0190871b889dccba18826481961c4078b2c1ad5f510e1ea7c324f08d67660124"
+        "sha256:aaf0d35ccf2d2c3219d196e2888fcea36450489d197d2412c714197aa6cb82b5"
     ),
     # New: the second standalone persona. The facility knowledge graph, the
     # graph-mode channel finder and the knowledge bundle behind one shared
@@ -231,8 +241,9 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # writes pinned off on all three keys, and the one bundle-writing tool
     # (`draft_concept`) denied.
     # Moved with the base above: the plan queue comes up armed.
+    # Moved with the base above: the JUPYTER tab.
     "control-assistant-knowledge": (
-        "sha256:661b1cce7930685b27c5414bce56be95e059ef40fb4390d16da58de43ce2b873"
+        "sha256:0777311b1d4e018fcb27a8d3c178c7591ef3cee4c94bece650dbb673b78ad96a"
     ),
     # The two operator tiers below moved together, and alone, when each gained
     # the single dotted key `services.graphdb.port_host: 7687` in its `config:`
@@ -295,8 +306,9 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: graph channel finder.
     # Moved with the base above: the `knowledge` card joined the roster.
     # Moved with the base above: the plan queue comes up armed.
+    # Moved with the base above: the JUPYTER tab.
     "control-assistant-readonly": (
-        "sha256:2976482d462ba979595e9cf495ac8cc36c124377af0880a84f12b5938861e603"
+        "sha256:cfeb9f033ceab1ebf1c9353b681512370ecb89494463738861ace01ab58db36a"
     ),
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
@@ -304,8 +316,9 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: graph channel finder.
     # Moved with the base above: the `knowledge` card joined the roster.
     # Moved with the base above: the plan queue comes up armed.
+    # Moved with the base above: the JUPYTER tab.
     "control-assistant-readwrite": (
-        "sha256:ba4d533bfabcc7696eff52b0c58196406bd1719c75af57287abacfa8096c5fad"
+        "sha256:32ccac3d13793f322596f51a440b6e9ce1f93ef3469c35ed4a763f70a334ce40"
     ),
     # New with per-target write posture, not a moved entry: the rung between
     # the two flat tiers, armed on the virtual accelerator alone. It pins the
@@ -319,15 +332,17 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: graph channel finder.
     # Moved with the base above: the `knowledge` card joined the roster.
     # Moved with the base above: the plan queue comes up armed.
+    # Moved with the base above: the JUPYTER tab.
     "control-assistant-va-readwrite": (
-        "sha256:969539a57fc48ce9610d36c635f9de9c1b162659d759daa898f1da9d9e237a20"
+        "sha256:161d353e06f81965954d1d3c56f98053460ff9af02e1b2519e9f1758690237f9"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:
     # the digest is comment-blind, so the rule drop is the entire delta.
     # Moved again when the preset gained the `memory-guard` hook entry, so a
     # rebuilt project's PreToolUse chain now also gates Write/MultiEdit to
-    # Claude memory files and NotebookEdit to the agent-data artifacts tree.
+    # Claude memory files and NotebookEdit to the agent-data artifacts and
+    # notebooks trees.
     # The comment-only fixes that shipped alongside it (correcting the
     # mislabelled memory-guard/writes-check comments in the other presets)
     # contributed nothing to any digest, including this one.

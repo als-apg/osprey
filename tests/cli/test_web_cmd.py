@@ -741,14 +741,20 @@ class TestPreflightCompanionPortCollision:
         its own key → id table, and that table had already lost the gallery's
         `artifacts` entry; reading `WebServerDefinition.panel_id` means every
         registered server is covered by construction.
+
+        Sidecar panels bind no port of their own — the terminal starts them on
+        an ephemeral loopback port — so pre-flight has nothing to check for
+        them and they are the one part of `BUILTIN_PANELS` it does not cover.
         """
         import inspect
 
         from osprey.cli import web_cmd
-        from osprey.profiles.web_panels import BUILTIN_PANELS
+        from osprey.profiles.web_panels import BUILTIN_PANELS, SIDECAR_PANELS
         from osprey.registry.web import FRAMEWORK_WEB_SERVERS
 
-        assert {defn.panel_id for defn in FRAMEWORK_WEB_SERVERS.values()} == BUILTIN_PANELS
+        assert {defn.panel_id for defn in FRAMEWORK_WEB_SERVERS.values()} | set(
+            SIDECAR_PANELS
+        ) == BUILTIN_PANELS
         assert "_PANEL_ID_FOR_REGISTRY_KEY" not in inspect.getsource(web_cmd)
 
 

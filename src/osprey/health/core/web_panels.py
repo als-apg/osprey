@@ -10,11 +10,15 @@ The detailed readout lives here, where it sits beside the other core categories,
 is reachable from ``osprey health`` and the MCP surface, and works with no
 browser involved.
 
-Panels come from two places and are probed accordingly:
+Panels come from three places and are probed accordingly:
 
 * **Built-in panels** (``web.panels.<id>`` enabled, id in ``BUILTIN_PANELS``) —
   host/port resolved by ``registry.web.resolve_web_server_address``, the one
   resolver ``server_launcher`` itself is bound to, then ``GET /health``.
+* **Sidecar panels** (``web.panels.<id>`` enabled, id in ``SIDECAR_PANELS``) —
+  not probed at all. The web terminal starts them and they are reached only
+  through its panel proxy, so they have no address this category could fetch;
+  each enabled one gets a ``skip`` row naming where the answer lives.
 * **Custom panels** (any other ``web.panels.<id>`` with a ``url``) — ``GET
   url + health_endpoint`` when one is configured. When it isn't (the scan
   ``plan``/``results`` panels declare none), the panel's own entry ``path`` is
@@ -45,6 +49,7 @@ from osprey.health.models import CheckResult, Status
 from osprey.profiles.web_panels import (
     BUILTIN_PANEL_LABELS,
     BUILTIN_PANELS,
+    SIDECAR_PANELS,
     UNIVERSAL_PANELS,
     panel_spec_enabled,
 )
@@ -129,8 +134,8 @@ def _resolve_targets(cfg: Mapping[str, Any]) -> tuple[list[_Target], list[CheckR
 
     Returns:
         ``(targets, config_rows)`` — the panels to probe, plus ready-made rows
-        for panels whose own config section is malformed and therefore has no
-        probeable address at all.
+        for the panels with no probeable address at all: a sidecar, and a panel
+        whose own config section is malformed.
     """
     web_cfg = cfg.get("web")
     if not isinstance(web_cfg, dict):
@@ -156,6 +161,9 @@ def _resolve_targets(cfg: Mapping[str, Any]) -> tuple[list[_Target], list[CheckR
             targets.append(target)
 
     for panel_id in sorted(enabled_builtin):
+        if panel_id in SIDECAR_PANELS:
+            config_rows.append(_sidecar_row(panel_id))
+            continue
         try:
             target = _builtin_target(panel_id, cfg)
         except WebServerConfigDepthError as exc:
@@ -189,6 +197,26 @@ def _builtin_target(panel_id: str, cfg: Mapping[str, Any]) -> _Target | None:
     host, port = resolve_web_server_address(registry_key, cfg)
     label = BUILTIN_PANEL_LABELS.get(panel_id, panel_id.upper())
     return _Target(panel_id, label, f"http://{host}:{port}/health", contract=True)
+
+
+def _sidecar_row(panel_id: str) -> CheckResult:
+    """Report a sidecar panel as skipped rather than probing it.
+
+    A sidecar has no address of its own: the web terminal starts it and it is
+    reached only through the terminal's panel proxy, so there is nothing here to
+    fetch when the terminal is not running. An OK row would claim a liveness
+    this category never established, and a warning row would call every
+    terminal-less host broken. A skip says what is true and names the one place
+    the answer lives.
+    """
+    label = BUILTIN_PANEL_LABELS.get(panel_id, panel_id.upper())
+    return CheckResult(
+        f"{CATEGORY}.{panel_id.replace('-', '_')}",
+        CATEGORY,
+        Status.SKIP,
+        f"{label}: not probed — served inside the web terminal; a grey tab means "
+        "the sidecar did not start, see the terminal log",
+    )
 
 
 def _misconfigured_row(panel_id: str, exc: WebServerConfigDepthError) -> CheckResult:

@@ -564,6 +564,41 @@ def format_profile_card(
     return [_plain_text(line) for line in _card_segment_lines(profile, persona_deltas)]
 
 
+def card_rows(
+    profile: BuildProfile, persona_deltas: Mapping[str, Mapping[str, Any]]
+) -> list[dict[str, str]]:
+    """The card as flat rows — the twin a machine reads, in card order.
+
+    One entry per row of every group: the group it stands under, the row's
+    label, and the rest of the row as one value. These are the very cells
+    :func:`_group_lines` lays out, flattened with the styles dropped, so a
+    reader of these rows and a reader of the printed card cannot be told
+    different things about the same deployment. Nothing is derived a second
+    time here, and nothing is added: a fact that is not on the card is not in
+    these rows either.
+
+    Cells that carry nothing contribute nothing, the way the layout gives them
+    no width — so a row whose middle column is empty reads as one value rather
+    than as a value with a hole in it.
+
+    Returns:
+        ``[{"group": …, "label": …, "value": …}, …]``, in the order the card
+        prints, with every value a string.
+    """
+    rows: list[dict[str, str]] = []
+    for group in _card_groups(profile, persona_deltas):
+        for row in group.rows:
+            values = [text for text in (_plain_text(cell) for cell in row[1:]) if text]
+            rows.append(
+                {
+                    "group": group.title,
+                    "label": _plain_text(row[0]) if row else "",
+                    "value": " ".join(values).strip(),
+                }
+            )
+    return rows
+
+
 def print_profile_card(
     profile: BuildProfile, persona_deltas: Mapping[str, Mapping[str, Any]]
 ) -> None:

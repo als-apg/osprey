@@ -21,6 +21,7 @@ from osprey.profiles.web_panels import (
     BUILTIN_PANEL_LABELS,
     BUILTIN_PANELS,
     DEFAULT_PANEL_FALLBACK,
+    SIDECAR_PANELS,
     UNIVERSAL_PANELS,
 )
 from osprey.registry.web import (
@@ -42,8 +43,12 @@ class TestOneDeclarationPerPanel:
             assert PANEL_ID_TO_REGISTRY_KEY[defn.panel_id] == key
 
     def test_builtin_panels_is_exactly_the_registered_panel_ids(self):
-        """``BUILTIN_PANELS`` is derived, so registering a server registers its panel."""
-        assert BUILTIN_PANELS == set(PANEL_ID_TO_REGISTRY_KEY)
+        """``BUILTIN_PANELS`` is derived, so registering a server registers its panel.
+
+        Both registries count: the companion servers, and the sidecars the web
+        terminal starts itself. Neither is hand-listed in ``BUILTIN_PANELS``.
+        """
+        assert BUILTIN_PANELS == set(PANEL_ID_TO_REGISTRY_KEY) | set(SIDECAR_PANELS)
 
     def test_the_gallery_is_registry_key_artifact_and_panel_artifacts(self):
         """The plural/singular pair that drifted, pinned in both directions.
@@ -97,4 +102,6 @@ class TestDerivedConsumers:
 
         assert set(_PANEL_STATE_MAP) == BUILTIN_PANELS
         for panel_id, attr in _PANEL_STATE_MAP.items():
-            assert attr == panel_url_state_attr(PANEL_ID_TO_REGISTRY_KEY[panel_id])
+            # A sidecar panel has no registry key — it is not a `ServerLauncher`
+            # server — so its attribute is derived from the panel id itself.
+            assert attr == panel_url_state_attr(PANEL_ID_TO_REGISTRY_KEY.get(panel_id, panel_id))

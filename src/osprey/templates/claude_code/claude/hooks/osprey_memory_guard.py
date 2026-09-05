@@ -2,8 +2,8 @@
 """
 ---
 name: Memory Write Guard
-description: Gates every file-writing tool — Write/MultiEdit to Claude memory files, NotebookEdit to the agent-data artifacts tree
-summary: Restricts Write/MultiEdit to the Claude memory directory and NotebookEdit to agent-data artifacts
+description: Gates every file-writing tool — Write/MultiEdit to Claude memory files, NotebookEdit to the agent-data artifacts and notebooks trees
+summary: Restricts Write/MultiEdit to the Claude memory directory and NotebookEdit to the agent-data artifacts and notebooks trees
 event: PreToolUse
 tools: Write|MultiEdit|NotebookEdit
 safety_layer: 0
@@ -40,11 +40,11 @@ stdin ──► Parse JSON
                                           │
                                           ▼
                                  Under <agent_data_root>/  ──YES──► ALLOW
-                                 artifacts/ ?
+                                 artifacts/ or notebooks/ ?
                                           │
                                          NO
                                           ▼
-                                 DENY: not an artifact notebook
+                                 DENY: not an agent-data notebook
 ```
 
 ## Details
@@ -62,12 +62,15 @@ memory system while preventing arbitrary file creation. The memory gallery
 frontend reads from the same directory, so saved memories appear in the UI
 automatically.
 
-``NotebookEdit`` is held to ``<agent_data_root>/artifacts/`` instead, mirroring
-the scoped ``NotebookEdit(<agent_data_root>/artifacts/**)`` allow rule that
-``settings.json.j2`` renders. Notebooks are the agent's own output and land in
-the artifact tree the gallery serves; holding them to the memory directory
-would deny the agent its own artifacts, and holding them to nothing at all
-would reopen arbitrary writes under a different tool name.
+``NotebookEdit`` is held to ``<agent_data_root>/artifacts/`` and
+``<agent_data_root>/notebooks/`` instead, mirroring the scoped
+``NotebookEdit(<agent_data_root>/artifacts/**)`` and
+``NotebookEdit(<agent_data_root>/notebooks/**)`` allow rules that
+``settings.json.j2`` renders. Both trees hold the agent's own notebooks — the
+artifact tree the gallery serves, and the notebooks tree the Jupyter panel
+serves. Holding them to the memory directory would deny the agent its own
+notebooks, and holding them to nothing at all would reopen arbitrary writes
+under a different tool name.
 
 All other targets are denied — the agent never sees a user prompt for a write
 this guard does not recognise.
@@ -101,7 +104,7 @@ _CLAUDE_PROJECT_DIR_NORMALIZE = re.compile(r"[^A-Za-z0-9-]")
 #: guard came to cover only half the surface it names.
 _MEMORY_TOOLS = frozenset({"Write", "MultiEdit"})
 
-#: The one tool held to the artifact tree instead.
+#: The one tool held to the agent-data notebook trees instead.
 _NOTEBOOK_TOOL = "NotebookEdit"
 
 #: Every tool this hook has an opinion about. Anything else exits silently.
@@ -118,10 +121,13 @@ _PATH_KEYS = {
     _NOTEBOOK_TOOL: ("notebook_path", "file_path"),
 }
 
-#: Subdirectory of the agent-data root that holds the agent's own outputs.
-#: This is the ``artifacts`` in ``NotebookEdit(<agent_data_root>/artifacts/**)``
-#: as rendered by ``settings.json.j2``.
-_ARTIFACTS_SUBDIR = "artifacts"
+#: Subdirectories of the agent-data root that ``NotebookEdit`` may write into:
+#: ``artifacts`` for the agent's generated output, ``notebooks`` for the tree the
+#: Jupyter panel serves. These are the two subdirectories in the
+#: ``NotebookEdit(<agent_data_root>/artifacts/**)`` and
+#: ``NotebookEdit(<agent_data_root>/notebooks/**)`` allow rules as rendered by
+#: ``settings.json.j2``. The order is the order a refusal lists them in.
+_NOTEBOOK_SUBDIRS = ("artifacts", "notebooks")
 
 # The framework DEFAULT agent-data root, imported rather than spelled out here
 # so the two cannot drift apart. Only the default is imported: a project that
@@ -177,8 +183,8 @@ def agent_data_base_dir(config: dict | None) -> str:
     return str(section.get("base_dir") or _DEFAULT_AGENT_DATA_ROOT)
 
 
-def resolve_artifacts_dirs(hook_input=None) -> list[Path]:
-    """Resolve the artifact directories ``NotebookEdit`` may write into.
+def resolve_agent_data_subdirs(hook_input, subdir) -> list[Path]:
+    """Resolve one agent-data subdirectory under every anchor it can have.
 
     A relative ``agent_data.base_dir`` — the normal case — needs an anchor, and
     under the four-zone layout there are two plausible ones: the repo root that
@@ -191,9 +197,10 @@ def resolve_artifacts_dirs(hook_input=None) -> list[Path]:
 
     Args:
         hook_input: The parsed hook payload, used to locate the project.
+        subdir: The agent-data subdirectory to resolve, e.g. ``artifacts``.
 
     Returns:
-        Resolved ``.../artifacts`` directories, deduplicated, possibly empty.
+        Resolved ``.../<subdir>`` directories, deduplicated, possibly empty.
     """
     base = Path(agent_data_base_dir(load_osprey_config(hook_input))).expanduser()
 
@@ -206,15 +213,35 @@ def resolve_artifacts_dirs(hook_input=None) -> list[Path]:
             if anchor
         ]
 
-    artifacts_dirs = []
+    subdirs = []
     for candidate in candidates:
         try:
-            resolved = (candidate / _ARTIFACTS_SUBDIR).resolve()
+            resolved = (candidate / subdir).resolve()
         except (OSError, ValueError):
             continue
-        if resolved not in artifacts_dirs:
-            artifacts_dirs.append(resolved)
-    return artifacts_dirs
+        if resolved not in subdirs:
+            subdirs.append(resolved)
+    return subdirs
+
+
+def resolve_notebook_dirs(hook_input=None) -> list[Path]:
+    """Resolve every directory ``NotebookEdit`` may write into.
+
+    The union of :data:`_NOTEBOOK_SUBDIRS` over every anchor, in declaration
+    order, so a refusal lists the artifacts tree before the notebooks tree.
+
+    Args:
+        hook_input: The parsed hook payload, used to locate the project.
+
+    Returns:
+        Resolved directories, deduplicated, possibly empty.
+    """
+    notebook_dirs: list[Path] = []
+    for subdir in _NOTEBOOK_SUBDIRS:
+        for resolved in resolve_agent_data_subdirs(hook_input, subdir):
+            if resolved not in notebook_dirs:
+                notebook_dirs.append(resolved)
+    return notebook_dirs
 
 
 def is_allowed_memory_write(file_path: str, memory_dir: Path) -> bool:
@@ -243,16 +270,17 @@ def is_allowed_memory_write(file_path: str, memory_dir: Path) -> bool:
     return True
 
 
-def is_allowed_notebook_edit(notebook_path: str, artifacts_dirs: list[Path]) -> bool:
-    """Check whether a notebook path sits inside one of the artifact directories.
+def is_allowed_notebook_edit(notebook_path: str, allowed_dirs: list[Path]) -> bool:
+    """Check whether a notebook path sits inside one of the allowed directories.
 
-    Recursive, unlike the memory rule: the rendered allow is
-    ``<agent_data_root>/artifacts/**``, and the artifact tree is nested by
-    design. The directory itself is not a writable target.
+    Recursive, unlike the memory rule: the rendered allows are
+    ``<agent_data_root>/artifacts/**`` and ``<agent_data_root>/notebooks/**``,
+    and both trees are nested by design. A directory itself is not a writable
+    target.
 
     Args:
         notebook_path: The path the tool call named, unmodified.
-        artifacts_dirs: Resolved directories from :func:`resolve_artifacts_dirs`.
+        allowed_dirs: Resolved directories from :func:`resolve_notebook_dirs`.
 
     Returns:
         ``True`` when the path resolves to something strictly inside one of them.
@@ -266,12 +294,12 @@ def is_allowed_notebook_edit(notebook_path: str, artifacts_dirs: list[Path]) -> 
     if ".." in notebook_path:
         return False
 
-    for artifacts_dir in artifacts_dirs:
+    for allowed_dir in allowed_dirs:
         try:
-            target.relative_to(artifacts_dir)
+            target.relative_to(allowed_dir)
         except ValueError:
             continue
-        if target != artifacts_dir:
+        if target != allowed_dir:
             return True
 
     return False
@@ -351,15 +379,13 @@ def main():
         sys.exit(0)
 
     if tool_name == _NOTEBOOK_TOOL:
-        artifacts_dirs = resolve_artifacts_dirs(hook_input)
-        allowed = is_allowed_notebook_edit(target_path, artifacts_dirs)
-        listed = "\n".join(f"  {d}/" for d in artifacts_dirs) or "  (none resolved)"
+        notebook_dirs = resolve_notebook_dirs(hook_input)
+        allowed = is_allowed_notebook_edit(target_path, notebook_dirs)
+        listed = "\n".join(f"  {d}/" for d in notebook_dirs) or "  (none resolved)"
         reason = (
             f"{_denied_header(tool_name)}\n\n"
-            "Notebook edits are restricted to the agent-data artifacts tree.\n"
-            f"Allowed directories:\n{listed}\n\n"
-            "Write notebooks through the workspace tools so they land in the "
-            "artifact gallery."
+            "Notebook edits are restricted to the agent-data artifacts and notebooks trees.\n"
+            f"Allowed directories:\n{listed}"
         )
     else:
         project_dir = get_project_dir(hook_input) or os.getcwd()

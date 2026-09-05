@@ -12,6 +12,12 @@ a valid mapping), the non-mapping guards on the optional ``bluesky:`` and
 ``virtual_accelerator:`` blocks, and the ``virtual_accelerator:`` block's closed
 key set and ``live_standin`` typing.
 
+Also pins the reading of a collection key that is present but empty. YAML gives
+``web_panels:`` with nothing under it the value ``None``, where its author means
+the empty selection — so the parser flattens the two spellings, and the persona
+merge sees the same flattening, which keeps an emptied list from subtracting the
+root profile's own selection.
+
 Complements the block-scoped suites that exercise the *accepted* shapes:
 ``test_bluesky_service_registration.py`` for ``bluesky:`` field defaults and
 ``excluded_plans`` typing, ``test_build_profile.py`` for ``bluesky_web:``,
@@ -20,9 +26,11 @@ and ``test_profile_schema.py`` for ``dispatch:``.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from osprey.cli.build_profile import ServiceDef, _parse_profile
+from osprey.cli.build_profile import ServiceDef, _parse_profile, load_profile
 from osprey.errors import BuildProfileError
 
 # ── mcp_servers: ─────────────────────────────────────────────────────────────
@@ -298,3 +306,82 @@ def test_dispatch_worker_port_stride_is_a_recognised_key() -> None:
     )
     assert profile.dispatch is not None
     assert profile.dispatch.worker_port_stride == 10
+
+
+# ── present-but-empty collection keys ────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("key", "empty"),
+    [
+        pytest.param("web_panels", [], id="web_panels"),
+        pytest.param("hooks", [], id="hooks"),
+        pytest.param("rules", [], id="rules"),
+        pytest.param("skills", [], id="skills"),
+        pytest.param("agents", [], id="agents"),
+        pytest.param("output_styles", [], id="output_styles"),
+        pytest.param("dependencies", [], id="dependencies"),
+        pytest.param("panel_presets", {}, id="panel_presets"),
+    ],
+)
+def test_empty_collection_key_parses_to_the_empty_collection(key, empty) -> None:
+    """A collection key written with nothing under it means "none of these".
+
+    YAML parses ``web_panels:`` with no entries to ``None``, which is not the
+    list the field's type promises. Left alone it reaches
+    ``BuildProfile.validate``, whose ``for panel in self.web_panels`` dies with
+    a bare ``TypeError`` — a traceback where the author should have got a build
+    that simply selects no panels.
+    """
+    profile = _parse_profile({"name": "x", key: None})
+    assert getattr(profile, key) == empty
+
+
+def test_empty_web_panels_validates_without_a_traceback() -> None:
+    """The empty selection reaches validation as a selection, not as ``None``.
+
+    ``validate`` reports what it finds as a ``BuildProfileError``; the crash
+    this pins was a ``TypeError`` raised past it, which the build surfaced as
+    an unexpected-error traceback rather than as anything an author could act
+    on.
+    """
+    profile = _parse_profile({"name": "x", "web_panels": None})
+    profile.validate(Path("/nonexistent-profile-root"))
+    assert profile.web_panels == []
+
+
+def test_empty_default_panel_is_the_same_as_an_unset_one() -> None:
+    """``default_panel:`` is a scalar, so its empty spelling is already ``None``."""
+    assert _parse_profile({"name": "x", "default_panel": None}).default_panel is None
+
+
+def _write_persona_repo(root: Path, delta_body: str) -> Path:
+    """Write a profile root selecting one panel, plus a persona delta under it."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "profile.yml").write_text(
+        "name: hello\ndata_bundle: control_assistant\nweb_panels:\n  - ariel\n",
+        encoding="utf-8",
+    )
+    (root / "personas").mkdir()
+    delta = root / "personas" / "readwrite.yml"
+    delta.write_text(f"name: hello-readwrite\n{delta_body}", encoding="utf-8")
+    return delta
+
+
+def test_empty_web_panels_in_a_persona_delta_loads(tmp_path: Path) -> None:
+    """An emptied ``web_panels:`` in a delta loads instead of crashing the build."""
+    delta = _write_persona_repo(tmp_path, "web_panels:\n")
+    assert load_profile(delta).web_panels == ["ariel"]
+
+
+def test_emptied_and_bracketed_web_panels_agree_in_a_delta(tmp_path: Path) -> None:
+    """Both empty spellings mean the same thing to the persona merge.
+
+    A delta cannot subtract from the root's selection by writing a shorter list
+    — list merging is a union, and ``exclude:`` is the subtraction. So an
+    emptied ``web_panels:`` must resolve exactly as ``web_panels: []`` does,
+    rather than becoming the one spelling that silently wipes the root's tabs.
+    """
+    emptied = load_profile(_write_persona_repo(tmp_path / "a", "web_panels:\n"))
+    bracketed = load_profile(_write_persona_repo(tmp_path / "b", "web_panels: []\n"))
+    assert emptied.web_panels == bracketed.web_panels

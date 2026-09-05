@@ -53,6 +53,12 @@ export const PANELS = [
     configEndpoint: '/api/lattice-server',
   },
   {
+    id: 'jupyter',
+    label: 'JUPYTER',
+    configEndpoint: '/api/jupyter-server',
+    healthEndpoint: '/api/status', // the sidecar's own status route, reached through the panel proxy
+  },
+  {
     id: 'okf',
     label: 'KNOWLEDGE',
     configEndpoint: '/api/okf-server',

@@ -1,7 +1,7 @@
 """Reverse proxy for companion panel servers running inside the container.
 
-Companion servers (artifact gallery, ARIEL, channel-finder, lattice, OKF)
-bind to 127.0.0.1 inside the Docker container.  The browser cannot reach them
+Companion servers (artifact gallery, ARIEL, channel-finder, lattice, OKF) and
+the notebook sidecar bind to 127.0.0.1 inside the Docker container.  The browser cannot reach them
 directly, so this proxy forwards ``/panel/{panel_id}/{path}`` to the internal
 server and rewrites root-absolute paths in HTML/JS/CSS responses.
 
@@ -32,8 +32,9 @@ What the injection still buys a backend, stated plainly: the header carries the
 **full** operator secret, so a backend that earns it can turn around and act as
 the operator against the terminal's own API. That is accepted here — the
 backends that earn it are config-declared loopback sidecars of the same
-deployment — and the follow-up is a scoped per-backend credential rather than
-the operator's own.
+deployment. The notebook sidecar also carries a credential of its own, minted
+per launch and injected by :func:`_panel_auth_header` on the same gate; a scoped
+credential in place of the operator's own is still the follow-up for the rest.
 """
 
 from __future__ import annotations
@@ -50,9 +51,11 @@ from urllib.parse import ParseResult, urljoin, urlparse, urlunsplit
 import httpx
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, StreamingResponse
+from starlette.websockets import WebSocketState
 
 from osprey.interfaces.common_middleware import compute_url_prefix
 from osprey.interfaces.web_auth import get_web_credentials
+from osprey.profiles.web_panels import SIDECAR_PANELS
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, panel_url_state_attr
 from osprey.utils.http_proxy import HOP_BY_HOP
 
@@ -113,10 +116,13 @@ _DEFAULT_NO_CACHE = "no-cache, no-store, must-revalidate"
 # out a second time here. Both ends import it from the registry because they
 # cannot import each other, and a convention agreed on by two independent
 # f-strings is a convention only until one of them is edited.
+#
+# Sidecar panels have no registry key — the terminal starts them itself — so
+# their state attribute is derived from the panel id directly.
 _PANEL_STATE_MAP = {
     definition.panel_id: panel_url_state_attr(key)
     for key, definition in FRAMEWORK_WEB_SERVERS.items()
-}
+} | {panel_id: panel_url_state_attr(panel_id) for panel_id in SIDECAR_PANELS}
 
 
 def _resolve_panel_url(request: Request, panel_id: str) -> str | None:
@@ -368,23 +374,38 @@ def _panel_origin_is_declared(scope: Request | WebSocket, panel_id: str) -> bool
     return _panel_is_config_defined(scope, panel_id)
 
 
+def _backend_earns_credentials(scope: Request | WebSocket, panel_id: str, backend_url: str) -> bool:
+    """Whether a credential this process holds may be sent to this backend.
+
+    Both halves are required. A backend addressed at loopback but registered at
+    runtime is not enough: runtime registration is a path the agent's own
+    sandbox can reach, and a loopback listener it registered would be handed a
+    credential out of this process. A config-declared backend pointing off-box
+    is not enough either: the credential would leave the machine to a host the
+    operator's browser never authenticated to, over a hop that may not even be
+    TLS.
+
+    Every injection site — the operator secret and a sidecar's own launch
+    credential — asks this one question, so the two halves cannot drift apart
+    between them.
+
+    Args:
+        scope: The request or websocket being proxied.
+        panel_id: The panel id from the proxied URL.
+        backend_url: The resolved backend URL the request is being forwarded to.
+    """
+    return _panel_origin_is_declared(scope, panel_id) and _backend_is_loopback(backend_url)
+
+
 def _terminal_secret_header(
     scope: Request | WebSocket, panel_id: str, backend_url: str
 ) -> dict[str, str]:
     """The terminal-secret header to send upstream, or ``{}`` for no injection.
 
-    Both halves are required. A backend addressed at loopback but registered at
-    runtime is not enough: runtime registration is a path the agent's own
-    sandbox can reach, and a loopback listener it registered would be handed
-    the operator secret out of this process. A config-declared backend pointing
-    off-box is not enough either: the secret would leave the machine to a host
-    the operator's browser never authenticated to, over a hop that may not even
-    be TLS.
-
-    When either half is missing — or the process cannot produce credentials at
-    all — nothing is injected and the panel simply loads unauthenticated. That
-    is the failure an operator can see and act on; the alternative failure,
-    a leaked secret, is silent.
+    When the backend does not earn it (:func:`_backend_earns_credentials`) — or
+    the process cannot produce credentials at all — nothing is injected and the
+    panel simply loads unauthenticated. That is the failure an operator can see
+    and act on; the alternative failure, a leaked secret, is silent.
 
     Args:
         scope: The request or websocket being proxied.
@@ -395,9 +416,7 @@ def _terminal_secret_header(
         A single-entry mapping ready to merge into the outbound headers, or an
         empty mapping when this backend must not receive the secret.
     """
-    if not _panel_origin_is_declared(scope, panel_id):
-        return {}
-    if not _backend_is_loopback(backend_url):
+    if not _backend_earns_credentials(scope, panel_id, backend_url):
         return {}
 
     try:
@@ -411,6 +430,37 @@ def _terminal_secret_header(
 
     secret = credentials.operator_secret
     return {TERMINAL_SECRET_HEADER: secret} if secret else {}
+
+
+def _panel_auth_header(
+    scope: Request | WebSocket, panel_id: str, backend_url: str
+) -> dict[str, str]:
+    """The panel's own launch credential to send upstream, or ``{}``.
+
+    A sidecar this process starts is handed a credential of its own and refuses
+    anything that arrives without it. The launcher publishes that credential as
+    a ready-made header mapping on ``app.state.panel_auth_headers``, keyed by
+    panel id, and it is injected on this hop so the browser never holds it.
+
+    Gated exactly as the operator secret is
+    (:func:`_backend_earns_credentials`): a credential handed to a listener the
+    agent's own sandbox registered, or sent to a host the operator never
+    authenticated to, fails silently, so an absent header — the panel loads
+    unauthenticated and says so — is the one to prefer.
+
+    Args:
+        scope: The request or websocket being proxied.
+        panel_id: The panel id from the proxied URL.
+        backend_url: The resolved backend URL the request is being forwarded to.
+
+    Returns:
+        The headers to merge into the outbound set, or an empty mapping when
+        this backend must not receive them.
+    """
+    if not _backend_earns_credentials(scope, panel_id, backend_url):
+        return {}
+    published = getattr(scope.app.state, "panel_auth_headers", None) or {}
+    return dict(published.get(panel_id, {}))
 
 
 async def _request_no_redirect(
@@ -825,6 +875,9 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
         if token:
             fwd_headers["authorization"] = f"Bearer {token}"
 
+    # A launched sidecar's own credential, on the same gate as the secret above.
+    fwd_headers.update(_panel_auth_header(request, panel_id, backend_url))
+
     outer_panel_prefix = f"{outer_prefix}/panel/{panel_id}"
 
     # The base a relative ``Location`` is resolved against, and the origin a
@@ -969,15 +1022,35 @@ async def proxy_panel_root(panel_id: str, request: Request):
     return await proxy_panel(panel_id, "", request)
 
 
+#: Seconds the upstream WebSocket handshake may take before the proxy gives up
+#: on it. ``websockets`` allows ten by default, and a panel is entitled to hold
+#: a handshake longer than that on purpose: jupyter-server answers a
+#: kernel-channel upgrade only once the kernel behind it has replied to a
+#: kernel-info request, and gives that reply a full minute
+#: (``MappingKernelManager.kernel_info_timeout``). A kernel joining a bound
+#: session imports the framework before it answers, so on a loaded host its
+#: reply lands after ten seconds — and it was this proxy, not the panel, that
+#: hung up, closing the browser normally before its first frame while the
+#: kernel came up fine behind it. The budget is the panel's, plus room for the
+#: upgrade itself; a handshake still unanswered after this is not going to be.
+UPSTREAM_OPEN_TIMEOUT = 90.0
+
+
 @router.websocket("/panel/{panel_id}/{path:path}")
 async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
     """Forward a WebSocket connection to the companion panel server.
 
     The upstream handshake is built from scratch rather than by copying the
     browser's — so the operator's cookie and secret are absent by construction,
-    matching what :func:`proxy_panel` strips on the HTTP path. The only header
-    added is the operator secret, and only for a backend
-    :func:`_terminal_secret_header` vouches for.
+    matching what :func:`proxy_panel` strips on the HTTP path. The headers added
+    are the operator secret and a launched sidecar's own credential, each only
+    for a backend its own gate vouches for.
+
+    One field of the browser's handshake is relayed: its subprotocol offer.
+    The upstream picks from it, and the browser's own handshake is answered
+    with that pick — so the upstream connects first and the browser is
+    accepted second. A browser whose non-empty offer is answered with nothing
+    treats the handshake as failed.
     """
     backend_url = _resolve_panel_url(websocket, panel_id)
     if not backend_url:
@@ -987,6 +1060,11 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
     # Convert http(s) backend URL to ws(s)
     ws_url = backend_url.rstrip("/").replace("http://", "ws://").replace("https://", "wss://")
     target = f"{ws_url}/{path}"
+    # The query belongs to the upstream handshake, not to this route: a backend
+    # that keys a socket off a query parameter sees nothing without it. Mirrors
+    # what the HTTP leg forwards.
+    if websocket.url.query:
+        target = f"{target}?{websocket.url.query}"
 
     try:
         import websockets
@@ -995,26 +1073,44 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
         await websocket.close(code=4500, reason="WebSocket proxy unavailable")
         return
 
-    # Nothing from the browser's handshake is forwarded; this is the whole
-    # outbound header set, and it is empty unless the backend earns the secret.
+    # No browser header is forwarded; this is the whole outbound header set,
+    # and it is empty unless the backend earns the secret or a credential.
     upstream_headers = _terminal_secret_header(websocket, panel_id, backend_url)
+    upstream_headers.update(_panel_auth_header(websocket, panel_id, backend_url))
 
-    await websocket.accept()
+    # The browser's ``Sec-WebSocket-Protocol`` offer, as the ASGI server parsed it.
+    offered = list(websocket.scope.get("subprotocols") or [])
 
     # websockets' opening handshake follows 30x redirects (up to
     # WEBSOCKETS_MAX_REDIRECTS) and re-sends ``additional_headers`` verbatim to
     # each target — the ws↔ws analogue of the httpx redirect leak the HTTP path
     # guards against. When the secret is being carried, refuse to follow any
     # redirect so it cannot ride one off the loopback host the gate vouched for.
-    connector = websockets.connect(target, additional_headers=upstream_headers or None)
+    connector = websockets.connect(
+        target,
+        additional_headers=upstream_headers or None,
+        subprotocols=offered or None,
+        open_timeout=UPSTREAM_OPEN_TIMEOUT,
+    )
     if upstream_headers:
         # ``process_redirect`` returns the new URI to follow a redirect, or the
         # exception to refuse it; returning the exception unchanged declines
         # every redirect and surfaces it instead of chasing it with the secret.
         connector.process_redirect = lambda exc: exc
 
+    client_gone = False
     try:
         async with connector as upstream:
+            # Answer the browser with the upstream's pick — ``None`` when the
+            # two sides negotiated nothing.
+            try:
+                await websocket.accept(subprotocol=getattr(upstream, "subprotocol", None))
+            except (WebSocketDisconnect, OSError):
+                # The browser left while the upstream was connecting. Leaving
+                # the ``async with`` closes the upstream; nothing to relay.
+                client_gone = True
+                logger.debug("WebSocket client for panel %s left before accept", panel_id)
+                return
 
             async def client_to_upstream():
                 # receive() (not receive_text()) — binary-protocol panels
@@ -1058,7 +1154,14 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
     except Exception as exc:
         logger.warning("WebSocket proxy error for panel %s: %s", panel_id, exc)
     finally:
-        try:
-            await websocket.close()
-        except Exception:
-            pass
+        if not client_gone:
+            try:
+                if websocket.application_state is WebSocketState.CONNECTING:
+                    # The upstream handshake failed before the browser's was
+                    # answered: accept, then close normally (1000) rather than
+                    # refuse the handshake with a 403. A browser that offered a
+                    # subprotocol still fails its own handshake, as before.
+                    await websocket.accept()
+                await websocket.close()
+            except Exception:
+                pass

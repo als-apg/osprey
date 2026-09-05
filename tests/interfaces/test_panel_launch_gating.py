@@ -228,10 +228,18 @@ class TestEnabledPanelSelection:
         assert launch_calls == []
 
     def test_every_builtin_panel_is_launchable(self, stub_app, launch_calls):
-        """No built-in panel may be enabled with nothing to launch behind it."""
-        from osprey.profiles.web_panels import BUILTIN_PANELS
+        """No built-in panel may be enabled with nothing to launch behind it.
 
-        web_terminal_app._launch_enabled_panel_servers(stub_app, set(BUILTIN_PANELS))
+        Scoped to the companion servers. A sidecar panel is built in too, but
+        nothing in ``registry.web`` launches it — it is started from
+        :data:`~osprey.profiles.web_panels.SIDECAR_PANELS` instead — so feeding
+        its id to this launcher would assert the wrong contract.
+        """
+        from osprey.profiles.web_panels import BUILTIN_PANELS, SIDECAR_PANELS
+
+        web_terminal_app._launch_enabled_panel_servers(
+            stub_app, BUILTIN_PANELS - set(SIDECAR_PANELS)
+        )
 
         assert sorted(launch_calls) == ALL_KEYS
 

@@ -64,6 +64,10 @@ extensions = [
     "port_table",  # Custom: Render the host-port layout as a table
 ]
 
+# Graphviz diagrams render as SVG (crisp at any zoom, transparent background)
+graphviz_output_format = "svg"
+
+
 # Old page path -> new location. Keys are docnames (no suffix) of pages that no
 # longer exist; values are PAGE-RELATIVE targets with the `.html` suffix, e.g.
 # "cli-reference/index": "../reference/cli.html". Populated as pages move.

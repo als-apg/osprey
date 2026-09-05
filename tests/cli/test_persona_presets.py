@@ -56,6 +56,7 @@ import pytest
 import yaml
 
 from osprey.cli.build_profile import BuildProfile, list_presets, resolve_build_profile
+from osprey.cli.build_profile_presets import _presets_dir
 from osprey.deployment.qmd_service import DEFAULT_PORT as QMD_DEFAULT_PORT
 from osprey.deployment.qmd_service import resolve_qmd_service_config
 from osprey.deployment.web_terminals.lint import Finding, lint_web_terminals
@@ -500,6 +501,39 @@ class TestControlAssistantWebTier:
         base = resolve_preset("control-assistant")
         assert "channel-finder" in base.web_panels
         assert "ariel" in base.web_panels
+
+    def test_notebook_tab_is_a_family_wide_default(self) -> None:
+        """The JUPYTER tab is declared once, in the base, and every tier gets it.
+
+        Both groups are derived from the bundled presets on disk rather than
+        listed here, so a tier added later is covered without editing this
+        test: it fails if the tab is declared per tier instead of inherited,
+        and it fails if a tier subtracts it through ``exclude:``.
+
+        The standalone presets are the control group. They extend nothing and
+        run no terminal session for a kernel to follow, so the tab must not
+        reach them.
+        """
+        parents = {
+            name: yaml.safe_load((_presets_dir() / f"{name}.yml").read_text(encoding="utf-8")).get(
+                "extends"
+            )
+            for name in list_presets()
+        }
+        tiers = sorted(name for name, parent in parents.items() if parent == "control-assistant")
+        standalone = sorted(
+            name
+            for name, parent in parents.items()
+            if parent is None and name != "control-assistant"
+        )
+        assert tiers, "no bundled preset extends control-assistant"
+        assert standalone == ["ariel-standalone", "channel-finder-standalone", "hello-world"]
+
+        assert "jupyter" in resolve_preset("control-assistant").web_panels
+        for name in tiers:
+            assert "jupyter" in resolve_preset(name).web_panels, name
+        for name in standalone:
+            assert "jupyter" not in resolve_preset(name).web_panels, name
 
     def test_derived_web_container_names_are_valid_docker_names(self, tmp_path: Path) -> None:
         """The container names derived from the rendered prefix —

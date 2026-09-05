@@ -372,19 +372,26 @@ def _run_async(coro) -> Any:
     """Run async coroutine synchronously.
 
     Handles both subprocess and Jupyter notebook contexts correctly.
+
+    Only the loop probe sits inside the ``try``: the ``RuntimeError`` it
+    raises is the one signal that there is no running loop. Whatever the
+    coroutine itself raises — including :class:`ControlTargetChangedError`,
+    which is a ``RuntimeError`` too — must propagate unchanged from either
+    branch, never be mistaken for that signal and retried.
     """
     try:
         # Try to get running loop (e.g., in Jupyter with nest_asyncio)
         asyncio.get_running_loop()
-        # If we have a running loop, we need to run in a new thread
-        import concurrent.futures
-
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(asyncio.run, coro)
-            return future.result()
     except RuntimeError:
         # No running loop - we're in a subprocess, use asyncio.run()
         return asyncio.run(coro)
+
+    # If we have a running loop, we need to run in a new thread
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(asyncio.run, coro)
+        return future.result()
 
 
 # ========================================================

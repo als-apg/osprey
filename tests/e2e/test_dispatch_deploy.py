@@ -519,6 +519,72 @@ def _worker_mcp_surface() -> str:
     )
 
 
+#: Upper bound on each captured blob in a failure message, so a verbose run
+#: record or a chatty worker cannot bury the assertion it is attached to.
+_EVIDENCE_CAP = 6000
+
+
+def _docker_capture(argv: list[str]) -> str:
+    """Run one ``docker`` command and return its trimmed output, never raising.
+
+    Every helper here runs in a failing assertion's message, where an exception
+    would replace the failure it was meant to explain.
+    """
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"(could not run {' '.join(argv[:3])}: {exc})"
+    out = ((proc.stdout or "") + (proc.stderr or "")).strip() or "(no output)"
+    if len(out) > _EVIDENCE_CAP:
+        out = out[-_EVIDENCE_CAP:]
+        out = f"...(truncated to the last {_EVIDENCE_CAP} chars)\n{out}"
+    return out
+
+
+def _worker_run_evidence(run: dict | None) -> str:
+    """Return what the worker itself recorded about the ``save-report`` run.
+
+    The ``.mcp.json`` probe above says whether the save tool *could* have
+    existed; it cannot say whether the agent saw it or what the run did instead.
+    Both are on the worker: the run feed carries the tool count and the agent's
+    final text, the persisted record at ``<agent_data>/dispatch/<run_id>.json``
+    carries every tool call, and the container log says which MCP servers were
+    ready before the first turn. The stack is torn down before any CI diagnostics
+    step runs, so a failure that does not carry these here loses them for good.
+    """
+    lines = ["=== save-report run evidence ==="]
+    if run is None:
+        lines.append("run feed: no save-report run in the feed")
+        return "\n".join(lines)
+    feed = {
+        key: run.get(key)
+        for key in ("run_id", "status", "tool_count", "num_turns", "duration_sec", "error")
+    }
+    lines.append(f"run feed: {feed}")
+    text = (run.get("text_output") or "").strip()
+    if text:
+        lines.append(f"agent text_output:\n{text[:_EVIDENCE_CAP]}")
+    run_id = run.get("run_id")
+    if run_id:
+        record = _docker_capture(
+            [
+                "docker",
+                "exec",
+                WORKER_CONTAINER,
+                "cat",
+                f"{WORKER_AGENT_DATA}/dispatch/{run_id}.json",
+            ]
+        )
+        lines.append(f"--- persisted run record ({run_id}.json) ---\n{record}")
+    listing = _docker_capture(
+        ["docker", "exec", WORKER_CONTAINER, "ls", "-la", f"{WORKER_AGENT_DATA}/artifacts"]
+    )
+    lines.append(f"--- {WORKER_AGENT_DATA}/artifacts ---\n{listing}")
+    log_tail = _docker_capture(["docker", "logs", "--tail", "150", WORKER_CONTAINER])
+    lines.append(f"--- {WORKER_CONTAINER} (last 150 log lines) ---\n{log_tail}")
+    return "\n".join(lines)
+
+
 def _runs_by_trigger() -> dict[str, dict]:
     """Snapshot the dispatcher run feed keyed by trigger_name (latest wins).
 
@@ -604,7 +670,8 @@ def test_full_stack_dispatch(deployed_stack: Path) -> None:
     artifacts = _worker_artifact_files()
     assert artifacts, (
         "save-report completed but no .md artifact was persisted to the worker "
-        f"workspace.\n{_worker_mcp_surface()}"
+        f"workspace.\n{_worker_mcp_surface()}\n"
+        f"{_worker_run_evidence(by_trigger.get('save-report'))}"
     )
 
     # The denylisted trigger is rejected at the worker /dispatch endpoint BEFORE

@@ -1,96 +1,66 @@
 ---
 name: build-interview
 description: >
-  Interactive interview that sets up a custom OSPREY deployment for a new
-  accelerator, beamline, or detector application. Use when someone says
-  "interview me", "set up my agent", "create a deployment for my system",
-  "onboard me", or needs an OSPREY project tailored to their control system.
-  Also handles migration from existing OSPREY projects (including
-  LangGraph-era projects) — trigger on "migrate my project", "I have an
-  existing project", "upgrade from old OSPREY", "bring my project forward".
-  Also use when OSPREY cannot cleanly express something a facility needs
-  and the gap should become an upstream change request — "OSPREY can't do
-  X here", "file this with the OSPREY team", "is this an OSPREY gap".
-  Resume a previous interview by invoking this skill inside a deployment
+  Interactive interview that sets up a custom OSPREY deployment for a new accelerator,
+  beamline, or detector application. It starts by inventorying what already exists. Use
+  when someone says "interview me", "set up my agent", "create a deployment for my
+  system", "onboard me", or needs an OSPREY project tailored to their control system.
+  Also handles migration from existing OSPREY projects (including LangGraph-era
+  projects) — trigger on "migrate my project", "I have an existing project", "upgrade
+  from old OSPREY", "bring my project forward". Also use when OSPREY cannot cleanly
+  express something a facility needs and the gap should become an upstream change
+  request — "OSPREY can't do X here", "file this with the OSPREY team", "is this an
+  OSPREY gap". Resume a previous interview by invoking this skill inside a deployment
   repo that contains an INTERVIEW.md.
 ---
 
 # OSPREY Build Interview
 
-You are helping someone set up an OSPREY deployment tailored to their
-facility. They may not know OSPREY at all. The outcome is a real, buildable
-deployment repo — created in the first minutes and refined iteratively —
-plus an `INTERVIEW.md` decision record inside it.
+You are helping someone who may not know OSPREY set up a deployment for their facility.
+Four gated phases, DISCOVER, MAP, BUILD, CLOSE, produce a buildable repo plus `INTERVIEW.md`.
 
 ## The one rule: the repo is the source of truth
 
-**Never assert anything about OSPREY that you did not just read from the
-live repo or from CLI output.** Configuration keys, available artifacts,
-defaults, valid values, directory layout — all of it comes from the
-materialized `profile.yml` (whose comments explain every key), from
-`osprey <command> --help`, and from `osprey profile artifacts`. The
-discovery commands and repo-zone map live in `references/osprey-map.md` —
-read it before generating anything. If anything in this skill contradicts
-what the repo or CLI says, the repo wins — and the discrepancy is a bug in
-this skill worth reporting.
+**Never assert anything about OSPREY that you did not just read from the live repo or
+from CLI output.** Config keys, artifacts, defaults, valid values and directory layout
+come from the materialized `profile.yml` (its comments explain every key), from
+`osprey <command> --help`, and from `osprey profile artifacts`. The discovery commands
+and the repo-zone map are in `references/osprey-map.md`; read it before generating
+anything. If this skill contradicts the repo or the CLI, the repo wins — that is a bug.
 
-Practical consequences:
-
-- When explaining an option, quote or closely paraphrase the profile's own
-  comment for it. Do not explain from memory.
-- Before discussing any topic, re-read the relevant section of the live
-  `profile.yml` first.
-- After every edit, run `osprey validate`. It is the correctness oracle —
-  not your recollection of what keys exist.
-- Use `osprey set key=value` for scalar config edits (it preserves
-  comments); use targeted Edit calls for structural changes (list entries,
-  uncommenting blocks). Never rewrite the whole file.
+- Quote the profile's own comment when explaining an option; re-read that section first.
+- `osprey set key=value` for scalar edits, Edit calls for structure. Never a full rewrite.
+- Every card line names a file or a command. Anything else reads `?`, never a guess.
 
 ## Interview stance
 
-- **Conversational, not a form.** There is no fixed question sequence. The
-  user steers; you keep a map of what is decided and what is open.
-- **Defaults are respectable.** The preset is a curated, working
-  configuration. Anything the user does not care about stays as-is. Do not
-  walk section-by-section through the profile; do not interrogate details
-  that do not change their outcome.
-- **Depth on demand.** Go deep only where the user shows interest or where
-  a decision they made forces a follow-up (e.g. enabling writes forces the
-  limits conversation).
-- **Always shippable.** The repo builds at every point. Whenever there is a
-  natural pause, offer to show it running (`osprey build`, `osprey up -d`,
-  `osprey chat`, or the web terminal) — seeing the agent respond beats
-  another question.
-- **Use AskUserQuestion for forks**, with short ASCII previews when a
-  choice is easier shown than described.
+- **Conversational, not a form.** The four phases are gates, not a questionnaire.
+- **Defaults are respectable.** What the user does not raise stays as the preset set it.
+- **Depth on demand.** Go deep where the user shows interest or a decision forces it.
+- **Always shippable.** At pauses, offer a live look: `osprey build`, `osprey up -d`.
+- **Use AskUserQuestion for forks**, with a short ASCII preview when that is clearer.
 
 ## Upstream fit watch
 
-OSPREY is facility-agnostic by intent but grew up with one reference
-facility. A new facility is the first real test of an abstraction
-somewhere, and this interview is where a misfit surfaces first — as a
-workaround, an "Other", or a sentence like "OSPREY can't do that yet, so
-for now we'll…". Those workarounds are signal the OSPREY team wants;
-capture them instead of letting them dissolve into the repo. Watch for
-them through the whole interview.
+OSPREY is facility-agnostic by intent but grew up with one reference facility, so a new
+facility is the first real test of an abstraction somewhere. The misfit surfaces here
+first — as a workaround, an "Other", or "OSPREY can't do that yet, so for now we'll…".
+That is signal the OSPREY team wants: capture it rather than let it dissolve into the
+repo. Watch through the whole interview.
 
-**A candidate** is any point where the facility's reality cannot be
-expressed by the live repo: a control system or archiver the connector
-set doesn't cover, or two protocols at once (one deployment, one
-connector); a safety model beyond per-channel limits plus single-human
-approval (relational limits, two-person sign-off, per-user or per-shift
-write scopes, readback on a different channel); a provider or auth scheme
-the provider list can't name; a logbook or metadata source with no config
-surface; a migration EVALUATE module that exists because "OSPREY had no
-X" (ask why it was written). **Not a candidate:** facility data the
-deployment owns (channel names, limits, URLs, timezone), or a placeholder
-for information the user simply doesn't have yet. Before logging, ground
-the gap in the live repo — `profile.yml`'s comments,
-`osprey config --defaults`, `osprey profile artifacts` — because the most
-common "gap" is an option you hadn't read yet.
+**A candidate** is any point where the facility's reality cannot be expressed by the live
+repo: a control system or archiver the connector set doesn't cover, or two protocols at
+once (one deployment, one connector); a safety model beyond per-channel limits plus
+single-human approval (relational limits, two-person sign-off, per-user or per-shift write
+scopes, readback on a different channel); a provider or auth scheme the provider list can't
+name; a logbook or metadata source with no config surface; a migration EVALUATE module
+that exists because "OSPREY had no X" (ask why). **Not a candidate:** facility data the
+deployment owns (channel names, limits, URLs, timezone), or a placeholder for information
+the user doesn't have yet. Ground every gap in the live repo first — `profile.yml`'s
+comments, `osprey config --defaults`, `osprey profile artifacts`: the commonest "gap" is
+an option you hadn't read.
 
-Record candidates in `INTERVIEW.md` under `## Upstream candidates`, one
-entry each:
+Record candidates in `INTERVIEW.md` under `## Upstream candidates`, one entry each:
 
 ```
 - <short-id>: <what the facility needs> [blocking|worked-around]
@@ -100,230 +70,191 @@ entry each:
 ```
 
 `status` may only be `open`, `filed <url>`, `emailed <date>`, `dropped`,
-`profile-local`, or `already-supported (<key>)` — and only the scout
-(below) moves an entry beyond `open`/`dropped`.
+`profile-local`, or `already-supported (<key>)` — and only the scout (below) moves an
+entry beyond `open`/`dropped`.
 
-**Severity is one question: with the workaround in place, does the
-deployment still serve the purpose the user stated?** No → `blocking`:
-offer an investigation on the spot — "I think this is better solved by a
-change in OSPREY than by a workaround here. Want me to investigate? You
-decide afterwards whether anything gets sent." Yes, degraded but working →
-`worked-around`: acknowledge in one line and let the devil's advocate
-round review the list; don't interrupt per item. A facility safety rule
-OSPREY cannot enforce is always `blocking`, and writes stay off while it
-is open — never let "the operators will follow the rule themselves" stand
-in for enforcement. If the user declines an investigation, set
-`status: dropped` and never raise that candidate again.
+**Severity is one question: with the workaround in place, does the deployment still serve
+the purpose the user stated?** No → `blocking`: offer an investigation on the spot — "I
+think this is better solved by a change in OSPREY than by a workaround here. Want me to
+investigate? You decide afterwards whether anything gets sent." Yes, degraded but working
+→ `worked-around`: acknowledge in one line and let the devil's advocate round review the
+list; don't interrupt per item. A facility safety rule OSPREY cannot enforce is always
+`blocking`, and writes stay off while it is open — never let "the operators will follow
+the rule themselves" replace enforcement. Declined → `dropped`, never raised again.
 
-When the user says yes — on the spot, at the devil's advocate round, or
-on a later resume — read `references/upstream-scout.md` and follow it: it
-verifies the gap against the installed framework (a verdict of "already
-supported" fixes the deployment instead of filing anything), drafts an
-issue-quality write-up into `upstream/<short-id>.md`, and asks whether to
-file it on GitHub, email the maintainers, keep it local, or drop it.
-Nothing is ever sent without the user seeing the full text first.
+On yes — on the spot, at the devil's advocate round, or on a later resume — read
+`references/upstream-scout.md` and follow it: it verifies the gap against the installed
+framework ("already supported" fixes the deployment instead of filing anything), drafts an
+issue-quality write-up into `upstream/<short-id>.md`, and asks whether to file it on
+GitHub, email the maintainers, keep it local, or drop it. Nothing is ever sent unseen.
 
 ## Flow
 
-### 0. Resume check
+**Every phase ends in one ASCII card and one AskUserQuestion: confirm, or modify.** A
+confirmed card is copied verbatim into `INTERVIEW.md` under a `(locked)` heading. From
+then on it is reference for the later phases and for the devil's advocate, and it is
+never re-derived. On modify, take the correction, note which line changed, re-render.
 
-If the current directory (or a path the user gives) contains an
-`INTERVIEW.md`, this is a resume: read it, summarize the state in two or
-three sentences ("Decided: …; still open: …"), and continue from the Open
-section. Mention any upstream candidates still at `status: open` and
-offer to investigate them. Do not re-ask decided questions.
+### Resume
 
-### 1. Pre-init round
+If the current directory, or a path the user gives, holds an `INTERVIEW.md`, this is a
+resume. Read it. Its `phase:` decides where to re-enter and its locked sections are
+reference. Summarize the state in two or three sentences ("Decided: …; still open: …"),
+re-show the last locked card, and continue from the next unconfirmed step. Mention any
+upstream candidate still at `status: open`. Never re-ask a decided question.
 
-**The first question, before anything else: is there already something
-to look at?** An existing OSPREY package or deployment, a running agent,
-a config repo — anything already deployed or half-built that this
-interview should inspect and build on. If there is, get its path (or
-access) and read it before asking anything further; what you find
-pre-fills the decisions below. An existing OSPREY/LangGraph project
-makes this a migration: follow `references/migration-legacy.md` for the
-scan before continuing.
+### 1. DISCOVER
 
-Only then ask what the deployment targets, plus what `osprey init`
-needs:
+**The first question, before anything else, is what already exists.** AskUserQuestion with
+exactly three options: (1) an OSPREY deployment already exists, any generation; (2) a
+facility exists, but no OSPREY; (3) nothing yet.
 
-- **Facility / target system** (free text; which accelerator, beamline,
-  or detector this deployment is for — also used for timezone/naming
-  later)
-- **Project name** (lowercase-with-dashes; becomes the repo directory and
-  deployment name)
+Read `references/discover.md` on all three answers. It carries the generation
+fingerprints, the inventory recipe per generation, the exploration protocol for a facility
+with no OSPREY, and the status-quo card. On "nothing yet" every value is `?`.
 
-### 2. Materialize the repo
+- **Fingerprint before speaking.** Decide the generation from files first, and load no
+  era knowledge unless its fingerprint matched. `references/migration-legacy.md` loads
+  from `references/discover.md` on the early fingerprint, never from here.
+- Inventory from files and CLI output only: `osprey profile card --json`,
+  `osprey validate --drift=warn`, `osprey profile artifacts`, and `osprey scaffold list`
+  only once `build/.osprey-manifest.json` exists (else `?`). Era repos run no verb.
+- Framework version: `build/.osprey-manifest.json` `creation.osprey_version`, or `?` when
+  the repo was never built. `requires_osprey_version` is a schema floor, shown as one.
+- Facility, timezone and project name are **not** asked here.
 
-```bash
-osprey init --list-presets           # confirm available presets today
-osprey init <name> --preset control-assistant
-```
+The confirmed card lands under `## Status quo (locked)`, `generation:`/`phase:` in the header.
 
-Use the control-assistant preset unless the user's stated purpose obviously
-matches a more specific preset in the list (read the preset list output —
-do not assume the roster).
+### 2. MAP
 
-Then read what appeared: `profile.yml` top to bottom (it is written to be
-read), plus a quick look at the repo layout (`data/`, `personas/`, `.env`,
-`README.md` if present). This read is your knowledge base for the entire
-interview.
+Read `references/map.md`. It carries the closed verdict vocabulary (`port`, `native`,
+`obsolete`, `gap`, `unknown`), the porting-map card, and the rule that `?` rows render
+first. Every element of the locked status quo gets exactly one verdict, read live from
+that card, `osprey profile artifacts`, the emitted `profile.yml`, and the
+`control-assistant` preset. A `gap` verdict becomes an upstream candidate under the rules
+above, and the confirmed card lands under `## Porting map (locked)`. An empty status quo
+(`generation: none`) maps nothing: no porting-map card, locked as `none`, and the four
+facts below become this phase's card instead — MAP FACTS in `references/map.md`.
 
-### 3. Coverage map
+MAP ends with four facts. Ask only for the ones the inventory did not yield, and say
+where the others came from: facility name; the short `facility.prefix` the web container
+names are built from; the IANA timezone for `system.timezone`; the project name. Only the
+last is an `osprey init` argument; the other three are `osprey set` keys applied after it.
 
-Build a map from the top-level sections actually present in this
-`profile.yml` — never from a remembered list. Mark four topics as **core**
-(hardwired, must be resolved before wrap-up):
+### 3. BUILD
 
-1. **Provider + credentials** — which AI provider, and is a working key in
-   `.env`?
-2. **Control system** — which connector; simulated or real hardware; if
-   real, the connection details the profile's comments ask for.
-3. **Write access & safety** — may the agent change hardware values? If
-   yes: which channels, what limits, which safety hooks stay on.
-4. **Project identity** — name, facility, timezone.
+1. `osprey init <name> --preset hello-world`, hello-world by rule, not by choice.
+   `control-assistant` is the reference package later steps pull pieces from.
+2. Read the emitted `profile.yml` top to bottom. It is your knowledge base from here on.
+3. Apply the porting map in order.
+   - Profile scalars: `osprey set config.<dotted key>=<value>`.
+   - Optional feature blocks: uncomment the emitted commented block.
+   - Multi-user web terminals: the web-terminal recipe in `references/map.md`, step by
+     step. Do not restate or shorten it. A partial copy of that block does not validate.
+   - Data and context files: `osprey scaffold pull control-assistant:<path>`, or, on a
+     `port` verdict, the facility's own file copied from the old repo unchanged.
+   - Custom code: the matching convention directory, with the rest recorded under
+     Deferred. Never write a custom component mid-interview.
+4. **Wiring rule.** A `port` on a data path, and a `close` on a gap-card data row, is
+   complete only when the config keys binding that path are set. The recipe is in
+   `references/map.md`. Files nothing points at are invisible to the build.
+5. Facility knowledge: skeleton pull, one stub per thing the user named, then
+   `osprey knowledge regen-index data/facility_knowledge` with the path spelled out.
+   `references/knowledge-starter.md` has the steps, the stub template and the markers.
+6. `osprey validate --drift=warn` after every change. Drift from the preset is expected.
+7. Core four, hardwired, resolved before wrap-up. **Provider and its key**: the list is in
+   `osprey config --defaults`; `osprey init` writes `.env.example`, never `.env`, so the
+   key goes into a `.env` you create from it, and a key deferred is an Open entry naming
+   the variable. **Control system**: "simulated" is a fork — `mock` invents channels
+   in-process with no containers and is what hello-world emits, `virtual_accelerator` is a
+   containerized soft-IOC — or a real one; `osprey init --help` lists every connector.
+   **Write access and safety**, where enabling writes forces the limits conversation.
+   **Project identity**.
+8. **Gap card.** What the reference package has and this deployment does not, one row each,
+   answered `close` or `skip`. The card, its two fixed hello-world rows and the live
+   sources for the rest are in `references/map.md`. It is this phase's card; a `skip` goes
+   under Decided as `skipped — <reason>`.
 
-Everything else is **optional** and sits at its preset default until the
-user raises it. Render the map as a compact ASCII card (■ core
-resolved/pending, □ optional at default) and show it at the start, after
-each core decision, and whenever the user seems lost.
+No-invention rules, all detailed in `references/knowledge-starter.md`:
 
-### 4. Core round
+- Facility knowledge: skeleton and index files, then stubs in the user's words only.
+  Nothing the user did not name gets a file; no explored document becomes a stub.
+- Channel databases: the shipped template, or the facility's own file, never by hand.
+- Write limits: absent, empty, or ported, never a hand-written min or max.
+- Personas and users: emit all, then prune. One ordering, one home:
+  `references/knowledge-starter.md` §5, which the web-terminal recipe points at too.
+- Triggers: never pulled; `dispatch.triggers` names a bundled set or a repo path.
+- ARIEL vocabulary and lattice: pulled only on `close`, then recorded for curation.
 
-Resolve the four core topics, grounded in the live file: for each, read the
-relevant keys and comments, present the current value and what it means,
-and ask what they want. Apply edits immediately (`osprey set` / Edit),
-validate, and record in `INTERVIEW.md`.
+### 4. CLOSE
 
-### 5. Adaptive loop
+Devil's advocate, mandatory before wrap-up. Spawn one **read-only** subagent — file read
+and search only, no edit tools, no shell writes — with the full `INTERVIEW.md`, the current
+`profile.yml`, the latest `osprey validate` output, and both locked cards marked
+**reference, do not reopen**. Its brief:
 
-Repeat until the user is satisfied:
+> Find gaps and inconsistencies in this OSPREY deployment setup. Check at least: writes
+> enabled without limits or with safety hooks/rules removed; writes enabled while an
+> Upstream candidate records a facility approval rule OSPREY cannot enforce (CRITICAL);
+> provider configured but no key in `.env`; a real control system without the connection
+> details its comments require; declared feature blocks nothing reads (comments state the
+> pairings); decisions in INTERVIEW.md not reflected in profile.yml and vice versa; use
+> cases the user described that the current selection cannot serve; a workaround, "for
+> now", or deferred stub in INTERVIEW.md missing from its Upstream candidates section
+> (facility data and missing-data placeholders are not gaps); a logged candidate an
+> existing profile option plausibly covers — name the option, a lead to verify, not a
+> verdict; demo artifacts left in a real deployment, walking the checklist in
+> `references/knowledge-starter.md`. Classify each finding CRITICAL (unsafe or broken) /
+> RECOMMENDED / OPTIONAL. Judge only against the provided artifacts, not assumptions.
 
-1. Show the trimmed map; invite direction ("What would you like to change,
-   add, or see?").
-2. For an **opt-out**: the profile's own comments say what each entry does
-   and which blocks can be deleted. Delete list entries or blocks exactly
-   as instructed there.
-3. For an **opt-in of a framework artifact**: the emitted profile lists
-   available-but-unselected artifacts as commented entries, and commented
-   block templates for optional features (`mcp_servers`, `dispatch`, …).
-   Uncomment, adjust, validate. `osprey profile artifacts` gives the full
-   catalog when the user wants to browse.
-4. For **custom work** (their own MCP server, rules, skills, panel,
-   custom code): the repo's convention directories (`rules/`, `skills/`,
-   `agents/`, `mcp_servers/`, `services/`, `project/`, …) are the drop-in
-   points — the directory name is the declaration (see
-   `references/osprey-map.md`). Place ready material there, scaffold a stub
-   if that helps, and record any remaining implementation as a **Deferred**
-   entry in `INTERVIEW.md` with pointers. Do not implement custom
-   components mid-interview.
-5. After every change: `osprey validate`, then update `INTERVIEW.md`.
-6. At natural pauses, offer a live look: build and run it.
+Resolve every CRITICAL finding with the user, offer RECOMMENDED ones, mention OPTIONAL
+ones. Then, if any upstream candidates are still `open`, show them as one-liners and ask
+once whether to investigate now, all or some, one `references/upstream-scout.md` pass
+per candidate, or leave them for a later resume. A candidate the reviewer thinks is
+already covered is verified against the live repo first; its status moves on evidence.
 
-### 6. Devil's advocate (mandatory before wrap-up)
-
-Spawn one subagent with: the full `INTERVIEW.md`, the current
-`profile.yml`, and the latest `osprey validate` output. Its brief:
-
-> Find gaps and inconsistencies in this OSPREY deployment setup. Check at
-> least: write access enabled without limits or with safety hooks/rules
-> removed; write access enabled while an Upstream candidate records a
-> facility approval rule OSPREY cannot enforce (CRITICAL); provider
-> configured but no key in `.env`; a real control system selected without
-> the connection details its comments require; declared feature blocks
-> nothing reads (comments state the pairings); decisions in INTERVIEW.md
-> not reflected in profile.yml and vice versa; use cases the user
-> described that the current selection cannot serve; a workaround, "for
-> now", or deferred stub in INTERVIEW.md that is not in its Upstream
-> candidates section (facility data and missing-data placeholders are not
-> gaps); a logged candidate an existing profile option plausibly covers —
-> name the option, as a lead to verify, not a verdict. Classify each
-> finding CRITICAL (unsafe or broken) / RECOMMENDED / OPTIONAL. Judge only
-> against the provided artifacts, not against assumptions about OSPREY.
-
-Resolve every CRITICAL finding with the user; offer RECOMMENDED ones;
-mention OPTIONAL ones in passing. Then, if any upstream candidates are
-still `open`, show them as one-liners and ask once whether to investigate
-now (all or some — `references/upstream-scout.md` per candidate) or leave
-them recorded for a later resume. A candidate the reviewer thinks is
-already covered gets verified against the live repo before anything
-changes — its status moves only on evidence.
-
-### 7. Wrap-up
-
-- Final `osprey validate` and `osprey build`; fix anything they raise.
-- Set `INTERVIEW.md` status to `complete`; move anything unresolved to
-  Open/Deferred so it is not lost. Upstream candidates keep their own
-  section and statuses — resuming the interview later offers the `open`
-  ones again.
-- Close with next steps read from the repo itself (its README and CLI
-  help): typically `osprey up -d`, `osprey chat`, the web terminal, and
-  where to edit `profile.yml` later.
+Wrap-up: drop the `provenance:` key — while it is there a plain `osprey validate` refuses
+every difference from the preset that no `# DEVIATION:` comment claims, and this profile,
+not the preset, is now the source of truth. Then run a final `osprey validate` and
+`osprey build` fixing what they raise, set `status: complete`, and move anything
+unresolved to Open or Deferred. Close on a wrap-up card of next steps, read from the
+repo's README and `osprey <command> --help`.
 
 ## INTERVIEW.md format
 
-Create it at the repo root right after `osprey init`, and keep it current
-throughout — it is the resume state, the decision record, and the devil's
-advocate input.
+Create it at the repo root right after `osprey init`, write every card locked before then
+into it in the same step, and keep it current.
 
 ```markdown
 # Interview record — <deployment name>
-
 status: in-progress   # in-progress | complete
+generation: <current|overlay|early|none>
+phase: <map|build|close|complete>   # the phase now in progress; a locked card advances it
 updated: <YYYY-MM-DD>
-
 ## Coverage
 core: provider ✔ · control system ✔ · writes/safety ✖ · identity ✔
-touched: <optional topics discussed>
-
+## Status quo (locked)
+<the confirmed DISCOVER card, verbatim>
+## Porting map (locked)
+<the confirmed MAP card, verbatim>
+## Gap card
+<one row per element, each answered close or skip>
 ## Decided
 - <decision> — <one-line rationale> (<date>)
-
+- <gap-card row> — skipped — <reason> (<date>)
 ## Open
 - <question still unresolved, and what unblocks it>
-
 ## Deferred / follow-up work
-- <custom work or later phase, with pointers>
-
-## Upstream candidates        # only when OSPREY didn't fit — see Upstream fit watch
-- <short-id>: <what the facility needs> [blocking|worked-around]
-  offered: <what OSPREY offers instead>
-  workaround: <what this deployment does about it>
-  status: open
-
-## Migration notes            # only when migrating
-- <source path, classification decisions, ported/skipped items>
+- <custom work, or curation owed on pulled material, with pointers>
+## Upstream candidates
+- <one entry per the Upstream fit watch format above>
 ```
 
-Commit it with the repo's other files whenever the user commits.
-
-## Migration
-
-A migration is the same interview with pre-filled answers. Read
-`references/migration-legacy.md` for the scan patterns and the
-SALVAGE / OBSOLETE / TRANSFORM / EVALUATE classification rules (that file
-describes the frozen legacy architecture, so its hardcoded knowledge is
-safe). Then:
-
-- For each EVALUATE item, ask why it was written before deciding its
-  fate — "because OSPREY had no X" makes it an upstream candidate (see
-  Upstream fit watch) as well as a port decision.
-- Channel databases and data files → the new repo's `data/` tree.
-- Config values (gateways, archiver URLs, provider) → `osprey set` into the
-  live profile, guided by the new profile's own comments.
-- Custom code (connectors, providers, rules, MCP servers) → the matching
-  convention directory; each EVALUATE item becomes a confirm-with-user
-  question and an `INTERVIEW.md` entry (ported / skipped / deferred).
-- Present findings as confirmations ("I found X — keep it?"), never
-  re-interrogation. The user already made these decisions once.
+Resume state, decision record, devil's advocate input. Commit it whenever the user commits.
 
 ## Guidelines
 
-- Explain *why* a question matters in the user's terms (safety, cost,
-  capability) — one sentence, then the question.
-- If the user is unsure, pick the safe default, say so, and record it as
-  Decided with rationale "default — revisit anytime".
-- Summarize progress briefly after each core decision, not after every
-  exchange.
-- Never edit `build/` (rendered output) or paste secrets into files other
-  than `.env`.
+- Say *why* a question matters in the user's terms: safety, cost, capability. Then ask.
+- Unsure → take the safe default, say so, record it Decided: "default — revisit anytime".
+- Present a migration finding as a confirmation ("I found X, keep it?"), not a re-ask.
+- Never edit `build/` (rendered output) or paste secrets into files other than `.env`.

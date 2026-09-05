@@ -277,7 +277,7 @@ OSPREY is installed and ready to use. Here's what to do next:
    **Container Runtime (Docker or Podman)**
 
    A container runtime is only required if you plan to deploy containerized services
-   (Jupyter, simulation IOCs, databases). The core agent workflow does not require
+   (simulation IOCs, databases, the observability stack). The core agent workflow does not require
    containers.
 
    .. tab-set::
@@ -310,8 +310,8 @@ OSPREY is installed and ready to use. Here's what to do next:
 
    **Deploying Services**
 
-   See :doc:`/how-to/deploy-project/index` for setting up containerized services like Jupyter
-   notebooks, databases, or simulation IOCs.
+   See :doc:`/how-to/deploy-project/index` for setting up containerized services like
+   databases, simulation IOCs, or the observability stack.
 
    **Detailed Configuration**
 

@@ -95,6 +95,14 @@ SELF_DISCOVERING_COMMANDS: frozenset[str] = frozenset(
 #: the profile or built project named on its command line. Recorded for the
 #: same reason as the sets above: the exemption picture is only useful if it is
 #: complete, and a command absent from every set reads as one nobody looked at.
+#:
+#: The entry names a GROUP, and one verb under it does not need the exemption:
+#: ``profile card`` reports on the deployment the operator is standing in, so it
+#: finds its repo through :func:`find_repo_root` and takes ``--repo`` like every
+#: other repo-scoped verb. ``profile``'s other subcommands still author at a
+#: path they are handed, which is what the entry is here for — an exemption on a
+#: group says where the group's targets come from, not that no verb inside it
+#: may discover one.
 EXPLICIT_TARGET_COMMANDS: frozenset[str] = frozenset(
     {
         "profile",

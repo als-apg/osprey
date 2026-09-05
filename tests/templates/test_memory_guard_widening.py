@@ -15,7 +15,7 @@ introduced:
   (``osprey.cli.templates.claude_code`` builds the rule from it), so the
   frontmatter *is* the matcher;
 * the ``NotebookEdit`` scope agrees with the ``NotebookEdit(<agent_data_root>/
-  artifacts/**)`` allow rule ``settings.json.j2`` renders — two independent
+  <subdir>/**)`` allow rules ``settings.json.j2`` renders — two independent
   spellings of one policy, which is exactly the pair that silently forks;
 * each tool is actually gated end to end, by running the hook the way Claude
   Code runs it.
@@ -30,6 +30,7 @@ home.
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -49,8 +50,29 @@ SETTINGS_TEMPLATE = (
 #: through unchallenged.
 WRITE_TOOLS = frozenset({"Write", "MultiEdit", "NotebookEdit"})
 
-#: Subdirectory of the agent-data root that ``NotebookEdit`` is scoped to.
+#: The agent-data subdirectories ``NotebookEdit`` is scoped to: the artifact
+#: tree the gallery serves, and the notebooks tree the Jupyter panel serves.
 ARTIFACTS_SUBDIR = "artifacts"
+NOTEBOOKS_SUBDIR = "notebooks"
+NOTEBOOK_SUBDIRS = frozenset({ARTIFACTS_SUBDIR, NOTEBOOKS_SUBDIR})
+
+#: Both spellings of the allow rule, as they appear in the two files. The
+#: template renders one Jinja append per subdirectory; the hook declares the
+#: same set as a tuple.
+_TEMPLATE_ALLOW_RE = re.compile(r"""NotebookEdit\(' ~ agent_data_root ~ '/([^/]+)/\*\*\)""")
+_HOOK_SUBDIRS_RE = re.compile(r"_NOTEBOOK_SUBDIRS = \(([^)]*)\)")
+
+
+def _template_notebook_subdirs() -> set[str]:
+    """Every agent-data subdirectory the rendered ``NotebookEdit`` allows name."""
+    return set(_TEMPLATE_ALLOW_RE.findall(SETTINGS_TEMPLATE.read_text(encoding="utf-8")))
+
+
+def _hook_notebook_subdirs() -> set[str]:
+    """Every agent-data subdirectory the guard scopes ``NotebookEdit`` to."""
+    match = _HOOK_SUBDIRS_RE.search(MEMORY_GUARD.read_text(encoding="utf-8"))
+    assert match, "the guard no longer declares _NOTEBOOK_SUBDIRS"
+    return set(re.findall(r'"([^"]+)"', match.group(1)))
 
 
 def _frontmatter() -> dict:
@@ -138,8 +160,6 @@ def _decision(result):
 
 def memory_dir_for(hook_home, project):
     """The memory directory the hook computes, rebuilt from its documented rule."""
-    import re
-
     encoded = re.sub(r"[^A-Za-z0-9-]", "-", str(project.resolve()))
     return hook_home / ".claude" / "projects" / encoded / "memory"
 
@@ -185,24 +205,21 @@ def test_guard_stays_the_outermost_pretooluse_gate():
 
 
 @pytest.mark.unit
-def test_settings_template_still_scopes_notebookedit_to_artifacts():
-    """``settings.json.j2`` grants ``NotebookEdit`` only under the artifacts tree.
+def test_settings_template_scopes_notebookedit_to_the_agent_data_subdirs():
+    """``settings.json.j2`` grants ``NotebookEdit`` under those two trees and no other.
 
-    The hook denies outside that same directory. If this allow rule is ever
-    respelled, the hook's scope has to move with it or the two halves of one
-    policy disagree.
+    The hook denies outside the same directories. If an allow rule is ever
+    respelled or a third tree added, the hook's scope has to move with it or the
+    two halves of one policy disagree.
     """
-    template = SETTINGS_TEMPLATE.read_text(encoding="utf-8")
-
-    assert f"NotebookEdit(' ~ agent_data_root ~ '/{ARTIFACTS_SUBDIR}/**)" in template
+    assert _template_notebook_subdirs() == NOTEBOOK_SUBDIRS
 
 
 @pytest.mark.unit
-def test_hook_scopes_notebookedit_to_the_same_subdirectory():
-    """The hook names the same ``artifacts`` subdirectory the allow rule does."""
-    source = MEMORY_GUARD.read_text(encoding="utf-8")
-
-    assert f'_ARTIFACTS_SUBDIR = "{ARTIFACTS_SUBDIR}"' in source
+def test_hook_scopes_notebookedit_to_the_same_subdirectories():
+    """The guard names exactly the subdirectories the allow rules do."""
+    assert _hook_notebook_subdirs() == NOTEBOOK_SUBDIRS
+    assert _hook_notebook_subdirs() == _template_notebook_subdirs()
 
 
 # -- MultiEdit is gated like Write --
@@ -238,14 +255,15 @@ def test_multiedit_deny_message_names_the_memory_directory(run_guard, project):
     assert "memory" in reason.lower()
 
 
-# -- NotebookEdit is scoped to the artifacts tree --
+# -- NotebookEdit is scoped to the agent-data artifacts and notebooks trees --
 
 
 @pytest.mark.unit
-def test_notebookedit_inside_artifacts_is_allowed(run_guard, project, write_config):
-    """A notebook under ``<agent_data_root>/artifacts`` is the agent's own output."""
+@pytest.mark.parametrize("subdir", sorted(NOTEBOOK_SUBDIRS))
+def test_notebookedit_inside_an_allowed_subdir_is_allowed(run_guard, project, write_config, subdir):
+    """A notebook under either agent-data tree is the agent's own."""
     write_config()
-    target = project / "var" / "agent_data" / ARTIFACTS_SUBDIR / "run.ipynb"
+    target = project / "var" / "agent_data" / subdir / "run.ipynb"
     target.parent.mkdir(parents=True)
 
     result = run_guard("NotebookEdit", {"notebook_path": str(target)})
@@ -254,10 +272,13 @@ def test_notebookedit_inside_artifacts_is_allowed(run_guard, project, write_conf
 
 
 @pytest.mark.unit
-def test_notebookedit_nested_under_artifacts_is_allowed(run_guard, project, write_config):
-    """The allow is recursive — ``artifacts/**``, not just direct children."""
+@pytest.mark.parametrize("subdir", sorted(NOTEBOOK_SUBDIRS))
+def test_notebookedit_nested_under_an_allowed_subdir_is_allowed(
+    run_guard, project, write_config, subdir
+):
+    """The allow is recursive — ``<subdir>/**``, not just direct children."""
     write_config()
-    target = project / "var" / "agent_data" / ARTIFACTS_SUBDIR / "2026" / "run.ipynb"
+    target = project / "var" / "agent_data" / subdir / "2026" / "run.ipynb"
     target.parent.mkdir(parents=True)
 
     result = run_guard("NotebookEdit", {"notebook_path": str(target)})
@@ -266,7 +287,7 @@ def test_notebookedit_nested_under_artifacts_is_allowed(run_guard, project, writ
 
 
 @pytest.mark.unit
-def test_notebookedit_outside_artifacts_is_denied(run_guard, project, write_config):
+def test_notebookedit_outside_both_subdirs_is_denied(run_guard, project, write_config):
     """A notebook anywhere else is refused — this is the tool's whole gap."""
     write_config()
     target = project / "escape.ipynb"
@@ -288,15 +309,16 @@ def test_notebookedit_into_memory_dir_is_denied(run_guard, project, hook_home, w
 
 
 @pytest.mark.unit
-def test_notebookedit_honours_relocated_agent_data_root(run_guard, project, write_config):
-    """An overridden ``agent_data.base_dir`` moves the allowed directory with it.
+@pytest.mark.parametrize("subdir", sorted(NOTEBOOK_SUBDIRS))
+def test_notebookedit_honours_relocated_agent_data_root(run_guard, project, write_config, subdir):
+    """An overridden ``agent_data.base_dir`` moves both allowed directories with it.
 
-    ``settings.json.j2`` interpolates the same key into its allow rule, so a
-    guard hard-coding the default would refuse the agent its own artifacts on
+    ``settings.json.j2`` interpolates the same key into its allow rules, so a
+    guard hard-coding the default would refuse the agent its own notebooks on
     any project that relocates the root.
     """
     write_config(base_dir="custom_state/agent_data")
-    target = project / "custom_state" / "agent_data" / ARTIFACTS_SUBDIR / "run.ipynb"
+    target = project / "custom_state" / "agent_data" / subdir / "run.ipynb"
     target.parent.mkdir(parents=True)
 
     result = run_guard("NotebookEdit", {"notebook_path": str(target)})
@@ -305,10 +327,13 @@ def test_notebookedit_honours_relocated_agent_data_root(run_guard, project, writ
 
 
 @pytest.mark.unit
-def test_notebookedit_at_default_root_denied_when_root_relocated(run_guard, project, write_config):
+@pytest.mark.parametrize("subdir", sorted(NOTEBOOK_SUBDIRS))
+def test_notebookedit_at_default_root_denied_when_root_relocated(
+    run_guard, project, write_config, subdir
+):
     """Relocating the root also *narrows* the allow — the default no longer counts."""
     write_config(base_dir="custom_state/agent_data")
-    target = project / "var" / "agent_data" / ARTIFACTS_SUBDIR / "run.ipynb"
+    target = project / "var" / "agent_data" / subdir / "run.ipynb"
     target.parent.mkdir(parents=True)
 
     result = run_guard("NotebookEdit", {"notebook_path": str(target)})
@@ -317,12 +342,13 @@ def test_notebookedit_at_default_root_denied_when_root_relocated(run_guard, proj
 
 
 @pytest.mark.unit
-def test_notebookedit_traversal_is_denied(run_guard, project, write_config):
+@pytest.mark.parametrize("subdir", sorted(NOTEBOOK_SUBDIRS))
+def test_notebookedit_traversal_is_denied(run_guard, project, write_config, subdir):
     """``..`` in the raw path is refused even when it resolves back inside."""
     write_config()
-    artifacts = project / "var" / "agent_data" / ARTIFACTS_SUBDIR
-    artifacts.mkdir(parents=True)
-    target = artifacts / "sub" / ".." / "run.ipynb"
+    allowed_dir = project / "var" / "agent_data" / subdir
+    allowed_dir.mkdir(parents=True)
+    target = allowed_dir / "sub" / ".." / "run.ipynb"
 
     result = run_guard("NotebookEdit", {"notebook_path": str(target)})
 
@@ -340,15 +366,16 @@ def test_notebookedit_without_a_path_is_denied(run_guard, write_config):
 
 
 @pytest.mark.unit
-def test_notebookedit_deny_message_names_the_artifacts_directory(run_guard, project, write_config):
-    """The refusal points at the artifact tree, not at the memory directory."""
+def test_notebookedit_deny_message_names_both_allowed_directories(run_guard, project, write_config):
+    """The refusal points at both agent-data trees, not at the memory directory."""
     write_config()
 
     result = run_guard("NotebookEdit", {"notebook_path": str(project / "escape.ipynb")})
 
     reason = result["hookSpecificOutput"]["permissionDecisionReason"]
     assert "NOTEBOOK EDIT DENIED" in reason
-    assert ARTIFACTS_SUBDIR in reason
+    for subdir in NOTEBOOK_SUBDIRS:
+        assert f"/{subdir}/" in reason
 
 
 # -- The original Write contract is unchanged --

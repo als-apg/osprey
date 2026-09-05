@@ -32,6 +32,57 @@ from osprey_connectors import yaml_loader
 _YAML_TO_FIELD: dict[str, str] = {"app_template": "data_bundle"}
 
 
+# Top-level collection keys whose value is a plain selection — a list of names,
+# or the panel-layout mapping — and whose empty spelling therefore has exactly
+# one reading: "none of these". YAML parses a key written with nothing under it
+# (every entry commented out, or a delta stub whose list was cleared) to
+# ``None``, which is neither the collection the field's type promises nor the
+# value the author wrote, so it is flattened to the empty collection here.
+#
+# Confined to these fields on purpose. The block-shaped keys (``config:``,
+# ``lifecycle:``, ``env:``, the connector blocks) are read by parsers that
+# already narrow their own empty spelling, and an empty block there is a
+# question about inheritance rather than a selection — so they keep the reading
+# their own parser gives them.
+_EMPTY_COLLECTION_KEYS: dict[str, type] = {
+    "hooks": list,
+    "rules": list,
+    "skills": list,
+    "agents": list,
+    "output_styles": list,
+    "web_panels": list,
+    "dependencies": list,
+    "panel_presets": dict,
+}
+
+
+def _normalize_empty_collections(raw: dict[str, Any]) -> dict[str, Any]:
+    """Rewrite present-but-empty selection keys to the empty collection, in place.
+
+    Run on every document as it is parsed, and so *before* the ``extends`` and
+    persona-delta merges. That placement is the point: it makes an empty
+    ``web_panels:`` mean precisely what ``web_panels: []`` means, in the merge
+    as well as in the parser. Normalizing only at parse time would leave
+    ``None`` to win the merge key-by-key, and a persona delta whose list the
+    author had emptied would silently *subtract* the root profile's whole
+    selection — a power no list spelling has (that is what ``exclude:`` is
+    for).
+
+    A value of the wrong shape is left exactly as written: the schema
+    validation downstream names it far better than a silent rewrite would.
+
+    Args:
+        raw: One raw profile mapping, mutated in place.
+
+    Returns:
+        ``raw``.
+    """
+    for key, empty in _EMPTY_COLLECTION_KEYS.items():
+        if key in raw and raw[key] is None:
+            raw[key] = empty()
+    return raw
+
+
 def _normalize_profile_aliases(raw: dict[str, Any], source: str) -> dict[str, Any]:
     """Rewrite YAML-surface key spellings to canonical field names, in place.
 
@@ -109,4 +160,5 @@ def _parse_profile_document(text: str, source: str) -> Any:
         raise BuildProfileError(f"Invalid YAML in {source}: {e}") from e
     if isinstance(raw, dict):
         _normalize_profile_aliases(raw, source)
+        _normalize_empty_collections(raw)
     return raw

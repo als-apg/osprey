@@ -120,7 +120,8 @@ The eight skills
        tag, and verifying the automated PyPI publish.
    * - ``/osprey:build-interview``
      - Sets up or migrates an Osprey deployment for an accelerator, beamline,
-       or detector through a guided interview.
+       or detector through a guided interview. Starts by inventorying what
+       exists, then maps each part of it onto the new deployment.
    * - ``/osprey:panel``
      - Authors a themed web-terminal panel that passes the panel validator.
    * - ``/osprey:housekeeping``

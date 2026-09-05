@@ -2851,11 +2851,11 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, person
             ...     'additional_dirs': ['docs', 'scripts'],
             ... }
             >>> compose_path = setup_build_dir(
-            ...     'services/osprey/jupyter/docker-compose.yml.j2',
+            ...     'services/openobserve/docker-compose.yml.j2',
             ...     config,
             ...     container_cfg
             ... )
-            >>> print(compose_path)  # 'build/services/osprey/jupyter/docker-compose.yml'
+            >>> print(compose_path)  # 'build/services/openobserve/docker-compose.yml'
 
         Advanced service with custom directory mapping::
 
@@ -2885,7 +2885,7 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, person
     source_dir = os.path.relpath(os.path.dirname(template_path), os.getcwd())
 
     # Extract service name from the path for container path resolution
-    # e.g., "services/jupyter" -> "jupyter", "src/osprey/templates/services/pipelines" -> "pipelines"
+    # e.g., "services/qmd" -> "qmd", "src/osprey/templates/services/pipelines" -> "pipelines"
     os.path.basename(source_dir)
 
     # Clear the directory if it exists
@@ -3215,9 +3215,9 @@ def find_existing_compose_files(config, deployed_services, quiet=False, base=Non
         is what every caller building a ``-f`` list passes it through.
 
     Example:
-        compose_files = find_existing_compose_files(config, ['osprey.jupyter'])
+        compose_files = find_existing_compose_files(config, ['openobserve'])
         # Returns: ['./build/services/docker-compose.yml',
-        #          './build/services/osprey/jupyter/docker-compose.yml']
+        #          './build/services/openobserve/docker-compose.yml']
     """
     compose_files = []
     base = Path(base) if base is not None else Path.cwd()

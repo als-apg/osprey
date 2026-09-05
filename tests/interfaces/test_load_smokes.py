@@ -202,11 +202,12 @@ def test_interface_loads_clean(
             expect(page.locator('button[data-panel-id="artifacts"]')).to_be_visible(timeout=10_000)
 
         if name == "channel_finder_graph":
-            # Explore is the default route (no hash), and its graph renderer
-            # draws the class tree only after /api/graph/ontology answers --
-            # so a drawn node is the DOM proof the page did more than load.
-            page.wait_for_selector(".g-node", timeout=10_000)
-            assert page.locator(".g-node").count() >= 1
+            # Explore is the default route (no hash), and its finder renders
+            # result rows only after /api/graph/search answers -- so a result
+            # row is the DOM proof the page did more than load.
+            row = "#graph-finder-table .result-table tbody tr[data-pv]:first-child"
+            page.wait_for_selector(row, timeout=10_000)
+            assert page.locator(row).count() >= 1
 
         page.close()
 

@@ -74,6 +74,7 @@
 {%- endfor -%}
 {%- endfor -%}
 {%- set _ = allow_entries.append('"NotebookEdit(' ~ agent_data_root ~ '/artifacts/**)"') -%}
+{%- set _ = allow_entries.append('"NotebookEdit(' ~ agent_data_root ~ '/notebooks/**)"') -%}
 {#- Per-agent Task() permissions -#}
 {%- for a in agents if a.enabled -%}
 {%- set _ = allow_entries.append('"Task(' ~ a.name ~ ')"') -%}

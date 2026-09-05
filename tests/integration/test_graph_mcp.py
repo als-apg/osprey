@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from importlib.resources import files
@@ -45,6 +46,12 @@ from typing import Any
 import pytest
 from fastmcp.exceptions import ToolError
 
+from osprey.interfaces.channel_finder.database_api import GRAPH_ONTOLOGY_CYPHER
+from osprey.services.channel_finder.graph_queries import (
+    GRAPH_CHANNEL_COUNT_CYPHER,
+    GRAPH_DEVICE_CYPHER,
+    GRAPH_SEARCH_CYPHER,
+)
 from tests._container_support import start_or_skip, stop_quietly
 from tests._graphdb_container import (
     GRAPHDB_TEST_PASSWORD,
@@ -559,6 +566,25 @@ def test_example_q1b_puts_the_magnets_under_one_branch(demo_ctx: Any) -> None:
     assert by_branch.get("Magnet") == EXPECTED_MAGNETS, by_branch
 
 
+def test_the_taxonomy_separates_a_grouping_from_a_kind_of_device(demo_ctx: Any) -> None:
+    """``Magnet`` groups devices it is never itself; ``Quadrupole`` holds its own.
+
+    The explorer dims a class nothing is typed directly as, so the two counts
+    the query projects have to come apart on the seeded corpus or the rail
+    would draw every branch the same as every leaf.
+    """
+    result = demo_ctx.run_read(GRAPH_ONTOLOGY_CYPHER, max_rows=500)
+    by_uri = {row["uri"]: row for row in result.rows}
+
+    magnet = by_uri[MAGNET_CLASS_URI]
+    assert magnet["rollup"] == EXPECTED_MAGNETS, magnet
+    assert magnet["direct"] == 0, magnet
+
+    quadrupole = by_uri[QUADRUPOLE_CLASS_URI]
+    assert quadrupole["direct"] > 0, quadrupole
+    assert quadrupole["direct"] == quadrupole["rollup"], quadrupole
+
+
 @pytest.mark.parametrize("key", _example_keys())
 def test_every_example_runs_on_the_demo_corpus(demo_ctx: Any, key: str) -> None:
     """Every shipped example returns usable rows with its demo parameter set."""
@@ -635,3 +661,314 @@ def test_the_row_cap_truncates_and_says_so(demo_ctx: Any) -> None:
     assert payload["truncated"] is True, payload
     assert len(payload["rows"]) == 5
     assert any("query_max_rows" in line for line in payload["guidance"]), payload["guidance"]
+
+
+# ---------------------------------------------------------------------------
+# 7. The finder's search and device Cypher
+# ---------------------------------------------------------------------------
+#
+# One read answers the whole graph-mode finder, so what is asserted here is not
+# "a query ran" but the contract the panel is written against: which tokens
+# match what, that a parent class rolls its subclasses up, that each facet is
+# counted with its own filter lifted, and that the page is a stable slice of a
+# ``fullPv`` order.  Every count is cross-checked against an independent query
+# in the same test, so a number that moves says which population changed.
+
+#: Every parameter :data:`GRAPH_SEARCH_CYPHER` reads, at its "no filter" value.
+_SEARCH_DEFAULTS: dict[str, Any] = {
+    "tokens": [],
+    "sections": [],
+    "systems": [],
+    "cls": None,
+    "signals": [],
+    "dirs": [],
+    "skip": 0,
+    "facet_cap": 501,
+}
+
+CORRECTOR_CLASS_URI = _SEM + "Corrector"
+QUADRUPOLE_CLASS_URI = _SEM + "Quadrupole"
+
+#: Bindings whose device rolls up to ``$uri`` — the population the class facet
+#: and the ``cls`` filter both claim to count, written without the search's
+#: machinery so it can contradict it.
+_BINDINGS_UNDER_CLASS = """
+MATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding)
+WHERE EXISTS {
+  MATCH (d)-[:TYPE]->(:Class)-[:SUBCLASSOF*0..10]->(a:Class) WHERE a.uri = $uri
+}
+RETURN count(b) AS n
+"""
+
+#: Distinct devices under ``$uri``, same idea.
+_DEVICES_UNDER_CLASS = """
+MATCH (d:Resource)-[:TYPE]->(:Class)-[:SUBCLASSOF*0..10]->(a:Class)
+WHERE a.uri = $uri
+RETURN count(DISTINCT d) AS n
+"""
+
+#: How many of ``$uris`` are *not* under ``$uri``.  Zero is the claim.
+_PAGE_DEVICES_OUTSIDE_CLASS = """
+UNWIND $uris AS device_uri
+MATCH (d:Resource {uri: device_uri})
+WHERE NOT EXISTS {
+  MATCH (d)-[:TYPE]->(:Class)-[:SUBCLASSOF*0..10]->(a:Class) WHERE a.uri = $uri
+}
+RETURN count(d) AS n
+"""
+
+#: Bindings whose *text* — address, description, device name or signal name —
+#: mentions ``$token``.  Used to prove a token's hits came from the class
+#: hierarchy rather than from a string that happens to contain it.
+_BINDINGS_MENTIONING = """
+MATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding)
+WHERE toLower(coalesce(b.fullPv, '')) CONTAINS $token
+   OR toLower(coalesce(b.description, '')) CONTAINS $token
+   OR toLower(coalesce(d.sourceName, '')) CONTAINS $token
+   OR EXISTS {
+        MATCH (b)-[:READSSIGNAL|WRITESSIGNAL]->(s:SemanticSignal)
+        WHERE toLower(coalesce(s.label, last(split(s.uri, '/')))) CONTAINS $token
+      }
+RETURN count(b) AS n
+"""
+
+
+def _search(context: Any, **overrides: Any) -> dict[str, Any]:
+    """Run the faceted search with *overrides* over the no-filter defaults."""
+    params = {**_SEARCH_DEFAULTS, **overrides}
+    result = context.run_read(GRAPH_SEARCH_CYPHER, params, max_rows=1)
+    assert len(result.rows) == 1, f"the search must answer in exactly one row: {result.rows}"
+    assert result.truncated is False, "one row cannot be truncated by a one-row cap"
+    return result.rows[0]
+
+
+def _count(context: Any, cypher: str, params: dict[str, Any] | None = None) -> int:
+    """Run a counting query that returns a single ``n``."""
+    result = context.run_read(cypher, params or {}, max_rows=1)
+    assert len(result.rows) == 1, result.rows
+    return int(result.rows[0]["n"])
+
+
+def _row_text(row: dict[str, Any]) -> str:
+    """The lower-cased text a row carries: address, description, device, signals."""
+    parts = [row.get("fullPv"), row.get("description"), row.get("device")]
+    parts += [signal.get("name") for signal in row.get("signals") or []]
+    return " ".join(str(part) for part in parts if part).lower()
+
+
+def _facet(row: dict[str, Any], name: str) -> dict[str, int]:
+    """One facet list as ``{value: count}``."""
+    return {entry["value"]: entry["count"] for entry in row["facets"][name]}
+
+
+def test_search_requires_every_token_to_match_the_row(demo_ctx: Any) -> None:
+    """Tokens are ANDed, and each one matches somewhere on the row it returns.
+
+    ``qfa current rb`` is the shape an operator actually types: a device family,
+    a field, and a direction suffix, spread across three different columns.  A
+    row carrying only two of them would mean the predicate ORed.
+    """
+    tokens = ["qfa", "current", "rb"]
+    row = _search(demo_ctx, tokens=tokens)
+
+    assert row["total"] > 0, row
+    assert row["rows"], row
+    for hit in row["rows"]:
+        text = _row_text(hit)
+        missing = [token for token in tokens if token not in text]
+        assert not missing, f"row is missing {missing}: {hit}"
+
+
+def test_search_by_a_class_alias_counts_the_corrector_bindings(demo_ctx: Any) -> None:
+    """``steerer`` reaches correctors through ``skos:altLabel``, and only them.
+
+    ``steerer`` appears nowhere in the corpus' addresses, descriptions, device
+    names or signal names — it is an alternate label on the ``Corrector``
+    class — so the total is exactly the corrector binding count, and the second
+    count is what says so, rather than the first one merely agreeing with a
+    number written into this file.
+    """
+    corrector_bindings = _count(demo_ctx, _BINDINGS_UNDER_CLASS, {"uri": CORRECTOR_CLASS_URI})
+    textual = _count(demo_ctx, _BINDINGS_MENTIONING, {"token": "steerer"})
+    assert textual == 0, (
+        "the corpus now writes 'steerer' into a row's own text, so the total "
+        "below no longer counts the class rollup alone"
+    )
+    assert corrector_bindings > 0, "an empty corrector population would make this vacuous"
+
+    row = _search(demo_ctx, tokens=["steerer"])
+
+    assert row["total"] == corrector_bindings, (row["total"], corrector_bindings)
+
+
+def test_search_does_not_match_the_n10s_resource_label(demo_ctx: Any) -> None:
+    """``resource`` finds nothing: the token predicate reads data, not labels.
+
+    Every node in an n10s-imported store wears ``Resource``.  If the search ever
+    matched on labels, this most generic of words would return the whole corpus.
+    """
+    row = _search(demo_ctx, tokens=["resource"])
+
+    assert row["total"] == 0, row["total"]
+    assert row["devices"] == 0, row["devices"]
+    assert row["rows"] == [], row["rows"]
+
+
+def test_search_by_device_name_returns_only_that_device(demo_ctx: Any) -> None:
+    """``bpm01`` matches through ``d.sourceName`` and nothing else drifts in."""
+    row = _search(demo_ctx, tokens=["bpm01"])
+
+    assert row["total"] > 0, row
+    assert row["rows"], row
+    assert {hit["device"] for hit in row["rows"]} == {"BPM01"}, row["rows"]
+
+
+def test_search_by_class_rolls_a_parent_up_to_its_subclasses(demo_ctx: Any) -> None:
+    """Filtering on ``Magnet`` returns the whole magnet subtree, not one level.
+
+    The page is checked device by device against the hierarchy, and the class
+    facet is checked for ``Quadrupole``: together they say the filter followed
+    ``SUBCLASSOF`` rather than matching the parent class directly, which on this
+    corpus would return nothing at all.
+    """
+    magnet_devices = _count(demo_ctx, _DEVICES_UNDER_CLASS, {"uri": MAGNET_CLASS_URI})
+    assert magnet_devices == EXPECTED_MAGNETS, magnet_devices
+
+    row = _search(demo_ctx, cls=MAGNET_CLASS_URI)
+
+    assert row["devices"] == EXPECTED_MAGNETS, row["devices"]
+    assert row["rows"], row
+    outside = _count(
+        demo_ctx,
+        _PAGE_DEVICES_OUTSIDE_CLASS,
+        {"uris": [hit["device_uri"] for hit in row["rows"]], "uri": MAGNET_CLASS_URI},
+    )
+    assert outside == 0, f"{outside} devices on the page do not roll up to Magnet"
+
+    classes = _facet(row, "class")
+    assert classes.get(QUADRUPOLE_CLASS_URI, 0) > 0, sorted(classes)
+
+
+def test_search_counts_each_facet_with_its_own_filter_lifted(demo_ctx: Any) -> None:
+    """Selecting ``SR`` still lists ``BR`` and ``BTS`` in the section facet.
+
+    That is what lets an operator see what a second selection would add.  The
+    other facets must narrow at the same time — the system facet is read here as
+    the control, so a query that simply ignored ``sections`` would fail too.
+    """
+    unfiltered = _search(demo_ctx)
+    row = _search(demo_ctx, sections=["SR"])
+
+    sections = _facet(row, "section")
+    assert set(sections) == set(_facet(unfiltered, "section")), sections
+    assert {"SR", "BR", "BTS"} <= set(sections), sections
+    assert sections["SR"] == row["total"], (sections["SR"], row["total"])
+    assert row["total"] < unfiltered["total"], (row["total"], unfiltered["total"])
+
+    systems = _facet(row, "system")
+    assert sum(systems.values()) == row["total"], (systems, row["total"])
+
+
+def test_search_unfiltered_reports_the_whole_corpus(demo_ctx: Any) -> None:
+    """No filters: the total is the store's census and the facets describe it."""
+    census = _count(demo_ctx, GRAPH_CHANNEL_COUNT_CYPHER)
+    assert census == EXPECTED_BINDINGS, census
+
+    row = _search(demo_ctx)
+
+    assert row["total"] == census, (row["total"], census)
+    assert row["devices"] == EXPECTED_DEVICES, row["devices"]
+    assert len(row["rows"]) == 50, len(row["rows"])
+
+    classes = _facet(row, "class")
+    assert classes.get(MAGNET_CLASS_URI) == EXPECTED_MAGNETS, classes.get(MAGNET_CLASS_URI)
+
+    directions = _facet(row, "dir")
+    assert {"R", "W"} <= set(directions), directions
+    assert directions["R"] == EXPECTED_READ_ONLY + directions.get("RW", 0), directions
+    assert directions["W"] == EXPECTED_WRITE_ONLY + directions.get("RW", 0), directions
+
+
+@pytest.mark.parametrize("direction", ["R", "W", "RW", "none"])
+def test_search_by_direction_answers_and_the_rows_agree(demo_ctx: Any, direction: str) -> None:
+    """Each direction value answers, and every row it returns really is that.
+
+    ``RW`` and ``none`` are empty on this corpus, which is a fact about the
+    corpus and not a reason to leave them untested: an unanswerable direction
+    value would raise rather than return zero, and that is what is pinned here.
+    """
+    row = _search(demo_ctx, dirs=[direction])
+
+    assert row["total"] >= 0, row
+    assert row["total"] == _facet(row, "dir").get(direction, 0), row["facets"]["dir"]
+    for hit in row["rows"]:
+        edges = set(hit["edges"])
+        if direction == "R":
+            assert "READSSIGNAL" in edges, hit
+        elif direction == "W":
+            assert "WRITESSIGNAL" in edges, hit
+        elif direction == "RW":
+            assert {"READSSIGNAL", "WRITESSIGNAL"} <= edges, hit
+        else:
+            assert edges == set(), hit
+
+
+def test_search_pages_a_stable_fullpv_order(demo_ctx: Any) -> None:
+    """``skip`` slices a single ``fullPv`` ordering, so page two follows page one."""
+    first = _search(demo_ctx)["rows"]
+    second = _search(demo_ctx, skip=50)["rows"]
+
+    assert len(first) == 50 and len(second) == 50
+    assert [hit["fullPv"] for hit in first] == sorted(hit["fullPv"] for hit in first)
+    assert [hit["fullPv"] for hit in second] == sorted(hit["fullPv"] for hit in second)
+    assert {hit["fullPv"] for hit in first}.isdisjoint({hit["fullPv"] for hit in second})
+    assert first[-1]["fullPv"] < second[0]["fullPv"], (first[-1], second[0])
+
+
+def test_device_cypher_groups_one_device_by_signal(demo_ctx: Any) -> None:
+    """The device read answers a search row's ``device_uri`` with grouped channels."""
+    hit = _search(demo_ctx, tokens=["bpm01"])["rows"][0]
+
+    result = demo_ctx.run_read(GRAPH_DEVICE_CYPHER, {"uri": hit["device_uri"]}, max_rows=5)
+    assert len(result.rows) == 1, result.rows
+    row = result.rows[0]
+
+    assert row["uri"] == hit["device_uri"], row
+    assert row["device"] == hit["device"], row
+    assert row["signals"], row
+
+    names = [group["name"] for group in row["signals"]]
+    assert names == sorted(names, key=lambda name: (name is None, name or "")), names
+    assert len(names) == len(set(names)), f"a signal was grouped twice: {names}"
+
+    addresses = []
+    for group in row["signals"]:
+        assert group["bindings"], group
+        fullpvs = [binding["fullPv"] for binding in group["bindings"]]
+        assert fullpvs == sorted(fullpvs), fullpvs
+        addresses += fullpvs
+    assert len(addresses) == len(set(addresses)), f"a channel landed in two groups: {addresses}"
+
+
+def test_device_cypher_answers_an_unknown_uri_with_no_rows(demo_ctx: Any) -> None:
+    """Absence is an empty result, not a row of nulls."""
+    result = demo_ctx.run_read(
+        GRAPH_DEVICE_CYPHER, {"uri": "https://narad.example.org/device/does_not_exist"}, max_rows=5
+    )
+
+    assert result.rows == [], result.rows
+
+
+def test_search_unfiltered_answers_inside_the_interaction_budget(demo_ctx: Any) -> None:
+    """The widest search — every binding, every facet — stays under five seconds.
+
+    The unfiltered read is the panel's first paint and its worst case in one: no
+    filter prunes the hit list, so all five facet blocks run over the whole
+    corpus.  Five seconds is the ceiling the finder is designed against.
+    """
+    started = time.perf_counter()
+    row = _search(demo_ctx)
+    elapsed = time.perf_counter() - started
+
+    assert row["total"] == EXPECTED_BINDINGS, row["total"]
+    assert elapsed < 5.0, f"the unfiltered search took {elapsed:.2f}s"

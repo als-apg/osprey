@@ -778,7 +778,9 @@ def scaffold(ctx):
 
     The ci verb regenerates the repo's pipeline and health check from the
     profile's deploy: block, and the systemd verb writes a unit that starts
-    this deployment at boot. The other verbs cover build artifacts, which can
+    this deployment at boot. The personas verb writes one file per persona the
+    profile catalogs, and the pull verb copies content out of a packaged app
+    template into this repo. The other verbs cover build artifacts, which can
     be claimed per-facility: claiming moves the artifact out of the build zone
     and into the profile beside it, which is where you then edit it. Every
     build copies it back and marks it yours.
@@ -788,6 +790,8 @@ def scaffold(ctx):
     \b
       osprey scaffold ci                          # Re-emit the CI files
       osprey scaffold systemd                     # Write the boot unit
+      osprey scaffold personas                    # Write the persona files
+      osprey scaffold pull control-assistant --list # Show what a preset offers
       osprey scaffold list                        # Show all artifacts
       osprey scaffold claim agents/channel-finder # Move it into the profile
       osprey scaffold diff agents/channel-finder  # Compare yours vs framework
@@ -851,6 +855,231 @@ def ci(repo: Path | None, force: bool) -> None:
         # Non-zero, because an operator who asked for a re-emission did not get
         # one. The reason above already names the flag that overrides it.
         raise SystemExit(1)
+
+
+@scaffold.command(name="personas")
+@repo_option
+@click.option(
+    "--from",
+    "from_preset",
+    metavar="PRESET",
+    default=None,
+    help="Preset whose persona catalog to emit. Default: the preset this repo was created from.",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Rewrite a persona file that already exists.",
+)
+def personas(repo: Path | None, from_preset: str | None, force: bool) -> None:
+    """Emit one persona file per persona this profile catalogs.
+
+    Writes personas/<name>.yml for every entry in the profile's
+    modules.web_terminals.personas catalog, then points each entry at the file
+    beside it. The second half is what makes a pasted-in catalog this repo's
+    own: until the entries name these files, they still resolve to the presets
+    they were copied from.
+
+    Each file is a delta, merged over this profile because of where it sits, so
+    it carries only what the persona changes. A file that is already there is
+    yours: it is reported and left alone, and --force replaces it.
+
+    Examples:
+
+    \b
+      $ osprey scaffold personas --from control-assistant
+      $ osprey scaffold personas --force
+      $ osprey scaffold personas --repo ~/deployments/als-exemplar
+    """
+    # Imported here rather than at module scope: all three pull the whole
+    # build-profile chain in behind them, and every other verb in this group
+    # runs without any of it.
+    from .build_profile import resolve_build_profile
+    from .build_profile_emit import emits_persona_profiles, persona_catalog
+    from .build_profile_resolve import PROFILE_FILENAME
+    from .profile_cmd import _resolve_preset_bundle
+    from .scaffold_personas import emit_persona_files, repoint_persona_catalog
+
+    # Resolved before anything is emitted: standing outside a repo is a mistake
+    # about where the command was run, not a scaffolding failure.
+    repo_root = find_repo_root(repo)
+
+    try:
+        profile, _profile_dir = resolve_build_profile(repo_root / PROFILE_FILENAME, None)
+    except ConfigurationError as exc:
+        raise click.ClickException(str(exc)) from None
+
+    if not emits_persona_profiles(profile.config):
+        # The catalog is what says which personas exist, so without it there is
+        # nothing to emit and nothing to point anywhere.
+        raise click.ClickException(
+            f"This profile catalogs no personas, so there is nothing to emit. Add the "
+            f"modules.web_terminals.personas catalog to {PROFILE_FILENAME}, then run this again."
+        )
+
+    preset = from_preset or (profile.provenance.preset if profile.provenance else None)
+    if not preset:
+        # A repo materialized by osprey init records its preset; a hand-written
+        # profile records nothing, and then only the operator knows.
+        raise click.UsageError(
+            "This profile does not record the preset it came from, so --from is required. "
+            "Pass --from PRESET to name the preset whose persona catalog to emit."
+        )
+
+    # Shared with the init path rather than re-derived: an unknown preset is a
+    # usage error there, listing every preset that exists, and it is the same
+    # mistake here.
+    preset_name, _bundle = _resolve_preset_bundle(preset)
+
+    try:
+        report = emit_persona_files(repo_root, profile.name, preset_name, force=force)
+    except ConfigurationError as exc:
+        raise click.ClickException(str(exc)) from None
+
+    repointed = repoint_persona_catalog(repo_root, report.names)
+
+    for relative in report.written:
+        console.print(f"  [success]✓[/success] {relative}")
+    for relative in report.skipped:
+        console.print(f"  [dim]= {relative} (exists, use --force)[/dim]")
+
+    # The emission follows the preset's catalog; the repoint follows this
+    # repo's. A persona in the first and not the second has a file nothing
+    # reads, which only the operator can fix.
+    catalog = persona_catalog(profile.config)
+    uncatalogued = [name for name in report.names if name not in catalog]
+    if uncatalogued:
+        console.print(
+            f"  [warning]![/warning] not in this profile's catalog: {', '.join(uncatalogued)}"
+        )
+
+    if repointed:
+        console.print(f"  catalog: {repointed} entries repointed")
+    else:
+        console.print("  catalog: already current")
+
+
+@scaffold.command(name="pull")
+@click.argument("spec", metavar="PRESET[:PATH]")
+@repo_option
+@click.option(
+    "--list",
+    "list_only",
+    is_flag=True,
+    help="Print every path the preset offers instead of copying anything.",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Overwrite a file that is already in this repo.",
+)
+@click.option(
+    "--with-content",
+    is_flag=True,
+    help="Include the knowledge base documents, not only its structure.",
+)
+def pull(spec: str, repo: Path | None, list_only: bool, force: bool, with_content: bool) -> None:
+    """Copy content out of a packaged app template into this repo.
+
+    PRESET[:PATH] names what to copy: 'control-assistant' is the whole
+    template, 'control-assistant:data/facility_knowledge' one subtree of it.
+    Each file lands at the same path under this repo, where you edit it and
+    commit it. Run --list first to see every path a preset offers.
+
+    The knowledge base arrives as structure alone: the index.md files, and
+    none of the example documents a facility writes for itself. Its indexes
+    are rebuilt from what actually landed, so they name no example document.
+    --with-content brings the documents too.
+
+    A file that is already here stops the whole pull and nothing is written;
+    --force overwrites it. A symlink on the way to a target is refused with or
+    without --force.
+
+    Examples:
+
+    \b
+      $ osprey scaffold pull control-assistant --list
+      $ osprey scaffold pull control-assistant:data/facility_knowledge
+      $ osprey scaffold pull control-assistant:web-terminal-context
+      $ osprey scaffold pull hello-world:mcp_servers/example_server --force
+    """
+    # Imported here for the same reason `ci` and `personas` do it: the
+    # build-profile chain behind a preset is not loaded for any of the
+    # ownership verbs in this group.
+    from .profile_cmd import _app_template_root, _resolve_preset_bundle
+    from .scaffold_pull import (
+        PullAction,
+        apply_pull,
+        list_pullable_paths,
+        plan_pull,
+        rebuilds_knowledge_indexes,
+    )
+
+    # Resolved before anything is read or written, --list included: the repo is
+    # what a pull is relative to, so standing outside one is the first mistake
+    # to report either way.
+    repo_root = find_repo_root(repo)
+
+    def shown(action: PullAction) -> str:
+        """The repo-relative path a printed line names for ``action``."""
+        return action.target.relative_to(repo_root).as_posix()
+
+    preset, _, path = spec.partition(":")
+    rel_path = path or None
+
+    # Shared with the init path rather than re-derived: an unknown preset is a
+    # usage error there, listing every preset that exists, and it is the same
+    # mistake here.
+    _preset_name, data_bundle = _resolve_preset_bundle(preset)
+    try:
+        app_root = _app_template_root(TemplateManager(), data_bundle)
+    except ConfigurationError as exc:
+        raise click.ClickException(str(exc)) from None
+
+    if list_only:
+        try:
+            entries = list_pullable_paths(app_root, rel_path)
+        except ValueError as exc:
+            raise click.UsageError(str(exc)) from None
+        for entry in entries:
+            console.print(entry)
+        return
+
+    try:
+        actions = plan_pull(app_root, repo_root, rel_path, force=force, with_content=with_content)
+    except ValueError as exc:
+        raise click.UsageError(str(exc)) from None
+
+    refused = [action for action in actions if action.action == "refused"]
+    if refused:
+        for action in refused:
+            console.print(f"  [error]✗[/error] {shown(action)} not written: {action.reason}")
+        # Non-zero before a single byte is written: one refusal stops the whole
+        # pull, so there is no half-copied tree for an operator to sort out.
+        # The reasons above name the flag that overrides each one.
+        raise SystemExit(1)
+
+    applied = apply_pull(actions, repo_root=repo_root, with_content=with_content)
+
+    for action in applied:
+        if action.action == "updated":
+            console.print(f"  [success]✓[/success] {shown(action)} (updated)")
+        else:
+            console.print(f"  [success]✓[/success] {shown(action)}")
+
+    for action in actions:
+        if action.action == "unchanged":
+            console.print(f"  [dim]= {shown(action)} (unchanged)[/dim]")
+
+    skipped = sum(1 for action in actions if action.action == "skipped")
+    if skipped:
+        # One line for the whole set. Naming each left-behind document would
+        # bury the files that did land under a list of files nobody asked for.
+        noun = "document" if skipped == 1 else "documents"
+        console.print(f"  {skipped} knowledge {noun} skipped (use --with-content)")
+
+    if rebuilds_knowledge_indexes(applied, repo_root=repo_root, with_content=with_content):
+        console.print("  knowledge indexes rebuilt from the files that landed")
 
 
 @scaffold.command(name="systemd")

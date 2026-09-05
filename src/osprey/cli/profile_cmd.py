@@ -33,13 +33,14 @@ import click
 from osprey.errors import BuildProfileError
 from osprey.utils.logger import get_logger
 
-from .output import report, section
+from .output import report, section, warn
 from .profile_conventions import (
     CONTEXT_BASELINE_FILENAME,
     PER_USER_CONTEXT_DIRNAME,
     PROFILE_TRIGGERS_FILENAME,
     context_baseline_slot,
 )
+from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 
 if TYPE_CHECKING:
     # Annotation only — the profile model is imported lazily inside the command
@@ -119,6 +120,81 @@ def validate(target: Path) -> None:
     from .validate_cmd import check_profile_file, profile_file_at
 
     check_profile_file(profile_file_at(target))
+
+
+@profile.command(name="card")
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    help="Emit the card as a single JSON document on stdout (machine-readable)",
+)
+@repo_option
+def card(as_json: bool, repo: Path | None) -> None:
+    """Show what this deployment is made of.
+
+    The composition card `osprey init` prints, for a repo that already exists:
+    who can sign in and with what rights, what the agent runs on, what machine
+    it talks to, and what runs beside it. Everything is read off the repo's
+    profile.yml and the persona files beside it — nothing is built, started, or
+    probed.
+
+    With --json, the same rows as one JSON array of {group, label, value}
+    objects on stdout, and every warning on stderr.
+
+    Examples:
+
+    \b
+      $ osprey profile card
+      $ osprey profile card --repo ~/deployments/als-assistant
+      $ osprey profile card --json
+    """
+    import json
+    from contextlib import nullcontext
+
+    from .build_profile import resolve_build_profile
+    from .main import lifecycle_reporter
+    from .output import machine_mode
+    from .phase_reporter import current_reporter
+    from .profile_card import Segment, _card_segment_lines, card_rows
+
+    # `--json` gets `machine_mode` and no reporter; the plain card gets the
+    # reporter and no `machine_mode`. The two are exclusive on purpose: the
+    # reporter's live region mounts on a terminal's stdout and would re-wrap
+    # the document a `--json` reader is parsing.
+    with (
+        machine_mode() if as_json else nullcontext(),
+        nullcontext() if as_json else lifecycle_reporter(),
+    ):
+        repo_root = find_repo_root(repo)
+        resolved, _profile_dir = resolve_build_profile(repo_root / PROFILE_FILENAME, None)
+        deltas = read_persona_deltas(repo_root, resolved.config)
+
+        # One derivation, one refusal. The card `init` prints is advisory and
+        # swallows what it cannot derive, because the repo is already made by
+        # then; here the card IS the output, so a shape this reader never met
+        # is a failure in both modes rather than a card with a hole in it.
+        rows: list[dict[str, str]] = []
+        lines: list[list[Segment]] = []
+        try:
+            if as_json:
+                rows = card_rows(resolved, deltas)
+            else:
+                lines = _card_segment_lines(resolved, deltas)
+        except Exception as e:
+            raise click.ClickException(f"Cannot derive the card: {e}") from e
+
+        if as_json:
+            click.echo(json.dumps(rows))
+            return
+
+        # Printed the way `init` prints it, so the two cards are one card.
+        reporter = current_reporter()
+        for line in lines:
+            if line:
+                reporter.echo_segments(line)
+            else:
+                reporter.echo("")
 
 
 # Directory name the materialized data tree gets, and the value written to the
@@ -370,7 +446,9 @@ def _providers_named_by(provider: Any, config: Any) -> set[str]:
     return names
 
 
-def _parsed_persona_deltas(persona_texts: Mapping[str, str]) -> dict[str, Mapping[str, Any]]:
+def _parsed_persona_deltas(
+    persona_texts: Mapping[str, str], *, require_mapping: bool = False
+) -> dict[str, Mapping[str, Any]]:
     """Parse every emitted persona delta, naming the file a bad one came from.
 
     A delta gets no resolution round-trip of its own — it is meaningless without
@@ -384,22 +462,122 @@ def _parsed_persona_deltas(persona_texts: Mapping[str, str]) -> dict[str, Mappin
     stray scalar) is carried as an empty mapping: readers ask it for keys, and
     the emitted text is written out either way.
 
+    Args:
+        persona_texts: ``{persona name: delta text}``.
+        require_mapping: Refuse a document that is not a mapping instead of
+            carrying it as an empty one. Off for the emission path above, whose
+            texts this module wrote and which is written out whatever it parses
+            to; on for :func:`read_persona_deltas`, where the text came off disk
+            and an empty delta would misreport a file the operator has to fix.
+
     Raises:
-        BuildProfileError: If any delta is not valid YAML.
+        BuildProfileError: If any delta is not valid YAML, or — under
+            ``require_mapping`` — parses to something that is not a mapping.
+    """
+    return {
+        persona_name: _parse_persona_delta(
+            persona_text,
+            f"Emitted persona delta {_PERSONA_PROFILE_DIRNAME}/{persona_name}.yml",
+            require_mapping=require_mapping,
+        )
+        for persona_name, persona_text in persona_texts.items()
+    }
+
+
+def _parse_persona_delta(text: str, shown: str, *, require_mapping: bool) -> Mapping[str, Any]:
+    """Parse one persona delta, naming ``shown`` in any refusal.
+
+    The single parse behind :func:`_parsed_persona_deltas` and
+    :func:`read_persona_deltas`. The two differ only in what a refusal calls the
+    document — the file the emission would have written, or the file the
+    operator opens — so the caller supplies that and nothing else varies.
+
+    Args:
+        text: The delta's YAML text.
+        shown: How a refusal names this document (``"Persona delta
+            personas/admin.yml"``).
+        require_mapping: Refuse a document that is not a mapping instead of
+            carrying it as an empty one.
+
+    Raises:
+        BuildProfileError: If ``text`` is not valid YAML, or — under
+            ``require_mapping`` — parses to something that is not a mapping.
     """
     import yaml
 
-    parsed: dict[str, Mapping[str, Any]] = {}
-    for persona_name, persona_text in persona_texts.items():
+    try:
+        delta = yaml.safe_load(text)
+    except yaml.YAMLError as e:
+        raise BuildProfileError(f"{shown} is not valid YAML: {e}") from e
+    if isinstance(delta, Mapping):
+        return delta
+    if require_mapping:
+        raise BuildProfileError(f"{shown} is not a YAML mapping")
+    return {}
+
+
+def read_persona_deltas(repo_root: Path, config: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    """Read the on-disk delta of every persona a profile's catalog names.
+
+    The read half of what :func:`_persona_profile_texts` emits. The catalog
+    (:func:`~.build_profile_emit.persona_catalog`) is the only list of persona
+    files consulted, never the ``personas/`` directory itself, so a stale file
+    the profile no longer names contributes nothing and cannot make a reader
+    report a persona this deployment does not deploy. The result therefore holds
+    exactly one entry per catalog entry, whether or not a file backed it.
+
+    A catalog entry that names a bundled preset (``control-assistant-readonly``)
+    instead of a repo file has no delta to read, and neither has one whose file
+    is missing. Both warn on stderr and carry an empty delta rather than
+    stopping: the persona is still deployed, and dropping it from a reader's
+    output would hide that more thoroughly than an empty one does.
+
+    Args:
+        repo_root: The deployment repo the catalog's relative ``build_profile``
+            paths are resolved against.
+        config: The loaded profile's ``config:`` block.
+
+    Returns:
+        ``{persona name: parsed delta}``, one entry per catalog entry, in
+        catalog order.
+
+    Raises:
+        click.ClickException: If a delta file exists but is not a YAML mapping.
+            A file that is there and unreadable is a different fact from one
+            that is absent: the operator has something to fix, and a caller that
+            carried on would state something wrong about that persona rather
+            than admit it knows nothing.
+    """
+    from .build_profile_emit import persona_catalog
+
+    deltas: dict[str, Mapping[str, Any]] = {}
+    for persona_name, entry in persona_catalog(config).items():
+        reference = entry.get("build_profile")
+        relative = reference.strip() if isinstance(reference, str) else ""
+        parts = Path(relative).parts if relative else ()
+        if not relative.endswith(".yml") or Path(relative).is_absolute() or ".." in parts:
+            warn(
+                f"Persona {persona_name!r}: build_profile {reference!r} is not a file in "
+                "this repo, so no delta is read for it."
+            )
+            deltas[persona_name] = {}
+            continue
         try:
-            delta = yaml.safe_load(persona_text)
-        except yaml.YAMLError as e:
-            raise BuildProfileError(
-                f"Emitted persona delta {_PERSONA_PROFILE_DIRNAME}/{persona_name}.yml "
-                f"is not valid YAML: {e}"
-            ) from e
-        parsed[persona_name] = delta if isinstance(delta, Mapping) else {}
-    return parsed
+            text = (repo_root / relative).read_text(encoding="utf-8")
+        except OSError:
+            warn(
+                f"Persona {persona_name!r}: no persona file at {relative}, so no delta "
+                "is read for it."
+            )
+            deltas[persona_name] = {}
+            continue
+        try:
+            deltas[persona_name] = _parse_persona_delta(
+                text, f"Persona delta {relative}", require_mapping=True
+            )
+        except BuildProfileError as e:
+            raise click.ClickException(str(e)) from e
+    return deltas
 
 
 def _referenced_providers(
@@ -942,9 +1120,12 @@ def _context_baseline_source(manager: TemplateManager, data_bundle: str) -> Path
     return context_baseline_slot(manager.template_root / "claude_code" / PER_USER_CONTEXT_DIRNAME)
 
 
-def _packaged_data_source(manager: TemplateManager, data_bundle: str) -> Path:
-    """The packaged ``data/`` tree this command copies verbatim.
+def _app_template_root(manager: TemplateManager, data_bundle: str) -> Path:
+    """The packaged app-template directory a bundle name points at.
 
+    The one place that turns a ``data_bundle`` into a path on disk, so every
+    reader of an app template — the ``data/`` tree below, and the whole-template
+    copiers beside it — fails the same way on the same missing directory.
     Checked up front, before anything is written, so a packaging regression
     surfaces as an actionable error here rather than as a missing-file error
     mid-copy. It cannot be caused by anything the caller passed.
@@ -952,19 +1133,78 @@ def _packaged_data_source(manager: TemplateManager, data_bundle: str) -> Path:
     Args:
         manager: The :class:`~.templates.manager.TemplateManager` locating the
             installed template root.
-        data_bundle: App template whose ``data/`` tree gets materialized.
+        data_bundle: App template to locate.
+
+    Returns:
+        The template directory, guaranteed to exist.
 
     Raises:
-        BuildProfileError: If the tree is absent from the installation.
+        BuildProfileError: If the template is absent from the installation.
     """
-    data_source = Path(manager.template_root) / "apps" / data_bundle / "data"
-    if not data_source.is_dir():
+    template_root = Path(manager.template_root) / "apps" / data_bundle
+    if not template_root.is_dir():
         raise BuildProfileError(
-            f"App template {data_bundle!r} ships no data tree at {data_source}. "
-            f"This is a packaging bug — reinstall osprey-framework."
+            f"App template {data_bundle!r} is absent from this installation at "
+            f"{template_root}. This is a packaging bug — reinstall osprey-framework."
         )
 
-    return data_source
+    return template_root
+
+
+def _packaged_data_source(manager: TemplateManager, data_bundle: str) -> Path:
+    """The packaged ``data/`` tree this command copies verbatim.
+
+    Args:
+        manager: The :class:`~.templates.manager.TemplateManager` locating the
+            installed template root.
+        data_bundle: App template whose ``data/`` tree gets materialized.
+
+    Returns:
+        The ``data/`` directory inside the app template.
+
+    Raises:
+        BuildProfileError: If the template is absent from the installation.
+    """
+    return _app_template_root(manager, data_bundle) / "data"
+
+
+def _resolve_preset_bundle(preset: str) -> tuple[str, str]:
+    """Resolve a CLI preset spelling to its name and its app template.
+
+    Both halves of the answer come from resolving the preset for real rather
+    than from reading its file: a preset that inherits its ``app_template:``
+    through ``extends:`` names no bundle of its own, and only the resolved
+    profile knows which one it ends up on.
+
+    Args:
+        preset: Preset name as typed, in either spelling
+            (``control-assistant`` or ``control_assistant``).
+
+    Returns:
+        ``(preset_name, data_bundle)`` — the normalized (hyphenated) preset
+        name, and the app template the resolved profile names.
+
+    Raises:
+        click.UsageError: If ``preset`` names no bundled preset — the message
+            lists every one that exists — or if resolving it fails.
+    """
+    from .build_profile import (
+        _normalize_preset_name,
+        _preset_exists,
+        list_presets,
+        resolve_build_profile,
+    )
+
+    preset_name = _normalize_preset_name(preset)
+    if _preset_exists(preset_name) is None:
+        available = ", ".join(list_presets()) or "(none)"
+        raise click.UsageError(f"Unknown preset {preset!r}. Available: {available}")
+    try:
+        resolved, _preset_dir = resolve_build_profile(None, preset_name)
+    except BuildProfileError as e:
+        raise click.UsageError(f"Cannot resolve preset {preset_name!r}: {e}") from e
+
+    return preset_name, resolved.data_bundle
 
 
 class _MaterializedProfile(NamedTuple):
