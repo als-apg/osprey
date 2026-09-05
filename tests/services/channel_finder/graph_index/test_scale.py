@@ -8,17 +8,29 @@ search stay inside an operator's patience when the ``bindings`` table holds a
 hundred thousand rows rather than three thousand.
 
 Three things are measured, and every one of them prints what it measured before
-it asserts anything. The thresholds are deliberately far above the numbers a
-workstation produces: a shared CI box is slower than a laptop by more than any
-margin worth arguing about, and a guard that fires on a busy runner teaches
-nobody anything. What the printed lines are for is the *trend* -- a build that
-goes from forty seconds to ninety has regressed even though it never failed,
-and the CI history is where that is visible.
+it asserts anything. What the printed lines are for is the *trend* -- a build
+that goes from forty seconds to ninety has regressed even though it never
+failed, and the run history is where that is visible.
 
-The whole module is marked ``slow``: it synthesises a hundred thousand rows and
-writes them to disk, which is not something the default suite should pay for on
-every run. Run it with ``pytest tests/services/channel_finder/graph_index/
-test_scale.py -m slow``.
+The latency budgets are held to a workstation's numbers rather than widened
+until a loaded runner fits inside them, which is why this module does not run
+in the parallel lane. Measured: a search over the hundred-thousand-row index
+takes 42 ms here and 298 ms in the shared lane, and the whole parity matrix
+over the demo corpus 5.5 ms here and 34 ms there -- the same ~7x on a corpus of
+a hundred thousand rows and on one of three thousand. A factor that does not
+move with the data is the box, not the code: four xdist workers on a four-vCPU
+runner, with DuckDB asking for cores none of them can spare. Coverage
+instrumentation was measured too and is not the cause (+6%). Budgets widened to
+survive that contention would sit twelve times above the real number and could
+no longer see a threefold regression, so the tests are taken out of the lane
+instead and the budgets left where the measurement puts them.
+
+The whole module is therefore marked ``channel_finder_benchmark`` as well as
+``slow``: it is deselected from CI's unit lane and runs on demand, in the
+benchmark job (``gh workflow run ci.yml -f run_benchmarks=true``) or locally
+with ``pytest tests/services/channel_finder/graph_index/test_scale.py``. The
+cost of that is real and worth naming: nothing runs these automatically, so a
+latency regression lands unnoticed until someone asks for a benchmark run.
 
 :data:`PARITY_MATRIX` is exported for the parity lane, which replays the same
 filter shapes against the store and against the index and compares the answers.
@@ -54,7 +66,7 @@ from osprey.services.channel_finder.graph_index.reader import (
 )
 from osprey.services.channel_finder.graph_index.taxonomy import class_name
 
-pytestmark = pytest.mark.slow
+pytestmark = [pytest.mark.slow, pytest.mark.channel_finder_benchmark]
 
 logger = logging.getLogger(__name__)
 
