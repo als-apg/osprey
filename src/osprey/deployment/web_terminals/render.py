@@ -35,6 +35,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
 from osprey.deployment.web_terminals.personas import (
     SUPPORTED_MCP_TOPOLOGY,
     USERNAME_CHARSET_RE,
+    access_wire_value,
     as_dict,
     config_archiver_password_env,
     config_needs_ariel_mirror,
@@ -47,6 +48,7 @@ from osprey.deployment.web_terminals.personas import (
     entry_is_shared,
     env_var_suffix,
     env_var_suffix_collisions,
+    resolve_access_principals,
     resolve_personas,
     roster_role_by_name,
 )
@@ -977,14 +979,23 @@ def render_web_terminals(
                 # keeps a role-only roster resolving field for field like the
                 # `persona:`-pinned roster it stands for.
                 "role": roster_roles.get(entry["name"]),
-                # Whether this entry is a shared card (`access: any` on the
-                # roster entry): any authenticated roster user may open it,
-                # not only the one it belongs to. Read through the shared
-                # predicate rather than off the raw key so the sidecar's env
-                # line and credential provisioning can never disagree about
-                # which cards are shared. With auth off the template never
-                # consults it.
+                # Whether this entry is a shared card: whether its `access`
+                # admits anyone beyond the one user it belongs to — the whole
+                # roster under `any`, or the identities a `user:`/`domain:`
+                # list names. A BOOL, and the only thing the template asks of
+                # it (the value those principals travel as is `access_value`
+                # below). Read through the shared predicate rather than off the
+                # raw key so the sidecar's env line and credential provisioning
+                # can never disagree about which cards are shared. With auth
+                # off the template never consults it.
                 "shared": entry_is_shared(entry),
+                # The same answer as a VALUE: what `access_env` carries to the
+                # sidecar. Resolved and spelled here, through the one parser and
+                # the one speller, so the set the sidecar admits on is the set
+                # this roster authored — a render that emitted a fixed token
+                # would hand a `domain:` card to the whole roster. Empty for an
+                # owner-only entry, and the template then emits no line at all.
+                "access_value": access_wire_value(resolve_access_principals(entry)),
                 # The env-var name that subject is emitted under, resolved HERE
                 # through env_var_suffix() — the single definition of the
                 # username->env-var mapping, shared with credential

@@ -219,8 +219,10 @@ The config block
          instead of a persona — one mapping written once rather than a persona
          pinned per user, and the half a single sign-on provider's groups can
          decide; see :ref:`multi-user-role-from-sso`. Behind a login wall an
-         entry may also set ``access: any``, opening it to every roster login
-         as a shared card — see :ref:`multi-user-shared-card`. The roster sets
+         entry may also set ``access:``, the set of principals allowed to open
+         it as a shared card: ``any`` for every roster login, or a list naming
+         single sign-on identities or a whole email domain — see
+         :ref:`multi-user-shared-card`. The roster sets
          no ports.
          Each user's host ports come from the deployment's port layout — one
          hundred-port family per companion panel (artifact gallery, ARIEL,

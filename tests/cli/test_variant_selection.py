@@ -709,7 +709,7 @@ class TestValidateHonorsTheVariant:
         assert tracked.exit_code == 0, tracked.output
         assert merged.exit_code == 0, merged.output
         assert "'alice'" not in tracked.output
-        assert "access: any" in merged.output
+        assert "sets access 'any'" in merged.output
         assert "'alice'" in merged.output
 
     def test_a_persona_delta_has_no_variant(self, runner: CliRunner, lifecycle_repo: Path) -> None:

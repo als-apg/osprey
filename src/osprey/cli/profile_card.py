@@ -254,6 +254,7 @@ def _web_terminal_group(
     """Who gets in, with what rights, how, and where — plus what they see."""
     from osprey.deployment.web_terminals.personas import (
         effective_persona,
+        entry_is_shared,
         resolve_authorization_roles,
     )
     from osprey.deployment.web_terminals.ports import base_ports_from_config, resolve_nginx_port
@@ -308,14 +309,29 @@ def _web_terminal_group(
         if persona:
             rights.append(persona)
             rights.extend(_write_rights(profile, persona_deltas, persona))
-        if auth_method and user.get("access") == "any":
-            # A shared card: behind the wall, opened with any roster login's
-            # own credential rather than one of its own.
-            auth_cell: Cell = _dotted_list([str(auth_method), "shared"])
-        elif auth_method:
-            auth_cell = [(str(auth_method), Styles.DIM)]
-        else:
+        auth_cell: Cell
+        if not auth_method:
             auth_cell = []
+        else:
+            try:
+                shared = entry_is_shared(dict(user))
+            except ValueError:
+                # An `access` value the vocabulary does not recognise. The card
+                # cannot say whether the entry is shared, and the plain method
+                # cell reads as "not shared" — the one answer that is certainly
+                # wrong for a value lint refuses. Name it instead, so the card
+                # and the refusal the operator is about to get agree.
+                auth_cell = _joined(
+                    [[(str(auth_method), None)], [("access invalid", Styles.WARNING)]]
+                )
+            else:
+                # A shared card: behind the wall, opened with an admitted
+                # login's own credential rather than one of its own.
+                auth_cell = (
+                    _dotted_list([str(auth_method), "shared"])
+                    if shared
+                    else [(str(auth_method), Styles.DIM)]
+                )
         index = user.get("index", position)
         # The allocator the render itself uses, rather than `base + index` spelled
         # again: it is what falls a family back to its layout band when the

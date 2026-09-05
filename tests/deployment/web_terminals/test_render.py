@@ -3491,6 +3491,91 @@ def test_auth_sidecar_service_marks_each_shared_card_from_the_roster(method: str
     assert access_names == [f"OSPREY_AUTH_ROSTER_ACCESS_{suffix}"]
 
 
+def _access_lines(compose: dict) -> dict[str, str]:
+    """Every OSPREY_AUTH_ROSTER_ACCESS_* variable on the sidecar, by name."""
+    return {
+        name: value
+        for name, value in _service_env(compose, "auth").items()
+        if name.startswith("OSPREY_AUTH_ROSTER_ACCESS_")
+    }
+
+
+def test_a_domain_card_renders_its_principals_not_the_roster_token() -> None:
+    """The line the sidecar admits on must carry the set the roster authored.
+
+    A card admitting one domain used to render the literal `any` — the token
+    that means the WHOLE roster — so the deployment admitted every login to a
+    card written for one organisation. It renders the principals instead.
+    """
+    # Arrange
+    config = _auth_config(
+        ["alice", {"name": "ops-review", "index": 1, "access": ["domain:lbl.gov"]}]
+    )
+
+    # Act
+    lines = _access_lines(_compose(config))
+
+    # Assert
+    key = f"OSPREY_AUTH_ROSTER_ACCESS_{env_var_suffix('ops-review')}"
+    assert lines == {key: '["domain:lbl.gov"]'}
+    assert "any" not in lines[key]
+
+
+def test_a_mixed_principal_list_renders_sorted_and_keeps_self() -> None:
+    """A set has no order, so the members are sorted — an unstable render would
+    churn the compose file on every build. `self` stays: beside another member
+    it is one of the admitted principals, not a marker."""
+    # Arrange
+    config = _auth_config([{"name": "ops", "index": 0, "access": ["user:carol@lbl.gov", "self"]}])
+
+    # Act
+    lines = _access_lines(_compose(config))
+
+    # Assert
+    key = f"OSPREY_AUTH_ROSTER_ACCESS_{env_var_suffix('ops')}"
+    assert lines == {key: '["self","user:carol@lbl.gov"]'}
+
+
+def test_the_roster_shorthands_render_byte_identically() -> None:
+    """`any` and its list spelling `[roster]` are the same set, so they render
+    the same token — and that token is the one `access: any` has always
+    emitted, so upgrading a roster into the principal set never rewrites a
+    deployment's compose file."""
+    # Act
+    shorthand = _compose(_auth_config([{"name": "ops", "index": 0, "access": "any"}]))
+    spelled_out = _compose(_auth_config([{"name": "ops", "index": 0, "access": ["roster"]}]))
+
+    # Assert
+    key = f"OSPREY_AUTH_ROSTER_ACCESS_{env_var_suffix('ops')}"
+    assert _access_lines(shorthand) == {key: "any"}
+    assert _access_lines(spelled_out) == _access_lines(shorthand)
+    assert shorthand["services"]["auth"] == spelled_out["services"]["auth"]
+
+
+@pytest.mark.parametrize("access", ["own", ["self"], None])
+def test_no_owner_only_spelling_renders_a_roster_access_line(access) -> None:
+    """Owner-only is the default and an absent variable is how the sidecar
+    already reads it, so none of the three spellings emits a line — an explicit
+    owner-only value would be a second thing to parse and to keep in step."""
+    # Arrange
+    entry: dict = {"name": "ops", "index": 0}
+    if access is not None:
+        entry["access"] = access
+
+    # Act / Assert
+    assert _access_lines(_compose(_auth_config([entry]))) == {}
+
+
+def test_an_unreadable_access_refuses_the_render() -> None:
+    """The render is strict: a value the vocabulary does not recognise stops the
+    build naming the entry, rather than resolving to a set the sidecar would
+    then admit on."""
+    config = _auth_config([{"name": "ops", "index": 0, "access": "ANY"}])
+
+    with pytest.raises(ValueError, match="'ops'"):
+        _compose(config)
+
+
 @pytest.mark.parametrize("method", ["token", "none"])
 def test_no_roster_access_line_renders_for_a_method_that_stands_no_wall(method: str) -> None:
     """`token` and `none` render no sidecar, and the shared-card marker rides only

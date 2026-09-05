@@ -214,14 +214,37 @@ variables and nothing else, and no site CA is mounted into its image. See
 
 .. _multi-user-shared-card:
 
-Share a card with the whole roster
-==================================
+Share a card with more than one person
+======================================
 
-A roster entry admits one person. ``access:`` is the key that changes that —
-``own``, the default, is that rule spelled out: the entry's own login and
-nobody else's. ``any`` marks a **shared card**: one terminal, one persona,
-one audit directory, that anyone on the roster opens with their own
-credential:
+A roster entry admits one person. ``access:`` is the key that changes that.
+Its value is a **principal set** — the principals allowed to open the card,
+and nobody else. The two words you already know name one-principal sets:
+``own``, the default, is ``[self]``, the entry's own login and nobody else's;
+``any`` is ``[roster]``, everyone this deployment can authenticate. Every
+other set is written as a list.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Principal
+     - Who it admits
+   * - ``self``
+     - The entry's own login. ``access: own`` is this set, spelled shorter.
+   * - ``roster``
+     - Everyone this deployment can authenticate. ``access: any`` is this
+       set, spelled shorter.
+   * - ``user:<id>``
+     - One identity, written exactly as your provider asserts it under
+       ``auth.oidc.claim``. Needs ``method: oidc``.
+   * - ``domain:<domain>``
+     - Everyone whose asserted email address is in that domain. Needs
+       ``method: oidc`` and ``claim: email``.
+
+A card whose set is anything but ``[self]`` is a **shared card**: one
+terminal, one persona, one audit directory, opened by more than one person.
+Here is one shared with the whole roster:
 
 .. code-block:: yaml
 
@@ -253,31 +276,96 @@ credential:
            persona: readonly
            access: any                # any roster login opens this card
 
+And here are two cards that nobody needs a roster entry to open — one shared
+with a whole single sign-on domain, one with two named people:
+
+.. code-block:: yaml
+
+   modules:
+     web_terminals:
+       auth:
+         method: oidc
+         oidc:
+           issuer: https://sso.example.org/realms/accelerator
+           client_id_env: OSPREY_AUTH_OIDC_CLIENT_ID
+           client_secret_env: OSPREY_AUTH_OIDC_CLIENT_SECRET
+           claim: email             # domain: reads the email address
+       users:
+         - name: ops-desk
+           index: 2
+           persona: readonly
+           access: [domain:example.org]
+         - name: controls
+           index: 3
+           persona: readwrite
+           access: [user:ada@example.org, user:bo@example.org]
+
 The ``control-assistant`` preset ships its two standalone cards this way —
 ``logbook`` and ``knowledge``, each ``access: any`` under ``password`` — so
 the logbook research and facility knowledge terminals are opened with any
 roster login's own password and carry no credential of their own.
 
-Who can open it: anyone this deployment can authenticate. Under ``password``
-that is every roster entry with a provisioned password; under ``oidc``, every
-entry that carries an ``oidc_subject:``, the shared card itself included when
-it carries one. On a shared card the password
-form gains a username field: the person types their *own* roster name beside
-the password, and it is that name's stored password that is checked — and that
-name the rate limit counts against. A card that never had a password of its
-own has no credential to offer here; one flipped from ``own`` still does,
-until you decommission it — see
-:ref:`Removing someone <multi-user-shared-card-removal>` below.
+Who can open it is answered one principal at a time. ``roster`` admits
+anyone this deployment can authenticate: under ``password`` that is every roster entry
+with a provisioned password; under ``oidc``, every entry that carries an
+``oidc_subject:``, the shared card itself included when it carries one.
+``user:`` admits the one identity it names, and ``domain:`` admits every
+asserted email address in that domain — in both cases whether or not that
+person has a roster entry of their own. The set only ever grants: a card
+admits someone when at least one of its principals covers them, nothing on
+the card takes admission back again, and a person no principal covers is
+refused.
 
-The session carries who opened it — the *opener* — and re-checks that person
-against the roster on every request. Rotating the opener's password or
-decommissioning them ends every shared session they opened at the next
-request, and under ``oidc`` so does editing or removing their
-``oidc_subject:`` — that per-person revocation is how a shared card is taken
-away from one user without touching the rest. Flipping the ``access`` key
-settles the same way: a card flipped to ``any`` refuses sessions minted while
-it was its owner's, and a card flipped back to ``own`` refuses the shared
-ones. The ledger records the opener beside the card
+Write ``self`` into the list where the card's own login has to keep working
+beside the rest. ``[self, domain:example.org]`` admits the card's owner by
+their own credential and everyone in the domain; ``[domain:example.org]``
+alone does not admit the owner, unless the identity they sign in with is
+itself in that domain. ``roster`` covers the owner too, as one roster member
+among the others.
+
+``domain:`` compares the domain exactly. ``domain:example.org`` admits
+``ada@example.org`` and refuses ``ada@labs.example.org``; name the subdomain
+as a principal of its own where you want it too. Case in the domain is
+ignored, because domain names ignore it, and there is a domain to read only
+where the identity claim is the email address — so ``domain:`` is refused
+before the deployment starts unless ``claim: email`` is set. Two further
+checks run once, at login, on claims the login service never stores: a token
+whose ``hd`` claim disagrees with the domain of its email address is refused,
+and so is one carrying ``email_verified: false``. A provider that never
+verifies addresses — a Keycloak realm with *Verify email* switched off, say —
+emits that claim for everyone, so its ``user:`` principals refuse everybody
+until the address is verified, which is the provider behaving to spec rather
+than a fault.
+
+Under ``password`` only ``self`` and ``roster`` are evaluated: nothing there
+asserts an identity or an email domain, so a card listing only ``user:`` or
+``domain:`` principals would admit nobody at all. The lint refuses that card
+before it can be deployed. A card whose set names ``roster`` gains a username
+field on its login form:
+the person types their *own* roster name beside the password, and it is that
+name's stored password that is checked — and that name the rate limit counts
+against. A card that never had a password of its own has no credential to
+offer here; one flipped from ``own`` still does, until you decommission it —
+see :ref:`Removing someone <multi-user-shared-card-removal>` below.
+
+A session opened by someone the roster names carries who opened it — the
+*opener* — and re-checks that person against the roster on every request.
+Rotating the opener's password or decommissioning them ends every shared
+session they opened at the next request, and under ``oidc`` so does editing
+or removing their ``oidc_subject:`` — that per-person revocation is how a
+shared card is taken away from one user without touching the rest.
+
+A session admitted by a ``user:`` or ``domain:`` principal has no roster
+entry behind it. It carries the identity the provider asserted, and every
+request re-checks that identity against the set the card carries *now*.
+Revocation is the same move made in a different place: drop the principal
+that covers someone, and their next request on that card is refused. Editing
+the ``access`` key settles the same way throughout — a card widened from
+``own`` refuses the sessions minted while it was its owner's, a card returned
+to ``own`` refuses the shared ones, and a narrowed list refuses whoever it no
+longer covers.
+
+The ledger records who opened a session beside the card
 (:ref:`audit-trail-identity-keys`), so a shared terminal's records still say
 who did what.
 
@@ -287,13 +375,32 @@ card's terminal is only ever built as its own tier — so a person the binding
 would refuse for their own card can still open a shared one. If the binding
 is your membership gate, do not share a card.
 
-Two rosters are refused by ``osprey scaffold web-terminals lint`` and the
+These rosters are refused by ``osprey scaffold web-terminals lint`` and the
 build verbs that run it:
 
 - **A deployment-editing card cannot be shared**
   (``web_terminals.shared_card_privileged``). A persona holding the setup
   tool or the Config panel was lifted for named people behind their own
-  cards; ``access: any`` would hand it to every login the deployment has.
+  cards; any set wider than ``[self]`` would hand it to people it was never
+  lifted for.
+- **A principal OSPREY does not recognise is an error, never a wider card**
+  (``web_terminals.invalid_user_access``). An empty list, a value that is not
+  a list, an unknown prefix and a misspelled one are all refused where they
+  are written, rather than quietly leaving the card owner-only. ``group:``
+  gets its own wording: the prefix is reserved and not supported yet.
+- **Both new principal kinds need** ``method: oidc``
+  (``web_terminals.access_principal_without_idp``). Under ``password``
+  nothing asserts an identity or an email domain, so a card written that way
+  could not mean what it says.
+- **A** ``domain:`` **principal needs** ``claim: email``
+  (``web_terminals.access_domain_without_email_claim``). Every other claim is
+  refused, because there is no email address to read a domain from and the
+  card would admit nobody.
+- **Two** ``user:`` **principals on one card must not name the same
+  identity** (``web_terminals.duplicate_access_principal``). Identical values
+  are refused, and so are values differing only in case under
+  ``claim: email``, because the login service has to resolve an identity to a
+  single grant.
 - **With a shared card on an** ``oidc`` **roster, two entries must not carry
   the same** ``oidc_subject`` (``web_terminals.shared_card_duplicate_subject``).
   One person could always hold two cards — the same ``oidc_subject:`` on
@@ -303,6 +410,16 @@ build verbs that run it:
   a person keeps ``oidc_subject:`` on one card only — a login by that
   identity would otherwise be ambiguous, and is refused. Under
   ``claim: email`` two subjects that differ only in case count as the same.
+
+The three principal refusals — ``web_terminals.access_principal_without_idp``,
+``web_terminals.access_domain_without_email_claim`` and
+``web_terminals.duplicate_access_principal`` — say nothing where no login wall
+stands. Under ``token`` or ``none`` there is no door for a principal to open,
+and a profile's passive base is allowed to carry the key for the variant that
+arms it. Once the deployment is running, a card whose
+``OSPREY_AUTH_ROSTER_ACCESS_*`` value the login service cannot read admits
+nobody, its owner included, and the service logs a warning naming the
+variable until the deployment is rendered again from a corrected profile.
 
 
 .. _multi-user-https:
@@ -368,8 +485,8 @@ only. On every ``osprey up``, for each user in order:
 #. Otherwise a password is generated, hashed, and printed once. Capture it.
 
 To change one later, ``osprey users passwd alice`` prompts, rewrites that hash
-and ends alice's sessions — her own card's, and every shared-card
-(:ref:`access: any <multi-user-shared-card>`) session she opened, since those
+and ends alice's sessions — her own card's, and every
+:ref:`shared-card <multi-user-shared-card>` session she opened, since those
 are held open by this same credential. Sessions held open by other people's
 passwords stay up. Password login is rate-limited per user but never locks
 anyone out — a control-room operator must not be shut out of the terminals.
@@ -393,13 +510,13 @@ A credential can outlive an account, so:
   *own* card's session is different, lapsing at expiry or logout as it always
   has, unless ``osprey users decommission alice`` ends it now.
 
-- **Flipping a card to** ``access: any`` **does not retire the card's own
-  password** — the hash stays in ``.env.auth`` and still works: anyone who
-  knows it can open the shared card by typing the card's own name into the
-  username field. Run ``osprey users decommission <card>`` when you share a
-  card that used to have its own password; flipping back to ``own`` revives
-  an unretired hash. ``osprey users passwd <card>`` is refused while the card
-  is shared — there is no password of its own to change.
+- **Sharing a card does not retire the card's own password** — the hash stays
+  in ``.env.auth`` and still works: anyone who knows it can open the shared
+  card by typing the card's own name into the username field. Run
+  ``osprey users decommission <card>`` when you share a card that used to
+  have its own password; returning the card to ``own`` revives an unretired
+  hash. ``osprey users passwd <card>`` is refused while the card is shared —
+  there is no password of its own to change.
 - **A plaintext** ``OSPREY_AUTH_PW_ALICE`` **in** ``.env`` **survives
   decommission** and would be hashed straight back in for the next alice.
   Delete the line by hand when the person leaves.

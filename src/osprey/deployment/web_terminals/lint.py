@@ -45,6 +45,7 @@ from osprey.deployment.web_terminals.personas import (
     privileged_default_persona_problem,
     privileges_beyond_baseline,
     rendered_persona_configs,
+    resolve_access_principals,
     resolve_image_tag,
     resolve_personas,
     shared_card_privileged_problems,
@@ -241,6 +242,9 @@ def lint_web_terminals(
     findings.extend(_check_auth_credential_collisions(web_terminals, users))
     findings.extend(_check_shared_card_duplicate_subject(web_terminals, users))
     findings.extend(_check_shared_card_subject(web_terminals, users))
+    findings.extend(_check_access_principal_without_idp(web_terminals, users))
+    findings.extend(_check_access_domain_without_email_claim(web_terminals, users))
+    findings.extend(_check_duplicate_access_principals(web_terminals, users))
     findings.extend(_check_authorization(web_terminals))
     findings.extend(_check_claims_without_oidc(web_terminals))
     findings.extend(_check_role_charset(web_terminals))
@@ -544,52 +548,54 @@ def _check_user_tour(users: list[Any]) -> list[Finding]:
 
 
 def _check_user_access(users: list[Any]) -> list[Finding]:
-    """An object-form entry's optional ``access`` must be the literal ``own`` or
-    ``any``, and ``any`` only does anything where the sidecar stands a wall.
+    """An object-form entry's optional ``access`` must resolve to a principal set.
 
-    One finding, and one deliberate silence:
+    ``access`` says who may open an entry's card, authored either as one of the
+    two shorthands (``own``, ``any``) or as a list of principals (``self``,
+    ``roster``, ``user:<id>``, ``domain:<domain>``).
+    :func:`~osprey.deployment.web_terminals.personas.resolve_access_principals`
+    is the single parser of that vocabulary, so this rule resolves the entry and
+    reports the resolver's refusal verbatim rather than re-stating the grammar.
+    Lint and the render preflight therefore cannot disagree about which
+    spellings a deployment accepts, and an operator reads the same sentence from
+    both. The resolver's messages already name the entry, quote the offending
+    value and say what to write instead — ``group:``, for one, is refused by
+    name as reserved and not supported yet, which is a different instruction
+    than "unknown prefix".
 
-    * Anything but exactly the string ``"own"`` or ``"any"`` is an ERROR. The
-      normalizer keeps only the literal ``"any"`` and drops everything else —
-      deliberately fail-closed to ``own`` — so ``access: ANY`` (or ``true``, or
-      a number) never widens an entry's reach, but the author who wrote it
-      believes the opposite of what deploys.
-    * ``access: any`` is silent wherever it cannot change anything: the
-      deployment stands no wall at all (``sidecar_active`` is false — under
-      ``token`` and ``none`` alike no login gates the roster, so every entry is
-      as reachable as the key promises to make this one). That silence is
-      deliberate, not an oversight: profile overlays concatenate the roster
-      list rather than merging entries by name, so a passive base that a host
-      variant arms with ``password``/``oidc`` has to carry ``access: any`` on
-      the base entry — the same position ``oidc_subject`` already sits in
-      silently (:func:`_check_auth_oidc` reads it only under ``oidc``). A
-      finding there would recur on every validate/build of the base and train
-      operators to skip the WARN block; the key arms the moment the variant is
-      selected, and the merged view is what both commands lint.
+    Every refusal is an ERROR, because a value no consumer recognises deploys
+    fail-closed as ``own``: ``access: ANY`` (or ``true``, or a number) never
+    widens an entry's reach, but the author who wrote it believes the opposite
+    of what deploys. ``access: own`` explicit, an absent key, and an authored
+    key with no value (YAML null) are silent — all three are valid spellings of
+    the default.
 
-    ``access: own`` explicit is silent — a valid spelling of the default, even
-    though the normalizer drops it.
+    One deliberate silence remains: ``access: any`` is not reported where it
+    cannot change anything, i.e. where the deployment stands no wall at all
+    (``sidecar_active`` is false — under ``token`` and ``none`` alike no login
+    gates the roster). That silence is not an oversight: profile overlays
+    concatenate the roster list rather than merging entries by name, so a
+    passive base that a host variant arms with ``password``/``oidc`` has to
+    carry its ``access`` key on the base entry — the same position
+    ``oidc_subject`` already sits in silently (:func:`_check_auth_oidc` reads it
+    only under ``oidc``). A finding there would recur on every validate/build of
+    the base and train operators to skip the WARN block; the key arms the moment
+    the variant is selected, and the merged view is what both commands lint.
     """
     findings: list[Finding] = []
     for user in users:
         if not isinstance(user, dict) or "access" not in user:
             continue
-        access = user.get("access")
-        if isinstance(access, str) and access in ("own", "any"):
-            continue
-        name = user.get("name", user)
-        findings.append(
-            Finding(
-                severity="error",
-                code="web_terminals.invalid_user_access",
-                message=(
-                    f"modules.web_terminals.users entry {name!r} has an invalid "
-                    f"access {access!r}; access must be the string 'own' (default: "
-                    f"this entry reaches only its own terminal) or 'any' (may reach "
-                    f"every roster entry's terminal). Anything else deploys as 'own'"
-                ),
+        try:
+            resolve_access_principals(user)
+        except ValueError as refusal:
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.invalid_user_access",
+                    message=str(refusal),
+                )
             )
-        )
     return findings
 
 
@@ -1326,7 +1332,8 @@ def _check_unreadable_persona_privileges(
         many = len(names) > 1
         at_stake.setdefault(persona_name, []).append(
             f"{'users' if many else 'user'} {_named_users(names)} "
-            f"{'are' if many else 'is'} shared with the whole roster (access: any) and "
+            f"{'are' if many else 'is'} shared with somebody beyond "
+            f"{'their' if many else 'its'} own user and "
             f"{'resolve' if many else 'resolves'} to it"
         )
 
@@ -3189,6 +3196,43 @@ def _check_auth_credential_collisions(
     ]
 
 
+def _is_shared_entry(user: Any) -> bool:
+    """:func:`entry_is_shared` over a RAW roster entry, without its refusal.
+
+    The predicate raises for an ``access`` value the vocabulary does not
+    recognise, deliberately: a value no consumer understands must not be read
+    as an owner-only card at one surface while another reads it as admitting
+    somebody. Every caller that holds a *normalized* entry is already past that
+    refusal — :func:`~osprey.deployment.web_terminals.personas.normalize_users`
+    drops such an entry before it is resolved — but the two rules below ask the
+    question of the raw roster, where the bad value is still there.
+
+    So they absorb it, and read the entry as not shared. Linting is how the
+    operator LEARNS the value is unreadable: :func:`_check_user_access` reports
+    it with the sentence that says what to write instead, and a rule that
+    propagated the refusal instead would take that report — and every other
+    finding in the run — down with it over the one config the operator most
+    needs a report for. Treating the entry as not shared is also the fail-safe
+    reading *for these two rules specifically*: both only ever ADD a finding
+    about a shared card, so skipping the entry withholds a finding rather than
+    blessing anything.
+
+    Args:
+        user: One entry straight off ``modules.web_terminals.users``, of either
+            roster form.
+
+    Returns:
+        Whether the entry admits anyone beyond its own user; ``False`` for a
+        bare-string entry and for an ``access`` value that cannot be read.
+    """
+    if not isinstance(user, dict):
+        return False
+    try:
+        return entry_is_shared(user)
+    except ValueError:
+        return False
+
+
 def _check_shared_card_duplicate_subject(
     web_terminals: dict[str, Any], users: list[Any]
 ) -> list[Finding]:
@@ -3224,10 +3268,13 @@ def _check_shared_card_duplicate_subject(
     # which is not on the case-insensitive list, so the exact grouping holds.
     claim = context.get("auth_oidc_claim") or ""
     fold = claim in CASE_INSENSITIVE_CLAIMS
-    # Only the literal `access: "any"` survives normalization, so reading it
-    # off the raw entry through the shared predicate cannot disagree with
-    # what deploys.
-    if not any(isinstance(user, dict) and entry_is_shared(user) for user in users):
+    # The raw entry and the normalized one carry the same authored `access`
+    # value — `normalize_users` copies it through verbatim — so the shared
+    # predicate answers the same here as at the surfaces that deploy. The one
+    # place the two readings part is a value the resolver refuses, which the
+    # normalizer drops the whole entry over and `_is_shared_entry` reads as
+    # not shared.
+    if not any(_is_shared_entry(user) for user in users):
         return []
     by_subject: dict[str, list[str]] = {}
     for user in users:
@@ -3266,12 +3313,17 @@ def _check_shared_card_subject(web_terminals: dict[str, Any], users: list[Any]) 
     the card as itself — a documented shape (a service identity on its own
     shared card), which is why this is a WARN and not a refusal.
 
-    The hazard is the other reading of the same two keys: ``access: any``
-    typo'd onto a *personal* card — the admin login, say — which hands that
-    terminal to every mapped roster identity the moment ``oidc`` is in force,
-    with a green build. Nothing else in this module says so, and the entry
-    alone cannot tell the two readings apart, so the message names the entry
-    and both ways out.
+    The hazard is the other reading of the same two keys: an ``access`` that
+    admits somebody else typo'd onto a *personal* card — the admin login, say
+    — which hands that terminal to whoever the value names the moment ``oidc``
+    is in force, with a green build. Nothing else in this module says so, and
+    the entry alone cannot tell the two readings apart, so the message names
+    the entry and both ways out.
+
+    The message quotes the ``access`` value as authored rather than naming one
+    spelling of it. Every shared form reaches this rule — ``any`` and any list
+    that admits more than ``self`` alike — so a remedy phrased at ``access:
+    any`` would name a key half these findings do not have.
 
     Scoped to ``method: oidc`` like the two subject checks above: no other
     method reads the mapping, and on a passive ``none``/``token`` base that an
@@ -3285,7 +3337,7 @@ def _check_shared_card_subject(web_terminals: dict[str, Any], users: list[Any]) 
         return []
     findings: list[Finding] = []
     for user in users:
-        if not isinstance(user, dict) or not entry_is_shared(user):
+        if not _is_shared_entry(user):
             continue
         subject = user.get("oidc_subject")
         if not isinstance(subject, str) or not subject.strip():
@@ -3296,16 +3348,284 @@ def _check_shared_card_subject(web_terminals: dict[str, Any], users: list[Any]) 
                 severity="warn",
                 code="web_terminals.shared_card_subject",
                 message=(
-                    f"modules.web_terminals.users entry {name!r} sets access: any and "
-                    "also carries an oidc_subject. A shared card is opened with the "
-                    "opener's identity, so this subject only lets that one identity "
-                    "open the card as itself — it is not the card's own login. If "
-                    f"{name!r} is a personal card, drop access: any: as written, every "
-                    "roster identity can open it. If it is a shared card, its own "
-                    "oidc_subject is usually unneeded"
+                    f"modules.web_terminals.users entry {name!r} sets access "
+                    f"{user.get('access')!r} and also carries an oidc_subject. A shared "
+                    "card is opened with the opener's identity, so this subject only lets "
+                    "that one identity open the card as itself — it is not the card's own "
+                    f"login. If {name!r} is a personal card, narrow it to access: own (or "
+                    "drop the key): as written, the card admits more than its own user. If "
+                    "it is a shared card, its own oidc_subject is usually unneeded"
                 ),
             )
         )
+    return findings
+
+
+# The ID-token claim a ``domain:`` principal can be read from. A domain is the
+# part of an email address after the ``@``, so ``email`` is the one claim in the
+# OIDC vocabulary that carries one; every other claim — the sidecar's own
+# default included — holds an opaque identifier with no domain in it. Named
+# here rather than imported: the sidecar knows the claim only as a configured
+# string, and the module holding its default pulls the whole Flask app in with
+# it.
+_DOMAIN_CLAIM = "email"
+
+
+def _access_members(user: Any) -> tuple[str, list[str]] | None:
+    """An object-form entry's name and the ``access`` members it authored.
+
+    The three rules below all ask something about the *members* an entry lists,
+    so they share one reading of them — and one set of silences:
+
+    * a bare-string entry, or an object-form entry without a string name, lists
+      nothing and is skipped (as everywhere else in this module);
+    * the two shorthands (``own``, ``any``), an absent key and a YAML-null one
+      name no ``user:``/``domain:`` principal at all, so there is nothing here
+      to ask about;
+    * an ``access`` value
+      :func:`~osprey.deployment.web_terminals.personas.resolve_access_principals`
+      refuses is skipped, because :func:`_check_user_access` already reports
+      that refusal verbatim. A second finding over the same value would bury the
+      one sentence that says how to fix it.
+
+    Members are returned as authored, not as resolved: the resolver
+    ASCII-lower-cases a ``domain:`` value and de-duplicates the set, and both
+    the rules and the operator need the line that was actually written.
+
+    Args:
+        user: One roster entry, of either form.
+
+    Returns:
+        The entry's name and its authored members, or ``None`` when the entry is
+        one of the silences above.
+    """
+    name = _user_name(user)
+    if not isinstance(user, dict) or name is None:
+        return None
+    authored = user.get("access")
+    if not isinstance(authored, list):
+        return None
+    try:
+        resolve_access_principals(user)
+    except ValueError:
+        return None
+    # Every member is a string by now — the resolver refuses any that is not —
+    # so this narrows the type rather than filtering anything out.
+    return name, [member for member in authored if isinstance(member, str)]
+
+
+def _check_access_principal_without_idp(
+    web_terminals: dict[str, Any], users: list[Any]
+) -> list[Finding]:
+    """Password mode: a ``user:`` or ``domain:`` principal names nobody. ERROR.
+
+    Both kinds name an identity by the value of an ID-token claim, and a
+    password login asserts no claims: the sidecar checks the credential it
+    provisioned for a roster name, and no identity provider is in the exchange
+    to say who the person is. So a member of either kind admits none of the
+    people it names — on a card whose author wrote it precisely to admit them.
+
+    ERROR rather than the WARN :func:`_check_claims_without_oidc` gives the
+    other block that is inert under the wrong method. A ``claims`` map that
+    never fires grants nothing, which is the safe direction to fail; an access
+    member that never fires is the only thing standing between a shared card and
+    the people it was opened for, and the operator reading the config file sees
+    a grant that is not there.
+
+    Scoped to ``method: password`` exactly, like
+    :func:`_check_auth_credential_collisions`, and left silent under ``token``
+    and ``none`` for the reason :func:`_check_user_access` gives at length:
+    profile overlays concatenate the roster rather than merging entries by name,
+    so a passive base that a host variant arms with ``oidc`` has to carry its
+    ``access`` key on the base entry. A finding there would fire on every build
+    of a base whose key is correct for the variant that uses it.
+    """
+    context = _auth_context(web_terminals)
+    if context is None or context["auth_method"] != "password":
+        return []
+    findings: list[Finding] = []
+    for user in users:
+        listed = _access_members(user)
+        if listed is None:
+            continue
+        name, members = listed
+        for member in members:
+            if not member.startswith(("user:", "domain:")):
+                continue
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.access_principal_without_idp",
+                    message=(
+                        f"modules.web_terminals.users entry {name!r} has an access member "
+                        f"{member!r}, but auth.method is 'password': that member names an "
+                        "identity by an ID-token claim, and a password login asserts no "
+                        "claims, so nobody it names can open the card. Write 'access: any' "
+                        "to open the card to the whole roster, or set auth.method: oidc to "
+                        "admit the identities named here"
+                    ),
+                )
+            )
+    return findings
+
+
+def _check_access_domain_without_email_claim(
+    web_terminals: dict[str, Any], users: list[Any]
+) -> list[Finding]:
+    """OIDC: a ``domain:`` principal needs the identity claim to be ``email``. ERROR.
+
+    Lint accepts a ``domain:`` member only under ``auth.oidc.claim: email``,
+    the one claim the provider guarantees to carry an address. An unset
+    ``auth.oidc.claim`` resolves to ``sub``, which OpenID Connect defines as an
+    opaque identifier. A claim set to something else may well hold an address
+    — a UPN in the username claim, say — but nothing guarantees it, and a
+    grant that depends on a provider's habit is a grant this rule refuses to
+    write. The refusal is policy, not mechanics: the comparator the sidecar
+    admits with reads a domain off whatever the configured claim asserts.
+
+    ERROR, and reported at authoring time rather than left to the deployment,
+    because of the shape of the failure: nothing is malformed, nothing raises,
+    and the login page comes up. The first person to learn that the card admits
+    nobody is the operator who needed it, at whatever hour they needed it.
+
+    Scoped to ``method: oidc``. Under ``password`` the member is already
+    reported by :func:`_check_access_principal_without_idp` — a second finding
+    over the same line would say the same thing twice — and under ``token`` and
+    ``none`` this module stays silent about carried ``access`` keys for the
+    reason :func:`_check_user_access` gives.
+    """
+    context = _auth_context(web_terminals)
+    if context is None or context["auth_method"] != "oidc":
+        return []
+    # `None` is render's "unset": the sidecar then applies its own default
+    # claim, which is not `email` — so an unset claim is one of the cases here.
+    claim = context.get("auth_oidc_claim") or ""
+    if claim == _DOMAIN_CLAIM:
+        return []
+    configured = (
+        f"auth.oidc.claim is {claim!r}"
+        if claim
+        else "auth.oidc.claim is not set, so it resolves to the opaque 'sub'"
+    )
+    findings: list[Finding] = []
+    for user in users:
+        listed = _access_members(user)
+        if listed is None:
+            continue
+        name, members = listed
+        for member in members:
+            if not member.startswith("domain:"):
+                continue
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.access_domain_without_email_claim",
+                    message=(
+                        f"modules.web_terminals.users entry {name!r} has an access member "
+                        f"{member!r}, but {configured}: a domain is matched only under "
+                        "auth.oidc.claim: email, the one claim guaranteed to carry an "
+                        "address. Set auth.oidc.claim: email, or name the people "
+                        "individually with 'user:<id>'"
+                    ),
+                )
+            )
+    return findings
+
+
+def _resolved_principal(entry_name: str, member: str) -> str:
+    """The one principal an authored ``access`` member resolves to.
+
+    The resolver is asked rather than imitated. It ASCII-lower-cases a
+    ``domain:`` value and leaves a ``user:`` value byte-exact, and those two
+    rules are the whole of what makes two written members one grant — so a rule
+    that re-implemented the fold would be free to drift out of step with the
+    admission check it exists to anticipate, silently, in the direction of
+    reporting nothing.
+
+    Args:
+        entry_name: The entry's ``name``, which the resolver quotes in refusals.
+        member: One member of that entry's authored ``access`` list.
+
+    Returns:
+        The resolved principal. Never raises for a member that came from
+        :func:`_access_members`, whose whole list has already resolved.
+    """
+    return next(iter(resolve_access_principals({"name": entry_name, "access": [member]})))
+
+
+def _check_duplicate_access_principals(
+    web_terminals: dict[str, Any], users: list[Any]
+) -> list[Finding]:
+    """OIDC: one card may not name the same principal twice. ERROR.
+
+    Two members that resolve to one principal are not additive — the set is a
+    union, so the second grants nothing. The hazard is what happens when the
+    grant is withdrawn: the operator deletes the line they recognise, the build
+    stays green, and the card is still open through the duplicate they did not
+    see. A grant that survives its own revocation is the one failure this
+    vocabulary must not have.
+
+    Both kinds are grouped, on the fold each one is compared by:
+
+    * ``domain:`` under every claim, because the resolver ASCII-lower-cases the
+      value and the login side folds the asserted domain the same way — so
+      ``domain:LBL.gov`` and ``domain:lbl.gov`` are one principal wherever they
+      are read, and the pair is invisible in the resolved set;
+    * ``user:`` byte-exact, and additionally without regard to case under an
+      ``email`` claim — the fold
+      :data:`~osprey.services.auth_sidecar.identity_headers.CASE_INSENSITIVE_CLAIMS`
+      names and :func:`_check_shared_card_duplicate_subject` already groups the
+      subject mapping by. Under every other claim the value is opaque and
+      compared byte-exact, so only a literal repeat is a duplicate; the resolver
+      keeps ``user:`` byte-exact for exactly that reason, which leaves this the
+      only place the pair can be caught.
+
+    Scoped to ``method: oidc``, on the same split as the two rules above: under
+    ``password`` every one of these members is already reported once, and under
+    ``token``/``none`` carried ``access`` keys stay silent.
+    """
+    context = _auth_context(web_terminals)
+    if context is None or context["auth_method"] != "oidc":
+        return []
+    claim = context.get("auth_oidc_claim") or ""
+    fold_identities = claim in CASE_INSENSITIVE_CLAIMS
+    findings: list[Finding] = []
+    for user in users:
+        listed = _access_members(user)
+        if listed is None:
+            continue
+        name, members = listed
+        by_principal: dict[str, list[str]] = {}
+        for member in members:
+            if not member.startswith(("user:", "domain:")):
+                continue
+            principal = _resolved_principal(name, member)
+            if fold_identities and member.startswith("user:"):
+                principal = principal.casefold()
+            by_principal.setdefault(principal, []).append(member)
+        for colliding in by_principal.values():
+            if len(colliding) < 2:
+                continue
+            if len(set(colliding)) == 1:
+                reason = "which list the same member more than once"
+            elif colliding[0].startswith("domain:"):
+                reason = "which name one domain, since domains compare without regard to case"
+            else:
+                reason = (
+                    f"which the configured {claim!r} claim reads as one identity, since a "
+                    "mailbox is the same in any case"
+                )
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.duplicate_access_principal",
+                    message=(
+                        f"modules.web_terminals.users entry {name!r} has the access members "
+                        f"{colliding}, {reason}. The second grants nothing, and would keep "
+                        "the card open after the first is removed. Write it once"
+                    ),
+                )
+            )
     return findings
 
 

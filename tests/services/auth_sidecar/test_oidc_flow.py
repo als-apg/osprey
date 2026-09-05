@@ -36,10 +36,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.deployment.web_terminals.personas import env_var_suffix
+from osprey.deployment.web_terminals.personas import access_wire_value, env_var_suffix
 from osprey.interfaces._serving import run_app_server
 from osprey.services.auth_sidecar import audit
 from osprey.services.auth_sidecar.app import STATE_COOKIE_NAME, create_app
+from osprey.services.auth_sidecar.identity_headers import ACCOUNT_HEADER, SUBJECT_HEADER
 from osprey.services.auth_sidecar.routes.oidc import (
     CALLBACK_PATH,
     CLIENT_NAME,
@@ -48,6 +49,7 @@ from osprey.services.auth_sidecar.routes.oidc import (
     PENDING_FLOW_SESSION_KEY,
 )
 from osprey.services.auth_sidecar.routes.recheck import ENV_ROSTER_ROLE_PREFIX, ROLE_SOURCE_ROSTER
+from osprey.services.auth_sidecar.routes.verify import VERIFY_PATH
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME, SessionCodec, SessionState
 from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from tests.services.auth_sidecar.mock_idp import (
@@ -951,3 +953,327 @@ def test_the_claims_binding_is_not_consulted_on_a_shared_card(
         ("bob", audit.REASON_OIDC_LOGIN),
         ("alice", audit.REASON_UNMAPPED_ROLE_CLAIM),
     ]
+
+
+# --- shared cards: admission by a `user:` or `domain:` principal -------------
+#
+# `OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>` also carries a JSON array of principals,
+# and a `user:`/`domain:` member admits an identity the roster does not name at
+# all. That makes the login only half the story: the session such a login mints
+# records the ASSERTED identity rather than an opener, and `/verify` re-runs the
+# card's rule against it on every subrequest. A card that lets somebody in and
+# then answers 401 to their first terminal request is a working login and a
+# broken deployment, so every acceptance below walks the handshake AND the
+# subrequest that follows it.
+
+
+DOMAIN = "example.org"
+DANA_EMAIL = "dana@example.org"
+"""An identity on nobody's roster — the case a `domain:` principal exists for."""
+
+ALICE_EMAIL = "alice@example.org"
+CAROL_EMAIL = "carol@example.org"
+BOB_OUTSIDE_EMAIL = "bob@lbl.gov"
+"""bob's own mapping, deliberately outside the domain his card names."""
+
+DOMAIN_RULE = access_wire_value(frozenset({f"domain:{DOMAIN}"}))
+SELF_AND_DOMAIN_RULE = access_wire_value(frozenset({"self", f"domain:{DOMAIN}"}))
+NAMED_IDENTITY_RULE = access_wire_value(frozenset({f"user:{DANA_EMAIL}"}))
+OTHER_DOMAIN_RULE = access_wire_value(frozenset({"domain:other.example"}))
+"""The rendered rules, spelled by the render seam rather than by hand.
+
+``access_wire_value`` is the one function that turns a resolved principal set
+into the value ``OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>`` carries, so deriving the
+fixtures from it means a change to that spelling reaches these tests instead of
+leaving them passing against a wire format the deployment no longer emits."""
+
+
+def _rule_sidecar(idp: MockIdP, access: str, **overrides: str) -> FastAPI:
+    """A sidecar matching identities on ``email``, with bob's card under ``access``.
+
+    The claim matters: a ``domain:`` principal can only admit an identity that
+    names a mailbox, so a deployment mapping on the default opaque ``sub``
+    could never exercise one. The roster mappings are respelled as addresses
+    for the same reason.
+
+    Args:
+        idp: The running provider the sidecar is pointed at.
+        access: The rendered value of ``OSPREY_AUTH_ROSTER_ACCESS_BOB``.
+        overrides: Further environment entries, applied last.
+
+    Returns:
+        The sidecar app.
+    """
+    env = {
+        "OSPREY_AUTH_OIDC_CLAIM": "email",
+        "OSPREY_AUTH_OIDC_SUBJECT_ALICE": ALICE_EMAIL,
+        "OSPREY_AUTH_OIDC_SUBJECT_CAROL": CAROL_EMAIL,
+        "OSPREY_AUTH_ROSTER_ACCESS_BOB": access,
+    }
+    env.update(overrides)
+    return _sidecar(idp, **env)
+
+
+def _asserts(idp: MockIdP, email: str, **claims: Any) -> None:
+    """Have the provider assert ``email`` on the mapped claim, plus ``claims``.
+
+    ``sub`` is moved off the address on purpose: the deployment matches on
+    ``email``, and leaving an address in ``sub`` too would leave it ambiguous
+    which claim a passing test actually read.
+
+    Args:
+        idp: The provider to configure.
+        email: The address to assert in the ``email`` claim.
+        claims: Further ID-token claims, such as ``hd`` or ``email_verified``.
+    """
+    idp.subject = "an-opaque-provider-id"
+    idp.extra_claims = {"email": email, **claims}
+
+
+def _verify(client: TestClient, user: str) -> httpx.Response:
+    """The ``auth_request`` subrequest nginx issues for ``/u/<user>/``.
+
+    Issued on the same client, so it carries exactly the session cookie the
+    handshake just set — which is the point: it asks whether the login that
+    reported success authorises anything.
+
+    Args:
+        client: The browser whose jar holds the session cookie.
+        user: The roster card the subrequest is on.
+
+    Returns:
+        The sidecar's answer: 200 with identity headers, or a bare 401.
+    """
+    return client.get(VERIFY_PATH, params={"user": user})
+
+
+def test_a_domain_admitted_login_also_authorises_its_terminal(idp: MockIdP) -> None:
+    """The feature end to end: dana is on nobody's roster, and bob's card names
+    her domain, so she opens it — and her first terminal request is authorized
+    under her own asserted address.
+
+    The second half is what no assertion on the login can see. The session
+    carries an admitted identity where a roster login carries an opener, and a
+    verify that only understood openers would answer this browser 401 on every
+    request after a handshake that reported success.
+    """
+    _asserts(idp, DANA_EMAIL)
+    app = _rule_sidecar(idp, DOMAIN_RULE)
+    with _browser(app) as client:
+        response = _log_in(client, "bob", next_target="/u/bob/")
+
+        assert response.status_code == 303
+        assert response.headers["location"] == "/u/bob/"
+        entry = _session_from(response).entry("bob")
+        assert entry is not None
+        assert entry.opener == ""
+        assert entry.admitted_identity == DANA_EMAIL
+
+        authorized = _verify(client, "bob")
+
+    assert authorized.status_code == 200
+    assert authorized.headers[ACCOUNT_HEADER] == "bob"
+    assert authorized.headers[SUBJECT_HEADER] == DANA_EMAIL
+
+
+def test_a_named_identity_admitted_login_also_authorises_its_terminal(idp: MockIdP) -> None:
+    """The same round trip for a ``user:`` principal, which names one address
+    rather than a domain: admitted at the callback, and still admitted by the
+    rule when the subrequest re-asks it."""
+    _asserts(idp, DANA_EMAIL)
+    app = _rule_sidecar(idp, NAMED_IDENTITY_RULE)
+    with _browser(app) as client:
+        response = _log_in(client, "bob")
+        assert response.status_code == 303
+        authorized = _verify(client, "bob")
+
+    assert authorized.status_code == 200
+    assert authorized.headers[SUBJECT_HEADER] == DANA_EMAIL
+
+
+def test_a_domain_card_on_a_roster_that_maps_nobody_completes_the_handshake(
+    idp: MockIdP,
+) -> None:
+    """Zero roster mappings anywhere, and the handshake still runs.
+
+    This is the gate the older rule got wrong: it asked whether SOMEBODY on the
+    roster was mapped, because the roster was the only thing that could open a
+    shared card, and it refused before the redirect. A ``domain:`` principal is
+    answered by the token instead, so there is nothing for a mapping to say —
+    the login has to start, finish, and authorise.
+    """
+    _asserts(idp, DANA_EMAIL)
+    app = _rule_sidecar(
+        idp,
+        DOMAIN_RULE,
+        OSPREY_AUTH_OIDC_SUBJECT_ALICE="",
+        OSPREY_AUTH_OIDC_SUBJECT_CAROL="",
+    )
+    with _browser(app) as client:
+        response = _log_in(client, "bob")
+
+        assert response.status_code == 303
+        assert idp.authorize_requests
+        assert idp.token_requests
+        authorized = _verify(client, "bob")
+
+    assert authorized.status_code == 200
+    assert authorized.headers[SUBJECT_HEADER] == DANA_EMAIL
+
+
+def test_the_owner_of_a_self_and_domain_card_still_logs_into_it(idp: MockIdP) -> None:
+    """``self`` beside a domain keeps the card's own user in it.
+
+    bob's mapped address is outside the domain he shares his card with, so
+    nothing but ``self`` admits him — and a card that shared his terminal by
+    evicting him from it would be a strange way to share it. The session is the
+    own shape (no opener, no admitted identity), because his own mapping is
+    what proved the login.
+    """
+    _asserts(idp, BOB_OUTSIDE_EMAIL)
+    app = _rule_sidecar(
+        idp,
+        SELF_AND_DOMAIN_RULE,
+        OSPREY_AUTH_OIDC_SUBJECT_BOB=BOB_OUTSIDE_EMAIL,
+    )
+    with _browser(app) as client:
+        response = _log_in(client, "bob")
+
+        assert response.status_code == 303
+        entry = _session_from(response).entry("bob")
+        assert entry is not None
+        assert entry.opener == ""
+        assert entry.admitted_identity == ""
+        authorized = _verify(client, "bob")
+
+    assert authorized.status_code == 200
+    assert authorized.headers[SUBJECT_HEADER] == BOB_OUTSIDE_EMAIL
+
+
+def test_the_owner_of_a_domain_only_card_outside_that_domain_is_refused(
+    idp: MockIdP, zone: Path
+) -> None:
+    """The other half of the same rule: a card narrowed to a domain alone does
+    not carry ``self``, so its own user is admitted no more than anybody else —
+    and bob's address is not in that domain."""
+    _asserts(idp, BOB_OUTSIDE_EMAIL)
+    app = _rule_sidecar(
+        idp,
+        DOMAIN_RULE,
+        OSPREY_AUTH_OIDC_SUBJECT_BOB=BOB_OUTSIDE_EMAIL,
+    )
+    with _browser(app) as client:
+        response = _log_in(client, "bob")
+
+    assert response.status_code == 403
+    assert SESSION_COOKIE_NAME not in response.cookies
+    assert [(r["subject"], r["reason"]) for r in _records(zone)] == [
+        ("bob", audit.REASON_NO_COVERING_PRINCIPAL)
+    ]
+
+
+def test_a_mapped_roster_identity_outside_the_domain_is_not_admitted(
+    idp: MockIdP, zone: Path
+) -> None:
+    """Being on the roster is not admission once the card stops saying so.
+
+    alice is mapped, and under ``access: any`` her identity opens bob's card.
+    This card names a domain instead and hers is not in it, so the reverse
+    match is not consulted at all — a card that still ran it would make
+    ``roster`` an unremovable member of every rule.
+    """
+    _asserts(idp, "alice@lbl.gov")
+    app = _rule_sidecar(
+        idp,
+        DOMAIN_RULE,
+        OSPREY_AUTH_OIDC_SUBJECT_ALICE="alice@lbl.gov",
+    )
+    with _browser(app) as client:
+        response = _log_in(client, "bob")
+
+    assert response.status_code == 403
+    assert SESSION_COOKIE_NAME not in response.cookies
+    assert [(r["subject"], r["reason"]) for r in _records(zone)] == [
+        ("bob", audit.REASON_NO_COVERING_PRINCIPAL)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("email", "claims", "reason"),
+    [
+        (DANA_EMAIL, {"hd": "other.example"}, audit.REASON_HOSTED_DOMAIN_MISMATCH),
+        (DANA_EMAIL, {"email_verified": False}, audit.REASON_UNVERIFIED_EMAIL),
+        ("dana@lbl.gov", {}, audit.REASON_NO_COVERING_PRINCIPAL),
+    ],
+    ids=["hosted-domain-disagrees", "address-unverified", "no-covering-principal"],
+)
+def test_every_rule_refusal_answers_alike_and_files_its_own_category(
+    idp: MockIdP, zone: Path, email: str, claims: dict[str, Any], reason: str
+) -> None:
+    """One answer for the caller, three categories for the operator.
+
+    A shared card must not become an oracle for what a deployment's rule names,
+    so a token contradicting itself, a token the provider will not vouch for,
+    and an identity nothing covers are indistinguishable from outside: the same
+    403 and the same sentence. The ledger is where they differ, and it carries
+    the category WITHOUT the address or the domain that provoked it — those are
+    claim values, and the record is read by people who are not their subject.
+    """
+    _asserts(idp, email, **claims)
+    app = _rule_sidecar(idp, DOMAIN_RULE)
+    with _browser(app) as client:
+        response = _log_in(client, "bob")
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "this identity is not permitted for this user"
+    assert SESSION_COOKIE_NAME not in response.cookies
+
+    records = _records(zone)
+    assert [(r["subject"], r["reason"]) for r in records] == [("bob", reason)]
+    filed = json.dumps(records)
+    # String claims only. A boolean would be compared as `"False"` against a
+    # record that spells it `false`, so the check could never fail and would
+    # read as coverage this loop does not have.
+    provoking = [claim for claim in claims.values() if isinstance(claim, str)]
+    for value in (email, DOMAIN, *provoking):
+        assert value not in filed
+
+
+def test_withdrawing_the_domain_closes_the_terminal_on_the_next_request(
+    idp: MockIdP,
+) -> None:
+    """Revocation, end to end: the rule is re-asked, never remembered.
+
+    The session below was minted while bob's card named dana's domain, and it
+    carries her asserted address rather than a remembered yes. Rewriting the
+    card to name another domain is what an operator does to take a group's
+    access away, and the very next subrequest has to be the one that stops —
+    not the session's own expiry, hours later.
+
+    The transplant is run twice, into an unchanged deployment and into the
+    rewritten one, because a bare 401 is also what a cookie that failed to
+    travel would produce: the positive control is what makes the rule the only
+    difference between the two answers.
+    """
+    _asserts(idp, DANA_EMAIL)
+    admitted = _rule_sidecar(idp, DOMAIN_RULE)
+    with _browser(admitted) as client:
+        response = _log_in(client, "bob")
+        assert response.status_code == 303
+        assert _verify(client, "bob").status_code == 200
+        cookie = client.cookies[SESSION_COOKIE_NAME]
+
+    unchanged = _rule_sidecar(idp, DOMAIN_RULE)
+    with _browser(unchanged) as client:
+        client.cookies.set(SESSION_COOKIE_NAME, cookie)
+        still_authorized = _verify(client, "bob")
+
+    withdrawn = _rule_sidecar(idp, OTHER_DOMAIN_RULE)
+    with _browser(withdrawn) as client:
+        client.cookies.set(SESSION_COOKIE_NAME, cookie)
+        denied = _verify(client, "bob")
+
+    assert still_authorized.status_code == 200
+    assert still_authorized.headers[SUBJECT_HEADER] == DANA_EMAIL
+    assert denied.status_code == 401
+    assert SUBJECT_HEADER not in denied.headers

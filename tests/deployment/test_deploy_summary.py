@@ -1440,6 +1440,36 @@ def test_a_shared_entry_is_in_neither_the_seeded_logins_nor_the_token_list(
     assert deploy_summary._shared_cards(config) == ["ops"]
 
 
+def test_a_roster_with_an_unreadable_access_degrades_rather_than_raising(walled_roster_root):
+    """The closing card prints after a deploy that has already succeeded, so
+    nothing it derives may raise. An `access` value the vocabulary refuses is
+    reported by lint at `osprey up`; here the entry simply drops out of every
+    list, and the users around it still print."""
+    config = _walled_roster_config()
+    config["modules"]["web_terminals"]["users"][2]["access"] = "ANY"
+
+    seeded = deploy_summary._seeded_logins(walled_roster_root, config)
+
+    assert [user for user, _ in seeded.printable] == ["alice"]
+    assert deploy_summary._shared_cards(config) == []
+    assert deploy_summary.token_login_users(_walled_roster_config("token")) == [
+        "alice",
+        "ariel",
+        "ops",
+    ]
+    assert [name for name, _ in deploy_summary._roster(config)] == ["alice", "ariel"]
+
+
+def test_families_by_user_degrades_to_none_on_an_unreadable_access(tmp_path):
+    """`freeze_user_indices` is strict — its other caller writes the roster back
+    to config.yml — so this reader guards it, and answers with the same
+    all-or-nothing None an unplaceable entry already gives."""
+    config = _walled_roster_config()
+    config["modules"]["web_terminals"]["users"][2]["access"] = ["group:operators"]
+
+    assert deploy_summary._families_by_user(config, tmp_path) is None
+
+
 def test_shared_cards_are_reported_only_while_a_wall_stands():
     """Without a login wall the sharing marker changes nothing about how the
     entry is reached — under `token` every terminal is entered through its own

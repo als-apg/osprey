@@ -79,19 +79,23 @@ __all__ = [
     "REASON_AMBIGUOUS_IDENTITY",
     "REASON_AMBIGUOUS_ROLE_CLAIM",
     "REASON_BAD_CREDENTIAL",
+    "REASON_HOSTED_DOMAIN_MISMATCH",
     "REASON_IDENTITY_MISMATCH",
     "REASON_METHOD_MISMATCH",
     "REASON_MISSING_ROLE_CLAIM",
     "REASON_NON_ASCII_SUBJECT",
     "REASON_NO_ASSERTED_IDENTITY",
+    "REASON_NO_COVERING_PRINCIPAL",
     "REASON_OIDC_LOGIN",
     "REASON_PASSWORD_LOGIN",
     "REASON_ROLE_MISMATCH",
     "REASON_UNMAPPED_ROLE_CLAIM",
     "REASON_UNMAPPED_USER",
+    "REASON_UNSAFE_ASSERTED_IDENTITY",
     "REASON_UNSAFE_ROLE",
     "REASON_UNSUPPORTED_METHOD",
     "REASON_UNVALIDATED_TOKEN",
+    "REASON_UNVERIFIED_EMAIL",
     "SIDECAR_POSTURE",
     "SURFACE",
     "ledger_path",
@@ -173,6 +177,53 @@ entry they are. Refused rather than resolved — picking either entry would mint
 a session whose roster identity nobody decided on — and mirrored at build time
 by scaffold lint's duplicate-subject refusal, so reaching here means the
 deployment's config bypassed that check.
+"""
+
+REASON_NO_COVERING_PRINCIPAL = "no_covering_principal"
+"""No principal on the clicked card admits the asserted identity.
+
+Its own category, distinct from :data:`REASON_IDENTITY_MISMATCH`, for what a run
+of them means: a mismatch is a login that lost a reverse match against the
+roster, while this is a login the card's principal set was never written to
+admit. The set is allow-only and unioned, so reaching here means every principal
+on the card was consulted and none of them covered the identity — the deny-safe
+end of an empty union rather than a rule that failed. The operator widens the
+card's principal set; there is no subject mapping to correct.
+"""
+
+REASON_UNSAFE_ASSERTED_IDENTITY = "unsafe_asserted_identity"
+"""The asserted identity cannot be carried in an identity header.
+
+The runtime twin of :data:`REASON_NON_ASCII_SUBJECT`, and its own category
+because the offending spelling arrives from the provider rather than from this
+deployment's config: no roster entry named it, so the operator reading the
+ledger is pointed at the claim their IdP emits rather than at a mapping they can
+edit. Refused before the session is minted rather than left to
+:meth:`~osprey.services.auth_sidecar.sessions.SessionState.with_user`, whose
+``ValueError`` would surface as a 500 on what is a denial.
+"""
+
+REASON_HOSTED_DOMAIN_MISMATCH = "hosted_domain_mismatch"
+"""The token's hosted-domain claim disagrees with the identity it asserts.
+
+One token saying two different things about where its subject belongs, which is
+the shape a cross-tenant or forwarded assertion takes. Refused rather than
+reconciled: admitting on either half would admit a login the other half
+contradicts, and neither half is the one a rule was written against. A
+login-time gate — the claim is not carried into the session, so nothing
+downstream can re-evaluate it — and the category names which two claims
+disagreed without the record carrying either value.
+"""
+
+REASON_UNVERIFIED_EMAIL = "unverified_email"
+"""The token asserts an email address the provider has not vouched for.
+
+An explicit ``email_verified: false`` only. A provider that omits the claim has
+said nothing, and reading silence as a denial would refuse every deployment
+whose IdP does not emit it. Its own category because nothing about the login was
+misconfigured — the refusal is for what the provider declined to stand behind,
+not for a mapping or a rule this deployment got wrong. A login-time gate on the
+same terms as :data:`REASON_HOSTED_DOMAIN_MISMATCH`.
 """
 
 REASON_UNVALIDATED_TOKEN = "unvalidated_token"
@@ -273,19 +324,23 @@ LOGIN_REASONS: frozenset[str] = frozenset(
         REASON_AMBIGUOUS_IDENTITY,
         REASON_AMBIGUOUS_ROLE_CLAIM,
         REASON_BAD_CREDENTIAL,
+        REASON_HOSTED_DOMAIN_MISMATCH,
         REASON_IDENTITY_MISMATCH,
         REASON_METHOD_MISMATCH,
         REASON_MISSING_ROLE_CLAIM,
         REASON_NON_ASCII_SUBJECT,
         REASON_NO_ASSERTED_IDENTITY,
+        REASON_NO_COVERING_PRINCIPAL,
         REASON_OIDC_LOGIN,
         REASON_PASSWORD_LOGIN,
         REASON_ROLE_MISMATCH,
         REASON_UNMAPPED_ROLE_CLAIM,
         REASON_UNMAPPED_USER,
+        REASON_UNSAFE_ASSERTED_IDENTITY,
         REASON_UNSAFE_ROLE,
         REASON_UNSUPPORTED_METHOD,
         REASON_UNVALIDATED_TOKEN,
+        REASON_UNVERIFIED_EMAIL,
         _GENERIC_LOGIN,
     }
 )

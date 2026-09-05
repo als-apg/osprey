@@ -1501,17 +1501,40 @@ def test_passwd_refuses_an_off_roster_user(tmp_path, monkeypatch, fake_runtime):
 
 
 def test_passwd_refuses_a_shared_card(tmp_path, monkeypatch, fake_runtime):
-    """A shared (`access: any`) card is opened with another roster user's
-    password — /verify checks the OPENER's credential — so it has no password
-    of its own, and "changing" it would store a hash nothing ever checks."""
+    """A shared card is opened with an admitted user's password — /verify checks
+    the OPENER's credential — so it has no password of its own, and "changing"
+    it would store a hash nothing ever checks."""
     monkeypatch.chdir(tmp_path)
     config_path = _write_config(
         tmp_path, _auth_config(["alice", {"name": "ops", "index": 1, "access": "any"}])
     )
 
-    with pytest.raises(ValueError, match="access: any"):
+    with pytest.raises(ValueError, match="access: 'any'"):
         lifecycle.rotate_user_password(str(config_path), "ops", "some-password")
 
+    assert not (tmp_path / AUTH_ENV_FILENAME).exists()
+    assert fake_runtime == []
+
+
+def test_passwd_refusal_quotes_the_authored_access_value(tmp_path, monkeypatch, fake_runtime):
+    """`any` is one of four spellings that share a card. The refusal quotes what
+    the operator actually wrote, so a `domain:` list is not reported back to
+    them as a key their file does not contain — spelled as its members, the way
+    the build-time refusal spells it, because the rich console both are printed
+    through eats a `[...]` repr."""
+    monkeypatch.chdir(tmp_path)
+    config_path = _write_config(
+        tmp_path,
+        _auth_config(["alice", {"name": "ops", "index": 1, "access": ["domain:lbl.gov"]}]),
+    )
+
+    with pytest.raises(ValueError) as excinfo:
+        lifecycle.rotate_user_password(str(config_path), "ops", "some-password")
+
+    message = str(excinfo.value)
+    assert "access members 'domain:lbl.gov'" in message
+    assert "[" not in message
+    assert "access: any" not in message
     assert not (tmp_path / AUTH_ENV_FILENAME).exists()
     assert fake_runtime == []
 

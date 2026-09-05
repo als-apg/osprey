@@ -738,3 +738,145 @@ def test_re_adding_a_user_replaces_the_opener_wholesale(
     assert beamline is not None
     assert beamline.opener == ""
     assert len(decoded.users) == 1
+
+
+# --- the rule-admitted identity ----------------------------------------------
+
+
+def test_round_trip_preserves_the_admitted_identity(codec: SessionCodec, clock: FakeClock) -> None:
+    """The identity a card's principal admitted survives the round trip."""
+    state = codec.new_state().with_user(
+        "logbook", expires_at=clock.now + HOUR, admitted_identity="op@lbl.gov"
+    )
+
+    decoded = codec.decode(codec.encode(state))
+
+    assert decoded.users == (
+        UnlockedUser(
+            username="logbook",
+            expires_at=clock.now + HOUR,
+            admitted_identity="op@lbl.gov",
+        ),
+    )
+
+
+def test_an_entry_carries_no_admitted_identity_by_default(
+    codec: SessionCodec, clock: FakeClock
+) -> None:
+    """A roster login is admitted by its own entry, so the field stays empty."""
+    state = codec.new_state().with_user(
+        "alice", expires_at=clock.now + HOUR, generation_tag="0123456789abcdef"
+    )
+
+    entry = codec.decode(codec.encode(state)).entry("alice")
+
+    assert entry is not None
+    assert entry.admitted_identity == ""
+
+
+def test_the_admitted_identity_is_written_into_the_payload(
+    codec: SessionCodec, clock: FakeClock
+) -> None:
+    """Pinning the wire key: a later reader looks for ``admitted``, not a rename."""
+    encoded = codec.encode(
+        codec.new_state().with_user(
+            "logbook", expires_at=clock.now + HOUR, admitted_identity="op@lbl.gov"
+        )
+    )
+
+    payload = URLSafeSerializer(SECRET, salt=SIGNATURE_SALT).loads(encoded)
+
+    assert payload["users"]["logbook"]["admitted"] == "op@lbl.gov"
+
+
+def test_a_payload_without_an_admitted_identity_decodes_as_empty() -> None:
+    """Cookies minted before ``admitted`` existed keep working, at the same version.
+
+    The admitted identity was added without a :data:`PAYLOAD_VERSION` bump on
+    purpose, so a browser holding a pre-upgrade cookie stays logged in instead
+    of being silently signed out — and decodes as a roster login, which is what
+    every session minted before rule admission existed was.
+    """
+    encoded = sign_payload(
+        {
+            "v": PAYLOAD_VERSION,
+            "sid": "s",
+            "iat": 0.0,
+            "users": {"alice": {"exp": 1_000_000_000.0, "tag": "0123456789abcdef"}},
+        }
+    )
+
+    entry = SessionCodec(SECRET, clock=FakeClock()).decode(encoded).entry("alice")
+
+    assert entry is not None
+    assert entry.generation_tag == "0123456789abcdef"
+    assert entry.admitted_identity == ""
+
+
+def test_the_admitted_identity_did_not_bump_the_payload_version() -> None:
+    """The field is additive: the version every existing cookie carries is still
+    the current one, so none of them is refused on the next request."""
+    assert PAYLOAD_VERSION == 1
+
+
+@pytest.mark.parametrize("identity", ["a\nb", " op@lbl.gov", "op@lbl.gov ", "jörg@lbl.gov"])
+def test_an_uncarryable_admitted_identity_is_refused_at_login(
+    codec: SessionCodec, clock: FakeClock, identity: str
+) -> None:
+    """The admitted identity rides an identity header, so the mint path refuses it early."""
+    with pytest.raises(ValueError, match="admitted identity cannot be carried"):
+        codec.new_state().with_user(
+            "logbook", expires_at=clock.now + HOUR, admitted_identity=identity
+        )
+
+
+@pytest.mark.parametrize("identity", ["a\nb", " op@lbl.gov", "op@lbl.gov ", "jörg@lbl.gov"])
+def test_an_uncarryable_admitted_identity_invalidates_the_cookie(identity: str) -> None:
+    """Only this sidecar signs cookies, and it never stores such a value."""
+    encoded = sign_payload(
+        {
+            "v": PAYLOAD_VERSION,
+            "sid": "s",
+            "iat": 0.0,
+            "users": {"logbook": {"exp": 1_000_000_000.0, "admitted": identity}},
+        }
+    )
+
+    with pytest.raises(InvalidSessionError, match="uncarryable admitted identity"):
+        SessionCodec(SECRET, clock=FakeClock()).decode(encoded)
+
+
+def test_a_non_string_admitted_identity_is_rejected() -> None:
+    encoded = sign_payload(
+        {
+            "v": PAYLOAD_VERSION,
+            "sid": "s",
+            "iat": 0.0,
+            "users": {"logbook": {"exp": 1_000_000_000.0, "admitted": 9}},
+        }
+    )
+
+    with pytest.raises(InvalidSessionError, match="non-string admitted identity"):
+        SessionCodec(SECRET, clock=FakeClock()).decode(encoded)
+
+
+def test_re_adding_a_user_replaces_the_admitted_identity_wholesale(
+    codec: SessionCodec, clock: FakeClock
+) -> None:
+    """A login naming no admitted identity clears the one the previous login carried.
+
+    The safe direction: an admission that no longer holds must not outlive the
+    principal that granted it.
+    """
+    state = (
+        codec.new_state()
+        .with_user("logbook", expires_at=clock.now + 60, admitted_identity="op@lbl.gov")
+        .with_user("logbook", expires_at=clock.now + HOUR)
+    )
+
+    decoded = codec.decode(codec.encode(state))
+
+    logbook = decoded.entry("logbook")
+    assert logbook is not None
+    assert logbook.admitted_identity == ""
+    assert len(decoded.users) == 1

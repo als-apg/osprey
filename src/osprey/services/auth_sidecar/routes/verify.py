@@ -40,7 +40,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, Cookie, Depends, Query, Response
 
-from ..app import AuthSettings, get_revocation_store, get_session_codec, get_settings
+from ..app import (
+    ACCESS_ROSTER,
+    AuthSettings,
+    get_revocation_store,
+    get_session_codec,
+    get_settings,
+)
 from ..exceptions import InvalidSessionError
 from ..identity_headers import (
     ACCOUNT_HEADER,
@@ -111,12 +117,18 @@ async def verify(
     container recreate that rotation performs (which is also what clears the
     revocation store).
 
-    In every mode the session's shared-card story must also match the roster's
-    current one: a shared (``access: any``) card authorizes only a session that
-    names an opener, an own card only one that names none, and under OIDC the
-    opener must still map to the subject the session stored — re-checked on
-    every subrequest, so a shared card closes for the whole roster the moment
-    its opener's own login would stop working.
+    In every mode the session's admission story must also match the card's
+    current rule, and each of the three shapes a session comes in is asked its
+    own question. A session naming an opener is authorized while the card still
+    admits the roster and — under OIDC — the opener still maps to the subject
+    the session stored. A session naming an admitted identity is authorized
+    while one of the card's principals still covers that identity. A session
+    naming neither is the card owner's own, and is authorized while ``self`` is
+    one of the card's principals: an owner-only card carries it, so does
+    ``[self, domain:…]``, and a card narrowed to other principals alone does
+    not. All of it is re-checked on every subrequest, so a card closes the
+    moment its opener's own login would stop working, a principal is withdrawn,
+    or its owner is written out of it.
 
     The parameters are missing-tolerant on purpose. ``user`` defaults to absent
     and the cookie to ``None`` rather than being required, because FastAPI would
@@ -193,18 +205,50 @@ async def verify(
         # reached with `None`.
         return _deny(username, "session carries no entry for this user")
 
-    # A shared (``access: any``) card's session names its opener — the roster
-    # entry whose credential proved the login — and an own card's session names
-    # none. That correspondence is minted into the entry, so a session whose
-    # story disagrees with the roster's *current* access rule was minted under
-    # a rule an operator has since flipped, and it retires now rather than
-    # lapsing: flipping a card to ``any`` must not widen sessions already
-    # outstanding, and flipping it back must not leave the roster's sessions
-    # holding the card open.
-    if settings.shared(username) and not entry.opener:
-        return _deny(username, "card is shared but the session names no opener")
-    if entry.opener and not settings.shared(username):
-        return _deny(username, "session names an opener but the card is not shared")
+    # How this session was admitted must still be something the card's current
+    # rule admits. A roster login names its opener — the roster entry whose
+    # credential proved it — while a login one of the card's ``user:`` or
+    # ``domain:`` principals admitted names the identity that was matched
+    # instead, and the card owner's own login names neither. That story is
+    # minted into the entry and re-tested here against the roster's *current*
+    # rule, so a session minted under a rule an operator has since edited
+    # retires now rather than lapsing: widening a card must not widen the
+    # sessions already outstanding, and narrowing it must not leave a withdrawn
+    # principal — or a written-out owner — holding the card open.
+    if entry.opener and entry.admitted_identity:
+        # Two admission stories in one entry, and no login mints that shape: an
+        # admitted identity is precisely what a session with no roster entry
+        # behind it carries. Refused whole rather than resolved, because each
+        # branch below would read only half of it.
+        return _deny(username, "session names both an opener and an admitted identity")
+
+    if entry.opener:
+        if not settings.shared(username):
+            return _deny(username, "session names an opener but the card is not shared")
+        if ACCESS_ROSTER not in settings.access(username):
+            # The opener is a roster user, and the ``roster`` principal is the
+            # only one that admits a login for being on the roster at all. A
+            # card narrowed to named identities or domains therefore no longer
+            # admits this session, and neither does one whose rule became
+            # unreadable — which admits nobody by design.
+            return _deny(username, "the card no longer admits an opener from the roster")
+    elif entry.admitted_identity:
+        # The rule-admitted path, asked again in full on every subrequest and
+        # against the current settings. That, rather than a remembered answer
+        # from login time, is what makes withdrawing a principal close the card
+        # on the next request; a card with no readable rule admits nobody and
+        # so is refused here too.
+        if not settings.card_admits(username, entry.admitted_identity):
+            return _deny(username, "no principal on the card admits the session's identity")
+    elif not settings.owner_admitted(username):
+        # The own shape: no opener and no admitted identity, because the card's
+        # own credential is what proved this login. It is admitted by the
+        # ``self`` principal and by nothing else here — which an owner-only
+        # card carries trivially, and which ``[self, domain:x]`` carries too, so
+        # sharing a card with a domain does not evict the user whose terminal it
+        # is. A card narrowed to other principals alone, and one whose rule
+        # cannot be read, admit their owner no more than anybody else.
+        return _deny(username, "the card no longer admits its own user")
 
     if entry.opener and settings.method == "oidc":
         # Opener re-validation, the shared card's counterpart of the generation
@@ -271,6 +315,15 @@ def _subject_for(username: str, entry: UnlockedUser | None, settings: AuthSettin
     same table asked what an already-minted session names, and a rule that lived
     in both places would drift the first time one of them grew a method.
 
+    **A rule-admitted session answers ahead of the table**, because the table's
+    question does not reach it: an identity admitted by one of the card's
+    principals belongs to somebody the roster does not name, so there is no
+    mapped subject and no opener for the matrix to report, and reading it there
+    would leave the header off exactly where it says the most. The admitted
+    identity is what the card was matched against, and it is what the far end
+    is told. It is header-checked by the codec on the way in and again by
+    :func:`_authorized` on the way out, like every other value that leaves here.
+
     Args:
         username: The roster user this subrequest authorized. Verified against
             the roster, and byte-identical to the entry's own username.
@@ -280,6 +333,8 @@ def _subject_for(username: str, entry: UnlockedUser | None, settings: AuthSettin
     Returns:
         The subject to report, or ``""`` when this session names no account.
     """
+    if entry is not None and entry.admitted_identity:
+        return entry.admitted_identity
     return session_subject(method=settings.method, username=username, entry=entry)
 
 
@@ -293,10 +348,11 @@ def _authorized(username: str, entry: UnlockedUser | None, settings: AuthSetting
     card the request is on — the username this subrequest authorized, which a
     consumer can compare against the account it believes it is serving.
     ``X-Osprey-Auth-Subject`` names who proved the login — the provider subject
-    under OIDC, the roster username otherwise — so a later layer can tell who is
-    behind the request without re-reading the cookie. The two coincide on an own
-    card under either method and diverge on a shared card under both, which is
-    the case they exist separately for. ``X-Osprey-Auth-Role`` names the role
+    under OIDC, the roster username otherwise, and the admitted identity when a
+    card's principal let somebody the roster does not name in — so a later layer
+    can tell who is behind the request without re-reading the cookie. The two
+    coincide on an own card under either method and diverge on a shared card
+    under both, which is the case they exist separately for. ``X-Osprey-Auth-Role`` names the role
     that account holds.
 
     **The account is the one header that always rides.** An authorized request

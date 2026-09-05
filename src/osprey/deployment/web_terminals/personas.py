@@ -3,7 +3,13 @@
 Turns the raw ``modules.web_terminals`` roster into explicit per-user identity:
 normalized ``{"name", "index"}`` entries (:func:`normalize_users`) and fully
 resolved image/project/container-dir identity per user
-(:func:`resolve_personas`). Callers that write the roster *back* to
+(:func:`resolve_personas`). Who may *open* each of those entries is a second
+roster vocabulary that lives here too: ``users[].access`` is parsed once, by
+:func:`resolve_access_principals`, into the set of principals it admits, and
+every consumer asks that function (or :func:`entry_is_shared`, the predicate
+over it) rather than reading the raw key. The normalized entry carries the
+authored value verbatim so both stay answerable from it.
+Callers that write the roster *back* to
 ``config.yml`` rather than render from it use :func:`freeze_user_indices`, which
 keeps the authored keys the normalizer projects away. Also home to the
 username→env-var-suffix mapping (:func:`env_var_suffix`) and its collision detector
@@ -961,7 +967,7 @@ def personas_needing_archiver_password(config: Any, project_root: Any) -> dict[s
     return grants
 
 
-def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
+def normalize_users(users_raw: Any, *, strict: bool = True) -> list[dict[str, Any]]:
     """Normalize ``modules.web_terminals.users`` into explicit ``{"name", "index"}`` dicts.
 
     This is the canonical users-normalizer for the module; render.py delegates to it
@@ -1022,19 +1028,38 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
     persona helper reads as "the deployment's default persona". A ``role`` that
     names no declared role, and a non-string one, are reported by lint.
 
-    An object entry's optional ``access`` (whether this entry is a shared card
-    any authenticated roster user may open, rather than one owned by a single
-    user) is carried through only when it is the literal string ``"any"`` — the
-    one value that changes anything. ``"own"``, absence, and every malformed
-    spelling (``"ANY"``, a boolean, a number) all mean "owner only", so
-    dropping them is both the fail-closed reading and what keeps a config typo
-    from silently sharing an entry (lint reports the typo separately). See
-    :func:`entry_is_shared` for the single consumer-side reading of the
-    carried key.
+    An object entry's optional ``access`` (which principals may open this
+    entry's card, rather than only the one user it belongs to) is *validated*
+    here and carried through **verbatim** — the authored form, never a resolved
+    set. :func:`resolve_access_principals` is the single parser of that form, so
+    the normalized entry holds exactly what that function reads: ``"own"`` and
+    ``"any"`` stay those strings, and a principal list stays the list the
+    operator wrote. Keeping the authored value is what leaves the entry
+    JSON/YAML-serializable, lets every consumer that already reads
+    ``entry["access"]`` keep reading it, keeps the two shorthands rendering
+    byte-identically, and keeps one place that knows the vocabulary.
+
+    The key rides through only when the resolved set is something other than
+    "just this entry's own user" — the same present-only-when-it-changes-
+    something rule the other optional fields follow. ``"own"``, an absent key,
+    an ``access:`` with nothing after it, and ``[self]`` all resolve to
+    owner-only, so a roster that shares nothing normalizes exactly as it did
+    before the principal set existed.
+
+    A value the vocabulary does not recognise is the one thing here that is not
+    quietly dropped. Under the default ``strict=True`` the parser's
+    ``ValueError`` propagates, naming the entry and the offending value; under
+    ``strict=False`` the whole entry is dropped instead. Neither reading lets an
+    unrecognised value become an owner-only card, and that is the point: the
+    surfaces that admit a login and the guards that vet the deployment must
+    resolve one authored value the same way, and a value silently rewritten to
+    "owner only" here is one the guards then have nothing to say about. See
+    :func:`entry_is_shared` for the single predicate consumers ask.
 
     Malformed entries — anything that isn't a string, and any dict missing a
     string ``name`` or an int ``index`` — are dropped rather than raising
-    (well-formedness is lint.py's job). ``bool`` is a subclass of ``int`` in
+    (well-formedness is lint.py's job; a malformed ``access`` is the one
+    exception, above). ``bool`` is a subclass of ``int`` in
     Python, so a dict entry
     like ``{"name": "alice", "index": True}`` would technically satisfy
     ``isinstance(index, int)``; this function deliberately treats ``bool`` as an
@@ -1045,13 +1070,36 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
     Args:
         users_raw: The raw ``modules.web_terminals.users`` value. Anything other
             than a list (including ``None``) is treated as an empty roster.
+        strict: What an unreadable ``access`` does. ``True`` (the default)
+            propagates the parser's refusal, naming the entry and the value;
+            ``False`` drops that entry instead. :func:`resolve_personas` threads
+            its own ``strict`` through to here.
+
+            The lenient path is deliberately NOT an escape hatch for the verbs
+            that mutate a deployment. Every one of them reaches this function at
+            the strict default first, before anything is written — the
+            decommission migration through :func:`freeze_user_indices`, and
+            ``prune``, ``nuke``, ``users passwd`` and the seeding walk through
+            their own roster reads — so an unreadable ``access`` refuses the
+            verb rather than quietly shortening the roster it is about to act
+            on. Lenient serves the *readers* that resolve a roster without
+            touching it, and that would otherwise be stopped by a value they are
+            not there to judge: the ``osprey init`` privileged-persona check,
+            lint's rules, the feedback volume targets, and ``nuke``'s
+            image-tag sweep.
 
     Returns:
         New ``{"name": str, "index": int}`` dicts (plus optional
         ``"display_name"``, ``"theme"``, ``"oidc_subject"`` and ``"role"`` string
-        keys and an ``"access": "any"`` marker when the entry carried them) in
+        keys when the entry carried them, and the authored ``"access"`` value
+        verbatim when it admits anyone beyond the entry's own user) in
         config-declaration order. Input dicts are never mutated or returned by
         reference.
+
+    Raises:
+        ValueError: Under ``strict``, for an ``access`` value
+            :func:`resolve_access_principals` does not recognise. The message
+            names the entry and the value.
     """
     if not isinstance(users_raw, list):
         return []
@@ -1088,33 +1136,345 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
                 role = entry.get("role")
                 if isinstance(role, str) and role:
                     normalized_entry["role"] = role
-                # Only the literal string "any" is carried: absence and "own"
-                # both mean "owner only", and any other value is a config typo
-                # (reported by lint) whose safe reading is the same. Carrying
-                # only the sharing value keeps the gate fail-closed — a typo
-                # can never share an entry with the whole roster.
-                if entry.get("access") == "any":
-                    normalized_entry["access"] = "any"
+                # `access` is validated through the single parser, then carried
+                # verbatim: the authored form is what that parser reads, what
+                # freeze writes back, and what keeps `own`/`any` rendering
+                # byte-identically. An unreadable value is refused (or, for a
+                # lenient caller, takes its whole entry with it) rather than
+                # normalized into an owner-only card that no guard would then
+                # have anything to say about.
+                try:
+                    principals = resolve_access_principals(entry)
+                except ValueError:
+                    if strict:
+                        raise
+                    continue
+                if principals != _OWNER_ONLY:
+                    normalized_entry["access"] = entry["access"]
                 normalized.append(normalized_entry)
     return normalized
 
 
-def entry_is_shared(entry: dict[str, Any]) -> bool:
-    """Whether this normalized roster entry is a shared card, open to the roster.
+# The value a `domain:` principal carries is compared case-insensitively (a
+# domain is), so it is folded once, here, instead of at every comparison. The
+# fold is deliberately ASCII-only: str.lower() applies Unicode case mapping,
+# which is locale-surprising, and the sidecar's comparator folds with this same
+# table — the two have to agree byte for byte. A non-ASCII domain never reaches
+# the fold at all; it is refused above.
+_ACCESS_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
 
-    ``access: any`` on a roster entry marks it as shared: any authenticated
-    roster user may open it, instead of only the one user the entry belongs
-    to. The single reading of that key, shared by credential provisioning
-    (which decides whose logins may mint a session for it), the deploy summary
-    (which reports the seeded logins), the ``users passwd`` verb's refusal
-    path, the render's per-entry service dict, and lint's privileged/duplicate
-    checks — call sites that must never disagree about who may open an entry.
+# Quoted in every refusal below, so an operator who trips one learns the whole
+# vocabulary rather than only which member was wrong.
+_ACCESS_MEMBERS = "'self', 'roster', 'user:<id>' or 'domain:<domain>'"
 
-    Reads the *normalized* entry, so only the literal ``"any"``
-    :func:`normalize_users` carries through shares; every malformed spelling
-    already normalized back to "owner only".
+#: The resolved set every owner-only spelling comes to — `access: own`, an
+#: unwritten key, an `access:` with nothing after it, and the explicit
+#: `[self]`. Named because it is also the *dividing line*: an entry is a shared
+#: card exactly when its resolved set is something other than this one (see
+#: :func:`entry_is_shared`), and both the normalizer and the predicate must draw
+#: that line in the same place.
+_OWNER_ONLY = frozenset({"self"})
+
+#: The resolved set ``access: any`` comes to. Named for the same reason
+#: :data:`_OWNER_ONLY` is: it is the second set with a spelling of its own on
+#: the wire (the literal ``any``), and the render and the sidecar must agree on
+#: which set that token stands for.
+_ROSTER_ONLY = frozenset({"roster"})
+
+
+def _access_entry_label(entry: Mapping[str, Any]) -> str:
+    """How an ``access`` refusal names the roster entry it is about.
+
+    The name when the entry has one, since that is what an operator scans the
+    file for. A nameless entry is not hypothetical — lint reads the authored
+    roster, where a dropped or mistyped ``name`` key is exactly the kind of
+    edit that also breaks ``access`` — and naming it ``None`` would send the
+    reader looking for an entry called None. Its position is what identifies
+    it instead, and ``index`` is the position the roster itself declares.
+
+    Args:
+        entry: A roster entry, authored rather than normalized: neither key is
+            known to be present or of the right type.
+
+    Returns:
+        The subject phrase a refusal opens with, naming the config path either
+        way so the message stands on its own.
     """
-    return entry.get("access") == "any"
+    name = entry.get("name")
+    if isinstance(name, str) and name:
+        return f"modules.web_terminals.users entry {name!r}"
+    index = entry.get("index")
+    if isinstance(index, int) and not isinstance(index, bool):
+        return f"the unnamed modules.web_terminals.users entry at index {index}"
+    return "an unnamed modules.web_terminals.users entry"
+
+
+def _access_principal(member: Any, entry_label: str) -> str:
+    """Resolve one member of an authored ``access`` list into a principal.
+
+    Args:
+        member: The authored member, of any type — a config value, not yet known
+            to be a string.
+        entry_label: :func:`_access_entry_label`'s naming of the entry, opening
+            every refusal so the operator knows which entry to edit.
+
+    Returns:
+        The resolved principal: ``"self"``, ``"roster"``, the ``user:`` member
+        byte-exact, or a ``domain:`` member with its domain ASCII-lower-cased.
+
+    Raises:
+        ValueError: For a non-string member, a bare word that is neither
+            ``self`` nor ``roster``, the reserved ``group:`` prefix, an unknown
+            prefix, a ``user:``/``domain:`` member carrying a ``$`` (which
+            docker compose would interpolate away in transit), or a known
+            prefix carrying a malformed value.
+    """
+    if not isinstance(member, str):
+        raise ValueError(
+            f"{entry_label} has an access member "
+            f"{member!r}, which is not a string. Members are written as {_ACCESS_MEMBERS}"
+        )
+    if member in ("self", "roster"):
+        return member
+    prefix, separator, value = member.partition(":")
+    if not separator:
+        raise ValueError(
+            f"{entry_label} has an access member "
+            f"{member!r}, which names no principal kind. Only 'self' and 'roster' are "
+            f"written bare; every other member carries a prefix ({_ACCESS_MEMBERS})"
+        )
+    if prefix == "group":
+        raise ValueError(
+            f"{entry_label} has an access member "
+            f"{member!r}: the 'group:' prefix is reserved and not supported yet. Name the "
+            "people individually with 'user:<id>', or admit their whole domain with "
+            "'domain:<domain>'"
+        )
+    if prefix in ("user", "domain") and "$" in member:
+        # Both prefixes at once, because the reason is the transport and not
+        # the kind: the resolved member is written into the deployment's
+        # compose file, and compose interpolates `$NAME`/`${NAME}` in a value
+        # before the container ever sees it. Refused here rather than escaped,
+        # so lint, `osprey init` and the render all say the same sentence about
+        # it; no identity provider issues a `$` in a subject or a domain, so
+        # nothing legitimate is being turned away.
+        raise ValueError(
+            f"{entry_label} has an access member "
+            f"{member!r} containing '$'. The compose file substitutes '$' references before "
+            "the sidecar compares the member. Name an identity or a domain without a '$'"
+        )
+    if prefix == "user":
+        if not value or any(character.isspace() for character in value):
+            raise ValueError(
+                f"{entry_label} has an access member "
+                f"{member!r} carrying no usable identity after 'user:'. Write the value the "
+                "configured OIDC claim holds for one person, e.g. 'user:alice@lbl.gov'"
+            )
+        return member
+    if prefix == "domain":
+        if (
+            not value
+            or any(character.isspace() or character in ":/" for character in value)
+            or "@" in value
+            or value.startswith(".")
+            or value.endswith(".")
+        ):
+            raise ValueError(
+                f"{entry_label} has an access member "
+                f"{member!r} that is not a bare domain. Write the domain on its own, e.g. "
+                "'domain:lbl.gov' — an address ('domain:alice@lbl.gov') admits one person, "
+                "which is what 'user:' is for"
+            )
+        if not value.isascii():
+            # An internationalised domain reaches a relying party as punycode:
+            # that is the form the provider puts in the claim, and nothing here
+            # translates between the two spellings. A Unicode-authored value
+            # would therefore be a rule that admits nobody, ever — refused at
+            # author time rather than deployed as a grant that silently never
+            # fires.
+            raise ValueError(
+                f"{entry_label} has an access member "
+                f"{member!r} carrying a non-ASCII domain. An identity provider asserts an "
+                "internationalised domain in its punycode ('xn--') form, so this member "
+                "would match nobody. Write the punycode spelling of the domain"
+            )
+        return f"domain:{value.translate(_ACCESS_ASCII_LOWER)}"
+    unknown = f"{prefix}:"
+    raise ValueError(
+        f"{entry_label} has an access member {member!r} "
+        f"with an unknown prefix {unknown!r}. Members are written as {_ACCESS_MEMBERS}"
+    )
+
+
+def resolve_access_principals(entry: Mapping[str, Any]) -> frozenset[str]:
+    """Resolve a roster entry's authored ``access`` into its set of principals.
+
+    ``users[].access`` says who may open an entry's card. It is authored as a
+    principal set — allow-only, unioned, fail-closed — whose members are
+
+    * ``self`` — the one user the entry belongs to,
+    * ``roster`` — any authenticated user who has a roster entry,
+    * ``user:<id>`` — one identity, named by the value of the configured OIDC
+      claim,
+    * ``domain:<domain>`` — every identity whose email is in that domain.
+
+    Three authored forms are exact sugar for a one-member list, and are what
+    every roster written before the set existed uses:
+
+    * ``access: own`` ≡ ``[self]``,
+    * ``access: any`` ≡ ``[roster]``,
+    * an unwritten ``access`` ≡ ``[self]`` — owner-only is the default, so a
+      roster that never mentions the key keeps meaning exactly what it did.
+
+    This is the single parser of the authored form: consumers read the set it
+    returns, never the raw value. That is the point of it. A value no consumer
+    recognises must not reach an admission check as a shape that happens to
+    look safe there, so an unrecognised one is refused here, by name, at the
+    one place that looks at it. Unlike :func:`normalize_users`, which drops
+    malformed roster entries rather than raising, this function raises: the
+    caller decides whether to propagate the refusal (a render, a deploy
+    preflight, or any verb about to mutate a deployment) or to degrade (a
+    read-only summary, lint, or ``osprey init``'s privileged-persona check),
+    which it cannot do if the bad value has already been silently rewritten
+    into a good one.
+
+    ``group:`` is refused by name rather than as an unknown prefix, because it
+    is the kind the vocabulary is expected to grow next: "not supported yet" is
+    a different instruction to an operator than "unknown".
+
+    A ``domain:`` value is ASCII-lower-cased, since domains compare
+    case-insensitively and folding once here keeps every consumer comparing the
+    same bytes. The comparator on the login side applies the same ASCII-only
+    fold to the asserted email's domain. A domain carrying non-ASCII is refused
+    rather than translated: an IdP asserts an internationalised domain in
+    punycode, nothing here invents that translation, and a rule that could
+    never match anybody is an error at author time and not a deployed grant. A
+    ``user:`` value is left byte-exact: it is an identity
+    string the IdP owns, and folding it would merge two identities an IdP may
+    well keep distinct.
+
+    Args:
+        entry: A roster entry carrying the authored ``access`` value under that
+            key, verbatim. Never mutated. Every refusal opens by naming the
+            entry — by ``name``, or by ``index`` when it has none (see
+            :func:`_access_entry_label`).
+
+    Returns:
+        The resolved principals, deduplicated. Never empty: every accepted form
+        admits at least one principal.
+
+    Raises:
+        ValueError: When ``access`` is neither shorthand nor a list, when the
+            list is empty, or for any malformed member (see
+            :func:`_access_principal`). The message names the entry and the
+            offending value.
+    """
+    authored = entry.get("access")
+    entry_label = _access_entry_label(entry)
+    if authored is None:
+        # Both an absent key and an authored `access:` with nothing after it,
+        # which YAML hands over as None. Owner-only is the fail-closed reading.
+        return _OWNER_ONLY
+    if authored == "own":
+        return _OWNER_ONLY
+    if authored == "any":
+        return frozenset({"roster"})
+    if not isinstance(authored, list):
+        raise ValueError(
+            f"{entry_label} has access {authored!r}, which "
+            f"is neither of the two shorthands ('own', 'any') nor a list whose members are "
+            f"{_ACCESS_MEMBERS}"
+        )
+    if not authored:
+        raise ValueError(
+            f"{entry_label} has an empty access list, "
+            "which would admit nobody at all — not even its own user. Write 'access: own' "
+            "(or drop the key) to keep the entry owner-only, or list the principals that "
+            "may open it"
+        )
+    return frozenset(_access_principal(member, entry_label) for member in authored)
+
+
+def access_wire_value(principals: frozenset[str]) -> str:
+    """Spell a resolved principal set for the sidecar's per-entry env line.
+
+    The inverse of the authored vocabulary: :func:`resolve_access_principals`
+    reads ``users[].access`` from ``config.yml`` into a set, and this spells
+    that set into the value ``OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>`` carries
+    across the compose file to the auth sidecar, which parses it back. Three
+    shapes, and the first two are the reason this is not simply ``json.dumps``:
+
+    * owner-only (``{"self"}``) → ``""``, and the render emits no line at all.
+      An absent variable is what the sidecar has always read as owner-only, so
+      a roster that shares nothing renders exactly as it did before the
+      principal set existed.
+    * the whole roster (``{"roster"}``) → the literal ``"any"``, byte-identical
+      to what ``access: any`` has always emitted. That shorthand is what nearly
+      every existing roster carries, and upgrading into the principal set must
+      not rewrite a deployment's compose file.
+    * anything else → a compact JSON array of the members, sorted:
+      ``["domain:lbl.gov"]``, ``["self","user:carol@lbl.gov"]``. Sorted because
+      a set has no order of its own and an unstable render would churn the
+      file; compact because the value shares a line with its key. ``self`` is
+      kept when it appears beside others — there it is a member of the admitted
+      set, not a marker. A ``roster`` member inside an array is NOT collapsed
+      back to ``any`` either: the render never collapses a set it was given,
+      and it is the sidecar that decides a roster member covers everyone.
+
+    The members are already normalized by :func:`resolve_access_principals`
+    (``self``, ``roster``, ``user:<id>`` byte-exact, ``domain:`` ASCII-lower-
+    cased), so the sidecar compares the same bytes this side resolved and
+    neither end folds anything a second time.
+
+    Args:
+        principals: A resolved set, as :func:`resolve_access_principals`
+            returns it. Never empty — every accepted authored form admits at
+            least one principal.
+
+    Returns:
+        The wire value, or ``""`` when the entry admits only its own user, for
+        which the render emits nothing.
+    """
+    if principals == _OWNER_ONLY:
+        return ""
+    if principals == _ROSTER_ONLY:
+        return "any"
+    return json.dumps(sorted(principals), separators=(",", ":"))
+
+
+def entry_is_shared(entry: dict[str, Any]) -> bool:
+    """Whether this roster entry is a shared card — one somebody else may open.
+
+    An entry is shared exactly when :func:`resolve_access_principals` admits
+    anyone beyond the entry's own user: ``access: any`` (the whole roster),
+    ``[domain:lbl.gov]``, ``[user:alice@lbl.gov]``, or any list that names more
+    than ``self``. ``own``, an unwritten key and ``[self]`` are the owner-only
+    set, and are the only forms that answer ``False``.
+
+    This is the single *predicate* over the parsed set, and it is consumed at
+    every call site that must not disagree about who may open an entry:
+    credential provisioning (whose logins may mint a session for it), the deploy
+    summary (which logins are seeded, and which cards are shared), the ``users
+    passwd`` verb's refusal path, the render's per-entry service dict, and three
+    of lint's rules. Two of those lint call sites pass an entry straight off the
+    *raw* roster rather than a normalized one; both readings agree, because the
+    normalized entry carries the authored value verbatim and this function
+    parses that same value.
+
+    Args:
+        entry: A roster entry — authored or normalized — carrying the authored
+            ``access`` value under that key. Never mutated.
+
+    Returns:
+        ``True`` when the entry admits any principal other than its own user.
+
+    Raises:
+        ValueError: For an ``access`` value the vocabulary does not recognise.
+            The predicate refuses rather than answering: a value no consumer
+            understands must not be read as an owner-only card here while
+            another surface reads it as admitting somebody.
+    """
+    return resolve_access_principals(entry) != _OWNER_ONLY
 
 
 def freeze_user_indices(users_raw: Any) -> list[dict[str, Any]]:
@@ -1427,13 +1787,15 @@ def privileges_beyond_baseline(held: Sequence[str], baseline: Sequence[str]) -> 
       split, and a legacy profile with no split has no better default to be
       pointed at.
     * :func:`shared_card_privileged_problems` reads :func:`persona_privileges`
-      directly, the ABSOLUTE answer. ``access: any`` is not inherited from
+      directly, the ABSOLUTE answer. ``access`` is not inherited from
       anything: it is a key somebody typed, on one entry, claiming that
-      terminal may be opened by every login the deployment has. Whether the
-      deployment declared a tier split has no bearing on what that terminal
-      hands out — a floorless deployment sharing it hands out BOTH surfaces to
-      the whole roster — so exempting the floorless case is exactly the
-      fail-open this belt exists to prevent.
+      terminal may be opened by somebody other than the user it belongs to —
+      every login the deployment has under ``any``, or the identities a
+      ``user:``/``domain:`` list names. Whether the deployment declared a tier
+      split has no bearing on what that terminal hands out — a floorless
+      deployment sharing it hands out BOTH surfaces to everyone the entry
+      admits — so exempting the floorless case is exactly the fail-open this
+      belt exists to prevent.
 
     :func:`persona_privileges` answers an absolute question — can this document
     reach the setup tool, is the Config panel live — and every way of not having
@@ -1510,8 +1872,8 @@ def privileged_default_persona_problem(
     this key is inherited rather than chosen. A profile written before the
     base tier's deny floor existed has a ``default_persona`` nobody picked as a
     privilege grant, and no unprivileged tier to be re-pointed at, so refusing
-    it would refuse the migration itself. ``access: any`` is the opposite —
-    typed deliberately, on one entry, about that entry — so it is judged on
+    it would refuse the migration itself. ``access`` is the opposite — typed
+    deliberately, on one entry, about that entry — so it is judged on
     what the persona actually holds. See :func:`privileges_beyond_baseline`
     for the full statement of the split.
 
@@ -1598,9 +1960,9 @@ def deployment_wide_privileged_exposure_problems(
     which is why this exists at all.
 
     It is reported ADVISORILY where the shared-card rule is an error, and the
-    difference is what the config *claims*. ``access: any`` singles one entry
-    out as open to the whole roster: the author asked for that and can act on
-    the finding. ``auth.method: none`` is a whole-deployment posture — the
+    difference is what the config *claims*. An ``access`` set wider than the
+    entry's own user singles that entry out as open to somebody else: the
+    author asked for that and can act on the finding. ``auth.method: none`` is a whole-deployment posture — the
     shipped default, and a deliberate one for a stack bound to a loopback
     address — and failing a build over it would reject deployments that were
     never exposed to anyone, with no remedy but to configure authentication
@@ -1637,18 +1999,45 @@ def deployment_wide_privileged_exposure_problems(
     return problems
 
 
+def access_phrase(entry: Mapping[str, Any]) -> str:
+    """The entry's authored ``access``, spelled for a message rich will render.
+
+    ``osprey build`` renders these refusals through rich, which eats ``[...]``,
+    so a principal list is spelled as its members rather than as its repr. That
+    costs the one cue the brackets carried — whether the file holds a list or a
+    scalar — so the phrase says which: ``access members 'user:a', 'domain:b'``
+    for a list, ``access: 'any'`` for a shorthand. An operator reading either
+    one back finds the same shape in their file.
+
+    Args:
+        entry: A roster entry carrying its authored ``access`` value.
+
+    Returns:
+        The whole phrase, including the ``access`` word, so every caller names
+        the key the same way.
+    """
+    authored = entry.get("access")
+    if isinstance(authored, list):
+        return "access members " + ", ".join(repr(member) for member in authored)
+    return f"access: {authored!r}"
+
+
 def shared_card_privileged_problems(
     resolved_entries: Iterable[Mapping[str, Any]],
     privileges_by_persona: Mapping[str, Sequence[str]],
 ) -> list[str]:
     """Every SHARED roster entry whose persona can edit the deployment.
 
-    ``access: any`` opens a card to the whole roster: any authenticated login
-    may mint a session for it (see :func:`entry_is_shared`). On an unprivileged
+    An ``access`` set wider than the entry's own user opens that card to
+    somebody else: every authenticated login under ``any``, or the identities a
+    ``user:``/``domain:`` list names, may mint a session for it. The line is
+    drawn once, by :func:`entry_is_shared` — shared is "the resolved set is
+    anything other than the entry's own user" — so this rule generalizes with
+    the vocabulary instead of naming one spelling of it. On an unprivileged
     persona that is the feature — one control-room terminal everybody on shift
     opens. On a privileged one it undoes the tier split the roster declared:
     the setup tool or the Config panel was lifted for named people behind their
-    own cards, and the one key hands it to every login the deployment has.
+    own cards, and the one key hands it to somebody who was never given one.
 
     **Judged on what the persona ABSOLUTELY holds**, not on what it holds
     beyond its deployment's baseline: sharing is an authored claim about one
@@ -1674,12 +2063,13 @@ def shared_card_privileged_problems(
             continue
         name = entry.get("name")
         problems.append(
-            f"modules.web_terminals user {name!r} is a shared card (access: any), but "
-            f"resolves to persona {persona!r}, which holds {privilege_phrase(privileges)}. "
-            f"Any authenticated roster login may open that terminal, so every user on the "
-            f"roster edits this deployment. Set access: own for {name!r} — or drop the key, "
-            f"since owner-only is the default — or point {name!r} at a persona that holds "
-            f"neither (the bundled stack's {UNPRIVILEGED_TIER_EXAMPLE!r})"
+            f"modules.web_terminals user {name!r} is a shared card "
+            f"({access_phrase(entry)}), but resolves to persona {persona!r}, which holds "
+            f"{privilege_phrase(privileges)}. Somebody other than that entry's own user "
+            f"may open that terminal, so more people than its owner edit this deployment. "
+            f"Set access: own for {name!r} — or drop the key, since owner-only is the "
+            f"default — or point {name!r} at a persona that holds neither (the bundled "
+            f"stack's {UNPRIVILEGED_TIER_EXAMPLE!r})"
         )
     return problems
 
@@ -1960,9 +2350,11 @@ def resolve_personas(
         existed. An optional ``"oidc_subject"`` key rides through on the same
         terms, so the auth sidecar's roster→identity mapping is read off the same
         resolved entry as everything else rather than re-derived from the raw
-        roster. An optional ``"access": "any"`` marker rides through likewise —
-        present only when the roster entry is a shared card (see
-        :func:`entry_is_shared`). An optional ``"landing_group"`` key — the catalog entry's own
+        roster. The authored ``"access"`` value rides through likewise, verbatim
+        and whole — present only when the roster entry admits somebody beyond
+        its own user (see :func:`entry_is_shared`), so both the render and the
+        guards that read resolved entries resolve the same principals the
+        authored roster does. An optional ``"landing_group"`` key — the catalog entry's own
         ``landing_group``, present only for a non-empty string — names the
         landing-page section this entry's card belongs in; it is read by
         :func:`osprey.deployment.web_terminals.render._build_groups` and affects
@@ -1971,7 +2363,7 @@ def resolve_personas(
     Raises:
         ValueError: See ``strict`` above.
     """
-    normalized = normalize_users(web_terminals.get("users"))
+    normalized = normalize_users(web_terminals.get("users"), strict=strict)
 
     personas_raw = web_terminals.get("personas")
     personas_catalog: dict[str, Any] = personas_raw if isinstance(personas_raw, dict) else {}
@@ -2029,10 +2421,15 @@ def resolve_personas(
             value = source.get(field)
             if isinstance(value, str) and value:
                 entry[field] = value
-        # `access: "any"` rides through on the same present-only-when-set terms;
-        # normalize_users already reduced every other spelling to absence.
-        if source.get("access") == "any":
-            entry["access"] = "any"
+        # The authored `access` value rides through on the same
+        # present-only-when-set terms. It is carried whole, not reduced to a
+        # marker: `normalize_users` has already validated it and dropped every
+        # owner-only spelling, so anything still here admits somebody beyond
+        # this entry's own user and must reach the render — and the guards that
+        # read resolved entries — intact.
+        access = source.get("access")
+        if access is not None:
+            entry["access"] = access
         return entry
 
     def _zero_migration_entry(

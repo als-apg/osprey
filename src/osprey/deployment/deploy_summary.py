@@ -387,7 +387,10 @@ def _roster(config: dict) -> list[tuple[str, int]]:
         return []
     entries = [
         (str(entry.get("name") or ""), entry.get("index"))
-        for entry in normalize_users(web_terminals.get("users"))
+        # Lenient: this walk reads a roster it never writes back, and an
+        # unreadable `access` on one entry must not raise out of an advisory
+        # summary. The entry drops; `osprey up`'s lint reports the value.
+        for entry in normalize_users(web_terminals.get("users"), strict=False)
     ]
     roster = [(name, index) for name, index in entries if isinstance(index, int)]
     return roster or [("", 0)]
@@ -516,7 +519,15 @@ def _families_by_user(config: dict, project_root: Path | str | None) -> dict[str
     # looks like" — one that could drift from the normalizer, and did: an
     # entry the normalizer drops but a raw `.get("name")` chokes on (`- 42`)
     # raised out of an advisory summary instead of degrading.
-    entries = freeze_user_indices(users)
+    try:
+        entries = freeze_user_indices(users)
+    except ValueError as exc:
+        # `freeze_user_indices` is strict about `access` because its other
+        # caller writes the roster back to config.yml. This one only reads, and
+        # this module raises nothing: degrade to the same all-or-nothing None
+        # an unplaceable entry already gives.
+        logger.debug(f"Panel bands not narrowed to their personas: {exc}")
+        return None
     if len(entries) != len(users):
         # Some entry the file declares could not be placed at all. The roster
         # this walk can describe is then not the roster that was written, and
@@ -988,7 +999,10 @@ def _seeded_logins(root: Path, config: dict) -> SeededLoginsReport:
         return SeededLoginsReport()
     names = [
         entry["name"]
-        for entry in normalize_users(web_terminals.get("users"))
+        # Lenient for the same reason as every other roster read here: the
+        # closing card prints after a deploy that already succeeded. A dropped
+        # entry also never reaches `entry_is_shared`, which would raise on it.
+        for entry in normalize_users(web_terminals.get("users"), strict=False)
         if not entry_is_shared(entry)
     ]
     return seeded_logins_report(root, names)
@@ -1023,11 +1037,11 @@ def token_login_users(config: dict) -> list[str]:
         return []
     if _auth_tls_context(web_terminals)["inject_secret"]:
         return []
-    return [entry["name"] for entry in normalize_users(web_terminals.get("users"))]
+    return [entry["name"] for entry in normalize_users(web_terminals.get("users"), strict=False)]
 
 
 def _shared_cards(config: dict) -> list[str]:
-    """The roster's shared cards (``access: any``), in roster order.
+    """The roster's shared cards, in roster order.
 
     The other leg of the walled roster split, beside :func:`_seeded_logins`:
     a shared card has no seeded login (it holds no credential of its own) and
@@ -1049,7 +1063,7 @@ def _shared_cards(config: dict) -> list[str]:
         return []
     return [
         entry["name"]
-        for entry in normalize_users(web_terminals.get("users"))
+        for entry in normalize_users(web_terminals.get("users"), strict=False)
         if entry_is_shared(entry)
     ]
 

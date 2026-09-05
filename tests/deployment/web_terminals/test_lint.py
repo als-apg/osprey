@@ -605,9 +605,9 @@ def test_lint_has_no_rule_about_the_retired_login_key(method: str) -> None:
 
 
 def test_lint_non_literal_user_access_is_an_error() -> None:
-    """An `access` value that is not exactly 'own' or 'any' deploys fail-closed
-    as `own`, which may be the opposite of what the author believes — so the
-    typo is an ERROR rather than a silent narrowing."""
+    """An `access` value that is neither shorthand nor a principal list deploys
+    fail-closed as `own`, which may be the opposite of what the author believes
+    — so the typo is an ERROR rather than a silent narrowing."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
@@ -622,8 +622,8 @@ def test_lint_non_literal_user_access_is_an_error() -> None:
 
 
 def test_lint_wrong_case_user_access_is_an_error() -> None:
-    """The normalizer keeps only the literal lowercase 'any' — `access: ANY`
-    silently deploys as `own`, so lint must call the spelling out."""
+    """The vocabulary is lowercase — `access: ANY` silently deploys as `own`,
+    so lint must call the spelling out."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
@@ -638,8 +638,8 @@ def test_lint_wrong_case_user_access_is_an_error() -> None:
 
 
 def test_lint_boolean_user_access_is_an_error() -> None:
-    """`access: true` (a plausible YAML slip for 'any') is not a literal and
-    deploys as `own` — an ERROR, not a widened entry."""
+    """`access: true` (a plausible YAML slip for 'any') is neither shorthand nor
+    a principal list, and deploys as `own` — an ERROR, not a widened entry."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0, "access": True}]
@@ -768,6 +768,218 @@ def test_lint_roster_without_access_keys_reports_no_access_findings() -> None:
     # Assert
     assert not any(f.code == "web_terminals.invalid_user_access" for f in findings)
     assert not any(f.code == "web_terminals.user_access_inert" for f in findings)
+
+
+@pytest.mark.parametrize(
+    "access",
+    [["self"], ["roster"], ["domain:lbl.gov"], ["user:alice@lbl.gov"], ["self", "domain:lbl.gov"]],
+)
+def test_lint_well_formed_access_principal_lists_report_nothing(access: list[str]) -> None:
+    """A well-formed principal list is the authored form the shorthands are
+    sugar for — lint accepts every member kind the resolver does."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "access": access}
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.invalid_user_access" for f in findings)
+
+
+def test_lint_null_user_access_is_silent() -> None:
+    """An authored ``access:`` with no value (YAML null) is the default spelled
+    out: the resolver reads it as the entry's own login, so lint stays silent."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0, "access": None}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.invalid_user_access" for f in findings)
+
+
+def test_lint_empty_access_list_is_an_error() -> None:
+    """An empty list would admit nobody at all — not even the entry's own user —
+    so it is refused with the entry named."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0, "access": []}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
+    assert len(offenders) == 1
+    assert "'thellert'" in offenders[0].message
+    assert "empty access list" in offenders[0].message
+
+
+def test_lint_unknown_access_prefix_is_an_error() -> None:
+    """A member carrying a prefix outside the vocabulary is refused, quoting the
+    member so the operator knows which line to edit."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "access": ["team:controls"]}
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
+    assert len(offenders) == 1
+    assert "'team:controls'" in offenders[0].message
+    assert "unknown prefix" in offenders[0].message
+
+
+def test_lint_non_string_access_member_is_an_error() -> None:
+    """A member that is not a string never names a principal, whatever it looks
+    like in YAML."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "access": ["self", 42]}
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
+    assert len(offenders) == 1
+    assert "'thellert'" in offenders[0].message
+    assert "not a string" in offenders[0].message
+
+
+def test_lint_group_access_member_says_not_supported_yet() -> None:
+    """`group:` is the kind the vocabulary is expected to grow next, so lint
+    refuses it by name — "not supported yet" is a different instruction to an
+    operator than "unknown prefix"."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "access": ["group:operators"]}
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
+    assert len(offenders) == 1
+    assert "'group:operators'" in offenders[0].message
+    assert "not supported yet" in offenders[0].message
+
+
+def test_lint_bare_access_word_outside_the_vocabulary_is_an_error() -> None:
+    """Only `self` and `roster` are written bare. A word that names no kind at
+    all is the slip a reader of the shorthands makes, so the refusal says which
+    members carry a prefix rather than only that this one is wrong."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "access": ["everyone"]}
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
+    assert len(offenders) == 1
+    assert "'everyone'" in offenders[0].message
+    assert "names no principal kind" in offenders[0].message
+
+
+def test_lint_user_access_member_with_whitespace_is_an_error() -> None:
+    """No identity claim holds a value with a space in it, and the member is
+    compared byte-exact — so a pasted display name never matches anybody, and
+    saying so at lint time is the only place it is caught."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "access": ["user:alice smith@lbl.gov"]}
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
+    assert len(offenders) == 1
+    assert "'user:alice smith@lbl.gov'" in offenders[0].message
+    assert "no usable identity after 'user:'" in offenders[0].message
+
+
+def test_lint_domain_access_member_holding_an_address_is_an_error() -> None:
+    """`domain:alice@lbl.gov` reads as a grant to a domain and is a grant to
+    nobody: the value is not a domain, and the member the author wanted is
+    `user:`. The refusal names both readings."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "access": ["domain:alice@lbl.gov"]}
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
+    assert len(offenders) == 1
+    assert "'domain:alice@lbl.gov'" in offenders[0].message
+    assert "not a bare domain" in offenders[0].message
+    assert "'user:'" in offenders[0].message
+
+
+def test_lint_access_member_carrying_a_dollar_is_an_error() -> None:
+    """The member is written into the deployment's compose file, where docker
+    compose substitutes `$NAME` before the sidecar reads it — so a card would
+    admit something other than what the roster says. Lint says it at author
+    time, in the resolver's own words."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "access": ["user:$ALICE@lbl.gov"]}
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
+    assert len(offenders) == 1
+    assert "'user:$ALICE@lbl.gov'" in offenders[0].message
+    assert "'$'" in offenders[0].message
+
+
+def test_lint_malformed_access_reports_one_finding_per_entry() -> None:
+    """Each offending entry draws its own finding, named — a roster with two
+    typos does not report only the first."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "access": ["group:operators"]},
+        {"name": "ariel", "index": 1, "access": "maybe"},
+        {"name": "control", "index": 2, "access": ["domain:lbl.gov"]},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
+    assert len(offenders) == 2
+    assert any("'thellert'" in f.message for f in offenders)
+    assert any("'ariel'" in f.message for f in offenders)
 
 
 def test_lint_non_string_user_theme_is_an_error() -> None:
@@ -3328,7 +3540,10 @@ def test_lint_shared_card_with_a_subject_is_a_warning() -> None:
     assert "'thellert'" in offenders[0].message
     assert "'gmartino'" not in offenders[0].message
     assert "thorsten@example.org" not in offenders[0].message
-    assert "access: any" in offenders[0].message
+    # The authored value, quoted as written — the sugar form reaches this rule
+    # through the same predicate every list-valued card does.
+    assert "sets access 'any'" in offenders[0].message
+    assert "narrow it to access: own" in offenders[0].message
     assert "oidc_subject" in offenders[0].message
 
 
@@ -3383,6 +3598,424 @@ def test_lint_duplicate_subject_check_is_mode_gated() -> None:
 
     # Assert
     assert not any(f.code == "web_terminals.shared_card_duplicate_subject" for f in findings)
+
+
+def _oidc(**oidc_overrides: object) -> dict:
+    """An `auth` stanza in `oidc` mode, with the issuer every such config needs."""
+    oidc: dict = {"issuer": "https://idp.example.org"}
+    oidc.update(oidc_overrides)
+    return {"method": "oidc", "oidc": oidc}
+
+
+def _principal_config(
+    auth: object, access: object, *, tls: bool = True, fqdn: str | None = "web.example.org"
+) -> dict:
+    """A roster whose third card carries `access`, under the given auth stanza."""
+    config = _auth_config(auth, tls=tls, fqdn=fqdn)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "alice", "index": 0},
+        {"name": "bob", "index": 1},
+        {"name": "logbook", "index": 2, "access": access},
+    ]
+    return config
+
+
+def _coded(findings: list[Finding], code: str) -> list[Finding]:
+    return [f for f in findings if f.code == f"web_terminals.{code}"]
+
+
+def test_lint_user_principal_under_password_is_an_error() -> None:
+    """A password login asserts no claims, so an identity named by one is an
+    identity nothing in this deployment can produce — the card does not admit
+    the person it was written for, and nothing else says so."""
+    # Arrange
+    config = _principal_config({"method": "password"}, ["user:alice@lbl.gov"])
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = _coded(_errors(findings), "access_principal_without_idp")
+    assert len(offenders) == 1
+    assert "'logbook'" in offenders[0].message
+    assert "'user:alice@lbl.gov'" in offenders[0].message
+    assert "auth.method: oidc" in offenders[0].message
+
+
+def test_lint_domain_principal_under_password_is_an_error() -> None:
+    """`domain:` is named by the same absent claim as `user:`, one finding each."""
+    # Arrange
+    config = _principal_config({"method": "password"}, ["domain:lbl.gov", "user:alice@lbl.gov"])
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = _coded(_errors(findings), "access_principal_without_idp")
+    assert len(offenders) == 2
+    reported = " ".join(finding.message for finding in offenders)
+    assert "'domain:lbl.gov'" in reported
+    assert "'user:alice@lbl.gov'" in reported
+
+
+def test_lint_roster_shorthands_under_password_report_nothing() -> None:
+    """`own`, `any` and an unwritten key name no identity-provider principal;
+    password deployments have used all three since before the vocabulary."""
+    # Arrange
+    config = _auth_config({"method": "password"})
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "alice", "index": 0, "access": "own"},
+        {"name": "bob", "index": 1},
+        {"name": "logbook", "index": 2, "access": "any"},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _coded(findings, "access_principal_without_idp") == []
+
+
+def test_lint_access_principal_under_oidc_reports_no_password_finding() -> None:
+    """The rule is about the method that asserts no claims; oidc asserts them."""
+    # Arrange
+    config = _principal_config(_oidc(claim="email"), ["user:alice@lbl.gov"])
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _coded(findings, "access_principal_without_idp") == []
+
+
+def test_lint_access_principal_without_a_wall_reports_nothing() -> None:
+    """A passive base stands no wall, and profile overlays concatenate the
+    roster rather than merging it by name — so the base entry has to carry the
+    `access` key the armed host variant needs. Reporting it here would fire on
+    every build of a config that is correct for the variant that uses it."""
+    # Arrange
+    config = _principal_config(
+        {"method": "none"}, ["user:alice@lbl.gov", "domain:lbl.gov"], tls=False, fqdn=None
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _coded(findings, "access_principal_without_idp") == []
+    assert _coded(findings, "access_domain_without_email_claim") == []
+    assert _coded(findings, "duplicate_access_principal") == []
+
+
+def test_lint_unreadable_access_reports_only_the_parser_refusal() -> None:
+    """`group:` is refused by the single parser, with the sentence that says it
+    is reserved. These rules stay quiet rather than burying it."""
+    # Arrange
+    config = _principal_config({"method": "password"}, ["group:operators"])
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert len(_coded(_errors(findings), "invalid_user_access")) == 1
+    assert _coded(findings, "access_principal_without_idp") == []
+
+
+def test_lint_domain_principal_without_an_email_claim_is_an_error() -> None:
+    """No deployment sets `auth.oidc.claim`, and the sidecar's fallback carries
+    no domain — so an unset claim is the common way a `[domain:]` card admits
+    nobody, with a green build and a login page that comes up."""
+    # Arrange
+    config = _principal_config(_oidc(), ["domain:lbl.gov"])
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = _coded(_errors(findings), "access_domain_without_email_claim")
+    assert len(offenders) == 1
+    assert "'logbook'" in offenders[0].message
+    assert "'domain:lbl.gov'" in offenders[0].message
+    assert "auth.oidc.claim is not set, so it resolves to the opaque 'sub'" in (
+        offenders[0].message
+    )
+    assert "auth.oidc.claim: email" in offenders[0].message
+
+
+def test_lint_domain_principal_with_an_opaque_claim_is_an_error() -> None:
+    """A claim that is set but holds an opaque identifier fails the same way,
+    and the message names the claim the deployment configured."""
+    # Arrange
+    config = _principal_config(_oidc(claim="sub"), ["domain:lbl.gov"])
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = _coded(_errors(findings), "access_domain_without_email_claim")
+    assert len(offenders) == 1
+    assert "auth.oidc.claim is 'sub'" in offenders[0].message
+
+
+def test_lint_domain_principal_with_the_email_claim_reports_nothing() -> None:
+    """The one claim that carries a domain — the shape this feature exists for."""
+    # Arrange
+    config = _principal_config(_oidc(claim="email"), ["domain:lbl.gov"])
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _coded(findings, "access_domain_without_email_claim") == []
+
+
+def test_lint_user_principal_needs_no_email_claim() -> None:
+    """`user:` names the value of whatever claim the deployment maps on, so an
+    opaque one is exactly what it is for."""
+    # Arrange
+    config = _principal_config(_oidc(claim="sub"), ["user:8a41-ff02"])
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _coded(findings, "access_domain_without_email_claim") == []
+
+
+def test_lint_domain_claim_check_is_mode_gated() -> None:
+    """Under `password` the member is already reported once, by the rule that
+    says no claim arrives at all; saying it twice buries both."""
+    # Arrange
+    config = _principal_config({"method": "password"}, ["domain:lbl.gov"])
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _coded(findings, "access_domain_without_email_claim") == []
+    assert len(_coded(_errors(findings), "access_principal_without_idp")) == 1
+
+
+def test_lint_user_principals_differing_only_in_case_are_an_error() -> None:
+    """Under an `email` claim the sidecar compares mailboxes without regard to
+    case, so these two are one identity: removing the line the operator
+    recognises leaves the card open to the one they did not see."""
+    # Arrange
+    config = _principal_config(_oidc(claim="email"), ["user:Alice@lbl.gov", "user:alice@lbl.gov"])
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = _coded(_errors(findings), "duplicate_access_principal")
+    assert len(offenders) == 1
+    assert "'logbook'" in offenders[0].message
+    assert "user:Alice@lbl.gov" in offenders[0].message
+    assert "user:alice@lbl.gov" in offenders[0].message
+    assert "'email' claim" in offenders[0].message
+
+
+def test_lint_repeated_user_principal_is_an_error() -> None:
+    """An exact repeat is a duplicate under every claim, opaque ones included."""
+    # Arrange
+    config = _principal_config(_oidc(claim="sub"), ["user:8a41-ff02", "user:8a41-ff02"])
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = _coded(_errors(findings), "duplicate_access_principal")
+    assert len(offenders) == 1
+    assert "the same member more than once" in offenders[0].message
+
+
+def test_lint_user_principals_differing_in_case_under_an_opaque_claim_are_kept() -> None:
+    """Outside an `email` claim the value is opaque and compared byte-exact, so
+    two cases of one string are two identities an identity provider may well
+    keep distinct — the resolver leaves `user:` byte-exact for that reason."""
+    # Arrange
+    config = _principal_config(_oidc(claim="sub"), ["user:8A41-FF02", "user:8a41-ff02"])
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _coded(findings, "duplicate_access_principal") == []
+
+
+def test_lint_distinct_user_principals_report_nothing() -> None:
+    """The shape this rule must never touch: a card admitting two people."""
+    # Arrange
+    config = _principal_config(_oidc(claim="email"), ["user:alice@lbl.gov", "user:bob@lbl.gov"])
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _coded(findings, "duplicate_access_principal") == []
+
+
+def test_lint_duplicate_principals_are_scoped_to_one_card() -> None:
+    """Two cards admitting one person is a roster, not a duplicate."""
+    # Arrange
+    config = _auth_config(_oidc(claim="email"))
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "alice", "index": 0},
+        {"name": "logbook", "index": 1, "access": ["user:alice@lbl.gov"]},
+        {"name": "control", "index": 2, "access": ["user:alice@lbl.gov"]},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _coded(findings, "duplicate_access_principal") == []
+
+
+def test_lint_reports_an_unreadable_access_value_without_raising() -> None:
+    """`entry_is_shared` refuses a value the vocabulary does not recognise
+    rather than reading it as an owner-only card, and the two shared-card rules
+    ask it about RAW roster entries. Linting is how the operator learns the
+    value is bad, so those rules absorb the refusal: the run reports it, along
+    with everything else it found, instead of ending on it."""
+    # Arrange
+    config = _auth_config(_oidc(claim="email"))
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "alice", "index": 0},
+        {"name": "logbook", "index": 1, "access": "maybe"},
+        {"name": "control", "index": 2, "access": "any", "oidc_subject": "svc@lbl.gov"},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert len(_coded(_errors(findings), "invalid_user_access")) == 1
+    # The good shared card is still reached: the guard skips the unreadable
+    # entry, it does not stand the rules down.
+    assert len(_coded(_warnings(findings), "shared_card_subject")) == 1
+
+
+def test_lint_domain_principals_differing_only_in_case_are_an_error() -> None:
+    """The resolver ASCII-lower-cases a `domain:` value, and the login side
+    folds the asserted domain the same way, so these two are one principal
+    wherever they are read — and the pair is invisible in the resolved set."""
+    # Arrange
+    config = _principal_config(_oidc(claim="email"), ["domain:LBL.gov", "domain:lbl.gov"])
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = _coded(_errors(findings), "duplicate_access_principal")
+    assert len(offenders) == 1
+    assert "domain:LBL.gov" in offenders[0].message
+    assert "domain:lbl.gov" in offenders[0].message
+    assert "domains compare without regard to case" in offenders[0].message
+
+
+def test_lint_repeated_domain_principal_is_an_error() -> None:
+    """A literal repeat, and under a claim that folds nothing: the domain fold
+    is the resolver's, not the claim's, so it holds for every deployment."""
+    # Arrange
+    config = _principal_config(_oidc(claim="sub"), ["domain:lbl.gov", "domain:lbl.gov"])
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = _coded(_errors(findings), "duplicate_access_principal")
+    assert len(offenders) == 1
+    assert "the same member more than once" in offenders[0].message
+
+
+def test_lint_distinct_domain_principals_report_nothing() -> None:
+    """Two facilities on one card is the shape this rule must never touch."""
+    # Arrange
+    config = _principal_config(_oidc(claim="email"), ["domain:lbl.gov", "domain:slac.stanford.edu"])
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _coded(findings, "duplicate_access_principal") == []
+
+
+def test_lint_shared_card_subject_warning_quotes_the_authored_access() -> None:
+    """Every shared form reaches this rule, not only `any`, so the remedy may
+    not name a key half these findings do not have."""
+    # Arrange
+    config = _auth_config(_oidc(claim="email"))
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "alice", "index": 0},
+        {
+            "name": "logbook",
+            "index": 1,
+            "access": ["domain:lbl.gov"],
+            "oidc_subject": "svc@lbl.gov",
+        },
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = _coded(_warnings(findings), "shared_card_subject")
+    assert len(offenders) == 1
+    assert "['domain:lbl.gov']" in offenders[0].message
+    assert "access: any" not in offenders[0].message
+    assert "narrow it to access: own" in offenders[0].message
+
+
+def test_lint_access_principals_under_the_default_method_report_nothing() -> None:
+    """`token` is the default method and the other posture that stands no wall.
+    The three admission rules stay silent there for the reason `access: any`
+    does: overlays concatenate the roster, so a passive base carries the key
+    its armed host variant needs, and a finding here would fire on every build
+    of a config that is correct for the variant that uses it. The ``none``
+    sibling above covers the other wall-less posture; the two are not
+    redundant."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "alice", "index": 0},
+        {
+            "name": "logbook",
+            "index": 1,
+            "access": ["domain:lbl.gov", "user:Bob@lbl.gov", "user:bob@lbl.gov"],
+        },
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _coded(findings, "access_principal_without_idp") == []
+    assert _coded(findings, "access_domain_without_email_claim") == []
+    assert _coded(findings, "duplicate_access_principal") == []
+    assert _coded(findings, "invalid_user_access") == []
+
+
+def test_lint_duplicate_subject_gate_sees_a_list_valued_shared_card() -> None:
+    """The whole-rule gate asks whether ANY card is shared, and a principal list
+    is a shared card exactly as `access: any` is. Before the vocabulary the gate
+    tested one literal, so a roster whose only shared card is a list would have
+    skipped the ambiguity the sidecar refuses."""
+    # Arrange
+    config = _auth_config(_oidc(claim="email"))
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "oidc_subject": "thorsten@example.org"},
+        {"name": "thellert-admin", "index": 1, "oidc_subject": "thorsten@example.org"},
+        {"name": "logbook", "index": 2, "access": ["domain:lbl.gov"]},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = _coded(_errors(findings), "shared_card_duplicate_subject")
+    assert len(offenders) == 1
+    assert "'thellert'" in offenders[0].message
 
 
 # --- profile altitude: the same engine over a build profile's `config:` block -
@@ -4252,3 +4885,65 @@ def test_lint_owner_only_privileged_card_draws_no_shared_finding() -> None:
 
     # Assert
     assert not any(f.code == "web_terminals.shared_card_privileged" for f in findings)
+
+
+def test_lint_domain_card_on_a_privileged_persona_is_an_error() -> None:
+    """The shape this whole feature adds, on the one card it must not be added
+    to: a domain grant on the setup-patch-capable `admin` persona hands the
+    deployment-editing surfaces to a whole institution. The rule reads the
+    resolved principal set, so it sees this exactly as it sees `access: any`."""
+    # Arrange
+    config = _shipped_profile_config()
+    for user in config["modules.web_terminals"]["users"]:
+        if user["name"] == "carol":
+            user["access"] = ["domain:lbl.gov"]
+
+    # Act
+    findings = lint_profile_config(config)
+
+    # Assert
+    offenders = [f for f in _errors(findings) if f.code == "web_terminals.shared_card_privileged"]
+    assert len(offenders) == 1
+    assert "'carol'" in offenders[0].message
+    assert "'domain:lbl.gov'" in offenders[0].message
+    assert "'admin'" in offenders[0].message
+
+
+def test_lint_user_card_on_a_privileged_persona_is_an_error() -> None:
+    """Naming one person is still naming somebody other than the card's own
+    user, so the privileged card is still shared. Narrowing the grant does not
+    make the persona safe to hand over, and the rule must not read a one-member
+    list as if it were owner-only."""
+    # Arrange
+    config = _shipped_profile_config()
+    for user in config["modules.web_terminals"]["users"]:
+        if user["name"] == "carol":
+            user["access"] = ["user:carol@lbl.gov"]
+
+    # Act
+    findings = lint_profile_config(config)
+
+    # Assert
+    offenders = [f for f in _errors(findings) if f.code == "web_terminals.shared_card_privileged"]
+    assert len(offenders) == 1
+    assert "'carol'" in offenders[0].message
+    assert "'user:carol@lbl.gov'" in offenders[0].message
+
+
+def test_lint_self_only_card_on_a_privileged_persona_reports_nothing() -> None:
+    """`[self]` is the explicit spelling of owner-only — the same resolved set
+    as `access: own` and as an unwritten key — so the privileged card is not
+    shared and the rule stays silent. The dividing line is the resolved set,
+    not the spelling."""
+    # Arrange
+    config = _shipped_profile_config()
+    for user in config["modules.web_terminals"]["users"]:
+        if user["name"] == "carol":
+            user["access"] = ["self"]
+
+    # Act
+    findings = lint_profile_config(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.shared_card_privileged" for f in findings)
+    assert not any(f.code == "web_terminals.invalid_user_access" for f in findings)

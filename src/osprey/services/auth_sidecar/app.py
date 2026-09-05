@@ -51,6 +51,7 @@ than as cookies signed by a key that dies with the process.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from collections.abc import Mapping
@@ -69,6 +70,7 @@ from osprey.deployment.web_terminals.personas import env_var_suffix, env_var_suf
 # module; the terminal cookie and this sidecar share it.
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 
+from .identity_headers import same_domain, same_identity
 from .revocation import RevocationStore
 from .sessions import SessionCodec
 from .throttle import AttemptThrottle
@@ -137,7 +139,52 @@ ENV_OIDC_SUBJECT_PREFIX = "OSPREY_AUTH_OIDC_SUBJECT_"
 ENV_ROSTER_ACCESS_PREFIX = "OSPREY_AUTH_ROSTER_ACCESS_"
 """Per-user access rule: ``OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>``. The ``ROSTER_``
 infix matches ``OSPREY_AUTH_ROSTER_ROLE_``: both describe the roster entry
-itself rather than a credential belonging to the user."""
+itself rather than a credential belonging to the user.
+
+The value carries a set of principals — :data:`ACCESS_SELF`,
+:data:`ACCESS_ROSTER`, ``user:<id>`` and ``domain:<d>`` — spelled as a JSON
+array, or as one of the two shorthands in :data:`ACCESS_LITERALS`. An absent
+variable is owner-only, which is what nearly every roster entry carries."""
+
+ACCESS_SELF = "self"
+"""Principal admitting the roster entry's own user."""
+
+ACCESS_ROSTER = "roster"
+"""Principal admitting every authenticated roster user.
+
+The whole content of the ``any`` shorthand, which is one spelling of this one
+principal rather than a rule of its own.
+"""
+
+ACCESS_USER_PREFIX = "user:"
+"""Prefix of a principal naming one asserted identity: ``user:carol@lbl.gov``."""
+
+ACCESS_DOMAIN_PREFIX = "domain:"
+"""Prefix of a principal naming an identity domain: ``domain:lbl.gov``."""
+
+OWNER_ONLY: frozenset[str] = frozenset({ACCESS_SELF})
+"""The resolved set of an unshared card, and the reading an absent variable gets."""
+
+WHOLE_ROSTER: frozenset[str] = frozenset({ACCESS_ROSTER})
+"""The resolved set the literal ``any`` spells."""
+
+NOBODY: frozenset[str] = frozenset()
+"""The fail-closed reading of a malformed access value — no principal at all.
+
+Deliberately *not* :data:`OWNER_ONLY`: an unreadable rule must not quietly
+degrade into a working private card, because then nothing surfaces the typo.
+An empty set admits nobody, the owner included, so the card is visibly unusable
+until the operator fixes the variable the warning names.
+"""
+
+ACCESS_LITERALS: Mapping[str, frozenset[str]] = {
+    "own": OWNER_ONLY,
+    "any": WHOLE_ROSTER,
+}
+"""The two authored shorthands that cross the wire as literals rather than JSON."""
+
+_ACCESS_PREFIXES = (ACCESS_USER_PREFIX, ACCESS_DOMAIN_PREFIX)
+_ACCESS_VALUE_LOG_LIMIT = 80
 
 DEFAULT_OIDC_CLIENT_ID_ENV = "OSPREY_AUTH_OIDC_CLIENT_ID"
 DEFAULT_OIDC_CLIENT_SECRET_ENV = "OSPREY_AUTH_OIDC_CLIENT_SECRET"
@@ -183,6 +230,97 @@ def _positive_int(raw: str | None, default: int) -> int:
     except (TypeError, ValueError):
         return default
     return value if value > 0 else default
+
+
+def _logged_value(value: str) -> str:
+    """A bounded, escape-safe rendering of an env value for a warning line.
+
+    ``repr`` so a value carrying newlines cannot forge extra log records, and
+    truncated because an operator only needs to recognise which value is meant
+    — the whole of a pathological one belongs in neither the log nor memory.
+    """
+    if len(value) <= _ACCESS_VALUE_LOG_LIMIT:
+        return repr(value)
+    return f"{value[:_ACCESS_VALUE_LOG_LIMIT]!r} (truncated)"
+
+
+def _is_access_principal(member: object) -> bool:
+    """Whether ``member`` is spelled like a principal this wire format carries.
+
+    Shape only. The render normalizes the members (``user:`` byte-exact, a
+    ``domain:`` ASCII-lower-cased) and the sidecar deliberately does not fold
+    them a second time — two normalizers are two chances to disagree about what
+    a card admits.
+    """
+    if not isinstance(member, str):
+        return False
+    if member in (ACCESS_SELF, ACCESS_ROSTER):
+        return True
+    return any(member.startswith(p) and len(member) > len(p) for p in _ACCESS_PREFIXES)
+
+
+def _access_principals(raw: str | None, var: str) -> frozenset[str]:
+    """Read one ``OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>`` value into a principal set.
+
+    Three shapes cross the wire, matching what the render emits: absent or
+    empty (owner-only, the shape almost every roster has), the literals ``any``
+    and ``own``, and otherwise a compact JSON array of principals.
+
+    Never raises. A value that is none of those warns and degrades to
+    :data:`NOBODY` — see that constant for why the degraded reading is an empty
+    set rather than an owner-only one, and :meth:`AuthSettings.from_env` for why
+    a parser in this process cannot afford to fail loudly.
+
+    Args:
+        raw: The raw environment value, or ``None`` when the variable is unset.
+        var: The variable's full name, for the warning line.
+
+    Returns:
+        The principals admitted to the entry's terminal.
+    """
+    value = (raw or "").strip()
+    if not value:
+        return OWNER_ONLY
+    literal = ACCESS_LITERALS.get(value)
+    if literal is not None:
+        return literal
+
+    try:
+        parsed = json.loads(value)
+    except (ValueError, RecursionError):
+        # ``RecursionError`` and not only ``ValueError``: CPython's decoder
+        # recurses per nesting level, so a value of a hundred thousand open
+        # brackets exhausts the stack rather than reporting bad syntax. It is
+        # still just an unreadable value, and it must not be the one input that
+        # takes the sidecar down on the way up.
+        logger.warning(
+            "%s is neither a known access literal nor readable as JSON (%s): the entry "
+            "admits nobody until it is fixed",
+            var,
+            _logged_value(value),
+        )
+        return NOBODY
+    if not isinstance(parsed, list) or not parsed:
+        logger.warning(
+            "%s is not a non-empty JSON array of principals (%s): the entry admits "
+            "nobody until it is fixed",
+            var,
+            _logged_value(value),
+        )
+        return NOBODY
+    if not all(_is_access_principal(member) for member in parsed):
+        logger.warning(
+            "%s names something that is not a %r/%r/%r/%r principal (%s): the entry "
+            "admits nobody until it is fixed",
+            var,
+            ACCESS_SELF,
+            ACCESS_ROSTER,
+            ACCESS_USER_PREFIX,
+            ACCESS_DOMAIN_PREFIX,
+            _logged_value(value),
+        )
+        return NOBODY
+    return frozenset(parsed)
 
 
 def _roster(raw: str | None) -> tuple[str, ...]:
@@ -249,10 +387,13 @@ class AuthSettings:
         oidc_claim: Which ID-token claim carries the identity to map onto a
             roster user.
         oidc_subjects: ``{username: expected claim value}`` from the roster.
-        shared_users: Roster usernames whose terminal any authenticated roster
-            user may open (``access: any``). Membership is granted only by the
-            exact value ``any`` — anything else, including the default
-            ``own``, reads as not shared, so a typo fails closed.
+        roster_access: ``{username: admitted principals}`` for every roster
+            user, as :func:`_access_principals` read the entry's
+            ``OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>``. :data:`OWNER_ONLY` for the
+            entries that carry no rule, which is nearly all of them; an empty
+            set for one whose rule could not be read, which admits nobody. Use
+            :meth:`access` rather than the mapping, so a name off the roster
+            answers as an unshared card instead of raising.
     """
 
     method: str = "none"
@@ -270,7 +411,7 @@ class AuthSettings:
     oidc_client_secret_var: str = DEFAULT_OIDC_CLIENT_SECRET_ENV
     oidc_claim: str = DEFAULT_OIDC_CLAIM
     oidc_subjects: Mapping[str, str] = field(default_factory=dict)
-    shared_users: frozenset[str] = frozenset()
+    roster_access: Mapping[str, frozenset[str]] = field(default_factory=dict)
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> AuthSettings:
@@ -301,7 +442,7 @@ class AuthSettings:
         users = _roster(source.get(ENV_USERS))
         password_hashes: dict[str, str] = {}
         oidc_subjects: dict[str, str] = {}
-        shared_users: set[str] = set()
+        roster_access: dict[str, frozenset[str]] = {}
         for user in users:
             suffix = env_var_suffix(user)
             stored = (source.get(f"{ENV_PW_HASH_PREFIX}{suffix}") or "").strip()
@@ -310,11 +451,8 @@ class AuthSettings:
             subject = (source.get(f"{ENV_OIDC_SUBJECT_PREFIX}{suffix}") or "").strip()
             if subject:
                 oidc_subjects[user] = subject
-            access = (source.get(f"{ENV_ROSTER_ACCESS_PREFIX}{suffix}") or "").strip()
-            if access == "any":
-                # Only the exact value grants sharing; anything else — the
-                # default ``own`` included — fails closed to per-user access.
-                shared_users.add(user)
+            access_var = f"{ENV_ROSTER_ACCESS_PREFIX}{suffix}"
+            roster_access[user] = _access_principals(source.get(access_var), access_var)
 
         client_id_var = (
             source.get(ENV_OIDC_CLIENT_ID_ENV) or ""
@@ -341,7 +479,7 @@ class AuthSettings:
             oidc_client_secret_var=client_secret_var,
             oidc_claim=(source.get(ENV_OIDC_CLAIM) or "").strip() or DEFAULT_OIDC_CLAIM,
             oidc_subjects=oidc_subjects,
-            shared_users=frozenset(shared_users),
+            roster_access=roster_access,
         )
 
     def missing_requirements(self) -> tuple[str, ...]:
@@ -427,13 +565,143 @@ class AuthSettings:
         """The IdP identity mapped to ``user``, or ``None`` if unmapped."""
         return self.oidc_subjects.get(user)
 
-    def shared(self, user: str) -> bool:
-        """Whether ``user``'s terminal is open to the whole roster.
+    def access(self, user: str) -> frozenset[str]:
+        """The principals admitted to ``user``'s terminal.
 
-        ``False`` for a user not on the roster, and for every roster user whose
-        access rule is anything but the exact value ``any``.
+        :data:`OWNER_ONLY` for a user not on the roster and for one carrying no
+        access rule — the two cases that mean "this card opens for its own user
+        and nobody else". An empty set for a roster user whose rule could not be
+        read; :data:`NOBODY` says why that is not owner-only.
+
+        Args:
+            user: Roster username.
+
+        Returns:
+            The admitted principals, as the render spelled them.
         """
-        return user in self.shared_users
+        return self.roster_access.get(user, OWNER_ONLY)
+
+    def shared(self, user: str) -> bool:
+        """Whether ``user``'s terminal is open to anybody but its own user.
+
+        True exactly when :meth:`access` is not :data:`OWNER_ONLY` — for a
+        card admitting the whole roster (the ``any`` shorthand), for one naming
+        particular identities or domains, and for one whose rule is unreadable,
+        which admits nobody but is still not a private card. ``False`` for a
+        user not on the roster.
+        """
+        return self.access(user) != OWNER_ONLY
+
+    def subject_matches(self, identity: str) -> tuple[tuple[str, str], ...]:
+        """Every roster entry whose mapped IdP identity ``identity`` matches.
+
+        The service's one reverse match — the deliberate exception to the rule
+        that a login only ever consults the clicked card's own mapping. It
+        exists because a shared card is opened by *somebody else's* identity,
+        and nothing but the roster says whose.
+
+        Every entry is compared, each in constant time through
+        :func:`~osprey.services.auth_sidecar.identity_headers.same_identity`,
+        with no early break. Stopping at the first hit would let the comparison
+        count say which entry matched and how early it sits in the roster, and
+        an identity two entries share has to surface as ambiguity rather than be
+        resolved by declaration order — so every match is returned and the
+        caller decides what more than one means.
+
+        Args:
+            identity: The value the identity provider asserted for
+                :attr:`oidc_claim`.
+
+        Returns:
+            ``(username, mapped identity)`` pairs, in roster-mapping order.
+            Empty when the identity is mapped to no entry.
+        """
+        return tuple(
+            (name, configured)
+            for name, configured in self.oidc_subjects.items()
+            if same_identity(identity, configured, claim=self.oidc_claim)
+        )
+
+    def owner_admitted(self, card: str) -> bool:
+        """Whether ``card``'s own user is still admitted by their own credential.
+
+        The one predicate the three own-user paths share — the password login,
+        ``/verify``'s own-shape session, and the OIDC callback's own arm — so
+        the owner's standing is spelled once rather than re-derived three ways.
+
+        ``self`` is a member like any other, and that is what makes it
+        meaningful beside the others: ``[self, domain:x]`` shares the card with
+        a domain *and* keeps the owner's own login working, while
+        ``[domain:x]`` alone hands the card over and locks its own user out —
+        a distinction an operator can only express if ``self`` is read here.
+        An owner-only card carries ``self`` and answers ``True`` trivially, and
+        a set that could not be read carries nothing and answers ``False``.
+
+        The owner is also admitted as an ordinary roster member whenever the
+        set carries ``roster``; that path is :meth:`card_admits`, which needs an
+        asserted identity. This one deliberately does not — it is asked before
+        an identity exists, and about the credential the card itself minted.
+
+        Args:
+            card: The roster entry whose own user is logging in.
+
+        Returns:
+            ``True`` when ``self`` is among the card's principals. A name that
+            is not on the roster answers ``True`` as well, because
+            :meth:`access` reads an unknown card as owner-only; every caller
+            refuses an unknown card before reaching here, so the question is
+            never actually asked of one.
+        """
+        return ACCESS_SELF in self.access(card)
+
+    def _principal_covers(self, member: str, identity: str) -> bool:
+        """Whether one principal covers ``identity``. See :meth:`card_admits`."""
+        if member == ACCESS_ROSTER:
+            return bool(self.subject_matches(identity))
+        if member.startswith(ACCESS_USER_PREFIX):
+            return same_identity(identity, member[len(ACCESS_USER_PREFIX) :], claim=self.oidc_claim)
+        if member.startswith(ACCESS_DOMAIN_PREFIX):
+            return same_domain(identity, member[len(ACCESS_DOMAIN_PREFIX) :])
+        # ``self`` — and any member a future render learns to emit that this
+        # sidecar does not know yet. Neither admits: the owner's own login is
+        # the ordinary non-shared path rather than a rule, and an unrecognised
+        # principal must not be guessed at.
+        return False
+
+    def card_admits(self, card: str, identity: str) -> bool:
+        """Whether ``card``'s access rule admits somebody asserting ``identity``.
+
+        The predicate behind a shared card, asked at login and again at every
+        ``/verify`` subrequest — the second is why it takes only stored values
+        and never a token: nothing about the handshake survives to be re-asked.
+
+        Each principal kind answers for itself: ``roster`` admits an identity
+        mapped to any roster entry (:meth:`subject_matches`), ``user:<id>``
+        admits that one identity, and ``domain:<d>`` admits any identity in that
+        domain. ``self`` admits nobody here — the card's own user reaches it by
+        logging in as themselves, which is not an admission rule — so an
+        owner-only card and one with no readable rule both answer ``False``,
+        as does a card that is not on the roster.
+
+        **Every member is evaluated, with no early break**, and the results are
+        combined at the end: the members are unioned (a set of allows, never a
+        deny), and short-circuiting on the first hit would leak through timing
+        which principal did the admitting. Members are compared in the sorted
+        order the render emitted them in, so the work does not depend on set
+        iteration order either.
+
+        Args:
+            card: The roster entry whose terminal is being opened.
+            identity: The identity asserted for :attr:`oidc_claim` — at login by
+                the validated ID token, on re-validation by the session.
+
+        Returns:
+            ``True`` only when at least one principal covers ``identity``.
+        """
+        covering = [
+            self._principal_covers(member, identity) for member in sorted(self.access(card))
+        ]
+        return any(covering)
 
     def knows_user(self, user: str) -> bool:
         """Whether ``user`` is on this deployment's roster."""

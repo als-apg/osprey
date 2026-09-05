@@ -293,18 +293,25 @@
       OSPREY_AUTH_ROLE_CLAIM / OSPREY_AUTH_ROLE_MAP above are the deployment's
       group binding, so a user named `claim` or `map` under a plain
       OSPREY_AUTH_ROLE_ prefix would have read that binding as their own role.
-    services[].shared: bool, required — whether this entry is a shared card
-      (`access: any` on the roster entry), read through
-      personas.entry_is_shared() -> one OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>=any
-      line on the sidecar, telling it any authenticated roster user may open
-      this card. False (the default, owner-only) emits no line at all, and the
-      sidecar resolves "" — owner-only — for that entry. Emitted under BOTH
-      login methods, ungated exactly like the role table and for the same
+    services[].shared: bool, required — whether this entry is a shared card,
+      i.e. whether its `access` admits anyone beyond the one user it belongs
+      to, read through personas.entry_is_shared(). Nothing below is emitted
+      from it; it is the boolean form of the same answer `access_value`
+      carries, kept for readers that only need the yes/no.
+    services[].access_value: str, required — that entry's resolved principal
+      set, spelled by personas.access_wire_value() for the sidecar to parse
+      back: "" for an owner-only entry, the literal `any` for the whole
+      roster, else a compact sorted JSON array of the members
+      (`["domain:lbl.gov"]`, `["self","user:carol@lbl.gov"]`). One
+      OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>=<value> line is emitted per entry
+      whose value is non-empty; an owner-only entry emits no line at all, and
+      the sidecar resolves an absent variable as owner-only. Emitted under
+      BOTH login methods, ungated exactly like the role table and for the same
       structural reason: only the enclosing `sidecar_active` decides it.
     services[].access_env: str — the env-var name the above is emitted under,
       pre-resolved by render.py through personas.env_var_suffix(). Always
-      present; read only when `shared` is set. Pre-resolved for the same
-      reason `oidc_subject_env` is, and the `ROSTER_` infix follows the
+      present; read only when `access_value` is non-empty. Pre-resolved for the
+      same reason `oidc_subject_env` is, and the `ROSTER_` infix follows the
       `role_env` precedent above.
     services[].terminal_secret_env: str, required
       The env-var NAME this user's operator secret travels in
@@ -810,27 +817,36 @@ services:
       - {{ (svc.role_env ~ "=" ~ svc.role) | tojson }}
 {%- endif %}
 {%- endfor %}
-{#- The roster's shared cards -> OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>=any: one
-   line per entry that declares `access: any`, telling the sidecar any
-   authenticated roster user may open this card. An owner-only entry (the
-   default) emits nothing and the sidecar resolves "" for it — owner-only,
-   not a sharing value named "". The value is the literal `any` — the only
-   sharing value normalize_users carries through — so the sidecar re-reads
-   the same vocabulary the roster was written in.
+{#- The roster's shared cards -> OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>=<set>:
+   one line per entry that admits anybody beyond its own user, telling the
+   sidecar WHO may open this card. An owner-only entry (the default) emits
+   nothing and the sidecar resolves "" for it — owner-only, not a sharing
+   value named "".
+
+   The value arrives pre-spelled as `svc.access_value`
+   (personas.access_wire_value(), off the set personas.resolve_access_principals()
+   read from the roster): the literal `any` for the whole roster, byte-identical
+   to what this line has always emitted for `access: any`, and otherwise a
+   compact sorted JSON array of the principals — `["domain:lbl.gov"]`,
+   `["self","user:carol@lbl.gov"]`. Spelled render-side rather than here
+   because the sidecar parses it back, and one speller and one parser is what
+   keeps the set this deployment ADMITS ON identical to the set its roster
+   AUTHORED. A fixed token here would hand a `domain:` card to every login.
 
    The variable NAME arrives pre-resolved as `svc.access_env` (render.py, via
    personas.env_var_suffix()) and is emitted verbatim, for the reason spelled
    out on `oidc_subject_env` above; the `ROSTER_` infix follows the role
-   table's precedent. tojson quotes the whole `KEY=value` for symmetry with
-   its neighbours, though here the value is a fixed token.
+   table's precedent. tojson quotes the whole `KEY=value`, which is what keeps
+   a JSON array — commas, colons and quotes of its own — one YAML string,
+   exactly as it keeps a `: ` inside a role name from splitting the line.
 
    Method-UNGATED exactly like the role table above and for the same
    structural reason: the enclosing `sidecar_active` is what keeps it out of
    a login-free deployment, and both sidecar methods mint sessions that must
    know which cards are open to the roster. #}
 {%- for svc in services %}
-{%- if svc.shared %}
-      - {{ (svc.access_env ~ "=any") | tojson }}
+{%- if svc.access_value %}
+      - {{ (svc.access_env ~ "=" ~ svc.access_value) | tojson }}
 {%- endif %}
 {%- endfor %}
     volumes:

@@ -31,6 +31,7 @@ from osprey.services.auth_sidecar.app import (
     DEFAULT_OIDC_CLIENT_SECRET_ENV,
     DEFAULT_SESSION_LIFETIME,
     HEALTH_PATH,
+    OWNER_ONLY,
     STATE_COOKIE_MAX_AGE,
     STATE_COOKIE_NAME,
     WEBSOCKET_REFUSAL_CODE,
@@ -552,22 +553,156 @@ class TestSettingsParsing:
         assert settings.shared("alice") is False
         assert settings.shared("nobody") is False
 
-    def test_roster_access_any_marks_the_user_shared(self) -> None:
+    @pytest.mark.parametrize("value", ["", "   ", "own"])
+    def test_an_unset_or_owner_only_rule_admits_only_the_entrys_user(self, value: str) -> None:
+        """The shapes the render emits for an unshared card all read the same.
+
+        An absent variable is what every pre-principal-set deployment carries,
+        the empty string is what an env line with nothing after the ``=`` looks
+        like, and ``own`` is the authored spelling — none of the three may read
+        as shared.
+        """
+        env = dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_ALICE=value)
+        settings = AuthSettings.from_env(env)
+        assert settings.access("alice") == OWNER_ONLY
+        assert settings.shared("alice") is False
+
+    def test_an_unknown_user_reads_as_an_unshared_card(self) -> None:
+        settings = AuthSettings.from_env(PASSWORD_ENV)
+        assert settings.access("nobody") == OWNER_ONLY
+
+    def test_roster_access_any_admits_the_whole_roster(self) -> None:
         env = dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_ALICE="any")
         settings = AuthSettings.from_env(env)
+        assert settings.access("alice") == frozenset({"roster"})
         assert settings.shared("alice") is True
+        assert settings.access("bob") == OWNER_ONLY
         assert settings.shared("bob") is False
 
-    @pytest.mark.parametrize("value", ["own", "ANY", "Any", "yes", "any-thing", ""])
-    def test_any_other_access_value_fails_closed(self, value: str) -> None:
+    PRINCIPAL_LISTS = [
+        ('["domain:lbl.gov"]', {"domain:lbl.gov"}),
+        ('["self","user:carol@lbl.gov"]', {"self", "user:carol@lbl.gov"}),
+        ('["domain:lbl.gov","user:a@b.gov"]', {"domain:lbl.gov", "user:a@b.gov"}),
+        ('["roster"]', {"roster"}),
+        ('["self"]', {"self"}),
+        ('["domain:x.org","roster"]', {"domain:x.org", "roster"}),
+    ]
+
+    @pytest.mark.parametrize(("value", "expected"), PRINCIPAL_LISTS)
+    def test_a_principal_array_is_read_back_member_for_member(
+        self, value: str, expected: set[str]
+    ) -> None:
+        """The wire array is the render's set, unfolded and unrewritten.
+
+        The render already normalized the members, so the bytes it sorted into
+        the array are the bytes the admission rules compare — a second fold here
+        would be a second chance to disagree about what the card admits.
+        """
         env = dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_ALICE=value)
+        settings = AuthSettings.from_env(env)
+        assert settings.access("alice") == frozenset(expected)
+
+    def test_a_roster_member_beside_others_is_not_collapsed(self) -> None:
+        """A mixed set keeps every member, ``roster`` included.
+
+        The render never folds ``["domain:x.org","roster"]`` down to ``any``, so
+        the parser must not fold it either. What a ``roster`` member covers is
+        decided where the card is matched against an identity, not here — a
+        parser that collapsed the set would throw away the other members before
+        anything could ask about them.
+        """
+        env = dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_ALICE='["domain:x.org","roster"]')
+        settings = AuthSettings.from_env(env)
+        assert settings.access("alice") == frozenset({"domain:x.org", "roster"})
+        assert settings.shared("alice") is True
+
+    def test_a_lone_self_member_is_still_an_unshared_card(self) -> None:
+        """``["self"]`` is the array spelling of ``own`` and must read as one."""
+        env = dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_ALICE='["self"]')
         assert AuthSettings.from_env(env).shared("alice") is False
+
+    MALFORMED_ACCESS = [
+        "ANY",
+        "Any",
+        "yes",
+        "any-thing",
+        "[]",
+        '["group:x"]',
+        '[""]',
+        '["self", 1]',
+        '{"a":1}',
+        '"any"',
+        "[unterminated",
+        # CPython's decoder recurses per nesting level, so this one exhausts
+        # the stack rather than reporting bad syntax. Still an unreadable value.
+        "[" * 100000,
+    ]
+
+    @pytest.mark.parametrize("value", MALFORMED_ACCESS)
+    def test_an_unreadable_rule_warns_and_admits_nobody(
+        self, value: str, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A value the sidecar cannot read locks the card rather than opening it.
+
+        Degrading to owner-only would leave a working private card and nothing
+        to notice; degrading to the whole roster would hand a typo the terminal.
+        The empty set admits nobody at all, and the warning names the variable
+        an operator has to fix.
+        """
+        env = dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_ALICE=value)
+
+        with caplog.at_level(logging.WARNING, logger=app_mod.__name__):
+            settings = AuthSettings.from_env(env)
+
+        warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+        assert settings.access("alice") == frozenset()
+        assert settings.shared("alice") is True
+        assert len(warnings) == 1
+        assert "OSPREY_AUTH_ROSTER_ACCESS_ALICE" in caplog.text
+
+    def test_the_warning_bounds_a_huge_value(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A pathological value is truncated rather than flooding the log."""
+        env = dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_ALICE="x" * 5000)
+
+        with caplog.at_level(logging.WARNING, logger=app_mod.__name__):
+            AuthSettings.from_env(env)
+
+        assert len(caplog.text) < 1000
+        assert "(truncated)" in caplog.text
+
+    def test_a_value_carrying_a_newline_cannot_forge_a_record(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """One warning, and the value's own newline never starts a second line.
+
+        Short enough that truncation does none of the work here — the escaping
+        does, which is the property worth pinning: a value is data in a log
+        line, never a way to write one.
+        """
+        env = dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_ALICE='["self"]\nWARNING forged')
+
+        with caplog.at_level(logging.WARNING, logger=app_mod.__name__):
+            settings = AuthSettings.from_env(env)
+
+        warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "forged" in caplog.text
+        assert "\nWARNING" not in caplog.text
+        assert settings.access("alice") == frozenset()
 
     def test_access_rules_outside_the_roster_are_not_loaded(self) -> None:
         env = dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_MALLORY="any")
         settings = AuthSettings.from_env(env)
         assert settings.shared("mallory") is False
-        assert settings.shared_users == frozenset()
+        assert "mallory" not in settings.roster_access
+
+    def test_every_roster_user_gets_a_resolved_set(self) -> None:
+        env = dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_ALICE='["domain:lbl.gov"]')
+        settings = AuthSettings.from_env(env)
+        assert settings.roster_access == {
+            "alice": frozenset({"domain:lbl.gov"}),
+            "bob": OWNER_ONLY,
+        }
 
     def test_roster_access_uses_the_shared_suffix_mapping(self) -> None:
         env = dict(
@@ -576,6 +711,253 @@ class TestSettingsParsing:
             OSPREY_AUTH_ROSTER_ACCESS_SHIFT_CONSOLE="any",
         )
         assert AuthSettings.from_env(env).shared("shift-console") is True
+
+    @pytest.mark.parametrize("value", ['["user:"]', '["domain:"]', '[["self"]]', "null", "true"])
+    def test_a_principal_with_nothing_after_its_prefix_is_unreadable(self, value: str) -> None:
+        """Valid JSON is not enough: the members have to name principals.
+
+        ``["user:"]`` and ``["domain:"]`` are the ones worth naming — they look
+        like rules and admit nothing, so reading them as anything but broken
+        would hide the mistake behind a card that merely never opens.
+        """
+        env = dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_ALICE=value)
+        assert AuthSettings.from_env(env).access("alice") == frozenset()
+
+    def test_surrounding_whitespace_does_not_make_a_rule_unreadable(self) -> None:
+        """An env line can pick up padding on its way through the compose file."""
+        env = dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_ALICE='  ["domain:lbl.gov"]  ')
+        assert AuthSettings.from_env(env).access("alice") == frozenset({"domain:lbl.gov"})
+
+    def test_a_repeated_member_is_the_same_rule(self) -> None:
+        env = dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_ALICE='["self","self","roster"]')
+        assert AuthSettings.from_env(env).access("alice") == frozenset({"self", "roster"})
+
+    def test_one_broken_rule_does_not_disturb_another_entry(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Each entry is read on its own, and each bad one names itself.
+
+        A typo in one card's rule must not spread: the other cards keep the
+        access their operator wrote, and the warnings name every variable that
+        needs fixing rather than only the first.
+        """
+        env = dict(
+            PASSWORD_ENV,
+            OSPREY_AUTH_USERS="alice,bob,carol",
+            OSPREY_AUTH_ROSTER_ACCESS_ALICE="nonsense",
+            OSPREY_AUTH_ROSTER_ACCESS_BOB='["domain:lbl.gov"]',
+            OSPREY_AUTH_ROSTER_ACCESS_CAROL='{"any": true}',
+        )
+
+        with caplog.at_level(logging.WARNING, logger=app_mod.__name__):
+            settings = AuthSettings.from_env(env)
+
+        assert settings.access("alice") == frozenset()
+        assert settings.access("bob") == frozenset({"domain:lbl.gov"})
+        assert settings.access("carol") == frozenset()
+        assert "OSPREY_AUTH_ROSTER_ACCESS_ALICE" in caplog.text
+        assert "OSPREY_AUTH_ROSTER_ACCESS_CAROL" in caplog.text
+        assert "OSPREY_AUTH_ROSTER_ACCESS_BOB" not in caplog.text
+
+    def test_an_unreadable_rule_leaves_the_sidecar_servable(self) -> None:
+        """The whole reason the parser degrades instead of raising.
+
+        A sidecar that died on a bad access value would take down the
+        healthcheck that is an operator's only way to find out what is wrong —
+        so the app starts, reports itself configured, and refuses the one card
+        whose rule could not be read.
+        """
+        env = dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_ALICE="nonsense")
+        app = create_app(env)
+
+        with TestClient(app) as client:
+            assert client.get(HEALTH_PATH).json()["configured"] is True
+        assert app.state.settings.card_admits("alice", "alice@lbl.gov") is False
+
+
+class TestCardAdmits:
+    """Which asserted identities a card's principal set lets in.
+
+    The predicate the login callback and every ``/verify`` subrequest ask, so
+    the cases here are the ones that decide whether a shared terminal opens.
+    """
+
+    ROSTER_ENV = dict(
+        PASSWORD_ENV,
+        OSPREY_AUTH_USERS="alice,bob,console",
+        OSPREY_AUTH_OIDC_CLAIM="email",
+        OSPREY_AUTH_OIDC_SUBJECT_ALICE="alice@lbl.gov",
+        OSPREY_AUTH_OIDC_SUBJECT_BOB="bob@lbl.gov",
+    )
+
+    @staticmethod
+    def _settings(access: str) -> AuthSettings:
+        """Settings whose ``console`` card carries ``access`` as its wire value."""
+        return AuthSettings.from_env(
+            dict(TestCardAdmits.ROSTER_ENV, OSPREY_AUTH_ROSTER_ACCESS_CONSOLE=access)
+        )
+
+    def test_a_user_principal_admits_exactly_that_identity(self) -> None:
+        settings = self._settings('["user:carol@lbl.gov"]')
+        assert settings.card_admits("console", "carol@lbl.gov") is True
+        assert settings.card_admits("console", "carol@als.lbl.gov") is False
+        assert settings.card_admits("console", "dave@lbl.gov") is False
+
+    def test_a_user_principal_follows_the_claims_case_rule(self) -> None:
+        """``email`` names a mailbox, so the roster is not pinned to one spelling."""
+        assert self._settings('["user:carol@lbl.gov"]').card_admits("console", "Carol@LBL.GOV")
+
+    def test_a_domain_principal_admits_any_mailbox_in_that_domain(self) -> None:
+        settings = self._settings('["domain:lbl.gov"]')
+        assert settings.card_admits("console", "dave@lbl.gov") is True
+        assert settings.card_admits("console", "dave@als.lbl.gov") is False
+        assert settings.card_admits("console", "dave@example.org") is False
+
+    def test_a_domain_principal_folds_only_ascii_case(self) -> None:
+        """``Alice@LBL.GOV`` is in ``lbl.gov``; the local part is never examined."""
+        assert self._settings('["domain:lbl.gov"]').card_admits("console", "Alice@LBL.GOV")
+
+    def test_a_domain_principal_refuses_an_identity_with_no_mailbox(self) -> None:
+        settings = self._settings('["domain:lbl.gov"]')
+        assert settings.card_admits("console", "@lbl.gov") is False
+        assert settings.card_admits("console", "lbl.gov") is False
+        assert settings.card_admits("console", "") is False
+
+    def test_a_unicode_domain_never_matches_a_punycode_assertion(self) -> None:
+        """By design: this service never invents the translation between the two."""
+        settings = self._settings('["domain:ex\u00e4mple.org"]')
+        assert settings.card_admits("console", "dave@xn--exmple-cua.org") is False
+        assert settings.card_admits("console", "dave@ex\u00e4mple.org") is True
+
+    def test_a_roster_principal_admits_any_mapped_roster_identity(self) -> None:
+        """``access: any`` is opened by whoever the roster maps, not by the card's own user."""
+        settings = self._settings("any")
+        assert settings.card_admits("console", "bob@lbl.gov") is True
+        assert settings.card_admits("console", "alice@lbl.gov") is True
+
+    def test_a_roster_principal_refuses_an_identity_mapped_nowhere(self) -> None:
+        settings = self._settings("any")
+        assert settings.card_admits("console", "carol@lbl.gov") is False
+
+    def test_a_roster_principal_does_not_need_the_card_to_be_mapped(self) -> None:
+        """``console`` maps to no subject of its own and is still opened by the roster."""
+        settings = self._settings("any")
+        assert settings.oidc_subject("console") is None
+        assert settings.card_admits("console", "alice@lbl.gov") is True
+
+    def test_one_covering_member_is_enough_in_a_mixed_set(self) -> None:
+        settings = self._settings('["domain:example.org","user:carol@lbl.gov"]')
+        assert settings.card_admits("console", "carol@lbl.gov") is True
+        assert settings.card_admits("console", "dave@example.org") is True
+        assert settings.card_admits("console", "dave@lbl.gov") is False
+
+    def test_self_admits_nobody(self) -> None:
+        """The owner's own login is the ordinary path, not an admission rule."""
+        settings = self._settings('["self","user:carol@lbl.gov"]')
+        assert settings.card_admits("console", "carol@lbl.gov") is True
+        assert settings.card_admits("console", "alice@lbl.gov") is False
+
+    def test_an_owner_only_card_admits_nobody(self) -> None:
+        settings = AuthSettings.from_env(self.ROSTER_ENV)
+        assert settings.card_admits("alice", "alice@lbl.gov") is False
+        assert settings.card_admits("alice", "bob@lbl.gov") is False
+
+    @pytest.mark.parametrize(
+        "identity", ["alice@lbl.gov", "bob@lbl.gov", "carol@lbl.gov", "console", ""]
+    )
+    def test_an_unreadable_rule_admits_nobody(self, identity: str) -> None:
+        """The empty set is the whole point of the fail-closed degrade.
+
+        A card whose rule could not be read reads as shared, so any path that
+        asks only `shared()` would hand it the whole roster. This predicate is
+        what has to refuse — the mapped identities above all, since those are
+        exactly the ones such a path would have admitted.
+        """
+        settings = self._settings("ANY")
+        assert settings.access("console") == frozenset()
+        assert settings.shared("console") is True
+        assert settings.card_admits("console", identity) is False
+
+    def test_a_card_off_the_roster_admits_nobody(self) -> None:
+        settings = self._settings("any")
+        assert settings.card_admits("mallory", "alice@lbl.gov") is False
+
+    def test_every_member_is_evaluated_rather_than_short_circuited(self) -> None:
+        """No early break, so nothing about which principal admitted leaks through timing."""
+        settings = self._settings('["domain:lbl.gov","user:carol@example.org","roster"]')
+        seen: list[str] = []
+        original = settings._principal_covers
+
+        def recording(member: str, identity: str) -> bool:
+            seen.append(member)
+            return original(member, identity)
+
+        object.__setattr__(settings, "_principal_covers", recording)
+        assert settings.card_admits("console", "dave@lbl.gov") is True
+        assert seen == ["domain:lbl.gov", "roster", "user:carol@example.org"]
+
+
+class TestOwnerAdmitted:
+    """Whether a card's own user is still let in by their own credential."""
+
+    @staticmethod
+    def _settings(access: str) -> AuthSettings:
+        return AuthSettings.from_env(dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_ALICE=access))
+
+    def test_an_owner_only_card_admits_its_owner(self) -> None:
+        assert AuthSettings.from_env(PASSWORD_ENV).owner_admitted("alice") is True
+
+    def test_self_beside_another_principal_keeps_the_owner_in(self) -> None:
+        """The distinction the member exists to express."""
+        assert self._settings('["self","domain:lbl.gov"]').owner_admitted("alice") is True
+
+    def test_a_card_handed_to_a_domain_alone_locks_its_owner_out(self) -> None:
+        assert self._settings('["domain:lbl.gov"]').owner_admitted("alice") is False
+
+    def test_an_unreadable_rule_admits_no_owner(self) -> None:
+        assert self._settings("ANY").owner_admitted("alice") is False
+
+    def test_a_roster_card_does_not_admit_its_owner_by_this_route(self) -> None:
+        """``roster`` covers the owner as a roster member, which is `card_admits`."""
+        assert self._settings("any").owner_admitted("alice") is False
+
+    def test_an_unknown_card_reads_as_owner_only(self) -> None:
+        """Documented rather than relied on: callers refuse an unknown card first."""
+        assert AuthSettings.from_env(PASSWORD_ENV).owner_admitted("mallory") is True
+
+
+class TestSubjectMatches:
+    """The one reverse match over the roster's mapped identities."""
+
+    ENV = dict(
+        PASSWORD_ENV,
+        OSPREY_AUTH_USERS="alice,bob,carol",
+        OSPREY_AUTH_OIDC_CLAIM="email",
+        OSPREY_AUTH_OIDC_SUBJECT_ALICE="alice@lbl.gov",
+        OSPREY_AUTH_OIDC_SUBJECT_BOB="shared@lbl.gov",
+        OSPREY_AUTH_OIDC_SUBJECT_CAROL="shared@lbl.gov",
+    )
+
+    def test_a_mapped_identity_names_its_entry(self) -> None:
+        settings = AuthSettings.from_env(self.ENV)
+        assert settings.subject_matches("alice@lbl.gov") == (("alice", "alice@lbl.gov"),)
+
+    def test_an_unmapped_identity_matches_nothing(self) -> None:
+        assert AuthSettings.from_env(self.ENV).subject_matches("dave@lbl.gov") == ()
+
+    def test_two_entries_on_one_identity_both_surface(self) -> None:
+        """Ambiguity is returned, never resolved by declaration order."""
+        settings = AuthSettings.from_env(self.ENV)
+        assert [name for name, _ in settings.subject_matches("shared@lbl.gov")] == ["bob", "carol"]
+
+    def test_the_claims_case_rule_applies(self) -> None:
+        settings = AuthSettings.from_env(self.ENV)
+        assert [name for name, _ in settings.subject_matches("Alice@LBL.GOV")] == ["alice"]
+
+    def test_a_case_sensitive_claim_is_compared_byte_for_byte(self) -> None:
+        """``sub`` is an opaque identifier: two spellings are two accounts."""
+        env = dict(self.ENV, OSPREY_AUTH_OIDC_CLAIM="sub")
+        assert AuthSettings.from_env(env).subject_matches("Alice@LBL.GOV") == ()
 
 
 class TestSharedStores:
