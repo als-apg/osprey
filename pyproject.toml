@@ -573,6 +573,7 @@ markers = [
     "qmd: Tests that need the qmd sidecar image (OSPREY_QMD_IMAGE). They REFUSE to skip when it is absent — a lane that skipped on a missing image would report success having proved nothing — so a lane that does not build or load one must deselect them with `-m 'not qmd'`",
     "real_workspace_watcher: Web-terminal app test that needs a live filesystem observer — opts out of the conftest stub that keeps broadcaster assertions deterministic",
     "real_http_posters: MCP-server test of the HTTP posters themselves — opts out of the conftest stub that keeps notify_* POSTs from reaching a live web terminal",
+    "real_graph_index: Build test of the channel search index derivation itself — opts out of the conftest stub that builds each corpus once per session and copies it into every render",
     "pty: Real-terminal tests that run an osprey verb on a pty and read back the bytes an operator would have seen. POSIX-only (they self-skip elsewhere), and deselected from the parallel lane because they assert on repaint cadence and on a spinner advancing between frames, which three other xdist workers loading the box would distort; they get their own serial CI step instead. Carried per-test, not per-directory: tests/pty/test_stub_coverage.py needs no terminal and stays in the parallel lane.",
 ]
 

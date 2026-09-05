@@ -41,3 +41,9 @@ class QueryProcessingError(ChannelFinderError):
     """Raised when query processing fails."""
 
     pass
+
+
+class GraphIndexBuildError(ChannelFinderError):
+    """Raised when the graph search index cannot be built from the corpus."""
+
+    pass
