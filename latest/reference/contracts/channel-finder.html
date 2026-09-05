@@ -544,21 +544,30 @@ requiring their removal.</p>
 </section>
 <section id="graph">
 <span id="channel-finder-db-graph"></span><h3>Graph<a class="headerlink" href="#graph" title="Link to this heading">#</a></h3>
-<p>The graph pipeline reads no database file at all: the facility graph <em>is</em> the
-database. Its contract is the graph schema documented in
-<a class="reference internal" href="../../how-to/facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>, served by the
-<code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> store, and a graph-mode project ships no
-<code class="docutils literal notranslate"><span class="pre">data/channel_databases/</span></code> entry. Populate the store with
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-graph</span></code>.</p>
-<p>The corpus behind that store is also this deployment’s <strong>channel roster</strong> — the
-one answer to which channels the facility has, and which of them are written.
-The web interface enumerates and validates against it, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
-derives the queue server’s plan devices from it
-(<a class="reference internal" href="../../how-to/bluesky/write-plans.html"><span class="doc">Write Your Own Plans</span></a>). Both read the corpus named by
-<code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code>, not the store: a deployment pointed at a store
-the facility runs, holding no corpus file of its own, has nothing to enumerate,
-and the two web routes say so — naming that key — instead of reporting a
-facility with no channels.</p>
+<p>The graph pipeline has no channel database of its own: the facility graph
+describes the machine. Its contract is the graph schema documented in
+<a class="reference internal" href="../../how-to/facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>, authored as the Turtle
+corpus <code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code> names. Load that corpus into the
+<code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> store with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-graph</span></code>.</p>
+<p>The corpus is the source of truth, and two things are built from it. The store
+answers questions about structure — which device an address belongs to, what a
+class is a kind of — and the device card and the agent’s Cypher tools read it.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> also derives a flat search index from the same file, and a
+graph-mode project ships that index as <code class="docutils literal notranslate"><span class="pre">data/channel_databases/graph.duckdb</span></code>
+(<code class="docutils literal notranslate"><span class="pre">services.graphdb.index_path</span></code>). Nothing parses the corpus while the
+deployment runs; rebuild the index with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">build-index</span></code>
+whenever the corpus changes, and seed the store from the same file so the two
+agree.</p>
+<p>The corpus is also this deployment’s <strong>channel roster</strong> — the one answer to
+which channels the facility has, and which of them are written. The web
+interface enumerates and validates against it, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> derives the
+queue server’s plan devices from it (<a class="reference internal" href="../../how-to/bluesky/write-plans.html"><span class="doc">Write Your Own Plans</span></a>). Both
+read the index built from the corpus, not the store, and both need a corpus
+this deployment holds (<code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code>), or an <code class="docutils literal notranslate"><span class="pre">index_path</span></code>
+that names an index built elsewhere: a deployment pointed at a store the
+facility runs, holding no corpus file of its own and no such index, has
+nothing to enumerate, and the two web routes say so — naming that key —
+instead of reporting a facility with no channels.</p>
 </section>
 </section>
 <section id="configuration-reference">
@@ -573,7 +582,7 @@ facility with no channels.</p>
 <span class="w">      </span><span class="nt">database</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="nv">hierarchical</span><span class="p p-Indicator">,</span><span class="nt"> path</span><span class="p">:</span><span class="w"> </span><span class="nv">data/channel_databases/hierarchical.json</span><span class="p p-Indicator">}</span>
 <span class="w">    </span><span class="nt">middle_layer</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">database</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="nv">middle_layer</span><span class="p p-Indicator">,</span><span class="nt"> path</span><span class="p">:</span><span class="w"> </span><span class="nv">data/channel_databases/middle_layer.json</span><span class="p p-Indicator">}</span>
-<span class="w">    </span><span class="c1"># graph has no entry: it reads the `services.graphdb` store, not a file.</span>
+<span class="w">    </span><span class="c1"># graph has no entry: it is configured by the `services.graphdb` block.</span>
 <span class="w">  </span><span class="nt">benchmark</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">dataset_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/benchmarks/queries.json</span>
 <span class="w">    </span><span class="c1"># Concurrency and output dir are set per run via CLI flags</span>

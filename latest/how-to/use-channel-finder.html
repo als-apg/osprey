@@ -699,19 +699,22 @@ when DuckDB is installed — <code class="docutils literal notranslate"><span cl
 </section>
 <section id="graph-pipeline">
 <h2>Graph Pipeline<a class="headerlink" href="#graph-pipeline" title="Link to this heading">#</a></h2>
-<p>Searches the facility knowledge graph instead of a channel database. The store
-<em>is</em> the database: a graph-mode project ships no database file, and the channel
-finder subagent finds addresses by writing read-only Cypher against the seeded
-<code class="docutils literal notranslate"><span class="pre">graphdb</span></code> store.</p>
-<p><strong>How it works:</strong> four tools, served under the <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> name like
+<p>Searches the facility knowledge graph instead of a channel database. A
+graph-mode project ships no channel database: the corpus describes the machine,
+and the channel finder subagent finds addresses either by keyword lookup in the
+search index the build derives from that corpus, or by writing read-only Cypher
+against the seeded <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> store.</p>
+<p><strong>How it works:</strong> five tools, served under the <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> name like
 every other pipeline’s. <code class="docutils literal notranslate"><span class="pre">capabilities</span></code> reports how addresses are spelled and
-what prose the corpus carries; <code class="docutils literal notranslate"><span class="pre">example_queries</span></code> returns runnable Cypher for
-the common channel questions, each with framework-default parameter values that
-the seed-time snapshot may replace with values captured from this corpus;
-<code class="docutils literal notranslate"><span class="pre">get_schema</span></code> lists the labels, relationship types and property names
-<em>this</em> graph actually holds; <code class="docutils literal notranslate"><span class="pre">read_cypher</span></code> runs one query and returns rows.
-There is no resolution API behind them — the subagent adapts an example rather
-than calling a lookup.</p>
+what prose the corpus carries; <code class="docutils literal notranslate"><span class="pre">search_channels</span></code> looks a phrase up in the
+search index and returns matching addresses a page at a time, with facet counts
+for section, system, class, signal and direction; <code class="docutils literal notranslate"><span class="pre">example_queries</span></code> returns
+runnable Cypher for the common channel questions, each with framework-default
+parameter values that the seed-time snapshot may replace with values captured
+from this corpus; <code class="docutils literal notranslate"><span class="pre">get_schema</span></code> lists the labels, relationship types and
+property names <em>this</em> graph actually holds; <code class="docutils literal notranslate"><span class="pre">read_cypher</span></code> runs one query and
+returns rows. There is no resolution API behind them — the subagent looks a
+phrase up or adapts an example rather than calling a lookup.</p>
 <p>Configuration is the mode plus the store, and nothing else. There is no graph
 entry under <code class="docutils literal notranslate"><span class="pre">pipelines:</span></code> — that section renders empty in graph mode — and no
 <code class="docutils literal notranslate"><span class="pre">tier</span></code>, because the pipeline has no tiered artifacts:</p>
@@ -720,6 +723,10 @@ entry under <code class="docutils literal notranslate"><span class="pre">pipelin
 <span class="w">  </span><span class="nt">pipelines</span><span class="p">:</span><span class="w">        </span><span class="c1"># nothing here — graph names no database file</span>
 </pre></div>
 </div>
+<p>The store block names one more thing: the search index the finder reads, under
+<code class="docutils literal notranslate"><span class="pre">services.graphdb.index_path</span></code> — <code class="docutils literal notranslate"><span class="pre">./data/channel_databases/graph.duckdb</span></code>
+unless the project says otherwise, which is why the mode and the store are the
+whole of the configuration.</p>
 <p>The store comes from the <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block, either one this deployment
 runs or one the facility already hosts (an explicit <code class="docutils literal notranslate"><span class="pre">services.graphdb.uri</span></code>
 and <code class="docutils literal notranslate"><span class="pre">username</span></code>, with <code class="docutils literal notranslate"><span class="pre">GRAPHDB_PASSWORD</span></code> in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code>). See
@@ -744,13 +751,15 @@ last two tokens of an address mean, against the prose for a device family, a
 system or a ring, and against the synonyms an operator would say out loud. A
 corpus imported from a facility export may carry less prose: there the way in
 is a name, an alternate name, a section or a device class.</p>
-<p><code class="docutils literal notranslate"><span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">preview</span></code> have no file to open on this pipeline, so both
-report what the store is and which commands act on it. Health reports the store
-instead of a database: whether it is reachable, and how many resources it holds
+<p><code class="docutils literal notranslate"><span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">preview</span></code> have no channel database to open on this pipeline,
+so both report what the store is and which commands act on it. Health reports
+the store and the search index instead of a database: whether the store is
+reachable and how many resources it holds, and whether the index is there and
+was built from the corpus the store was seeded with
 (<a class="reference internal" href="health-and-monitoring/configure-health-checks.html"><span class="doc">Configure Health Checks</span></a>).</p>
-<p>The web explorer opens on this pipeline too, and reads the same store: its
-Explore view searches the graph rather than browsing a channel tree. See
-<a class="reference internal" href="#web-interface">Web Interface</a> below.</p>
+<p>The web explorer opens on this pipeline too: its Explore view searches the
+index rather than browsing a channel tree, and the device card reads the store.
+See <a class="reference internal" href="#web-interface">Web Interface</a> below.</p>
 </section>
 <section id="web-interface">
 <h2>Web Interface<a class="headerlink" href="#web-interface" title="Link to this heading">#</a></h2>

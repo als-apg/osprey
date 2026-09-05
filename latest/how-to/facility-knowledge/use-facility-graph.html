@@ -549,7 +549,8 @@ subagents, two jobs — see <a class="reference internal" href="../use-channel-f
 <li><p class="sd-card-text">Why the server can only read, and what it refuses before dialing</p></li>
 <li><p class="sd-card-text">What each degraded state means and the remedy it names</p></li>
 <li><p class="sd-card-text">How to generate a graph corpus from your own channel databases</p></li>
-<li><p class="sd-card-text">Why the corpus is the deployment’s channel list, not only a search index</p></li>
+<li><p class="sd-card-text">Why the corpus is the deployment’s channel list, not only a graph</p></li>
+<li><p class="sd-card-text">What the build derives from the corpus, and when to rebuild it</p></li>
 <li><p class="sd-card-text">How to point the tools at a store the facility already runs</p></li>
 </ul>
 <p class="sd-card-text"><strong>Prerequisites:</strong> a project with a <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block — the
@@ -864,22 +865,33 @@ in-context channel finder does not list, and on any build it can find an
 address the virtual accelerator does not serve. Both are the documented shapes
 of those smaller views, not a mismatch. A build with a channel database of your
 own restores the correspondence by regenerating the corpus from it.</p>
-<section id="the-corpus-is-the-channel-list-not-only-a-search-index">
-<h3>The corpus is the channel list, not only a search index<a class="headerlink" href="#the-corpus-is-the-channel-list-not-only-a-search-index" title="Link to this heading">#</a></h3>
+<section id="the-corpus-is-the-channel-list-not-only-a-graph">
+<h3>The corpus is the channel list, not only a graph<a class="headerlink" href="#the-corpus-is-the-channel-list-not-only-a-graph" title="Link to this heading">#</a></h3>
 <p>On a graph-mode build the corpus is what the deployment answers “which channels
-does this facility have” with. Three places read it and get the same list:</p>
+does this facility have” with. It answers through a search index: <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">build</span></code> reads the corpus once and writes
+<code class="docutils literal notranslate"><span class="pre">data/channel_databases/graph.duckdb</span></code>, a flat table of the same bindings, and
+that file is what the running deployment reads. No process parses the corpus
+while the deployment is up, so a click answers in milliseconds however large
+the machine is.</p>
+<p>Four places read the index and get the same list:</p>
 <ul class="simple">
 <li><p><strong>The queue server’s devices.</strong> With no device file of your own, <code class="docutils literal notranslate"><span class="pre">osprey</span>
-<span class="pre">build</span></code> derives the plan device set from the corpus: every write-direction
+<span class="pre">build</span></code> derives the plan device set from this list: every write-direction
 binding becomes a settable, every read-direction one a readable. A settable
 takes the <code class="docutils literal notranslate"><span class="pre">:RB</span></code> sibling of its <code class="docutils literal notranslate"><span class="pre">:SP</span></code> address as its readback where the
 corpus enumerates that address as a read binding, and otherwise carries none.
 See <a class="reference internal" href="../bluesky/write-plans.html"><span class="doc">Write Your Own Plans</span></a>.</p></li>
 <li><p><strong>The channel finder in graph mode.</strong> It keeps no database of its own and
-turns phrases into addresses out of this same corpus.</p></li>
-<li><p><strong>The channel finder’s web view.</strong> Its channel list serves the corpus’s
-addresses and their total, and a name checked against it is checked for
-membership in the corpus.</p></li>
+turns phrases into addresses out of this same list. The OSPREY agent’s
+<code class="docutils literal notranslate"><span class="pre">search_channels</span></code> tool looks addresses up here by keyword and facet; its
+Cypher tools still ask the store, which is where questions about structure
+belong.</p></li>
+<li><p><strong>The channel finder’s web view.</strong> Its search results, its ontology and
+statistics panels and its channel list all come from the index. The device
+card is the exception: it reads the store, a single keyed lookup.</p></li>
+<li><p><strong>The virtual accelerator.</strong> Its channel manifest is derived from the same
+list, so a simulated machine serves addresses the deployment knows.</p></li>
 </ul>
 <p>Because the direction of a binding is a property of the graph rather than a
 guess from the address, a graph-mode build reads the settable/readable split
@@ -887,12 +899,46 @@ straight out of the corpus. A build on one of the file-backed paradigms has to
 derive that split instead — from the write-limits file, or failing that from
 the <code class="docutils literal notranslate"><span class="pre">:SP</span></code> address grammar — because no paradigm database records a
 direction.</p>
-<p>Where the corpus cannot be read — the store belongs to the facility and this
-deployment holds no <code class="docutils literal notranslate"><span class="pre">.ttl</span></code> file, or <code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code> points at
-nothing — the web view says it has nothing to enumerate from and names that
+<p>Where there is no corpus to build from — the store belongs to the facility and
+this deployment holds no <code class="docutils literal notranslate"><span class="pre">.ttl</span></code> file, or <code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code> points
+at nothing — the web view says it has nothing to enumerate from and names that
 key, rather than reporting a facility with no channels. The rest of the app
 starts as usual, and the graph tools keep answering from the store.</p>
 </section>
+</section>
+<section id="rebuilding-the-search-index">
+<h2>Rebuilding the Search Index<a class="headerlink" href="#rebuilding-the-search-index" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes the index for you, from the corpus the render carries.
+Rebuild it by hand after editing or regenerating the corpus:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>knowledge<span class="w"> </span>build-index
+</pre></div>
+</div>
+<p>Both paths come from the project’s config: the corpus from
+<code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code>, the index from <code class="docutils literal notranslate"><span class="pre">services.graphdb.index_path</span></code>,
+which defaults to <code class="docutils literal notranslate"><span class="pre">./data/channel_databases/graph.duckdb</span></code>. Name either with
+<code class="docutils literal notranslate"><span class="pre">--ttl</span></code> or <code class="docutils literal notranslate"><span class="pre">--output</span></code> to override it. With no corpus configured the command
+refuses in one sentence and says which key to set. Run it inside the render, or
+with <code class="docutils literal notranslate"><span class="pre">OSPREY_CONFIG</span></code> pointing at the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, so both keys
+resolve against the same project.</p>
+<p>Seed the store from the same file you indexed. The two are independent
+derivations of one corpus, and only that keeps them describing one machine:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>knowledge<span class="w"> </span>build-index
+osprey<span class="w"> </span>knowledge<span class="w"> </span>seed-graph
+</pre></div>
+</div>
+<p>A channel finder already running on the host keeps the index it opened, so
+restart it to pick up a rebuilt one. A deployed stack needs nothing: its build
+writes the index into the image it starts from.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> reports both halves under the channel finder category:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">channel_finder_seed</span></code> — the corpus the store was imported from, as the
+digest its seed marker carries. It warns when the store is unseeded, or holds
+a corpus no marker identifies.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">channel_finder_search_index</span></code> — the index, with its binding and device
+counts. It warns when the index is absent, cannot be read, or was built from
+a different corpus than the store holds, which is the reading that catches a
+seed and an index that have drifted apart.</p></li>
+</ul>
 </section>
 <section id="multi-user-operator-terminals">
 <h2>Multi-User Operator Terminals<a class="headerlink" href="#multi-user-operator-terminals" title="Link to this heading">#</a></h2>
@@ -1008,9 +1054,10 @@ query bounds.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-presets-seed">What the Presets Seed</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pointing-at-a-store-the-facility-runs">Pointing at a Store the Facility Runs</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-machine-several-views">One Machine, Several Views</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-corpus-is-the-channel-list-not-only-a-search-index">The corpus is the channel list, not only a search index</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-corpus-is-the-channel-list-not-only-a-graph">The corpus is the channel list, not only a graph</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rebuilding-the-search-index">Rebuilding the Search Index</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#multi-user-operator-terminals">Multi-User Operator Terminals</a></li>
 </ul>
   </nav></div>
