@@ -29,6 +29,7 @@ from osprey.deployment.channel_snapshot import (
     compute_channel_snapshot,
 )
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
+from tests._graph_index import build_index_from_ttl, default_index_path
 
 
 @pytest.fixture(autouse=True)
@@ -231,12 +232,15 @@ class TestGraphParadigm:
             ],
         )
 
-        decision = compute_channel_snapshot(_graph_config(ttl))
+        config = _graph_config(ttl, config_dir=tmp_path)
+        index = build_index_from_ttl(ttl, config)
+
+        decision = compute_channel_snapshot(config)
 
         assert decision.emit is True
         assert decision.channels == ["SR:BPM:01:X", "SR:BPM:02:X"]
         assert decision.count == 2
-        assert decision.source_path == ttl
+        assert decision.source_path == index
 
     @pytest.mark.parametrize(
         "config",
@@ -260,17 +264,18 @@ class TestGraphParadigm:
             for record in caplog.records
         )
 
-    def test_an_unreadable_corpus_is_still_named_by_the_skipped_snapshot(self, tmp_path):
-        # The corpus is missing, so the roster comes back as an absence — and
-        # the decision surfaces the path that absence names, so a build that
-        # emits nothing can still say which file it was looking for. Why the
-        # read failed, and its warning, are the reader's and are asserted there.
-        missing = tmp_path / "gone.ttl"
+    def test_an_unbuilt_index_is_still_named_by_the_skipped_snapshot(self, tmp_path):
+        # No build has written an index, so the roster comes back as an absence
+        # — and the decision surfaces the path that absence names, so a build
+        # that emits nothing can still say which file it was looking for. Why
+        # the read failed, and its warning, are the reader's and are asserted
+        # there.
+        config = _graph_config(tmp_path / "gone.ttl", config_dir=tmp_path)
 
-        decision = compute_channel_snapshot(_graph_config(missing))
+        decision = compute_channel_snapshot(config)
 
         assert decision.emit is False
-        assert decision.source_path == missing
+        assert decision.source_path == default_index_path(tmp_path)
 
     def test_switching_the_feature_off_never_opens_the_corpus(self, tmp_path, caplog):
         # The corpus does not exist: reaching it at all would warn.
@@ -283,23 +288,28 @@ class TestGraphParadigm:
         assert decision.source_path is None
         assert caplog.records == []
 
-    def test_a_relative_ttl_path_reaches_the_corpus_the_roster_resolved(
+    def test_a_relative_index_path_reaches_the_index_the_roster_resolved(
         self, tmp_path, monkeypatch
     ):
         # The path rules themselves are the roster's (and are tested there);
         # what this pins is that the decision reports the file that was read,
-        # so a snapshot and the roster can never name different corpora.
+        # so a snapshot and the roster can never name different sources. The
+        # index path is render-relative and defaulted, which is exactly the
+        # case a build in another directory would get wrong.
         render = tmp_path / "render"
         (render / "data").mkdir(parents=True)
-        _write_ttl(render / "data" / "corpus.ttl", [("b1", "SR:BPM:01:X")])
+        ttl = _write_ttl(render / "data" / "corpus.ttl", [("b1", "SR:BPM:01:X")])
+        config = _graph_config("data/corpus.ttl", config_dir=render)
+        index = build_index_from_ttl(ttl, config)
         elsewhere = tmp_path / "elsewhere"
         elsewhere.mkdir()
         monkeypatch.chdir(elsewhere)
 
-        decision = compute_channel_snapshot(_graph_config("data/corpus.ttl", config_dir=render))
+        decision = compute_channel_snapshot(config)
 
         assert decision.emit is True
-        assert decision.source_path == (render / "data" / "corpus.ttl").resolve()
+        assert decision.source_path == index
+        assert index == default_index_path(render)
 
 
 class TestSnapshotDerivesFromTheRoster:
@@ -343,7 +353,8 @@ class TestSnapshotDerivesFromTheRoster:
             tmp_path / "corpus.ttl",
             [("b1", "SR:BPM:02:X"), ("b2", "SR:BPM:01:X"), ("b3", "SR:BPM:02:X")],
         )
-        config = _graph_config(ttl)
+        config = _graph_config(ttl, config_dir=tmp_path)
+        build_index_from_ttl(ttl, config)
 
         decision = compute_channel_snapshot(config)
         roster = registered_channels(config)

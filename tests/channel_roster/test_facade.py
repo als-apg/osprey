@@ -6,25 +6,30 @@ makes. Two things are load-bearing here and nowhere else in the package.
 The first is that the four stages compose into one honest answer: resolution
 picks the source, the right reader reads it, pairing runs over the records it
 returned, and an absence travels through untouched. The end-to-end assertion is
-against the corpus OSPREY ships -- 2908 channels, 396 of them settable, every
-one of those paired with the readback the corpus enumerates. Those are the
-numbers the feature exists for: the build that reported ``144 settable / 144
-readable`` was reading the write-limits projection.
+against an index built from the corpus OSPREY ships -- 2908 channels, 396 of
+them settable, every one of those paired with the readback the corpus
+enumerates. Those are the numbers the feature exists for: the build that
+reported ``144 settable / 144 readable`` was reading the write-limits
+projection.
 
 The second is memoization. A build asks this question several times -- both
 bridge lanes render from it and the channel snapshot is written from it -- and
-the answer costs a multi-megabyte Turtle parse. Reading the source more than
-once per build is a performance bug; serving a roster the file no longer holds
-is a correctness bug, so the tests pin both directions: one read across repeated
-calls, and a fresh read as soon as the file on disk changes.
+each answer is a scan of every channel the facility has. Reading the source
+more than once per build is a performance bug; serving a roster the file no
+longer holds is a correctness bug, so the tests pin both directions: one read
+across repeated calls, and a fresh read as soon as the file on disk changes.
+
+The graph paradigm's source is the search index a build writes, so the fixtures
+here write one: a real index where the reader reads it, and a stand-in file
+where a spy reader stands in for it and only the memo key looks at the bytes.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 from collections.abc import Iterator
-from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +45,7 @@ from osprey.channel_roster import (
     RosterSourceKind,
     registered_channels,
 )
+from tests._graph_index import build_index_from_ttl, default_index_path, demo_corpus_path
 
 #: What the shipped demo corpus holds, pinned alongside
 #: ``tests/services/facility_knowledge/test_demo_ttl_consistency.py``.
@@ -75,6 +81,28 @@ def _corpus(path: Path, addresses: dict[str, str]) -> Path:
     )
     path.write_text(_PREAMBLE + bindings, encoding="utf-8")
     return path
+
+
+def _build_index(render: Path, ttl_path: Path) -> Path:
+    """Build the search index a graph-mode build writes into *render*.
+
+    The roster reads the index, not the corpus, and it looks for it where
+    ``services.graphdb.index_path`` defaults -- so that is where it goes.
+    """
+    return build_index_from_ttl(ttl_path, index_path=default_index_path(render))
+
+
+def _stage_index_file(render: Path, payload: bytes = b"index") -> Path:
+    """Put *payload* where the build writes the index, and return its path.
+
+    For the tests that stand a spy in for the reader: nothing parses these
+    bytes, and what they are pinning is that the memo key has a file to
+    fingerprint -- which is the index, now that the roster reads one.
+    """
+    index_path = default_index_path(render)
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_path.write_bytes(payload)
+    return index_path
 
 
 def _graph_config(render: Path, ttl_path: str | None = "corpus.ttl") -> dict[str, Any]:
@@ -151,17 +179,18 @@ class _SpyReader:
 class TestTheShippedDemoCorpus:
     """End to end on the corpus OSPREY ships, through the facade only."""
 
-    @pytest.fixture
-    def demo_config(self, tmp_path: Path) -> Iterator[dict[str, Any]]:
-        resource = (
-            files("osprey.templates")
-            .joinpath("apps")
-            .joinpath("control_assistant")
-            .joinpath("data")
-            .joinpath("demo_machine.ttl")
-        )
-        with as_file(resource) as path:
-            yield _graph_config(path.parent, ttl_path=path.name)
+    @pytest.fixture(scope="class")
+    def demo_config(self, tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
+        """A graph-mode project whose index is built from the shipped corpus.
+
+        Built once for the class: the corpus is a multi-megabyte parse, and
+        every test here reads the same index.
+        """
+        render = tmp_path_factory.mktemp("demo_render")
+        with demo_corpus_path() as path:
+            shutil.copy(path, render / path.name)
+        _build_index(render, render / "demo_machine.ttl")
+        return _graph_config(render, ttl_path="demo_machine.ttl")
 
     def test_enumerates_the_whole_machine_with_the_corpus_directions(self, demo_config) -> None:
         result = registered_channels(demo_config)
@@ -178,18 +207,18 @@ class TestTheShippedDemoCorpus:
         assert len(paired) == DEMO_WRITES
         assert all(record.readback == record.address[: -len("SP")] + "RB" for record in paired)
 
-    def test_names_the_corpus_it_read(self, demo_config) -> None:
+    def test_names_the_index_it_read(self, demo_config) -> None:
         source = registered_channels(demo_config).source
 
         assert source is not None
         assert source.kind is RosterSourceKind.GRAPH
-        assert source.path.name == "demo_machine.ttl"
+        assert source.path == default_index_path(Path(demo_config["config_dir"]))
 
 
 class TestMemoization:
     def test_the_source_is_read_once_across_repeated_calls(self, tmp_path, monkeypatch) -> None:
         config = _graph_config(tmp_path)
-        _corpus(tmp_path / "corpus.ttl", {"A:B:C:SP": "writesSignal"})
+        _stage_index_file(tmp_path)
         spy = _SpyReader()
         monkeypatch.setattr(channel_roster, "read_graph_roster", spy)
 
@@ -202,7 +231,7 @@ class TestMemoization:
 
     def test_a_rewritten_source_is_read_again(self, tmp_path, monkeypatch) -> None:
         config = _graph_config(tmp_path)
-        path = _corpus(tmp_path / "corpus.ttl", {"A:B:C:SP": "writesSignal"})
+        path = _stage_index_file(tmp_path)
         spy = _SpyReader()
         monkeypatch.setattr(channel_roster, "read_graph_roster", spy)
 
@@ -214,13 +243,13 @@ class TestMemoization:
 
     def test_a_source_that_changed_size_alone_is_read_again(self, tmp_path, monkeypatch) -> None:
         config = _graph_config(tmp_path)
-        path = _corpus(tmp_path / "corpus.ttl", {"A:B:C:SP": "writesSignal"})
+        path = _stage_index_file(tmp_path)
         spy = _SpyReader()
         monkeypatch.setattr(channel_roster, "read_graph_roster", spy)
 
         registered_channels(config)
         stamp = path.stat()
-        _corpus(path, {"A:B:C:SP": "writesSignal", "A:B:D:SP": "writesSignal"})
+        _stage_index_file(tmp_path, payload=b"a longer index")
         os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
         registered_channels(config)
 
@@ -290,11 +319,12 @@ class TestReaderDispatch:
             ("A:B:C:SP", "A:B:C:RB")
         ]
 
-    def test_a_graph_paradigm_reads_its_corpus(self, tmp_path: Path) -> None:
-        _corpus(
+    def test_a_graph_paradigm_reads_its_index(self, tmp_path: Path) -> None:
+        ttl_path = _corpus(
             tmp_path / "corpus.ttl",
             {"A:B:C:SP": "writesSignal", "A:B:C:RB": "readsSignal"},
         )
+        _build_index(tmp_path, ttl_path)
 
         result = registered_channels(_graph_config(tmp_path))
 
@@ -305,7 +335,7 @@ class TestReaderDispatch:
     def test_an_unreadable_source_is_a_corrupt_source_absence_not_an_empty_facility(
         self, tmp_path: Path
     ) -> None:
-        (tmp_path / "corpus.ttl").write_text("this is not turtle {{{", encoding="utf-8")
+        _stage_index_file(tmp_path, payload=b"this is not a database {{{")
 
         result = registered_channels(_graph_config(tmp_path))
 

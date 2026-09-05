@@ -26,6 +26,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests._graph_index import build_index_from_ttl
+
 BLUESKY_WEB_TEMPLATE = "services/bluesky_web/docker-compose.yml.j2"
 OUT_DIR = Path("build") / "services" / "bluesky_web"
 SNAPSHOT = OUT_DIR / "channels.json"
@@ -131,6 +133,16 @@ def _corpus(directory: Path) -> Path:
     return path
 
 
+def _graph_source(directory: Path, config: dict) -> Path:
+    """Stage what a graph-mode render reads: the corpus, and its search index.
+
+    The roster reads the index, so a corpus alone leaves the panel with
+    nothing to suggest. The index goes where ``config`` says it does, which on
+    these projects is the default path under ``config_dir``.
+    """
+    return build_index_from_ttl(_corpus(directory), config)
+
+
 def _graph_config(repo: Path, *, ttl: bool = True) -> dict:
     """The config slice a graph-paradigm project renders with.
 
@@ -182,8 +194,8 @@ def test_paths_agree_when_the_graph_corpus_emits(repo, rendered_contexts):
     paradigm differs only in where the addresses are read from, never in what
     the build writes or which render path wrote it.
     """
-    _corpus(repo)
     config = _graph_config(repo)
+    _graph_source(repo, config)
 
     _run_full(config)
     assert rendered_contexts[0]["channel_snapshot"] is True
@@ -288,9 +300,10 @@ def test_mount_absent_when_the_decision_is_false(repo, web_block, with_database)
 
 def test_mount_present_when_the_graph_snapshot_emits(repo):
     """A corpus-derived snapshot is mounted like any other."""
-    _corpus(repo)
+    config = _graph_config(repo)
+    _graph_source(repo, config)
 
-    _run_full(_graph_config(repo))
+    _run_full(config)
 
     volumes = _rendered_volumes()
     assert SNAPSHOT_MOUNT in volumes
@@ -314,9 +327,9 @@ def test_graph_mount_absent_when_the_decision_is_false(repo, web_block, with_cor
     guard and an unconfigured ``ttl_path`` each end in a build that renders and
     a sidecar with nothing to suggest.
     """
-    if with_corpus:
-        _corpus(repo)
     config = _graph_config(repo, ttl=ttl)
+    if with_corpus:
+        _graph_source(repo, config)
     if web_block is not None:
         config["web"] = web_block
 
@@ -334,8 +347,9 @@ def test_a_rebuild_drops_a_stale_graph_snapshot(repo, rendered_contexts):
     rebuild has to drop the file the previous build wrote AND the mount that
     named it, or the deployment comes up binding a path nothing produces.
     """
-    _corpus(repo)
-    _run_full(_graph_config(repo))
+    config = _graph_config(repo)
+    _graph_source(repo, config)
+    _run_full(config)
     assert SNAPSHOT.exists()
 
     _run_incremental(_graph_config(repo, ttl=False))
@@ -354,10 +368,10 @@ def test_the_graph_corpus_resolves_through_config_dir(repo, tmp_path, rendered_c
     """
     render_dir = tmp_path / "render"
     render_dir.mkdir()
-    _corpus(render_dir)
 
     config = _graph_config(repo)
     config["config_dir"] = str(render_dir)
+    _graph_source(render_dir, config)
     assert not (repo / "corpus.ttl").exists()
 
     _run_full(config)
@@ -371,6 +385,8 @@ def test_the_graph_corpus_resolves_through_config_dir(repo, tmp_path, rendered_c
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     config["config_dir"] = str(elsewhere)
+    # Deliberately no index under the new anchor: the corpus in the working
+    # directory is not what the roster reads, and must not be found.
 
     _run_full(config)
     assert rendered_contexts[1]["channel_snapshot"] is False

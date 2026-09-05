@@ -120,6 +120,48 @@ def _run_neo4j_isolation_check(import_stmt: str) -> tuple[bool, str]:
     return _run_absent_check("neo4j", import_stmt)
 
 
+_MULTI_ABSENT_CHECK_TEMPLATE = """\
+{setup}
+import sys
+_packages = {packages!r}
+_leaked = {{}}
+for _package in _packages:
+    _prefix = _package + "."
+    _hits = [m for m in sys.modules if m == _package or m.startswith(_prefix)]
+    if _hits:
+        _leaked[_package] = _hits
+assert not _leaked, "leaked into sys.modules: " + repr(_leaked)
+print("OK")
+"""
+
+
+def _run_multi_absent_check(packages: tuple[str, ...], setup: str) -> tuple[bool, str]:
+    """Run *setup* in a fresh interpreter and assert every one of *packages* stayed unimported.
+
+    Generalizes :func:`_run_absent_check` to several packages at once so one
+    subprocess can pin a module's whole no-import contract instead of spawning
+    one child per forbidden package.
+
+    Args:
+        packages: Top-level (or dotted) module names that must stay out of
+            ``sys.modules``. Submodules of any entry count as leaks too.
+        setup: Python source executed before the check — one or more import
+            statements, or a few lines that also exercise lazy attributes.
+
+    Returns:
+        Tuple of ``(all_absent, stderr_output)``. *all_absent* is True when
+        *setup* did not pull any of *packages* in as a side-effect.
+    """
+    code = _MULTI_ABSENT_CHECK_TEMPLATE.format(setup=setup, packages=packages)
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=SUBPROCESS_TIMEOUT_S,
+    )
+    return result.returncode == 0, result.stderr
+
+
 # ---------------------------------------------------------------------------
 # Module discovery — the guard grows with the packages it protects
 # ---------------------------------------------------------------------------
@@ -427,6 +469,142 @@ class TestTtlGeneratorRdflibIsolation:
         assert ok, f"neo4j leaked after importing {module}:\n{stderr}"
 
 
+class TestGraphIndexImportIsolation:
+    """``channel_finder.graph_index`` must stay import-light, lazy exports included.
+
+    The package docstring promises ``duckdb``, ``rdflib``, ``neo4j`` and
+    ``osprey.services.qmd`` all stay out of ``sys.modules``: the roster and the
+    health check reach this package on paths where any of the four appearing
+    would be a regression. Every public name is resolved through
+    ``__getattr__`` on first access, so the guard must hold not only right
+    after import but also once every lazy export has been pulled through —
+    ``.builder`` and ``.reader`` are required to keep their own heavy imports
+    function-local rather than at their module top.
+    """
+
+    _BLOCKED = ("rdflib", "duckdb", "neo4j", "osprey.services.qmd")
+
+    def test_import_alone_stays_light(self):
+        """Importing the package must not pull in any of the four blocked deps."""
+        ok, stderr = _run_multi_absent_check(
+            self._BLOCKED,
+            "import osprey.services.channel_finder.graph_index\n",
+        )
+        assert ok, f"graph_index import leaked a blocked dependency:\n{stderr}"
+
+    def test_resolving_every_lazy_export_stays_light(self):
+        """Touching every ``__all__`` entry must still leave the four deps unimported."""
+        setup = (
+            "from osprey.services.channel_finder import graph_index\n"
+            "for _name in graph_index.__all__:\n"
+            "    getattr(graph_index, _name)\n"
+        )
+        ok, stderr = _run_multi_absent_check(self._BLOCKED, setup)
+        assert ok, f"resolving graph_index's lazy exports leaked a blocked dependency:\n{stderr}"
+
+
+class TestChannelRosterGraphImportIsolation:
+    """``osprey.channel_roster`` and its graph reader must stay import-light.
+
+    ``registered_channels`` dispatches to :mod:`osprey.channel_roster.graph`
+    for the graph paradigm, and that reader parses the Turtle corpus — via
+    rdflib — at call time, not at import time; see its module docstring. This
+    check only pins the import-time half of that contract: rdflib, neo4j and
+    ``osprey.services.qmd`` must all stay out of ``sys.modules`` merely from
+    importing the package and the reader function, before any corpus is read.
+    """
+
+    def test_import_stays_light(self):
+        """Importing the roster package and the graph reader must not leak a driver."""
+        ok, stderr = _run_multi_absent_check(
+            ("rdflib", "neo4j", "osprey.services.qmd"),
+            "import osprey.channel_roster\n"
+            "from osprey.channel_roster.graph import read_graph_roster\n",
+        )
+        assert ok, f"channel_roster.graph import leaked a blocked dependency:\n{stderr}"
+
+
+#: Builds the Channel Finder app without serving it: the module-level imports
+#: of the web app and its routers, and nothing that opens a file.
+_CREATE_CF_APP_SETUP = (
+    "from osprey.interfaces.channel_finder.app import create_app\ncreate_app(project_cwd='.')\n"
+)
+
+#: The same app taken all the way through its lifespan and back — which in graph
+#: mode resolves the store context, opens the search index and reads the channel
+#: roster. Run rather than merely constructed, because every one of those three
+#: happens at startup and none of them at import.
+_SERVE_CF_APP_GRAPH_SETUP = (
+    "import asyncio\n"
+    "from osprey.interfaces.channel_finder.app import create_app\n"
+    "app = create_app(project_cwd='.')\n"
+    "async def _serve():\n"
+    "    async with app.router.lifespan_context(app):\n"
+    "        pass\n"
+    "asyncio.run(_serve())\n"
+)
+
+
+class TestChannelFinderAppImportIsolation:
+    """The graph-mode web app must serve without rdflib.
+
+    Its startup used to parse the Turtle corpus for the channel roster, which
+    put rdflib in every serving process. The roster now comes from the search
+    index the build wrote, so the corpus is read at build time and the app opens
+    a DuckDB file — a change no route test can see, because both answer the same
+    channels. This is the check that can: rdflib must stay out of ``sys.modules``
+    both when the app is built and when it has come up in graph mode.
+
+    The index is deliberately absent. An absence is what the app answers 503
+    from, and it is also the state that would send a naive implementation back
+    to the corpus — which is exactly the regression worth catching.
+    """
+
+    @pytest.fixture
+    def graph_config_env(self, tmp_path: Path) -> dict[str, str | None]:
+        """A rendered graph-mode config, as env overrides.
+
+        Names a corpus and no index: the corpus exists in a real deployment and
+        the app must still not open it, and the index the app looks for has not
+        been built.
+        """
+        config = tmp_path / "config.yml"
+        config.write_text(
+            f"project_root: {tmp_path}\n"
+            "channel_finder:\n"
+            "  pipeline_mode: graph\n"
+            "services:\n"
+            "  graphdb:\n"
+            "    uri: bolt://localhost:7687\n"
+            "    ttl_path: ./data/facility_knowledge/facility.ttl\n",
+            encoding="utf-8",
+        )
+        return {"CONFIG_FILE": str(config), "OSPREY_CONFIG": str(config)}
+
+    def test_creating_the_app_does_not_import_rdflib(self, graph_config_env):
+        """``create_app`` must not pull the parser in through a module-level import."""
+        ok, stderr = _run_absent_check("rdflib", _CREATE_CF_APP_SETUP, env=graph_config_env)
+        assert ok, f"rdflib leaked while creating the channel finder app:\n{stderr}"
+
+    def test_creating_the_app_does_not_import_duckdb(self, graph_config_env):
+        """The index driver stays behind the open: constructing the app never loads it.
+
+        The routes import the index's absence type and the taxonomy helpers at
+        module scope; that is safe only while the reader keeps the driver
+        import inside the open. A file-backed channel finder must never pay
+        for DuckDB, and this is the check that would notice a module-level
+        import creeping in. The serve check stays rdflib-only: an app that
+        opens a present index legitimately imports the driver.
+        """
+        ok, stderr = _run_absent_check("duckdb", _CREATE_CF_APP_SETUP, env=graph_config_env)
+        assert ok, f"duckdb leaked while creating the channel finder app:\n{stderr}"
+
+    def test_serving_the_graph_paradigm_does_not_import_rdflib(self, graph_config_env):
+        """Coming up in graph mode must read the index, never the corpus."""
+        ok, stderr = _run_absent_check("rdflib", _SERVE_CF_APP_GRAPH_SETUP, env=graph_config_env)
+        assert ok, f"rdflib leaked while serving the graph paradigm:\n{stderr}"
+
+
 # ---------------------------------------------------------------------------
 # Driver-API floor
 # ---------------------------------------------------------------------------
@@ -451,9 +629,11 @@ FORBIDDEN_DRIVER_APIS = frozenset(
     }
 )
 
-#: Files held to the floor: the whole graph MCP server plus every seeder
-#: module that dials the store (the seeder proper, and the prompt-snapshot
-#: capture that rides its session).
+#: Files held to the floor: the whole graph MCP server, every seeder module
+#: that dials the store (the seeder proper, and the prompt-snapshot capture
+#: that rides its session), and the graphdb health category, which opens its
+#: own driver against the same store to read the connection, the Resource count
+#: and the seed marker.
 DRIVER_API_FLOOR_FILES = tuple(
     sorted(
         [*(REPO_ROOT / "src" / "osprey" / "mcp_server" / "graph").rglob("*.py")]
@@ -472,6 +652,7 @@ DRIVER_API_FLOOR_FILES = tuple(
             / "facility_knowledge"
             / "seeder"
             / "prompt_snapshot.py",
+            REPO_ROOT / "src" / "osprey" / "health" / "core" / "graphdb.py",
         ]
     )
 )
@@ -513,7 +694,7 @@ class TestDriverApiFloor:
         """Anti-vacuity: the scan must actually have files to walk."""
         assert DRIVER_API_FLOOR_FILES, "driver-API floor found no files to scan"
         names = {path.name for path in DRIVER_API_FLOOR_FILES}
-        assert {"server_context.py", "graph_seeder.py"} <= names, sorted(names)
+        assert {"server_context.py", "graph_seeder.py", "graphdb.py"} <= names, sorted(names)
 
     @pytest.mark.parametrize(
         "path", DRIVER_API_FLOOR_FILES, ids=lambda p: str(p.relative_to(REPO_ROOT))

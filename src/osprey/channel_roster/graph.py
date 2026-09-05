@@ -1,36 +1,50 @@
-"""Enumerate a facility's channels from its knowledge-graph corpus.
+"""Enumerate a facility's channels from the search index the build wrote.
 
-The graph paradigm's roster is the Turtle corpus the build stages for the graph
-store, not the store itself: the store is a disposable mirror seeded from that
-file, and it is not dialed here (nor is it reachable at build time on a host
-that has not started it yet).
+The graph paradigm's roster is the flat search index a build derives from the
+Turtle corpus it stages for the graph store -- neither the store nor the
+corpus. The store is a disposable mirror seeded from that file, and it is not
+dialed here (nor is it reachable at build time on a host that has not started
+it yet). The corpus is parsed once, when the index is written, rather than on
+every read: a roster read is one ``SELECT`` over the index's ``channels``
+table, and this path never imports rdflib.
 
 Direction comes free on this source. Every ``ChannelBinding`` in the corpus
 carries its address as ``narad_p:fullPv`` and points at exactly one of
-``narad_p:writesSignal`` / ``narad_p:readsSignal``, so the corpus *states* which
-channels are settable rather than leaving it to be inferred from address
-grammar. That is the whole reason the graph is preferred over the write-limits
+``narad_p:writesSignal`` / ``narad_p:readsSignal``, so the corpus *states*
+which channels are settable rather than leaving it to be inferred from address
+grammar, and the build carries that statement into the index's ``direction``
+column. That is the whole reason the graph is preferred over the write-limits
 projection: the projection gates a subset, the corpus enumerates the machine.
 
-The NARAD IRIs are spelled as literal strings and ``rdflib`` is imported inside
-the reader, exactly as :mod:`osprey.deployment.channel_snapshot` does and for
-the same two reasons: importing anything from
-``osprey.services.facility_knowledge`` executes that package's ``__init__`` and
-pulls ``osprey.services.qmd`` into the build's import graph, and a deployment
-that never reads a corpus should not pay for rdflib at import time.
+The rules that turn a corpus into those channels still live in this module --
+:func:`_records`, :func:`_corpus_readbacks`, :func:`_binding_field` and
+:func:`_direction`. The builder applies them when it writes the index
+(:func:`osprey.services.channel_finder.graph_index.builder.channels_from_corpus`),
+so the rules are stated once rather than twice where the two copies could
+drift, and the rows this reader returns are the records it used to build
+itself. They import ``rdflib`` inside the function that needs it, exactly as
+:mod:`osprey.deployment.channel_snapshot` does and for the same two reasons:
+importing anything from ``osprey.services.facility_knowledge`` executes that
+package's ``__init__`` and pulls ``osprey.services.qmd`` into the build's
+import graph, and a deployment that never reads a corpus should not pay for
+rdflib at import time. ``duckdb`` is lazy for the same reason, inside
+:func:`~osprey.services.channel_finder.graph_index.reader.open_graph_index`.
 
-Failure is data, never an exception: a corpus that cannot be read comes back as
+Failure is data, never an exception: an index that cannot be read comes back as
 a :class:`~osprey.channel_roster.records.RosterAbsence` naming the path and the
-underlying error. Which absence it is says whether the corpus is *absent* or
-*broken* -- ``MISSING_SOURCE`` for a path that is not there, ``CORRUPT_SOURCE``
-for one that is there and will not parse (an unimportable rdflib included) --
+underlying error. Which absence it is says whether the index is *absent* or
+*broken* -- ``MISSING_SOURCE`` for one no build has written, ``CORRUPT_SOURCE``
+for one that is there and unreadable, a stale schema version included --
 because consumers apply opposite rules to those two, and a consumer that had to
 re-``stat`` the file to tell them apart would be reading a filesystem that has
-moved on since. Whether either is fatal stays the consumer's call: the build's
-three-way rule and the web routes apply their own.
+moved on since. Both name the command that writes the index, which is the only
+remedy either has. Whether either is fatal stays the consumer's call: the
+build's three-way rule and the web routes apply their own.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from osprey.channel_roster.records import (
     ChannelDirection,
@@ -40,25 +54,31 @@ from osprey.channel_roster.records import (
     RosterResult,
     RosterSource,
 )
+from osprey.deployment.graphdb_service import GRAPHDB_BUILD_INDEX_COMMAND
 from osprey.utils.logger import get_logger
 
+if TYPE_CHECKING:  # pragma: no cover - typing only; the reader stays a lazy import
+    from osprey.services.channel_finder.graph_index.reader import GraphIndexAbsence
+
 logger = get_logger("channel_roster.graph")
+
+#: The roster as the build wrote it: one row per address, already collapsed
+#: and voted on by :func:`_records`, carrying the readback the corpus stated.
+#: Read in address order, so the reader hands back the order it always handed
+#: back without sorting a few thousand rows a second time.
+_CHANNELS_SELECT = "SELECT address, direction, readback FROM channels ORDER BY address"
+
+#: Said to an operator whose index is not there or was written for another
+#: schema version. Both have one remedy -- write the index -- and ``osprey
+#: build`` writes it as part of a render, so an operator who is rendering
+#: anyway does not need the standalone command.
+BUILD_INDEX_REMEDY = f"Build it with `{GRAPHDB_BUILD_INDEX_COMMAND}`, or re-run `osprey build`"
 
 #: The ``narad_p:`` property namespace, spelled here rather than imported --
 #: see the module docstring. ``facility_knowledge/seeder/ttl_seeder.py`` spells
 #: the same prefix, and ``seeder/graph_seeder.py``'s ``NARAD_PREFIXES`` is the
 #: prefix table of record.
 _NARAD_P = "https://narad.example.org/property/"
-
-#: The control-system address of a binding, and the roster's membership: one
-#: record per ``fullPv`` literal.
-_FULL_PV_IRI = _NARAD_P + "fullPv"
-
-#: A binding that drives a signal -- a settable channel.
-_WRITES_SIGNAL_IRI = _NARAD_P + "writesSignal"
-
-#: A binding that observes a signal -- a readable channel.
-_READS_SIGNAL_IRI = _NARAD_P + "readsSignal"
 
 #: A device's bindings. The corpus groups a device's channels under its
 #: device node, and that grouping is what pairs a setpoint with the readback
@@ -83,96 +103,61 @@ MONITOR_FIELD_SUFFIX = "Monitor"
 #: The trailing token of a binding id names its value slot, not its field.
 _BINDING_ID_VALUE_TOKEN = "val"
 
-#: Said to an operator when rdflib is missing. rdflib is a core dependency, so
-#: an environment without it is incomplete rather than differently configured.
-RDFLIB_MISSING_DETAIL = (
-    "rdflib is not importable, so the corpus cannot be parsed; rdflib is a core "
-    "dependency, so this environment is incomplete -- reinstall it with: "
-    "pip install --upgrade osprey-framework"
-)
-
 
 def read_graph_roster(source: RosterSource) -> RosterResult:
-    """Read every channel the knowledge-graph corpus declares.
+    """Read every channel the facility's search index enumerates.
 
     Args:
-        source: The resolved corpus to read, as
+        source: The resolved index to read, as
             :func:`~osprey.channel_roster.sources.resolve_roster_source`
             settled it.
 
     Returns:
         A :class:`~osprey.channel_roster.records.RosterResult` holding one
-        record per ``narad_p:fullPv`` literal, sorted by address and carrying
-        the direction the corpus states; or one carrying a
+        record per address, in address order, carrying the direction the
+        corpus stated; or one carrying a
         :attr:`~osprey.channel_roster.records.RosterAbsenceReason.MISSING_SOURCE`
-        absence when the configured corpus is not there, a
+        absence when no build has written the index, a
         :attr:`~osprey.channel_roster.records.RosterAbsenceReason.CORRUPT_SOURCE`
-        one when it is there and cannot be parsed, or an
+        one when it is there and cannot be read -- a file the driver refuses,
+        one written for another schema version, a row that is not a channel --
+        or an
         :attr:`~osprey.channel_roster.records.RosterAbsenceReason.EMPTY_SOURCE`
-        one when it reads cleanly and binds no channel -- an unseeded corpus is
-        a staging gap, and serving it as an empty facility would be a lie with
-        a source attached. A settable record carries the readback the corpus
-        itself states for it -- the ``<stem>Monitor`` binding beside its
-        ``<stem>Setpoint`` binding on the same device
-        (:func:`_corpus_readbacks`); the records the corpus pairs nothing
-        with are left to the address-grammar pass in
-        :mod:`osprey.channel_roster.pairing`, which never overrides a
-        readback the source stated.
+        one when it reads cleanly and enumerates no channel: an index built
+        from an unseeded corpus is a staging gap, and serving it as an empty
+        facility would be a lie with a source attached. A settable record
+        carries the readback the corpus itself stated for it -- the
+        ``<stem>Monitor`` binding beside its ``<stem>Setpoint`` binding on the
+        same device (:func:`_corpus_readbacks`); the records the corpus pairs
+        nothing with are left to the address-grammar pass in
+        :mod:`osprey.channel_roster.pairing`, which never overrides a readback
+        the source stated.
     """
-    if not source.path.exists():
-        # Not there is not the same as unreadable: a corpus a build has not
-        # staged yet is an absent facility, and the consumer that refuses on a
-        # broken source stays browse-only on this one. Told apart here rather
-        # than by every consumer re-``stat``ing the file behind the answer.
-        # ``exists`` rather than ``is_file``: a path that names a directory IS
-        # there and cannot be parsed, which is the other half of the pair.
-        from osprey.channel_roster.sources import GRAPH_CORPUS_CONFIG_KEYS
+    from osprey.services.channel_finder.graph_index.reader import (
+        GraphIndexAbsence,
+        open_graph_index,
+    )
 
-        logger.warning(
-            f"The knowledge-graph corpus {source.for_display()} is not there, so this "
-            "build enumerates no channels from the graph."
-        )
-        return RosterResult(
-            absence=RosterAbsence(
-                reason=RosterAbsenceReason.MISSING_SOURCE,
-                path=source.path,
-                spelled=source.spelled,
-                config_keys=GRAPH_CORPUS_CONFIG_KEYS,
-            )
-        )
+    opened = open_graph_index(source.path)
+    if isinstance(opened, GraphIndexAbsence):
+        return _absent_index(source, opened)
 
     try:
-        from rdflib import Graph, Literal, URIRef
-    except ImportError:
-        logger.warning(
-            f"The knowledge-graph corpus at {source.path} cannot be read: {RDFLIB_MISSING_DETAIL}."
+        cursor = opened.cursor()
+        try:
+            rows = cursor.execute(_CHANNELS_SELECT).fetchall()
+        finally:
+            cursor.close()
+        records = tuple(
+            ChannelRecord(address=address, source=source, direction=direction, readback=readback)
+            for address, direction, readback in rows
         )
-        return RosterResult(
-            absence=RosterAbsence(
-                reason=RosterAbsenceReason.CORRUPT_SOURCE,
-                path=source.path,
-                spelled=source.spelled,
-                detail=RDFLIB_MISSING_DETAIL,
-            )
-        )
-
-    try:
-        graph = Graph()
-        # The format is forced rather than guessed from the extension, as every
-        # other reader of this key forces it -- the deploy's n10s import, the
-        # TTL seeder, the channel snapshot -- and rdflib would otherwise hand a
-        # corpus named ``.rdf`` to its XML parser.
-        graph.parse(str(source.path), format="turtle")
-        writes = set(graph.subjects(URIRef(_WRITES_SIGNAL_IRI), None))
-        reads = set(graph.subjects(URIRef(_READS_SIGNAL_IRI), None))
-        bindings = [
-            (str(address), binding)
-            for binding, address in graph.subject_objects(URIRef(_FULL_PV_IRI))
-            if isinstance(address, Literal) and str(address)
-        ]
-        readbacks = _corpus_readbacks(graph, writes, reads, bindings)
-    except Exception as e:
-        logger.warning(f"The knowledge-graph corpus at {source.path} could not be read ({e}).")
+    except Exception as e:  # noqa: BLE001 - an index we cannot read is data, not a crash
+        # An index carrying our meta row can still carry a row that is not a
+        # channel -- a readback on a readable address, an empty address. The
+        # file is there and this build cannot use it, which is the corrupt
+        # half of the pair, not a traceback out of the middle of a build.
+        logger.warning(f"The channel search index at {source.path} could not be read ({e}).")
         return RosterResult(
             absence=RosterAbsence(
                 reason=RosterAbsenceReason.CORRUPT_SOURCE,
@@ -181,12 +166,12 @@ def read_graph_roster(source: RosterSource) -> RosterResult:
                 detail=str(e),
             )
         )
+    finally:
+        opened.close()
 
-    records = _records(bindings, source, writes, reads, readbacks)
     if not records:
         logger.warning(
-            f"The knowledge-graph corpus at {source.path} parsed cleanly and declares no "
-            "channel bindings."
+            f"The channel search index at {source.path} was read and enumerates no channels."
         )
         return RosterResult(
             absence=RosterAbsence(
@@ -196,6 +181,58 @@ def read_graph_roster(source: RosterSource) -> RosterResult:
             )
         )
     return RosterResult(records=records, source=source)
+
+
+def _absent_index(source: RosterSource, absence: GraphIndexAbsence) -> RosterResult:
+    """Turn the index reader's absence into the roster's, with the remedy on it.
+
+    Not there is not the same as unreadable: an index no build has written yet
+    is an absent facility, and the consumer that refuses on a broken source
+    stays browse-only on this one. Told apart here rather than by every
+    consumer re-``stat``ing the file behind the answer. A stale schema version
+    is the broken half -- the file is there and this build cannot read it --
+    and it carries the same remedy as an absent index, because writing the
+    index again is what fixes either.
+
+    Args:
+        source: The index that was opened.
+        absence: What
+            :func:`~osprey.services.channel_finder.graph_index.reader.open_graph_index`
+            said about it; its ``detail`` is carried verbatim.
+    """
+    from osprey.channel_roster.sources import GRAPH_CORPUS_CONFIG_KEYS
+
+    if absence.reason == "missing":
+        logger.warning(
+            f"The channel search index {source.for_display()} is not there, so this "
+            "build enumerates no channels from the graph."
+        )
+        return RosterResult(
+            absence=RosterAbsence(
+                reason=RosterAbsenceReason.MISSING_SOURCE,
+                path=source.path,
+                spelled=source.spelled,
+                config_keys=GRAPH_CORPUS_CONFIG_KEYS,
+                detail=f"{BUILD_INDEX_REMEDY}.",
+            )
+        )
+
+    # The absence's own sentence, then this reader's remedy: the roster's
+    # template ends the sentence, so the driver's own terminator is dropped
+    # rather than doubled. DuckDB ends some of its messages with "!", which
+    # would otherwise render as "file!.".
+    detail = absence.detail.rstrip(".!?")
+    logger.warning(f"The channel search index at {source.path} could not be read ({detail}).")
+    return RosterResult(
+        absence=RosterAbsence(
+            reason=RosterAbsenceReason.CORRUPT_SOURCE,
+            path=source.path,
+            spelled=source.spelled,
+            detail=f"{detail}. {BUILD_INDEX_REMEDY}"
+            if absence.reason == "schema_mismatch"
+            else detail,
+        )
+    )
 
 
 def _records(

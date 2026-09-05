@@ -16,8 +16,6 @@ does not report anything.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from importlib.resources import as_file, files
 from pathlib import Path
 
 import pytest
@@ -30,24 +28,33 @@ from osprey.channel_roster import (
 )
 from osprey.channel_roster.graph import read_graph_roster
 from osprey.channel_roster.pairing import assign_readbacks
+from tests._graph_index import build_demo_index, build_index_from_ttl
 
 #: Settable channels in the shipped demo corpus, every one of which publishes a
 #: readback. Pinned alongside ``tests/channel_roster/test_graph.py``.
 DEMO_WRITES = 396
 
 
-@pytest.fixture
-def demo_records() -> Iterator[tuple[ChannelRecord, ...]]:
-    """Every record the shipped demo corpus declares, before pairing."""
-    resource = (
-        files("osprey.templates")
-        .joinpath("apps")
-        .joinpath("control_assistant")
-        .joinpath("data")
-        .joinpath("demo_machine.ttl")
+def _index_source(ttl_path: Path, index_path: Path) -> RosterSource:
+    """Build the search index for *ttl_path* and name it as a roster source.
+
+    The roster reads the index a build writes, not the corpus, so a test that
+    wants a corpus's records has to build one first.
+    """
+    return RosterSource(
+        kind=RosterSourceKind.GRAPH,
+        path=build_index_from_ttl(ttl_path, index_path=index_path),
     )
-    with as_file(resource) as path:
-        yield read_graph_roster(RosterSource(kind=RosterSourceKind.GRAPH, path=path)).records
+
+
+@pytest.fixture(scope="module")
+def demo_records(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> tuple[ChannelRecord, ...]:
+    """Every record the shipped demo corpus declares, before pairing."""
+    index_path = build_demo_index(tmp_path_factory.mktemp("demo_index") / "graph.duckdb")
+    source = RosterSource(kind=RosterSourceKind.GRAPH, path=index_path)
+    return read_graph_roster(source).records
 
 
 @pytest.fixture
@@ -218,7 +225,7 @@ class TestAStatedReadbackSurvives:
             "<https://narad.example.org/binding/sp>, <https://narad.example.org/binding/mon> .\n",
             encoding="utf-8",
         )
-        records = read_graph_roster(RosterSource(kind=RosterSourceKind.GRAPH, path=corpus)).records
+        records = read_graph_roster(_index_source(corpus, tmp_path / "graph.duckdb")).records
 
         paired = {record.address: record.readback for record in assign_readbacks(records)}
 

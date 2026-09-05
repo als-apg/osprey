@@ -48,8 +48,10 @@ _DIRECTIONS: frozenset[str] = frozenset({"read", "write"})
 class RosterSourceKind(Enum):
     """Which kind of source a roster was enumerated from."""
 
-    #: A Turtle corpus of the facility knowledge graph, where direction is
-    #: carried explicitly by ``writesSignal`` / ``readsSignal``.
+    #: The search index a build derives from the facility knowledge graph's
+    #: Turtle corpus, where direction is carried explicitly -- the corpus
+    #: states it with ``writesSignal`` / ``readsSignal`` and the index keeps
+    #: it in a column.
     GRAPH = "graph"
 
     #: A channel-finder paradigm database, where membership is the record set
@@ -62,7 +64,7 @@ class RosterSourceKind(Enum):
 #: the same thing, and a kind nobody has phrased raises here instead of being
 #: described as the wrong one.
 SOURCE_LABELS: Mapping[RosterSourceKind, str] = {
-    RosterSourceKind.GRAPH: "the facility knowledge graph",
+    RosterSourceKind.GRAPH: "the channel index built from the facility knowledge graph",
     RosterSourceKind.DATABASE: "the channel finder database",
 }
 
@@ -203,7 +205,8 @@ class RosterSource:
         path they configured rather than the one the build resolved it to.
 
         Returns:
-            e.g. ``"the facility knowledge graph (./data/demo_machine.ttl)"``.
+            e.g. ``"the channel index built from the facility knowledge graph
+            (./data/channel_databases/graph.duckdb)"``.
         """
         return f"{SOURCE_LABELS[self.kind]} ({self.spelled or self.path})"
 
@@ -228,7 +231,12 @@ class RosterAbsence:
             when naming them is the remedy.
         detail: The underlying failure, for
             :attr:`RosterAbsenceReason.CORRUPT_SOURCE` and
-            :attr:`RosterAbsenceReason.GRAPH_MALFORMED`.
+            :attr:`RosterAbsenceReason.GRAPH_MALFORMED`; or, on a
+            :attr:`RosterAbsenceReason.MISSING_SOURCE`, the remedy that would
+            put the source there -- a source a build writes has one, a source
+            an operator hands the deployment does not, so the reader that
+            knows which supplies it and the message appends it as its own
+            sentence.
 
     Raises:
         ValueError: If the reason's phrasing names a subject this absence did
@@ -262,8 +270,20 @@ class RosterAbsence:
         }
 
     def message(self) -> str:
-        """Render this absence as one honest sentence, for any consumer."""
-        return ABSENCE_TEMPLATES[self.reason].format(**self._values())
+        """Render this absence as one honest sentence, for any consumer.
+
+        A :attr:`RosterAbsenceReason.MISSING_SOURCE` carrying a
+        :attr:`detail` says its remedy after that sentence rather than inside
+        it: the template names the path and the keys that declare it, which is
+        the whole answer for a source nothing here writes, and a second
+        sentence is what a reader adds when there IS a command to run. The
+        database readers state no remedy and render exactly as they always
+        have.
+        """
+        rendered = ABSENCE_TEMPLATES[self.reason].format(**self._values())
+        if self.reason is RosterAbsenceReason.MISSING_SOURCE and self.detail:
+            return f"{rendered} {self.detail}"
+        return rendered
 
 
 @dataclass(frozen=True, slots=True)
