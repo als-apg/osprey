@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 04, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 05, 2026"/>
   </head>
   
   
@@ -450,54 +450,38 @@
                   
   <section id="guided-project-setup">
 <h1>Guided Project Setup<a class="headerlink" href="#guided-project-setup" title="Link to this heading">#</a></h1>
-<p>If you’re setting up OSPREY for a specific detector, beamline, or accelerator
-subsystem, the <code class="docutils literal notranslate"><span class="pre">/osprey:build-interview</span></code> skill turns a guided conversation
-into a working deployment repository tailored to your system — created up
-front from a curated preset, then refined with you piece by piece.</p>
-<p>A minimal setup takes a few minutes; how much further you go is up to you,
-and you can stop, build, and resume at any point.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">/osprey:build-interview</span></code> skill turns a conversation with the Osprey agent
+into a deployment repository for your accelerator, beamline, or detector. It
+starts from what you already have, agrees each step with you, and ends on a
+project that validates and builds. You can stop and resume at any point.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-list-unordered" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.75 2.5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5ZM2 14a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm1-6a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM2 4a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg></span><span class="sd-summary-text"><strong>Prerequisites</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
-<p class="sd-card-text"><strong>Required</strong></p>
 <ul class="simple">
-<li><p class="sd-card-text"><strong>OSPREY installed</strong> — follow <a class="reference internal" href="installation.html"><span class="doc">Installation &amp; Setup</span></a> if you haven’t yet.</p></li>
-<li><p class="sd-card-text"><strong>The Osprey agent CLI</strong> — the interview runs inside an Osprey agent session via the
-<code class="docutils literal notranslate"><span class="pre">/osprey:build-interview</span></code> command. Install it from
-<a class="reference external" href="https://claude.ai/code">claude.ai/code</a> and make sure <code class="docutils literal notranslate"><span class="pre">claude</span> <span class="pre">--version</span></code>
-works in your terminal.</p></li>
-<li><p class="sd-card-text"><strong>An Anthropic API key</strong> (or any provider the Osprey agent is configured to use) —
-the interview is a live LLM conversation.</p></li>
-</ul>
-<p class="sd-card-text"><strong>Recommended</strong></p>
-<ul class="simple">
-<li><p class="sd-card-text"><strong>A container runtime (Docker or Podman)</strong> — not needed for the interview
-itself, but your generated project will likely include containerized
-services (simulation IOCs, databases, the observability stack). Without one, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
-still works but <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> won’t. See the “Container Runtime”
-dropdown in <a class="reference internal" href="installation.html"><span class="doc">Installation &amp; Setup</span></a> for install instructions.</p></li>
-<li><p class="sd-card-text"><strong>A list or spreadsheet of EPICS PV names</strong> for your subsystem, if you have
-one. Not required — the interview can proceed without concrete PVs — but
-having it handy speeds things up considerably.</p></li>
+<li><p class="sd-card-text"><strong>OSPREY 2026.9.0b1 or newer</strong> — follow <a class="reference internal" href="installation.html"><span class="doc">Installation &amp; Setup</span></a> if you haven’t
+installed it yet. Check with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">--version</span></code>.</p></li>
+<li><p class="sd-card-text"><strong>The Osprey agent CLI</strong> — the interview runs inside an Osprey agent session.
+Install it from <a class="reference external" href="https://claude.ai/code">claude.ai/code</a> and make sure
+<code class="docutils literal notranslate"><span class="pre">claude</span> <span class="pre">--version</span></code> works in your terminal.</p></li>
+<li><p class="sd-card-text"><strong>A provider API key</strong> — the interview is a live conversation with an AI
+service, usually whichever one your lab provides.</p></li>
+<li><p class="sd-card-text"><strong>Recommended:</strong> a container runtime (Docker or Podman) so that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
+works on the result, and a list of your channel names if you have one.</p></li>
 </ul>
 </div>
 </details><section id="install-the-interview-skill">
 <h2>Install the interview skill<a class="headerlink" href="#install-the-interview-skill" title="Link to this heading">#</a></h2>
-<p>The interview ships in the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> plugin. Register the marketplace, then
-install the plugin:</p>
+<p>The interview ships in the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> plugin:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
 claude<span class="w"> </span>plugin<span class="w"> </span>marketplace<span class="w"> </span>add<span class="w"> </span>als-apg/osprey<span class="w"> </span>--sparse<span class="w"> </span>.claude-plugin<span class="w"> </span>plugins
 claude<span class="w"> </span>plugin<span class="w"> </span>install<span class="w"> </span>osprey@osprey
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">/osprey:build-interview</span></code> is then available in any Osprey agent session. The
-same plugin carries the other Osprey skills; how to update it, install it into
-a deployment repository, or run it from a checkout is on
+<p>How to update the plugin or run it from a checkout is on
 <a class="reference internal" href="../contributing/agent-skills.html"><span class="doc">Agent Skills</span></a>.</p>
 </section>
 <section id="run-the-interview">
 <h2>Run the interview<a class="headerlink" href="#run-the-interview" title="Link to this heading">#</a></h2>
-<p>Create a working directory for your project and start the Osprey agent:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
 mkdir<span class="w"> </span>-p<span class="w"> </span>~/my-osprey-project
 <span class="nb">cd</span><span class="w"> </span>~/my-osprey-project
@@ -508,55 +492,57 @@ claude
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/osprey:build-interview
 </pre></div>
 </div>
-<p>The interview creates your <strong>deployment repository first</strong> — one <code class="docutils literal notranslate"><span class="pre">osprey</span>
-<span class="pre">init</span></code> from a working preset, in the first minutes of the conversation — and
-then refines it with you in place. There is no questionnaire to survive before
-something exists: the repo builds at every step, and you can ask to see it
-running at any point.</p>
-<p>Four things are always settled before the interview calls itself done:</p>
-<ul class="simple">
-<li><p><strong>Which AI service answers</strong> — usually whichever one your lab provides, and
-a working key for it. “I’m not sure” is a fine answer; the interview helps
-you find out.</p></li>
-<li><p><strong>How it connects</strong> — the built-in simulated accelerator to start with,
-which is the recommended choice if you’re unsure, or a live connection to
-your control system.</p></li>
-<li><p><strong>Whether the assistant may change things, or only look</strong> — read-only is
-the safe start. If you do want it to change values, you’ll also settle
-which channels and what range is safe for each.</p></li>
-<li><p><strong>What the project is</strong> — a short name, the facility it belongs to, and
-its timezone.</p></li>
-</ul>
-<p>Everything else keeps the preset’s curated defaults unless you bring it up.
-The profile the interview edits lists every optional feature — including the
-ones not switched on — as commented entries with explanations, so “what else
-could this do?” is always answerable by reading the file, with or without the
-interview.</p>
-<p>Decisions land in an <code class="docutils literal notranslate"><span class="pre">INTERVIEW.md</span></code> at the repository root: what was chosen,
-why, and what was deliberately deferred. Reopen the repository later and
-invoke the skill again to resume exactly where you left off.</p>
+</section>
+<section id="what-happens">
+<h2>What happens<a class="headerlink" href="#what-happens" title="Link to this heading">#</a></h2>
+<div align="center" class="align-center"><div class="graphviz"><object data="../_images/graphviz-f858940c46007a214b3b7f7936f2f4739c56017d.svg" type="image/svg+xml" class="graphviz">
+<p class="warning">digraph interview {
+  rankdir=TB;
+  graph [fontname=&quot;Helvetica&quot;, nodesep=0.3, ranksep=0.32, bgcolor=&quot;transparent&quot;];
+  node  [fontname=&quot;Helvetica&quot;, fontsize=11, shape=box, style=&quot;rounded,filled&quot;,
+         fillcolor=&quot;#f5f7fa&quot;, color=&quot;#7a869a&quot;, fontcolor=&quot;#1f2933&quot;, margin=&quot;0.22,0.10&quot;];
+  edge  [color=&quot;#7a869a&quot;, arrowsize=0.8];
+
+  start [label=&lt;&lt;b&gt;What already exists?&lt;/b&gt;&lt;br/&gt;an OSPREY deployment · a facility, no OSPREY · nothing yet&gt;, fillcolor=&quot;#e8eef7&quot;];
+
+  discover [label=&lt;&lt;b&gt;DISCOVER&lt;/b&gt;&lt;br/&gt;Reads your repository, files and command output.&lt;br/&gt;Writes nothing.&gt;];
+  card1 [label=&quot;Status-quo card: what is there now\nyou confirm, or say what is wrong&quot;, shape=note, fillcolor=&quot;#fff8e1&quot;];
+
+  map [label=&lt;&lt;b&gt;MAP&lt;/b&gt;&lt;br/&gt;One verdict per thing found: carry it over,&lt;br/&gt;use what OSPREY has, drop it, or flag a gap.&lt;br/&gt;Then asks for facility name, prefix, timezone, project name.&gt;];
+  card2 [label=&quot;Porting-map card: what carries over\nyou confirm, or say what is wrong&quot;, shape=note, fillcolor=&quot;#fff8e1&quot;];
+
+  build [label=&lt;&lt;b&gt;BUILD&lt;/b&gt;&lt;br/&gt;Creates the project from the hello-world preset,&lt;br/&gt;then adds one confirmed piece at a time:&lt;br/&gt;AI provider · control system · writes on or off ·&lt;br/&gt;users and roles · facility knowledge stubs.&lt;br/&gt;Validates after every change.&gt;];
+  card3 [label=&quot;Gap card: what the full example has and you do not\nclose or skip each row, with a reason&quot;, shape=note, fillcolor=&quot;#fff8e1&quot;];
+
+  close [label=&lt;&lt;b&gt;CLOSE&lt;/b&gt;&lt;br/&gt;A second agent argues against the setup.&lt;br/&gt;Final validate and build.&gt;];
+  done [label=&lt;&lt;b&gt;Deployment repository&lt;/b&gt;&lt;br/&gt;profile.yml holds every decision&lt;br/&gt;INTERVIEW.md holds every confirmed card&gt;, fillcolor=&quot;#e6f4ea&quot;];
+
+  start -&gt; discover -&gt; card1 -&gt; map -&gt; card2 -&gt; build -&gt; card3 -&gt; close -&gt; done;
+}</p></object></div>
+</div>
+<p>Every phase ends with a card, a short summary of what was concluded, and one
+question: confirm, or say what should change. A confirmed card is written into
+<code class="docutils literal notranslate"><span class="pre">INTERVIEW.md</span></code> and is not reopened.</p>
+<p>To resume, open the repository and run <code class="docutils literal notranslate"><span class="pre">/osprey:build-interview</span></code> again. It
+continues after the last confirmed card.</p>
+<p>Migrating an existing project is the same interview. Answer “an OSPREY
+deployment already exists” and DISCOVER inventories it, whatever its generation.
+The porting map is your migration plan. Files that carry over are copied
+unchanged, and custom code that needs real work is recorded in <code class="docutils literal notranslate"><span class="pre">INTERVIEW.md</span></code>
+as work to do rather than attempted mid-conversation.</p>
 <section id="tips-during-the-interview">
 <h3>Tips during the interview<a class="headerlink" href="#tips-during-the-interview" title="Link to this heading">#</a></h3>
 <ul class="simple">
-<li><p>If you’re not sure about a question, say “I’m not sure” — it’ll pick a safe default</p></li>
-<li><p>If you have a spreadsheet of channel names handy, that’s helpful but not required</p></li>
-<li><p>Ask to see the assistant running whenever you’re curious — the repo always builds</p></li>
+<li><p>If you’re not sure about a question, say “I’m not sure”. It picks a safe default
+and records that it did.</p></li>
+<li><p>Ask to see the assistant running whenever you’re curious. You can ask for a
+build at any pause.</p></li>
 </ul>
 </section>
 </section>
-<section id="migrating-an-existing-project">
-<h2>Migrating an existing project<a class="headerlink" href="#migrating-an-existing-project" title="Link to this heading">#</a></h2>
-<p>If you already have an OSPREY project — even one from the LangGraph era —
-point the interview at it. It scans the old project, salvages what carries
-over (channel databases, data files, custom code, configuration values), and
-walks you through each judgment call as a confirmation rather than a
-question. The porting decisions are recorded in <code class="docutils literal notranslate"><span class="pre">INTERVIEW.md</span></code> alongside
-everything else.</p>
-</section>
 <section id="build-and-run">
 <h2>Build and run<a class="headerlink" href="#build-and-run" title="Link to this heading">#</a></h2>
-<p>The interview leaves you inside a deployment repository whose
-<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> records everything that was decided:</p>
+<p>The interview leaves you inside a deployment repository:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
 <span class="nb">cd</span><span class="w"> </span>my-project
 osprey<span class="w"> </span>build<span class="w">     </span><span class="c1"># render build/ from the profile</span>
@@ -567,41 +553,21 @@ osprey<span class="w"> </span>web<span class="w">       </span><span class="c1">
 editing <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> (every key carries its own explanation) and running
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> again.</p>
 </section>
-<section id="phase-2-deploy-your-project">
-<h2>Phase 2: deploy your project<a class="headerlink" href="#phase-2-deploy-your-project" title="Link to this heading">#</a></h2>
-<p>The interview settles <em>what</em> to build. Running what was built — putting it on a
-real machine and keeping it there — is the other half, and it lives in the same
-place. The deployment repository is a durable, git-tracked artifact you’ll
-redeploy from many times, and both halves of deployment live inside it.</p>
-<p>First, the deployment coordinates go in the profile itself, under a <code class="docutils literal notranslate"><span class="pre">deploy:</span></code>
-block: the CI platform you use, the deploy host, and the container registry if
-that host pulls its images. A fresh profile ships this block commented out, so
-filling it in is the one edit that turns a buildable profile into a deployable
-one. Credentials are <em>named</em> there, never written there.</p>
-<p>Second, one command turns those coordinates into files:</p>
+<section id="deploy-it">
+<h2>Deploy it<a class="headerlink" href="#deploy-it" title="Link to this heading">#</a></h2>
+<p>Deployment coordinates go in the profile under a <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block: the CI
+platform, the deploy host, and the container registry if that host pulls its
+images. A fresh profile ships this block commented out. Credentials are named
+there, never written there. Then:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
-osprey<span class="w"> </span>scaffold<span class="w"> </span>ci
+osprey<span class="w"> </span>scaffold<span class="w"> </span>ci<span class="w">    </span><span class="c1"># CI pipeline + post-deploy health check script</span>
+osprey<span class="w"> </span>up<span class="w"> </span>-d<span class="w">          </span><span class="c1"># start it</span>
+osprey<span class="w"> </span>status<span class="w">         </span><span class="c1"># what is running, where it answers, which build it is</span>
 </pre></div>
 </div>
-<p>That writes the CI pipeline at the repository root and a post-deploy health
-check inside the profile. Re-run it whenever the <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block changes — a
-file whose content already matches is left untouched, and a file you hand-edited
-is reported rather than overwritten.</p>
-<p>From there the same handful of commands runs the stack, from anywhere inside
-the repository:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
-osprey<span class="w"> </span>up<span class="w"> </span>-d<span class="w">      </span><span class="c1"># start it</span>
-osprey<span class="w"> </span>status<span class="w">     </span><span class="c1"># what is running, where it answers, which build it is</span>
-osprey<span class="w"> </span>logs<span class="w">       </span><span class="c1"># what the containers are saying</span>
-osprey<span class="w"> </span>health<span class="w">     </span><span class="c1"># diagnostics: config, environment, providers, telemetry</span>
-</pre></div>
-</div>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">status</span></code> only reads, so it is safe against a live stack at any time,
-and it is the first thing to run when something looks wrong. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code>
-stops the stack and keeps its volumes.</p>
-<p>See <a class="reference internal" href="../how-to/deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a> for a worked example that goes from an
-empty directory to running containers, and <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a> for the
-full build profile reference.</p>
+<p>See <a class="reference internal" href="../how-to/deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a> for a worked example from an empty directory
+to running containers, and <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a> for the full build
+profile reference.</p>
 </section>
 </section>
 
@@ -653,13 +619,13 @@ full build profile reference.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#install-the-interview-skill">Install the interview skill</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-the-interview">Run the interview</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-the-interview">Run the interview</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-happens">What happens</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tips-during-the-interview">Tips during the interview</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#migrating-an-existing-project">Migrating an existing project</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#build-and-run">Build and run</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-2-deploy-your-project">Phase 2: deploy your project</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deploy-it">Deploy it</a></li>
 </ul>
   </nav></div>
 
