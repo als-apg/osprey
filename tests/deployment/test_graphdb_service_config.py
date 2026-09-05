@@ -1,6 +1,7 @@
 """Tests for the ``services.graphdb`` config schema resolver and its preflight."""
 
 import dataclasses
+from pathlib import Path
 
 import pytest
 
@@ -13,18 +14,23 @@ from osprey.deployment.graphdb_service import (
     DEFAULT_HEAP_MAX_SIZE,
     DEFAULT_HTTP_PORT,
     DEFAULT_IMAGE,
+    DEFAULT_INDEX_PATH,
     DEFAULT_PAGECACHE_SIZE,
     DEFAULT_PASSWORD,
     DEFAULT_PORT,
     DEFAULT_USERNAME,
+    GRAPHDB_BUILD_INDEX_COMMAND,
     GRAPHDB_HTTP_PORT_CONFIG_KEY,
+    GRAPHDB_INDEX_PATH_CONFIG_KEY,
     GRAPHDB_PASSWORD_ENV,
     GRAPHDB_PORT_CONFIG_KEY,
+    GRAPHDB_SEED_COMMAND,
     GRAPHDB_SERVICE_NAME,
     GraphdbConnection,
     GraphdbServiceConfig,
     preflight_graphdb_config,
     resolve_bind_address,
+    resolve_graph_index_path,
     resolve_graphdb_connection,
     resolve_graphdb_service_config,
 )
@@ -87,6 +93,7 @@ class TestDefaults:
             heap_max_size=DEFAULT_HEAP_MAX_SIZE,
             pagecache_size=DEFAULT_PAGECACHE_SIZE,
             ttl_path=None,
+            index_path=DEFAULT_INDEX_PATH,
         )
 
     def test_partial_block_keeps_the_stated_key_and_defaults_the_rest(self) -> None:
@@ -110,6 +117,7 @@ class TestDefaults:
                         "heap_max_size": "4G",
                         "pagecache_size": "2G",
                         "ttl_path": "./data/demo_machine.ttl",
+                        "index_path": "./var/graph.duckdb",
                     }
                 },
             }
@@ -123,6 +131,7 @@ class TestDefaults:
             heap_max_size="4G",
             pagecache_size="2G",
             ttl_path="./data/demo_machine.ttl",
+            index_path="./var/graph.duckdb",
         )
 
     def test_unknown_keys_are_ignored(self) -> None:
@@ -202,6 +211,21 @@ class TestConstants:
     def test_service_name_matches_the_dotted_keys(self) -> None:
         assert GRAPHDB_SERVICE_NAME == "graphdb"
         assert GRAPHDB_PORT_CONFIG_KEY.startswith(f"services.{GRAPHDB_SERVICE_NAME}.")
+
+    def test_index_path_key_is_spelled_exactly_once(self) -> None:
+        assert GRAPHDB_INDEX_PATH_CONFIG_KEY == "services.graphdb.index_path"
+        assert GRAPHDB_INDEX_PATH_CONFIG_KEY.startswith(f"services.{GRAPHDB_SERVICE_NAME}.")
+
+    def test_default_index_path_sits_beside_the_other_channel_databases(self) -> None:
+        """Relative, so it lands in the `data/` tree the build assembled."""
+        assert DEFAULT_INDEX_PATH == "./data/channel_databases/graph.duckdb"
+        assert not Path(DEFAULT_INDEX_PATH).is_absolute()
+
+    def test_the_two_operator_commands_are_distinct(self) -> None:
+        """Seeding the store and building the index are different repairs."""
+        assert GRAPHDB_SEED_COMMAND == "osprey knowledge seed-graph"
+        assert GRAPHDB_BUILD_INDEX_COMMAND == "osprey knowledge build-index"
+        assert GRAPHDB_SEED_COMMAND != GRAPHDB_BUILD_INDEX_COMMAND
 
 
 class TestBindAddress:
@@ -284,6 +308,96 @@ class TestValidation:
         )
         assert resolved is not None
         assert resolved.ttl_path == "./data/demo_machine.ttl"
+
+    @pytest.mark.parametrize("bad", ["", "   ", 7, True, ["graph.duckdb"]])
+    def test_bad_index_path_raises(self, bad: object) -> None:
+        with pytest.raises(ValueError, match=r"services\.graphdb\.index_path"):
+            resolve_graphdb_service_config({"services": {"graphdb": {"index_path": bad}}})
+
+    def test_index_path_is_kept_verbatim(self) -> None:
+        """Relative stays relative, on the same terms as ``ttl_path``."""
+        resolved = resolve_graphdb_service_config(
+            {"services": {"graphdb": {"index_path": " ./var/graph.duckdb "}}}
+        )
+        assert resolved is not None
+        assert resolved.index_path == "./var/graph.duckdb"
+
+    def test_absent_index_path_takes_the_shipped_default(self) -> None:
+        """Unlike ``ttl_path``, this key is defaulted rather than optional."""
+        resolved = resolve_graphdb_service_config({"services": {"graphdb": {}}})
+        assert resolved is not None
+        assert resolved.index_path == DEFAULT_INDEX_PATH
+
+
+class TestGraphIndexPath:
+    """``resolve_graph_index_path`` — the one resolver every consumer shares.
+
+    The build writes the index, and the roster, the explorer routes, the agent
+    tool and the health row read it. They agree on where it is only because
+    they all resolve it here, on the same render-anchored rule ``ttl_path``
+    uses: a relative value belongs to the ``config.yml`` directory, not to
+    whatever directory the reading process happens to have started in.
+    """
+
+    def test_relative_default_resolves_against_the_config_directory(self, tmp_path) -> None:
+        resolved = resolve_graph_index_path({"services": {"graphdb": {}}}, tmp_path)
+        assert resolved == (tmp_path / "data" / "channel_databases" / "graph.duckdb").resolve()
+
+    def test_configured_relative_value_wins(self, tmp_path) -> None:
+        resolved = resolve_graph_index_path(
+            {"services": {"graphdb": {"index_path": "./var/graph.duckdb"}}}, tmp_path
+        )
+        assert resolved == (tmp_path / "var" / "graph.duckdb").resolve()
+
+    def test_absolute_value_passes_through_unchanged(self, tmp_path) -> None:
+        elsewhere = tmp_path / "elsewhere" / "graph.duckdb"
+        resolved = resolve_graph_index_path(
+            {"services": {"graphdb": {"index_path": str(elsewhere)}}}, tmp_path / "build"
+        )
+        assert resolved == elsewhere
+
+    def test_tilde_is_expanded(self, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("HOME", str(tmp_path))
+        resolved = resolve_graph_index_path(
+            {"services": {"graphdb": {"index_path": "~/graph.duckdb"}}}, tmp_path / "build"
+        )
+        assert resolved == tmp_path / "graph.duckdb"
+
+    @pytest.mark.parametrize(
+        "config",
+        [None, {}, {"services": {}}, {"services": {"graphdb": None}}],
+    )
+    def test_a_config_without_the_block_still_answers_the_default(
+        self, config: object, tmp_path
+    ) -> None:
+        """Where the index GOES is answerable without a store being described."""
+        resolved = resolve_graph_index_path(config, tmp_path)  # type: ignore[arg-type]
+        assert resolved == (tmp_path / "data" / "channel_databases" / "graph.duckdb").resolve()
+
+    def test_without_config_dir_it_follows_osprey_config(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The fallback the in-container consumers — the agent tool, the app — use."""
+        render = tmp_path / "build"
+        render.mkdir()
+        (render / "config.yml").write_text("project_name: demo\n", encoding="utf-8")
+        monkeypatch.setenv("OSPREY_CONFIG", str(render / "config.yml"))
+
+        resolved = resolve_graph_index_path({"services": {"graphdb": {}}})
+
+        assert resolved == (render / "data" / "channel_databases" / "graph.duckdb").resolve()
+
+    @pytest.mark.parametrize("bad", ["", "   ", 7, True])
+    def test_a_malformed_value_refuses_here_too(self, bad: object, tmp_path) -> None:
+        with pytest.raises(ValueError, match=r"services\.graphdb\.index_path"):
+            resolve_graph_index_path({"services": {"graphdb": {"index_path": bad}}}, tmp_path)
+
+    def test_an_unrelated_malformed_key_does_not_take_this_caller_down(self, tmp_path) -> None:
+        """Only ``index_path`` is read; the deploy preflight refuses the rest."""
+        resolved = resolve_graph_index_path(
+            {"services": {"graphdb": {"port_host": "not-a-port"}}}, tmp_path
+        )
+        assert resolved == (tmp_path / "data" / "channel_databases" / "graph.duckdb").resolve()
 
 
 class TestDeployedWithoutBlockPreflight:

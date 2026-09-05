@@ -21,6 +21,7 @@ Config shape, as it appears in a project's ``config.yml``::
         port_host: 10802                           # bolt, the graphdb_bolt slot
         http_port_host: 10803                      # HTTP, the graphdb_http slot
         ttl_path: ./data/demo_machine.ttl          # optional; corpus to seed
+        index_path: ./data/channel_databases/graph.duckdb  # search index
         heap_initial_size: 512m
         heap_max_size: 1G
         pagecache_size: 512m
@@ -69,11 +70,13 @@ import os
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.qmd_service import DEFAULT_BIND_ADDRESS, resolve_bind_address
 from osprey.port_layout import default_port, resolve_port_base
+from osprey.utils.config_paths import resolve_render_relative_path
 
 __all__ = [
     "CONTAINER_BOLT_PORT",
@@ -83,11 +86,14 @@ __all__ = [
     "DEFAULT_HEAP_MAX_SIZE",
     "DEFAULT_HTTP_PORT",
     "DEFAULT_IMAGE",
+    "DEFAULT_INDEX_PATH",
     "DEFAULT_PAGECACHE_SIZE",
     "DEFAULT_PASSWORD",
     "DEFAULT_PORT",
     "DEFAULT_USERNAME",
+    "GRAPHDB_BUILD_INDEX_COMMAND",
     "GRAPHDB_HTTP_PORT_CONFIG_KEY",
+    "GRAPHDB_INDEX_PATH_CONFIG_KEY",
     "GRAPHDB_PASSWORD_ENV",
     "GRAPHDB_PORT_CONFIG_KEY",
     "GRAPHDB_SEED_COMMAND",
@@ -96,6 +102,7 @@ __all__ = [
     "GraphdbServiceConfig",
     "preflight_graphdb_config",
     "resolve_bind_address",
+    "resolve_graph_index_path",
     "resolve_graphdb_connection",
     "resolve_graphdb_service_config",
 ]
@@ -179,6 +186,17 @@ GRAPHDB_PASSWORD_ENV = "GRAPHDB_PASSWORD"
 #: deployment still running on it should be caught saying so.
 DEFAULT_PASSWORD = "ospreygraph"
 
+#: Search index the explorer, the roster and the agent's keyword tool read,
+#: derived from the corpus at ``ttl_path`` by ``osprey build``. Relative like
+#: ``ttl_path`` and resolved the same way — against the directory holding
+#: ``config.yml``, the render — because it is an artifact OF that render: the
+#: build writes it into the same ``data/`` tree it assembled the corpus into.
+#: Unlike ``ttl_path`` it has a default rather than being optional, since a
+#: project that deploys the store always has somewhere for the build to put the
+#: index; what makes an index absent is the build not having run, not the key
+#: being unset.
+DEFAULT_INDEX_PATH = "./data/channel_databases/graph.duckdb"
+
 #: Config key an operator edits to move the published bolt port. Spelled once so
 #: the deploy-time port-conflict remedy and the schema cannot drift apart.
 GRAPHDB_PORT_CONFIG_KEY = "services.graphdb.port_host"
@@ -197,6 +215,31 @@ GRAPHDB_HTTP_PORT_CONFIG_KEY = "services.graphdb.http_port_host"
 #: separately agree only by coincidence, and an operator following a stale copy
 #: of it is told to run a command that no longer exists.
 GRAPHDB_SEED_COMMAND = "osprey knowledge seed-graph"
+
+#: The verb that builds or rebuilds the search index from the corpus by hand,
+#: named by every surface that has to send an operator to it: the route that
+#: refuses when the index is missing, the roster's absence sentence, and the
+#: health row that reports a stale one. Spelled once beside
+#: :data:`GRAPHDB_SEED_COMMAND` for the same reason that one is.
+GRAPHDB_BUILD_INDEX_COMMAND = "osprey knowledge build-index"
+
+#: Config key an operator edits to move the search index. Spelled once so a
+#: refusal that tells an operator where the index should be, and the resolver
+#: that decides where it actually is, cannot drift apart.
+GRAPHDB_INDEX_PATH_CONFIG_KEY = "services.graphdb.index_path"
+
+#: Config key naming the Turtle corpus the store is seeded from and the search
+#: index is derived from. Spelled once beside the index key, for the same
+#: reason: the surfaces that send an operator to it -- the ``build-index``
+#: verb, the finder's 503 and the agent tool's refusal -- are in three
+#: packages, and three private copies of one key agree only by coincidence.
+GRAPHDB_TTL_PATH_CONFIG_KEY = "services.graphdb.ttl_path"
+
+#: What an operator does about an ``index_path`` this build cannot resolve.
+#: Named by every surface that reports the refusal -- the finder's absence
+#: sentence, the health row's details, the agent tool's error envelope -- so a
+#: config typo sends all three to the same key.
+UNRESOLVED_INDEX_PATH_REMEDY = f"Fix {GRAPHDB_INDEX_PATH_CONFIG_KEY} in config.yml."
 
 #: A JVM memory size: digits with an optional unit suffix, as Neo4j's own
 #: settings spell them (``512m``, ``1G``, ``2048k``, or bare bytes).
@@ -223,6 +266,11 @@ class GraphdbServiceConfig:
             the ``facility_knowledge.bundle_path`` rule, and resolving it here
             against the process's cwd instead would give a deploy and a CLI verb
             two different files from one config value.
+        index_path: Search index derived from that corpus at build time, which
+            the explorer, the channel roster and the agent's keyword tool read
+            instead of querying the store. Kept verbatim for the same reason
+            ``ttl_path`` is, and resolved by the same rule — see
+            :func:`resolve_graph_index_path`, which every consumer goes through.
     """
 
     image: str = DEFAULT_IMAGE
@@ -233,6 +281,7 @@ class GraphdbServiceConfig:
     heap_max_size: str = DEFAULT_HEAP_MAX_SIZE
     pagecache_size: str = DEFAULT_PAGECACHE_SIZE
     ttl_path: str | None = None
+    index_path: str = DEFAULT_INDEX_PATH
 
 
 @dataclass(frozen=True)
@@ -287,7 +336,8 @@ def resolve_graphdb_service_config(
 
     Raises:
         ValueError: If a present key is malformed — a port that is not a
-            positive integer in range, a blank ``image`` or ``ttl_path``, or a
+            positive integer in range, a blank ``image``, ``ttl_path`` or
+            ``index_path``, or a
             memory size the JVM would not parse. Silently defaulting instead
             would publish a port nobody is dialing, or hand Neo4j a heap setting
             it rejects at startup — both far harder to trace back to a typo in
@@ -324,8 +374,105 @@ def resolve_graphdb_service_config(
         pagecache_size=_memory_size(
             block.get("pagecache_size"), DEFAULT_PAGECACHE_SIZE, "services.graphdb.pagecache_size"
         ),
-        ttl_path=_optional_text(block.get("ttl_path"), "services.graphdb.ttl_path"),
+        ttl_path=_optional_text(block.get("ttl_path"), GRAPHDB_TTL_PATH_CONFIG_KEY),
+        index_path=_text(
+            block.get("index_path"), DEFAULT_INDEX_PATH, GRAPHDB_INDEX_PATH_CONFIG_KEY
+        ),
     )
+
+
+def resolve_graph_index_path(
+    config: Mapping[str, Any] | None,
+    config_dir: Path | None = None,
+) -> Path:
+    """Return the absolute path of this project's graph search index.
+
+    THE one resolver for that path. The build step that writes the index, the
+    ``osprey knowledge build-index`` verb, the channel roster, the web app's
+    lifespan, the agent's keyword tool and the health row that compares the
+    index against the store's seed marker all go through it, so a project that
+    moves ``index_path`` moves it for every one of them at once — the failure
+    this prevents is the silent one, where the build writes an index in the
+    place the reader is not looking and the reader reports it missing.
+
+    Resolved exactly as ``ttl_path`` is (see
+    :func:`~osprey.utils.config_paths.resolve_render_relative_path`): ``~``
+    expanded, an absolute value left alone, a relative value taken against the
+    directory holding ``config.yml`` rather than the project root, because the
+    index is an artifact of the render in the same way the corpus is.
+
+    Args:
+        config: A loaded project config mapping, or ``None``. A config with no
+            ``services.graphdb`` block resolves to :data:`DEFAULT_INDEX_PATH`
+            rather than refusing: a caller asking where the index goes has
+            already decided it wants one, and "is there a store at all?" is
+            :func:`resolve_graphdb_service_config`'s question.
+        config_dir: Directory holding ``config.yml``. Callers that loaded a
+            config themselves should pass its parent. Omitted, the directory is
+            derived from ``OSPREY_CONFIG`` through
+            :func:`osprey.utils.config_paths.resolve_config_dir`, which is what
+            an in-container consumer — the agent's tool, the app — relies on.
+
+    Returns:
+        Absolute :class:`~pathlib.Path` to the index file, which may not exist:
+        the index is written by the build, and its absence is a state its
+        readers report rather than a resolution failure.
+
+    Raises:
+        ValueError: If ``services.graphdb.index_path`` is present but blank or
+            not a string — the same refusal the schema gives for the same key,
+            so a typo cannot resolve here while refusing in the deploy. Only
+            that key is read: a caller that wants the index path should not be
+            taken down by an unrelated malformed port, which the deploy's own
+            preflight refuses anyway.
+    """
+    block = _graphdb_block(config) or {}
+    raw = _text(block.get("index_path"), DEFAULT_INDEX_PATH, GRAPHDB_INDEX_PATH_CONFIG_KEY)
+    return resolve_render_relative_path(raw, config_dir)
+
+
+def unresolved_index_path_detail(exc: ValueError) -> str:
+    """The sentence a surface says when ``index_path`` cannot be resolved.
+
+    :func:`resolve_graph_index_path` refuses a malformed key with the same
+    message the deploy's schema gives for it, and every surface that has to
+    report the refusal says so the same way -- the app's absence, the health
+    row and the agent tool's envelope -- because an operator reading two of
+    them about one typo should not have to work out that they name one fault.
+
+    Args:
+        exc: What :func:`resolve_graph_index_path` refused with.
+
+    Returns:
+        The sentence, without a remedy: a surface appends
+        :data:`UNRESOLVED_INDEX_PATH_REMEDY` where its answer carries one, and
+        some carry it in a field of their own.
+    """
+    return f"Cannot resolve the search index's path: {exc}"
+
+
+def graph_corpus_configured(config: Mapping[str, Any] | None) -> bool:
+    """Whether this project names a corpus to derive a search index from.
+
+    THE one answer to that question for the surfaces that refuse without an
+    index. Which remedy they name turns on it: a project with a corpus is one
+    build away from an answer, while a project without one has nothing to build
+    an index *from*, and the build refuses in exactly that state. The finder's
+    503 and the agent's keyword tool both ask, and asking here is what keeps
+    them from sending an operator to different steps for one deployment.
+
+    Only the key is read, not the file: whether the corpus is staged is the
+    build's question, and a surface reporting a missing index would answer it
+    the same way either way.
+
+    Args:
+        config: A loaded project config mapping, or ``None``.
+
+    Returns:
+        ``True`` when ``services.graphdb.ttl_path`` carries a non-blank string.
+    """
+    corpus = (_graphdb_block(config) or {}).get("ttl_path")
+    return isinstance(corpus, str) and bool(corpus.strip())
 
 
 def resolve_graphdb_connection(

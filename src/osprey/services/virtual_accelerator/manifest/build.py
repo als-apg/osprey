@@ -365,9 +365,10 @@ def _finish_manifest(
             by design, so there is nothing absent to report.
         corrupt_paradigms: The staged databases that could not be read, as
             rendered metadata rows.
-        source_corpus: The knowledge-graph corpus the entries came from, as an
-            operator would name it, or ``None`` for a database-sourced
-            manifest -- the key appears only when a corpus actually fed it.
+        source_corpus: The knowledge-graph source the entries came from (the
+            channel search index built from the corpus), as an operator would
+            name it, or ``None`` for a database-sourced manifest -- the key
+            appears only when the graph actually fed it.
     """
     entries = list(entries)
     addresses = {entry.address for entry in entries}
