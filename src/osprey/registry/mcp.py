@@ -540,13 +540,26 @@ CHANNEL_FINDER_TOOLS_BY_PIPELINE: dict[str, list[str]] = {
         "validate",
     ],
     "in_context": ["ask_channels"],
-    # Same four tools as the standalone ``graph`` server above, and for the same
-    # reason: both front the one read-only knowledge-graph vocabulary. They differ
-    # in who calls them — the standalone server answers the main agent's facility
-    # questions, this pipeline puts the same tools behind the channel-finder
-    # subagent so a graph store can serve address lookups the way a channel
-    # database does for the file-backed paradigms.
-    "graph": ["capabilities", "example_queries", "get_schema", "read_cypher"],
+    # The standalone ``graph`` server's four Cypher tools, plus one this pipeline
+    # alone carries. The four are shared for the reason they always were: both
+    # servers front the one read-only knowledge-graph vocabulary, and they differ
+    # only in who calls them — the standalone server answers the main agent's
+    # facility questions, this pipeline puts the same tools behind the
+    # channel-finder subagent so a graph store can serve address lookups the way
+    # a channel database does for the file-backed paradigms.
+    #
+    # ``search_channels`` is the divergence. It reads the flat DuckDB index the
+    # build derives from the corpus, which is what turns "find the addresses that
+    # mention X" into a keyword lookup instead of a traversal the agent has to
+    # write. That is the channel finder's job, so it is registered on this
+    # pipeline only; the standalone server stays a pure Cypher surface.
+    "graph": [
+        "capabilities",
+        "example_queries",
+        "get_schema",
+        "read_cypher",
+        "search_channels",
+    ],
 }
 
 # Every keyed pipeline must be a paradigm the registry knows about, or the

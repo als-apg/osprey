@@ -1,11 +1,13 @@
 """Feedback capture for the graph channel-finder pipeline.
 
 The graph pipeline answers with ``read_cypher``'s ``QueryResult`` envelope —
-``columns``, ``rows``, ``row_count``, ``truncated`` — where the table pipelines
-answer with ``channels``/``total``. These tests feed recorded ``read_cypher``
-payloads to ``osprey_cf_feedback_capture.py`` and assert what lands in the
-pending-review store, so an operator reviewing a graph answer sees the same
-card a table answer produces.
+``columns``, ``rows``, ``row_count``, ``truncated`` — or with the
+``search_channels`` payload, which counts in ``total`` and lists its hits in
+``rows``. The table pipelines answer with ``channels``/``total``. These tests
+feed recorded payloads of both graph shapes to
+``osprey_cf_feedback_capture.py`` and assert what lands in the pending-review
+store, so an operator reviewing a graph answer sees the same card a table
+answer produces.
 """
 
 import ast
@@ -20,6 +22,7 @@ from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 HOOK_NAME = "osprey_cf_feedback_capture.py"
 READ_CYPHER_TOOL = "mcp__channel-finder__read_cypher"
+SEARCH_CHANNELS_TOOL = "mcp__channel-finder__search_channels"
 
 HOOKS_DIR = (
     Path(__file__).parents[2] / "src" / "osprey" / "templates" / "claude_code" / "claude" / "hooks"
@@ -69,6 +72,44 @@ _NO_ADDRESS_ENVELOPE = {
 }
 
 
+# Shaped as ``search_channels`` returns it: a keyword lookup in the search
+# index, counted by ``total`` rather than ``row_count``, with one row per
+# binding and the facet rails the agent narrows on.
+_SEARCH_PAYLOAD = {
+    "total": 2,
+    "devices": 1,
+    "page": 1,
+    "pages": 1,
+    "rows": [
+        {
+            "fullPv": "GTL:BC1:Setpoint",
+            "description": "Bend current setpoint",
+            "device": "BC1",
+            "section": "GTL",
+            "system": "magnet",
+            "direction": "W",
+            "signals": [{"uri": "http://example.org/Current", "name": "Current"}],
+        },
+        {
+            "fullPv": "GTL:BC1:Readback",
+            "description": "Bend current readback",
+            "device": "BC1",
+            "section": "GTL",
+            "system": "magnet",
+            "direction": "R",
+            "signals": [{"uri": "http://example.org/Current", "name": "Current"}],
+        },
+    ],
+    "facets": {
+        "section": [{"value": "GTL", "count": 2}],
+        "system": [{"value": "magnet", "count": 2}],
+        "class": [],
+        "signal": [{"value": "Current", "count": 2}],
+        "dir": [{"value": "R", "count": 1}, {"value": "W", "count": 1}],
+    },
+}
+
+
 def _hook_extra(tmp_path, transcript="/tmp/transcript.jsonl"):
     """Standard hook_input_extra with cwd set for store path resolution."""
     return {
@@ -90,14 +131,14 @@ def _pending_items(tmp_path):
     return json.loads(store.read_text()).get("items", {})
 
 
-def _capture(hook_runner, tmp_path, response, tool_input=None):
+def _capture(hook_runner, tmp_path, response, tool_input=None, tool=READ_CYPHER_TOOL):
     """Run the hook over one recorded response and return the stored item.
 
     Returns ``None`` when nothing was captured.
     """
     hook_runner(
         HOOK_NAME,
-        READ_CYPHER_TOOL,
+        tool,
         tool_input if tool_input is not None else {"query": _BINDINGS_CYPHER, "params": {}},
         cwd=tmp_path,
         tool_response=response,
@@ -232,22 +273,76 @@ class TestReadCypherNotCaptured:
 
 
 @pytest.mark.unit
-class TestHookDeclaresReadCypher:
-    """The gate and the front matter have to name the tool, or nothing fires."""
+class TestSearchChannelsCapture:
+    """The index answer is reviewed on the card the Cypher answer produces."""
+
+    def _capture_search(self, hook_runner, tmp_path, response, tool_input=None):
+        return _capture(
+            hook_runner,
+            tmp_path,
+            response,
+            tool_input=tool_input if tool_input is not None else {"query": "bend current"},
+            tool=SEARCH_CHANNELS_TOOL,
+        )
+
+    def test_payload_is_captured_with_its_total(self, tmp_path, hook_runner):
+        """``search_channels`` counts in ``total``, the way table answers do."""
+        item = self._capture_search(hook_runner, tmp_path, _SEARCH_PAYLOAD)
+
+        assert item is not None, "search_channels result was not captured"
+        assert item["tool_name"] == SEARCH_CHANNELS_TOOL
+        assert item["channel_count"] == 2
+        assert item["query"] == "bend current"
+
+    def test_rows_and_facets_survive_the_round_trip(self, tmp_path, hook_runner):
+        """An operator judges the hits and the rails, not just the count."""
+        stored = _stored_response(self._capture_search(hook_runner, tmp_path, _SEARCH_PAYLOAD))
+
+        assert stored["rows"] == _SEARCH_PAYLOAD["rows"]
+        assert stored["facets"] == _SEARCH_PAYLOAD["facets"]
+        assert stored["total"] == 2
+
+    def test_addresses_come_from_the_fullpv_column(self, tmp_path, hook_runner):
+        """The review UI reads ``channels``; index rows fill it from ``fullPv``."""
+        stored = _stored_response(self._capture_search(hook_runner, tmp_path, _SEARCH_PAYLOAD))
+
+        assert stored["channels"] == ["GTL:BC1:Setpoint", "GTL:BC1:Readback"]
+
+    def test_post_tool_use_result_wrapper_is_unwrapped(self, tmp_path, hook_runner):
+        """The tool returns a JSON string, wrapped the way PostToolUse wraps it."""
+        wrapped = {"result": json.dumps(_SEARCH_PAYLOAD)}
+        item = self._capture_search(hook_runner, tmp_path, wrapped)
+
+        assert item is not None
+        assert item["channel_count"] == 2
+        assert _stored_response(item)["channels"][0] == "GTL:BC1:Setpoint"
+
+    def test_no_match_is_not_captured(self, tmp_path, hook_runner):
+        """A phrase that matched nothing gives an operator nothing to judge."""
+        response = dict(_SEARCH_PAYLOAD, total=0, devices=0, rows=[], pages=0)
+
+        assert self._capture_search(hook_runner, tmp_path, response) is None
+
+
+@pytest.mark.unit
+class TestHookDeclaresItsGraphTools:
+    """The gate and the front matter have to name a tool, or nothing fires."""
 
     def _hook_source(self):
         return (HOOKS_DIR / HOOK_NAME).read_text()
 
-    def test_front_matter_lists_read_cypher(self):
+    @pytest.mark.parametrize("tool", [READ_CYPHER_TOOL, SEARCH_CHANNELS_TOOL])
+    def test_front_matter_lists_the_tool(self, tool):
         """The declared tool list is what a reader consults to know the scope."""
         docstring = ast.get_docstring(ast.parse(self._hook_source()))
         match = re.match(r"^---\n(.*?)\n---\n", docstring, re.DOTALL)
         assert match, "hook docstring has no YAML front matter"
         fields = yaml.safe_load(match.group(1))
 
-        declared = [tool.strip() for tool in str(fields["tools"]).split(",")]
-        assert READ_CYPHER_TOOL in declared, f"front matter tools: {declared}"
+        declared = [entry.strip() for entry in str(fields["tools"]).split(",")]
+        assert tool in declared, f"front matter tools: {declared}"
 
-    def test_capture_tool_set_lists_read_cypher(self):
+    @pytest.mark.parametrize("tool", [READ_CYPHER_TOOL, SEARCH_CHANNELS_TOOL])
+    def test_capture_tool_set_lists_the_tool(self, tool):
         """The runtime gate, not just the documentation, has to know the tool."""
-        assert f'"{READ_CYPHER_TOOL}"' in self._hook_source()
+        assert f'"{tool}"' in self._hook_source()

@@ -198,6 +198,7 @@ def test_graph_paradigm_renders_the_four_channel_finder_tools(tmp_path):
         "mcp__channel-finder__example_queries",
         "mcp__channel-finder__get_schema",
         "mcp__channel-finder__read_cypher",
+        "mcp__channel-finder__search_channels",
         _SUBMIT_RESPONSE,
     ]
 
@@ -331,6 +332,51 @@ def test_graph_paradigm_prompt_requires_a_definitive_channel_list(tmp_path):
     assert "## Report Format" in body, "the graph arm must carry the report-format section"
     assert "**Channels found**" in body, "the contract must reuse the existing list label"
     assert "**Channels found**: none" in body, "the empty answer must have a spelled-out form"
+
+
+# ---------------------------------------------------------------------------
+# The graph arm opens on the search index; the others have none to open on
+# ---------------------------------------------------------------------------
+
+
+def test_graph_paradigm_prompt_opens_on_the_search_index(tmp_path):
+    """The graph arm reaches for ``search_channels`` before it writes Cypher.
+
+    A phrase question is a keyword lookup in the index the build derives from
+    the corpus, and an agent that does not know the tool exists answers it by
+    composing a traversal instead. The step therefore has to come first in the
+    rendered order, with the Cypher steps left standing for the structural
+    questions the index cannot express.
+    """
+    _manager, project_dir = _control_assistant(tmp_path, "cf-graph-step0", "graph")
+
+    arm = _graph_paradigm_instructions(_agent_path(project_dir).read_text(encoding="utf-8"))
+    assert "### Step 0: Search by keyword" in arm, "the graph arm must name the keyword step"
+    assert "search_channels" in arm, "the step must name the tool the agent calls"
+
+    ordered = [
+        "### Step 0: Search by keyword",
+        "### Step 1: Read the curated examples",
+        "### Step 2: Check the schema when the examples do not reach",
+        "### Step 3: Run the query",
+        "## Matching a Phrase to Addresses",
+    ]
+    positions = [arm.find(heading) for heading in ordered]
+    assert all(pos >= 0 for pos in positions), dict(zip(ordered, positions, strict=True))
+    assert positions == sorted(positions), "the keyword step must precede the Cypher steps"
+
+
+@pytest.mark.parametrize("mode", [m for m in VALID_CHANNEL_FINDER_MODES if m != "graph"])
+def test_other_paradigms_never_name_the_search_index_tool(tmp_path, mode):
+    """``search_channels`` reads an index only the graph paradigm builds.
+
+    The file-backed paradigms have no such index, so naming the tool in their
+    prompt or their ``tools:`` list would advertise a call that cannot resolve.
+    """
+    _manager, project_dir = _control_assistant(tmp_path, f"cf-nosearch-{mode}", mode)
+
+    body = _agent_path(project_dir).read_text(encoding="utf-8")
+    assert "search_channels" not in body
 
 
 # ---------------------------------------------------------------------------

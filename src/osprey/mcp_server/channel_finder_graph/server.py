@@ -2,9 +2,10 @@
 
 The fourth channel-finder paradigm (``channel_finder.pipeline_mode: graph``).
 Where the other three paradigms search a channel database, this one answers
-channel questions by writing read-only Cypher against the facility knowledge
-graph in the ``graphdb`` service — the search strategy is the agent's, not a
-resolution API's.
+channel questions by keyword lookup in the search index built from the facility
+knowledge graph's corpus, or by writing read-only Cypher against that graph in
+the ``graphdb`` service — the search strategy is the agent's, not a resolution
+API's.
 
 It ships under the ``channel-finder`` server name so every consumer that
 selects the paradigm by config key — the registry, the rendered agent's tool
@@ -36,12 +37,15 @@ logger = logging.getLogger("osprey.mcp_server.channel_finder_graph")
 mcp = FastMCP(
     "channel-finder",
     instructions=(
-        "Find control-system channel addresses by searching the facility's knowledge "
-        "graph with read-only Cypher. Start with example_queries or get_schema to learn "
-        "which labels, properties and predicates the store actually carries, then write "
-        "the query the question needs and run it with read_cypher. Results are bounded "
-        "by a row cap and a query timeout, so a truncated answer means narrow the query "
-        "rather than retry it unchanged."
+        "Find control-system channel addresses by keyword lookup in the search index, "
+        "or by writing read-only Cypher against the facility's knowledge graph. Start "
+        "with search_channels when the question is words: a device family, a section, "
+        "a signal, a direction. Its facets say which values the matches carry. Go to "
+        "Cypher for what the index cannot express: start with example_queries or "
+        "get_schema to learn which labels, properties and predicates the store carries, "
+        "then run the query with read_cypher. Results are bounded by a row cap and a "
+        "query timeout, so a truncated answer means narrow the query rather than retry "
+        "it unchanged."
     ),
 )
 
@@ -51,13 +55,16 @@ def _import_tools() -> None:
 
     Named rather than inlined so the startup sequence can be exercised on its
     own: importing ``read_cypher`` and ``get_schema`` pulls in the main-agent
-    ``graph`` server module they are re-registered from.
+    ``graph`` server module they are re-registered from. ``search_channels``
+    is this server's own: it reads the DuckDB search index rather than the
+    store, and the standalone ``graph`` server does not carry it.
     """
     from osprey.mcp_server.channel_finder_graph.tools import (  # noqa: F401
         capabilities,
         example_queries,
         get_schema,
         read_cypher,
+        search_channels,
     )
 
 
