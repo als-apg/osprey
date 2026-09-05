@@ -43,7 +43,7 @@ When configured the category emits:
 
 The ``graph`` paradigm emits neither the database rows nor the channel count —
 there is no file to stat and no DuckDB to open. In their place it restates the
-two readings the ``graphdb`` category takes, taken by that category's own
+three readings the ``graphdb`` category takes, taken by that category's own
 builders so both tiles report one store the same way and a fix named in one
 place is named in both:
 
@@ -51,9 +51,23 @@ place is named in both:
   round-trip latency); ``warning`` when it is unreachable, rejected the
   credential, or is not described by a ``services.graphdb`` block at all;
 * ``channel_finder_resources`` — the number of ``(:Resource)`` nodes the corpus
-  imported (``value``); ``warning`` when that is zero or could not be read.
+  imported (``value``); ``warning`` when that is zero or could not be read;
+* ``channel_finder_seed`` — the corpus the store was imported from, as the
+  digest prefix its seed marker carries (``ok``); ``warning`` when the store is
+  unseeded, or holds a corpus no marker identifies.
 
-Both are advisory: a stopped store is a service that is not running, not a
+and adds one reading of its own, because the graph paradigm answers a click
+from a file rather than from the store:
+
+* ``channel_finder_search_index`` — the DuckDB search index ``osprey build``
+  derives from the same corpus: ``ok`` with its binding and device counts and
+  its corpus digest when that digest matches the seed row's; ``warning`` when
+  the index is absent, unreadable, or built from a different corpus than the
+  store holds. When the store's corpus is unknown — it is down, or unseeded —
+  the row still reports the index it found and says the seed is unknown, since
+  the index is a build artifact and readable whether or not the store is up.
+
+Every one is advisory: a stopped store is a service that is not running, not a
 broken build, so the graph paradigm produces no ``error`` row. The rows carry
 this category's names because they answer this category's question — whether
 channel search has anything to answer from — next to a ``graphdb`` tile that
@@ -69,12 +83,22 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.deployment.graphdb_service import (
+    GRAPHDB_BUILD_INDEX_COMMAND,
+    GRAPHDB_SEED_COMMAND,
+    UNRESOLVED_INDEX_PATH_REMEDY,
+    resolve_graph_index_path,
+    unresolved_index_path_detail,
+)
 from osprey.health.core.graphdb import _CONNECTION_ROW as _GRAPHDB_CONNECTION_ROW
+from osprey.health.core.graphdb import _DIGEST_PREFIX_LEN as _GRAPHDB_DIGEST_PREFIX_LEN
 from osprey.health.core.graphdb import _RESOURCES_ROW as _GRAPHDB_RESOURCES_ROW
-from osprey.health.core.graphdb import _graphdb_block
+from osprey.health.core.graphdb import _SEED_ROW as _GRAPHDB_SEED_ROW
+from osprey.health.core.graphdb import _graphdb_block, seed_digest
 from osprey.health.core.graphdb import graphdb as _graph_store_category
 from osprey.health.models import CheckResult, Status
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
+from osprey.services.channel_finder.graph_index import META_KEYS, SCHEMA_VERSION
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
@@ -91,6 +115,8 @@ GRAPH_MODE = "graph"
 
 _STORE_ROW = "channel_finder_store"
 _RESOURCES_ROW = "channel_finder_resources"
+_SEED_ROW = "channel_finder_seed"
+_SEARCH_INDEX_ROW = "channel_finder_search_index"
 
 #: How the ``graphdb`` category's rows are renamed on their way into this one.
 #: The reading, its severity and its remedy are the graphdb builders' own — only
@@ -98,7 +124,13 @@ _RESOURCES_ROW = "channel_finder_resources"
 _GRAPH_ROW_NAMES = {
     _GRAPHDB_CONNECTION_ROW: _STORE_ROW,
     _GRAPHDB_RESOURCES_ROW: _RESOURCES_ROW,
+    _GRAPHDB_SEED_ROW: _SEED_ROW,
 }
+
+#: How much of a corpus digest this category's rows show. Taken from the graphdb
+#: tile rather than re-chosen, so an operator comparing the seed row against the
+#: index row is comparing two prefixes of the same length.
+_DIGEST_PREFIX_LEN = _GRAPHDB_DIGEST_PREFIX_LEN
 
 
 def channel_finder(
@@ -152,7 +184,7 @@ def channel_finder(
         # The graph paradigm has no database file to stat: its channels live in
         # the store, so the store's own readings are what this category reports.
         if mode == GRAPH_MODE:
-            rows.extend(await _graph_store_rows(cfg))
+            rows.extend(await _graph_store_rows(cfg, base_dir))
             return rows
 
         db_conf = (mode_block or {}).get("database", {}) or {}
@@ -224,23 +256,33 @@ def _pipeline_row(mode: Any, mode_block: dict[str, Any] | None) -> CheckResult:
     )
 
 
-async def _graph_store_rows(cfg: Mapping[str, Any]) -> list[CheckResult]:
-    """Restate the graph store's readings as this category's rows.
+async def _graph_store_rows(cfg: Mapping[str, Any], base_dir: Path | None) -> list[CheckResult]:
+    """Restate the graph store's readings, then check the index built from it.
 
-    The readings come from the ``graphdb`` category rather than from a second
-    probe written here: one store, one way of dialing it, one set of remedies.
-    Only the row ids change, so an operator comparing the two tiles sees the
-    same verdict twice rather than two checks that can drift apart.
+    The store's readings come from the ``graphdb`` category rather than from a
+    second probe written here: one store, one way of dialing it, one set of
+    remedies. Only the row ids change, so an operator comparing the two tiles
+    sees the same verdict twice rather than two checks that can drift apart.
+
+    The search index is this category's own reading — the ``graphdb`` tile
+    reports a service, and a file the build wrote is not one — but it is taken
+    here because it is only meaningful against the store's seed marker, which
+    the restated rows have just read.
 
     Args:
         cfg: The parsed config mapping — read for ``services.graphdb``, which is
-            where a graph-mode project describes the store it answers from.
+            where a graph-mode project describes the store it answers from and
+            the index derived from the same corpus.
+        base_dir: Directory holding ``config.yml``, which is what this category
+            is handed as ``cwd`` and what a relative ``index_path`` resolves
+            against.
 
     Returns:
-        The store's reachability row, plus the resource-count row when the store
-        answered; or a single ``warning`` row when no store is configured at
-        all. Never an ``error``: a store that is down is a service that is not
-        running.
+        The store's reachability row, the resource-count and seed rows when the
+        store answered, and the search-index row; or a single ``warning`` row
+        when no store is configured at all — a project with no store has no
+        corpus to derive an index from either. Never an ``error``: a store that
+        is down is a service that is not running.
     """
     if _graphdb_block(cfg) is None:
         return [
@@ -257,10 +299,171 @@ async def _graph_store_rows(cfg: Mapping[str, Any]) -> list[CheckResult]:
         ]
 
     probe = cast("Callable[[], Awaitable[list[CheckResult]]]", _graph_store_category(cfg))
-    return [
+    rows = [
         replace(row, name=_GRAPH_ROW_NAMES.get(row.name, row.name), category=CATEGORY)
         for row in await probe()
     ]
+
+    # The digest is read off the seed row rather than from a second driver: that
+    # row is where the store's corpus is read, and asking twice could compare
+    # the index against a reading the tile above it never showed.
+    seed = next((row for row in rows if row.name == _SEED_ROW), None)
+    rows.append(await _search_index_row(cfg, base_dir, seed_digest(seed) if seed else ""))
+    return rows
+
+
+async def _search_index_row(
+    cfg: Mapping[str, Any], base_dir: Path | None, seed: str
+) -> CheckResult:
+    """Resolve the index's path and read it, or say why neither could happen.
+
+    Args:
+        cfg: The parsed config mapping, read for ``services.graphdb.index_path``.
+        base_dir: Directory holding ``config.yml``.
+        seed: The store's corpus digest, or ``""`` when the store could not be
+            read or carries no marker.
+
+    Returns:
+        The ``channel_finder_search_index`` row. A malformed ``index_path`` is
+        reported as that row rather than raised, for the reason the graphdb
+        category gives for a malformed block: the same typo already refuses
+        loudly at deploy time, and a suite that crashes names no key.
+    """
+    try:
+        index_path = resolve_graph_index_path(cfg, base_dir)
+    except ValueError as exc:
+        return CheckResult(
+            _SEARCH_INDEX_ROW,
+            CATEGORY,
+            Status.WARNING,
+            unresolved_index_path_detail(exc),
+            details=UNRESOLVED_INDEX_PATH_REMEDY,
+        )
+    return await asyncio.to_thread(_index_row, index_path, seed)
+
+
+def _index_row(index_path: Path, seed: str) -> CheckResult:
+    """Read the search index's ``meta`` row and compare it against the store.
+
+    Runs on a worker thread (blocking I/O). ``duckdb`` is imported lazily so a
+    missing package degrades to a ``warning`` row rather than crashing the
+    suite, exactly as :func:`_count_row` does.
+
+    Args:
+        index_path: Where the index should be, as
+            :func:`~osprey.deployment.graphdb_service.resolve_graph_index_path`
+            resolved it. It need not exist.
+        seed: The store's corpus digest, or ``""`` when it is unknown.
+
+    Returns:
+        The ``channel_finder_search_index`` row. ``ok`` when the index reads and
+        either carries the store's corpus or the store's corpus is unknown;
+        ``warning`` when the index is absent, unreadable, or was built from a
+        different corpus than the store holds. Never an ``error``: an index the
+        build has not written yet is a step not taken.
+    """
+    if not index_path.exists():
+        return CheckResult(
+            _SEARCH_INDEX_ROW,
+            CATEGORY,
+            Status.WARNING,
+            f"No search index at {index_path}",
+            details=(
+                "'osprey build' writes it from the TTL corpus; rebuild it in place "
+                f"with `{GRAPHDB_BUILD_INDEX_COMMAND}`."
+            ),
+        )
+
+    try:
+        import duckdb
+    except ImportError:
+        return CheckResult(
+            _SEARCH_INDEX_ROW,
+            CATEGORY,
+            Status.WARNING,
+            "Cannot read the search index: the 'duckdb' package is not installed",
+            details="Install the 'duckdb' dependency to enable search-index checks.",
+        )
+
+    try:
+        con = duckdb.connect(str(index_path), read_only=True)
+        try:
+            row = con.execute(f"SELECT {', '.join(META_KEYS)} FROM meta").fetchone()
+        finally:
+            con.close()
+    except Exception as exc:  # noqa: BLE001 - any duckdb error degrades to a warning
+        return CheckResult(
+            _SEARCH_INDEX_ROW,
+            CATEGORY,
+            Status.WARNING,
+            f"Could not read the search index: {exc}",
+            details=f"Rebuild it with `{GRAPHDB_BUILD_INDEX_COMMAND}`.",
+        )
+
+    if row is None:
+        return CheckResult(
+            _SEARCH_INDEX_ROW,
+            CATEGORY,
+            Status.WARNING,
+            f"Search index carries no meta row ({index_path})",
+            details=f"Rebuild it with `{GRAPHDB_BUILD_INDEX_COMMAND}`.",
+        )
+
+    meta = dict(zip(META_KEYS, row, strict=True))
+    version = int(meta["schema_version"])
+    if version != SCHEMA_VERSION:
+        return CheckResult(
+            _SEARCH_INDEX_ROW,
+            CATEGORY,
+            Status.WARNING,
+            f"Search index is schema v{version}, this osprey reads v{SCHEMA_VERSION}",
+            details=f"Rebuild it with `{GRAPHDB_BUILD_INDEX_COMMAND}`.",
+        )
+
+    digest = str(meta["corpus_sha256"])
+    if seed and digest != seed:
+        return CheckResult(
+            _SEARCH_INDEX_ROW,
+            CATEGORY,
+            Status.WARNING,
+            "Search index and graph store were built from different corpora",
+            value=f"index {digest[:_DIGEST_PREFIX_LEN]} · store {seed[:_DIGEST_PREFIX_LEN]}",
+            details=(
+                f"Rebuild the index with `{GRAPHDB_BUILD_INDEX_COMMAND}`, or reseed the "
+                f"store with `{GRAPHDB_SEED_COMMAND}`."
+            ),
+        )
+
+    value = f"{_index_counts(meta)} · {digest[:_DIGEST_PREFIX_LEN]}"
+    if not seed:
+        value = f"{value} (store's seed unknown)"
+    return CheckResult(
+        _SEARCH_INDEX_ROW,
+        CATEGORY,
+        Status.OK,
+        "Search index built from the TTL corpus",
+        value=value,
+        details=f"Built from {meta['corpus_filename']}: {_index_detail_counts(meta)}.",
+    )
+
+
+def _index_counts(meta: dict[str, Any]) -> str:
+    """The two counts the row's ``value`` carries, as one compact phrase."""
+    return f"{int(meta['binding_count']):,} bindings · {int(meta['device_count']):,} devices"
+
+
+def _index_detail_counts(meta: dict[str, Any]) -> str:
+    """Every count the ``meta`` row holds, for the ok row's ``details``."""
+    return ", ".join(
+        f"{int(meta[key]):,} {label}"
+        for key, label in (
+            ("binding_count", "bindings"),
+            ("device_count", "devices"),
+            ("class_count", "classes"),
+            ("signal_count", "signals"),
+            ("section_count", "sections"),
+        )
+    )
 
 
 def _database_row(db_path: Path | None) -> CheckResult:

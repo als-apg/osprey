@@ -4,8 +4,11 @@ Exercises the presence gate (a top-level ``channel_finder`` block), the
 pipeline row, the rejection of a pipeline mode that is not a real paradigm, the
 pipeline database file checks (present / missing / empty / unconfigured), the
 informational freshness row, the middle-layer-only DuckDB channel count against
-a tiny real DuckDB fixture, and the graph pipeline's store-backed rows against a
-fake neo4j driver. Skips the DuckDB-count cases when the ``duckdb`` package is
+a tiny real DuckDB fixture, the graph pipeline's store-backed rows against a
+fake neo4j driver, and the search-index row against a tiny real index built from
+the package's own DDL — present and matching, absent, unreadable, built by
+another schema version, built from another corpus, and read beside a store whose
+corpus is unknown. Skips the DuckDB cases when the ``duckdb`` package is
 unavailable.
 """
 
@@ -292,11 +295,34 @@ class _FakeEagerResult:
         self.records = records
 
 
-class _FakeDriver:
-    """Answers the ping and the ``(:Resource)`` count from a script."""
+#: The corpus digest the fake store was seeded from. Only its prefix and its
+#: full text matter here.
+DIGEST = "9f2c1ab34de5670089abcdef0123456789abcdef0123456789abcdef01234567"
 
-    def __init__(self, *, count: int = 7, connect_error: Exception | None = None) -> None:
+#: A second, unmistakably different digest — the corpus an index can carry when
+#: it was built before the store was reseeded.
+OTHER_DIGEST = "1122334455660000fedcba9876543210fedcba9876543210fedcba9876543210"
+
+
+class _FakeDriver:
+    """Answers the ping, the ``(:Resource)`` count and the seed marker.
+
+    The ping is the first query; everything after it is answered on what the
+    query text asks for, so the probe may read the count and the marker in
+    either order without the fake having to be rewritten.
+    """
+
+    def __init__(
+        self,
+        *,
+        count: int = 7,
+        sha256: str | None = DIGEST,
+        direction_source: str | None = "grammar",
+        connect_error: Exception | None = None,
+    ) -> None:
         self.count = count
+        self.sha256 = sha256
+        self.direction_source = direction_source
         self.connect_error = connect_error
         self.queries: list[str] = []
 
@@ -306,23 +332,73 @@ class _FakeDriver:
             if self.connect_error is not None:
                 raise self.connect_error
             return _FakeEagerResult([_FakeRecord(ok=1)])
+        if "_OspreySeed" in query:
+            if self.sha256 is None:
+                return _FakeEagerResult([])
+            return _FakeEagerResult(
+                [_FakeRecord(sha256=self.sha256, direction_source=self.direction_source)]
+            )
         return _FakeEagerResult([_FakeRecord(count=self.count)])
 
     def close(self) -> None:
         pass
 
 
-class TestGraphPipeline:
-    """The ``graph`` paradigm answers from the store, so it reads store rows.
+def _make_index(
+    path: Path,
+    *,
+    digest: str = DIGEST,
+    schema_version: int | None = None,
+    filename: str = "demo_machine.ttl",
+    counts: tuple[int, int, int, int, int] = (12, 5, 3, 4, 2),
+) -> None:
+    """Write a tiny real search index: the four tables and one ``meta`` row.
+
+    No builder exists yet, so the row is inserted directly. The DDL is the
+    package's own, which is what makes this a real index rather than a fixture
+    shaped like one.
+    """
+    import duckdb
+
+    from osprey.services.channel_finder.graph_index import SCHEMA_VERSION
+    from osprey.services.channel_finder.graph_index.schema import create_tables
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    con = duckdb.connect(str(path))
+    try:
+        create_tables(con)
+        con.execute(
+            "INSERT INTO meta VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                SCHEMA_VERSION if schema_version is None else schema_version,
+                digest,
+                filename,
+                *counts,
+            ],
+        )
+    finally:
+        con.close()
+
+
+class _GraphModeCase:
+    """Setup shared by the graph paradigm's cases, holding no cases itself.
 
     Nothing here touches a real store: the neo4j driver factory is replaced, so
-    the cases are hermetic and the "unreachable" case is instantaneous.
+    the cases are hermetic and the "unreachable" case is instantaneous. Not
+    named ``Test*`` deliberately — it is a base, and a collected one would run
+    every subclass's cases a second time.
     """
 
     @pytest.fixture(autouse=True)
-    def _no_ambient_password(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Keep the resolver off whatever ``GRAPHDB_PASSWORD`` the host carries."""
+    def _isolate(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """Keep the case off the host's password and off any real search index.
+
+        ``index_path`` is pointed into ``tmp_path`` for every case, so a case
+        that says nothing about the index gets a reliably absent one rather
+        than whatever the developer's working tree happens to hold.
+        """
         monkeypatch.delenv("GRAPHDB_PASSWORD", raising=False)
+        self.index_path = tmp_path / "render" / "graph.duckdb"
 
     @staticmethod
     def _install_driver(monkeypatch: pytest.MonkeyPatch, driver: _FakeDriver) -> list[tuple]:
@@ -338,15 +414,18 @@ class TestGraphPipeline:
         monkeypatch.setattr(neo4j.GraphDatabase, "driver", _factory)
         return calls
 
-    @staticmethod
-    def _cfg(*, pipelines: dict | None = None, **graphdb_block) -> dict:
+    def _cfg(self, *, pipelines: dict | None = None, **graphdb_block) -> dict:
         """Graph-mode config: no ``pipelines.graph`` block unless one is asked for."""
         cf: dict = {"pipeline_mode": "graph"}
         if pipelines is not None:
             cf["pipelines"] = pipelines
-        block = {"path": "./services/graphdb"}
+        block = {"path": "./services/graphdb", "index_path": str(self.index_path)}
         block.update(graphdb_block)
         return {"channel_finder": cf, "services": {"graphdb": block}}
+
+
+class TestGraphPipeline(_GraphModeCase):
+    """The ``graph`` paradigm answers from the store, so it reads store rows."""
 
     async def test_reports_pipeline_reachability_and_resources(
         self, monkeypatch: pytest.MonkeyPatch
@@ -357,12 +436,16 @@ class TestGraphPipeline:
             "channel_finder_pipeline",
             "channel_finder_store",
             "channel_finder_resources",
+            "channel_finder_seed",
+            "channel_finder_search_index",
         }
         assert by_name["channel_finder_pipeline"].status is Status.OK
         assert by_name["channel_finder_pipeline"].value == "graph (store-backed)"
         assert by_name["channel_finder_store"].status is Status.OK
         assert by_name["channel_finder_resources"].status is Status.OK
         assert by_name["channel_finder_resources"].value == "2,908 Resource nodes"
+        assert by_name["channel_finder_seed"].status is Status.OK
+        assert by_name["channel_finder_seed"].value.startswith(DIGEST[:12])
 
     async def test_needs_no_pipelines_block_and_never_warns_about_a_database_path(
         self, monkeypatch: pytest.MonkeyPatch
@@ -403,7 +486,13 @@ class TestGraphPipeline:
             monkeypatch, _FakeDriver(connect_error=ServiceUnavailable("Connection refused"))
         )
         by_name = await _run(self._cfg())
-        assert set(by_name) == {"channel_finder_pipeline", "channel_finder_store"}
+        # The index row survives a store that never answered: it is a build
+        # artifact on disk, readable whether or not the store is up.
+        assert set(by_name) == {
+            "channel_finder_pipeline",
+            "channel_finder_store",
+            "channel_finder_search_index",
+        }
         row = by_name["channel_finder_store"]
         assert row.status is Status.WARNING
         assert "unreachable" in row.message
@@ -458,5 +547,135 @@ class TestGraphPipeline:
             "channel_finder_pipeline",
             "channel_finder_store",
             "channel_finder_resources",
+            "channel_finder_seed",
+            "channel_finder_search_index",
         }
         assert by_name["channel_finder_pipeline"].value == "graph (store-backed)"
+
+
+# --------------------------------------------------------------------------- #
+# Search index row (graph pipeline)
+# --------------------------------------------------------------------------- #
+
+
+class TestSearchIndexRow(_GraphModeCase):
+    """The index the build derives from the corpus the store was seeded from.
+
+    Every case is a graph-mode run with a scripted store behind it: the row's
+    whole job is to compare one artifact against the other, so it is only
+    meaningful next to the store's seed marker.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _require_duckdb(self):
+        pytest.importorskip("duckdb")
+
+    async def test_index_matching_the_stores_corpus_is_ok(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One corpus behind both: the row reports counts and the digest."""
+        self._install_driver(monkeypatch, _FakeDriver(sha256=DIGEST))
+        _make_index(self.index_path, digest=DIGEST, counts=(12, 5, 3, 4, 2))
+        row = (await _run(self._cfg()))["channel_finder_search_index"]
+        assert row.status is Status.OK
+        assert row.value == f"12 bindings · 5 devices · {DIGEST[:12]}"
+        assert "store's seed unknown" not in row.value
+        assert "demo_machine.ttl" in row.details
+
+    async def test_missing_index_warns_and_names_the_build_verbs(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Nothing on disk: the row names the path and how to write it."""
+        self._install_driver(monkeypatch, _FakeDriver())
+        row = (await _run(self._cfg()))["channel_finder_search_index"]
+        assert row.status is Status.WARNING
+        assert str(self.index_path) in row.message
+        assert "osprey build" in row.details
+        assert "osprey knowledge build-index" in row.details
+
+    async def test_unreadable_index_degrades_to_warning(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A file that is not a DuckDB at all is a warning, never a crash."""
+        self._install_driver(monkeypatch, _FakeDriver())
+        self.index_path.parent.mkdir(parents=True, exist_ok=True)
+        self.index_path.write_bytes(b"this is not a duckdb file at all")
+        row = (await _run(self._cfg()))["channel_finder_search_index"]
+        assert row.status is Status.WARNING
+        assert "osprey knowledge build-index" in row.details
+
+    async def test_index_from_another_schema_version_warns(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An index this osprey cannot read is unreadable, whatever it contains."""
+        from osprey.services.channel_finder.graph_index import SCHEMA_VERSION
+
+        self._install_driver(monkeypatch, _FakeDriver())
+        _make_index(self.index_path, schema_version=SCHEMA_VERSION + 1)
+        row = (await _run(self._cfg()))["channel_finder_search_index"]
+        assert row.status is Status.WARNING
+        assert f"v{SCHEMA_VERSION + 1}" in row.message
+        assert f"v{SCHEMA_VERSION}" in row.message
+        assert "osprey knowledge build-index" in row.details
+
+    async def test_index_and_store_from_different_corpora_warn(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two corpora, two digests: the row shows both and offers both fixes."""
+        self._install_driver(monkeypatch, _FakeDriver(sha256=DIGEST))
+        _make_index(self.index_path, digest=OTHER_DIGEST)
+        row = (await _run(self._cfg()))["channel_finder_search_index"]
+        assert row.status is Status.WARNING
+        assert "different corpora" in row.message
+        assert row.value == f"index {OTHER_DIGEST[:12]} · store {DIGEST[:12]}"
+        assert "osprey knowledge build-index" in row.details
+        assert "osprey knowledge seed-graph" in row.details
+
+    async def test_unseeded_store_leaves_the_index_row_ok(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No marker to compare against: the index still reports what it holds."""
+        self._install_driver(monkeypatch, _FakeDriver(count=0, sha256=None))
+        _make_index(self.index_path, digest=OTHER_DIGEST)
+        by_name = await _run(self._cfg())
+        assert by_name["channel_finder_seed"].status is Status.WARNING
+        row = by_name["channel_finder_search_index"]
+        assert row.status is Status.OK
+        assert row.value.endswith("(store's seed unknown)")
+        assert OTHER_DIGEST[:12] in row.value
+
+    async def test_unreachable_store_leaves_the_index_row_readable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A store that never answered does not hide an index that is present."""
+        from neo4j.exceptions import ServiceUnavailable
+
+        self._install_driver(
+            monkeypatch, _FakeDriver(connect_error=ServiceUnavailable("Connection refused"))
+        )
+        _make_index(self.index_path, digest=DIGEST)
+        row = (await _run(self._cfg()))["channel_finder_search_index"]
+        assert row.status is Status.OK
+        assert row.value.endswith("(store's seed unknown)")
+
+    async def test_relative_index_path_resolves_against_the_config_directory(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The render zone, not the repo root — the anchor ``ttl_path`` uses."""
+        self._install_driver(monkeypatch, _FakeDriver(sha256=DIGEST))
+        render = tmp_path / "build"
+        _make_index(render / "data" / "graph.duckdb", digest=DIGEST)
+        row = (await _run(self._cfg(index_path="./data/graph.duckdb"), cwd=render))[
+            "channel_finder_search_index"
+        ]
+        assert row.status is Status.OK
+        assert row.value.endswith(DIGEST[:12])
+
+    async def test_malformed_index_path_warns_and_names_the_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A bad key is reported as the row, not raised out of the suite."""
+        self._install_driver(monkeypatch, _FakeDriver())
+        row = (await _run(self._cfg(index_path="   ")))["channel_finder_search_index"]
+        assert row.status is Status.WARNING
+        assert "services.graphdb.index_path" in row.details
