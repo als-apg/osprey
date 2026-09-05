@@ -143,20 +143,23 @@ The database follows MATLAB Middle Layer (MML) functional organization
 Graph Pipeline
 ==============
 
-Searches the facility knowledge graph instead of a channel database. The store
-*is* the database: a graph-mode project ships no database file, and the channel
-finder subagent finds addresses by writing read-only Cypher against the seeded
-``graphdb`` store.
+Searches the facility knowledge graph instead of a channel database. A
+graph-mode project ships no channel database: the corpus describes the machine,
+and the channel finder subagent finds addresses either by keyword lookup in the
+search index the build derives from that corpus, or by writing read-only Cypher
+against the seeded ``graphdb`` store.
 
-**How it works:** four tools, served under the ``channel-finder`` name like
+**How it works:** five tools, served under the ``channel-finder`` name like
 every other pipeline's. ``capabilities`` reports how addresses are spelled and
-what prose the corpus carries; ``example_queries`` returns runnable Cypher for
-the common channel questions, each with framework-default parameter values that
-the seed-time snapshot may replace with values captured from this corpus;
-``get_schema`` lists the labels, relationship types and property names
-*this* graph actually holds; ``read_cypher`` runs one query and returns rows.
-There is no resolution API behind them — the subagent adapts an example rather
-than calling a lookup.
+what prose the corpus carries; ``search_channels`` looks a phrase up in the
+search index and returns matching addresses a page at a time, with facet counts
+for section, system, class, signal and direction; ``example_queries`` returns
+runnable Cypher for the common channel questions, each with framework-default
+parameter values that the seed-time snapshot may replace with values captured
+from this corpus; ``get_schema`` lists the labels, relationship types and
+property names *this* graph actually holds; ``read_cypher`` runs one query and
+returns rows. There is no resolution API behind them — the subagent looks a
+phrase up or adapts an example rather than calling a lookup.
 
 Configuration is the mode plus the store, and nothing else. There is no graph
 entry under ``pipelines:`` — that section renders empty in graph mode — and no
@@ -167,6 +170,11 @@ entry under ``pipelines:`` — that section renders empty in graph mode — and 
    channel_finder:
      pipeline_mode: graph
      pipelines:        # nothing here — graph names no database file
+
+The store block names one more thing: the search index the finder reads, under
+``services.graphdb.index_path`` — ``./data/channel_databases/graph.duckdb``
+unless the project says otherwise, which is why the mode and the store are the
+whole of the configuration.
 
 The store comes from the ``services.graphdb`` block, either one this deployment
 runs or one the facility already hosts (an explicit ``services.graphdb.uri``
@@ -197,14 +205,16 @@ system or a ring, and against the synonyms an operator would say out loud. A
 corpus imported from a facility export may carry less prose: there the way in
 is a name, an alternate name, a section or a device class.
 
-``validate`` and ``preview`` have no file to open on this pipeline, so both
-report what the store is and which commands act on it. Health reports the store
-instead of a database: whether it is reachable, and how many resources it holds
+``validate`` and ``preview`` have no channel database to open on this pipeline,
+so both report what the store is and which commands act on it. Health reports
+the store and the search index instead of a database: whether the store is
+reachable and how many resources it holds, and whether the index is there and
+was built from the corpus the store was seeded with
 (:doc:`health-and-monitoring/configure-health-checks`).
 
-The web explorer opens on this pipeline too, and reads the same store: its
-Explore view searches the graph rather than browsing a channel tree. See
-`Web Interface`_ below.
+The web explorer opens on this pipeline too: its Explore view searches the
+index rather than browsing a channel tree, and the device card reads the store.
+See `Web Interface`_ below.
 
 
 Web Interface
