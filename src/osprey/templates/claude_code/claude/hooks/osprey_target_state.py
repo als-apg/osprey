@@ -140,7 +140,7 @@ narrowing is the record's ``posture`` field and is enforced at WRITE time
 rather than delivered by respawning the agent, which is what lets a flip land
 on a session already mid-conversation.
 
-``osprey_connectors.session_store`` is the canonical reader. Hooks cannot import
+``osprey_connectors.posture_store`` is the canonical reader. Hooks cannot import
 it, so its rules are restated here — a change there is a change here.
 
 **1. Whose narrowing it is.** The deployment's. It is keyed by TARGET and by
@@ -491,7 +491,7 @@ def parse_posture(value):
     """One record's ``posture`` as a ``{target: posture}`` map of NARROWINGS.
 
     Rule 2 of the restated posture contract, and the same filter
-    ``session_store.parse_store`` applies to the same field: what survives here
+    ``posture_store.parse_posture_value`` applies to the same field: what survives here
     decides whether a real machine is written to, so an entry the two filters
     disagree about is a narrowing that silently does not apply. Returns an empty
     map for anything that narrows nothing.
@@ -998,7 +998,7 @@ def _posture_for(posture, target):
 def target_posture(target, hook_input=None):
     """The recorded posture for *target*, or ``None``. Never raises.
 
-    The counterpart of ``session_store.target_posture``: one target, one
+    The counterpart of ``posture_store.target_posture``: one target, one
     answer, read from the deployment's record rather than from anything this
     process happens to carry.
     """

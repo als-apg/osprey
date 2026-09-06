@@ -121,7 +121,7 @@ from osprey.mcp_server.http import (
     TARGET_SWITCH_TOOL,
     notify_target_switch_async,
 )
-from osprey_connectors import control_context, session_store
+from osprey_connectors import control_context, posture_store
 
 logger = logging.getLogger("osprey.mcp_server.control_system.session_control")
 
@@ -445,7 +445,7 @@ class SessionControlReconciler:
         of the narrowing for the target this server is still on is the one case
         that owes the operator a rebuild.
         """
-        entry = session_store.target_posture(target)
+        entry = posture_store.target_posture(target)
         if target != self._active_target:
             self._active_target = target
             self._active_posture = entry
@@ -578,45 +578,16 @@ class SessionControlReconciler:
     async def _consume_one(self, context: Any, path: Path, reports: list[Any]) -> bool:
         """Deal with one request file. ``True`` when it was actually answered.
 
-        A file this owner will never act on — unreadable, nameless, from a
-        process that has gone, or older than the request TTL — is removed
-        without a terminus and reports ``False``, so the pass goes on to look
-        at the next one. It gets no outcome because there is nobody left to
-        read one: the record's ``last_switch`` is how a requester learns what
-        happened, and a requester that is gone or has stopped waiting learns
-        nothing from a block written for it.
+        A file this owner will never act on is removed by
+        :func:`~osprey.mcp_server.control_system.target_state.triage_request`
+        — which is where the four ways that happens are spelled, once, for both
+        consumers of this directory — and reports ``False``, so the pass goes on
+        to look at the next one.
         """
-        body = target_state.read_file(path)
-        if not isinstance(body, dict):
-            logger.warning("Unreadable switch request at %s; removing it", path)
-            self._unlink(path)
+        triaged = target_state.triage_request(path)
+        if triaged is None:
             return False
-
-        pid = target_state.record_pid(body, "requested_by_pid")
-        request_id = str(body.get("request_id") or "")
-        if pid is None or not request_id:
-            logger.warning(
-                "Switch request at %s names no requester or no request id; removing it", path
-            )
-            self._unlink(path)
-            return False
-        if not control_context.is_process_alive(pid):
-            logger.info(
-                "Dropping switch request %r: the process that asked (pid %s) is gone",
-                request_id,
-                pid,
-            )
-            self._unlink(path)
-            return False
-        if not target_state.is_request_fresh(body):
-            logger.info(
-                "Dropping switch request %r from pid %s: written more than %ss ago",
-                request_id,
-                pid,
-                target_state.REQUEST_TTL_S,
-            )
-            self._unlink(path)
-            return False
+        body, pid, request_id = triaged
 
         # Re-read immediately before acting. Between the glob and here the
         # record can have been answered by an earlier pass of this same loop, or
@@ -629,7 +600,7 @@ class SessionControlReconciler:
             # is safe precisely because the answer is in the record: reaching
             # this terminus twice writes nothing twice.
             logger.debug("Switch request %r was already answered; removing it", request_id)
-            self._unlink(path, pid=pid)
+            target_state.remove_request(requested_by_pid=pid)
             return False
 
         wanted = str(body.get("target") or "").strip()
@@ -640,13 +611,10 @@ class SessionControlReconciler:
             await self._answer(
                 record,
                 body,
-                path,
                 pid=pid,
                 status=STATUS_APPLIED,
                 reason=None,
-                detail=(
-                    f"The control target is already {wanted!r} (generation {record.generation})."
-                ),
+                detail=control_context.unchanged_detail(wanted, record.generation),
                 generation=record.generation,
             )
             return True
@@ -658,7 +626,6 @@ class SessionControlReconciler:
             await self._answer(
                 record,
                 body,
-                path,
                 pid=pid,
                 status=STATUS_REFUSED,
                 reason=REASON_INTERNAL_ERROR,
@@ -671,7 +638,6 @@ class SessionControlReconciler:
             await self._answer(
                 record,
                 body,
-                path,
                 pid=pid,
                 status=STATUS_REFUSED,
                 reason=str(verdict.reason or ""),
@@ -683,11 +649,10 @@ class SessionControlReconciler:
         await self._answer(
             record,
             body,
-            path,
             pid=pid,
             status=STATUS_APPLIED,
             reason=None,
-            detail=(f"The control target is now {wanted!r} (generation {record.generation + 1})."),
+            detail=control_context.applied_detail(wanted, record.generation + 1),
             generation=record.generation + 1,
         )
         return True
@@ -731,7 +696,6 @@ class SessionControlReconciler:
         self,
         record: control_context.ControlContext,
         body: dict[str, Any],
-        path: Path,
         *,
         pid: int,
         status: str,
@@ -776,7 +740,7 @@ class SessionControlReconciler:
             )
             return
 
-        self._unlink(path, pid=pid)
+        target_state.remove_request(requested_by_pid=pid)
 
         # The ledger record is filed BEFORE the awaited emit, and not after it:
         # every await is a place this task can be cancelled, and a shutdown
@@ -797,16 +761,6 @@ class SessionControlReconciler:
             reason=reason,
             generation=generation,
         )
-
-    def _unlink(self, path: Path, *, pid: int | None = None) -> None:
-        """Consume one request file. A missing file is success, not an error."""
-        if pid is not None:
-            target_state.remove_request(requested_by_pid=pid)
-            return
-        try:
-            path.unlink(missing_ok=True)
-        except OSError as exc:  # pragma: no cover - unwritable state dir
-            logger.warning("Could not remove switch request %s: %s", path, exc)
 
     async def _notify(
         self,

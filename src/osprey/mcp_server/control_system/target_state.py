@@ -158,13 +158,13 @@ import contextlib
 import json
 import logging
 import os
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from osprey.audit.posture import posture_session
-from osprey_connectors import control_context, session_store
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.workspace import resolve_shared_data_root
 
 logger = logging.getLogger("osprey.mcp_server.control_system.target_state")
@@ -182,8 +182,8 @@ TARGET_NAMES: tuple[str, ...] = (TARGET_LIVE, TARGET_VA, TARGET_STANDIN)
 
 #: Fixed subdirectory of the agent-data root. Part of the path contract above,
 #: and taken from :mod:`osprey_connectors.control_context` for the same reason
-#: the report names below are: the record, the posture store and these reports
-#: share one directory, and two spellings of it would make it two. Only the
+#: the report names below are: the record and these reports share one
+#: directory, and two spellings of it would make it two. Only the
 #: stdlib-only hooks, which can import neither, restate the literal.
 STATE_DIR_NAME = control_context.STATE_DIR_NAME
 
@@ -261,7 +261,6 @@ __all__ = [
     "in_flight_executions",
     "is_process_alive",
     "is_request_fresh",
-    "live_records",
     "publish_last_switch",
     "publish_posture_realign",
     "publish_reachability",
@@ -269,15 +268,14 @@ __all__ = [
     "publish_targets",
     "read",
     "read_file",
-    "read_request",
     "record_child_pids",
     "record_pid",
     "remove_request",
     "report_file_path",
     "request_file_path",
-    "session_record",
     "state_dir",
     "sweep_stale",
+    "triage_request",
     "write_request",
     "write_server_record",
 ]
@@ -300,10 +298,10 @@ def state_dir() -> Path:
     in the wrong place".
 
     The stamp is read through
-    :func:`~osprey_connectors.session_store.stamped_agent_data_root` rather
-    than off the environment here, because the posture store sits in this same
-    directory and the two must not normalise one variable differently — a
-    ``~`` or a padded value would otherwise put the report and the store
+    :func:`~osprey_connectors.posture_store.stamped_agent_data_root` rather
+    than off the environment here, because the control-context record sits in
+    this same directory and the two must not normalise one variable differently
+    — a ``~`` or a padded value would otherwise put the report and the record
     in different places.
 
     Unset — a CLI run, a dispatch worker, a server outside any web session —
@@ -313,7 +311,7 @@ def state_dir() -> Path:
     where the store reader answers ``None``, and the web terminal's switch
     route turns that raise into its ``store_unavailable`` 503.
     """
-    stamped = session_store.stamped_agent_data_root()
+    stamped = posture_store.stamped_agent_data_root()
     root = stamped if stamped is not None else resolve_shared_data_root()
     return root / STATE_DIR_NAME
 
@@ -363,113 +361,22 @@ def is_process_alive(pid: object) -> bool:
     return control_context.is_process_alive(pid)
 
 
-# -- the records that describe a session -----------------------------------
+# -- the records one controls server publishes ------------------------------
 
 
 def record_pid(record: Mapping[str, Any], field: str) -> int | None:
     """The PID a record's *field* carries, or ``None`` when it carries no PID.
 
-    Strict: the one writer of these files (:func:`write_server_record`) emits an
-    ``int``, so anything else — a string, a float, a ``bool`` (which IS an
-    ``int`` to ``isinstance`` and ``1`` to ``os.kill``) — is a record nothing
-    here wrote, and coercing it would let such a record match a real parent.
+    Strict: the writers of these files (:func:`write_server_record` and
+    :func:`write_request`) emit an ``int``, so anything else — a string, a
+    float, a ``bool`` (which IS an ``int`` to ``isinstance`` and ``1`` to
+    ``os.kill``) — is a file nothing here wrote, and coercing it would let such
+    a file name a pid that is really somebody else's.
     """
     value = record.get(field)
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         return None
     return value
-
-
-def live_records(entries: Iterable[Path]) -> list[dict[str, Any]]:
-    """Every readable record among *entries* whose owning server still runs.
-
-    A record whose ``server_pid`` is gone is residue: its target describes a
-    server nobody is talking to any more, and the next server to start sweeps
-    it (:func:`sweep_stale`). Unreadable entries are skipped, not raised — a
-    half-written file is the documented "state unavailable" outcome.
-
-    The read and the liveness filter both live in
-    :func:`osprey_connectors.control_context.live_report_payloads`; the
-    liveness predicate is handed over from here so that a caller which has
-    patched or narrowed :func:`is_process_alive` gets one answer for the whole
-    pass.
-
-    Args:
-        entries: Report paths, typically ``state_dir().glob(REPORT_FILE_GLOB)``.
-            Taken rather than globbed here because one caller keys a cache on
-            the same listing and must not glob twice.
-    """
-    return control_context.live_report_payloads(entries, is_alive=is_process_alive)
-
-
-def session_record(
-    entries: Sequence[Path],
-    owner_ppid: int,
-    *,
-    require_generation: bool = False,
-) -> dict[str, Any] | None:
-    """The one live record this session owns, or ``None``.
-
-    THE matcher for every process that is a child of the same Claude Code
-    process as the controls server — the audit posture, the python executor,
-    the banner — so that no two of them can disagree about which session they
-    are in.
-
-    Selection is *exact parent equality*: the controls MCP server that writes
-    these files and the server this code runs in are both spawned by the same
-    Claude Code process, so the record whose ``owner_ppid`` equals our parent
-    is the one describing our session. Deliberately narrower than the
-    ancestor-chain walk the stdlib-only hooks do (and keep, by design: a hook
-    cannot import this module): a deployment that interposes a process breaks
-    the equality and gets "no answer", never another session's target. Strict
-    ``int`` on both sides, per :func:`record_pid`.
-
-    Zero matches (no controls server, or a directory this deployment never
-    created) and more than one (an ``owner_ppid`` collision after PID reuse)
-    both answer ``None``, as does a record naming a target no reader knows. A
-    record whose ``server_pid`` is gone is residue and is skipped
-    (:func:`live_records`).
-
-    Args:
-        entries: State-file paths, as for :func:`live_records`.
-        owner_ppid: This process's parent, ``os.getppid()``.
-        require_generation: Also require an ``int`` ``generation`` — the
-            executor stamps its sandbox with it, and a record without one
-            cannot pin a run.
-
-    Returns:
-        The matching record, or ``None``.
-    """
-    matches: list[dict[str, Any]] = []
-    for record in live_records(entries):
-        if record_pid(record, "owner_ppid") != owner_ppid:
-            continue
-        if record.get("target") not in TARGET_NAMES:
-            continue
-        if require_generation:
-            generation = record.get("generation")
-            if isinstance(generation, bool) or not isinstance(generation, int):
-                continue
-        matches.append(record)
-
-    if len(matches) != 1:
-        if matches:
-            logger.warning(
-                "%d control-target records share owner_ppid %s; the session target is unknown",
-                len(matches),
-                owner_ppid,
-            )
-        elif entries:
-            # Records exist but none is ours — another session's, or a parent
-            # this process does not have. Worth seeing when a switch appears to
-            # have had no effect.
-            logger.debug(
-                "%d control-target record(s) present, none owned by ppid %s",
-                len(entries),
-                owner_ppid,
-            )
-        return None
-    return matches[0]
 
 
 # -- record normalization --------------------------------------------------
@@ -673,7 +580,7 @@ def publish_targets(
     """Replace the per-target display metadata with a freshly rendered mapping.
 
     :func:`write_server_record` renders the ``targets`` block once from the deployment
-    config, which is the right answer only while the session's posture matches
+    config, which is the right answer only while the deployment's posture matches
     the config ceiling. A session that narrows itself to read-only afterwards is
     served by a gateway the start-time render never named, and every reader of
     this file renders verbatim by contract — so the writer, not the readers, is
@@ -908,7 +815,7 @@ def publish_reachability(rows: Any, *, server_pid: int | None = None) -> bool:
 def publish_posture_realign(state: dict[str, Any] | None, *, server_pid: int | None = None) -> bool:
     """Publish whether the active target's posture change has been realigned yet.
 
-    A posture narrowed on the target the session is ON only takes effect once
+    A posture narrowed on the target the deployment is ON only takes effect once
     the connector is rebuilt, and that rebuild waits for any execution in
     flight. ``pending`` is how the popover says so instead of showing a toggle
     that appears to have done nothing.
@@ -1039,16 +946,6 @@ def write_request(record: dict[str, Any]) -> Path:
     return path
 
 
-def read_request(requested_by_pid: int | None = None) -> dict[str, Any] | None:
-    """The switch request written by *requested_by_pid*, or ``None``. Never raises.
-
-    Freshness is NOT applied here: a consumer has to be able to tell "nobody
-    asked" from "somebody asked too long ago", because only the second one owes
-    the operator a ``request_expired`` answer. Ask :func:`is_request_fresh`.
-    """
-    return read_file(request_file_path(requested_by_pid))
-
-
 def remove_request(requested_by_pid: int | None = None) -> None:
     """Remove the switch request written by *requested_by_pid*.
 
@@ -1092,6 +989,75 @@ def is_request_fresh(
         created = created.replace(tzinfo=UTC)
     reference = datetime.now(UTC).timestamp() if now is None else float(now)
     return abs(reference - created.timestamp()) <= float(ttl_s)
+
+
+def triage_request(path: Path) -> tuple[dict[str, Any], int, str] | None:
+    """One request file as ``(body, requester pid, request id)``, or ``None``.
+
+    The ladder every consumer of this directory climbs before it judges a
+    request, in one place because there are two consumers — the web terminal's
+    owner task and the controls server's reconciler — and a rung either of them
+    spelled differently would be a request one of them answers and the other
+    silently drops.
+
+    A file nobody is left to read an answer for is REMOVED here and reported as
+    ``None``, so the caller goes on to the next one. Four ways that happens:
+    the file is unreadable or is not an object; it names no requester or no
+    request id; the process that asked has gone; or it was written more than
+    :data:`REQUEST_TTL_S` ago. None of them gets a terminus, because the
+    record's ``last_switch`` is how a requester learns what happened and a
+    block written for a requester that has gone would only overwrite the answer
+    to a gesture somebody IS watching.
+
+    Removal is the plain unlink rather than :func:`remove_request`: the file to
+    drop is the one that was globbed, which a body naming some other pid must
+    not redirect.
+
+    Returns:
+        ``(body, requested_by_pid, request_id)`` when the request is still worth
+        answering, else ``None`` once the file has been removed.
+    """
+    body = read_file(path)
+    if not isinstance(body, dict):
+        logger.warning("Unreadable switch request at %s; removing it", path)
+        _drop_request(path)
+        return None
+
+    pid = record_pid(body, "requested_by_pid")
+    request_id = str(body.get("request_id") or "")
+    if pid is None or not request_id:
+        logger.warning(
+            "Switch request at %s names no requester or no request id; removing it", path
+        )
+        _drop_request(path)
+        return None
+    if not is_process_alive(pid):
+        logger.info(
+            "Dropping switch request %r: the process that asked (pid %s) is gone",
+            request_id,
+            pid,
+        )
+        _drop_request(path)
+        return None
+    if not is_request_fresh(body):
+        logger.info(
+            "Dropping switch request %r from pid %s: written more than %ss ago",
+            request_id,
+            pid,
+            REQUEST_TTL_S,
+        )
+        _drop_request(path)
+        return None
+
+    return body, pid, request_id
+
+
+def _drop_request(path: Path) -> None:
+    """Remove one request file by path. A missing file is success, not an error."""
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:  # pragma: no cover - unwritable state dir
+        logger.warning("Could not remove switch request %s: %s", path, exc)
 
 
 def delete_on_shutdown(*, server_pid: int | None = None) -> None:

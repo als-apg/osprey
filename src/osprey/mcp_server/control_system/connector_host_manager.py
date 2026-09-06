@@ -66,7 +66,7 @@ loop uses, and it has three answers:
   generation *assigned* rather than incremented.
 
 A launch that fails and leaves this server unable to serve the record — the
-deployment's first child, or a swap toward a target this session is not on —
+deployment's first child, or a swap toward a target this deployment is not on —
 reports :data:`~osprey.mcp_server.control_system.target_state.SWITCH_FAILED` at
 the generation it was reaching for, and keeps that generation. That report is
 what refuses this server's writes and its session's launches until it lands
@@ -288,7 +288,7 @@ class NoConnectorHostError(ConnectionError):
         self.generation = generation
         self.detail = detail or (
             f"No connector-host child is serving target {target!r} (generation {generation}): "
-            "the process that held this session's control-system connection exited. "
+            "the process that held this deployment's control-system connection exited. "
             "Control-system operations refuse until one is running again."
         )
         super().__init__(self.detail)
@@ -506,11 +506,11 @@ def _display_writes(config: Any, target: str, effective_writes: Mapping[str, boo
     :func:`~osprey.mcp_server.control_system.target_eligibility.effective_writes_for_target`,
     which takes the ``control_system:`` section rather than the whole config.
 
-    Injection exists because the one caller that already knows the session's
-    posture computes it before it renders, and a second store read there could
-    answer a question the caller has already answered differently. A process
-    that carries no ``OSPREY_POSTURE_SESSION`` stamp has no narrowing to find,
-    so the fallback returns the deployment ceiling ANDed with this run's mode.
+    Injection exists because the one caller that already knows the deployment's
+    posture computes it before it renders, and a second record read there could
+    answer a question the caller has already answered differently. When the
+    record narrows nothing, the fallback returns the deployment ceiling ANDed
+    with this run's mode.
 
     Args:
         config: The full rendered config mapping.
@@ -562,7 +562,7 @@ def target_display_metadata(
     Args:
         config: The full rendered config mapping (``config.yml`` as loaded).
         effective_writes: Per-target effective write posture to render under.
-            A caller that has already resolved the session's posture passes it
+            A caller that has already resolved the deployment's posture passes it
             so the rendering and the enforcement cannot disagree; a target the
             mapping does not answer for falls back to this process's own
             posture.
@@ -1602,7 +1602,7 @@ class ConnectorHostManager:
                 exc,
             )
         # The identity readers render moved with the switch: a different target
-        # is active, served through a role this session's posture chose. It is
+        # is active, served through a role the deployment's posture chose. It is
         # republished here rather than left at what start-up rendered.
         self.publish_display()
         return published
@@ -1610,9 +1610,10 @@ class ConnectorHostManager:
     def _derive(self, target: str) -> TargetDerivation:
         """The destination's derivation, or a refusal naming what is missing.
 
-        The write posture handed in is this SESSION's, not the config's: the
-        child selects its gateway from the per-(session, target) posture store
-        as well as from config, so a parent deriving the configured posture
+        The write posture handed in is the RECORDED one, not the config's: the
+        child selects its gateway from the per-target narrowing in the
+        control-context record as well as from config, so a parent deriving the
+        configured posture
         would expect ``write_access`` from a child the operator has narrowed to
         ``read_only`` — and ``verify_child_report``, comparing the two, would
         abort the switch over a disagreement neither side got wrong.

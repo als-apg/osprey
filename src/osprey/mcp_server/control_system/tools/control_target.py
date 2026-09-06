@@ -175,7 +175,7 @@ REASON_STORE_UNAVAILABLE = "store_unavailable"
 #: way nobody anticipated is still an attempt that ended.
 REASON_INTERNAL_ERROR = "internal_error"
 
-#: Stands in for the session target when it cannot be read at all — the context
+#: Stands in for the control target when it cannot be read at all — the context
 #: is what holds it, so a context failure is exactly the case that has no answer.
 #: Spelled rather than omitted: the operator's line still has to say something.
 UNKNOWN_TARGET = "unknown"
@@ -210,7 +210,7 @@ def _server_context() -> Any:
 
 def _context_unavailable_message() -> str:
     return (
-        "The control-system server context is not initialized, so this session has no "
+        "The control-system server context is not initialized, so this deployment has no "
         "target of record to read or change."
     )
 
@@ -283,7 +283,7 @@ def _endpoint_rows(derivation: Any, probe_rows: dict[str, Any]) -> dict[str, dic
 def target_rows(
     config: Any,
     *,
-    session_target: str,
+    control_target: str,
     baseline: str,
     probe_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]]:
@@ -296,7 +296,7 @@ def target_rows(
 
     Args:
         config: The full rendered config mapping.
-        session_target: The target this session is on right now.
+        control_target: The target the deployment is on right now.
         baseline: The target this deployment's own config selects.
         probe_snapshot: :meth:`EndpointProber.snapshot`'s output, or ``None``
             when no prober is running — in which case rows carry the derived
@@ -321,7 +321,7 @@ def target_rows(
     # malformed one with the baseline alone.
     section = config.get("control_system") if isinstance(config, dict) else None
     for target in configured_targets(section):
-        # This session's real posture for the target, read ONCE and then used
+        # The deployment's real posture for the target, read ONCE and then used
         # for every answer this row carries. The eligibility verdict, the
         # gateway role and the `writes_permitted` flag are three views of the
         # same fact, and a row that read the store separately for each could
@@ -329,12 +329,12 @@ def target_rows(
         # had not.
         writes_permitted = _writes_permitted(config, target)
         availability = target_availability(
-            config, target, session_target, baseline, writes_enabled=writes_permitted
+            config, target, control_target, baseline, writes_enabled=writes_permitted
         )
         display = metadata.get(target, {})
         row: dict[str, Any] = {
             "target": target,
-            "active": target == session_target,
+            "active": target == control_target,
             "is_baseline": target == baseline,
             "label": display.get("label", ""),
             "real_machine": bool(display.get("real_machine", False)),
@@ -381,13 +381,13 @@ def target_rows(
 
 
 def _writes_permitted(config: Any, target: str) -> bool:
-    """Whether a write to *target* would be permitted on this session, now.
+    """Whether a write to *target* would be permitted on this deployment, now.
 
     Three things decide it: that target's own posture
     (``control_system.connector.<type>.writes_enabled``, falling back to
     ``control_system.writes_enabled`` where its type states none), this run's
-    own claim (``OSPREY_EXECUTION_MODE``), and the operator's narrowing for
-    this session from the header chip. All three are combined by
+    own claim (``OSPREY_EXECUTION_MODE``), and the operator's narrowing from
+    the header chip. All three are combined by
     :func:`~osprey.mcp_server.control_system.target_eligibility.effective_writes_for_target`,
     which is also the value the roster hands
     :func:`~osprey.mcp_server.control_system.target_eligibility.derive_endpoints`
@@ -400,7 +400,7 @@ def _writes_permitted(config: Any, target: str) -> bool:
 
 @mcp.tool()
 async def control_target() -> str:
-    """Report which control system this session is pointed at, and what else it could be.
+    """Report which control system this deployment is pointed at, and what else it could be.
 
     Read-only and side-effect-free: nothing is spawned, connected to or
     written. Ask this before proposing a switch — it says, per target, whether
@@ -455,7 +455,7 @@ async def control_target() -> str:
 
     rows = target_rows(
         context.config.raw,
-        session_target=status["target"],
+        control_target=status["target"],
         baseline=status["baseline_target"],
         probe_snapshot=snapshot,
     )
@@ -464,7 +464,8 @@ async def control_target() -> str:
         {
             "status": "success",
             "description": (
-                f"Session target is {status['target']!r} (generation {status['generation']}); "
+                f"The deployment is on the {status['target']!r} target "
+                f"(generation {status['generation']}); "
                 f"deployment baseline is {status['baseline_target']!r}."
             ),
             "summary": {
@@ -540,7 +541,7 @@ def _gate(
 
     The inputs are gathered here because the gate opens no file: the record's
     target rather than this manager's, because the answer is written into the
-    record and it is the record the deployment routes by; and this session's
+    record and it is the record the deployment routes by; and the deployment's
     effective write posture, so a target the operator narrowed is not refused
     for a gateway role the child would never have selected.
     """
@@ -681,7 +682,7 @@ async def _apply_here(
             requested_at=requested_at,
             status=control_context.SWITCH_APPLIED,
             reason=None,
-            detail=f"The control target is now {wanted!r} (generation {generation}).",
+            detail=control_context.applied_detail(wanted, generation),
             generation=generation,
         ),
         request_id,
@@ -897,7 +898,7 @@ async def _await_the_swap(
 ) -> str:
     """Wait for THIS server to reach the generation the record now names.
 
-    The record moving is the deployment's answer; it is not yet this session's
+    The record moving is the deployment's answer; it is not yet this server's
     connector. The reconcile loop picks the new generation up within a tick and
     publishes ``applying`` before its first await, and the swap that follows is
     bounded by the spawn, probe and drain timeouts this process holds — which

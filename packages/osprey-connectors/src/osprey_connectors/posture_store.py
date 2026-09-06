@@ -36,7 +36,7 @@ assertion, so nothing in this field can ever widen. Anything else — an unknown
 value, a non-string key, a per-target leaf nobody recognises — is dropped
 rather than honoured: what survives this filter decides whether a real machine
 is written to, so a hand-edited or future-version field must not reach the
-decision. :func:`parse_store` is that filter, applied to the record's field by
+decision. :func:`parse_posture_value` is that filter, applied to the record's field by
 :func:`~osprey_connectors.control_context.parse_posture` rather than restated
 there — two filters that disagree about which narrowings survive is a
 narrowing that silently does not apply.
@@ -90,7 +90,6 @@ module imports THIS one at module scope for the root and the grammar.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from pathlib import Path
@@ -104,7 +103,7 @@ from osprey_connectors.types import (
 )
 from osprey_connectors.workspace import resolve_shared_data_root
 
-logger = logging.getLogger("osprey_connectors.session_store")
+logger = logging.getLogger("osprey_connectors.posture_store")
 
 __all__ = [
     "AGENT_DATA_ROOT_ENV_VAR",
@@ -121,7 +120,7 @@ __all__ = [
     "launch_permits",
     "launch_posture_stamp",
     "parse_launch_posture",
-    "parse_store",
+    "parse_posture_value",
     "recorded_posture",
     "stamped_agent_data_root",
     "state_dir",
@@ -237,11 +236,20 @@ def state_dir() -> Path | None:
 # -- parsing ----------------------------------------------------------------
 
 
-def _target_map(value: Any) -> dict[str, str]:
-    """One posture entry as a ``{target: posture}`` map of narrowings only.
+def parse_posture_value(value: Any) -> dict[str, str]:
+    """One posture value as ``{target: "sandbox"}`` — narrowings only.
 
-    Rule 2 of the module contract. Returns an empty map for anything that
-    narrows nothing, which is what drops the entry.
+    Rule 2 of the module contract, in one place. The record carries exactly one
+    posture value and :func:`~osprey_connectors.control_context.parse_posture`
+    reaches this filter for it rather than restating the grammar: two filters
+    that disagree about which narrowings survive is a narrowing that silently
+    does not apply.
+
+    Never raises. Anything that narrows nothing — a bare ``"writes"``, an
+    unknown string, a non-string target key, a hand-edited or future-version
+    shape — returns an empty map, because the alternative (every write and
+    every toggle failing on a field nobody can repair from the browser) is
+    worse than losing narrowings an operator can set again.
     """
     if isinstance(value, str):
         if value == POSTURE_SANDBOX:
@@ -255,39 +263,6 @@ def _target_map(value: Any) -> dict[str, str]:
             if isinstance(target, str) and posture == POSTURE_SANDBOX
         }
     return {}
-
-
-def parse_store(raw: Any) -> dict[str, dict[str, str]]:
-    """Decode a mapping of posture entries into ``{key: {target: "sandbox"}}``.
-
-    Rule 2 of the module contract, over a mapping so that a caller holding one
-    entry and a caller holding several share this filter rather than each
-    writing half of it. The record holds exactly one entry, under the key
-    ``posture``, and :func:`~osprey_connectors.control_context.parse_posture`
-    reaches this filter through that shape.
-
-    Accepts the decoded JSON object or the raw text/bytes of one. Never raises:
-    a corrupt, truncated or hand-edited payload narrows nothing, because the
-    alternative — every write and every toggle failing on a file nobody can
-    repair from the browser — is worse than losing narrowings an operator can
-    set again.
-    """
-    if isinstance(raw, str | bytes | bytearray):
-        try:
-            raw = json.loads(raw)
-        except Exception:  # noqa: BLE001 — a corrupt payload must not wedge a write path
-            logger.warning("Posture entries are not valid JSON; ignoring")
-            return {}
-    if not isinstance(raw, dict):
-        return {}
-    parsed: dict[str, dict[str, str]] = {}
-    for key, value in raw.items():
-        if not isinstance(key, str):
-            continue
-        narrowed = _target_map(value)
-        if narrowed:
-            parsed[key] = narrowed
-    return parsed
 
 
 # -- reading ----------------------------------------------------------------

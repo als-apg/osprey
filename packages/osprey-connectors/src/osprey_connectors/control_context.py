@@ -15,7 +15,7 @@ them as the contract; a change here is a change there.
 
 **1. Where the file is.** :func:`record_path` — the record sits in the same
 directory as the posture store, and the root resolves by that store's rule 1
-(:func:`osprey_connectors.session_store.agent_data_root`) rather than by a
+(:func:`osprey_connectors.posture_store.agent_data_root`) rather than by a
 second derivation here: a record one process writes and another looks for
 somewhere else is worse than no record at all. An unresolvable root makes
 :func:`record_path` ``None``, which reads as "no record" and makes
@@ -105,7 +105,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from osprey_connectors import session_store
+from osprey_connectors import posture_store
 from osprey_connectors.types import CONTROL_TARGETS
 
 logger = logging.getLogger("osprey_connectors.control_context")
@@ -128,6 +128,7 @@ __all__ = [
     "ControlContext",
     "Owner",
     "ServerReport",
+    "applied_detail",
     "blocking_pids",
     "invalidate_cache",
     "is_process_alive",
@@ -135,7 +136,6 @@ __all__ = [
     "live_report_payloads",
     "live_reports",
     "owned_here",
-    "parse_owner",
     "parse_posture",
     "converged",
     "file_signature",
@@ -143,7 +143,6 @@ __all__ = [
     "parse_report",
     "read_record",
     "read_report",
-    "read_report_payload",
     "record_path",
     "record_path_under",
     "report_path",
@@ -153,6 +152,7 @@ __all__ = [
     "sweep_dead",
     "terminus",
     "write_json_atomic",
+    "unchanged_detail",
     "write_record",
     "write_terminus",
 ]
@@ -169,7 +169,7 @@ RECORD_FILENAME = "control_context.json"
 #: The directory the record shares with the posture store, the per-server
 #: reports and the request files. Taken from the store rather than re-spelled
 #: so one directory cannot be two directories.
-STATE_DIR_NAME = session_store.STATE_DIR_NAME
+STATE_DIR_NAME = posture_store.STATE_DIR_NAME
 
 #: The two kinds of process that can own the record. A web terminal outranks a
 #: controls server — it is the one an operator is looking at.
@@ -292,7 +292,7 @@ def state_dir() -> Path | None:
     Rule 1 of the module contract, delegated whole to the posture store so
     that the two files in this directory cannot resolve their root two ways.
     """
-    return session_store.state_dir()
+    return posture_store.state_dir()
 
 
 def record_path_under(root: Path) -> Path:
@@ -330,7 +330,7 @@ def _positive_int(value: Any) -> int | None:
     return int(value)
 
 
-def parse_owner(value: Any) -> Owner | None:
+def _parse_owner(value: Any) -> Owner | None:
     """One ``owner`` object as an :class:`Owner`, or ``None`` when ownerless.
 
     Rule 2 of the module contract for this field: an owner has to name a kind
@@ -350,12 +350,11 @@ def parse_owner(value: Any) -> Owner | None:
 def parse_posture(value: Any) -> dict[str, str]:
     """One ``posture`` value as ``{target: "sandbox"}`` — narrowings only.
 
-    The posture store's entry grammar (its rule 2), applied by the store's own
-    parser rather than restated here: this record now holds the entry that
-    file used to hold per session, and two filters that disagree about which
-    narrowings survive is a narrowing that silently does not apply.
+    The posture entry grammar (rule 2 of the store's contract), applied by that
+    module's own parser rather than restated here: two filters that disagree
+    about which narrowings survive is a narrowing that silently does not apply.
     """
-    return session_store.parse_store({"posture": value}).get("posture", {})
+    return posture_store.parse_posture_value(value)
 
 
 def parse_record(raw: Any) -> ControlContext | None:
@@ -389,7 +388,7 @@ def parse_record(raw: Any) -> ControlContext | None:
     return ControlContext(
         target=target,
         generation=generation,
-        owner=parse_owner(raw.get("owner")),
+        owner=_parse_owner(raw.get("owner")),
         posture=parse_posture(raw.get("posture")),
         last_switch=dict(last_switch) if isinstance(last_switch, dict) else None,
     )
@@ -625,6 +624,32 @@ def live_owner(record: ControlContext | None) -> Owner | None:
 
 
 # -- the terminus of a switch ----------------------------------------------
+
+
+def unchanged_detail(target: str, generation: int) -> str:
+    """The ``detail`` for a request that asked for the target of record.
+
+    One sentence with one spelling, because four surfaces write it into the same
+    field: the terminal owner's request half, the controls server's reconciler,
+    the HTTP switch route and the agent's own ``control_target_set``. A record
+    whose terminus read differently depending on which surface answered would be
+    two vocabularies in one place, and the chip resolves a pending switch
+    against what it finds there.
+
+    It is an APPLIED terminus and mints no generation: the deployment is where
+    the request asked for it to be, and a generation bumped for a switch that
+    did not happen would refuse every write bound to the old one, for nothing.
+    """
+    return f"The control target is already {target!r} (generation {generation})."
+
+
+def applied_detail(target: str, generation: int) -> str:
+    """The ``detail`` for a switch that happened. *generation* is the new one.
+
+    The companion to :func:`unchanged_detail`, written by the same four
+    surfaces and for the same reason.
+    """
+    return f"The control target is now {target!r} (generation {generation})."
 
 
 def terminus(
@@ -902,7 +927,7 @@ def _read_entry(path: Path) -> tuple[dict[str, Any], ServerReport | None] | None
     return (payload, parse_report(payload))
 
 
-def read_report_payload(path: Path) -> dict[str, Any] | None:
+def _read_report_payload(path: Path) -> dict[str, Any] | None:
     """One report file as the object it holds, ``None`` when it holds none.
 
     The file layer under :func:`read_report`: the payload verbatim, including
@@ -939,7 +964,7 @@ def live_report_payloads(
     """
     live: list[dict[str, Any]] = []
     for entry in entries:
-        payload = read_report_payload(entry)
+        payload = _read_report_payload(entry)
         if payload is None:
             continue
         pid = _positive_int(payload.get("server_pid"))

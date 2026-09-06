@@ -28,7 +28,7 @@ __all__ = [
 
 
 def describe_active_target() -> dict[str, str] | None:
-    """Identify the control-system target the session is pointed at, or ``None``.
+    """Identify the control-system target the deployment is on, or ``None``.
 
     A failure envelope that says "the write to ``SR:...:SP`` timed out" is a
     materially different situation on the live machine than on the simulator,

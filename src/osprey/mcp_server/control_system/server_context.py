@@ -16,7 +16,7 @@ Usage in tools:
 
 The connector-host supervisor is this module's public face on
 :mod:`osprey.mcp_server.control_system.connector_host_manager`, which owns the
-child process, the session target and the target switch. It lives in a sibling
+child process, the control target and the target switch. It lives in a sibling
 module because a process supervisor and a config cache have nothing to do with
 each other beyond the config, and the switch algorithm is long enough that
 folding it in here would bury both.
@@ -364,7 +364,7 @@ class ControlSystemContext:
         On a switch-capable deployment this is the **proxy onto the
         connector-host child**, which is what makes a target switch reach the
         tools at all: the child holds the Channel Access context for the
-        session's target, and a switch replaces the child. On every other
+        recorded control target, and a switch replaces the child. On every other
         deployment it is the in-process connector, cached exactly as before.
 
         The two are not related by inheritance — the proxy mirrors the
@@ -447,7 +447,7 @@ class ControlSystemContext:
         The second caller is the session-control reconciler
         (:mod:`osprey.mcp_server.control_system.session_control`), which rebuilds
         the connector when the operator narrows the posture of the target the
-        session is on: the child connected on a gateway role chosen under the
+        deployment is on: the child connected on a gateway role chosen under the
         old posture, and only a rebuild moves it. That caller deliberately takes
         no lock of its own — the one below is the lock, and a second one around
         the same operation is how two things that must agree stop agreeing.

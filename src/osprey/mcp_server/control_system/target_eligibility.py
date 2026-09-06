@@ -64,7 +64,7 @@ safe outcome, so coming home is never gated, and the baseline a deployment comes
 home to may be ``standin`` as readily as ``live``.
 :func:`target_availability` therefore reports two answers:
 
-* ``available_now`` — the predicate for the switch this session would make,
+* ``available_now`` — the predicate for the switch this deployment would make,
   including the return exemption when it applies;
 * ``eligible_from_baseline`` — the same predicate evaluated as if the session
   sat on the deployment baseline, which is the static, session-independent view
@@ -79,22 +79,22 @@ real-hostname-shaped example value, so no string comparison against any known
 default could distinguish an operator's answer from the shipped one; testing the
 value would invent a distinction the config cannot carry.
 
-The write posture a live session actually has
----------------------------------------------
+The write posture a deployment actually has
+-------------------------------------------
 Config is not the last word on whether writes are armed for a target. An
-operator narrows one target for one session from the header chip, and that
-narrowing lives in the per-(session, target) posture store
-(:mod:`osprey_connectors.session_store`), not in ``config.yml``. The connector
+operator narrows one target from the header chip, and that narrowing lives in
+the deployment's control-context record (read through
+:mod:`osprey_connectors.posture_store`), not in ``config.yml``. The connector
 child reads it on every write and on its own gateway selection, so a parent
 that derived the *configured* posture would derive ``write_access`` for a
 target the child has just connected to on ``read_only`` — and
 :func:`verify_child_report`, doing its job, would abort the switch on a
 disagreement that is nobody's misconfiguration.
 
-:func:`effective_writes_for_target` is therefore what every live-session caller
-in this stack passes as ``writes_enabled``: the deployment ceiling, this run's
+:func:`effective_writes_for_target` is therefore what every caller in this
+stack passes as ``writes_enabled``: the deployment ceiling, this run's
 mode and the operator's narrowing, combined once by
-:func:`~osprey_connectors.session_store.effective_writes` and never restated
+:func:`~osprey_connectors.posture_store.effective_writes` and never restated
 here. :func:`derive_endpoints` itself keeps its config-only default, because it
 is also asked hypothetical questions — what would this target select under
 *that* posture — and a pure derivation is what makes those answerable.
@@ -102,13 +102,13 @@ is also asked hypothetical questions — what would this target select under
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
 from osprey.audit.posture import posture_session
-from osprey_connectors import session_store
+from osprey_connectors import posture_store
 from osprey_connectors.control_system.base import is_readonly_run
 from osprey_connectors.control_system.va_connector import fill_gateway_ports
 from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_for_target
@@ -253,7 +253,7 @@ class Eligibility:
 
 @dataclass(frozen=True)
 class TargetAvailability:
-    """The roster's answer for one target, from where the session is standing."""
+    """The roster's answer for one target, from where the deployment is standing."""
 
     target: str
     eligible: bool
@@ -331,18 +331,16 @@ def _config_writes_enabled(config: Any, target: str) -> bool:
 
 
 def effective_writes_for_target(section: Any, target: str) -> bool:
-    """Whether writes are armed for *target* on THIS session, right now.
+    """Whether writes are armed for *target* on this deployment, right now.
 
     The deployment ceiling for the target, ANDed with this run's mode and with
     the operator's own narrowing from the header chip — the whole of rule 3 of
-    the posture-store contract, delegated to
-    :func:`~osprey_connectors.session_store.effective_writes` rather than
-    restated. What is added here is the session key: this process's
-    ``OSPREY_POSTURE_SESSION`` stamp is the store's index, and reading it in one
-    place is what stops the roster, the switch and the connector child from
-    each deciding for themselves whose narrowing they are answering.
+    the posture contract, delegated to
+    :func:`~osprey_connectors.posture_store.effective_writes` rather than
+    restated. Asking it in one place is what stops the roster, the switch and
+    the connector child from each deciding for themselves what is armed.
 
-    Every live-session caller of :func:`derive_endpoints` in this stack passes
+    Every caller of :func:`derive_endpoints` in this stack passes
     the result as ``writes_enabled``. That is not a convenience: the child
     selects its gateway from exactly this value (through the same store), so a
     parent deriving anything else would hand :func:`verify_child_report` a
@@ -353,18 +351,18 @@ def effective_writes_for_target(section: Any, target: str) -> bool:
         section: The ``control_system:`` config section — the same unit
             :func:`~osprey_connectors.types.target_writes_enabled` takes, so a
             caller that already resolved it does not re-resolve it here.
-        target: The session control target the writes would land on.
+        target: The control target the writes would land on.
 
     Returns:
         ``True`` only when the deployment arms this target, this is not a
-        read-only run, and the operator has not narrowed the target for this
-        session. The store can only narrow: nothing it holds widens *section*.
+        read-only run, and the operator has not narrowed the target. The
+        record can only narrow: nothing it holds widens *section*.
     """
-    return session_store.effective_writes(section, target)
+    return posture_store.effective_writes(section, target)
 
 
 def _resolved_writes(config: Any, target: str, writes_enabled: bool | None) -> bool:
-    """An explicit ``writes_enabled`` override, or this session's real posture.
+    """An explicit ``writes_enabled`` override, or the deployment's real posture.
 
     ``None`` means "the caller did not say", and for a question asked *about a
     live session* the truthful default is the session's own effective posture,
@@ -444,7 +442,7 @@ def derive_endpoints(
 
     Args:
         config: The full rendered config mapping (``config.yml`` as loaded).
-        target: The session target, ``'live'`` or ``'va'``.
+        target: The control target, ``'live'`` or ``'va'``.
         writes_enabled: Whether writes are armed for *target*. Defaults to
             this target's own posture —
             ``control_system.connector.<type>.writes_enabled`` where the
@@ -608,7 +606,7 @@ def _selected_role_missing(
 
 
 def narrowing_refusal(config: Any, target: str) -> Eligibility | None:
-    """What narrowing *target* to read-only would cost this session, if anything.
+    """What narrowing *target* to read-only would cost the deployment, if anything.
 
     A narrowing moves the selected gateway role, and a deployment whose block
     configures ``write_access`` alone has nothing to move *to*: the session
@@ -619,7 +617,7 @@ def narrowing_refusal(config: Any, target: str) -> Eligibility | None:
     narrowing owes the operator that sentence *before* they take it.
 
     Read-only and hypothetical: it asks what the target would derive under the
-    narrowed posture, whatever this session's posture actually is. It reads no
+    narrowed posture, whatever the deployment's posture actually is. It reads no
     store and changes nothing.
 
     Args:
@@ -695,7 +693,7 @@ def evaluate_eligibility(
 
     Args:
         config: The full rendered config mapping.
-        target: The session target being judged.
+        target: The control target being judged.
         direction: :data:`DIRECTION_AWAY` for a switch toward a target that is
             not the deployment baseline, :data:`DIRECTION_BACK` for a return to
             the baseline. Only the FR-8 gates (checks 7 and 8) read it, and the
@@ -708,7 +706,7 @@ def evaluate_eligibility(
             session asking actually has, operator narrowing included. This is
             the answer a live session gets, so it has to be the answer the
             child will select its gateway on. Pass the value to ask about a
-            posture other than this session's.
+            posture other than the deployment's.
         readonly_run: See :func:`derive_endpoints`. It moves the *selected role*,
             which is what check 3 is asked about; it never makes a target
             eligible or ineligible on its own. The effective *writes_enabled*
@@ -863,15 +861,15 @@ def evaluate_eligibility(
     )
 
 
-def switch_direction(target: str, session_target: str, baseline_target: str) -> str:
-    """Which way a switch to *target* runs, from where the session is standing.
+def switch_direction(target: str, control_target: str, baseline_target: str) -> str:
+    """Which way a switch to *target* runs, from where the deployment is standing.
 
     A switch is a *return* only when the target is this deployment's own baseline
     and the session is somewhere else. Everything else — including a target that
     happens to be the baseline while the session already sits on it — is a switch
     away, because there is no return in progress to exempt.
     """
-    if target == baseline_target and session_target != baseline_target:
+    if target == baseline_target and control_target != baseline_target:
         return DIRECTION_BACK
     return DIRECTION_AWAY
 
@@ -879,7 +877,7 @@ def switch_direction(target: str, session_target: str, baseline_target: str) -> 
 def target_availability(
     config: Any,
     target: str,
-    session_target: str,
+    control_target: str,
     baseline_target: str,
     *,
     writes_enabled: bool | None = None,
@@ -887,12 +885,12 @@ def target_availability(
 ) -> TargetAvailability:
     """The roster's session-relative answer for one target.
 
-    ``available_now`` answers the switch this session would make right now;
+    ``available_now`` answers the switch this deployment would make right now;
     ``eligible_from_baseline`` answers the same question as if the session sat on
     the deployment baseline, which is the static view (see the module docstring
     for why the two legitimately differ on a live-baseline deployment).
 
-    A target the session is already on reports ``available_now`` false with
+    A target the deployment is already on reports ``available_now`` false with
     :data:`REASON_ALREADY_ACTIVE`: switching to the active target is a no-op, and
     that is the truthful reason it is unavailable regardless of what the config
     says about it. The config verdict is still reported, unshadowed, in
@@ -902,7 +900,7 @@ def target_availability(
     Args:
         config: The full rendered config mapping.
         target: The prospective target being judged.
-        session_target: The target this session is on right now.
+        control_target: The target the deployment is on right now.
         baseline_target: The target the deployment's own config selects.
         writes_enabled: See :func:`evaluate_eligibility`. Resolved once here and
             handed to both verdicts below: the two differ only in direction, and
@@ -911,7 +909,7 @@ def target_availability(
         readonly_run: See :func:`derive_endpoints`.
     """
     resolved_writes = _resolved_writes(config, target, writes_enabled)
-    direction = switch_direction(target, session_target, baseline_target)
+    direction = switch_direction(target, control_target, baseline_target)
     verdict = evaluate_eligibility(
         config,
         target,
@@ -927,13 +925,13 @@ def target_availability(
         readonly_run=readonly_run,
     )
 
-    if target == session_target:
+    if target == control_target:
         return TargetAvailability(
             target=target,
             eligible=verdict.eligible,
             available_now=False,
             reason=REASON_ALREADY_ACTIVE,
-            detail=f"Target {target!r} is already the session's active target.",
+            detail=f"Target {target!r} is already the active control target.",
             eligible_from_baseline=from_baseline.eligible,
         )
 
@@ -1102,6 +1100,18 @@ SESSION_SHORT_KEY_LENGTH = 8
 #: omitted: the operator's line still has to say something.
 UNKNOWN_MARKER_TARGET = "unknown"
 
+#: Resolves a notebook kernel's id to the notebook it is running, or ``None``
+#: when it cannot be resolved. Only a caller that can reach the sidecar holds
+#: one: the naming asks its question through this seam so the refusal itself
+#: opens no socket. See
+#: :func:`~osprey.interfaces.web_terminal.jupyter_sidecar.kernel_notebook_path`.
+KernelNameResolver = Callable[[str], str | None]
+
+#: What the operator has to do about the busy client, per surface. A sandboxed
+#: run ends on its own; a cell holds the target until somebody interrupts it.
+_REMEDY_WAIT_OR_STOP = "Wait for it to finish, or stop it, then switch again."
+_REMEDY_INTERRUPT_KERNEL = "Interrupt that kernel to proceed."
+
 
 def session_short_key(session: str) -> str:
     """The part of a session key a refusal prints."""
@@ -1116,11 +1126,48 @@ def _marker_session(marker: Mapping[str, Any]) -> str | None:
     return value.strip() or None
 
 
-def busy_client(marker: Mapping[str, Any]) -> str:
+def _notebook_kernel_id(marker: Mapping[str, Any]) -> str | None:
+    """The kernel a marker belongs to, or ``None`` when it is not a kernel's.
+
+    A marker naming the notebook surface without a kernel id names nothing an
+    operator could act on, so it is not a kernel marker for naming purposes and
+    falls back to the session answers.
+    """
+    if marker.get("surface") != SURFACE_NOTEBOOK_KERNEL:
+        return None
+    value = marker.get("kernel_id")
+    if not isinstance(value, str):
+        return None
+    return value.strip() or None
+
+
+def _notebook_client(kernel_id: str, kernel_name: KernelNameResolver | None) -> str:
+    """How a refusal names a notebook kernel: its notebook, else its id.
+
+    The resolver reaches a running sidecar over the network, so it is asked
+    defensively. No resolver, no answer, and an answer that failed all leave
+    the operator with the kernel id, which JupyterLab shows beside the running
+    kernel — and the remedy is the same either way.
+    """
+    if kernel_name is not None:
+        try:
+            notebook = kernel_name(kernel_id)
+        except Exception:  # noqa: BLE001 — naming a client never fails a refusal
+            notebook = None
+        if isinstance(notebook, str) and notebook.strip():
+            return f"notebook {notebook.strip()}"
+    return f"notebook kernel {kernel_id[:SESSION_SHORT_KEY_LENGTH]}"
+
+
+def busy_client(marker: Mapping[str, Any], *, kernel_name: KernelNameResolver | None = None) -> str:
     """How a refusal names the client whose run is holding the target down.
 
-    Three answers, and the third is the interesting one:
+    Four answers, and the last is the interesting one:
 
+    * a notebook kernel, named by the notebook it is running when *kernel_name*
+      resolves one and by its kernel id when it does not. A kernel is named by
+      its surface before its session because ``kernel:<id>`` is a session key
+      no operator can find a window from;
     * this session, when the marker's session key equals this process's;
     * another session, named by its short key and the time its run started —
       enough for an operator to find the window and decide whether to wait;
@@ -1134,10 +1181,16 @@ def busy_client(marker: Mapping[str, Any]) -> str:
 
     Args:
         marker: One in-flight marker, as the writers spell it.
+        kernel_name: Resolves a kernel id to its notebook. Absent for a caller
+            with no sidecar to ask, which is every caller but the terminal.
 
     Returns:
         A noun phrase that fits after "belongs to".
     """
+    kernel_id = _notebook_kernel_id(marker)
+    if kernel_id is not None:
+        return _notebook_client(kernel_id, kernel_name)
+
     session = _marker_session(marker)
     if session is None:
         return "another client sharing this deployment"
@@ -1152,7 +1205,10 @@ def busy_client(marker: Mapping[str, Any]) -> str:
 
 
 def in_flight_detail(
-    marker: Mapping[str, Any], target: str
+    marker: Mapping[str, Any],
+    target: str,
+    *,
+    kernel_name: KernelNameResolver | None = None,
 ) -> tuple[str, list[str], dict[str, Any]]:
     """The refusal a running execution earns: message, suggestions, details.
 
@@ -1166,6 +1222,10 @@ def in_flight_detail(
         marker: The live marker that blocks the switch.
         target: The target being switched TO, which is not the one the marker's
             client is running on.
+        kernel_name: Resolves a notebook kernel's id to its notebook, for the
+            one caller that can reach the sidecar. Both callers render the same
+            sentence for the same marker; only the name of a kernel is sharper
+            where the lookup is available.
 
     Returns:
         ``(message, suggestions, details)``, ready for the caller's error
@@ -1173,13 +1233,18 @@ def in_flight_detail(
         renders the busy client itself does not have to re-read the file.
     """
     running_on = str(marker.get("target") or UNKNOWN_MARKER_TARGET)
-    whose = busy_client(marker)
+    whose = busy_client(marker, kernel_name=kernel_name)
+    remedy = (
+        _REMEDY_INTERRUPT_KERNEL
+        if _notebook_kernel_id(marker) is not None
+        else _REMEDY_WAIT_OR_STOP
+    )
     return (
         f"execution in flight on target {running_on!r}; wait or stop it.",
         [
             f"The running execution belongs to {whose} and was launched against target "
             f"{running_on!r}.",
-            "Wait for it to finish, or stop it, then switch again.",
+            remedy,
         ],
         {
             "target": target,
@@ -1224,6 +1289,16 @@ REASON_TARGET_UNREACHABLE = "target_unreachable"
 #: things from the operator — wait one sweep, or go and fix a gateway — and a
 #: single reason for both would tell them to do the wrong one half the time.
 REASON_REACHABILITY_UNKNOWN = "reachability_unknown"
+
+#: How every suggestion that sends the reader to the target roster opens. The
+#: three below are written for the AGENT, which has a roster tool to reach for.
+#: A surface that is itself the roster — the web terminal's popover — drops
+#: them from what it shows an operator, and it recognises them by this string,
+#: so the opening is spelled once here rather than re-typed at the reader. A
+#: second copy over there would go stale the first time one of these sentences
+#: is re-worded, and the refusal would quietly start carrying the sentence
+#: again.
+ROSTER_SUGGESTION_OPENING = "Ask for the target roster"
 
 # -- The reachability vocabulary a report publishes -------------------------
 #
@@ -1390,6 +1465,7 @@ def evaluate_switch(
     in_flight: Sequence[Any] = (),
     reports: Sequence[Any] = (),
     writes_enabled: bool | None = None,
+    kernel_name: KernelNameResolver | None = None,
 ) -> GateVerdict:
     """Whether this deployment may switch to *wanted* right now.
 
@@ -1404,7 +1480,7 @@ def evaluate_switch(
        is told which window to wait for rather than merely that somebody is
        busy. Markers are never filtered by session: a cell in another window
        holds the target down exactly as this session's own sandbox does.
-    3. **Eligibility**, session-relative, in :func:`target_availability`'s own
+    3. **Eligibility**, deployment-relative, in :func:`target_availability`'s own
        words — which is where ``already_active`` and the FR-8 posture gates
        arrive. It comes before reachability because a target this config could
        never reach is not a target whose probe row is interesting: "no probe
@@ -1433,11 +1509,15 @@ def evaluate_switch(
             not mappings are residue and are ignored.
         reports: The live controls servers' reports. Liveness is established by
             the caller; an empty sequence means no controls server is running.
-        writes_enabled: This session's effective write posture for *wanted*,
+        writes_enabled: The deployment's effective write posture for *wanted*,
             when the caller knows it. ``None`` falls back to the CONFIGURED
             posture rather than to the store: reading the store would be a file
             read, and this function performs none. A caller that holds the
             session's real posture — both of today's do — passes it.
+        kernel_name: Resolves a notebook kernel's id to its notebook, for the
+            busy-client refusal. The gate calls it and opens nothing itself:
+            the sidecar the answer comes from is the terminal's, and the tool
+            inside a controls server has none to ask.
 
     Returns:
         The verdict. ``allowed`` is the flag to branch on; ``reachability``
@@ -1469,7 +1549,7 @@ def evaluate_switch(
     for marker in in_flight:
         if not isinstance(marker, Mapping):
             continue
-        message, suggestions, details = in_flight_detail(marker, wanted)
+        message, suggestions, details = in_flight_detail(marker, wanted, kernel_name=kernel_name)
         return GateVerdict(
             allowed=False,
             reason=REASON_EXECUTION_IN_FLIGHT,
@@ -1498,7 +1578,7 @@ def evaluate_switch(
             reason=str(availability.reason or ""),
             detail=availability.detail,
             suggestions=[
-                "Ask for the target roster to see what each target would need to become usable."
+                f"{ROSTER_SUGGESTION_OPENING} to see what each target would need to become usable."
             ],
             details=availability.as_dict(),
         )
@@ -1517,7 +1597,7 @@ def evaluate_switch(
             ),
             suggestions=[
                 f"Bring {gateway} back up, or switch to a target that answers.",
-                "Ask for the target roster to see the reachability of every target.",
+                f"{ROSTER_SUGGESTION_OPENING} to see the reachability of every target.",
             ],
             details={
                 "target": wanted,
@@ -1543,7 +1623,7 @@ def evaluate_switch(
             ),
             suggestions=[
                 "Wait for the next reachability sweep, then switch again.",
-                "Ask for the target roster to see which targets have been probed.",
+                f"{ROSTER_SUGGESTION_OPENING} to see which targets have been probed.",
             ],
             details={
                 "target": wanted,

@@ -34,7 +34,7 @@ from osprey.mcp_server.sandbox_env import (
 )
 from osprey.stores.artifact_manifest import collect_artifacts
 from osprey.utils.config import EXECUTION_METHOD_SUBPROCESS
-from osprey_connectors import session_store
+from osprey_connectors import posture_store
 
 if TYPE_CHECKING:
     from osprey_connectors.control_context import ControlContext
@@ -104,13 +104,6 @@ PROFILE_SOURCE_ENTRIES: tuple[str, ...] = (
 #: ``tests/runtime/test_executor_target_stamp.py`` pins the spellings equal.
 ENV_CONTROL_TARGET = "OSPREY_CONTROL_TARGET"
 ENV_CONTROL_TARGET_GENERATION = "OSPREY_CONTROL_TARGET_GENERATION"
-#: The controls server a stamp used to be taken from. There is one control
-#: context per deployment now, so there is no per-server file to name and the
-#: sandbox pins against the record itself; this module never writes the name
-#: again. It stays here because it is still CLEARED — a sandbox that inherited
-#: the old stamp from an ancestor must not carry a stale identity — and because
-#: the notebook launcher still writes it until the kernel moves onto the record.
-ENV_CONTROL_TARGET_STATE_PID = "OSPREY_CONTROL_TARGET_STATE_PID"
 
 #: Every name the stamp occupies. Cleared together on every launch, stamped or
 #: not, so no inherited name survives into a sandbox that did not earn it.
@@ -119,17 +112,16 @@ ENV_CONTROL_TARGET_STATE_PID = "OSPREY_CONTROL_TARGET_STATE_PID"
 _STAMP_ENV_NAMES = (
     ENV_CONTROL_TARGET,
     ENV_CONTROL_TARGET_GENERATION,
-    ENV_CONTROL_TARGET_STATE_PID,
 )
 
 #: The per-target write posture the run was LAUNCHED under, stamped into the
 #: sandbox environment and recorded in the in-flight marker. The format and the
 #: reading side belong to
-#: :mod:`osprey_connectors.session_store`, which is where the sandbox's own
+#: :mod:`osprey_connectors.posture_store`, which is where the sandbox's own
 #: reference monitor asks the question; the name is imported from there rather
 #: than re-spelled, because unlike the three stamps above this one is read by a
 #: module this process can import.
-ENV_LAUNCH_POSTURE = session_store.LAUNCH_POSTURE_ENV_VAR
+ENV_LAUNCH_POSTURE = posture_store.LAUNCH_POSTURE_ENV_VAR
 
 #: The in-flight marker contract, spelled here and restated in
 #: :mod:`osprey.mcp_server.control_system.tools.control_target`, which reads
@@ -182,8 +174,8 @@ class ExecutionResult:
     execution_time_seconds: float | None = None
     error_message: str | None = None
     #: The control-system target this run was actually routed to — ``live``,
-    #: ``va``, or :data:`CONTROL_TARGET_BASELINE` when no session target was
-    #: resolvable and the sandbox fell back to the deployment config.
+    #: ``va``, or :data:`CONTROL_TARGET_BASELINE` when no recorded control target
+    #: was resolvable and the sandbox fell back to the deployment config.
     control_target: str = CONTROL_TARGET_BASELINE
     #: Why a failed run failed, when the sandbox itself is the reason:
     #: :data:`FAILURE_KIND_SETUP`, :data:`FAILURE_KIND_TIMEOUT` or
@@ -376,7 +368,7 @@ def _load_limits_validator(target: str | None):
     the config.
 
     Args:
-        target: The session's control target, as
+        target: The control target, as
             :func:`_apply_target_stamp` resolved it. A target that names no
             machine on this deployment gets the deployment-wide block, which is
             what the baseline is.
@@ -554,7 +546,7 @@ def _launch_posture(target: str | None) -> str:
 
     ``target`` is ``None`` for a run this executor could not place on a target,
     and the stamp then covers every target: the most restrictive answer, for the
-    same reason :func:`~osprey_connectors.session_store.store_permits` takes it
+    same reason :func:`~osprey_connectors.posture_store.store_permits` takes it
     when it is handed no target.
 
     Fails CLOSED. Every way of not being able to read the store lands on
@@ -563,7 +555,7 @@ def _launch_posture(target: str | None) -> str:
     contract makes.
     """
     try:
-        permitted = session_store.store_permits(target)
+        permitted = posture_store.store_permits(target)
     except Exception:  # noqa: BLE001 - an unreadable store must not grant writes
         logger.warning(
             "Could not resolve the session write posture for target %r; "
@@ -572,12 +564,12 @@ def _launch_posture(target: str | None) -> str:
             exc_info=True,
         )
         permitted = False
-    value = session_store.POSTURE_WRITES if permitted else session_store.POSTURE_SANDBOX
-    return session_store.launch_posture_stamp(target, value)
+    value = posture_store.POSTURE_WRITES if permitted else posture_store.POSTURE_SANDBOX
+    return posture_store.launch_posture_stamp(target, value)
 
 
 def _apply_target_stamp(sandbox_env: dict[str, str]) -> str:
-    """Stamp the session's control target into *sandbox_env*; return the target.
+    """Stamp the deployment's control target into *sandbox_env*; return the target.
 
     The stamp is what routes the sandbox: :func:`osprey.runtime._get_connector`
     builds ``control_system.connector.<resolved type>`` from it, and the
@@ -606,9 +598,9 @@ def _apply_target_stamp(sandbox_env: dict[str, str]) -> str:
             been spawned yet, so the caller answers with a failed
             :class:`ExecutionResult` rather than a half-configured sandbox.
     """
-    # Every stamp name goes first, including the retired state-pid one: what
-    # this process inherited is never what this run is entitled to, and the
-    # stamped path below re-adds exactly the names it means.
+    # Every stamp name goes first: what this process inherited is never what
+    # this run is entitled to, and the stamped path below re-adds exactly the
+    # names it means.
     for name in _STAMP_ENV_NAMES:
         sandbox_env.pop(name, None)
 
@@ -856,8 +848,8 @@ async def _execute_via_local(
 
     python_bin = str(resolve_agent_interpreter(project_root))
 
-    # A switch of the session target retires the connector host this run was
-    # stamped against, so the switch tool has to be able to see that a run is
+    # A switch of the recorded control target retires the connector host this run
+    # was stamped against, so the switch tool has to be able to see that a run is
     # under way. The marker exists for exactly as long as the sandbox process,
     # and carries the posture stamp the sandbox launched under so a reader can
     # say which way this run may still be moved.
@@ -955,7 +947,7 @@ async def execute_code(
 
     Reads ``config.yml`` for the execution timeout, creates an isolated
     execution folder, and runs the wrapped code in a subprocess. The limits
-    validator is loaded further in, where the session's control target is
+    validator is loaded further in, where the deployment's control target is
     resolved, so that one read answers both which machine the sandbox reaches
     and which posture it enforces. The subprocess backend is the only backend
     OSPREY ships.
