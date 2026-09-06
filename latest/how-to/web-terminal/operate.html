@@ -574,7 +574,7 @@ dockable tiles. See <a class="reference internal" href="panels.html"><span class
 terminal report a problem without leaving it. See
 <a class="reference internal" href="send-feedback.html"><span class="doc">Send and Retrieve Feedback</span></a>.</p></li>
 <li><p><strong>Header</strong> — the <a class="reference internal" href="#web-terminal-session-posture"><span class="std std-ref">control-target chip</span></a>
-(which machine this session writes to, and whether it may), the display menu
+(which machine this deployment writes to, and whether it may), the display menu
 (a small dot holding the light/dark, Expert/Simple, and theme controls — see
 <a class="reference internal" href="theming.html"><span class="doc">Theming</span></a>), a settings drawer, and an optional name badge to tell one
 deployment from another.</p></li>
@@ -651,7 +651,7 @@ it?</em> It reads like this:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span>● Rehearsal · writes on ▾
 </pre></div>
 </div>
-<p>The first part names the machine this session stands on, by what it <strong>is</strong>:</p>
+<p>The first part names the machine this deployment stands on, by what it <strong>is</strong>:</p>
 <ul class="simple">
 <li><p><strong>Real machine</strong> — the facility’s own. Writes move hardware.</p></li>
 <li><p><strong>Rehearsal</strong> — a copy of the real machine’s controls, same channel names,
@@ -665,11 +665,12 @@ Nothing moves.</p></li>
 ring</em> rather than <em>Real machine</em>); what the machine is stays behind the small
 ⓘ beside its name either way, and that tooltip also keeps the controls
 server’s own technical label.</p>
-<p>The second part is the write state <strong>on that machine</strong>, for <strong>your session</strong>:</p>
+<p>The second part is the write state <strong>on that machine</strong>, for the whole
+deployment:</p>
 <ul class="simple">
 <li><p><strong>writes on</strong> — the agent may write there, under whatever write gates the
 deployment configures.</p></li>
-<li><p><strong>writes off</strong> — <em>you</em> turned writes off for this session. Reads are
+<li><p><strong>writes off</strong> — somebody turned writes off on that machine. Reads are
 untouched: the agent keeps its full view of the control system and of the
 project, and can still run analysis, plots and read-only Python. One click
 turns writes back on.</p></li>
@@ -687,10 +688,10 @@ the actions. What writing to a machine means (<em>Writes move hardware</em>, or 
 of the <em>nothing moves</em> lines) sits with its endpoint and the server’s own
 label behind the small ⓘ beside each name, on hover or keyboard focus:</p>
 <ul class="simple">
-<li><p><strong>The writes switch</strong> — per machine, for your session. The switch position
-is the write state and clicking it is the gesture that changes it; where
-writes are locked the switch is disabled, with the reason on hover.</p></li>
-<li><p><strong>Switch to</strong> — moves this session onto that machine. Where a switch is
+<li><p><strong>The writes switch</strong> — per machine, for the whole deployment. The switch
+position is the write state and clicking it is the gesture that changes it;
+where writes are locked the switch is disabled, with the reason on hover.</p></li>
+<li><p><strong>Switch to</strong> — moves the deployment onto that machine. Where a switch is
 not available, the button’s place is taken by a short phrase for the reason
 — <code class="docutils literal notranslate"><span class="pre">not</span> <span class="pre">set</span> <span class="pre">up</span></code>, <code class="docutils literal notranslate"><span class="pre">needs</span> <span class="pre">gateway</span> <span class="pre">ack</span></code> — with the server’s full
 sentence on the tooltip. On a fresh deployment the real machine reading
@@ -702,27 +703,29 @@ its name. A machine that answers says nothing about it. Endpoints, gateway
 roles and the age of the last probe stay on the tooltips and in the
 confirmation dialogs, where the decision is actually made.</p>
 <p>The foot has <strong>Turn all writes off</strong>, which takes writes away from every
-machine it can in one click, and the popover’s scope, said once: <em>your
-session only</em>.</p>
+machine it can in one click.</p>
 </section>
 <section id="take-writes-away-or-give-them-back">
 <h3>Take writes away, or give them back<a class="headerlink" href="#take-writes-away-or-give-them-back" title="Link to this heading">#</a></h3>
 <p>The write state is <strong>per machine</strong>. Turn writes off on the real machine and
-the session keeps working on the simulator, which is the point: you put the
-machine you are worried about out of reach without giving up the one you are
-working on.</p>
+work on the simulator carries on, which is the point: you put the machine you
+are worried about out of reach without giving up the one you are working on.</p>
 <p>Taking writes away applies as you click — it needs no ceremony. Turning
 writes back on asks you to confirm first, and the confirmation names the
 machine and the endpoint the agent would then be able to write to. Tick
 <em>Don’t ask again for this machine</em> to skip the dialog from then on
 (Shift-click brings it back). The real machine always asks.</p>
 <p><strong>Nothing is restarted.</strong> Every gate reads the write state at the moment of
-the write, so the change lands on the conversation that is already running:
-the agent obeys it on its very next write, and the turn in flight is not
-interrupted. One lag is worth knowing about: turn writes off on the machine
-the session is <em>on</em> and the change reaches the agent when the connector is
-rebuilt, which waits for a running execution to finish — and the card says
-so rather than leaving a button that appears to have done nothing.</p>
+the write, so the change lands on every conversation that is already running:
+each agent obeys it on its very next write, and no turn in flight is
+interrupted. Taking writes away reaches a running notebook cell the same way,
+on its very next write; giving them back waits for the next cell, because a
+cell can never write more than it was allowed when it started
+(<a class="reference internal" href="notebooks.html"><span class="doc">Notebooks</span></a>). One lag is worth knowing about: turn writes off on the
+machine the deployment is <em>on</em> and the change reaches the agent when the
+connector is rebuilt, which waits for a running execution to finish — and
+the card says so rather than leaving a button that appears to have done
+nothing.</p>
 <p><strong>The chip only takes writes away.</strong> What you set here tightens what the
 deployment permits; it can never hand out writes the deployment did not arm.
 Where the state is locked the button stays on screen, disabled, and the
@@ -744,18 +747,21 @@ rebuild changes that, not a click.</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>the whole deployment is running read-only</em></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_EXECUTION_MODE=readonly</span></code> is set, which sits above any one
-session.</p></td>
+conversation.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>changes here would not reach the agent</em></p></td>
-<td><p>This page has no way to deliver a change to this session’s
-control-system server, so a state set here would be read by nobody.
-The roster still renders — it is worth reading — but the buttons
-govern nothing, and a banner across the top of the popover says so.</p></td>
+<tr class="row-even"><td><p><em>held by another terminal</em>, <em>held by the controls server</em></p></td>
+<td><p>Something else holds the deployment’s control context, and only the
+holder writes to it: another web terminal running against the same
+deployment data, or — for the moment before this terminal has claimed
+it — the agent’s own control-system server. The roster still renders,
+and it is worth reading, but the buttons here govern nothing. A banner
+across the top of the popover names the holder, with its port where
+there is one, so you know where to go instead.</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>changes cannot be recorded right now</em></p></td>
-<td><p>The folder where write states are recorded is missing or unreadable,
-so there is nowhere to keep a setting the agent would read back.
-Nothing was changed.</p></td>
+<td><p>The folder where the control context is recorded is missing or
+unreadable, so there is nowhere to keep a setting the agent would read
+back. Nothing was changed.</p></td>
 </tr>
 <tr class="row-even"><td><p><em>no read-only endpoint configured</em></p></td>
 <td><p>Read-only on this machine would route it through a gateway the
@@ -769,36 +775,46 @@ told before you act, not after.</p></td>
 while the agent is still running something. The run keeps the write state it
 started with, so wait for it to finish, or stop it, and try again.</p>
 </section>
-<section id="switch-this-session-to-another-machine">
-<h3>Switch this session to another machine<a class="headerlink" href="#switch-this-session-to-another-machine" title="Link to this heading">#</a></h3>
-<p><strong>Switch to</strong> on a row moves the session onto that machine, after a
+<section id="switch-the-deployment-to-another-machine">
+<h3>Switch the deployment to another machine<a class="headerlink" href="#switch-the-deployment-to-another-machine" title="Link to this heading">#</a></h3>
+<p><strong>Switch to</strong> on a row moves the whole deployment onto that machine, after a
 confirmation that says where every control read and write goes next and
-whether writes are on or off for you there — the write state is per
-machine, and it does not travel with you. This dialog too can be skipped
-with <em>Don’t ask again for this machine</em>. The browser does not perform the
-switch: it records the request, and the part of the deployment that owns the
-connection to the machines picks it up, re-checks at that moment that the
-move is allowed and the machine answers, and reports the outcome back. The
-row then reads <code class="docutils literal notranslate"><span class="pre">✓</span> <span class="pre">switched</span></code>, or <code class="docutils literal notranslate"><span class="pre">✗</span></code> with the phrase for the refusal —
-the same refusal, for the same reason, the agent is given. While a request is
-out the chip reads <code class="docutils literal notranslate"><span class="pre">switching…</span></code>, and one request is outstanding at a time.
-If nothing answers within 30 seconds the row reads <code class="docutils literal notranslate"><span class="pre">request_expired</span></code>:
-nothing that could carry out the switch was alive to pick it up. The outcome
-line leaves the row after about a minute — an outcome is news for as long as
-someone is watching for it.</p>
+whether writes are on or off there — the write state is per machine, and it
+does not travel with you. This dialog too can be skipped with <em>Don’t ask again
+for this machine</em>. The page that holds the control context runs the same
+checks the agent’s own switch runs — that the move is allowed, and that
+nothing is mid-flight on the machine you are leaving — and records the
+outcome; the deployment’s control-system servers then move themselves onto it
+and report when they have arrived. The row reads <code class="docutils literal notranslate"><span class="pre">switching…</span></code> until every
+one of them has, and then <code class="docutils literal notranslate"><span class="pre">✓</span> <span class="pre">switched</span></code>, or <code class="docutils literal notranslate"><span class="pre">✗</span></code> with the phrase for the
+refusal — the same refusal, for the same reason, the agent is given. A
+server that could not make the move says so by name, so you know which one to
+look at. If nothing answers within 30 seconds the row reads
+<code class="docutils literal notranslate"><span class="pre">request_expired</span></code>: nothing that could carry out the switch was alive to pick
+it up. The outcome line leaves the row after about a minute — an outcome is
+news for as long as someone is watching for it.</p>
+<p>Ask for a second switch while one is still landing and it is refused rather
+than queued, naming the servers still working. Wait for the chip to settle and
+ask again.</p>
 <p>What the switch itself is gated on — the approval prompt, the limits
 posture, the archive — is <a class="reference internal" href="../control-systems/switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a>.</p>
 </section>
-<section id="where-the-write-state-lives">
-<h3>Where the write state lives<a class="headerlink" href="#where-the-write-state-lives" title="Link to this heading">#</a></h3>
-<p>The write state belongs to <strong>one session</strong>, not to the deployment. Nothing is
-written to <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. Two people working in two sessions of the same
-deployment hold their own settings, and one of them turning writes off on a
-machine does not touch the other.</p>
-<p>Your settings are recorded in
-<code class="docutils literal notranslate"><span class="pre">var/agent_data/control_target/session-postures.json</span></code>, written as soon as
-you click and read back when the server starts, so restarting the container
-never quietly turns a session’s writes back on.</p>
+<section id="where-the-control-target-and-the-write-state-live">
+<h3>Where the control target and the write state live<a class="headerlink" href="#where-the-control-target-and-the-write-state-live" title="Link to this heading">#</a></h3>
+<p>Both belong to <strong>the deployment</strong>, not to any one session, and nothing is
+written to <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. Two people working on the same deployment see the
+same machine and the same write states: one of them turning writes off on a
+machine takes them away from everyone, and a switch made in one window applies
+in the other. That is the point — a write state you can only see from the
+page you happen to be on is not a safety control.</p>
+<p>Both are recorded together in
+<code class="docutils literal notranslate"><span class="pre">var/agent_data/control_target/control_context.json</span></code>, written as soon as you
+click and read back when a server starts, so restarting the container never
+quietly turns writes back on or moves the deployment off the machine somebody
+put it on. Coming back to the deployment baseline is a switch like any other.</p>
+<p>On a multi-user deployment every user has their own container and their own
+volumes (<a class="reference internal" href="multi-user/index.html"><span class="doc">Multi-User Support</span></a>), so “the deployment” here means the stack
+that user is working in.</p>
 </section>
 <section id="what-refuses-a-write-and-how-firmly">
 <h3>What refuses a write, and how firmly<a class="headerlink" href="#what-refuses-a-write-and-how-firmly" title="Link to this heading">#</a></h3>
@@ -841,18 +857,17 @@ refuse.</p></td>
 <p>Each layer says which gate refused, in its own words, so the message never
 sends you to the wrong control:</p>
 <ul class="simple">
-<li><p>The hook — <em>“WRITES OFF — this session refuses control-system writes
+<li><p>The hook — <em>“WRITES OFF — this deployment refuses control-system writes
 to the &lt;target&gt; target. Turn writes back on from the control-target chip in
 the header; config.yml is not the gate here.”</em></p></li>
 <li><p>The connector — <em>“Write to ‘&lt;channel&gt;’ blocked: writes are off for the
-‘&lt;target&gt;’ control target in this session — turned off from the
-control-target chip in the header, and in force for this session only. Turn
-writes back on for ‘&lt;target&gt;’ from the chip if the write is intended;
-config.yml is not the gate here.”</em></p></li>
-<li><p>The executor — <em>“Writes are off for the ‘&lt;target&gt;’ control target in this
-session — turned off from the control-target chip in the header, and in
-force for this session only.”</em> — offering a re-run as <code class="docutils literal notranslate"><span class="pre">readonly</span></code>, and
-saying to turn writes back on from the chip if the write is intended.</p></li>
+‘&lt;target&gt;’ control target — turned off from the control-target chip in the
+header; applies deployment-wide. Turn writes back on for ‘&lt;target&gt;’ from the
+chip if the write is intended; config.yml is not the gate here.”</em></p></li>
+<li><p>The executor — <em>“Writes are off for the ‘&lt;target&gt;’ control target —
+turned off from the control-target chip in the header; applies
+deployment-wide.”</em> — offering a re-run as <code class="docutils literal notranslate"><span class="pre">readonly</span></code>, and saying to turn
+writes back on from the chip if the write is intended.</p></li>
 </ul>
 <p>Those three are what writes you turned off from the chip sound like, and the
 chip is where you turn them back on. A <strong>deployment-wide read-only run</strong> is a
@@ -877,36 +892,19 @@ not armed says so in its own words, names the key that would arm it, and
 says nothing about the chip.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p><strong>The other two surfaces.</strong> Simple mode’s chat and the operator websocket run
-their agent through the Agent SDK rather than a terminal. Both read the same
-record at write time, so a write state you set reaches them exactly as it reaches
-a terminal session. Where they differ is in what the chip can do for them.</p>
-<p>A <strong>chat session’s write controls work</strong> — its writes meet the same ceiling
-and the same locks a terminal’s do — but <strong>Switch to</strong> comes and goes with
-the view. While the Expert view holds the session there is a terminal with a
-machine connection to move, and a row you can switch to offers the button;
-while Simple holds it there is no such connection, so the button’s place on
-every row is empty. Switch back to Expert and it is there again.</p>
-<p>The write state itself does not come and go. Both views are one session
-(<a class="reference internal" href="#web-terminal-one-session"><span class="std std-ref">One session, both views</span></a>), so a state you set in either is the state
-the other finds, and it follows the conversation across the switch.</p>
-<p>An <strong>operator websocket session’s write controls govern nothing</strong>: the chip
-has no way to hand a write state to that kind of session, so what you set
-here never reaches it.</p>
+<p><strong>The other surfaces.</strong> Simple mode’s chat and the operator websocket run
+their agent through the Agent SDK rather than a terminal, and notebook
+kernels run no agent at all. All of them read the deployment’s control
+context at write time, so a write state you set and a switch you make reach
+every one of them — and the full chip works in both views, because what it
+changes is the deployment’s own record rather than anything belonging to the
+window you are looking at.</p>
+<p>A notebook kernel is the one surface where <em>when</em> is worth knowing. It takes
+a narrowing at once — turning writes off refuses the running cell’s next
+write — and takes a widening, or a switch, on the next cell you run. See
+<a class="reference internal" href="notebooks.html"><span class="doc">Notebooks</span></a>.</p>
 </div>
-<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
-<summary class="sd-summary-title sd-card-header">
-<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-gear" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0a8.2 8.2 0 0 1 .701.031C9.444.095 9.99.645 10.16 1.29l.288 1.107c.018.066.079.158.212.224.231.114.454.243.668.386.123.082.233.09.299.071l1.103-.303c.644-.176 1.392.021 1.82.63.27.385.506.792.704 1.218.315.675.111 1.422-.364 1.891l-.814.806c-.049.048-.098.147-.088.294.016.257.016.515 0 .772-.01.147.038.246.088.294l.814.806c.475.469.679 1.216.364 1.891a7.977 7.977 0 0 1-.704 1.217c-.428.61-1.176.807-1.82.63l-1.102-.302c-.067-.019-.177-.011-.3.071a5.909 5.909 0 0 1-.668.386c-.133.066-.194.158-.211.224l-.29 1.106c-.168.646-.715 1.196-1.458 1.26a8.006 8.006 0 0 1-1.402 0c-.743-.064-1.289-.614-1.458-1.26l-.289-1.106c-.018-.066-.079-.158-.212-.224a5.738 5.738 0 0 1-.668-.386c-.123-.082-.233-.09-.299-.071l-1.103.303c-.644.176-1.392-.021-1.82-.63a8.12 8.12 0 0 1-.704-1.218c-.315-.675-.111-1.422.363-1.891l.815-.806c.05-.048.098-.147.088-.294a6.214 6.214 0 0 1 0-.772c.01-.147-.038-.246-.088-.294l-.815-.806C.635 6.045.431 5.298.746 4.623a7.92 7.92 0 0 1 .704-1.217c.428-.61 1.176-.807 1.82-.63l1.102.302c.067.019.177.011.3-.071.214-.143.437-.272.668-.386.133-.066.194-.158.211-.224l.29-1.106C6.009.645 6.556.095 7.299.03 7.53.01 7.764 0 8 0Zm-.571 1.525c-.036.003-.108.036-.137.146l-.289 1.105c-.147.561-.549.967-.998 1.189-.173.086-.34.183-.5.29-.417.278-.97.423-1.529.27l-1.103-.303c-.109-.03-.175.016-.195.045-.22.312-.412.644-.573.99-.014.031-.021.11.059.19l.815.806c.411.406.562.957.53 1.456a4.709 4.709 0 0 0 0 .582c.032.499-.119 1.05-.53 1.456l-.815.806c-.081.08-.073.159-.059.19.162.346.353.677.573.989.02.03.085.076.195.046l1.102-.303c.56-.153 1.113-.008 1.53.27.161.107.328.204.501.29.447.222.85.629.997 1.189l.289 1.105c.029.109.101.143.137.146a6.6 6.6 0 0 0 1.142 0c.036-.003.108-.036.137-.146l.289-1.105c.147-.561.549-.967.998-1.189.173-.086.34-.183.5-.29.417-.278.97-.423 1.529-.27l1.103.303c.109.029.175-.016.195-.045.22-.313.411-.644.573-.99.014-.031.021-.11-.059-.19l-.815-.806c-.411-.406-.562-.957-.53-1.456a4.709 4.709 0 0 0 0-.582c-.032-.499.119-1.05.53-1.456l.815-.806c.081-.08.073-.159.059-.19a6.464 6.464 0 0 0-.573-.989c-.02-.03-.085-.076-.195-.046l-1.102.303c-.56.153-1.113.008-1.53-.27a4.44 4.44 0 0 0-.501-.29c-.447-.222-.85-.629-.997-1.189l-.289-1.105c-.029-.11-.101-.143-.137-.146a6.6 6.6 0 0 0-1.142 0ZM11 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM9.5 8a1.5 1.5 0 1 0-3.001.001A1.5 1.5 0 0 0 9.5 8Z"></path></svg></span><span class="sd-summary-text">Why the websocket session is out of the chip’s reach</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
-<p class="sd-card-text">The websocket session’s identifier is created when the connection is
-accepted and identifies nothing once the connection ends, so no write state
-can be recorded against it and there is nothing to restore across a restart.
-That stays true until an operator client exists to define its reconnect
-protocol. Every audit record such a session emits is labelled
-<code class="docutils literal notranslate"><span class="pre">posture_source=spawn</span></code> — the trail’s way of saying the write state was
-fixed when the session started rather than read from a live setting; see the
-record fields in <a class="reference internal" href="../../reference/contracts/audit-trail.html#audit-trail-record"><span class="std std-ref">the audit trail contract</span></a>.</p>
-</div>
-</details></section>
+</section>
 </section>
 <section id="the-header-and-status-bar">
 <span id="web-terminal-bars"></span><h2>The header and status bar<a class="headerlink" href="#the-header-and-status-bar" title="Link to this heading">#</a></h2>
@@ -1090,8 +1088,8 @@ verbs that read the results back.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-control-target-chip">The control-target chip</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-machine-you-are-on-and-the-others">The machine you are on, and the others</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#take-writes-away-or-give-them-back">Take writes away, or give them back</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#switch-this-session-to-another-machine">Switch this session to another machine</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-write-state-lives">Where the write state lives</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#switch-the-deployment-to-another-machine">Switch the deployment to another machine</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-control-target-and-the-write-state-live">Where the control target and the write state live</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-refuses-a-write-and-how-firmly">What refuses a write, and how firmly</a></li>
 </ul>
 </li>

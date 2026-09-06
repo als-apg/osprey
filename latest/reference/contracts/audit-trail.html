@@ -472,7 +472,7 @@ JSON-lines file per surface inside it. This page is the shape of that trail —
 which file a decision lands in, what each field holds, who can read the files,
 and what the trail does not promise. For the policy that produces most of the
 refusals see <a class="reference internal" href="../configuration/config.html#config-protected-set"><span class="std std-ref">the protected set</span></a>; for the
-per-session, per-target posture that refuses control-system writes see
+per-target write posture that refuses control-system writes see
 <a class="reference internal" href="../../how-to/web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">The control-target chip</span></a>.</p>
 <p>The zone is durable by construction: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> re-renders <code class="docutils literal notranslate"><span class="pre">build/</span></code>
 wholesale and never touches <code class="docutils literal notranslate"><span class="pre">var/</span></code>, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span></code> keeps <code class="docutils literal notranslate"><span class="pre">var/audit</span></code>
@@ -532,6 +532,16 @@ named for the server: <code class="docutils literal notranslate"><span class="pr
 <td><p>Requests that changed something through a web API, and the 401s and 403s
 the login check itself refused</p></td>
 </tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">jupyter_lab.jsonl</span></code></p></td>
+<td><p>Control-target and write-posture gestures made from the bar on the
+JupyterLab page, which names no session — the control context belongs
+to the deployment, so the line joins on the deployment and the moment
+rather than on an actor</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">notebook_kernel.jsonl</span></code></p></td>
+<td><p>Control-system writes a notebook cell was refused — a write posture, a
+limit, a target that moved while the cell ran</p></td>
+</tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">auth_sidecar.jsonl</span></code> (under <code class="docutils literal notranslate"><span class="pre">var/audit/sidecar/</span></code>)</p></td>
 <td><p>Logins and login refusals, where a deployment has a login wall</p></td>
 </tr>
@@ -575,18 +585,22 @@ and a refused control-system write alike. One JSON object per line:</p>
 <td><p>Who was acting, from the terminal login where there is one</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">posture</span></code></p></td>
-<td><p>The session’s posture at the time, <code class="docutils literal notranslate"><span class="pre">sandbox</span></code> or <code class="docutils literal notranslate"><span class="pre">writes</span></code>. The
+<td><p>The write posture in force at the time, <code class="docutils literal notranslate"><span class="pre">sandbox</span></code> or <code class="docutils literal notranslate"><span class="pre">writes</span></code>. The
 protected set is closed in both; this says what else was in force</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">posture_source</span></code></p></td>
-<td><p>How that posture was established — <code class="docutils literal notranslate"><span class="pre">spawn</span></code> (fixed when the session
-started), <code class="docutils literal notranslate"><span class="pre">live</span></code> (read from the session’s setting at the time),
-<code class="docutils literal notranslate"><span class="pre">app</span></code> (a web request, which belongs to no session), <code class="docutils literal notranslate"><span class="pre">process</span></code> (no
-session posture at all, as in a CLI run). Never guessed from the
-posture value</p></td>
+<td><p>Which surface stamped the record — <code class="docutils literal notranslate"><span class="pre">spawn</span></code> (the operator websocket,
+whose id is minted per connection), <code class="docutils literal notranslate"><span class="pre">live</span></code> (a session the posture
+surface can address: a terminal’s PTY pool key, or a chat id in the
+bare-UUID grammar), <code class="docutils literal notranslate"><span class="pre">app</span></code> (a web request, which belongs to no
+session), <code class="docutils literal notranslate"><span class="pre">process</span></code> (no marker at all, as in a CLI run). Never guessed
+from the posture value</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">session</span></code></p></td>
-<td><p>The terminal session the posture belonged to, or <code class="docutils literal notranslate"><span class="pre">null</span></code> outside one</p></td>
+<td><p>The session the record is filed under — a terminal or chat session,
+<code class="docutils literal notranslate"><span class="pre">kernel:&lt;id&gt;</span></code> for a notebook kernel, or <code class="docutils literal notranslate"><span class="pre">null</span></code> where the emitter
+names none. An identifier the trail joins on, and nothing more: the
+write posture it describes belongs to the deployment</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">subject</span></code></p></td>
 <td><p>What the decision was about: a dotted config key, a tool name, or the
@@ -598,7 +612,7 @@ project-relative path when a whole file is the target</p></td>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">reason</span></code></p></td>
 <td><p>Short machine-readable reason — <code class="docutils literal notranslate"><span class="pre">protected_key</span></code>, <code class="docutils literal notranslate"><span class="pre">reserved</span> <span class="pre">path</span></code>,
 <code class="docutils literal notranslate"><span class="pre">reserved</span> <span class="pre">path</span> <span class="pre">in</span> <span class="pre">ownership</span> <span class="pre">store</span></code>; a control-system write the
-session posture refused reads <code class="docutils literal notranslate"><span class="pre">posture</span></code> on every surface (the hook,
+write posture refused reads <code class="docutils literal notranslate"><span class="pre">posture</span></code> on every surface (the hook,
 the MCP server and the Python executor all spell it the same way). The
 login service has a vocabulary of its own — see
 <a class="reference internal" href="#audit-trail-login-refusals"><span class="std std-ref">Why a login was refused</span></a></p></td>

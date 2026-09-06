@@ -518,8 +518,8 @@
                   
   <section id="switch-the-control-target-at-run-time">
 <span id="how-to-switch-control-target"></span><h1>Switch the Control Target at Run Time<a class="headerlink" href="#switch-the-control-target-at-run-time" title="Link to this heading">#</a></h1>
-<p>How to move a running session between the machines a deployment describes —
-rehearse a piece of work on the <strong>virtual accelerator</strong>, run it on the <strong>live
+<p>How to move a running deployment between the machines it describes — rehearse
+a piece of work on the <strong>virtual accelerator</strong>, run it on the <strong>live
 machine</strong>, or rehearse the whole go-live procedure on a <strong>stand-in</strong> — without
 rebuilding the project or restarting anything.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
@@ -533,7 +533,7 @@ rebuilding the project or restarting anything.</p>
 and cannot prove</p></li>
 <li><p class="sd-card-text">What the switch refuses, and what each refusal is asking you to do</p></li>
 <li><p class="sd-card-text">How you can tell, at every step, which machine a call is about</p></li>
-<li><p class="sd-card-text">What happens to Bluesky plans while a session is switched</p></li>
+<li><p class="sd-card-text">What happens to Bluesky plans while the deployment is switched</p></li>
 </ul>
 <p class="sd-card-text"><strong>Prerequisites:</strong> a deployment that describes more than one machine (see
 <a class="reference internal" href="#what-a-deployment-needs-first">What a deployment needs first</a>), and <a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a> for the
@@ -544,7 +544,7 @@ simulator itself.</p>
 <p>The point of the switch is a rehearsal. You have a script, a set of writes or a
 plan you would rather not try for the first time on the real machine, so you run
 it against the simulator, look at what it did, and then run it for real —
-in one session, with the same tools, the same limits and the same approval
+in one sitting, with the same tools, the same limits and the same approval
 prompts on both.</p>
 <section id="three-machines">
 <h3>Three machines<a class="headerlink" href="#three-machines" title="Link to this heading">#</a></h3>
@@ -583,22 +583,27 @@ operated like the real one, which is what makes it worth rehearsing on.</p></td>
 </div>
 <p>Two tools move between them:</p>
 <dl class="simple">
-<dt><code class="docutils literal notranslate"><span class="pre">control_target</span></code></dt><dd><p>Reports where the session is pointed and where else it could go — one row
+<dt><code class="docutils literal notranslate"><span class="pre">control_target</span></code></dt><dd><p>Reports where the deployment is pointed and where else it could go — one row
 per target this deployment configures. Read-only: it opens no connections
 and changes nothing, so it is safe to ask at any moment, including before
 anything has ever been switched.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">control_target_set(target)</span></code></dt><dd><p>Moves the session. <code class="docutils literal notranslate"><span class="pre">target</span></code> is <code class="docutils literal notranslate"><span class="pre">va</span></code>, <code class="docutils literal notranslate"><span class="pre">live</span></code> or <code class="docutils literal notranslate"><span class="pre">standin</span></code>, spelled
+<dt><code class="docutils literal notranslate"><span class="pre">control_target_set(target)</span></code></dt><dd><p>Moves the deployment. <code class="docutils literal notranslate"><span class="pre">target</span></code> is <code class="docutils literal notranslate"><span class="pre">va</span></code>, <code class="docutils literal notranslate"><span class="pre">live</span></code> or <code class="docutils literal notranslate"><span class="pre">standin</span></code>, spelled
 exactly. Where the deployment gates it on approval — the shipped presets
 do — the prompt names the machine you would be moving to.</p>
 </dd>
 </dl>
 <p>Ask the OSPREY agent for these in plain language — <em>“what am I pointed at?”</em>,
-<em>“switch to the virtual accelerator”</em>. A session on the simulator looks like a
-session on the machine: reads, writes and the python executor all follow the
-switch.</p>
-<p>In the Web Terminal you can also move the session yourself, without asking the
-agent: the <a class="reference internal" href="../web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">control-target chip</span></a> in the
+<em>“switch to the virtual accelerator”</em>. Working on the simulator looks like
+working on the machine: reads, writes, the python executor and notebook cells
+all follow the switch.</p>
+<p>There is <strong>one control target per deployment</strong>, not one per conversation. A
+switch made anywhere moves everything: every chat and terminal window, every
+notebook kernel on its next cell, and the agent’s own tools. That is the
+point — a machine one window can write to while another shows something else
+is not a safety control.</p>
+<p>In the Web Terminal you can also move the deployment yourself, without asking
+the agent: the <a class="reference internal" href="../web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">control-target chip</span></a> in the
 header opens a popover with a <strong>Switch to</strong> button per machine. The switch it
 asks for is the same one — the same gate, the same checks, the same refusal
 reasons — and a target the gate would refuse shows why where the button
@@ -611,20 +616,20 @@ config, not of the switch, and it is set up in
 <a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>. Ask <code class="docutils literal notranslate"><span class="pre">control_target</span></code> if you want to know
 before you move: every row carries its own <code class="docutils literal notranslate"><span class="pre">writes_permitted</span></code>.</p>
 <p>The archive does not follow the switch — archive reads keep the deployment’s one
-configured archiver, and are stamped with the session target and the archiver
+configured archiver, and are stamped with the control target and the archiver
 that served them, so which machine a set of history is about is never
 ambiguous.</p>
 </section>
 <section id="rehearse-on-the-virtual-accelerator">
 <h3>Rehearse on the virtual accelerator<a class="headerlink" href="#rehearse-on-the-virtual-accelerator" title="Link to this heading">#</a></h3>
 <p>Start by asking where you are, then move to the simulator:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>&gt; what control target is this session on?
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>&gt; what control target are we on?
 &gt; switch to the virtual accelerator
 </pre></div>
 </div>
 <p>The switch starts the new connection <strong>before</strong> it retires the old one, and
 proves it by reading one channel — the target’s <code class="docutils literal notranslate"><span class="pre">probe_channel</span></code> — through the
-new connection. Only when that read answers does the session move. A switch
+new connection. Only when that read answers does the deployment move. A switch
 that cannot prove the destination leaves you exactly where you were, still
 working, with the reason reported.</p>
 <p>Now do the work: run the script, make the writes, look at the results. Nothing
@@ -633,11 +638,11 @@ about the tools changes; only the machine behind them does.</p>
 <section id="go-live">
 <h3>Go live<a class="headerlink" href="#go-live" title="Link to this heading">#</a></h3>
 <p>A deployment baselined on the stand-in
-(<code class="docutils literal notranslate"><span class="pre">control_system.type:</span> <span class="pre">live_standin</span></code>) starts every session on <code class="docutils literal notranslate"><span class="pre">standin</span></code>, so
+(<code class="docutils literal notranslate"><span class="pre">control_system.type:</span> <span class="pre">live_standin</span></code>) starts on <code class="docutils literal notranslate"><span class="pre">standin</span></code>, so
 going to the real machine is one tool call — the same call, and the same
 prompts, as on a deployment that never had a stand-in at all.</p>
 <p>Read the roster before you ask for it, so you know what will happen:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>&gt; what control target is this session on, and where else could it go?
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>&gt; what control target are we on, and where else could we go?
 </pre></div>
 </div>
 <p>Each row carries <code class="docutils literal notranslate"><span class="pre">available_now</span></code> and, when that is <code class="docutils literal notranslate"><span class="pre">false</span></code>, the <code class="docutils literal notranslate"><span class="pre">reason</span></code>
@@ -659,7 +664,7 @@ addresses instead, which pass this gate and fail the probe. Either way, the
 edit is the same: put your facility’s gateway addresses in the block.</p>
 <p><strong>A probe channel</strong> (<code class="docutils literal notranslate"><span class="pre">probe_channel_missing</span></code>).
 <code class="docutils literal notranslate"><span class="pre">control_system.connector.epics.probe_channel</span></code> names the channel the switch
-reads to prove the machine answered before the session moves onto it. It ships
+reads to prove the machine answered before the deployment moves onto it. It ships
 commented out — a facility’s channel names cannot be guessed, and a placeholder
 would make the live target look ready while naming a channel nothing answers.
 Set it to a channel your facility actually serves.</p>
@@ -690,19 +695,24 @@ stand-in’s past in one store, with nothing afterwards able to tell them apart.
 Clear it by stopping one of the two — take <code class="docutils literal notranslate"><span class="pre">archiver_recorder</span></code> out of the
 deployment’s services, or drop <code class="docutils literal notranslate"><span class="pre">virtual_accelerator.live_standin</span></code> from the
 build profile — and rebuild. The archive belongs to the machine it records.</p>
-<p>There is one exemption. A session can always come <strong>home</strong> to the deployment’s
-own baseline — whichever of the three that is — with neither the limits posture,
+<p>There is one exemption. A deployment can always come <strong>home</strong> to its own
+baseline — whichever of the three that is — with neither the limits posture,
 the acknowledgment, nor the archive gate applied. The probe still runs: a target
 that cannot prove itself reachable is never switched to, in either direction.
-Stranding a session away from the machine its deployment was built for is the
-less safe outcome of the two.</p>
+Stranding a deployment away from the machine it was built for is the less safe
+outcome of the two.</p>
 </section>
 <section id="coming-home">
 <h3>Coming home<a class="headerlink" href="#coming-home" title="Link to this heading">#</a></h3>
-<p>Nothing needs to be undone. The session target is not saved anywhere that
-outlives the session: every time the controls server starts it returns to the
-deployment baseline and clears what the previous session left behind. Closing
-the session is enough.</p>
+<p>Ask for the baseline and the switch runs like any other, under the exemption
+above.</p>
+<p>Nothing else brings a deployment home. The control target and the write posture
+belong to the deployment and are recorded on its durable volume, so they
+outlive the conversation that set them, a controls server restarting, and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">up</span></code>: a fresh server adopts the recorded target rather
+than resetting it. A deployment somebody left on the real machine yesterday is
+still on the real machine today, which is why the chip is worth reading before
+you start work.</p>
 </section>
 <section id="from-the-web-terminal">
 <h3>From the Web Terminal<a class="headerlink" href="#from-the-web-terminal" title="Link to this heading">#</a></h3>
@@ -727,32 +737,38 @@ a row.</p>
 <strong>Switch to</strong> away. Captured with OSPREY v2026.6.2.post2090+g23b198224.d20260831.</p>
 <p>Each machine carries:</p>
 <ul class="simple">
-<li><p><strong>A writes switch</strong> — the write state on that machine, for your session, and
-the control that changes it, in one widget. Turning writes off applies as
-you click; turning them on asks first. Where the deployment locks writes the
-switch is disabled, with the reason on hover.</p></li>
+<li><p><strong>A writes switch</strong> — the write state on that machine, for the whole
+deployment, and the control that changes it, in one widget. Turning writes
+off applies as you click; turning them on asks first. Where the deployment
+locks writes the switch is disabled, with the reason on hover.</p></li>
 <li><p><strong>A small ⓘ</strong> after the name — what writing to this machine means (<em>Writes
 move hardware</em>, or one of the <em>nothing moves</em> lines), the endpoint, and the
 controls server’s own technical label, shown on hover or keyboard focus.</p></li>
 <li><p><strong>Switch to</strong> — a confirmation names where every control read and write goes
-next and the write state the session arrives in; the row reads
-<code class="docutils literal notranslate"><span class="pre">switching…</span></code> while the request is out, and the outcome lands on the row:
+next and the write state the deployment arrives in; the row reads
+<code class="docutils literal notranslate"><span class="pre">switching…</span></code> until every one of the deployment’s control-system servers has
+moved onto the new machine, and the outcome then lands on the row:
 <code class="docutils literal notranslate"><span class="pre">✓</span> <span class="pre">switched</span></code>, or <code class="docutils literal notranslate"><span class="pre">✗</span></code> with an operator phrase for the same refusal code
-the agent is given, the gate’s own sentence on its tooltip. The line leaves
-the row after a minute — an outcome is news for about as long as someone is
-watching for it.</p></li>
+the agent is given, the gate’s own sentence on its tooltip. A server that
+could not make the move is named, so you know which one to look at. The line
+leaves the row after a minute — an outcome is news for about as long as
+someone is watching for it.</p></li>
 </ul>
 <p>The foot’s <strong>Turn all writes off</strong> takes writes away from every machine it can
 in one click, and reports any machine it could not narrow rather than
-dropping it. Everything in the popover is per session and per machine;
-<a class="reference internal" href="../web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a> walks the whole surface, including the write
-states themselves.</p>
+dropping it. Everything in the popover is per machine and applies to the whole
+deployment; <a class="reference internal" href="../web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a> walks the whole surface, including
+the write states themselves.</p>
+<p>One process holds the deployment’s control context at a time, and only that
+one writes to it. A second web terminal running against the same deployment
+data still renders the roster — worth reading — but its buttons are disabled,
+with a banner naming the holder and the port it is on.</p>
 </section>
 </section>
 <section id="what-a-deployment-needs-first">
 <h2>What a deployment needs first<a class="headerlink" href="#what-a-deployment-needs-first" title="Link to this heading">#</a></h2>
-<p>A session can only be moved to a target this config describes. Each target reads
-its settings from a connector block of its own, and a target with no block is
+<p>A deployment can only be moved to a target its config describes. Each target
+reads its settings from a connector block of its own, and a target with no block is
 not offered at all — it has no roster row, rather than a row saying a machine
 nobody deployed is unavailable.</p>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -825,16 +841,18 @@ reachability check runs.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>Changing the target is <strong>not</strong> a config change and not a rebuild.
-<code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> only sets the target a session <em>starts</em> on. The
+<code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> only sets the deployment’s baseline — the target it
+starts on before anything has ever switched it, and the one it comes home
+to. The
 agent’s own setup guidance carries the same rule in its hot/cold settings
 table: target changes go through <code class="docutils literal notranslate"><span class="pre">control_target_set</span></code>, and nobody should be
-sent to <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> to change which machine a session is talking to.</p>
+sent to <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> to change which machine a deployment is talking to.</p>
 </div>
 </section>
 <section id="reading-the-roster">
 <h2>Reading the roster<a class="headerlink" href="#reading-the-roster" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">control_target</span></code> answers with one row per target. The row says what the target
-<em>is</em>, whether the session may move there <strong>right now</strong>, and — where something
+<em>is</em>, whether the deployment may move there <strong>right now</strong>, and — where something
 has actually measured it — whether its gateway answered.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
@@ -848,15 +866,15 @@ has actually measured it — whether its gateway answered.</p>
 </thead>
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">available_now</span></code> and <code class="docutils literal notranslate"><span class="pre">reason</span></code></p></td>
-<td><p>Whether this session may switch there at this moment, and if not, why
+<td><p>Whether the deployment may switch there at this moment, and if not, why
 not. The reason is the same word the switch itself would refuse with, so
 the two can never tell you different stories.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">eligible_from_baseline</span></code></p></td>
-<td><p>The same question asked as if the session sat on the deployment baseline
-— the static view, unaffected by where you happen to be. On a
-live-baseline deployment with no acknowledgment set, whose session is
-currently on the simulator, this reads <code class="docutils literal notranslate"><span class="pre">false</span></code> for <code class="docutils literal notranslate"><span class="pre">live</span></code> while
+<td><p>The same question asked as if the deployment sat on its own baseline
+— the static view, unaffected by where it happens to be. On a
+live-baseline deployment with no acknowledgment set, currently
+on the simulator, this reads <code class="docutils literal notranslate"><span class="pre">false</span></code> for <code class="docutils literal notranslate"><span class="pre">live</span></code> while
 <code class="docutils literal notranslate"><span class="pre">available_now</span></code> reads <code class="docutils literal notranslate"><span class="pre">true</span></code>; that is the coming-home exemption made
 visible, not a contradiction.</p></td>
 </tr>
@@ -916,8 +934,8 @@ where the background check has nothing to say.</p>
 <section id="what-the-switch-refuses-and-why">
 <h2>What the switch refuses, and why<a class="headerlink" href="#what-the-switch-refuses-and-why" title="Link to this heading">#</a></h2>
 <p>Every refusal names one thing you can act on, and refusals are reported in a
-fixed order from “this session may never switch” to “this destination is not
-usable right now”.</p>
+fixed order from “this deployment may never switch” to “this destination is
+not usable right now”.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 34.0%" />
@@ -930,48 +948,59 @@ usable right now”.</p>
 </thead>
 <tbody>
 <tr class="row-even"><td><p><strong>This run is read-only</strong></p></td>
-<td><p>The session was started in read-only mode, which is a claim about the
-whole run. A switch changes session state, so read-only sessions stay on
-the deployment baseline. Re-run without read-only mode.</p></td>
+<td><p>The deployment was started in read-only mode, which is a claim about the
+whole run. A switch changes control-system state, so a read-only
+deployment stays on its baseline. Re-run without read-only mode.</p></td>
 </tr>
 <tr class="row-odd"><td><p><strong>An execution is in flight</strong></p></td>
-<td><p>A python execution is running, and it was launched against the target it
-started on. Wait for it to finish or stop it, then switch. The refusal
-names which target the running work is on, and whether it belongs to this
-session or another one sharing the deployment.</p></td>
+<td><p>A python execution or a notebook cell is running, and it was launched
+against the target it started on. Wait for it to finish or stop it, then
+switch. The refusal names which target the running work is on and who is
+holding it — this session, another session, or a notebook kernel with
+<em>interrupt that kernel</em> as the remedy — so you know what to stop rather
+than what to wait for. Asked from the chip, a notebook kernel is named
+by the notebook it is running; asked through the agent’s own tool it is
+named by its kernel id, which JupyterLab shows beside the running
+kernel.</p></td>
 </tr>
-<tr class="row-even"><td><p><strong>Already there</strong></p></td>
-<td><p>The session is on that target already. The active target always answers
-this, whatever else would also be true of it.</p></td>
+<tr class="row-even"><td><p><strong>A switch is already in progress</strong></p></td>
+<td><p>An earlier switch has not yet reached every control-system server. The
+refusal names the servers still working. Wait for the chip to settle and
+ask again; the request is refused rather than queued, so nothing lands
+later without you.</p></td>
 </tr>
-<tr class="row-odd"><td><p><strong>The target is not configured</strong></p></td>
+<tr class="row-odd"><td><p><strong>Already there</strong></p></td>
+<td><p>The deployment is on that target already. The active target always
+answers this, whatever else would also be true of it.</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>The target is not configured</strong></p></td>
 <td><p>No connector block for that target, no gateways table, or no entry for
 the gateway role this deployment would select. This is a build or config
-gap, not something the session can resolve.</p></td>
+gap, not something a switch can resolve.</p></td>
 </tr>
-<tr class="row-even"><td><p><strong>No probe channel</strong></p></td>
+<tr class="row-odd"><td><p><strong>No probe channel</strong></p></td>
 <td><p>The target names no <code class="docutils literal notranslate"><span class="pre">probe_channel</span></code>, so nothing could prove it
 reachable. For the live machine this is the shipped state — see
 <a class="reference internal" href="#what-a-deployment-needs-first">What a deployment needs first</a>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><strong>The stand-in is not this deployment’s</strong></p></td>
+<tr class="row-even"><td><p><strong>The stand-in is not this deployment’s</strong></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">standin</span></code> is refused unless the endpoint its block selects really is
 the stand-in this deployment co-deploys, on that port over loopback.
 Anything else — a tunnel, a gateway someone repointed — is a machine in
 its own right, and it must not sit behind a soft label. Use <code class="docutils literal notranslate"><span class="pre">live</span></code> for
 the machine your facility runs.</p></td>
 </tr>
-<tr class="row-even"><td><p><strong>A simulated present with an invented past</strong></p></td>
+<tr class="row-odd"><td><p><strong>A simulated present with an invented past</strong></p></td>
 <td><p>Switching to a machine this deployment stands up for itself — the virtual
 accelerator or the stand-in — is refused while the deployment’s archiver
 is the mock one, which makes history up at read time. The pairing would
 put a made-up past next to a modelled present with nothing linking them.
 See “The honesty rule” in <a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><strong>The strict limits posture is not in place</strong></p></td>
+<tr class="row-even"><td><p><strong>The strict limits posture is not in place</strong></p></td>
 <td><p>Required toward <code class="docutils literal notranslate"><span class="pre">live</span></code> and toward <code class="docutils literal notranslate"><span class="pre">standin</span></code> alike. See <a class="reference internal" href="#go-live">Go live</a>.</p></td>
 </tr>
-<tr class="row-even"><td><p><strong>The live machine’s gates</strong></p></td>
+<tr class="row-odd"><td><p><strong>The live machine’s gates</strong></p></td>
 <td><p>The operator acknowledgment, or the archive that belongs to the stand-in.
 Both are the live machine’s alone. See <a class="reference internal" href="#go-live">Go live</a>.</p></td>
 </tr>
@@ -988,14 +1017,16 @@ even a round trip back to the same target retires older approvals — and
 refuses if either moved before it executed. Nothing is written; ask for the
 write again on the target you actually mean.</p></li>
 <li><p><strong>A python execution that outlived the switch.</strong> A running script keeps the
-target it was launched with, and its writes refuse once the session moves past
-that point rather than being redirected.</p></li>
+target it was launched with, and its writes refuse once the deployment moves
+past that point rather than being redirected. A notebook cell refuses the
+same way and says to re-run the cell, because a kernel re-reads the target
+before every cell (<a class="reference internal" href="../web-terminal/notebooks.html"><span class="doc">Notebooks</span></a>).</p></li>
 </ul>
 <p>Finally, two surfaces stay deliberately pinned to the deployment baseline while
-a session is switched, and say so rather than following along: driving a Phoebus
+the deployment is switched, and say so rather than following along: driving a Phoebus
 widget is refused, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> keeps reporting against the baseline
 with an added line naming the targets. Both talk to the deployment’s own
-configured stack, which the session’s choice does not move.</p>
+configured stack, which a switch does not move.</p>
 </section>
 <section id="failures-name-the-machine-they-happened-on">
 <h2>Failures name the machine they happened on<a class="headerlink" href="#failures-name-the-machine-they-happened-on" title="Link to this heading">#</a></h2>
@@ -1003,12 +1034,12 @@ configured stack, which the session’s choice does not move.</p>
 is a materially different situation on the live machine than on the simulator. So
 every control-system failure envelope — a connect failure, a timeout, a limits
 refusal, a write the control system itself denied — names the target the
-session was pointed at when it failed: a human clause in the message
+deployment was pointed at when it failed: a human clause in the message
 (<code class="docutils literal notranslate"><span class="pre">active</span> <span class="pre">target:</span> <span class="pre">LIVE</span> <span class="pre">MACHINE</span> <span class="pre">at</span> <span class="pre">10.0.0.5:5064</span></code>) and a machine-readable
 <code class="docutils literal notranslate"><span class="pre">details.active_target</span></code> block carrying the target name, its label, and the
 endpoint where the configuration knows one. The agent narrating a failure, and
 any script asserting on one, can attribute it to the right machine from the
-payload alone instead of reconstructing the answer from session memory.</p>
+payload alone instead of reconstructing the answer from memory.</p>
 </section>
 <section id="knowing-which-machine-you-are-on">
 <h2>Knowing which machine you are on<a class="headerlink" href="#knowing-which-machine-you-are-on" title="Link to this heading">#</a></h2>
@@ -1017,27 +1048,30 @@ payload alone instead of reconstructing the answer from session memory.</p>
 <li><p><strong>Every approval prompt names the target</strong>, not only the write prompts — a
 queue start, a patch or an execution all carry the line too, so its absence is
 never something you learn to read as safe. The live machine is named as
-<code class="docutils literal notranslate"><span class="pre">LIVE</span> <span class="pre">MACHINE</span></code> with the gateway the session actually holds; the stand-in as
+<code class="docutils literal notranslate"><span class="pre">LIVE</span> <span class="pre">MACHINE</span></code> with the gateway the deployment actually holds; the stand-in as
 <code class="docutils literal notranslate"><span class="pre">LIVE</span> <span class="pre">MACHINE</span> <span class="pre">(stand-in)</span></code>; the simulator as
 <code class="docutils literal notranslate"><span class="pre">virtual</span> <span class="pre">accelerator</span> <span class="pre">(simulation)</span></code>. If the target cannot be read at all, the
 line says so explicitly instead of disappearing. (The web terminal names the
 same machines by what they are — <em>Real machine</em>, <em>Rehearsal</em>, <em>Simulator</em>,
 or the deployment’s own configured names — and keeps these technical labels
 on its tooltips.)</p></li>
-<li><p><strong>Results and artifacts are stamped.</strong> Archive reads carry the session’s
+<li><p><strong>Results and artifacts are stamped.</strong> Archive reads carry the control
 target and the archiver that served them, so a saved plot still says what it
 is about a week later.</p></li>
-<li><p><strong>The session’s target is visible in the Web Terminal</strong> activity stream as
+<li><p><strong>The target is visible in the Web Terminal</strong> activity stream as
 work happens, and on the <a class="reference internal" href="../web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">control-target chip</span></a> in the header, which names the machine the
-session stands on and the write state on <em>that</em> machine —
+deployment stands on and the write state on <em>that</em> machine —
 <code class="docutils literal notranslate"><span class="pre">●</span> <span class="pre">Simulator</span> <span class="pre">·</span> <span class="pre">writes</span> <span class="pre">on</span></code>, <code class="docutils literal notranslate"><span class="pre">●</span> <span class="pre">Real</span> <span class="pre">machine</span> <span class="pre">·</span> <span class="pre">writes</span> <span class="pre">locked</span></code>. The write
 state is per machine, so a deployment can arm its simulator and leave the
-live machine read-only; the chip is where that shows. It catches up with a
-switch a few seconds after one is made, whoever made it, and falls back to
-the deployment’s default target when none can be resolved for the session.</p></li>
-<li><p><strong>Nothing survives the session.</strong> Every controls-server start returns to the
-deployment baseline. There is no saved preference that could quietly point a
-later session at the real machine.</p></li>
+live machine read-only; the chip is where that shows. The terminal tells the
+chip when the record moves, so it repaints as soon as a switch lands, whoever
+made it and in whichever window; it falls back to the deployment’s default
+target when none can be resolved.</p></li>
+<li><p><strong>The choice outlives the conversation, so read it before you work.</strong> The
+target is recorded on the deployment’s durable volume and a restart adopts it
+rather than resetting it, which means a deployment can be sitting on the real
+machine when you open it. The chip is where you check, and coming home is a
+switch like any other.</p></li>
 </ul>
 </section>
 <section id="bluesky-plans-while-switched">
@@ -1045,9 +1079,9 @@ later session at the real machine.</p></li>
 <p>A Bluesky <strong>plan lane</strong> is a whole plan stack — bridge, queue manager, worker —
 wired at build time to one target. Every deployment renders one.</p>
 <p>On a single-lane deployment, which is every deployment by default, queueing or
-starting a plan is <strong>refused</strong> while the session is pointed somewhere the lane
-does not serve. The refusal says which target the lane serves, and that adding a
-second lane is a deployment change rather than something to retry.</p>
+starting a plan is <strong>refused</strong> while the deployment is pointed somewhere the
+lane does not serve. The refusal says which target the lane serves, and that
+adding a second lane is a deployment change rather than something to retry.</p>
 <p>Setting <code class="docutils literal notranslate"><span class="pre">bluesky.second_lane:</span> <span class="pre">true</span></code> in the build profile renders a second
 complete lane. Which machine each lane serves is <strong>derived</strong>, never authored:
 the first lane serves the deployment’s baseline, and the second covers the other
@@ -1058,15 +1092,15 @@ dials the facility’s own gateway through <code class="docutils literal notrans
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses to start rather than let that lane come up searching for
 channels at nowhere.</p>
 <p>The switch then stops being a refusal and becomes an address: a plan is routed
-to the lane serving the session’s target, <code class="docutils literal notranslate"><span class="pre">queue_add</span></code> reports the lane it
+to the lane serving the deployment’s target, <code class="docutils literal notranslate"><span class="pre">queue_add</span></code> reports the lane it
 bound the plan to, and <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> must name that lane — so a plan composed
-for the simulator cannot be started on the machine because the session moved in
-between. Switching a session moves which lane it addresses; it does not restart
-any lane’s containers. See <a class="reference internal" href="../bluesky/index.html"><span class="doc">Bluesky Plans</span></a> for the plan stack itself.</p>
+for the simulator cannot be started on the machine because the deployment moved
+in between. Switching moves which lane is addressed; it does not restart any
+lane’s containers. See <a class="reference internal" href="../bluesky/index.html"><span class="doc">Bluesky Plans</span></a> for the plan stack itself.</p>
 <p>The <strong>BLUESKY panel</strong> follows the same two-lane deployment with a picker of its
-own. A panel is shared by every session, so it cannot follow any one session’s
-target; instead it shows which machine it is pointed at in its status strip,
-labelled by target, and switching lanes there reloads the panel onto the other
+own. It does not follow the control target: which lane the panel shows is its
+own choice, made in the panel. It shows which machine it is pointed at in its
+status strip, labelled by target, and switching lanes there reloads the panel onto the other
 lane’s bridge: its plans, shared draft, queue and results all move together, and
 starting the queue uses that lane’s own launch token. A single-lane deployment
 shows no picker and nothing about its panel changes.</p>
@@ -1103,19 +1137,19 @@ not have. Writing the relaxation under <code class="docutils literal notranslate
 deployment-wide is what keeps the rehearsal honest — a per-type block replaces
 the pair above for that type alone, and must state both settings or <code class="docutils literal notranslate"><span class="pre">osprey</span>
 <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> refuse it.</p>
-<p><strong>Three rows on the roster.</strong> Ask where the session could go and you get one row
-per configured machine:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>&gt; what control target is this session on, and where else could it go?
+<p><strong>Three rows on the roster.</strong> Ask where the deployment could go and you get one
+row per configured machine:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>&gt; what control target are we on, and where else could we go?
 &gt; switch to the stand-in
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">standin</span></code> moves the session the same way every other switch
-does — the probe, the approval prompt, the write posture that follows the
+<p><code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">standin</span></code> moves the deployment the same way every other
+switch does — the probe, the approval prompt, the write posture that follows the
 target. From there, <code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">live</span></code> walks the real go-live path
 (<a class="reference internal" href="#go-live">Go live</a>) against a machine that cannot move a magnet.</p>
 <p><strong>Start there rather than switch there.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span> <span class="pre">connector=live_standin</span></code>
 writes <code class="docutils literal notranslate"><span class="pre">control_system.type:</span> <span class="pre">live_standin</span></code> into the profile, and from the next
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> every session <em>starts</em> on the stand-in — the posture for a
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> the deployment <em>starts</em> on the stand-in — the posture for a
 deployment that is not yet wired to its facility, or whose machine is down.</p>
 <p>Flipping it back is three settings, not one, because the archive goes with the
 machine. The <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block records <em>this</em> deployment’s history from

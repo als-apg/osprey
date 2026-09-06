@@ -640,11 +640,11 @@ affect a running process. The enforced kill-switch lives at the harness layer
 (a renderer <code class="docutils literal notranslate"><span class="pre">permissions.deny</span></code> on the write tool, then regenerate and
 relaunch); in-flight control of an active plan is the RunEngine’s own
 <code class="docutils literal notranslate"><span class="pre">abort</span></code> / <code class="docutils literal notranslate"><span class="pre">pause</span></code>. One live control does exist alongside it, and it only
-ever narrows: an operator can take one control target away from one session from
-<a class="reference internal" href="../../how-to/web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">the control-target chip</span></a>, and the
-connector re-reads that on every put.</p>
-<p>That rendered deny list is written once, before any session has chosen a
-target, so it exists only where <strong>no</strong> target may write. A deployment armed on
+ever narrows: an operator can take one control target away from the whole
+deployment from <a class="reference internal" href="../../how-to/web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">the control-target chip</span></a>,
+and the connector re-reads that on every put.</p>
+<p>That rendered deny list is written once, before any target has been chosen,
+so it exists only where <strong>no</strong> target may write. A deployment armed on
 one target and not another renders no deny at all, and the refusal arrives per
 call instead, from the safety hook and from the connector, naming the target
 that refused it. Tools a project lists under <code class="docutils literal notranslate"><span class="pre">control_system.write_tools</span></code>
@@ -700,7 +700,7 @@ checking, and nothing on that path refuses an unlisted channel.</p></li>
 <code class="docutils literal notranslate"><span class="pre">limits_posture</span></code> refusal — names the key that answered, the per-type one where
 a block spoke and the deployment-wide one where none did, so an operator edits
 the line that decides rather than one it overrides. The <code class="docutils literal notranslate"><span class="pre">channel_limits</span></code> tool
-reports the same pair for the target the session is on, including <code class="docutils literal notranslate"><span class="pre">null</span></code> where
+reports the same pair for the target the deployment is on, including <code class="docutils literal notranslate"><span class="pre">null</span></code> where
 nothing states an answer, alongside <code class="docutils literal notranslate"><span class="pre">allow_unlisted_key</span></code> naming the key it
 read.</p>
 <div class="admonition seealso">

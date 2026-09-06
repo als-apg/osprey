@@ -17,7 +17,7 @@ How it is put together is :doc:`/architecture/virtual-accelerator`.
    - What ``control_system.type`` selects, and which machine each value names
    - Which channels the simulator serves, and what the build will not invent
    - Pointing a project at the Virtual Accelerator the stack already deploys
-   - Moving a running session between the machines a deployment describes
+   - Moving a running deployment between the machines it describes
    - Switching back to the mock, and why plans go browse-only there
    - How ``osprey sim apply`` scenarios behave in Virtual Accelerator mode
    - Write limits
@@ -31,7 +31,7 @@ Overview
 
 The Control Assistant tutorial ships interchangeable control-system backends,
 selected by a single ``control_system.type`` value. The value picks the machine
-a session **starts** on:
+the deployment **starts** on:
 
 .. list-table::
    :header-rows: 1
@@ -145,19 +145,22 @@ do instead: point ``archiver.type`` at a store this deployment writes
 (``mongodb_archiver`` for the store the preset deploys), or stay on ``mock`` for
 an honestly storeless deployment. `The honesty rule`_ below explains why.
 
-Switching a running session
-===========================
+Switching a running deployment
+==============================
 
 Those three commands set which control system the deployment **starts** on; on a
-deployment that describes more than one machine, a running session can also be
-moved between them — rehearse a script against the simulator, then run it on the
-machine — with one approval-gated tool call and no rebuild, no redeploy and no
-restart.
+deployment that describes more than one machine, a running deployment can also
+be moved between them — rehearse a script against the simulator, then run it on
+the machine — with one approval-gated tool call and no rebuild, no redeploy and
+no restart.
 
-See :doc:`switch-control-target` for the whole workflow: the two tools, the
-reachability proof that keeps a failed switch from stranding the session, the
-posture a move toward the live machine requires, what the switch refuses, and
-how Bluesky plans behave while a session is switched.
+There is one control target per deployment, so a switch applies everywhere at
+once and is recorded: it outlives the conversation that made it, and a restart
+adopts it rather than resetting it. See :doc:`switch-control-target` for the
+whole workflow: the two tools, the reachability proof that keeps a failed
+switch from stranding the deployment, the posture a move toward the live
+machine requires, what the switch refuses, and how Bluesky plans behave while
+the deployment is switched.
 
 Rehearsing against a live target
 ================================
@@ -172,7 +175,7 @@ preset ships it on; delete the line to run one machine again.
 The stand-in is a third machine, not a rewrite of ``live``. It has its own
 connector block, and ``control_system.connector.epics`` stays whatever your
 facility wrote there — so ``live`` still names your machine while the rehearsal
-runs beside it. ``control_target_set standin`` moves a session onto the stand-in;
+runs beside it. ``control_target_set standin`` moves the deployment onto the stand-in;
 ``control_target_set live`` from there walks the real go-live path, gates and
 all.
 
@@ -330,7 +333,7 @@ find its writes refused. A type that states its own posture never falls back to
 the inherited key, so the ``false`` above holds for the live machine even if a
 profile turns the deployment-wide key on.
 
-Switching the session to the live target (see
+Switching to the live target (see
 :doc:`switch-control-target`) therefore takes its writes away, with no config
 edit and no rebuild — the same write tool that moves the simulator is refused
 on the machine. The bundled ``control-assistant-va-readwrite`` persona ships
@@ -339,8 +342,8 @@ exactly that pair of keys.
 .. note::
 
    On a deployment whose targets disagree like this, ``settings.json`` denies
-   nothing up front — it is rendered once, before any session has picked a
-   target — so every refusal arrives per call instead, from the safety hook and
+   nothing up front — it is rendered once, before any target has been picked
+   — so every refusal arrives per call instead, from the safety hook and
    the connector, naming the target that refused it. Tools you list under
    ``control_system.write_tools`` are refused by that same hook, which is how
    they are gated in every deployment.
@@ -435,7 +438,7 @@ rightly chase.
 
 **With a stand-in deployed, this is the stand-in's archive.** The recorder
 samples the stand-in and the seeded past carries its offsets, so the BPM history
-read out of the store — including by a session on the simulator target — is the
+read out of the store — including from the simulator target — is the
 stand-in's. See `Rehearsing against a live target`_.
 
 Retention is enforced by the store itself: dense samples expire after the hot

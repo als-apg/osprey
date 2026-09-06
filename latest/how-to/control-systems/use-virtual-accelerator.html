@@ -530,7 +530,7 @@ How it is put together is <a class="reference internal" href="../../architecture
 <li><p class="sd-card-text">What <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> selects, and which machine each value names</p></li>
 <li><p class="sd-card-text">Which channels the simulator serves, and what the build will not invent</p></li>
 <li><p class="sd-card-text">Pointing a project at the Virtual Accelerator the stack already deploys</p></li>
-<li><p class="sd-card-text">Moving a running session between the machines a deployment describes</p></li>
+<li><p class="sd-card-text">Moving a running deployment between the machines it describes</p></li>
 <li><p class="sd-card-text">Switching back to the mock, and why plans go browse-only there</p></li>
 <li><p class="sd-card-text">How <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> scenarios behave in Virtual Accelerator mode</p></li>
 <li><p class="sd-card-text">Write limits</p></li>
@@ -543,7 +543,7 @@ tutorial project (see <a class="reference internal" href="../../getting-started/
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
 <p>The Control Assistant tutorial ships interchangeable control-system backends,
 selected by a single <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> value. The value picks the machine
-a session <strong>starts</strong> on:</p>
+the deployment <strong>starts</strong> on:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 22.0%" />
@@ -656,17 +656,20 @@ do instead: point <code class="docutils literal notranslate"><span class="pre">a
 (<code class="docutils literal notranslate"><span class="pre">mongodb_archiver</span></code> for the store the preset deploys), or stay on <code class="docutils literal notranslate"><span class="pre">mock</span></code> for
 an honestly storeless deployment. <a class="reference internal" href="#the-honesty-rule">The honesty rule</a> below explains why.</p>
 </section>
-<section id="switching-a-running-session">
-<h2>Switching a running session<a class="headerlink" href="#switching-a-running-session" title="Link to this heading">#</a></h2>
+<section id="switching-a-running-deployment">
+<h2>Switching a running deployment<a class="headerlink" href="#switching-a-running-deployment" title="Link to this heading">#</a></h2>
 <p>Those three commands set which control system the deployment <strong>starts</strong> on; on a
-deployment that describes more than one machine, a running session can also be
-moved between them — rehearse a script against the simulator, then run it on the
-machine — with one approval-gated tool call and no rebuild, no redeploy and no
-restart.</p>
-<p>See <a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a> for the whole workflow: the two tools, the
-reachability proof that keeps a failed switch from stranding the session, the
-posture a move toward the live machine requires, what the switch refuses, and
-how Bluesky plans behave while a session is switched.</p>
+deployment that describes more than one machine, a running deployment can also
+be moved between them — rehearse a script against the simulator, then run it on
+the machine — with one approval-gated tool call and no rebuild, no redeploy and
+no restart.</p>
+<p>There is one control target per deployment, so a switch applies everywhere at
+once and is recorded: it outlives the conversation that made it, and a restart
+adopts it rather than resetting it. See <a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a> for the
+whole workflow: the two tools, the reachability proof that keeps a failed
+switch from stranding the deployment, the posture a move toward the live
+machine requires, what the switch refuses, and how Bluesky plans behave while
+the deployment is switched.</p>
 </section>
 <section id="rehearsing-against-a-live-target">
 <h2>Rehearsing against a live target<a class="headerlink" href="#rehearsing-against-a-live-target" title="Link to this heading">#</a></h2>
@@ -679,7 +682,7 @@ preset ships it on; delete the line to run one machine again.</p>
 <p>The stand-in is a third machine, not a rewrite of <code class="docutils literal notranslate"><span class="pre">live</span></code>. It has its own
 connector block, and <code class="docutils literal notranslate"><span class="pre">control_system.connector.epics</span></code> stays whatever your
 facility wrote there — so <code class="docutils literal notranslate"><span class="pre">live</span></code> still names your machine while the rehearsal
-runs beside it. <code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">standin</span></code> moves a session onto the stand-in;
+runs beside it. <code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">standin</span></code> moves the deployment onto the stand-in;
 <code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">live</span></code> from there walks the real go-live path, gates and
 all.</p>
 <p>The two simulated machines are told apart by reading them: one image over one
@@ -816,7 +819,7 @@ number <code class="docutils literal notranslate"><span class="pre">1</span></co
 find its writes refused. A type that states its own posture never falls back to
 the inherited key, so the <code class="docutils literal notranslate"><span class="pre">false</span></code> above holds for the live machine even if a
 profile turns the deployment-wide key on.</p>
-<p>Switching the session to the live target (see
+<p>Switching to the live target (see
 <a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a>) therefore takes its writes away, with no config
 edit and no rebuild — the same write tool that moves the simulator is refused
 on the machine. The bundled <code class="docutils literal notranslate"><span class="pre">control-assistant-va-readwrite</span></code> persona ships
@@ -824,8 +827,8 @@ exactly that pair of keys.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>On a deployment whose targets disagree like this, <code class="docutils literal notranslate"><span class="pre">settings.json</span></code> denies
-nothing up front — it is rendered once, before any session has picked a
-target — so every refusal arrives per call instead, from the safety hook and
+nothing up front — it is rendered once, before any target has been picked
+— so every refusal arrives per call instead, from the safety hook and
 the connector, naming the target that refused it. Tools you list under
 <code class="docutils literal notranslate"><span class="pre">control_system.write_tools</span></code> are refused by that same hook, which is how
 they are gated in every deployment.</p>
@@ -967,7 +970,7 @@ seed ends and recording begins there is noise, not a step an operator would
 rightly chase.</p>
 <p><strong>With a stand-in deployed, this is the stand-in’s archive.</strong> The recorder
 samples the stand-in and the seeded past carries its offsets, so the BPM history
-read out of the store — including by a session on the simulator target — is the
+read out of the store — including from the simulator target — is the
 stand-in’s. See <a class="reference internal" href="#rehearsing-against-a-live-target">Rehearsing against a live target</a>.</p>
 <p>Retention is enforced by the store itself: dense samples expire after the hot
 span, the coarse ones after the retention window, so a long-running deployment
@@ -1105,7 +1108,7 @@ reporting the key as merely unset.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-channels-it-serves">What channels it serves</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quickstart">Quickstart</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-a-running-session">Switching a running session</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-a-running-deployment">Switching a running deployment</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rehearsing-against-a-live-target">Rehearsing against a live target</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-back-to-the-mock">Switching back to the mock</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#connecting-to-the-ioc">Connecting to the IOC</a></li>
