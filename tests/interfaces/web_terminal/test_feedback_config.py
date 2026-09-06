@@ -15,12 +15,14 @@ from __future__ import annotations
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import unquote_plus
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.interfaces.web_terminal.app import (
+from osprey.interfaces.web_terminal.app import create_app
+from osprey.interfaces.web_terminal.feedback_destination import (
     DEFAULT_DOCS_URL,
     DEFAULT_FEEDBACK_EMAIL,
     DEFAULT_FEEDBACK_GITHUB_REPO,
@@ -28,8 +30,10 @@ from osprey.interfaces.web_terminal.app import (
     coerce_config_str,
     coerce_feedback_trackers,
     coerce_store_ceiling,
-    create_app,
+    resolve_deployment_identity,
+    resolve_feedback_destination,
     resolve_feedback_trackers,
+    upstream_escalation_url,
 )
 from osprey.interfaces.web_terminal.routes.panels import router as panels_router
 
@@ -339,6 +343,7 @@ class TestPanelsPayload:
 
 
 GITLAB_URL = "https://git.example.org/controls/osprey"
+UPSTREAM_TRACKER = {"kind": "github", "label": "GitHub", "repo": DEFAULT_FEEDBACK_GITHUB_REPO}
 
 
 class TestFeedbackTrackers:
@@ -394,30 +399,30 @@ class TestFeedbackTrackers:
             {"kind": "github", "label": "GitHub", "repo": "keep/me"}
         ]
 
-    def test_github_repo_sugar_is_appended_as_a_tracker(self):
+    def test_the_owner_tracker_is_appended_last(self):
         trackers = [{"kind": "gitlab", "label": "Ops", "url": GITLAB_URL}]
-        assert resolve_feedback_trackers(trackers, "als-apg/osprey") == [
+        assert resolve_feedback_trackers(trackers, UPSTREAM_TRACKER) == [
             {"kind": "gitlab", "label": "Ops", "url": GITLAB_URL},
             {"kind": "github", "label": "GitHub", "repo": "als-apg/osprey"},
         ]
 
-    def test_blank_github_repo_adds_nothing(self):
-        """Explicitly blank still retires the sugar channel."""
+    def test_no_owner_tracker_adds_nothing(self):
+        """A retired owner channel (blank `github_repo`) appends nothing."""
         trackers = [{"kind": "gitlab", "label": "Ops", "url": GITLAB_URL}]
-        assert resolve_feedback_trackers(trackers, "") == trackers
-        assert resolve_feedback_trackers([], "") == []
+        assert resolve_feedback_trackers(trackers, None) == trackers
+        assert resolve_feedback_trackers([], None) == []
 
-    def test_a_listed_tracker_wins_over_the_sugar_duplicate(self):
+    def test_a_listed_tracker_wins_over_the_owner_duplicate(self):
         """Listing the same repo with its own label must not render it twice."""
         trackers = [{"kind": "github", "label": "OSPREY upstream", "repo": "als-apg/osprey"}]
-        assert resolve_feedback_trackers(trackers, "als-apg/osprey") == trackers
+        assert resolve_feedback_trackers(trackers, UPSTREAM_TRACKER) == trackers
 
     def test_duplicates_inside_the_list_collapse_to_the_first(self):
         trackers = [
             {"kind": "gitlab", "label": "One", "url": GITLAB_URL},
             {"kind": "gitlab", "label": "Two", "url": GITLAB_URL},
         ]
-        assert resolve_feedback_trackers(trackers, "") == [trackers[0]]
+        assert resolve_feedback_trackers(trackers, None) == [trackers[0]]
 
     def test_lifespan_resolves_the_list_plus_sugar(self, project_dir, shared_root):
         overrides = {
@@ -447,3 +452,328 @@ class TestFeedbackTrackers:
             assert app.state.feedback_trackers == [
                 {"kind": "github", "label": "GitHub", "repo": DEFAULT_FEEDBACK_GITHUB_REPO}
             ]
+
+
+class TestResolveFeedbackDestination:
+    """One resolver behind both the lifespan and the ``/api/panels`` fallback.
+
+    The duplication this replaced lived on the fallback path, so a drift
+    between the two spellings only showed when app state was missing. These
+    tests pin the two paths to each other rather than to literals, so the same
+    class of drift cannot come back through a copy that merely *looks* right.
+    """
+
+    def test_no_arguments_is_the_unconfigured_deployment(self):
+        """A deployment that configured nothing is owned by the OSPREY project."""
+        destination = resolve_feedback_destination()
+        assert destination.docs_url == DEFAULT_DOCS_URL
+        assert destination.email == DEFAULT_FEEDBACK_EMAIL
+        assert destination.github_repo == DEFAULT_FEEDBACK_GITHUB_REPO
+        assert destination.max_store_bytes == DEFAULT_FEEDBACK_MAX_STORE_BYTES
+        assert destination.trackers == [
+            {"kind": "github", "label": "GitHub", "repo": DEFAULT_FEEDBACK_GITHUB_REPO}
+        ]
+
+    def test_the_sugar_expansion_happens_once(self):
+        """``github_repo`` becomes a tracker entry inside the resolver, not outside it."""
+        destination = resolve_feedback_destination(github_repo="facility/ops")
+        assert destination.github_repo == "facility/ops"
+        assert destination.trackers == [
+            {"kind": "github", "label": "GitHub", "repo": "facility/ops"}
+        ]
+
+    def test_a_blank_repo_retires_the_github_channel(self):
+        """The blank posture survives the move into the resolver."""
+        destination = resolve_feedback_destination(github_repo="")
+        assert destination.github_repo == ""
+        assert destination.trackers == []
+
+    def test_configured_trackers_precede_the_sugar(self):
+        """Render order is the facility's list, then the ``github_repo`` sugar."""
+        destination = resolve_feedback_destination(
+            trackers=[{"kind": "gitlab", "url": GITLAB_URL, "label": "Ops"}],
+            github_repo="facility/ops",
+        )
+        assert destination.trackers == [
+            {"kind": "gitlab", "label": "Ops", "url": GITLAB_URL},
+            {"kind": "github", "label": "GitHub", "repo": "facility/ops"},
+        ]
+
+    def test_one_unusable_value_does_not_drag_the_others_to_defaults(self):
+        """Each field is coerced separately — the fail-open posture app.py states."""
+        destination = resolve_feedback_destination(
+            email="controls@example.org",
+            max_store_bytes="256MB",
+        )
+        assert destination.email == "controls@example.org"
+        assert destination.max_store_bytes == DEFAULT_FEEDBACK_MAX_STORE_BYTES
+
+    def test_every_field_is_returned_fresh(self):
+        """No caller can mutate the next caller's trackers."""
+        first = resolve_feedback_destination()
+        first.trackers.append({"kind": "github", "label": "X", "repo": "a/b"})
+        assert len(resolve_feedback_destination().trackers) == 1
+
+    def test_the_panels_fallback_is_the_resolver_and_not_a_copy(self):
+        """The route's defaults ARE the resolver's output, field for field.
+
+        This is the test the whole commit exists for: it fails if anyone
+        re-types a default into the ``getattr`` fallbacks, however carefully.
+        """
+        app = FastAPI()
+        app.include_router(panels_router)
+        app.state.project_cwd = "/tmp"
+        payload = TestClient(app).get("/api/panels").json()
+
+        unconfigured = resolve_feedback_destination()
+        assert payload["docs_url"] == unconfigured.docs_url
+        assert payload["feedback_email"] == unconfigured.email
+        assert payload["feedback_trackers"] == unconfigured.trackers
+
+    def test_the_lifespan_resolves_the_same_way_the_fallback_does(self, project_dir, shared_root):
+        """A configured lifespan and a direct resolve agree on every field."""
+        overrides = {
+            "web.docs_url": "https://docs.example.org",
+            "web.feedback.email": "controls@example.org",
+            "web.feedback.github_repo": "facility/ops",
+        }
+        with _lifespan_client(project_dir, shared_root, overrides=overrides) as (client, app):
+            payload = client.get("/api/panels").json()
+
+        expected = resolve_feedback_destination(
+            docs_url="https://docs.example.org",
+            email="controls@example.org",
+            github_repo="facility/ops",
+        )
+        assert payload["docs_url"] == expected.docs_url
+        assert payload["feedback_email"] == expected.email
+        assert payload["feedback_trackers"] == expected.trackers
+        assert app.state.feedback_max_store_bytes == expected.max_store_bytes
+
+
+OWNER_GITLAB = {"kind": "gitlab", "target": GITLAB_URL}
+
+
+class TestFeedbackOwner:
+    """``web.feedback.owner`` — email and tracker, moved together.
+
+    The block exists because a facility that redirects feedback has to move
+    both, and moving one is the failure it is meant to prevent. The two leaf
+    keys still win where they are spelled, so no already-deployed profile
+    changes meaning by upgrading into this.
+    """
+
+    def test_owner_supplies_the_address_when_the_leaf_key_is_absent(self):
+        destination = resolve_feedback_destination(
+            owner={"name": "ALS Controls", "email": "controls@als.example.org"}
+        )
+        assert destination.email == "controls@als.example.org"
+        assert destination.owner_name == "ALS Controls"
+
+    def test_the_leaf_key_still_wins(self):
+        """An already-deployed profile spelling the leaf key keeps its meaning."""
+        destination = resolve_feedback_destination(
+            email="legacy@example.org",
+            owner={"email": "controls@als.example.org"},
+        )
+        assert destination.email == "legacy@example.org"
+
+    def test_a_blank_leaf_key_still_retires_the_channel(self):
+        """Blank is a posture, not an absence — it outranks the owner block."""
+        destination = resolve_feedback_destination(
+            email="", owner={"email": "controls@als.example.org"}
+        )
+        assert destination.email == ""
+
+    def test_an_owner_gitlab_tracker_becomes_the_destination(self):
+        """A GitLab facility is first-class: no `trackers:` list required."""
+        destination = resolve_feedback_destination(owner={"tracker": OWNER_GITLAB})
+        assert destination.trackers == [{"kind": "gitlab", "label": "GitLab", "url": GITLAB_URL}]
+        assert destination.github_repo == ""
+
+    def test_an_owner_github_tracker_takes_owner_slash_name(self):
+        destination = resolve_feedback_destination(
+            owner={"tracker": {"kind": "github", "target": "facility/ops"}}
+        )
+        assert destination.trackers == [
+            {"kind": "github", "label": "GitHub", "repo": "facility/ops"}
+        ]
+        assert destination.github_repo == "facility/ops"
+
+    def test_an_owner_tracker_may_be_captioned(self):
+        destination = resolve_feedback_destination(
+            owner={"tracker": {**OWNER_GITLAB, "label": "Controls GitLab"}}
+        )
+        assert destination.trackers[0]["label"] == "Controls GitLab"
+
+    def test_the_leaf_repo_wins_over_the_owner_tracker(self):
+        destination = resolve_feedback_destination(
+            github_repo="legacy/repo", owner={"tracker": OWNER_GITLAB}
+        )
+        assert destination.trackers == [
+            {"kind": "github", "label": "GitHub", "repo": "legacy/repo"}
+        ]
+
+    def test_a_blank_leaf_repo_retires_the_channel_over_the_owner_tracker(self):
+        destination = resolve_feedback_destination(github_repo="", owner={"tracker": OWNER_GITLAB})
+        assert destination.trackers == []
+
+    def test_the_facility_tracker_list_still_precedes_the_owner(self):
+        destination = resolve_feedback_destination(
+            trackers=[{"kind": "github", "repo": "facility/fork", "label": "Fork"}],
+            owner={"tracker": OWNER_GITLAB},
+        )
+        assert destination.trackers == [
+            {"kind": "github", "label": "Fork", "repo": "facility/fork"},
+            {"kind": "gitlab", "label": "GitLab", "url": GITLAB_URL},
+        ]
+
+    def test_no_owner_block_is_the_osprey_project(self):
+        """The unconfigured deployment's owner is unchanged by this key."""
+        destination = resolve_feedback_destination()
+        assert destination.email == DEFAULT_FEEDBACK_EMAIL
+        assert destination.github_repo == DEFAULT_FEEDBACK_GITHUB_REPO
+        assert destination.owner_name == ""
+
+    @pytest.mark.parametrize("bad", ["nonsense", 3, [], True])
+    def test_an_unusable_owner_block_falls_back_without_taking_anything_down(self, bad):
+        destination = resolve_feedback_destination(owner=bad)
+        assert destination.email == DEFAULT_FEEDBACK_EMAIL
+        assert destination.github_repo == DEFAULT_FEEDBACK_GITHUB_REPO
+        assert destination.owner_name == ""
+
+    def test_a_bad_owner_tracker_does_not_take_the_owner_email_with_it(self):
+        """Fields are coerced separately here too."""
+        destination = resolve_feedback_destination(
+            owner={
+                "email": "controls@als.example.org",
+                "tracker": {"kind": "svn", "target": "whatever"},
+            }
+        )
+        assert destination.email == "controls@als.example.org"
+        assert destination.trackers == [
+            {"kind": "github", "label": "GitHub", "repo": DEFAULT_FEEDBACK_GITHUB_REPO}
+        ]
+
+    def test_the_owner_block_reaches_the_running_deployment(self, project_dir, shared_root):
+        """End to end: the lifespan reads the block and /api/panels echoes it."""
+        overrides = {
+            "web.feedback.owner": {
+                "name": "ALS Controls",
+                "email": "controls@als.example.org",
+                "tracker": OWNER_GITLAB,
+            }
+        }
+        with _lifespan_client(project_dir, shared_root, overrides=overrides) as (client, app):
+            payload = client.get("/api/panels").json()
+        assert payload["feedback_email"] == "controls@als.example.org"
+        assert payload["feedback_trackers"] == [
+            {"kind": "gitlab", "label": "GitLab", "url": GITLAB_URL}
+        ]
+        assert app.state.feedback_owner_name == "ALS Controls"
+
+
+class TestDeploymentIdentityAndEscalation:
+    """What a forwarded report carries, and when the forwarding link exists.
+
+    A user files to whoever owns the deployment because a user cannot know
+    whether a bug is OSPREY's code or the facility's configuration. That only
+    works if the maintainer who *can* tell forwards the framework bugs — and
+    they only will if forwarding is nearly free.
+    """
+
+    IDENTITY = {
+        "osprey_version": "2026.9.0b1",
+        "preset": "control-assistant",
+        "preset_hash": "a3f91c7d2e8b4f6a1c9d0e2f",
+        "channel_finder_mode": "hierarchical",
+    }
+
+    def test_build_lines_omit_the_version(self):
+        """Both report builders already have their own source for it."""
+        identity = resolve_deployment_identity(**self.IDENTITY)
+        assert "OSPREY version" not in identity.build_lines()
+        assert identity.as_metadata()["OSPREY version"] == "2026.9.0b1"
+
+    def test_the_preset_and_its_hash_render_as_one_fact(self):
+        identity = resolve_deployment_identity(**self.IDENTITY)
+        assert identity.build_lines()["Preset"].startswith("control-assistant (a3f91c")
+        assert identity.build_lines()["Channel finder"] == "hierarchical"
+
+    def test_a_preset_with_no_hash_still_renders(self):
+        identity = resolve_deployment_identity(preset="control-assistant")
+        assert identity.build_lines() == {"Preset": "control-assistant"}
+
+    @pytest.mark.parametrize("bad", [None, 3, [], {"a": 1}, "   "])
+    def test_unusable_identity_fields_are_dropped_not_printed(self, bad):
+        identity = resolve_deployment_identity(preset=bad, channel_finder_mode=bad)
+        assert identity.build_lines() == {}
+
+    def test_a_configured_deployment_gets_an_escalation_link(self):
+        destination = resolve_feedback_destination(
+            owner={"name": "ALS Controls", "email": "c@x.org", "tracker": OWNER_GITLAB}
+        )
+        url = upstream_escalation_url(resolve_deployment_identity(**self.IDENTITY), destination)
+        assert url.startswith(f"https://github.com/{DEFAULT_FEEDBACK_GITHUB_REPO}/issues/new?")
+        decoded = unquote_plus(url)
+        assert "control-assistant" in decoded
+        assert "hierarchical" in decoded
+        assert "2026.9.0b1" in decoded
+        assert "ALS Controls" in decoded
+
+    def test_the_unconfigured_deployment_gets_no_link(self):
+        """Its owner IS the OSPREY project — the link would point at itself."""
+        url = upstream_escalation_url(
+            resolve_deployment_identity(**self.IDENTITY), resolve_feedback_destination()
+        )
+        assert url == ""
+
+    def test_a_facility_that_also_files_upstream_gets_no_link(self):
+        """Reports already reach the project, so there is nothing to forward."""
+        destination = resolve_feedback_destination(
+            trackers=[{"kind": "github", "repo": DEFAULT_FEEDBACK_GITHUB_REPO, "label": "Up"}],
+            owner={"email": "c@x.org", "tracker": OWNER_GITLAB},
+        )
+        assert upstream_escalation_url(resolve_deployment_identity(), destination) == ""
+
+    def test_the_link_carries_no_user_content(self):
+        """It is built once at startup, so nothing per-report can leak into it."""
+        destination = resolve_feedback_destination(owner={"tracker": OWNER_GITLAB})
+        url = upstream_escalation_url(resolve_deployment_identity(**self.IDENTITY), destination)
+        decoded = unquote_plus(url)
+        assert "session" not in decoded.lower()
+        assert "paste what the user reported" in decoded
+
+    def test_an_identity_that_cannot_be_read_still_yields_a_link(self):
+        """A deployment with no provenance can still forward a bug."""
+        destination = resolve_feedback_destination(owner={"tracker": OWNER_GITLAB})
+        url = upstream_escalation_url(resolve_deployment_identity(), destination)
+        assert url.startswith("https://github.com/")
+
+    def test_the_running_deployment_publishes_both(self, project_dir, shared_root):
+        """End to end: lifespan resolves them, /api/panels echoes them."""
+        overrides = {
+            "web.feedback.owner": {"name": "ALS Controls", "tracker": OWNER_GITLAB},
+            "provenance.preset": "control-assistant",
+            "provenance.preset_hash": "a3f91c7d2e8b4f6a1c9d0e2f",
+            "channel_finder.pipeline_mode": "hierarchical",
+        }
+        with _lifespan_client(project_dir, shared_root, overrides=overrides) as (client, _app):
+            payload = client.get("/api/panels").json()
+        assert payload["feedback_deployment"]["Channel finder"] == "hierarchical"
+        assert payload["feedback_deployment"]["Preset"].startswith("control-assistant (a3f91c")
+        assert DEFAULT_FEEDBACK_GITHUB_REPO in payload["feedback_escalation_url"]
+
+    def test_an_unconfigured_deployment_publishes_an_empty_link(self, project_dir, shared_root):
+        with _lifespan_client(project_dir, shared_root) as (client, _app):
+            payload = client.get("/api/panels").json()
+        assert payload["feedback_escalation_url"] == ""
+
+    def test_the_route_survives_a_lifespan_that_never_ran(self):
+        """The getattr fallbacks cover the new fields too."""
+        app = FastAPI()
+        app.include_router(panels_router)
+        app.state.project_cwd = "/tmp"
+        payload = TestClient(app).get("/api/panels").json()
+        assert payload["feedback_deployment"] == {}
+        assert payload["feedback_escalation_url"] == ""

@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from osprey.interfaces.common_middleware import apply_url_prefix, compute_url_prefix
+from osprey.interfaces.web_terminal.feedback_destination import resolve_feedback_destination
 from osprey.interfaces.web_terminal.routes.agent_activity import record_activity
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, BUILTIN_PANELS
 
@@ -230,6 +231,8 @@ async def get_panels(request: Request):
             "docs_url": str,            # target of the rail's Documentation control
             "feedback_trackers": [...],  # [{"kind", "label", "repo"|"url"}], render order
             "feedback_email": str,      # recipient of the prefilled mailto: draft
+            "feedback_deployment": {...},  # identity lines for a report's metadata
+            "feedback_escalation_url": str,  # prefilled upstream issue; "" upstream
         }
 
     ``project_key`` is an opaque, stable per-project identifier (16 hex chars,
@@ -370,17 +373,25 @@ async def get_panels(request: Request):
     open_tiles_ts = getattr(request.app.state, "open_tiles_ts", None)
     open_tiles_age = None if open_tiles_ts is None else time.time() - open_tiles_ts
     open_tiles_dock = getattr(request.app.state, "open_tiles_dock", None)
-    # Utility-cluster targets. The defaults mirror app.DEFAULT_DOCS_URL /
-    # DEFAULT_FEEDBACK_GITHUB_REPO (as the one sugar tracker) /
-    # DEFAULT_FEEDBACK_EMAIL, spelled as literals here for the same
-    # routes->app import-cycle reason as above.
-    docs_url = getattr(request.app.state, "docs_url", "https://als-apg.github.io/osprey")
-    feedback_trackers = getattr(
-        request.app.state,
-        "feedback_trackers",
-        [{"kind": "github", "label": "GitHub", "repo": "als-apg/osprey"}],
-    )
-    feedback_email = getattr(request.app.state, "feedback_email", "thellert@lbl.gov")
+    # Utility-cluster targets. The fallbacks come from the same resolver the
+    # lifespan runs, called with nothing — which is the deployment that
+    # configured nothing, i.e. the one the OSPREY project owns. No default is
+    # re-typed here and no derivation is repeated, so the two paths cannot
+    # drift. The leaf is importable from a route because it imports neither
+    # the app nor any route; the cycle that once forced literals here
+    # (app -> routes -> panels) does not arise.
+    unconfigured = resolve_feedback_destination()
+    docs_url = getattr(request.app.state, "docs_url", unconfigured.docs_url)
+    feedback_trackers = getattr(request.app.state, "feedback_trackers", unconfigured.trackers)
+    feedback_email = getattr(request.app.state, "feedback_email", unconfigured.email)
+    # What the browser stamps into a prefilled draft's metadata block, and the
+    # link a maintainer forwards a framework bug by. Both are resolved once at
+    # startup; the browser renders them and invents nothing. Absent state (or a
+    # deployment the OSPREY project already owns) leaves them empty, and an
+    # empty metadata value is dropped by the body composer.
+    identity = getattr(request.app.state, "deployment_identity", None)
+    feedback_deployment = identity.build_lines() if identity is not None else {}
+    feedback_escalation_url = getattr(request.app.state, "feedback_escalation_url", "")
     # Onboarding tour: the resolved invite policy, the derived capability
     # list for the "Ask in plain language" card, and whether the logbook
     # (ARIEL panel) is available. All resolved at startup (web.tour /
@@ -414,6 +425,8 @@ async def get_panels(request: Request):
         "docs_url": docs_url,
         "feedback_trackers": [dict(tracker) for tracker in feedback_trackers],
         "feedback_email": feedback_email,
+        "feedback_deployment": feedback_deployment,
+        "feedback_escalation_url": feedback_escalation_url,
         "config_panel_enabled": config_panel_enabled,
         "scaffold_write_enabled": scaffold_write_enabled,
         "tour": tour,

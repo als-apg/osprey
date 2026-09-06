@@ -43,6 +43,10 @@ from osprey.interfaces.web_terminal.feedback_composer import (
     render_bundle,
     validate_session_id,
 )
+from osprey.interfaces.web_terminal.feedback_destination import (
+    DEFAULT_FEEDBACK_MAX_STORE_BYTES,
+    osprey_version,
+)
 from osprey.interfaces.web_terminal.feedback_store import (
     new_record_id,
     prune_store,
@@ -62,10 +66,11 @@ EXCERPT_CHARS = 200
 """How much of the report the header carries, for the ``osprey feedback list``
 table. The full text lives in the paired context document."""
 
-DEFAULT_MAX_STORE_BYTES = 256 * 1024 * 1024
-"""Mirrors ``app.DEFAULT_FEEDBACK_MAX_STORE_BYTES`` (256 MB). Spelled as a
-literal here, as routes do for every app.state default, to keep routes from
-importing the app module."""
+DEFAULT_MAX_STORE_BYTES = DEFAULT_FEEDBACK_MAX_STORE_BYTES
+"""The shipped store ceiling (256 MB), under the name this module's fallback
+path reads it by. Not a second spelling: it is bound to the one definition in
+:mod:`~osprey.interfaces.web_terminal.feedback_destination`, which a route may
+import because that module imports neither the app nor any route."""
 
 MAX_REQUEST_BYTES = 4 * 1024 * 1024
 """Largest report + scrollback one submission may carry, in UTF-8 bytes.
@@ -226,14 +231,12 @@ def _identity(request: Request) -> str:
 
 
 def _version() -> str:
-    """The running OSPREY version, or ``"unknown"`` if it cannot be read."""
-    try:
-        from osprey import __version__
+    """The running OSPREY version, or ``"unknown"`` if it cannot be read.
 
-        return str(__version__)
-    except Exception:  # noqa: BLE001 — a version lookup must not lose the report
-        logger.debug("feedback: could not read the OSPREY version", exc_info=True)
-        return "unknown"
+    Delegates so the record header and the deployment identity in the report
+    body cannot disagree about which OSPREY this is.
+    """
+    return osprey_version()
 
 
 def _feedback_dir(request: Request) -> Path:
@@ -293,12 +296,17 @@ def _metadata(
 
     Who and when are always present — the dialog's help popover says the report
     always carries the text, the timestamp and the username when it is known.
-    The metadata checkbox governs which OSPREY this is, what the deployment
-    calls itself, and the submitting browser (from the ``User-Agent`` header —
-    the popover names it, so it must not travel unticked). The session id rides
-    with the context it belongs to: an outbound draft's body is just a pointer
-    line, so this tier is where a maintainer finds the session a pasted report
-    came from.
+    The metadata checkbox governs which OSPREY this is, which build it is, what
+    the deployment calls itself, and the submitting browser (from the
+    ``User-Agent`` header — the popover names it, so it must not travel
+    unticked). The session id rides with the context it belongs to: an outbound
+    draft's body is just a pointer line, so this tier is where a maintainer
+    finds the session a pasted report came from.
+
+    The build lines and the escalation link are what let a facility maintainer
+    forward a framework bug upstream without re-investigating the deployment
+    first. They are resolved once at startup, not composed here, because
+    nothing in them varies per report.
 
     ``now`` is passed in rather than read here so that one request stamps one
     instant: the record's ``created_at`` and the bundle's ``submitted`` line
@@ -310,12 +318,22 @@ def _metadata(
     }
     if include_metadata:
         metadata["osprey version"] = _version()
+        # Lowercased to match this block's own case; the browser's builder
+        # renders the same lines Title Case beside its own neighbours. One
+        # definition, two local conventions — see DeploymentIdentity.
+        deployment = getattr(request.app.state, "deployment_identity", None)
+        if deployment is not None:
+            for label, value in deployment.build_lines().items():
+                metadata[label.lower()] = value
         app_name = getattr(request.app.state, "app_name", "")
         if app_name:
             metadata["app"] = str(app_name)
         browser = request.headers.get("user-agent", "").strip()
         if browser:
             metadata["browser"] = browser
+        escalation_url = getattr(request.app.state, "feedback_escalation_url", "")
+        if escalation_url:
+            metadata["escalate to OSPREY"] = escalation_url
     if session_id:
         metadata["session"] = session_id
     return metadata

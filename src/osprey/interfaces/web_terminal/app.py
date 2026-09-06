@@ -39,6 +39,14 @@ from osprey.interfaces.web_terminal.bar_items_store import (
     load_layout,
 )
 from osprey.interfaces.web_terminal.control_context_owner import start_control_context_owner
+from osprey.interfaces.web_terminal.feedback_destination import (
+    DEFAULT_DOCS_URL,
+    DEFAULT_FEEDBACK_MAX_STORE_BYTES,
+    osprey_version,
+    resolve_deployment_identity,
+    resolve_feedback_destination,
+    upstream_escalation_url,
+)
 from osprey.interfaces.web_terminal.file_watcher import (
     FileEventBroadcaster,
     WorkspaceWatcher,
@@ -414,29 +422,6 @@ def resolve_tour_policy(configured: str | None) -> str:
 #: /api/panels`` echoes it to the browser so ``rail-position.js`` can follow
 #: a live family switch without carrying its own copy.
 FAMILY_RAIL_DEFAULTS: dict[str, str] = {"retro": "top"}
-
-#: Where the Documentation control in the rail's utility cluster points when
-#: ``web.docs_url`` is absent. A facility hosting its own copy of the docs
-#: overrides the key; the default is the published site.
-DEFAULT_DOCS_URL = "https://als-apg.github.io/osprey"
-
-#: ``owner/repo`` used to build the prefilled new-issue URL when
-#: ``web.feedback.github_repo`` is absent.
-DEFAULT_FEEDBACK_GITHUB_REPO = "als-apg/osprey"
-
-#: Tracker kinds ``web.feedback.trackers`` accepts, each with the radio caption
-#: used when an entry names no ``label`` of its own. The client's URL builders
-#: (``static/js/feedback-prefill.js``) are keyed by the same two words.
-FEEDBACK_TRACKER_LABELS: dict[str, str] = {"github": "GitHub", "gitlab": "GitLab"}
-
-#: Recipient of the prefilled ``mailto:`` draft when ``web.feedback.email``
-#: is absent — the OSPREY maintainers.
-DEFAULT_FEEDBACK_EMAIL = "thellert@lbl.gov"
-
-#: Ceiling (bytes) on the on-disk feedback store before the oldest saved
-#: contexts are pruned; 256 MB unless ``web.feedback.max_store_bytes`` says
-#: otherwise. Submission headers are never pruned, only their contexts.
-DEFAULT_FEEDBACK_MAX_STORE_BYTES = 256 * 1024 * 1024
 
 #: How each value of the forwarded role-source header reads in the session
 #: menu. The keys are the auth sidecar's closed vocabulary, spelled here
@@ -991,141 +976,6 @@ def bar_render_plan(layout: dict, *, context: dict) -> BarRenderPlan:
     )
 
 
-def coerce_config_str(key: str, value: object, default: str) -> str:
-    """Return a configured string value, falling back to *default*.
-
-    An **absent** key means "use the default": the caller reads it with
-    *default* already in hand, so a facility with no ``config.yml`` still gets
-    working Documentation and Feedback controls.
-
-    An **explicitly blank** value (``docs_url: ""``) means "this deployment has
-    no such target", and is returned as ``""``. That posture is what the rail
-    anchor, the status-bar link and the dialog's channel guard are built on: an
-    air-gapped control room blanks ``web.docs_url`` and gets no documentation
-    link rather than one that opens a dead tab, and blanking
-    ``web.feedback.github_repo`` retires the GitHub channel instead of aiming it
-    at the upstream maintainers' tracker. Folding blank back into the default
-    would make that whole posture unreachable while the UI kept claiming it.
-
-    A YAML key written with no value at all (``docs_url:``, i.e. ``None``) reads
-    as absent, not as blank — "I have not decided" rather than "there is none".
-
-    A value of some other type (a nested mapping from a mis-indented
-    ``config.yml``, say) is reported and discarded rather than repr'd into an
-    ``href`` or a ``mailto:``, which would render a control that silently goes
-    nowhere.
-
-    Args:
-        key: Dotted config key, used only for the warning message.
-        value: Whatever the config reader returned.
-        default: The shipped default for *key*.
-
-    Returns:
-        The stripped configured string (possibly ``""``), or *default*.
-    """
-    if isinstance(value, str):
-        return value.strip()
-    if value is not None:
-        logger.warning("%s is %r, not a string; using %r instead", key, value, default)
-    return default
-
-
-def coerce_feedback_trackers(value: object) -> list[dict[str, str]]:
-    """Return ``web.feedback.trackers`` as a list of normalised tracker entries.
-
-    Each usable entry becomes ``{"kind", "label", "repo"}`` (GitHub, ``repo`` an
-    ``owner/name``) or ``{"kind", "label", "url"}`` (GitLab, ``url`` the
-    project's base URL — gitlab.com or self-hosted, trailing slash dropped).
-    A missing ``label`` takes the kind's own name.
-
-    Lenient per entry, strict per field: one malformed line — an unknown
-    ``kind``, a GitHub entry without an ``owner/name`` repo, a GitLab entry
-    whose ``url`` is not ``http(s)://`` — is reported and dropped while the rest
-    of the list stands, because one typo must not retire every tracker the
-    facility configured. A value that is not a list at all is reported and
-    reads as no list.
-
-    Args:
-        value: Whatever the config reader returned for the key.
-
-    Returns:
-        The usable entries, in the order written.
-    """
-    if value is None:
-        return []
-    if not isinstance(value, list):
-        logger.warning("web.feedback.trackers is %r, not a list; ignoring it", value)
-        return []
-    trackers: list[dict[str, str]] = []
-    for index, entry in enumerate(value):
-        tracker = _coerce_feedback_tracker(entry)
-        if tracker is None:
-            logger.warning("web.feedback.trackers[%d] is %r; dropping it", index, entry)
-            continue
-        trackers.append(tracker)
-    return trackers
-
-
-def _coerce_feedback_tracker(entry: object) -> dict[str, str] | None:
-    """One entry of :func:`coerce_feedback_trackers`, or ``None`` when unusable."""
-    if not isinstance(entry, dict):
-        return None
-    kind = entry.get("kind")
-    if not isinstance(kind, str) or kind.strip() not in FEEDBACK_TRACKER_LABELS:
-        return None
-    kind = kind.strip()
-    label = entry.get("label")
-    label = label.strip() if isinstance(label, str) and label.strip() else ""
-    tracker = {"kind": kind, "label": label or FEEDBACK_TRACKER_LABELS[kind]}
-    if kind == "github":
-        repo = entry.get("repo")
-        repo = repo.strip() if isinstance(repo, str) else ""
-        if repo.count("/") != 1 or any(ch.isspace() for ch in repo) or not all(repo.split("/")):
-            return None
-        tracker["repo"] = repo
-    else:
-        url = entry.get("url")
-        url = url.strip().rstrip("/") if isinstance(url, str) else ""
-        if not url.startswith(("http://", "https://")) or any(ch.isspace() for ch in url):
-            return None
-        tracker["url"] = url
-    return tracker
-
-
-def resolve_feedback_trackers(
-    trackers: list[dict[str, str]], github_repo: str
-) -> list[dict[str, str]]:
-    """The tracker list the dialog offers: the configured list plus the sugar.
-
-    ``web.feedback.github_repo`` keeps its meaning as a single GitHub tracker,
-    appended after the facility-authored list (blank retires it — that is the
-    posture :func:`coerce_config_str` preserves). Two entries naming the same
-    target collapse to the first, so a facility that lists the upstream repo
-    under its own label does not get it rendered twice by the sugar.
-
-    Args:
-        trackers: Output of :func:`coerce_feedback_trackers`.
-        github_repo: Resolved ``web.feedback.github_repo`` (``""`` when blank).
-
-    Returns:
-        The de-duplicated list, in render order.
-    """
-    candidates = list(trackers)
-    if github_repo:
-        candidates.append(
-            {"kind": "github", "label": FEEDBACK_TRACKER_LABELS["github"], "repo": github_repo}
-        )
-    seen: set[tuple[str, str]] = set()
-    resolved: list[dict[str, str]] = []
-    for tracker in candidates:
-        key = (tracker["kind"], tracker.get("repo") or tracker.get("url") or "")
-        if key in seen:
-            continue
-        seen.add(key)
-        resolved.append(dict(tracker))
-    return resolved
-
-
 #: Words a human writes when they mean a boolean but YAML kept a string —
 #: ``enabled: "false"`` (quoted) is the one that matters, because for a
 #: default-ON switch a bare ``bool("false")`` is ``True``: the deployment
@@ -1196,43 +1046,6 @@ def coerce_config_flag(key: str, value: object, default: bool) -> bool:
         if token in _FALSE_WORDS:
             return False
     logger.warning("%s is %r, not a boolean; using %r instead", key, value, default)
-    return default
-
-
-def coerce_store_ceiling(value: object, default: int = DEFAULT_FEEDBACK_MAX_STORE_BYTES) -> int:
-    """Return ``web.feedback.max_store_bytes`` as a positive byte count.
-
-    Guarded rather than trusted: the pruner deletes stored contexts until the
-    store fits under this number, so a ``0``, a negative, or a ``True`` that
-    ``int()`` would happily turn into ``1`` would empty the store on the next
-    submission while looking like ordinary pruning. A human-written ``256MB``
-    is rejected the same way — this key is a plain byte count.
-
-    Args:
-        value: Whatever the config reader returned.
-        default: The shipped ceiling to fall back to.
-
-    Returns:
-        A positive integer byte ceiling.
-    """
-    if value is None:
-        return default
-    if not isinstance(value, bool):
-        try:
-            ceiling = int(value)
-        except (TypeError, ValueError, OverflowError):
-            # OverflowError is not hypothetical: YAML parses `.inf` and any
-            # overflowing exponent (1.0e+400) to float("inf"), which int()
-            # refuses. This helper is called outside the lifespan's try, so an
-            # escaping exception would abort startup outright.
-            ceiling = 0
-        if ceiling > 0:
-            return ceiling
-    logger.warning(
-        "web.feedback.max_store_bytes is %r, not a positive byte count; using %d",
-        value,
-        default,
-    )
     return default
 
 
@@ -2389,22 +2202,27 @@ def _create_lifespan(
         # facility with no config.yml still gets working Documentation and
         # Feedback controls pointed at the project defaults.
         #
-        # The four raw values are read together — a failure here means the
-        # config is unreadable, which really does concern all four — but each
-        # is validated SEPARATELY below. A single unusable value (a hand-written
-        # "256MB" ceiling, say) must not drag the others back to project
-        # defaults: silently redirecting a facility's feedback address to the
-        # upstream maintainer is exactly the failure a fail-open path must not
-        # produce.
+        # The raw values are read together — a failure here means the config is
+        # unreadable, which really does concern all of them — but each is
+        # validated SEPARATELY by the resolver. A single unusable value (a
+        # hand-written "256MB" ceiling, say) must not drag the others back to
+        # project defaults: silently redirecting a facility's feedback address
+        # to the upstream maintainer is exactly the failure a fail-open path
+        # must not produce.
+        #
+        # The two keys `web.feedback.owner` can stand in for are read with a
+        # None sentinel rather than their own default, because the resolver has
+        # to tell "absent" from "spelled, and equal to the default" to know
+        # whether the leaf outranks the owner block. Every other key reads with
+        # its default, as before.
         try:
             from osprey.utils.config import get_config_value
 
             raw_docs_url = get_config_value("web.docs_url", DEFAULT_DOCS_URL)
-            raw_github_repo = get_config_value(
-                "web.feedback.github_repo", DEFAULT_FEEDBACK_GITHUB_REPO
-            )
-            raw_email = get_config_value("web.feedback.email", DEFAULT_FEEDBACK_EMAIL)
+            raw_github_repo = get_config_value("web.feedback.github_repo", None)
+            raw_email = get_config_value("web.feedback.email", None)
             raw_trackers = get_config_value("web.feedback.trackers", None)
+            raw_owner = get_config_value("web.feedback.owner", None)
             raw_max_store_bytes = get_config_value(
                 "web.feedback.max_store_bytes", DEFAULT_FEEDBACK_MAX_STORE_BYTES
             )
@@ -2413,18 +2231,56 @@ def _create_lifespan(
                 "Could not read web.docs_url / web.feedback.* config keys; using defaults",
                 exc_info=True,
             )
-            raw_docs_url = raw_github_repo = raw_email = raw_trackers = raw_max_store_bytes = None
-        app.state.docs_url = coerce_config_str("web.docs_url", raw_docs_url, DEFAULT_DOCS_URL)
-        app.state.feedback_github_repo = coerce_config_str(
-            "web.feedback.github_repo", raw_github_repo, DEFAULT_FEEDBACK_GITHUB_REPO
+            raw_docs_url = raw_github_repo = raw_email = raw_trackers = None
+            raw_owner = raw_max_store_bytes = None
+        # One resolver, so this block and the `GET /api/panels` fallback cannot
+        # disagree: `trackers` is derived from `github_repo` and the owner
+        # block, and two copies of that derivation are two chances to drift.
+        destination = resolve_feedback_destination(
+            docs_url=raw_docs_url,
+            email=raw_email,
+            github_repo=raw_github_repo,
+            trackers=raw_trackers,
+            max_store_bytes=raw_max_store_bytes,
+            owner=raw_owner,
         )
-        app.state.feedback_trackers = resolve_feedback_trackers(
-            coerce_feedback_trackers(raw_trackers), app.state.feedback_github_repo
+        app.state.docs_url = destination.docs_url
+        app.state.feedback_github_repo = destination.github_repo
+        app.state.feedback_trackers = destination.trackers
+        app.state.feedback_email = destination.email
+        app.state.feedback_owner_name = destination.owner_name
+        app.state.feedback_max_store_bytes = destination.max_store_bytes
+
+        # ── Deployment identity + the escalation link ──
+        # A user files to whoever owns this deployment, because a user cannot
+        # know whether a bug is OSPREY's code or this facility's config. The
+        # maintainer who CAN tell then forwards the framework bugs upstream —
+        # and only will if that is nearly free, so the identity upstream would
+        # otherwise have to ask for rides along with every report, and the
+        # forwarding link is prefilled.
+        #
+        # Nothing here varies per report, so it is resolved once at startup:
+        # no per-submission composition, and no fitting to a URL length cap.
+        try:
+            from osprey.utils.config import get_config_value
+
+            raw_preset = get_config_value("provenance.preset", None)
+            raw_preset_hash = get_config_value("provenance.preset_hash", None)
+            raw_finder_mode = get_config_value("channel_finder.pipeline_mode", None)
+        except Exception:  # noqa: BLE001 — an unreadable identity is not fatal
+            logger.warning("Could not read the deployment identity keys", exc_info=True)
+            raw_preset = raw_preset_hash = raw_finder_mode = None
+        app.state.deployment_identity = resolve_deployment_identity(
+            osprey_version=osprey_version(),
+            preset=raw_preset,
+            preset_hash=raw_preset_hash,
+            channel_finder_mode=raw_finder_mode,
         )
-        app.state.feedback_email = coerce_config_str(
-            "web.feedback.email", raw_email, DEFAULT_FEEDBACK_EMAIL
+        # "" for a deployment the OSPREY project already owns — a link inviting
+        # a maintainer to forward a report to themselves is noise.
+        app.state.feedback_escalation_url = upstream_escalation_url(
+            app.state.deployment_identity, destination
         )
-        app.state.feedback_max_store_bytes = coerce_store_ceiling(raw_max_store_bytes)
 
         # The server-side stores are sited on the CONFIGURED agent-data root
         # and deliberately NOT on workspace_dir: with web_terminal.watch_dir

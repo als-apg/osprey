@@ -39,6 +39,7 @@ from osprey.interfaces.web_terminal.feedback_composer import (
     PAYLOAD_CAP_BYTES,
     PAYLOAD_SEPARATOR,
 )
+from osprey.interfaces.web_terminal.feedback_destination import resolve_deployment_identity
 from osprey.interfaces.web_terminal.routes.feedback import router
 from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 
@@ -652,6 +653,67 @@ def test_bundle_drops_the_metadata_tier_when_the_checkbox_is_off(env: _Env) -> N
 
 
 def test_bundle_keeps_the_metadata_tier_for_a_client_that_omits_the_flag(env: _Env) -> None:
+    body = env.client.post(
+        "/api/feedback/bundle",
+        json={"session_id": SESSION_ID, "text_len": 0, "scrollback": ""},
+    ).json()["bundle"]
+
+    assert "OSPREY Test Rig" in body
+
+
+def test_the_bundle_carries_the_deployment_build_facts(env: _Env) -> None:
+    """The maintainer's own copy names which build produced the report.
+
+    Lowercase here, Title Case in the browser's block: the two report builders
+    have different local conventions and render one definition
+    (``DeploymentIdentity.build_lines``) into each.
+    """
+    env.client.app.state.deployment_identity = resolve_deployment_identity(
+        preset="control-assistant",
+        preset_hash="a3f91c7d2e8b4f6a1c9d0e2f",
+        channel_finder_mode="hierarchical",
+    )
+    request = {"session_id": SESSION_ID, "text_len": 0, "scrollback": ""}
+
+    with_metadata = env.client.post("/api/feedback/bundle", json=request).json()["bundle"]
+    without = env.client.post(
+        "/api/feedback/bundle", json={**request, "include_metadata": False}
+    ).json()["bundle"]
+
+    assert "preset" in with_metadata
+    assert "control-assistant (a3f91c" in with_metadata
+    assert "hierarchical" in with_metadata
+    # The checkbox governs them, so unticked means absent.
+    assert "control-assistant" not in without
+
+
+def test_the_bundle_carries_the_escalation_link(env: _Env) -> None:
+    """The load-bearing half: forwarding a framework bug must be nearly free."""
+    env.client.app.state.feedback_escalation_url = (
+        "https://github.com/als-apg/osprey/issues/new?title=x"
+    )
+    body = env.client.post(
+        "/api/feedback/bundle",
+        json={"session_id": SESSION_ID, "text_len": 0, "scrollback": ""},
+    ).json()["bundle"]
+
+    assert "escalate to OSPREY" in body
+    assert "https://github.com/als-apg/osprey/issues/new?title=x" in body
+
+
+def test_a_deployment_the_project_owns_carries_no_escalation_link(env: _Env) -> None:
+    """An empty link is dropped, not rendered as a blank line."""
+    env.client.app.state.feedback_escalation_url = ""
+    body = env.client.post(
+        "/api/feedback/bundle",
+        json={"session_id": SESSION_ID, "text_len": 0, "scrollback": ""},
+    ).json()["bundle"]
+
+    assert "escalate" not in body.lower()
+
+
+def test_the_bundle_survives_a_deployment_with_no_identity(env: _Env) -> None:
+    """A lifespan that never ran must not cost the report."""
     body = env.client.post(
         "/api/feedback/bundle",
         json={"session_id": SESSION_ID, "text_len": 0, "scrollback": ""},
