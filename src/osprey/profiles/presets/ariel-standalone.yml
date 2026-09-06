@@ -88,3 +88,4 @@ default_panel: ariel
 # ── Config overrides ─────────────────────────────────────────────────────────
 config:
   approval.tools.entry_create: always
+  approval.tools.entry_publish: always

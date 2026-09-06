@@ -527,6 +527,13 @@ keys:
       Inert in hello_world: that template disables the ariel server, so the
       tool never exists. Harmless (fail-closed either way); recorded so it is
       not mistaken for drift.
+  approval.tools.entry_publish:
+    evidence: 'entry_publish'
+    note: >-
+      The second half of the logbook write: entry_create drafts, entry_publish
+      writes the entry through to the facility's logbook. Both carry the
+      approval hook, so both belong here. Inert in hello_world for the same
+      reason entry_create is.
   hooks:
     evidence: 'full_config\.get\("hooks", \{\}\)'
   hooks.debug:
@@ -1809,9 +1816,9 @@ governed_sets:
   claims:
     ariel_standalone:
       template: src/osprey/templates/apps/ariel_standalone/config.yml.j2
-      comment_claim: 'in this app exactly three'
+      comment_claim: 'in this app exactly four'
       exhaustive: true
-      tools: [entry_create, setup_patch, draft_concept]
+      tools: [entry_create, entry_publish, setup_patch, draft_concept]
     channel_finder_standalone:
       template: src/osprey/templates/apps/channel_finder_standalone/config.yml.j2
       comment_claim: 'the only tool it governs is the workspace setup_patch tool'
@@ -1824,8 +1831,8 @@ governed_sets:
       2026-08-27 with the method above: execute_file joined every set when the
       policy-unit rescue gave it the same approval hook as execute (they share
       one gate on the python server, so the pair moves together).
-    project: [channel_write, channel_read, archiver_read, control_target_set, execute, execute_file, setup_patch, entry_create, draft_concept]
-    control_assistant: [channel_write, channel_read, archiver_read, control_target_set, execute, execute_file, setup_patch, entry_create, draft_concept]
+    project: [channel_write, channel_read, archiver_read, control_target_set, execute, execute_file, setup_patch, entry_create, entry_publish, draft_concept]
+    control_assistant: [channel_write, channel_read, archiver_read, control_target_set, execute, execute_file, setup_patch, entry_create, entry_publish, draft_concept]
     hello_world: [channel_write, channel_read, archiver_read, control_target_set, execute, execute_file, setup_patch, draft_concept]
   draft_concept_note: >-
     draft_concept is approval-governed in project, control_assistant and

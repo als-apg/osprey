@@ -319,10 +319,21 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "status",
             "filter_options",
         ],
-        permissions_ask=["entry_create"],
+        # entry_publish is gated alongside entry_create: it is the tool that
+        # actually writes the entry through to the facility's logbook, so a
+        # deployment that prompts for the draft and not for the publish gates
+        # the half that never leaves the deployment. It is deliberately NOT
+        # writes-check gated — whether a logbook write-through belongs under
+        # the hardware kill switch is one question for every non-hardware
+        # write, and it is answered in one place, not here.
+        permissions_ask=["entry_create", "entry_publish"],
         hooks_pre=[
             HookRule(
                 matcher="mcp__ariel__entry_create",
+                hooks=[_APPROVAL],
+            ),
+            HookRule(
+                matcher="mcp__ariel__entry_publish",
                 hooks=[_APPROVAL],
             ),
         ],

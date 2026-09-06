@@ -284,15 +284,16 @@ deployed_services: []
 #   only — under `selective` every other tool is treated as `always`), skip (no
 #   approval).
 # Scope: applied by the osprey_approval PreToolUse hook, so these policies reach
-# only tools whose matcher runs that hook — in this app exactly three: ARIEL
-# `entry_create`, workspace `setup_patch`, and facility-knowledge
-# `draft_concept`. Everything else is gated by the rendered settings.json
-# permissions instead.
+# only tools whose matcher runs that hook — in this app exactly four: ARIEL
+# `entry_create` and `entry_publish`, workspace `setup_patch`, and
+# facility-knowledge `draft_concept`. Everything else is gated by the rendered
+# settings.json permissions instead.
 approval:
   enabled: true
   default_policy: "always"        # Fail-closed for hook-wired tools not listed below
   tools:
     entry_create: always           # ARIEL logbook entry creation requires approval
+    entry_publish: always          # Publishing it to the logbook does too
 
 # ── Hook observability ──────────────────────────────────────────────
 # Shipped ON. This drives three things, not just a debug print: one line per
