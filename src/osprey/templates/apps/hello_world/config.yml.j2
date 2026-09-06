@@ -224,6 +224,8 @@ approval:
     setup_patch: always            # Config mutation needs approval
     entry_create: always           # ARIEL logbook write (inert here: the
                                    # ariel server is disabled below)
+    entry_publish: always          # ARIEL logbook write-through (inert
+                                   # here for the same reason)
 
 # ── Hook observability ──────────────────────────────────────────────
 # Shipped OFF here (the readers default to false when the section is absent).

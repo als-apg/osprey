@@ -5,7 +5,7 @@ name: Human Approval Gate
 description: Requires human approval for dangerous operations based on per-tool policy
 summary: Requires human approval for dangerous operations
 event: PreToolUse
-tools: channel_write, execute, setup_patch, entry_create, queue_add, queue_start, queue_stop, queue_remove, stop_run
+tools: channel_write, execute, setup_patch, entry_create, entry_publish, queue_add, queue_start, queue_stop, queue_remove, stop_run
 safety_layer: 2
 ---
 

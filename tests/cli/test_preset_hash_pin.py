@@ -36,7 +36,14 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # `startup|resume|clear`), which is what lets a view switch wait until the
     # process is between turns. Deploy-visible, so the staleness advisory
     # firing on already-deployed projects is the correct signal.
-    "ariel-standalone": "sha256:878c0f09885509f0d7e6866d8603da3f571dfe26ec3aa5293cc437145543136a",
+    # Moved again — with control-assistant-logbook and no other preset, which
+    # is the signature of a change to the two tiers that spell an ARIEL
+    # approval policy. Both gained `approval.tools.entry_publish: always`
+    # beside their existing `entry_create` line: publishing an entry is the
+    # half that reaches the facility's logbook, and it was gated nowhere. A
+    # rebuilt project prompts before a publish, so the staleness advisory
+    # firing on already-deployed projects is the correct signal.
+    "ariel-standalone": "sha256:4b0e696201139c0b712a6f1477897680e4ad87c21ddcccc4faee24a3a3320857",
     # Moved with the shared hook list above: `turn-state`.
     "channel-finder-standalone": (
         "sha256:ead6c626c7f5a539f21110b827f2eb2e3d15e42522aafb02db0c4c72acc08883"
@@ -245,8 +252,9 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: the plan queue comes up armed.
     # Moved with the base above: the JUPYTER tab.
     # Moved with the shared hook list above: `turn-state`.
+    # Moved with ariel-standalone, not with the base: `approval.tools.entry_publish`.
     "control-assistant-logbook": (
-        "sha256:1d3091e9a09c4c6d83136ffdc5b4e1553cdbba5d419843c644d4e4dad6650e8d"
+        "sha256:3e40020a955c085e9df080ea8439b2907b192069bac57965804584b2ddc74251"
     ),
     # New: the second standalone persona. The facility knowledge graph, the
     # graph-mode channel finder and the knowledge bundle behind one shared
