@@ -1077,3 +1077,59 @@ def test_put_config_allows_an_unprotected_edit(client, gated_config, audit_zone)
     assert gated_config.read_text() == updated
     assert config_backup_path(gated_config).read_text() == before
     assert _audit_records(audit_zone) == []
+
+
+class TestConfigPanelTierGate:
+    """``web.config_panel.enabled: false`` closes the settings editor's server surface."""
+
+    def test_get_config_is_refused_when_the_panel_is_disabled(self, client, gated_config):
+        """A read is gated too: the document carries the provider base_urls."""
+        client.app.state.config_panel_enabled = False
+
+        response = client.get("/api/config")
+
+        assert response.status_code == 403
+        assert "web.config_panel.enabled" in response.json()["detail"]
+
+    def test_put_config_is_refused_when_the_panel_is_disabled(self, client, gated_config):
+        """The write is refused before the file is read, so nothing changes."""
+        before = gated_config.read_bytes()
+        client.app.state.config_panel_enabled = False
+
+        response = client.put("/api/config", json={"content": "project_name: updated\n"})
+
+        assert response.status_code == 403
+        assert "web.config_panel.enabled" in response.json()["detail"]
+        assert gated_config.read_bytes() == before
+
+    def test_the_gate_runs_before_the_protected_set(self, client, gated_config):
+        """A disabled panel never gets as far as having a key to judge."""
+        client.app.state.config_panel_enabled = False
+
+        response = client.put(
+            "/api/config",
+            json={"content": "control_system:\n  writes_enabled: false\nproject_name: x\n"},
+        )
+
+        assert response.status_code == 403
+        assert "agent_data.base_dir" not in response.json()["detail"]
+
+    def test_an_absent_key_leaves_the_panel_open(self, client, gated_config):
+        """An app whose lifespan never set the flag behaves as it always did."""
+        assert not hasattr(client.app.state, "config_panel_enabled")
+
+        assert client.get("/api/config").status_code == 200
+
+    def test_capabilities_reports_the_gate(self, client):
+        """The frontend gets the flag it needs to drop the Settings entry."""
+        client.app.state.config_panel_enabled = False
+
+        payload = client.get("/api/capabilities").json()
+
+        assert payload["config_panel_enabled"] is False
+
+    def test_capabilities_reports_an_open_panel_by_default(self, client):
+        """No flag on app.state reads as open, matching the server's own default."""
+        payload = client.get("/api/capabilities").json()
+
+        assert payload["config_panel_enabled"] is True

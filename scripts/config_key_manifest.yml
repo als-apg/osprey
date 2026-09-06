@@ -1336,7 +1336,7 @@ keys:
       on line length, so a single-line pattern reds the guard when a rename
       pushes an unrelated call past the margin.
   web.config_panel:
-    evidence: '(?:get_config_value|resolve_config_flag)\(\s*"web\.config_panel\.'
+    evidence: '(?:get_config_value|resolve_config_flag|coerce_config_flag)\(\s*"web\.config_panel\.'
     note: >-
       The block is never read as a mapping — its single leaf below carries the
       whole read, so the evidence anchors on the prefix they share and this
@@ -1344,7 +1344,7 @@ keys:
       the four templates that carry a `web:` block; hello_world has none, so
       this is deliberately not all-templates, same as `web.docs_url`.
   web.config_panel.enabled:
-    evidence: '(?:get_config_value|resolve_config_flag)\(\s*"web\.config_panel\.enabled",\s*True'
+    evidence: '(?:get_config_value|resolve_config_flag|coerce_config_flag)\(\s*"web\.config_panel\.enabled",\s*(?:[^,)]+,\s*)?True'
     note: >-
       Tier gate for the Config panel, and a SERVER-side one: false makes
       /api/config and /api/claude-setup refuse every verb with 403 and takes
