@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from urllib.parse import urlencode
 
 logger = logging.getLogger(__name__)
 
@@ -414,3 +415,183 @@ def resolve_feedback_destination(
         max_store_bytes=coerce_store_ceiling(max_store_bytes),
         owner_name=owner_name,
     )
+
+
+#: The OSPREY project's own issue tracker. A framework **constant**, not
+#: facility config: it names the upstream project, which does not vary per
+#: facility. A deployment configures where ITS reports go — never where the
+#: framework's do — which is why the config surface has one owner block rather
+#: than two configurable destinations.
+UPSTREAM_ISSUE_REPO = DEFAULT_FEEDBACK_GITHUB_REPO
+
+#: What a forwarded issue's title starts with. A prefix rather than a whole
+#: title: the maintainer has diagnosed the bug and is the one who can name it,
+#: and a canned title would survive into a tracker unedited.
+UPSTREAM_ISSUE_TITLE_PREFIX = "[forwarded] "
+
+#: How much of the preset content hash a report prints. Long enough to pin a
+#: build, short enough to read in a metadata line; the same shortening
+#: ``osprey build``'s drift advisory uses.
+PRESET_HASH_CHARS = 19
+
+
+def osprey_version() -> str:
+    """The running OSPREY version, or ``"unknown"`` when it cannot be read.
+
+    Never raises. Every caller is composing a feedback report or a deployment
+    identity, and losing a bug report over a version lookup would be absurd.
+    """
+    try:
+        from osprey import __version__
+
+        return str(__version__)
+    except Exception:  # noqa: BLE001 — a version lookup must not lose the report
+        logger.debug("could not read the OSPREY version", exc_info=True)
+        return "unknown"
+
+
+@dataclass(frozen=True)
+class DeploymentIdentity:
+    """Which OSPREY this is — what a forwarded report must not make anyone re-derive.
+
+    A facility maintainer who decides a report is a framework bug forwards it
+    upstream, and upstream then needs to know what was actually running. Asking
+    for that afterwards costs a round trip through two people and usually loses
+    the report, so it rides along from the start.
+
+    Every field degrades to ``""`` and an empty field is simply not printed: an
+    identity is a convenience for the reader, and a deployment whose provenance
+    cannot be read must still be able to file feedback.
+    """
+
+    osprey_version: str = ""
+    """``osprey.__version__`` as the server sees it."""
+
+    preset: str = ""
+    """``provenance.preset`` — which shipped preset this profile was built from."""
+
+    preset_hash: str = ""
+    """``provenance.preset_hash`` — the content fingerprint of that preset, so a
+    locally edited profile is distinguishable from the shipped one."""
+
+    channel_finder_mode: str = ""
+    """``channel_finder.pipeline_mode`` — the single biggest behavioural fork
+    between two otherwise identical deployments."""
+
+    def build_lines(self) -> dict[str, str]:
+        """The BUILD facts as report-metadata lines, empty fields dropped.
+
+        Deliberately excludes the version: both report builders already have
+        their own source for it (the server reads the package, the browser
+        reads ``/health``), and a second copy here would render it twice.
+
+        The preset and its hash render as one line rather than two. They are
+        one fact — "this build" — and a hash with no preset beside it tells a
+        reader nothing they can act on.
+
+        Labels are canonical Title Case. The two report builders write their
+        blocks in different cases (the server's are lowercase, the browser's
+        Title Case), which predates this and is not worth a format change to
+        an already-shipped record; the server lowercases these on the way in,
+        so both still render one set of facts from one definition.
+        """
+        lines: dict[str, str] = {}
+        if self.preset:
+            digest = self.preset_hash[:PRESET_HASH_CHARS]
+            lines["Preset"] = f"{self.preset} ({digest}…)" if digest else self.preset
+        if self.channel_finder_mode:
+            lines["Channel finder"] = self.channel_finder_mode
+        return lines
+
+    def as_metadata(self) -> dict[str, str]:
+        """The whole identity — the version, then the build facts."""
+        version = {"OSPREY version": self.osprey_version} if self.osprey_version else {}
+        return {**version, **self.build_lines()}
+
+
+def resolve_deployment_identity(
+    *,
+    osprey_version: object = None,
+    preset: object = None,
+    preset_hash: object = None,
+    channel_finder_mode: object = None,
+) -> DeploymentIdentity:
+    """Coerce the raw identity facts, dropping anything unusable.
+
+    Pure, like :func:`resolve_feedback_destination`, and for the same reason:
+    the config reads stay where the config-key manifest can see them.
+
+    Nothing here warns. Unlike a feedback address, a missing identity field
+    costs a maintainer a question rather than sending a report to the wrong
+    place, and a deployment built before provenance was stamped is not
+    misconfigured — it simply cannot answer.
+
+    Args:
+        osprey_version: The running version.
+        preset: Raw ``provenance.preset``.
+        preset_hash: Raw ``provenance.preset_hash``.
+        channel_finder_mode: Raw ``channel_finder.pipeline_mode``.
+
+    Returns:
+        A :class:`DeploymentIdentity` with unusable fields left ``""``.
+    """
+
+    def _text(value: object) -> str:
+        return value.strip() if isinstance(value, str) else ""
+
+    return DeploymentIdentity(
+        osprey_version=_text(osprey_version),
+        preset=_text(preset),
+        preset_hash=_text(preset_hash),
+        channel_finder_mode=_text(channel_finder_mode),
+    )
+
+
+def upstream_escalation_url(identity: DeploymentIdentity, destination: FeedbackDestination) -> str:
+    """A prefilled upstream issue for a maintainer forwarding a framework bug.
+
+    This is the load-bearing half of the one-destination model. Users file to
+    whoever owns the deployment, because a user cannot know whether a bug is
+    OSPREY's code or the facility's configuration — working that out is usually
+    the point of the report. The distinction is still made, just by the person
+    who can actually make it. That only holds if forwarding is nearly free:
+    a maintainer who has to open a tracker, re-describe the deployment and
+    re-explain the bug will answer their user and upstream will never hear it.
+
+    So the URL is prefilled with the deployment's identity and carries **no**
+    user content. That is not a size compromise, it is the right split:
+
+    * The maintainer is forwarding a bug they have now diagnosed, and their
+      diagnosis is the valuable part. Prefilling the user's raw words would
+      invite forwarding them unread.
+    * A session id refers to a transcript on the *facility's* deployment and
+      is unreadable upstream, so carrying it would only mislead.
+    * Nothing varies per report, so the URL is resolved once at startup rather
+      than composed per submission, and never has to be fitted to a length cap.
+
+    Returns ``""`` when this deployment's reports already reach the OSPREY
+    project — an unconfigured deployment IS owned by the project, and a link
+    inviting a maintainer to forward a report to themselves is noise.
+
+    Args:
+        identity: What is running here.
+        destination: The resolved destination, consulted only to detect that
+            the owner is already the upstream project.
+
+    Returns:
+        A ``https://github.com/.../issues/new`` URL, or ``""``.
+    """
+    if any(
+        tracker.get("kind") == "github" and tracker.get("repo") == UPSTREAM_ISSUE_REPO
+        for tracker in destination.trackers
+    ):
+        return ""
+
+    body_lines = ["Forwarded by a deployment maintainer.", ""]
+    body_lines += [f"- **{key}:** {value}" for key, value in identity.as_metadata().items()]
+    if destination.owner_name:
+        body_lines.append(f"- **Deployment:** {destination.owner_name}")
+    body_lines += ["", "Describe the framework bug and paste what the user reported."]
+
+    query = urlencode({"title": UPSTREAM_ISSUE_TITLE_PREFIX, "body": "\n".join(body_lines)})
+    return f"https://github.com/{UPSTREAM_ISSUE_REPO}/issues/new?{query}"

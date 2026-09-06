@@ -90,8 +90,9 @@ export const ARTIFACT_WINDOW_DISCLOSURE =
 export const FEEDBACK_DISCLOSURE_PARAGRAPHS = Object.freeze([
   'Always sent: the feedback text you type, a timestamp, and your username ' +
     'when the deployment knows it.',
-  'Deployment metadata (on by default): the OSPREY version, the application ' +
-    'name, and your browser.',
+  'Deployment metadata (on by default): the OSPREY version, which preset this ' +
+    'deployment was built from, its channel-finder mode, the application name, ' +
+    'and your browser.',
   'Session context (off by default): this session’s id, its tool-call and ' +
     'agent event log, its chat history, and the terminal scrollback. It is ' +
     'triaged newest-first and truncated to fit a size budget, so a long ' +

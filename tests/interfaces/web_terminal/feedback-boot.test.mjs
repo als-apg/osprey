@@ -704,6 +704,89 @@ describe('outbound channels', () => {
     expect(body).toContain('9.9.9');
   });
 
+  test('the prefilled body carries the deployment build facts', async () => {
+    // Preset and channel-finder mode are what let a maintainer forward a
+    // framework bug without anyone re-deriving what was running.
+    booted = await boot({
+      panels: {
+        docs_url: DOCS_URL,
+        feedback_trackers: [GH_TRACKER],
+        feedback_deployment: {
+          Preset: 'control-assistant (a3f91c7d2e8b4f6a1c9…)',
+          'Channel finder': 'hierarchical',
+        },
+      },
+    });
+    booted.fetch.mockImplementation(() => new Promise(() => {}));
+    clickFeedbackButton();
+    typeReport('a report');
+    pickChannel(GH);
+
+    qs(document, '.feedback-open-channel').click();
+
+    const body = decodeURIComponent(booted.windowOpen.mock.calls[0][0]);
+    expect(body).toContain('control-assistant (a3f91c7d2e8b4f6a1c9…)');
+    expect(body).toContain('hierarchical');
+  });
+
+  test('a configured deployment carries the escalation link', async () => {
+    const escalate = 'https://github.com/als-apg/osprey/issues/new?title=x';
+    booted = await boot({
+      panels: {
+        docs_url: DOCS_URL,
+        feedback_trackers: [GH_TRACKER],
+        feedback_escalation_url: escalate,
+      },
+    });
+    booted.fetch.mockImplementation(() => new Promise(() => {}));
+    clickFeedbackButton();
+    typeReport('a report');
+    pickChannel(GH);
+
+    qs(document, '.feedback-open-channel').click();
+
+    const body = decodeURIComponent(booted.windowOpen.mock.calls[0][0]);
+    expect(body).toContain('Escalate to OSPREY');
+    expect(body).toContain(escalate);
+  });
+
+  test('a deployment the project owns carries no escalation link', async () => {
+    // The server sends "" for it, and an empty metadata value is dropped —
+    // a link inviting a maintainer to forward a report to themselves is noise.
+    booted = await boot({
+      panels: { docs_url: DOCS_URL, feedback_trackers: [GH_TRACKER], feedback_escalation_url: '' },
+    });
+    booted.fetch.mockImplementation(() => new Promise(() => {}));
+    clickFeedbackButton();
+    typeReport('a report');
+    pickChannel(GH);
+
+    qs(document, '.feedback-open-channel').click();
+
+    const body = decodeURIComponent(booted.windowOpen.mock.calls[0][0]);
+    expect(body).not.toContain('Escalate to OSPREY');
+  });
+
+  test('an unusable build-facts payload is dropped, not printed', async () => {
+    booted = await boot({
+      panels: {
+        docs_url: DOCS_URL,
+        feedback_trackers: [GH_TRACKER],
+        feedback_deployment: { Preset: { nested: 'object' }, 'Channel finder': 'graph' },
+      },
+    });
+    booted.fetch.mockImplementation(() => new Promise(() => {}));
+    clickFeedbackButton();
+    typeReport('a report');
+    pickChannel(GH);
+
+    qs(document, '.feedback-open-channel').click();
+
+    const body = decodeURIComponent(booted.windowOpen.mock.calls[0][0]);
+    expect(body).not.toContain('[object Object]');
+    expect(body).toContain('graph');
+  });
+
   test('a deployment with no trackers offers no tracker radio at all', async () => {
     // The blank-`github_repo` posture: the server resolves it to an empty
     // list, and an empty list is not a channel that refuses — it is no

@@ -15,6 +15,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import unquote_plus
 
 import pytest
 from fastapi import FastAPI
@@ -29,8 +30,10 @@ from osprey.interfaces.web_terminal.feedback_destination import (
     coerce_config_str,
     coerce_feedback_trackers,
     coerce_store_ceiling,
+    resolve_deployment_identity,
     resolve_feedback_destination,
     resolve_feedback_trackers,
+    upstream_escalation_url,
 )
 from osprey.interfaces.web_terminal.routes.panels import router as panels_router
 
@@ -668,3 +671,109 @@ class TestFeedbackOwner:
             {"kind": "gitlab", "label": "GitLab", "url": GITLAB_URL}
         ]
         assert app.state.feedback_owner_name == "ALS Controls"
+
+
+class TestDeploymentIdentityAndEscalation:
+    """What a forwarded report carries, and when the forwarding link exists.
+
+    A user files to whoever owns the deployment because a user cannot know
+    whether a bug is OSPREY's code or the facility's configuration. That only
+    works if the maintainer who *can* tell forwards the framework bugs — and
+    they only will if forwarding is nearly free.
+    """
+
+    IDENTITY = {
+        "osprey_version": "2026.9.0b1",
+        "preset": "control-assistant",
+        "preset_hash": "a3f91c7d2e8b4f6a1c9d0e2f",
+        "channel_finder_mode": "hierarchical",
+    }
+
+    def test_build_lines_omit_the_version(self):
+        """Both report builders already have their own source for it."""
+        identity = resolve_deployment_identity(**self.IDENTITY)
+        assert "OSPREY version" not in identity.build_lines()
+        assert identity.as_metadata()["OSPREY version"] == "2026.9.0b1"
+
+    def test_the_preset_and_its_hash_render_as_one_fact(self):
+        identity = resolve_deployment_identity(**self.IDENTITY)
+        assert identity.build_lines()["Preset"].startswith("control-assistant (a3f91c")
+        assert identity.build_lines()["Channel finder"] == "hierarchical"
+
+    def test_a_preset_with_no_hash_still_renders(self):
+        identity = resolve_deployment_identity(preset="control-assistant")
+        assert identity.build_lines() == {"Preset": "control-assistant"}
+
+    @pytest.mark.parametrize("bad", [None, 3, [], {"a": 1}, "   "])
+    def test_unusable_identity_fields_are_dropped_not_printed(self, bad):
+        identity = resolve_deployment_identity(preset=bad, channel_finder_mode=bad)
+        assert identity.build_lines() == {}
+
+    def test_a_configured_deployment_gets_an_escalation_link(self):
+        destination = resolve_feedback_destination(
+            owner={"name": "ALS Controls", "email": "c@x.org", "tracker": OWNER_GITLAB}
+        )
+        url = upstream_escalation_url(resolve_deployment_identity(**self.IDENTITY), destination)
+        assert url.startswith(f"https://github.com/{DEFAULT_FEEDBACK_GITHUB_REPO}/issues/new?")
+        decoded = unquote_plus(url)
+        assert "control-assistant" in decoded
+        assert "hierarchical" in decoded
+        assert "2026.9.0b1" in decoded
+        assert "ALS Controls" in decoded
+
+    def test_the_unconfigured_deployment_gets_no_link(self):
+        """Its owner IS the OSPREY project — the link would point at itself."""
+        url = upstream_escalation_url(
+            resolve_deployment_identity(**self.IDENTITY), resolve_feedback_destination()
+        )
+        assert url == ""
+
+    def test_a_facility_that_also_files_upstream_gets_no_link(self):
+        """Reports already reach the project, so there is nothing to forward."""
+        destination = resolve_feedback_destination(
+            trackers=[{"kind": "github", "repo": DEFAULT_FEEDBACK_GITHUB_REPO, "label": "Up"}],
+            owner={"email": "c@x.org", "tracker": OWNER_GITLAB},
+        )
+        assert upstream_escalation_url(resolve_deployment_identity(), destination) == ""
+
+    def test_the_link_carries_no_user_content(self):
+        """It is built once at startup, so nothing per-report can leak into it."""
+        destination = resolve_feedback_destination(owner={"tracker": OWNER_GITLAB})
+        url = upstream_escalation_url(resolve_deployment_identity(**self.IDENTITY), destination)
+        decoded = unquote_plus(url)
+        assert "session" not in decoded.lower()
+        assert "paste what the user reported" in decoded
+
+    def test_an_identity_that_cannot_be_read_still_yields_a_link(self):
+        """A deployment with no provenance can still forward a bug."""
+        destination = resolve_feedback_destination(owner={"tracker": OWNER_GITLAB})
+        url = upstream_escalation_url(resolve_deployment_identity(), destination)
+        assert url.startswith("https://github.com/")
+
+    def test_the_running_deployment_publishes_both(self, project_dir, shared_root):
+        """End to end: lifespan resolves them, /api/panels echoes them."""
+        overrides = {
+            "web.feedback.owner": {"name": "ALS Controls", "tracker": OWNER_GITLAB},
+            "provenance.preset": "control-assistant",
+            "provenance.preset_hash": "a3f91c7d2e8b4f6a1c9d0e2f",
+            "channel_finder.pipeline_mode": "hierarchical",
+        }
+        with _lifespan_client(project_dir, shared_root, overrides=overrides) as (client, _app):
+            payload = client.get("/api/panels").json()
+        assert payload["feedback_deployment"]["Channel finder"] == "hierarchical"
+        assert payload["feedback_deployment"]["Preset"].startswith("control-assistant (a3f91c")
+        assert DEFAULT_FEEDBACK_GITHUB_REPO in payload["feedback_escalation_url"]
+
+    def test_an_unconfigured_deployment_publishes_an_empty_link(self, project_dir, shared_root):
+        with _lifespan_client(project_dir, shared_root) as (client, _app):
+            payload = client.get("/api/panels").json()
+        assert payload["feedback_escalation_url"] == ""
+
+    def test_the_route_survives_a_lifespan_that_never_ran(self):
+        """The getattr fallbacks cover the new fields too."""
+        app = FastAPI()
+        app.include_router(panels_router)
+        app.state.project_cwd = "/tmp"
+        payload = TestClient(app).get("/api/panels").json()
+        assert payload["feedback_deployment"] == {}
+        assert payload["feedback_escalation_url"] == ""

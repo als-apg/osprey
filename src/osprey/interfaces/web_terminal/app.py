@@ -41,7 +41,10 @@ from osprey.interfaces.web_terminal.bar_items_store import (
 from osprey.interfaces.web_terminal.feedback_destination import (
     DEFAULT_DOCS_URL,
     DEFAULT_FEEDBACK_MAX_STORE_BYTES,
+    osprey_version,
+    resolve_deployment_identity,
     resolve_feedback_destination,
+    upstream_escalation_url,
 )
 from osprey.interfaces.web_terminal.file_watcher import (
     FileEventBroadcaster,
@@ -2246,6 +2249,37 @@ def _create_lifespan(
         app.state.feedback_email = destination.email
         app.state.feedback_owner_name = destination.owner_name
         app.state.feedback_max_store_bytes = destination.max_store_bytes
+
+        # ── Deployment identity + the escalation link ──
+        # A user files to whoever owns this deployment, because a user cannot
+        # know whether a bug is OSPREY's code or this facility's config. The
+        # maintainer who CAN tell then forwards the framework bugs upstream —
+        # and only will if that is nearly free, so the identity upstream would
+        # otherwise have to ask for rides along with every report, and the
+        # forwarding link is prefilled.
+        #
+        # Nothing here varies per report, so it is resolved once at startup:
+        # no per-submission composition, and no fitting to a URL length cap.
+        try:
+            from osprey.utils.config import get_config_value
+
+            raw_preset = get_config_value("provenance.preset", None)
+            raw_preset_hash = get_config_value("provenance.preset_hash", None)
+            raw_finder_mode = get_config_value("channel_finder.pipeline_mode", None)
+        except Exception:  # noqa: BLE001 — an unreadable identity is not fatal
+            logger.warning("Could not read the deployment identity keys", exc_info=True)
+            raw_preset = raw_preset_hash = raw_finder_mode = None
+        app.state.deployment_identity = resolve_deployment_identity(
+            osprey_version=osprey_version(),
+            preset=raw_preset,
+            preset_hash=raw_preset_hash,
+            channel_finder_mode=raw_finder_mode,
+        )
+        # "" for a deployment the OSPREY project already owns — a link inviting
+        # a maintainer to forward a report to themselves is noise.
+        app.state.feedback_escalation_url = upstream_escalation_url(
+            app.state.deployment_identity, destination
+        )
 
         # The server-side stores are sited on the CONFIGURED agent-data root
         # and deliberately NOT on workspace_dir: with web_terminal.watch_dir

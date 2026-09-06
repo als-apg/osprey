@@ -231,6 +231,8 @@ async def get_panels(request: Request):
             "docs_url": str,            # target of the rail's Documentation control
             "feedback_trackers": [...],  # [{"kind", "label", "repo"|"url"}], render order
             "feedback_email": str,      # recipient of the prefilled mailto: draft
+            "feedback_deployment": {...},  # identity lines for a report's metadata
+            "feedback_escalation_url": str,  # prefilled upstream issue; "" upstream
         }
 
     ``project_key`` is an opaque, stable per-project identifier (16 hex chars,
@@ -382,6 +384,14 @@ async def get_panels(request: Request):
     docs_url = getattr(request.app.state, "docs_url", unconfigured.docs_url)
     feedback_trackers = getattr(request.app.state, "feedback_trackers", unconfigured.trackers)
     feedback_email = getattr(request.app.state, "feedback_email", unconfigured.email)
+    # What the browser stamps into a prefilled draft's metadata block, and the
+    # link a maintainer forwards a framework bug by. Both are resolved once at
+    # startup; the browser renders them and invents nothing. Absent state (or a
+    # deployment the OSPREY project already owns) leaves them empty, and an
+    # empty metadata value is dropped by the body composer.
+    identity = getattr(request.app.state, "deployment_identity", None)
+    feedback_deployment = identity.build_lines() if identity is not None else {}
+    feedback_escalation_url = getattr(request.app.state, "feedback_escalation_url", "")
     # Onboarding tour: the resolved invite policy, the derived capability
     # list for the "Ask in plain language" card, and whether the logbook
     # (ARIEL panel) is available. All resolved at startup (web.tour /
@@ -415,6 +425,8 @@ async def get_panels(request: Request):
         "docs_url": docs_url,
         "feedback_trackers": [dict(tracker) for tracker in feedback_trackers],
         "feedback_email": feedback_email,
+        "feedback_deployment": feedback_deployment,
+        "feedback_escalation_url": feedback_escalation_url,
         "config_panel_enabled": config_panel_enabled,
         "scaffold_write_enabled": scaffold_write_enabled,
         "tour": tour,

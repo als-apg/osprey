@@ -1409,6 +1409,25 @@ keys:
     {rendered: false, covered-by: web.feedback.owner.tracker}
   web.feedback.owner.tracker.label:
     {rendered: false, covered-by: web.feedback.owner.tracker}
+  provenance:
+    # Stamped into the RESOLVED config by build_profile_emit, never written in
+    # a template, so it is not part of the rendered union and carries
+    # rendered: false rather than an all-templates disposition.
+    rendered: false
+    evidence: 'get_config_value\("provenance\.'
+    note: >-
+      Build provenance, and — since the feedback destination gained an
+      escalation path — read at run time after all. The web terminal stamps
+      the preset and its content hash into a feedback report so a facility
+      maintainer can forward a framework bug upstream without anyone
+      re-deriving what was running. The evidence anchors on the prefix the
+      two leaf readers share, so this entry dies with the last of them.
+  provenance.preset:
+    rendered: false
+    evidence: 'get_config_value\("provenance\.preset", None\)'
+  provenance.preset_hash:
+    rendered: false
+    evidence: 'get_config_value\("provenance\.preset_hash", None\)'
   web.feedback.max_store_bytes:
     evidence: 'get_config_value\(\s*"web\.feedback\.max_store_bytes",\s*DEFAULT_FEEDBACK_MAX_STORE_BYTES\s*\)'
   web.channel_suggestions: {evidence: 'web\.get\("channel_suggestions"\)'}
