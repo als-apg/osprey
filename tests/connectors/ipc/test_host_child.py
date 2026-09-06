@@ -47,6 +47,7 @@ from osprey_connectors.control_system.base import (
 )
 from osprey_connectors.control_system.mock_connector import MockConnector
 from osprey_connectors.ipc import frames, host
+from tests._control_context_fixtures import write_control_context
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PYTHONPATH = os.pathsep.join(
@@ -660,9 +661,6 @@ DISTINCT_VA_GATEWAYS = {
 #: The port an unset virtual-accelerator gateway follows.
 VA_SERVICE_PORT = 5064
 
-#: The posture-store key this session is stamped with.
-POSTURE_SESSION = "chip-session"
-
 
 def _va_config(gateways):
     """A switch-capable deployment whose virtual accelerator is armed."""
@@ -746,16 +744,13 @@ def va_deployment(tmp_path, monkeypatch):
 def narrowed_va(tmp_path, monkeypatch):
     """An operator narrowing of ``va`` to read-only, in reach of this process.
 
-    The narrowing lives in the per-(session, target) posture store, keyed by
-    ``OSPREY_POSTURE_SESSION`` under ``OSPREY_AGENT_DATA_ROOT`` — the fixture
-    idiom of ``tests/connectors/test_session_store.py``.
+    The narrowing lives in the deployment's control-context record under
+    ``OSPREY_AGENT_DATA_ROOT``, so every process on the deployment — this one
+    and the connector-host child it spawns — reads the same one.
     """
     root = tmp_path / "agent-data"
-    store = root / session_store.STATE_DIR_NAME / session_store.STORE_FILENAME
-    store.parent.mkdir(parents=True)
-    store.write_text(json.dumps({POSTURE_SESSION: {"va": session_store.POSTURE_SANDBOX}}))
+    write_control_context(root, posture={"va": session_store.POSTURE_SANDBOX})
     monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    monkeypatch.setenv("OSPREY_POSTURE_SESSION", POSTURE_SESSION)
     session_store.invalidate_cache()
     yield root
     session_store.invalidate_cache()

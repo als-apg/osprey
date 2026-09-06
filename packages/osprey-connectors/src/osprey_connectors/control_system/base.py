@@ -410,7 +410,7 @@ def _session_store_permits(control_target: str | None) -> bool:
     # loading.
     from osprey_connectors import session_store
 
-    return session_store.store_permits(_posture_session(), control_target)
+    return session_store.store_permits(control_target)
 
 
 def _deployment_writes_enabled(connector_type: str | None) -> bool:

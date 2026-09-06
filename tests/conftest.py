@@ -1083,3 +1083,64 @@ def graphdb_plugin_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     from tests._graphdb_container import resolve_plugin_dir
 
     return resolve_plugin_dir(tmp_path_factory)
+
+
+# ===================================================================
+# Control context — the record and the per-server reports
+# ===================================================================
+#
+# Re-exported from ``tests._control_context_fixtures`` so that every suite
+# downstream of the control target writes the two files the same way, and a
+# schema change fails all of them at once instead of one at a time. The
+# writers are plain functions there for suites that would rather import them
+# at module level; these are the factory fixtures that hand the same functions
+# to a test that asks for them by name.
+
+
+@pytest.fixture
+def write_control_context():
+    """Write a control-context record under an explicit agent-data root.
+
+    ``write_control_context(root, target="va", generation=3,
+    posture={"va": "sandbox"})`` — see
+    :func:`tests._control_context_fixtures.write_control_context` for the
+    owner and ``last_switch`` arguments. Defaults to a record this process
+    owns, so a test gets a live owner without asking for one.
+    """
+    from tests._control_context_fixtures import write_control_context as _write
+
+    return _write
+
+
+@pytest.fixture
+def write_server_report():
+    """Write one controls server's report under an explicit agent-data root.
+
+    ``write_server_report(root, 4321, session="s", applied_target="va",
+    applied_generation=3)`` — see
+    :func:`tests._control_context_fixtures.write_server_report`. Every field
+    but the PID defaults to "this server has not answered yet".
+    """
+    from tests._control_context_fixtures import write_server_report as _write
+
+    return _write
+
+
+@pytest.fixture
+def control_context_root(tmp_path, monkeypatch):
+    """A scratch agent-data root, stamped, with the reader cache dropped.
+
+    The three lines every control-context suite opens with: a root that exists,
+    ``OSPREY_AGENT_DATA_ROOT`` pointing at it, and no record parsed from a
+    previous test still held in the module cache. The ``control_target/``
+    directory is created, so a test can write a raw file into it without
+    reaching for ``mkdir`` first.
+    """
+    from osprey_connectors import control_context, session_store
+
+    root = tmp_path / "agent_data"
+    (root / session_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    control_context.invalidate_cache()
+    yield root
+    control_context.invalidate_cache()

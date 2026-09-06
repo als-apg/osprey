@@ -16,12 +16,11 @@ truth table for both rather than deriving one from the other.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import pytest
 
-from osprey_connectors import session_store
+from osprey_connectors import control_context, session_store
 from osprey_connectors.control_system import base as connector_base
 from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
@@ -44,6 +43,7 @@ from osprey_connectors.types import (
     type_writes_enabled,
     writes_enabled_key,
 )
+from tests._control_context_fixtures import write_control_context
 
 CUSTOM_TYPE = "mypackage.MoatConnector"
 
@@ -825,17 +825,15 @@ def test_the_union_is_true_when_one_reachable_target_is_armed():
 #
 # Everything above is the deployment's own posture: what a config says, read
 # from a config. The monitor ANDs two live terms with it — the readonly run and
-# the operator's per-(session, target) narrowing — and the second is the reason
-# this section exists. A target flipped to read-only from the control-target
-# chip has to refuse the very next write on a session that is already running,
-# so the store is read on every call rather than cached with the config.
+# the operator's per-target narrowing — and the second is the reason this
+# section exists. A target flipped to read-only from the control-target chip
+# has to refuse the very next write on a session that is already running, so
+# the record is read on every call rather than cached with the config.
 #
 # The tests drive ``connector.write_channel`` rather than the ``_writes_enabled``
 # property, because the property is only half of what an operator meets: the
 # other half is the refusal message, which forks four ways and is the only thing
 # telling them which of the four refused and where to lift it.
-
-SESSION_KEY = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
 #: A switch-capable deployment with live (epics) and the VA both armed, and the
 #: stand-in inheriting the deployment-wide ``false``.
@@ -932,42 +930,34 @@ def deployment(monkeypatch):
 
 @pytest.fixture
 def store(tmp_path, monkeypatch):
-    """A scratch posture store, and the two stamps that make it readable.
+    """A scratch control-context record, and the stamp that makes it readable.
 
-    The session key starts UNSET even though the root is stamped: a store the
-    session key does not address is a store nobody reads, and several tests
-    below are exactly that case. ``.addressed()`` stamps the key.
+    The narrowings the monitor reads are the record's ``posture`` map, per
+    target and deployment-wide: every process on this deployment reads the same
+    one, so there is no addressing step and nothing a narrowing can fail to
+    reach.
     """
     root = tmp_path / "agent_data"
-    directory = root / session_store.STATE_DIR_NAME
-    directory.mkdir(parents=True)
+    (root / session_store.STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    monkeypatch.delenv(connector_base.POSTURE_SESSION_ENV_VAR, raising=False)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     # The executor's run-level pin, cleared like the mode: it is ANDed into
     # every store answer, so a stamp inherited from the environment this suite
-    # runs in would refuse writes in tests that are about the store alone.
+    # runs in would refuse writes in tests that are about the record alone.
     monkeypatch.delenv(session_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
     session_store.invalidate_cache()
 
     class _Store:
-        key = SESSION_KEY
-        path = directory / session_store.STORE_FILENAME
-
-        @staticmethod
-        def addressed() -> None:
-            """Stamp the session key, so the store is this session's to read."""
-            monkeypatch.setenv(connector_base.POSTURE_SESSION_ENV_VAR, SESSION_KEY)
+        path = control_context.record_path_under(root)
 
         @classmethod
         def narrow(cls, **targets: str) -> None:
-            """Record ``{target: posture}`` for this session key."""
-            cls.write({SESSION_KEY: dict(targets)})
+            """Record ``{target: posture}`` as the deployment's narrowing."""
+            cls.write(dict(targets))
 
-        @classmethod
-        def write(cls, payload: Any) -> None:
-            cls.path.write_text(json.dumps(payload), encoding="utf-8")
-            session_store.invalidate_cache()
+        @staticmethod
+        def write(posture: Any) -> None:
+            write_control_context(root, posture=posture)
 
     yield _Store
     session_store.invalidate_cache()
@@ -986,7 +976,6 @@ class TestTheConnectorReferenceMonitor:
         """
         # Arrange
         deployment(ARMED_SECTION)
-        store.addressed()
         store.narrow(standin=session_store.POSTURE_SANDBOX)
         narrowed = _built(EPICS, TARGET_STANDIN)
         untouched = _built(EPICS, TARGET_VA)
@@ -1013,7 +1002,6 @@ class TestTheConnectorReferenceMonitor:
         """
         # Arrange
         deployment(ARMED_SECTION)
-        store.addressed()
         store.narrow(standin=session_store.POSTURE_SANDBOX)
         connector = _built(EPICS, TARGET_STANDIN)
 
@@ -1041,7 +1029,6 @@ class TestTheConnectorReferenceMonitor:
         """
         # Arrange
         deployment(ARMED_SECTION)
-        store.addressed()
         connector = _built(EPICS, TARGET_STANDIN)
 
         # Act
@@ -1060,7 +1047,6 @@ class TestTheConnectorReferenceMonitor:
         """The multi-write guard forks the same four ways, per operation."""
         # Arrange
         deployment(ARMED_SECTION)
-        store.addressed()
         store.narrow(standin=session_store.POSTURE_SANDBOX)
         connector = _built(EPICS, TARGET_STANDIN)
 
@@ -1074,12 +1060,12 @@ class TestTheConnectorReferenceMonitor:
 
     @pytest.mark.unit
     @pytest.mark.asyncio
-    async def test_without_a_session_key_the_store_is_not_consulted(self, deployment, store):
-        """Nothing addressed this session, so nothing narrowed it.
+    async def test_the_narrowing_reaches_a_process_that_carries_no_session(self, deployment, store):
+        """The narrowing is the deployment's, so nothing has to be addressed.
 
-        The entry in the file belongs to a session key this process does not
-        carry. A process that read it anyway would let one operator's narrowing
-        refuse writes for a CLI run, a dispatch worker or another operator.
+        A CLI run, a dispatch worker and a bare agent hold no session of their
+        own. Each of them writes to the same machine an operator took away, so
+        each of them reads the same record and is refused by it.
         """
         # Arrange
         deployment(ARMED_SECTION)
@@ -1090,8 +1076,9 @@ class TestTheConnectorReferenceMonitor:
         result = await connector.write_channel("S:CORR:1:SP", 0.5)
 
         # Assert
-        assert result.outcome is WriteOutcome.CONFIRMED
-        assert connector.writes == [("S:CORR:1:SP", 0.5)]
+        assert result.outcome is WriteOutcome.REFUSED
+        assert "control-target chip in the header" in result.error_message
+        assert connector.writes == []
 
     @pytest.mark.unit
     @pytest.mark.asyncio
@@ -1103,7 +1090,6 @@ class TestTheConnectorReferenceMonitor:
         """
         # Arrange
         deployment(ARMED_SECTION)
-        store.addressed()
         connector = _built(EPICS, None)
 
         # Act / Assert — one narrowed entry anywhere is enough
@@ -1111,7 +1097,7 @@ class TestTheConnectorReferenceMonitor:
         assert (await connector.write_channel("A:SP", 1.0)).outcome is WriteOutcome.REFUSED
 
         # Act / Assert — and nothing narrowed leaves the deployment in charge
-        store.write({SESSION_KEY: {}})
+        store.write({})
         assert (await connector.write_channel("A:SP", 1.0)).outcome is WriteOutcome.CONFIRMED
 
     @pytest.mark.unit
@@ -1120,7 +1106,6 @@ class TestTheConnectorReferenceMonitor:
         """Naming a target it does not have would be a lie an operator acts on."""
         # Arrange
         deployment(ARMED_SECTION)
-        store.addressed()
         store.narrow(standin=session_store.POSTURE_SANDBOX)
         connector = _built(EPICS, None)
 
@@ -1142,7 +1127,6 @@ class TestTheConnectorReferenceMonitor:
         """
         # Arrange
         deployment({"type": EPICS, "writes_enabled": False, "connector": {"epics": {}}})
-        store.addressed()
         store.narrow(standin=session_store.POSTURE_WRITES, va=session_store.POSTURE_WRITES)
         connector = _built(EPICS, TARGET_STANDIN)
 
@@ -1166,7 +1150,6 @@ class TestTheConnectorReferenceMonitor:
         """
         # Arrange
         deployment({"type": EPICS, "writes_enabled": False, "connector": {"epics": {}}})
-        store.addressed()
         store.narrow(standin=session_store.POSTURE_SANDBOX)
         connector = _built(EPICS, TARGET_STANDIN)
 
@@ -1184,7 +1167,6 @@ class TestTheConnectorReferenceMonitor:
         from the chip is the one worth naming."""
         # Arrange
         deployment(ARMED_SECTION)
-        store.addressed()
         store.narrow(standin=session_store.POSTURE_SANDBOX)
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
         connector = _built(EPICS, TARGET_STANDIN)
@@ -1221,19 +1203,15 @@ class TestTheMonitorAndTheStoreRuleAgree:
         ],
         ids=["nothing", "standin", "va", "everything"],
     )
-    @pytest.mark.parametrize("addressed", [True, False], ids=["addressed", "unaddressed"])
-    async def test_the_two_answers_match(self, deployment, store, target, narrowed, addressed):
+    async def test_the_two_answers_match(self, deployment, store, target, narrowed):
         # Arrange
         deployment(ARMED_SECTION)
-        store.write({SESSION_KEY: narrowed})
-        if addressed:
-            store.addressed()
+        store.write(narrowed)
         connector = _built(EPICS, target)
 
         # Act
         canonical = session_store.effective_writes(
             ARMED_SECTION,
-            SESSION_KEY if addressed else None,
             target,
             connector_type=EPICS,
         )
@@ -1286,7 +1264,6 @@ class TestTheFactoryBuiltConnector:
         under, so an operator's flip and a connector's refusal meet."""
         # Arrange
         deployment(ARMED_SECTION)
-        store.addressed()
         store.narrow(standin=session_store.POSTURE_SANDBOX)
 
         # Act
@@ -1314,13 +1291,13 @@ class TestOneStoreReadPerWrite:
     """
 
     @staticmethod
-    def _counted(monkeypatch) -> list[tuple[str | None, str | None]]:
-        calls: list[tuple[str | None, str | None]] = []
+    def _counted(monkeypatch) -> list[str | None]:
+        calls: list[str | None] = []
         real = session_store.store_permits
 
-        def _counting(session_key, target):
-            calls.append((session_key, target))
-            return real(session_key, target)
+        def _counting(target):
+            calls.append(target)
+            return real(target)
 
         monkeypatch.setattr(session_store, "store_permits", _counting)
         return calls
@@ -1330,7 +1307,6 @@ class TestOneStoreReadPerWrite:
     async def test_a_refused_write_reads_the_store_once(self, deployment, store, monkeypatch):
         # Arrange
         deployment(ARMED_SECTION)
-        store.addressed()
         store.narrow(standin=session_store.POSTURE_SANDBOX)
         calls = self._counted(monkeypatch)
         connector = _built(EPICS, TARGET_STANDIN)
@@ -1341,7 +1317,7 @@ class TestOneStoreReadPerWrite:
         # Assert — refused, named the chip, and asked once
         assert result.outcome is WriteOutcome.REFUSED
         assert "control-target chip in the header" in result.error_message
-        assert calls == [(SESSION_KEY, TARGET_STANDIN)]
+        assert calls == [TARGET_STANDIN]
 
     @pytest.mark.unit
     @pytest.mark.asyncio
@@ -1352,7 +1328,6 @@ class TestOneStoreReadPerWrite:
         result has to tell the same story about why."""
         # Arrange
         deployment(ARMED_SECTION)
-        store.addressed()
         store.narrow(standin=session_store.POSTURE_SANDBOX)
         calls = self._counted(monkeypatch)
         connector = _built(EPICS, TARGET_STANDIN)
@@ -1365,7 +1340,7 @@ class TestOneStoreReadPerWrite:
         # Assert
         assert len(results) == 3
         assert all("control-target chip in the header" in r.error_message for r in results)
-        assert calls == [(SESSION_KEY, TARGET_STANDIN)]
+        assert calls == [TARGET_STANDIN]
 
     @pytest.mark.unit
     @pytest.mark.asyncio
@@ -1374,7 +1349,6 @@ class TestOneStoreReadPerWrite:
         nothing, so a sandboxed run does no file work per write."""
         # Arrange
         deployment(ARMED_SECTION)
-        store.addressed()
         store.narrow(standin=session_store.POSTURE_SANDBOX)
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
         calls = self._counted(monkeypatch)
@@ -1402,8 +1376,7 @@ class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:
     @staticmethod
     def _widened(store) -> None:
         """A store that narrows nothing: the operator has already flipped back."""
-        store.addressed()
-        store.write({SESSION_KEY: {}})
+        store.write({})
 
     @pytest.mark.unit
     @pytest.mark.asyncio
@@ -1475,7 +1448,6 @@ class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:
         """
         # Arrange
         deployment(ARMED_SECTION)
-        store.addressed()
         store.narrow(standin=session_store.POSTURE_SANDBOX)
         monkeypatch.setenv(
             session_store.LAUNCH_POSTURE_ENV_VAR,
@@ -1510,7 +1482,7 @@ class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:
 
         # Assert
         assert result.outcome is WriteOutcome.REFUSED
-        assert calls == [(SESSION_KEY, TARGET_STANDIN)]
+        assert calls == [TARGET_STANDIN]
 
 
 class _OverridingConnector(_FakeConnector):
@@ -1538,7 +1510,6 @@ class TestAnOverriddenPostureStillGates:
         subclass said yes, and the subclass owns the answer."""
         # Arrange
         deployment({"type": EPICS, "writes_enabled": False, "connector": {"epics": {}}})
-        store.addressed()
         store.narrow(standin=session_store.POSTURE_SANDBOX)
         connector = _OverridingConnector()
         connector._connector_type = EPICS
@@ -1561,7 +1532,6 @@ class TestAnOverriddenPostureStillGates:
         """
         # Arrange
         deployment(ARMED_SECTION)
-        store.addressed()
         store.narrow(standin=session_store.POSTURE_SANDBOX)
         connector = _OverridingConnector()
         connector.armed = False
