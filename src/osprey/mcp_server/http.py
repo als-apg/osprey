@@ -25,11 +25,11 @@ TARGET_SWITCH_KIND = "config"
 SWITCH_OUTCOME_SUCCESS = "success"
 SWITCH_OUTCOME_FAILURE = "failure"
 
-#: Sentinel handed to ``resolve_session_target`` as its "no answer" value. That
-#: resolver returns the baseline it is given whenever the state is absent,
-#: foreign-owned, ambiguous or corrupt; passing a value no target can equal is
-#: how this module tells "nothing published" apart from "published as live",
-#: without restating the ownership rule that resolver owns.
+#: Sentinel handed to ``resolve_control_target`` as its "no answer" value. That
+#: reader returns the baseline it is given whenever the record is absent,
+#: unreadable or corrupt; passing a value no target can equal is how this module
+#: tells "nothing recorded" apart from "recorded as live", without restating the
+#: degradation rule that reader owns.
 _NO_TARGET = ""
 
 
@@ -477,14 +477,14 @@ def notify_panel_focus(panel_id: str, url: str | None = None) -> None:
 def resolve_activity_target() -> str | None:
     """The control-system target to name on an activity event, or ``None``.
 
-    Answers from the target-state file a controls server publishes, through
-    :func:`~osprey.mcp_server.control_system.target_banner.resolve_session_target`
-    — the same resolver the approval prompt, the Phoebus guard and the health
-    row use, so no two surfaces can describe one session differently. The
-    resolver is holder-agnostic on purpose: this call is made from whichever MCP
-    server process emitted the activity (the controls server for
-    ``channel_write``, the python executor for ``execute``), and the record it
-    matches is the one owned by the same Claude Code parent.
+    Answers from the deployment's control-context record, through
+    :func:`~osprey.mcp_server.control_system.target_banner.resolve_control_target`
+    — the same reader the approval prompt, the Phoebus guard and the health row
+    use, so no two surfaces can describe one deployment differently. That it is
+    one record read the same way everywhere is what makes the reader
+    holder-agnostic: this call is made from whichever MCP server process emitted
+    the activity (the controls server for ``channel_write``, the python executor
+    for ``execute``), and every one of them reads the same file.
 
     Returns ``None``, and never the deployment baseline, when nothing is
     published. The baseline of a ``mock`` deployment resolves to ``live``;
@@ -493,12 +493,12 @@ def resolve_activity_target() -> str | None:
     ``live`` one.
 
     Never raises: a failure to answer degrades to an unstamped event, the same
-    fail-closed direction every other reader of that state file takes.
+    fail-closed direction every other reader of that record takes.
     """
     try:
-        from osprey.mcp_server.control_system.target_banner import resolve_session_target
+        from osprey.mcp_server.control_system.target_banner import resolve_control_target
 
-        target = resolve_session_target(_NO_TARGET)
+        target = resolve_control_target(_NO_TARGET)
     except Exception as exc:  # pragma: no cover - defensive; resolver is total
         logger.debug("Could not resolve the session control-system target: %s", exc)
         return None
@@ -566,7 +566,8 @@ def notify_target_switch(
         from_target: Target the session was on (``live`` / ``va``).
         to_target: Target the switch was asked for.
         outcome: :data:`SWITCH_OUTCOME_SUCCESS` or :data:`SWITCH_OUTCOME_FAILURE`.
-        generation: Switch generation the session is on after the attempt, when
+        generation: Switch generation the deployment is on after the attempt,
+            when
             the caller knows it. Omitted from the line when ``None``.
         reason: Short, operator-readable cause of a failure. Omitted when
             ``None`` — an unexplained failure is still reported.
@@ -642,7 +643,7 @@ def notify_agent_activity(
             (e.g. a bulk channel write) cannot turn the emit into a silent 422.
 
     Control-system activity (``kind`` :data:`CONTROL_ACTIVITY_KIND`) is stamped
-    with the session's target here, in the one place every emit site passes
+    with the recorded control target here, in the one place every emit site passes
     through, so ``channel_write``, ``execute`` and ``execute_file`` report the
     same machine without each resolving it — three resolutions is how three
     surfaces start disagreeing. The stamp rides in ``detail`` because that is

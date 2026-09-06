@@ -87,10 +87,20 @@ def repo(tmp_path):
 
 @pytest.fixture
 def project_env(repo):
-    """Environment putting a hook subprocess inside :func:`repo`, as ``alice``."""
+    """Environment putting a hook subprocess inside :func:`repo`, as ``alice``.
+
+    The agent-data root is stamped, at a path nothing writes to. Unstamped,
+    ``osprey_writes_check`` refuses every call before it consults the config —
+    ``posture_unknown``, which is right for a process that guessed a directory
+    and found no control-context record there, and which would make the deny
+    records below say ``posture`` no matter what the deployment's config said.
+    The refusals this module is about are the ones the config and the execution
+    mode decide, so the stamp puts the hook past that gate.
+    """
     return {
         "CLAUDE_PROJECT_DIR": str(repo),
         "OSPREY_TERMINAL_USER": "alice",
+        "OSPREY_AGENT_DATA_ROOT": str(repo / "var" / "agent_data"),
     }
 
 

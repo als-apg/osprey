@@ -174,8 +174,8 @@ async def test_readonly_refusal_message_carries_the_shared_marker(
 # whether it is running inside an OSPREY MCP server process (see
 # ``_in_mcp_server_process``): the executor's sandbox subprocess, which runs a
 # script the operator really can resubmit, keeps the older text. Neither story
-# is the per-session narrowing the control-target chip makes — that never
-# lived in the environment, and is read from the session store.
+# is the narrowing the control-target chip makes — that never
+# lived in the environment, and is read from the posture store.
 
 
 def _controls_server_main() -> Path:

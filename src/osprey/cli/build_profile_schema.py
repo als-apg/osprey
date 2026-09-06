@@ -558,7 +558,7 @@ class BlueskyConfig:
     every existing project has, and leaving this off renders byte-for-byte the
     ``services.bluesky`` block it rendered before. Such a deployment is still
     correct under the run-time target switch — it simply refuses ``queue_add`` /
-    ``queue_start`` while the session target differs from the deployment
+    ``queue_start`` while the control target differs from the deployment
     baseline, which is what lets the Bluesky track ship separately from the
     controls track.
 
@@ -566,9 +566,9 @@ class BlueskyConfig:
     ``services.bluesky`` and serves the deployment baseline target, and lane 2
     lands at ``services.bluesky_va`` or ``services.bluesky_live`` — named for the
     target it serves, never for its index. Lane identity is fixed at render
-    time; the bridge never learns the session target. Lane 2 gets its own bridge
-    port (:meth:`second_lane_port`); tiled is the one shared component and stays
-    on lane 1 only.
+    time; the bridge never learns the deployment's current target. Lane 2 gets
+    its own bridge port (:meth:`second_lane_port`); tiled is the one shared
+    component and stays on lane 1 only.
 
     Which pair the two lanes serve is DERIVED from the deployment baseline
     (``control_system.type``): a ``live`` or ``standin`` baseline gets ``va`` as

@@ -8,6 +8,7 @@ survives ``stop()`` or a dead parent.
 
 from __future__ import annotations
 
+import http.server
 import json
 import os
 import signal
@@ -426,7 +427,8 @@ def test_the_starter_notebook_is_written_into_an_empty_notebooks_dir(
     assert [(cell.cell_type, cell.source) for cell in notebook.cells] == [
         (
             "markdown",
-            "This kernel follows your terminal session. Open a chat session before writing.",
+            "Cells read and write through the deployment's current control target "
+            "and write posture.",
         ),
         ("code", "from osprey.runtime import read_channel, write_channel"),
     ]
@@ -968,3 +970,112 @@ class TestTheStarterNotebooksExampleRead:
         notebook = nbformat.read(sidecar.notebooks_dir / "getting-started.ipynb", as_version=4)
         code = [cell.source for cell in notebook.cells if cell.cell_type == "code"]
         assert code == ["from osprey.runtime import read_channel, write_channel"]
+
+
+# ---------------------------------------------------------------------------
+# Which notebook a kernel belongs to
+# ---------------------------------------------------------------------------
+
+
+class _Sessions(http.server.BaseHTTPRequestHandler):
+    """A stand-in sidecar answering ``api/sessions``, recording what it was asked."""
+
+    body: bytes = b"[]"
+    status: int = 200
+    seen: list[tuple[str, str]] = []
+
+    def do_GET(self) -> None:  # noqa: N802 — BaseHTTPRequestHandler's spelling
+        type(self).seen.append((self.path, self.headers.get("Authorization", "")))
+        self.send_response(self.status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(self.body)))
+        self.end_headers()
+        self.wfile.write(self.body)
+
+    def log_message(self, *args: object) -> None:
+        pass
+
+
+@pytest.fixture
+def sessions_server() -> Iterator[str]:
+    """A server answering one canned ``api/sessions`` body; yields its base URL."""
+    _Sessions.seen = []
+    server = http.server.HTTPServer(("127.0.0.1", 0), _Sessions)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}/panel/jupyter"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def _rows(*sessions: dict[str, object]) -> bytes:
+    return json.dumps(list(sessions)).encode()
+
+
+def test_a_kernel_resolves_to_the_notebook_it_was_started_for(sessions_server: str) -> None:
+    _Sessions.body = _rows(
+        {"id": "s1", "path": "other.ipynb", "kernel": {"id": "other"}},
+        {"id": "s2", "path": "demos/scan.ipynb", "kernel": {"id": "wanted"}},
+    )
+
+    path = jupyter_sidecar.kernel_notebook_path(
+        sessions_server, {"authorization": "Bearer secret"}, "wanted"
+    )
+
+    assert path == "demos/scan.ipynb"
+    assert _Sessions.seen == [("/panel/jupyter/api/sessions", "Bearer secret")]
+
+
+def test_a_kernel_the_sidecar_does_not_know_resolves_to_nothing(sessions_server: str) -> None:
+    _Sessions.body = _rows({"id": "s1", "path": "other.ipynb", "kernel": {"id": "other"}})
+
+    assert jupyter_sidecar.kernel_notebook_path(sessions_server, {}, "wanted") is None
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"not json",
+        b'{"sessions": []}',
+        b'[{"path": "a.ipynb"}]',
+        b'[{"kernel": {"id": "wanted"}}]',
+        b'[{"kernel": {"id": "wanted"}, "path": "   "}]',
+        b'[null, {"kernel": null}]',
+    ],
+)
+def test_an_unexpected_body_resolves_to_nothing_rather_than_raising(
+    sessions_server: str, body: bytes
+) -> None:
+    _Sessions.body = body
+
+    assert jupyter_sidecar.kernel_notebook_path(sessions_server, {}, "wanted") is None
+
+
+def test_a_refused_request_resolves_to_nothing(sessions_server: str) -> None:
+    """A 403 from a missing credential is an unanswered question, not a failure."""
+    _Sessions.status = 403
+    _Sessions.body = b'{"message": "Forbidden"}'
+    try:
+        assert jupyter_sidecar.kernel_notebook_path(sessions_server, {}, "wanted") is None
+    finally:
+        _Sessions.status = 200
+
+
+def test_no_sidecar_at_that_url_resolves_to_nothing(sessions_server: str) -> None:
+    """The panel can die between the marker being written and the switch."""
+    dead = sessions_server.replace("http://127.0.0.1:", "http://127.0.0.1:1", 1)
+
+    assert jupyter_sidecar.kernel_notebook_path(dead, {}, "wanted") is None
+
+
+@spawns
+def test_the_real_sidecar_answers_the_url_the_lookup_builds(sidecar: JupyterSidecar) -> None:
+    """The URL and the credential are the running server's own, not a guess."""
+    status, body = _get(f"{sidecar.url}/api/sessions", sidecar.auth_headers)
+
+    assert status == 200
+    assert json.loads(body) == []
+    assert jupyter_sidecar.kernel_notebook_path(sidecar.url, sidecar.auth_headers, "any") is None

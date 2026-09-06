@@ -28,7 +28,7 @@ stdin ──► Parse JSON
              YES                                   │
               │                                    │
               ▼                                    │
-         Session target                            │
+         Control target                            │
          named?                                    │
               │                                    │
         ┌─────┴─────┐                              │
@@ -73,15 +73,15 @@ channels on its ring and allow them on its virtual accelerator. Three branches
 decide which posture this hook validates under, and a fourth case leaves it with
 no posture to apply:
 
-1. **The session names a target** — `from_config(target=…)`, the posture of
+1. **The record names a target** — `from_config(target=…)`, the posture of
    the machine this write would actually reach. Every refusal names the key
    that answered, which on a per-target deployment is the connector block
    rather than the deployment-wide one. A target the config resolves to no
    connector type — `live` on a deployment that never named its real machine —
    is still an identified target, and the resolver answers it with the
    deployment-wide block, exactly as the write posture does.
-2. **It names none** — no state file yet, an unreadable or ambiguous state
-   directory, or a render without the sibling reader —
+2. **It names none** — no control-context record yet, an unreadable one, or a
+   render without the sibling reader —
    `from_config_most_restrictive()`: limits checking on where any reachable
    target has it on, unlisted channels allowed only where every reachable
    target allows them. Naming a target here would be a guess, and a guess
@@ -99,9 +99,10 @@ no posture to apply:
    is not one of them: an incomplete per-type block or an unreadable database
    still builds a validator, and it blocks every write.
 
-The target itself comes from `osprey_target_state`, the same stdlib reader the
-writes kill switch and the approval prompt use, so one session cannot be
-described as pointing at two machines.
+The target itself comes from `osprey_target_state`, the same stdlib reader of
+the deployment's control-context record that the writes kill switch and the
+approval prompt use, so one deployment cannot be described as pointing at two
+machines.
 """
 
 import inspect
@@ -118,7 +119,7 @@ from osprey_hook_log import AUDIT_DECISION_REFUSED, emit_audit, get_hook_input, 
 # module.
 #
 # Guarded the way `osprey_writes_check` guards it: a project rendered before the
-# reader existed has no such sibling, and a hook that cannot learn its target
+# reader existed has no such sibling, and a hook that cannot learn the target
 # validates under the posture every reachable target agrees on.
 try:
     import osprey_target_state as _target_state
@@ -126,22 +127,22 @@ except Exception:  # pragma: no cover - older render without the reader
     _target_state = None
 
 
-def _session_target(hook_input):
-    """The control target this session is pointed at, or ``None``.
+def _control_target(hook_input):
+    """The control target this deployment is pointed at, or ``None``.
 
     ``None`` means unidentifiable rather than absent, and every route to it —
     a render without the sibling reader, the reader's own baseline fallback (no
-    state file, an unreadable or ambiguous state directory), or an exception on
-    the way — is the same answer, because the caller does the same thing with
-    all of them: validate under the most restrictive posture. The reader is
-    documented never to raise, so the guard here is belt-and-braces; what it
-    guarantees is that no failure of target IDENTITY can turn into a write that
-    was never checked.
+    control-context record, or one that cannot be read), or an exception on the
+    way — is the same answer, because the caller does the same thing with all of
+    them: validate under the most restrictive posture. The reader is documented
+    never to raise, so the guard here is belt-and-braces; what it guarantees is
+    that no failure of target IDENTITY can turn into a write that was never
+    checked.
     """
     if _target_state is None:
         return None
     try:
-        result = _target_state.read_session_target(hook_input)
+        result = _target_state.read_target(hook_input)
         if _target_state.is_baseline(result):
             return None
         return result.get("target")
@@ -204,7 +205,7 @@ def main():
         # instead would take limits off a machine that still enforces them.
         validator = LimitsValidator.from_config()
     else:
-        target = _session_target(hook_input)
+        target = _control_target(hook_input)
         if target is None:
             # The posture every target a session here could reach agrees on. A
             # baseline fallback still NAMES the deployment's baseline target,

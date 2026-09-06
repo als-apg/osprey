@@ -106,7 +106,7 @@ class TestRequiredFields:
             make_envelope(**{name: ""})
 
     def test_session_may_be_none(self) -> None:
-        """Null only where no posture-store key exists; posture_source says why."""
+        """Null only where no audit session id exists; posture_source says why."""
         envelope = make_envelope(session=None, posture_source=POSTURE_SOURCE_PROCESS)
         assert envelope.session is None
         assert envelope.to_dict()["session"] is None

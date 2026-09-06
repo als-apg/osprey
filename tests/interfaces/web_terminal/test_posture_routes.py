@@ -1,26 +1,22 @@
-"""Tests for ``POST /api/terminal/posture`` — the per-target write posture.
+"""Tests for ``POST /api/terminal/posture`` — the operator's write-posture toggle.
 
-The posture is the operator's per-(session, target) write toggle: narrow the
-stand-in to read-only while the virtual accelerator keeps writing, and have the
-session's *running* agent obey it on its very next write. Three properties
-shape everything below.
+The posture is the operator's per-target sandbox toggle, and it belongs to the
+**deployment**: one control context, one ``posture`` field in its record, read
+live by every write-time gate. There is no per-session store behind it any
+more, so a ``session_id`` names who made the gesture and decides nothing about
+what the gesture does.
 
-* **It is enforced at write time, not at spawn time.** The store is the truth,
-  read live by the connector's reference monitor, the executor's gates and the
-  write hook. Nothing here terminates or respawns anything — a POST that killed
-  the child to apply a posture would throw away the conversation for a toggle.
-* **It narrows and never widens.** ``writes`` on a target the render does not
-  arm is a ``403`` naming that target's own ``writes_enabled`` key, not the
-  deployment-wide union: on a mixed render the union is true while the machine
-  the operator is pointed at refuses every write.
-* **The persist is the commit point.** The file lands first; memory follows
-  only once it has. A store that could not be written is a ``503`` and a
-  posture that did not change, never a badge that shows a narrowing the agent
-  is not in.
+What the tests below pin:
 
-Harness mirrors ``test_target_request_route.py``: one app per test through
-``create_app``, entered as a ``TestClient`` context manager so the lifespan
-runs, over an ``OSPREY_AGENT_DATA_ROOT`` stamped at a throwaway directory.
+* **The record write is the commit point.** It happens inside the mutation
+  primitive, so a toggle is always derived from the record it lands on, and a
+  terminal that may not write the record refuses instead of half-applying.
+* **Narrows, never widens.** The ceiling is read per target, so a deployment
+  that arms only its simulator never offers a writes toggle on the facility's
+  own machine; narrowing needs no ceiling at all.
+* **Absence spells ``writes``.** An entry that narrows nothing removes the key.
+* **Nothing is respawned.** Neither the PTY child nor the chat child is torn
+  down: the gates read the record live.
 """
 
 from __future__ import annotations
@@ -28,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -36,24 +33,27 @@ import yaml
 from fastapi.testclient import TestClient
 
 from osprey.audit import writer as audit_writer
+from osprey.interfaces.web_terminal import control_context_owner
 from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.mcp_server.control_system import target_state
-from osprey_connectors import session_store
+from osprey_connectors import control_context, posture_store
+from tests._control_context_fixtures import owner, write_control_context
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 SESSION_B = "bbbbbbbb-1111-2222-3333-444444444444"
-#: A chat-pool key, minted the way the shipped client mints one
-#: (``crypto.randomUUID()`` in static/js/chat.js): a bare lowercase UUID.
 CHAT_A = "cccccccc-1111-2222-3333-444444444444"
 
-PTY_PID = 7000
-
-#: The Channel Access port a co-deployed stand-in serves on.
 STANDIN_PORT = 5074
 
 #: A pid no kernel hands out: the largest a 32-bit ``pid_t`` holds.
 DEAD_PID = 2_147_483_646
+
+#: The terminal that owns the context in the follower cases. ``os.getppid()``
+#: is a real, live process, so a follower test is refused for the reason it
+#: claims rather than because the owner it names is a corpse.
+OTHER_TERMINAL_PID = os.getppid()
+OTHER_TERMINAL_PORT = 8090
 
 
 # -- render shapes ----------------------------------------------------------
@@ -125,21 +125,22 @@ def write_config(tmp_path, section=None, *, name="config.yml"):
 def agent_data_root(tmp_path, monkeypatch):
     """Point every resolver at one throwaway agent-data root.
 
-    ``OSPREY_AGENT_DATA_ROOT`` is the single stamp ``session_store`` and
-    ``target_state.state_dir()`` both prefer — the stamp this feature puts in
-    every session child's environment. Patching ``resolve_shared_data_root``
-    instead would redirect only one of them: ``session_store`` binds the
-    resolver at import, so the other half would write into the repository's own
+    ``OSPREY_AGENT_DATA_ROOT`` is the single stamp the record reader and
+    ``posture_store`` both prefer — the stamp this feature puts in every
+    session child's environment. Patching ``resolve_shared_data_root`` instead
+    would redirect only one of them: ``posture_store`` binds the resolver at
+    import, so the other half would write into the repository's own
     ``var/agent_data``.
     """
     root = tmp_path / "agent_data"
-    root.mkdir()
+    (root / posture_store.STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
-    session_store.invalidate_cache()
-    websocket_routes._reset_session_record_memo()
+    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
+    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     yield root
-    session_store.invalidate_cache()
-    websocket_routes._reset_session_record_memo()
+    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 @pytest.fixture
@@ -151,20 +152,32 @@ def workspace_dir(tmp_path):
 
 @pytest.fixture
 def make_client(agent_data_root, workspace_dir, tmp_path):
-    """Build an app + TestClient, repeatably, over the same stamped root."""
+    """Build an app + TestClient, repeatably, over the same stamped root.
+
+    The record is written **before** the first app starts, so the lifespan
+    claim merges into it rather than minting a fresh one from
+    ``load_osprey_config``, which this process has no workspace for. The owner
+    task's loop is stubbed out: every tick these tests need has happened by the
+    time the client is handed over, and a loop ticking underneath the
+    assertions would be a race rather than coverage.
+    """
+    write_control_context(agent_data_root, target="live", generation=1)
 
     @contextmanager
     def _make(config_path=None):
-        with patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
+        with patch.object(
+            control_context_owner.ControlContextOwnerTask, "start", lambda self: None
         ):
-            app = create_app(shell_command="echo")
-            with TestClient(app) as test_client:
-                test_client.app.state.config_path = (
-                    write_config(tmp_path) if config_path is None else config_path
-                )
-                yield test_client
+            with patch(
+                "osprey.interfaces.web_terminal.app._load_web_config",
+                return_value={"watch_dir": str(workspace_dir)},
+            ):
+                app = create_app(shell_command="echo")
+                with TestClient(app) as test_client:
+                    test_client.app.state.config_path = (
+                        write_config(tmp_path) if config_path is None else config_path
+                    )
+                    yield test_client
 
     return _make
 
@@ -179,10 +192,10 @@ def client(make_client):
 def ledger():
     """Capture every audit record this request would have written.
 
-    Patches ``osprey.audit.writer.record``, which both recorders resolve at
+    Patches ``osprey.audit.writer.record``, which BOTH recorders resolve at
     call time — the route's ``record_and_mark`` and
     ``HttpAuditMiddleware._emit_audit_record`` — so the count is the true
-    number of ledger lines a POST produces.
+    number of ledger lines one POST produces.
     """
     records: list[dict] = []
 
@@ -194,68 +207,44 @@ def ledger():
         yield records
 
 
+class _RecordingChatPool:
+    """An operator registry that remembers what was asked of it."""
+
+    def __init__(self) -> None:
+        self.terminated: list[str] = []
+
+    def has_chat_key(self, key: str) -> bool:
+        return key == CHAT_A
+
+    def get_chat_session(self, key: str):
+        return object() if key == CHAT_A else None
+
+    def terminate_chat_session(self, key: str) -> None:
+        self.terminated.append(key)
+
+    async def cleanup_all(self) -> None:
+        """Deliberately not recorded: it runs when the lifespan exits, long
+        after the assertion, and recording it would make the case fail."""
+
+
 # -- harness ----------------------------------------------------------------
 
 
-@contextmanager
-def known_sessions(*session_ids):
-    """Make ``SessionDiscovery`` report *session_ids* as started on disk.
-
-    The posture route no longer consults the discovery walk, but the GET
-    surface and the terminate/respawn paths still do; pinning it keeps every
-    test's disk state explicit either way.
-    """
-    with patch(
-        "osprey.interfaces.web_terminal.session_discovery.SessionDiscovery.snapshot_session_ids",
-        return_value=set(session_ids),
-    ):
-        yield
+def recorded_posture():
+    """The deployment's narrowings, straight off the record."""
+    control_context.invalidate_cache()
+    record = control_context.read_record()
+    return {} if record is None else dict(record.posture)
 
 
-class _RecordingChatPool:
-    """An ``operator_registry`` that answers to one chat key and records teardown.
-
-    The three facades the posture surface reaches for on a chat key —
-    ``has_chat_key`` and ``get_chat_session`` to decide the key is addressable,
-    ``terminate_chat_session`` to tear the child down. Only the last is a
-    regression: it is recorded rather than raising, so a POST that calls it
-    fails on the assertion that names the contract instead of on a stray error.
-    """
-
-    def __init__(self, key: str = CHAT_A):
-        self.key = key
-        self.terminated: list[str] = []
-
-    def has_chat_key(self, session_id: str) -> bool:
-        return session_id == self.key
-
-    def get_chat_session(self, session_id: str):
-        return object() if session_id == self.key else None
-
-    async def terminate_chat_session(self, session_id: str) -> None:
-        self.terminated.append(session_id)
-
-    async def cleanup_all(self) -> None:
-        """The app's own shutdown hook, not a teardown the POST could reach.
-
-        Deliberately not recorded: it runs when the TestClient's lifespan
-        exits, long after the assertion, and recording it would make every
-        case fail.
-        """
-
-
-def store_file(root: Path) -> Path:
-    return root / session_store.STATE_DIR_NAME / session_store.STORE_FILENAME
-
-
-def read_store(root: Path):
-    path = store_file(root)
-    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+def read_record():
+    control_context.invalidate_cache()
+    return control_context.read_record()
 
 
 def write_inflight_marker(root: Path, *, pid, target="standin"):
     """Plant one execution marker, as the python executor writes it."""
-    directory = root / target_state.STATE_DIR_NAME
+    directory = root / posture_store.STATE_DIR_NAME
     directory.mkdir(parents=True, exist_ok=True)
     path = (
         directory / f"{target_state.INFLIGHT_FILE_PREFIX}{pid}{target_state.INFLIGHT_FILE_SUFFIX}"
@@ -266,8 +255,10 @@ def write_inflight_marker(root: Path, *, pid, target="standin"):
                 "pid": pid,
                 "target": target,
                 "generation": 1,
-                "owner_ppid": PTY_PID,
-                "started_at": "2026-08-30T00:00:00+00:00",
+                "session": "another-session",
+                "surface": "python_executor",
+                "kernel_id": None,
+                "started_at": datetime.now(UTC).isoformat(),
             }
         ),
         encoding="utf-8",
@@ -276,61 +267,22 @@ def write_inflight_marker(root: Path, *, pid, target="standin"):
 
 
 @contextmanager
-def store_outage(monkeypatch):
-    """Break the posture store's location the ONE way that counts.
-
-    The store path is ``session_store.store_path()``, and ``session_store``
-    resolves it from :data:`session_store.AGENT_DATA_ROOT_ENV_VAR` first and
-    its OWN import-bound ``resolve_shared_data_root`` second. An outage helper
-    that patched ``osprey_connectors.workspace.resolve_shared_data_root``
-    instead would patch a name this module never consults and simulate nothing
-    at all — which is exactly what the previous version of this file did, while
-    its outage test passed.
-
-    So the helper **asserts its own premise**: inside the block the store must
-    genuinely have no location. A future refactor that moves the resolution
-    breaks this loudly instead of quietly turning every test below into a
-    no-op. It also guarantees no test here can fall through to the repository's
-    own ``var/agent_data`` — with the resolver raising, there is nothing to
-    fall through to.
-    """
-    stamped = os.environ.get(session_store.AGENT_DATA_ROOT_ENV_VAR)
-    monkeypatch.delenv(session_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
-    session_store.invalidate_cache()
-    try:
-        with patch.object(
-            session_store,
-            "resolve_shared_data_root",
-            side_effect=RuntimeError("config unreadable"),
-        ):
-            assert session_store.store_path() is None, (
-                "store_outage() simulated nothing: the store still resolves a path"
-            )
-            yield
-    finally:
-        # The stamp is restored HERE, not left to monkeypatch's teardown. An
-        # outage that ends at the end of the *test* rather than at the end of
-        # the block would leave everything after it resolving through the real
-        # ``resolve_shared_data_root`` — i.e. writing the recovery half of
-        # these tests into the repository's own ``var/agent_data``. The
-        # recovery assertions are the whole point, so the recovery must land
-        # back on the tmp root.
-        if stamped is not None:
-            monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, stamped)
-        session_store.invalidate_cache()
-
-
-def reset_posture_memory(app):
-    """Forget the loaded store so the next access re-reads it from disk."""
-    app.state.session_postures = None
-    app.state.session_postures_provisional = False
-
-
-@contextmanager
 def only_alive(*pids):
-    """Report exactly *pids* as running processes."""
+    """Report exactly *pids* as running processes.
+
+    One patch reaches every reader in the request: ``control_context`` owns the
+    predicate, and ``target_state.is_process_alive`` — which the marker sweep
+    calls — delegates to it at call time.
+    """
     wanted = {int(p) for p in pids}
-    with patch.object(target_state, "is_process_alive", side_effect=lambda pid: int(pid) in wanted):
+
+    def alive(pid):
+        try:
+            return int(pid) in wanted
+        except (TypeError, ValueError):
+            return False
+
+    with patch.object(control_context, "is_process_alive", side_effect=alive):
         yield
 
 
@@ -340,13 +292,38 @@ UNKNOWN_TARGET_SENTENCE = "This deployment configures no control target by that 
 
 
 def post_posture(client, *, session_id=SESSION_A, target="standin", posture="sandbox"):
-    return client.post(
-        "/api/terminal/posture",
-        json={"session_id": session_id, "target": target, "posture": posture},
-    )
+    body = {"target": target, "posture": posture}
+    if session_id is not None:
+        body["session_id"] = session_id
+    return client.post("/api/terminal/posture", json=body)
 
 
 # -- the refusal ladder -----------------------------------------------------
+
+
+class TestTheGetTakesTheSameOptionalId:
+    """``GET /api/terminal/posture`` follows the two POSTs, or they drift apart."""
+
+    def test_the_roster_answers_with_no_session_id_at_all(self, client):
+        """The Lab page's bar has no terminal session to name, and needs none."""
+        response = client.get("/api/terminal/posture")
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["session_id"] is None
+        assert [row["target"] for row in body["targets"]] == ["live", "va", "standin"]
+
+    def test_a_malformed_id_is_still_the_400_the_posts_give(self, client):
+        response = client.get("/api/terminal/posture", params={"session_id": "nope"})
+        assert response.status_code == 400
+        assert response.json()["detail"]["error"] == "invalid_session_id"
+
+    def test_the_roster_reports_the_recorded_narrowing(self, client):
+        """The posture the GET shows is the one the POST just wrote."""
+        assert post_posture(client, target="standin", posture="sandbox").status_code == 200
+        rows = client.get("/api/terminal/posture").json()["targets"]
+        standin = next(row for row in rows if row["target"] == "standin")
+        assert standin["posture"] == "sandbox"
+        assert standin["effective"] is False
 
 
 class TestGrammar:
@@ -355,32 +332,35 @@ class TestGrammar:
         ["../../etc/passwd", "operator-deadbeef", "", "AAAAAAAA-1111-2222-3333-444444444444"],
     )
     def test_an_id_outside_the_closed_grammar_is_400(self, client, bad_id):
-        with known_sessions(SESSION_A):
-            resp = post_posture(client, session_id=bad_id)
+        resp = post_posture(client, session_id=bad_id)
         assert resp.status_code == 400
         assert resp.json()["detail"]["error"] == "invalid_session_id"
 
+    def test_a_body_with_no_session_id_is_accepted(self, client, agent_data_root):
+        """The posture is the deployment's, so the gesture needs no session."""
+        resp = post_posture(client, session_id=None)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["session_id"] is None
+        assert recorded_posture() == {"standin": "sandbox"}
+
     @pytest.mark.parametrize("bad", ["readonly", "SANDBOX", "", "readwrite", "true"])
     def test_only_the_two_named_postures_are_accepted(self, client, bad):
-        with known_sessions(SESSION_A):
-            assert post_posture(client, posture=bad).status_code == 422
+        assert post_posture(client, posture=bad).status_code == 422
 
     def test_a_body_missing_a_field_is_422(self, client):
         for body in (
-            {"posture": "sandbox", "target": "standin"},
             {"session_id": SESSION_A, "target": "standin"},
             {"session_id": SESSION_A, "posture": "sandbox"},
         ):
             assert client.post("/api/terminal/posture", json=body).status_code == 422
 
     def test_a_target_this_deployment_does_not_configure_is_400(self, client):
-        with known_sessions(SESSION_A):
-            resp = post_posture(client, target="banana")
+        resp = post_posture(client, target="banana")
         assert resp.status_code == 400
         assert resp.json()["detail"]["error"] == "unknown_target"
         assert resp.json()["detail"]["message"].startswith(UNKNOWN_TARGET_SENTENCE + " It has: ")
 
-    def test_all_plus_writes_is_400(self, client, agent_data_root):
+    def test_all_plus_writes_is_400(self, client):
         """Widening is per target, always.
 
         ``[ Sandbox everything ]`` is one gesture because narrowing everything
@@ -388,11 +368,10 @@ class TestGrammar:
         target's ceiling is its own and an operator arming three machines at
         once could not have meant all three.
         """
-        with known_sessions(SESSION_A):
-            resp = post_posture(client, target="all", posture="writes")
+        resp = post_posture(client, target="all", posture="writes")
         assert resp.status_code == 400
         assert resp.json()["detail"]["error"] == "writes_requires_one_target"
-        assert read_store(agent_data_root) is None
+        assert recorded_posture() == {}
 
     @pytest.mark.parametrize(
         ("target", "posture"),
@@ -404,157 +383,68 @@ class TestGrammar:
         ``configured_targets`` is what every row, probe and refusal here
         enumerates; a server that cannot read its own render does not know
         which machines exist. ``all`` in particular must not fall through: over
-        an empty vocabulary it would CLEAR the entry rather than narrow it,
-        which is the one direction this store must never move by accident.
+        an empty vocabulary it would CLEAR the narrowings rather than add one,
+        which is the one direction this field must never move by accident.
         """
         client.app.state.config_path = None
-        with known_sessions(SESSION_A):
-            resp = post_posture(client, target=target, posture=posture)
+        resp = post_posture(client, target=target, posture=posture)
         assert resp.status_code == 400
         assert resp.json()["detail"]["error"] == "unknown_target"
         assert resp.json()["detail"]["message"] == UNKNOWN_TARGET_SENTENCE + " It has: none."
 
 
-class TestUnspokenSessions:
-    """The posture never depends on whether the operator has talked to the agent.
+class TestOwnership:
+    """Who may write the record at all, before any judgement about the posture."""
 
-    Both spawn paths read the store at spawn, so a narrowing recorded before
-    the first prompt binds that session's very first write — and the store
-    only narrows, so an entry under a key nothing spawns is inert. The gate
-    that refused these gestures with "send one prompt first" guarded nothing
-    and is gone.
-    """
-
-    def test_a_key_with_no_session_behind_it_still_narrows(self, client, agent_data_root):
-        with known_sessions():  # nothing on disk, nothing pooled
-            resp = post_posture(client)
-        assert resp.status_code == 200
-        assert read_store(agent_data_root) == {SESSION_A: {"standin": "sandbox"}}
-
-    def test_a_fresh_chat_key_narrows_before_its_first_prompt(self, client, agent_data_root):
-        """The page mints its chat id at load; the toggle must work from then on."""
-        with known_sessions():
-            resp = post_posture(client, session_id=CHAT_A, target="va")
-        assert resp.status_code == 200
-        assert read_store(agent_data_root) == {CHAT_A: {"va": "sandbox"}}
-
-
-class TestStoreUnavailable:
-    """503, and a posture that did not change — never a badge that lies."""
-
-    def test_an_unresolvable_store_is_503(self, client, monkeypatch):
-        with known_sessions(SESSION_A), store_outage(monkeypatch):
-            resp = post_posture(client)
+    def test_a_terminal_with_no_owner_is_503(self, client):
+        del client.app.state.control_context_owner
+        resp = post_posture(client)
         assert resp.status_code == 503
         assert resp.json()["detail"]["error"] == "store_unavailable"
+        assert recorded_posture() == {}
 
-    def test_a_failing_write_is_503_and_leaves_memory_alone(self, client, agent_data_root):
-        """The write is the commit point: a failed one changes nothing at all."""
-        with known_sessions(SESSION_A):
-            assert post_posture(client, target="standin").status_code == 200
-            before = dict(client.app.state.session_postures)
-            with patch.object(websocket_routes, "_write_store", side_effect=OSError("read-only")):
-                resp = post_posture(client, target="va")
+    def test_a_follower_is_409_naming_the_owners_pid_and_port(self, client):
+        client.app.state.control_context_follows = owner(
+            pid=OTHER_TERMINAL_PID, port=OTHER_TERMINAL_PORT
+        )
+        resp = post_posture(client)
+        assert resp.status_code == 409
+        detail = resp.json()["detail"]
+        assert detail["error"] == "context_owned_elsewhere"
+        assert str(OTHER_TERMINAL_PID) in detail["message"]
+        assert str(OTHER_TERMINAL_PORT) in detail["message"]
+        assert recorded_posture() == {}
+
+    def test_a_takeover_between_the_hint_and_the_write_is_the_same_409(
+        self, client, agent_data_root
+    ):
+        """``app.state`` can be a tick stale; the primitive is the guard."""
+        write_control_context(
+            agent_data_root,
+            target="live",
+            generation=1,
+            owned_by=owner(pid=OTHER_TERMINAL_PID, port=OTHER_TERMINAL_PORT),
+        )
+        resp = post_posture(client)
+        assert resp.status_code == 409
+        assert resp.json()["detail"]["error"] == "context_owned_elsewhere"
+        assert recorded_posture() == {}
+
+    def test_a_failing_write_is_503_and_narrows_nothing(self, client):
+        with patch.object(
+            control_context_owner, "write_record", side_effect=OSError("read-only volume")
+        ):
+            resp = post_posture(client)
         assert resp.status_code == 503
         assert resp.json()["detail"]["error"] == "store_write_failed"
-        assert client.app.state.session_postures == before
-        assert read_store(agent_data_root) == {SESSION_A: {"standin": "sandbox"}}
-
-
-class TestStoreOutageAndRecovery:
-    """A load taken with no location is provisional, and recovery merges.
-
-    ``_session_postures`` caches the store on ``app.state`` after the first
-    read. Caching a load taken while the store had *no location* would let one
-    transient config failure outlive itself: every later read would serve an
-    empty store and report a narrowed session as unnarrowed — a silent revert
-    to writes, which is the exact failure persisting the store exists to
-    prevent. So that load is marked provisional and retried.
-    """
-
-    def test_a_load_with_no_location_is_provisional_and_empty(
-        self, client, agent_data_root, monkeypatch
-    ):
-        path = store_file(agent_data_root)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({SESSION_A: {"standin": "sandbox"}}), encoding="utf-8")
-        reset_posture_memory(client.app)
-
-        with store_outage(monkeypatch):
-            assert websocket_routes._session_postures(client.app) == {}
-            assert client.app.state.session_postures_provisional is True
-
-    def test_the_provisional_load_is_retried_once_the_store_comes_back(
-        self, client, agent_data_root, monkeypatch
-    ):
-        """The narrowing on disk must not stay invisible after the outage ends."""
-        path = store_file(agent_data_root)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({SESSION_A: {"standin": "sandbox"}}), encoding="utf-8")
-        reset_posture_memory(client.app)
-
-        with store_outage(monkeypatch):
-            websocket_routes._session_postures(client.app)
-
-        assert websocket_routes._session_postures(client.app) == {SESSION_A: {"standin": "sandbox"}}
-        assert client.app.state.session_postures_provisional is False
-        assert websocket_routes._posture_entry(client.app, SESSION_A) == {"standin": "sandbox"}
-
-    def test_a_narrowing_held_only_in_memory_wins_over_the_recovery_read(
-        self, client, agent_data_root, monkeypatch
-    ):
-        """Memory wins on overlap; everything it was never told about survives.
-
-        The recovery read is authoritative for keys memory has not heard of,
-        but a narrowing that exists only in memory would be quietly undone by
-        it — and undoing a narrowing is the one direction this store must never
-        move on its own.
-        """
-        path = store_file(agent_data_root)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps({SESSION_A: {"va": "sandbox"}, SESSION_B: {"live": "sandbox"}}),
-            encoding="utf-8",
-        )
-        reset_posture_memory(client.app)
-
-        with store_outage(monkeypatch):
-            held = websocket_routes._session_postures(client.app)
-            held[SESSION_A] = {"standin": "sandbox"}
-
-        assert websocket_routes._session_postures(client.app) == {
-            SESSION_A: {"standin": "sandbox"},
-            SESSION_B: {"live": "sandbox"},
-        }
-
-    def test_a_toggle_refused_during_the_outage_lands_after_it(
-        self, client, agent_data_root, monkeypatch
-    ):
-        """End to end: 503 while it lasts, 200 after, disk intact throughout."""
-        path = store_file(agent_data_root)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({SESSION_B: {"live": "sandbox"}}), encoding="utf-8")
-        reset_posture_memory(client.app)
-
-        with known_sessions(SESSION_A), store_outage(monkeypatch):
-            assert post_posture(client, target="standin").status_code == 503
-        assert read_store(agent_data_root) == {SESSION_B: {"live": "sandbox"}}
-
-        with known_sessions(SESSION_A):
-            assert post_posture(client, target="standin").status_code == 200
-        assert read_store(agent_data_root) == {
-            SESSION_A: {"standin": "sandbox"},
-            SESSION_B: {"live": "sandbox"},
-        }
+        assert recorded_posture() == {}
 
 
 class TestCeiling:
     """403 ``writes_disabled``, per target, naming that target's own key."""
 
     def test_widening_an_unarmed_target_is_403_naming_its_key(self, client, tmp_path):
-        client.app.state.config_path = write_config(tmp_path, control_system_section())
-        with known_sessions(SESSION_A):
-            resp = post_posture(client, target="standin", posture="writes")
+        resp = post_posture(client, target="standin", posture="writes")
         assert resp.status_code == 403
         detail = resp.json()["detail"]
         assert detail["error"] == "writes_disabled"
@@ -571,9 +461,8 @@ class TestCeiling:
         client.app.state.config_path = write_config(
             tmp_path, control_system_section(va_writes=True)
         )
-        with known_sessions(SESSION_A):
-            armed = post_posture(client, target="va", posture="writes")
-            unarmed = post_posture(client, target="live", posture="writes")
+        armed = post_posture(client, target="va", posture="writes")
+        unarmed = post_posture(client, target="live", posture="writes")
         assert armed.status_code == 200
         assert unarmed.status_code == 403
         assert (
@@ -604,47 +493,41 @@ class TestCeiling:
             },
         }
         client.app.state.config_path = write_config(tmp_path, section)
-        with known_sessions(SESSION_A):
-            resp = post_posture(client, target="standin", posture="writes")
-        assert resp.status_code == 200
+        assert post_posture(client, target="standin", posture="writes").status_code == 200
 
-    def test_narrowing_needs_no_ceiling(self, client, tmp_path):
+    def test_narrowing_needs_no_ceiling(self, client):
         """A target nothing arms can still be narrowed; narrowing grants nothing."""
-        client.app.state.config_path = write_config(tmp_path, control_system_section())
-        with known_sessions(SESSION_A):
-            assert post_posture(client, target="live", posture="sandbox").status_code == 200
+        assert post_posture(client, target="live", posture="sandbox").status_code == 200
 
-    def test_all_sandbox_ignores_the_ceiling(self, client, tmp_path):
-        client.app.state.config_path = write_config(tmp_path, control_system_section())
-        with known_sessions(SESSION_A):
-            assert post_posture(client, target="all", posture="sandbox").status_code == 200
+    def test_all_sandbox_ignores_the_ceiling(self, client):
+        assert post_posture(client, target="all", posture="sandbox").status_code == 200
 
 
 class TestSelectedRoleMissing:
     """409 when narrowing would leave the target with no gateway to select."""
 
-    def test_a_write_access_only_target_cannot_be_narrowed(self, client, tmp_path):
+    def _write_access_only(self, client, tmp_path, *, name="config.yml", **kwargs):
         row = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
         client.app.state.config_path = write_config(
-            tmp_path, control_system_section(standin_gateways={"write_access": row})
+            tmp_path,
+            control_system_section(standin_gateways={"write_access": row}, **kwargs),
+            name=name,
         )
-        with known_sessions(SESSION_A):
-            resp = post_posture(client, target="standin", posture="sandbox")
+
+    def test_a_write_access_only_target_cannot_be_narrowed(self, client, tmp_path):
+        self._write_access_only(client, tmp_path)
+        resp = post_posture(client, target="standin", posture="sandbox")
         assert resp.status_code == 409
         detail = resp.json()["detail"]
         assert detail["error"] == "selected_role_missing"
         assert "control_system.connector.live_standin.gateways.read_only" in detail["message"]
 
     def test_the_other_targets_are_unaffected(self, client, tmp_path):
-        row = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
-        client.app.state.config_path = write_config(
-            tmp_path, control_system_section(standin_gateways={"write_access": row})
-        )
-        with known_sessions(SESSION_A):
-            assert post_posture(client, target="va", posture="sandbox").status_code == 200
+        self._write_access_only(client, tmp_path)
+        assert post_posture(client, target="va", posture="sandbox").status_code == 200
 
     def test_sandbox_everything_narrows_the_rest_and_reports_what_it_skipped(
-        self, client, tmp_path, agent_data_root
+        self, client, tmp_path
     ):
         """ "Everything" means everything it can, and says so — not nothing.
 
@@ -654,65 +537,41 @@ class TestSelectedRoleMissing:
         are narrowed, and the one that stayed writable is named with its
         reason so the operator is never told a narrowing happened that did not.
         """
-        row = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
-        client.app.state.config_path = write_config(
-            tmp_path, control_system_section(standin_gateways={"write_access": row})
-        )
-        with known_sessions(SESSION_A):
-            resp = post_posture(client, target="all", posture="sandbox")
+        self._write_access_only(client, tmp_path)
+        resp = post_posture(client, target="all", posture="sandbox")
 
         assert resp.status_code == 200
         body = resp.json()
         assert body["entry"] == {"live": "sandbox", "va": "sandbox"}
-        assert [row_["target"] for row_ in body["skipped"]] == ["standin"]
+        assert [row["target"] for row in body["skipped"]] == ["standin"]
         assert body["skipped"][0]["reason"] == "selected_role_missing"
         assert "gateways.read_only" in body["skipped"][0]["detail"]
-        assert read_store(agent_data_root) == {SESSION_A: {"live": "sandbox", "va": "sandbox"}}
+        assert recorded_posture() == {"live": "sandbox", "va": "sandbox"}
 
-    def test_a_named_target_that_cannot_narrow_still_refuses(self, client, tmp_path):
-        """The single-target 409 is unchanged: that one target IS the request."""
-        row = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
-        client.app.state.config_path = write_config(
-            tmp_path, control_system_section(standin_gateways={"write_access": row})
-        )
-        with known_sessions(SESSION_A):
-            resp = post_posture(client, target="standin", posture="sandbox")
-        assert resp.status_code == 409
-        assert resp.json()["detail"]["error"] == "selected_role_missing"
-
-    def test_an_already_sandboxed_target_does_not_veto_a_later_gesture(
-        self, client, tmp_path, agent_data_root
-    ):
-        """``narrowing_refusal`` is store-blind, so only CHANGING targets are asked.
+    def test_an_already_sandboxed_target_does_not_veto_a_later_gesture(self, client, tmp_path):
+        """``narrowing_refusal`` is record-blind, so only CHANGING targets are asked.
 
         A target narrowed while the deployment could still derive a read_only
-        gateway keeps its entry when that gateway later disappears from the
+        gateway keeps its narrowing when that gateway later disappears from the
         render. Asking about it again would have it refuse on behalf of a
-        change nobody requested — freezing every later toggle on the session.
+        change nobody requested — freezing every later toggle.
         """
-        client.app.state.config_path = write_config(tmp_path, control_system_section())
-        with known_sessions(SESSION_A):
-            assert post_posture(client, target="standin", posture="sandbox").status_code == 200
+        assert post_posture(client, target="standin", posture="sandbox").status_code == 200
 
         # The stand-in's read_only gateway goes away under the running session.
-        row = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
-        client.app.state.config_path = write_config(
-            tmp_path,
-            control_system_section(standin_gateways={"write_access": row}),
-            name="config2.yml",
-        )
-        with known_sessions(SESSION_A):
-            resp = post_posture(client, target="all", posture="sandbox")
+        self._write_access_only(client, tmp_path, name="config2.yml")
+        resp = post_posture(client, target="all", posture="sandbox")
 
         assert resp.status_code == 200
         assert resp.json()["skipped"] == []
-        assert read_store(agent_data_root) == {
-            SESSION_A: {"standin": "sandbox", "live": "sandbox", "va": "sandbox"}
+        assert recorded_posture() == {
+            "standin": "sandbox",
+            "live": "sandbox",
+            "va": "sandbox",
         }
 
     def test_a_clean_render_skips_nothing(self, client):
-        with known_sessions(SESSION_A):
-            resp = post_posture(client, target="all", posture="sandbox")
+        resp = post_posture(client, target="all", posture="sandbox")
         assert resp.status_code == 200
         assert resp.json()["skipped"] == []
 
@@ -723,8 +582,7 @@ class TestSelectedRoleMissing:
             tmp_path,
             control_system_section(standin_writes=True, standin_gateways={"write_access": row}),
         )
-        with known_sessions(SESSION_A):
-            assert post_posture(client, target="standin", posture="writes").status_code == 200
+        assert post_posture(client, target="standin", posture="writes").status_code == 200
 
 
 class TestExecutionInFlight:
@@ -735,41 +593,23 @@ class TestExecutionInFlight:
             tmp_path, control_system_section(va_writes=True)
         )
         write_inflight_marker(agent_data_root, pid=4242, target="standin")
-        with known_sessions(SESSION_A), only_alive(4242):
+        with only_alive(4242):
             resp = post_posture(client, target="va", posture="writes")
         assert resp.status_code == 409
         detail = resp.json()["detail"]
         assert detail["error"] == "execution_in_flight"
-        # The switch tool's own words, so the popover and the agent's answer read alike.
+        # The switch gate's own words, so the popover and the agent read alike.
         assert "in flight on target" in detail["message"].lower()
         assert "standin" in detail["message"]
         assert "wait" in detail["message"].lower()
 
-    def test_the_refusal_does_not_guess_whose_run_it_is(self, client, tmp_path, agent_data_root):
-        """The tool decides "whose" from os.getppid(), which the web server is not.
-
-        Off the agent's process tree that comparison always answers "another
-        session", so the operator whose OWN session is running the execution
-        would be told it belongs to somebody else. The clause is dropped rather
-        than answered wrongly.
-        """
-        client.app.state.config_path = write_config(
-            tmp_path, control_system_section(va_writes=True)
-        )
-        write_inflight_marker(agent_data_root, pid=4242, target="standin")
-        with known_sessions(SESSION_A), only_alive(4242):
-            resp = post_posture(client, target="va", posture="writes")
-        message = resp.json()["detail"]["message"]
-        assert "belongs to" not in message
-        assert "another session" not in message.lower()
-
     def test_narrowing_under_a_live_marker_still_lands(self, client, agent_data_root):
         """Narrowing is always safe; it is the gesture an operator needs most."""
         write_inflight_marker(agent_data_root, pid=4242, target="standin")
-        with known_sessions(SESSION_A), only_alive(4242):
+        with only_alive(4242):
             resp = post_posture(client, target="standin", posture="sandbox")
         assert resp.status_code == 200
-        assert read_store(agent_data_root) == {SESSION_A: {"standin": "sandbox"}}
+        assert recorded_posture() == {"standin": "sandbox"}
 
     def test_a_marker_whose_writer_is_gone_does_not_block(self, client, tmp_path, agent_data_root):
         """A killed executor's residue is swept, not treated as a running run."""
@@ -777,7 +617,7 @@ class TestExecutionInFlight:
             tmp_path, control_system_section(va_writes=True)
         )
         marker = write_inflight_marker(agent_data_root, pid=DEAD_PID, target="standin")
-        with known_sessions(SESSION_A), only_alive():
+        with only_alive():
             resp = post_posture(client, target="va", posture="writes")
         assert resp.status_code == 200
         assert not marker.exists()
@@ -793,7 +633,7 @@ class TestExecutionInFlight:
             tmp_path, control_system_section(va_writes=True)
         )
         write_inflight_marker(agent_data_root, pid=4242, target="va")
-        with known_sessions(SESSION_A), only_alive(4242):
+        with only_alive(4242):
             assert post_posture(client, target="va", posture="writes").status_code == 409
 
 
@@ -801,56 +641,56 @@ class TestExecutionInFlight:
 
 
 class TestAcceptedPosture:
-    def test_a_narrowing_lands_in_memory_and_on_disk(self, client, agent_data_root):
-        with known_sessions(SESSION_A):
-            resp = post_posture(client, target="standin", posture="sandbox")
+    def test_a_narrowing_lands_in_the_record(self, client):
+        resp = post_posture(client, target="standin", posture="sandbox")
         assert resp.status_code == 200
         body = resp.json()
         assert body["session_id"] == SESSION_A
         assert body["target"] == "standin"
         assert body["posture"] == "sandbox"
         assert body["entry"] == {"standin": "sandbox"}
-        assert client.app.state.session_postures[SESSION_A] == {"standin": "sandbox"}
-        assert read_store(agent_data_root) == {SESSION_A: {"standin": "sandbox"}}
+        assert recorded_posture() == {"standin": "sandbox"}
 
-    def test_the_store_is_co_sited_with_the_state_file(self, client, agent_data_root):
-        """One directory for the store and the target state, by one rule."""
-        with known_sessions(SESSION_A):
-            post_posture(client)
-        assert store_file(agent_data_root).parent == target_state.state_dir()
+    def test_the_record_is_co_sited_with_the_control_target_directory(self, client):
+        """One directory for the record and the fleet's reports, by one rule."""
+        post_posture(client)
+        assert control_context.record_path().parent == target_state.state_dir()
 
-    def test_targets_narrow_independently(self, client, agent_data_root):
-        with known_sessions(SESSION_A):
-            post_posture(client, target="standin", posture="sandbox")
-            resp = post_posture(client, target="va", posture="sandbox")
+    def test_the_toggle_moves_neither_target_nor_generation(self, client):
+        before = read_record()
+        post_posture(client, target="standin", posture="sandbox")
+        after = read_record()
+        assert (after.target, after.generation) == (before.target, before.generation)
+        assert after.last_switch == before.last_switch
+
+    def test_targets_narrow_independently(self, client):
+        post_posture(client, target="standin", posture="sandbox")
+        resp = post_posture(client, target="va", posture="sandbox")
         assert resp.json()["entry"] == {"standin": "sandbox", "va": "sandbox"}
-        assert read_store(agent_data_root) == {SESSION_A: {"standin": "sandbox", "va": "sandbox"}}
+        assert recorded_posture() == {"standin": "sandbox", "va": "sandbox"}
 
-    def test_widening_removes_only_that_target(self, client, tmp_path, agent_data_root):
+    def test_widening_removes_only_that_target(self, client, tmp_path):
         client.app.state.config_path = write_config(
             tmp_path, control_system_section(va_writes=True)
         )
-        with known_sessions(SESSION_A):
-            post_posture(client, target="standin", posture="sandbox")
-            post_posture(client, target="va", posture="sandbox")
-            resp = post_posture(client, target="va", posture="writes")
+        post_posture(client, target="standin", posture="sandbox")
+        post_posture(client, target="va", posture="sandbox")
+        resp = post_posture(client, target="va", posture="writes")
         assert resp.json()["entry"] == {"standin": "sandbox"}
-        assert read_store(agent_data_root) == {SESSION_A: {"standin": "sandbox"}}
+        assert recorded_posture() == {"standin": "sandbox"}
 
-    def test_the_last_widening_clears_the_key(self, client, tmp_path, agent_data_root):
-        """Absence is how this store spells ``writes``; a stored ``{}`` is not."""
+    def test_the_last_widening_clears_the_field(self, client, tmp_path):
+        """Absence is how this field spells ``writes``; a stored value is not."""
         client.app.state.config_path = write_config(
             tmp_path, control_system_section(standin_writes=True)
         )
-        with known_sessions(SESSION_A):
-            post_posture(client, target="standin", posture="sandbox")
-            resp = post_posture(client, target="standin", posture="writes")
+        post_posture(client, target="standin", posture="sandbox")
+        resp = post_posture(client, target="standin", posture="writes")
         assert resp.json()["entry"] == {}
-        assert read_store(agent_data_root) == {}
+        assert recorded_posture() == {}
 
-    def test_sandbox_everything_narrows_every_configured_target(self, client, agent_data_root):
-        with known_sessions(SESSION_A):
-            resp = post_posture(client, target="all", posture="sandbox")
+    def test_sandbox_everything_narrows_every_configured_target(self, client):
+        resp = post_posture(client, target="all", posture="sandbox")
         assert resp.status_code == 200
         assert resp.json()["entry"] == {
             "live": "sandbox",
@@ -858,14 +698,22 @@ class TestAcceptedPosture:
             "standin": "sandbox",
         }
 
-    def test_sessions_do_not_disturb_each_other(self, client, agent_data_root):
-        with known_sessions(SESSION_A, SESSION_B):
-            post_posture(client, session_id=SESSION_A, target="standin")
-            post_posture(client, session_id=SESSION_B, target="va")
-        assert read_store(agent_data_root) == {
-            SESSION_A: {"standin": "sandbox"},
-            SESSION_B: {"va": "sandbox"},
-        }
+    def test_two_sessions_toggle_one_deployment(self, client):
+        """There is one posture, so the second gesture adds to the first."""
+        post_posture(client, session_id=SESSION_A, target="standin")
+        post_posture(client, session_id=SESSION_B, target="va")
+        assert recorded_posture() == {"standin": "sandbox", "va": "sandbox"}
+
+    def test_a_repeated_narrowing_writes_nothing_new(self, client):
+        """A gesture asking for what is already stored moves no signature.
+
+        Readers watch the record's ``(mtime_ns, size, ino)``; rewriting it for
+        a change of nothing would wake every one of them for nothing.
+        """
+        post_posture(client, target="standin", posture="sandbox")
+        before = control_context.file_signature(control_context.record_path())
+        assert post_posture(client, target="standin", posture="sandbox").status_code == 200
+        assert control_context.file_signature(control_context.record_path()) == before
 
 
 class TestNoTermination:
@@ -876,8 +724,7 @@ class TestNoTermination:
         registry.get_or_create_session(SESSION_A, "echo")
         assert registry.get_session(SESSION_A) is not None
 
-        with known_sessions(SESSION_A):
-            assert post_posture(client, target="standin").status_code == 200
+        assert post_posture(client, target="standin").status_code == 200
 
         assert registry.get_session(SESSION_A) is not None
 
@@ -887,20 +734,13 @@ class TestNoTermination:
         The old route applied a posture by terminating the child so the next
         attach respawned it under a fresh environment. Asserting that some
         ``_terminate_for_respawn`` helper is not called would stop meaning
-        anything the moment that helper is deleted — which is exactly what the
-        env retirement does to it. The durable statement is that this POST
-        touches none of the ways the pool lets go of a live PTY session.
-
-        ``terminate_session`` is the one the retired route actually called, so
-        it is the one that matters most here; ``terminate_session_if_owner`` is
-        pinned beside it because it is the other public teardown a re-adding
-        change would reach for, and ``detach_session`` because it drops the
-        client's hold.
+        anything the moment that helper is deleted. The durable statement is
+        that this POST touches none of the ways the pool lets go of a live PTY
+        session.
         """
         registry = client.app.state.pty_registry
         registry.get_or_create_session(SESSION_A, "echo")
         with (
-            known_sessions(SESSION_A),
             patch.object(registry, "detach_session") as detach,
             patch.object(registry, "terminate_session") as terminate,
             patch.object(registry, "terminate_session_if_owner") as terminate_if_owner,
@@ -910,101 +750,47 @@ class TestNoTermination:
         terminate.assert_not_called()
         terminate_if_owner.assert_not_called()
 
-    def test_the_chat_child_survives_a_narrowing(self, client, agent_data_root):
-        """The chat-key analogue, and the half nothing else covers.
-
-        The retired route also called ``terminate_chat_session`` — a chat has no
-        PTY, so the PTY assertions above say nothing about it, and the sibling
-        that pins a live chat child (``test_terminate_respawn.py::
-        test_a_narrowing_does_not_rebuild_the_chat_child``) writes the store
-        directly rather than going through this POST. Without this case a
-        regression re-adding a chat teardown to the route would pass the suite.
-        """
+    def test_the_chat_child_survives_a_narrowing(self, client):
+        """The chat-key analogue, and the half nothing else covers."""
         recorder = _RecordingChatPool()
         client.app.state.operator_registry = recorder
 
         resp = post_posture(client, session_id=CHAT_A, target="standin")
 
         assert resp.status_code == 200
-        assert read_store(agent_data_root) == {CHAT_A: {"standin": "sandbox"}}
+        assert recorded_posture() == {"standin": "sandbox"}
         assert recorder.terminated == []
 
 
 class TestPersistence:
-    def test_a_narrowing_reloads_in_a_fresh_app(self, make_client, agent_data_root):
+    """The narrowing outlives the process that recorded it."""
+
+    def test_a_narrowing_reloads_in_a_fresh_app(self, make_client):
         """A container recreation must not silently lift a narrowing."""
         with make_client() as first:
-            with known_sessions(SESSION_A):
-                assert post_posture(first, target="standin").status_code == 200
+            assert post_posture(first, target="standin").status_code == 200
 
         with make_client() as second:
-            assert websocket_routes._posture_entry(second.app, SESSION_A) == {"standin": "sandbox"}
+            assert websocket_routes._recorded_posture() == {"standin": "sandbox"}
+            assert post_posture(second, target="va").status_code == 200
+        assert recorded_posture() == {"standin": "sandbox", "va": "sandbox"}
 
-    def test_a_corrupt_store_reads_as_no_narrowing(self, make_client, agent_data_root):
-        path = store_file(agent_data_root)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("{not json", encoding="utf-8")
-        with make_client() as fresh:
-            assert websocket_routes._posture_entry(fresh.app, SESSION_A) == {}
-            with known_sessions(SESSION_A):
-                assert post_posture(fresh, target="standin").status_code == 200
-        assert read_store(agent_data_root) == {SESSION_A: {"standin": "sandbox"}}
+    def test_a_corrupt_record_reads_as_no_narrowing(self, make_client, agent_data_root):
+        control_context.record_path_under(agent_data_root).write_text("{not json", encoding="utf-8")
+        control_context.invalidate_cache()
+        with make_client():
+            assert websocket_routes._recorded_posture() == {}
 
-    def test_an_unknown_posture_value_is_dropped_on_load(self, make_client, agent_data_root):
-        path = store_file(agent_data_root)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps({SESSION_A: {"standin": "readonly", "va": "sandbox"}}), encoding="utf-8"
+    def test_an_unknown_posture_value_is_dropped_on_read(self, make_client, agent_data_root):
+        """``parse_posture`` runs the grammar: only narrowings survive."""
+        write_control_context(
+            agent_data_root,
+            target="live",
+            generation=1,
+            posture={"standin": "readonly", "va": "sandbox"},
         )
-        with make_client() as fresh:
-            assert websocket_routes._posture_entry(fresh.app, SESSION_A) == {"va": "sandbox"}
-
-
-class TestTopologies:
-    """Both spawn surfaces are addressable; neither is respawned."""
-
-    def test_a_live_chat_pool_key_is_addressable(self, client, agent_data_root):
-        """A chat session honours the store on its next turn, so it may be set.
-
-        Checking only the on-disk session stems is what made a chat session's
-        posture unsettable — a badge the operator could not act on.
-        """
-        with patch.object(
-            websocket_routes, "_chat_pool_answers_to", side_effect=lambda app, sid: sid == CHAT_A
-        ):
-            with known_sessions():
-                resp = post_posture(client, session_id=CHAT_A, target="standin")
-        assert resp.status_code == 200
-        assert read_store(agent_data_root) == {CHAT_A: {"standin": "sandbox"}}
-
-    def test_a_prompt_less_pty_session_narrows(self, client, agent_data_root):
-        """A just-opened terminal, zero prompts sent: the toggle works.
-
-        The regression that motivated dropping the started-session gate — an
-        operator opened a terminal and was told to talk to the agent before
-        they could take writes away from it.
-        """
-        registry = client.app.state.pty_registry
-        registry.get_or_create_session(SESSION_A, "echo")
-        with known_sessions():  # nothing on disk: no prompt has been sent
-            resp = post_posture(client, target="standin")
-        assert resp.status_code == 200
-        assert read_store(agent_data_root) == {SESSION_A: {"standin": "sandbox"}}
-
-    def test_a_key_the_store_already_holds_stays_addressable(self, client, agent_data_root):
-        """Otherwise a chat sandboxed once could never be brought back out."""
-        with patch.object(
-            websocket_routes, "_chat_pool_answers_to", side_effect=lambda app, sid: sid == CHAT_A
-        ):
-            with known_sessions():
-                assert post_posture(client, session_id=CHAT_A, target="va").status_code == 200
-
-        # The pool has dropped it; the entry is what keeps it reachable. The
-        # answer is the render's 403, never the 409 that would strand it.
-        with known_sessions():
-            resp = post_posture(client, session_id=CHAT_A, target="va", posture="writes")
-        assert resp.status_code == 403
-        assert resp.json()["detail"]["error"] == "writes_disabled"
+        with make_client():
+            assert websocket_routes._recorded_posture() == {"va": "sandbox"}
 
 
 # -- audit ------------------------------------------------------------------
@@ -1012,8 +798,7 @@ class TestTopologies:
 
 class TestAudit:
     def test_an_accepted_toggle_files_exactly_one_record(self, client, ledger):
-        with known_sessions(SESSION_A):
-            assert post_posture(client, target="standin").status_code == 200
+        assert post_posture(client, target="standin").status_code == 200
         assert len(ledger) == 1
         record = ledger[0]
         assert record["subject"] == "session_posture_set"
@@ -1023,8 +808,7 @@ class TestAudit:
         assert "sandbox" in record["detail"]
 
     def test_a_refusal_files_exactly_one_record_too(self, client, ledger):
-        with known_sessions(SESSION_A):
-            assert post_posture(client, target="standin", posture="writes").status_code == 403
+        assert post_posture(client, target="standin", posture="writes").status_code == 403
         assert len(ledger) == 1
         assert ledger[0]["decision"] == "refused"
         assert ledger[0]["reason"] == "writes_disabled"
@@ -1038,17 +822,16 @@ class TestAudit:
         The count is what matters: a refused request leaves one line, never two
         and never none, whichever layer wrote it.
         """
-        with known_sessions(SESSION_A):
-            assert post_posture(client, session_id="../../etc/passwd").status_code == 400
+        assert post_posture(client, session_id="../../etc/passwd").status_code == 400
         assert len(ledger) == 1
         assert ledger[0]["decision"] == "refused"
 
-    def test_the_record_joins_on_the_spawn_key(self, client, ledger):
-        """A rekeyed session's toggle is filed under the key its child exported."""
-        registry = client.app.state.pty_registry
-        with (
-            patch.object(registry, "audit_session_key", side_effect=lambda key: SESSION_B),
-            known_sessions(SESSION_A),
-        ):
-            assert post_posture(client, target="standin").status_code == 200
-        assert ledger[0]["session"] == SESSION_B
+    def test_the_record_joins_on_the_session_key(self, client, ledger):
+        """A toggle is filed under the key the session is pooled on."""
+        assert post_posture(client, target="standin").status_code == 200
+        assert ledger[0]["session"] == SESSION_A
+
+    def test_a_session_less_gesture_is_filed_on_the_lab_surface(self, client, ledger):
+        assert post_posture(client, session_id=None, target="standin").status_code == 200
+        assert ledger[0]["session"] is None
+        assert ledger[0]["surface"] == websocket_routes.LAB_MUTATION_SURFACE

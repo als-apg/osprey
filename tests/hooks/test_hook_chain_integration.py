@@ -53,6 +53,23 @@ DEFAULT_ERROR_CONFIG = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _stamped_agent_data_root(tmp_path, monkeypatch):
+    """Stamp the agent-data root for every chain run in this module.
+
+    ``osprey_writes_check`` refuses an UNSTAMPED process whose derived directory
+    holds no control-context record, before it consults the config at all. That
+    refusal is the first link's own subject and has its own suite; here it would
+    end every chain at link one and hide the ORDER these tests are about. The
+    stamp is what a session the web terminal spawned carries, and under it the
+    absence of a record means what it says.
+    """
+    root = tmp_path / "var" / "agent_data"
+    root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
+    return root
+
+
 def _make_chain_config(
     tmp_path,
     writes_enabled=True,

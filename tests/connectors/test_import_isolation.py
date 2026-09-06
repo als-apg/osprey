@@ -3,6 +3,10 @@
 External consumers (e.g. the ALS tuning_scripts backend) import only the
 control-system connectors and their support modules. That chain must not
 eagerly load the archiver stack (pandas) or any LLM/agent machinery.
+
+The control-context record is held to a stricter rule still: it is read
+inside connector-host children, executor sandboxes and notebook kernels, so
+it may not reach ``osprey`` at all.
 """
 
 import os
@@ -25,6 +29,32 @@ def test_control_system_chain_imports_without_heavy_deps():
         "import osprey.simulation, sys;"
         f"bad = sorted({{m.split('.')[0] for m in sys.modules}} & set({FORBIDDEN!r}));"
         "assert not bad, f'lean connector chain eagerly imported: {bad}';"
+        "print('CLEAN')"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        env=dict(os.environ, PYTHONPATH=SRC),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "CLEAN" in result.stdout
+
+
+def test_control_context_imports_no_osprey_module():
+    """The record reader must not pull in the framework it is read beneath.
+
+    ``osprey`` is importable in this subprocess — ``src`` is on the path — so
+    an accidental import would succeed rather than fail loudly. The assertion
+    is therefore on what landed in ``sys.modules``, not on whether the import
+    worked. ``osprey_connectors`` is a different distribution and does not
+    match: only ``osprey`` itself and its submodules do.
+    """
+    code = (
+        "import osprey_connectors.control_context as cc, sys;"
+        "bad = sorted(m for m in sys.modules if m == 'osprey' or m.startswith('osprey.'));"
+        "assert not bad, f'the control-context record eagerly imported: {bad}';"
+        "assert cc.RECORD_FILENAME == 'control_context.json';"
         "print('CLEAN')"
     )
     result = subprocess.run(

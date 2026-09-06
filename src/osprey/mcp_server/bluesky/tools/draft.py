@@ -31,9 +31,9 @@ by a bridge process (one singleton draft plus one monotonic revision counter
 per process), so a deployment that renders two lanes has two independent
 drafts whose revision numbers run independently — revision 3 on the VA lane and
 revision 3 on the live lane are different plans. These tools address the ACTIVE
-lane, the one serving the target the session is currently on (the default in
+lane, the one serving the target the deployment is currently on (the default in
 ``server_context``'s HTTP boundary), which is what keeps the isolation honest:
-a draft composed while the session is on one target is edited, read, and
+a draft composed while the deployment is on one target is edited, read, and
 queued on that target's lane, and a session switch moves the agent to the
 other lane's draft rather than carrying a revision across.
 

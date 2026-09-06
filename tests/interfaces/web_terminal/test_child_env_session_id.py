@@ -1,7 +1,7 @@
 """One execution root per conversation: ``OSPREY_SESSION_ID`` on every spawn.
 
 Both views are windows onto one session key. The key is the PTY pool key, the
-chat pool key, the posture-store key — and it has to be the execution root too,
+chat pool key, the audit session id — and it has to be the execution root too,
 or the two children a flip puts on either side of one conversation work out of
 different directories: the python and sandbox executors put their run
 directories under ``<agent-data root>/sessions/<OSPREY_SESSION_ID>``, so a
@@ -44,7 +44,7 @@ from osprey.interfaces.web_terminal.operator_session import (
 )
 from osprey.interfaces.web_terminal.pty_manager import env_fingerprint
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
-from osprey_connectors import session_store, workspace
+from osprey_connectors import posture_store, workspace
 
 SESSION_ID_ENV = "OSPREY_SESSION_ID"
 
@@ -78,11 +78,11 @@ def shared_root(tmp_path, monkeypatch):
             "osprey_connectors.workspace.resolve_shared_data_root",
             return_value=root,
         ),
-        patch.object(session_store, "resolve_shared_data_root", return_value=root),
+        patch.object(posture_store, "resolve_shared_data_root", return_value=root),
     ):
-        session_store.invalidate_cache()
+        posture_store.invalidate_cache()
         yield root
-        session_store.invalidate_cache()
+        posture_store.invalidate_cache()
 
 
 @pytest.fixture

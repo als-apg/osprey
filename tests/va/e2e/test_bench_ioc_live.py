@@ -72,11 +72,12 @@ from osprey.mcp_server.control_system.endpoint_prober import (
 from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.control_system.tools.channel_read import channel_read
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system import WriteOutcome
 from osprey_connectors.control_system.base import ChannelValue, raise_for_write_result
 from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
 from tests.fixtures import bench_ioc as bench
-from tests.fixtures.control_context import context_for
+from tests.fixtures.control_context import context_for, publish_reachability
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 from tests.va.e2e import conftest as e2e_conftest
 
@@ -404,11 +405,20 @@ def raw_config(
 
 @pytest.fixture(autouse=True)
 def state_root(tmp_path, monkeypatch):
-    """Anchor the target-state directory in ``tmp_path``, not a real deployment."""
+    """Anchor the deployment's agent data in ``tmp_path``, not a real deployment.
+
+    Both anchors are set. The per-server reports resolve through ``target_state``'s
+    own root helper; the control-context record resolves through the
+    ``OSPREY_AGENT_DATA_ROOT`` stamp. Stamping one and not the other leaves this
+    process reading whatever record the developer's machine was last left on.
+    """
     root = tmp_path / "var" / "agent_data"
     (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
-    return root
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    control_context.invalidate_cache()
+    yield root
+    control_context.invalidate_cache()
 
 
 @pytest.fixture(autouse=True)
@@ -593,10 +603,15 @@ class TestASwitchToTheBenchMachine:
     """
 
     async def test_the_tool_switches_onto_the_bench_and_the_reads_follow(
-        self, make_manager, deployment, served_context, quiet_switch_notifications
+        self, make_manager, deployment, served_context, quiet_switch_notifications, reconciling
     ):
         manager = await started_on(make_manager, deployment, "va")
         served_context(manager)
+        # What the controls server's lifespan runs and this suite has to stand
+        # in for: the sweep the switch gate reads a destination's reachability
+        # from, and the loop that carries this server onto a moved record.
+        await publish_reachability(deployment)
+        await reconciling()
         on_the_simulator = (await reading(manager, PROBE_CHANNEL)).value
         assert on_the_simulator != pytest.approx(BENCH_PROBE_VALUE, abs=1e-3), (
             "the virtual accelerator already answered the bench IOC's seeded value, so "
@@ -617,7 +632,7 @@ class TestASwitchToTheBenchMachine:
         # bench IOC serves.
         assert (await reading(manager, PROBE_CHANNEL)).value == pytest.approx(BENCH_PROBE_VALUE)
         assert manager.active_target() == "live"
-        assert target_state.read()["target"] == "live"
+        assert target_state.read()["applied_target"] == "live"
 
     async def test_the_two_machines_answer_the_shared_channels_differently(
         self, make_manager, deployment
@@ -669,7 +684,7 @@ class TestTheOperatorAcknowledgmentGatesTheLiveMachine:
 
     def rows(self, config: dict[str, Any]) -> dict[str, Any]:
         """The roster's own rows, from config alone: no manager, no child."""
-        return control_target.target_rows(config, session_target="va", baseline="va")
+        return control_target.target_rows(config, control_target="va", baseline="va")
 
     async def test_without_the_acknowledgment_the_live_machine_is_refused_by_name(
         self, bench_endpoint, va_endpoint, limits_database
@@ -986,7 +1001,7 @@ class TestWhenTheBenchMachineGoesAway:
             manager = await started_on(make_manager, config, "live")
             served_context(manager)
             assert (await reading(manager, PROBE_CHANNEL)).value == pytest.approx(BENCH_PROBE_VALUE)
-            # The generation the session is standing on. It is 1 rather than 0
+            # The generation the deployment is standing on. It is 1 rather than 0
             # because this deployment's baseline is the virtual accelerator, so
             # coming up on `live` is itself a move; what the outage must not do
             # is move it again.
@@ -1015,7 +1030,7 @@ class TestWhenTheBenchMachineGoesAway:
             assert "timeout after" in message, message
             # The envelope names the MACHINE, not only the channel (#697): a
             # dead-IOC timeout on the live machine must be attributable from
-            # the payload alone, without reconstructing the session's target
+            # the payload alone, without reconstructing the recorded control target
             # from memory. Label and endpoint come from config the same way the
             # roster renders them; the name from the supervisor's own record.
             assert "active target: LIVE MACHINE" in message, message
@@ -1027,7 +1042,7 @@ class TestWhenTheBenchMachineGoesAway:
             # A dead machine is not a switch.
             assert manager.active_target() == "live"
             assert manager.active_generation() == generation
-            assert target_state.read()["target"] == "live"
+            assert target_state.read()["applied_target"] == "live"
 
     async def test_the_endpoint_probe_and_the_roster_report_the_gateway_down(
         self, make_manager, va_endpoint, limits_database, served_context, monkeypatch

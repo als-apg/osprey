@@ -19,9 +19,10 @@ Configuration:
 
 Limits Validation:
     Write operations are validated at two levels:
-    1. Runtime-level: An injected LimitsValidator (set by the execution wrapper)
-       checks values before the connector is even called. This provides a safety
-       net in subprocess execution where the connector may not be fully configured.
+    1. Runtime-level: An injected LimitsValidator, set by the executor's
+       execution wrapper and by nothing else, checks values before the connector
+       is even called. This provides a safety net in subprocess execution where
+       the connector may not be fully configured.
     2. Connector-level: The control system connector validates writes against its
        own configured limits database as a secondary check.
 
@@ -49,17 +50,30 @@ Control Target:
     :class:`ControlTargetChangedError` and the operator re-runs the code in a
     fresh sandbox. Reads are not pinned: reading the machine the run started on
     is the run being consistent with itself, not a hazard.
+
+    A notebook kernel is the one process that outlives a switch, so it is the
+    one exception to "one process, one stamp": its ``pre_run_cell`` rewrites the
+    stamp from the deployment's record before every cell. This module follows
+    that — the connector is rebuilt when the stamp moves, and a cell the kernel
+    could route nowhere at all is refused by :func:`_get_connector` on its first
+    control-system call.
 """
 
 import asyncio
 import atexit
+import json
 import os
+import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from osprey.connectors.control_system.limits_validator import LimitsValidator
+    from osprey_connectors.control_context import ControlContext
 
 logger = get_logger("runtime")
 
@@ -69,39 +83,92 @@ __all__ = [
     "write_channels",
     "cleanup_runtime",
     "ControlTargetChangedError",
+    "SwitchInProgressError",
 ]
 
-#: The target stamp this process was launched with. The same three literals are
+#: The target stamp this process was launched with. The same two literals are
 #: spelled in :mod:`osprey.mcp_server.python_executor.executor`, which is their
 #: only writer; ``tests/runtime/test_executor_target_stamp.py`` pins them equal.
 ENV_CONTROL_TARGET = "OSPREY_CONTROL_TARGET"
 ENV_CONTROL_TARGET_GENERATION = "OSPREY_CONTROL_TARGET_GENERATION"
-#: PID of the controls server whose record the stamp was taken from — the
-#: identity of the file the write pin re-reads. Searching the state directory
-#: for it instead would be a guess: two sessions can share a checkout, so
-#: "the only live record" is neither necessarily ours nor necessarily unique.
-ENV_CONTROL_TARGET_STATE_PID = "OSPREY_CONTROL_TARGET_STATE_PID"
+
+#: Why this process may reach no control system at all, and whether a notebook
+#: cell is open. Both are written by :mod:`osprey.jupyter_kernel`, their only
+#: writer, and re-spelled here for the reason the two stamps above are: a
+#: runtime that imported the kernel launcher would drag the notebook stack into
+#: every sandbox. ``tests/runtime/test_jupyter_kernel.py`` pins them equal.
+ENV_CONTROL_TARGET_REFUSAL = "OSPREY_CONTROL_TARGET_REFUSAL"
+ENV_IN_CELL = "OSPREY_NOTEBOOK_IN_CELL"
+
+#: Which kind of client the markers written here describe. Restated rather than
+#: imported, under the same drift-guard rule the executor's own
+#: ``INFLIGHT_SURFACE`` follows.
+INFLIGHT_SURFACE = "notebook_kernel"
+
+#: How a kernel spells itself as an audit session; a marker's ``kernel_id`` is
+#: what follows the prefix.
+KERNEL_SESSION_PREFIX = "kernel:"
 
 
 class ControlTargetChangedError(RuntimeError):
-    """A write was refused because the session's control target moved under it.
+    """This call reached no control system, because the target moved under it.
 
-    Raised by the write path only. It is not a failed write — nothing was
-    attempted — and it is not retryable in this process, because the connector
-    this process holds is still connected to the previous target's gateways.
+    Never a failed operation — nothing was attempted. It is raised by
+    :func:`_assert_target_pin`, when the deployment's record has moved past the
+    target and generation this process was stamped with, and, as
+    :class:`SwitchInProgressError`, by :func:`_get_connector`, when the
+    deployment is between two targets and there is nothing to route to.
+
+    A sandbox cannot retry it: it holds its stamp for its whole life and the
+    connector it built stays connected to that target's gateways. A notebook
+    cell can — the kernel re-routes itself from the record before every cell,
+    so re-running the cell is what picks the move up.
     """
+
+
+class SwitchInProgressError(ControlTargetChangedError):
+    """A control-target switch is in flight, so this call was not routed.
+
+    Raised on the first control-system call of a notebook cell that
+    ``pre_run_cell`` could route nowhere: while a controls server is applying a
+    switch it is between two targets, and a connector built now could reach
+    either one.
+
+    Args:
+        refusal: The value the kernel left behind —
+            ``switch_in_progress:<pid>[,<pid>…]``. It opens the message, so the
+            operator and any log reader meet the same token every other surface
+            refuses with.
+    """
+
+    def __init__(self, refusal: str) -> None:
+        self.refusal = refusal
+        _, _, pids = refusal.partition(":")
+        named = pids or "an unnamed server"
+        super().__init__(
+            f"{refusal}. A control-target switch is in progress on pid {named}; "
+            "re-run the cell when the chip settles."
+        )
 
 
 # Module-level state
 _runtime_connector: Any | None = None
+#: The ``(target, generation)`` the connector above was built for. A kernel
+#: re-stamps itself every cell, so this is what tells a rebuild from a reuse.
+_connector_stamp: tuple[str | None, int | None] | None = None
 _connector_lock = asyncio.Lock()
-_limits_validator: "LimitsValidator | None" = (
-    None  # Injected by execution wrapper for subprocess safety
-)
+#: The in-flight marker this cell holds, or ``None``. Removed by
+#: ``post_run_cell``, which is why the claim below re-checks the file rather
+#: than trusting this name across cells.
+_cell_marker: "Path | None" = None
+#: The executor sandbox's own limits validator, injected by its execution
+#: wrapper before user code runs. Nothing else sets it — a notebook kernel runs
+#: no wrapper — so every other process validates at the connector alone.
+_limits_validator: "LimitsValidator | None" = None
 
 
 def _stamped_target() -> str | None:
-    """The session target this sandbox was launched for, or ``None``.
+    """The control target this sandbox was launched for, or ``None``.
 
     The environment is the only source consulted. The state file is not read for
     routing even though it is readable from here: the stamp is what the host
@@ -155,26 +222,127 @@ def _target_connector_config() -> dict[str, Any] | None:
     return config
 
 
+def _assert_not_refused() -> None:
+    """Refuse the call outright when this cell was routed nowhere.
+
+    ``IPython`` swallows an exception raised by a ``pre_run_cell`` callback, so
+    the kernel's gate cannot refuse a cell where it decides to: it leaves the
+    reason in the environment instead, and the cell's first control-system call
+    raises it here — before the stamp is read, because a cell that was refused
+    carries no stamp to read.
+
+    Raises:
+        SwitchInProgressError: If the kernel left a refusal for this cell.
+    """
+    refusal = os.environ.get(ENV_CONTROL_TARGET_REFUSAL, "").strip()
+    if refusal:
+        raise SwitchInProgressError(refusal)
+
+
+def _claim_cell() -> None:
+    """Hold this cell against a target switch, from its first call onwards.
+
+    A switch waits for every live in-flight marker, and this is the notebook's.
+    It is written lazily because a cell that never touches the control system
+    has nothing for a switch to wait on, and only while the kernel says a cell
+    is open because a thread reaching the control system between cells is not
+    something an operator could be asked to interrupt — its writes are held by
+    :func:`_assert_target_pin` instead.
+
+    ``post_run_cell`` removes the marker by this kernel's id, so a kernel that
+    could not name itself writes none: a marker nothing can remove would refuse
+    every later switch on this deployment. For the same reason the claim is
+    re-checked against the file rather than against :data:`_cell_marker` alone,
+    which still names the marker the previous cell's end deleted.
+
+    Never raises. The marker is advisory — what stops a superseded run writing
+    is the generation pin — so a state directory this process cannot write to
+    costs a switch its wait, not the cell its run.
+    """
+    global _cell_marker
+
+    if ENV_IN_CELL not in os.environ:
+        return
+    try:
+        if _cell_marker is not None and _cell_marker.exists():
+            return
+
+        from osprey.audit import posture
+        from osprey.mcp_server.control_system import target_state
+        from osprey_connectors import posture_store
+
+        session = posture.posture_session() or ""
+        kernel_id = (
+            session[len(KERNEL_SESSION_PREFIX) :]
+            if session.startswith(KERNEL_SESSION_PREFIX)
+            else ""
+        )
+        if not kernel_id:
+            return
+
+        directory = target_state.state_dir()
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / (
+            f"{target_state.INFLIGHT_FILE_PREFIX}{os.getpid()}_{uuid.uuid4().hex}"
+            f"{target_state.INFLIGHT_FILE_SUFFIX}"
+        )
+        marker = {
+            "pid": os.getpid(),
+            "session": session,
+            "surface": INFLIGHT_SURFACE,
+            "kernel_id": kernel_id,
+            "target": _stamped_target(),
+            "launch_posture": os.environ.get(posture_store.LAUNCH_POSTURE_ENV_VAR),
+            "started_at": datetime.now().astimezone().isoformat(),
+        }
+        # Temp file beside it and a rename, as the executor's marker is written:
+        # a reader must never meet half of one.
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(marker), encoding="utf-8")
+        os.replace(tmp, path)
+        _cell_marker = path
+    except Exception:  # noqa: BLE001 - an unclaimed cell is not worth the cell
+        logger.warning("Could not claim this cell against a target switch", exc_info=True)
+
+
 async def _get_connector():
-    """Get or create connector using global config.
+    """Get or create the connector this process's stamp names.
 
     Internal function called by the runtime utilities.
-    Creates the connector once and reuses it for all operations.
 
-    When this sandbox carries a target stamp, the connector is built for that
+    When this process carries a target stamp, the connector is built for that
     target instead of for the config's baseline type, and the same target is
     stamped onto the instance so the reference monitor inside it reads the
     session posture for the target this run was launched against. An unstamped
-    sandbox names no target, exactly as before. The connector is created
-    once either way: a process holds one connector for its whole life and never
-    re-points it, which is why the write path pins rather than reconnects.
+    process names no target, exactly as before.
+
+    A sandbox reaches the build once and reuses it for its whole life. A
+    notebook kernel does not: it is re-stamped from the deployment's record
+    before every cell, so a stamp that no longer matches the connector in hand
+    means the ground moved between cells, and the connector is disconnected and
+    rebuilt rather than re-pointed. The disconnect goes through
+    :func:`_disconnect_locked` because ``_connector_lock`` is already held here
+    and is not reentrant.
 
     Returns:
         ControlSystemConnector instance
+
+    Raises:
+        SwitchInProgressError: If the kernel routed this cell nowhere because a
+            control-target switch is in flight. Nothing is built, and the
+            connector this process already holds is left alone.
     """
-    global _runtime_connector
+    global _runtime_connector, _connector_stamp
+
+    _assert_not_refused()
+    _claim_cell()
 
     async with _connector_lock:
+        stamp = (_stamped_target(), _stamped_generation())
+        if _runtime_connector is not None and stamp != _connector_stamp:
+            logger.debug("Control target moved to %s; rebuilding the connector", stamp)
+            await _disconnect_locked()
+
         if _runtime_connector is None:
             from osprey.connectors.factory import ConnectorFactory
 
@@ -184,62 +352,51 @@ async def _get_connector():
             else:
                 logger.debug(
                     "Creating connector for stamped target %s (type %s)",
-                    _stamped_target(),
+                    stamp[0],
                     config["type"],
                 )
             _runtime_connector = await ConnectorFactory.create_control_system_connector(
-                config=config, control_target=_stamped_target()
+                config=config, control_target=stamp[0]
             )
+            _connector_stamp = stamp
 
     return _runtime_connector
 
 
-def _stamped_state_pid() -> int | None:
-    """PID of the controls server the stamp was taken from, or ``None``."""
-    raw = os.environ.get(ENV_CONTROL_TARGET_STATE_PID, "").strip()
-    try:
-        return int(raw)
-    except ValueError:
-        return None
+def _current_target_record() -> "ControlContext | None":
+    """What the deployment's control context says *now*.
 
+    One record per deployment instance, written by its owner: there is no
+    identity for this process to carry and no directory for it to search. The
+    file the stamp was taken from is the file the pin re-reads.
 
-def _current_target_record() -> dict[str, Any] | None:
-    """What the controls server that stamped this run publishes *now*.
-
-    Exactly one file is consulted: the one belonging to the PID carried in the
-    stamp. This process cannot re-derive that identity — its parent is the
-    python-executor server, not the Claude Code process that owns the state
-    file — and it must not search for it either. Two sessions can share a
-    checkout, so "the only live record in the directory" would refuse every
-    write in the two-session case and, worse, could match a stranger's record
-    in the case where this session's own server has died.
-
-    ``None`` is returned when there is no stamped PID, when that process is
-    gone, and when its file is missing, unreadable, or corrupt. All of them mean
+    ``None`` is returned when there is no agent-data root to resolve, when the
+    record is missing, and when it is unreadable or corrupt. All of them mean
     the current generation is unknown, and the pin below treats unknown as a
     refusal: a write is the operation that cannot be taken back.
     """
-    pid = _stamped_state_pid()
-    if pid is None:
-        return None
     try:
-        from osprey.mcp_server.control_system import target_state
+        from osprey_connectors import control_context
 
-        if not target_state.is_process_alive(pid):
-            return None
-        return target_state.read_file(target_state.state_file_path(pid))
+        return control_context.read_record()
     except Exception:
-        logger.debug("Target state unreadable from sandbox", exc_info=True)
+        logger.debug("Control context unreadable from sandbox", exc_info=True)
         return None
 
 
 def _assert_target_pin() -> None:
-    """Refuse the write if the session is no longer on the stamped target.
+    """Refuse the write if the deployment is no longer on the stamped target.
 
     An unstamped process is not pinned at all — it never claimed a target, so
     there is nothing for it to have drifted from.
 
-    This is a snapshot of the state file taken just before the write, so a
+    The comparison is ``(target, generation)`` against the record and nothing
+    else. Whether the fleet has finished converging on that generation is a
+    question about admitting a NEW run, answered where runs are admitted (the
+    executor's stamp, the kernel's cell gate); a process already holding a
+    connector is judged only on whether the ground moved under it.
+
+    This is a snapshot of the record taken just before the write, so a
     switch that lands in the window between the check and the write itself is
     not caught. That window is not a routing hole: this process's connector was
     bound to its target's gateways at ``connect()`` time and does not follow a
@@ -250,8 +407,8 @@ def _assert_target_pin() -> None:
 
     Raises:
         ControlTargetChangedError: If the stamped generation or target does not
-            match what the controls server currently publishes, or if the
-            current state cannot be read at all.
+            match what the deployment's record currently says, or if that record
+            cannot be read at all.
     """
     target = _stamped_target()
     if target is None:
@@ -259,13 +416,12 @@ def _assert_target_pin() -> None:
 
     stamped_generation = _stamped_generation()
     record = _current_target_record()
-    current_target = record.get("target") if record is not None else None
-    current_generation = record.get("generation") if record is not None else None
 
     if (
         stamped_generation is not None
-        and current_target == target
-        and current_generation == stamped_generation
+        and record is not None
+        and record.target == target
+        and record.generation == stamped_generation
     ):
         return
 
@@ -273,20 +429,13 @@ def _assert_target_pin() -> None:
         f"{target!r} generation {'unknown' if stamped_generation is None else stamped_generation}"
     )
     if record is not None:
-        current_description = f"{current_target!r} generation {current_generation}"
-    elif (state_pid := _stamped_state_pid()) is None:
-        current_description = (
-            "unknown (this execution carries no state-file identity to check against)"
-        )
+        current_description = f"{record.target!r} generation {record.generation}"
     else:
-        current_description = (
-            f"unknown (the controls server this execution was stamped from, pid "
-            f"{state_pid}, is gone or its state file is unreadable)"
-        )
+        current_description = "unknown (the deployment's control context is missing or unreadable)"
 
     raise ControlTargetChangedError(
         "Refusing to write: this execution was started against control target "
-        f"{stamped_description}, but the session is now on {current_description}. "
+        f"{stamped_description}, but the deployment is now on {current_description}. "
         "Connectors held by a running process never reconnect across a target "
         "change, so this process can only reach the target it started on. "
         "Re-run the code with execute() to get a sandbox on the current target."
@@ -506,6 +655,32 @@ def write_channels(channel_values: dict[str, Any], **kwargs) -> None:
     _run_async(_write_channels_async(channel_values, **kwargs))
 
 
+async def _disconnect_locked() -> None:
+    """Disconnect and drop the runtime connector. The lock must be held already.
+
+    Split out of :func:`cleanup_runtime` for :func:`_get_connector`, which
+    disconnects and rebuilds inside one critical section: ``asyncio.Lock`` is
+    not reentrant, so a rebuild that called ``cleanup_runtime`` would wait on a
+    lock it is holding itself.
+    """
+    global _runtime_connector, _connector_stamp
+
+    if _runtime_connector is None:
+        return
+    try:
+        # Check if connector has cleanup method
+        if hasattr(_runtime_connector, "disconnect"):
+            await _runtime_connector.disconnect()
+        elif hasattr(_runtime_connector, "close"):
+            await _runtime_connector.close()
+        logger.debug("Runtime connector cleaned up")
+    except Exception as e:
+        logger.warning(f"Error during connector cleanup: {e}")
+    finally:
+        _runtime_connector = None
+        _connector_stamp = None
+
+
 async def cleanup_runtime() -> None:
     """Cleanup runtime resources.
 
@@ -515,21 +690,8 @@ async def cleanup_runtime() -> None:
     This is particularly useful for long-running notebook sessions to
     ensure connections don't become stale.
     """
-    global _runtime_connector
-
     async with _connector_lock:
-        if _runtime_connector is not None:
-            try:
-                # Check if connector has cleanup method
-                if hasattr(_runtime_connector, "disconnect"):
-                    await _runtime_connector.disconnect()
-                elif hasattr(_runtime_connector, "close"):
-                    await _runtime_connector.close()
-                logger.debug("Runtime connector cleaned up")
-            except Exception as e:
-                logger.warning(f"Error during connector cleanup: {e}")
-            finally:
-                _runtime_connector = None
+        await _disconnect_locked()
 
 
 # Register cleanup on module exit

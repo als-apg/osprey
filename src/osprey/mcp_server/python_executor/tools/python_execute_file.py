@@ -13,10 +13,10 @@ from osprey.mcp_server.python_executor.tools._execution_gates import (
     enforce_deployment_writes_gate,
     enforce_path_policy,
     enforce_posture_clamp,
+    recorded_control_target,
     refuse_readonly_write,
     report_runtime_refusal,
     require_known_execution_mode,
-    session_control_target,
 )
 
 logger = logging.getLogger("osprey.mcp_server.tools.execute_file")
@@ -199,7 +199,7 @@ async def execute_file(
 
     # Deployment-level kill switch (independent of pattern detection accuracy).
     # Same per-target question the ``execute`` tool asks — see the comment there.
-    enforce_deployment_writes_gate(execution_mode, session_control_target())
+    enforce_deployment_writes_gate(execution_mode, recorded_control_target())
 
     if patterns.get("has_writes") and execution_mode == "readonly":
         await refuse_readonly_write(

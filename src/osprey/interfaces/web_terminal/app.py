@@ -38,6 +38,7 @@ from osprey.interfaces.web_terminal.bar_items_store import (
     layout_path,
     load_layout,
 )
+from osprey.interfaces.web_terminal.control_context_owner import start_control_context_owner
 from osprey.interfaces.web_terminal.feedback_destination import (
     DEFAULT_DOCS_URL,
     DEFAULT_FEEDBACK_MAX_STORE_BYTES,
@@ -2487,7 +2488,19 @@ def _create_lifespan(
 
         reaper_task = asyncio.create_task(_reap_idle_chats())
 
+        # ── Control-context ownership ──
+        # This deployment keeps one control context, and it has one writer: the
+        # web terminal whenever there is one, a controls server otherwise. The
+        # claim is made here and renewed once a second, because the owner is
+        # also who answers the switch requests other processes file. Fail-open
+        # at every level: a claim that cannot be made leaves app.state without
+        # `control_context_owner` — the roster renders read-only, the write
+        # routes answer 503 — and the task retries on its next tick.
+        app.state.control_context_task = await start_control_context_owner(app)
+
         yield
+
+        await app.state.control_context_task.stop()
 
         reaper_task.cancel()
         with suppress(asyncio.CancelledError):

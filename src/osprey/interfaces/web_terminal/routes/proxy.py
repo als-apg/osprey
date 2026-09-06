@@ -40,7 +40,9 @@ credential in place of the operator's own is still the follow-up for the rest.
 from __future__ import annotations
 
 import asyncio
+import html
 import ipaddress
+import json
 import logging
 import mimetypes
 import os
@@ -722,9 +724,30 @@ def _rewrite_content(body: str, panel_id: str, outer_prefix: str = "") -> str:
 #: ``_app_setup.mount_shared_static()`` serves at ``/design-system``.
 _DESIGN_SYSTEM_DIR = Path(__file__).resolve().parents[2] / "design_system" / "static"
 
-#: Text asset suffixes that get the same root-absolute rewrite proxied
-#: HTML/JS/CSS receives, mapped to the content type to serve them as.
-_DS_TEXT_TYPES = {
+#: The hub's own ``web_terminal/static`` tree, served to an embedded panel by
+#: :func:`proxy_panel_terminal_static`.
+_TERMINAL_STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
+
+#: The only suffixes :func:`proxy_panel_terminal_static` will serve.
+#:
+#: That route exists for one caller — the Lab bar's module graph and the
+#: stylesheet it anchors against — so it serves what a module graph is made of
+#: and refuses the rest of the tree. Without this, ``index.html`` and
+#: ``session.html`` (raw Jinja sources) answer as ``text/html`` under a
+#: ``/panel/`` path. That is not an exposure today: ``/static/index.html``
+#: already serves the identical bytes to an unauthenticated caller, because
+#: ``/static`` is one of the exempt mount prefixes. It is simply reach this
+#: route has no use for, and a route that cannot serve a document cannot later
+#: be talked into serving one.
+#:
+#: Deliberately NOT applied to the design-system route, which serves whole
+#: pages (``theme-lab.html``) on purpose.
+_TERMINAL_STATIC_SUFFIXES = frozenset({".js", ".mjs", ".css", ".map", ".svg", ".woff2", ".png"})
+
+#: Text asset suffixes, mapped to the content type to serve them as. Shared by
+#: both panel-scoped static routes below; the design-system one additionally
+#: rewrites the bodies of the files listed here.
+_STATIC_TEXT_TYPES = {
     ".css": "text/css",
     ".js": "text/javascript",
     ".mjs": "text/javascript",
@@ -732,6 +755,55 @@ _DS_TEXT_TYPES = {
     ".json": "application/json",
     ".map": "application/json",
 }
+
+
+def _contained_asset(root: Path, asset_path: str) -> Path | None:
+    """Resolve *asset_path* under *root*, or ``None`` when it is not a file there.
+
+    The one containment implementation both panel-scoped static routes use.
+    ``asset_path`` is attacker-controlled — it is whatever the browser put after
+    the route prefix — so the resolved path is compared against the resolved
+    root before anything is read. That refuses three shapes at once: a
+    traversal (``../../secrets``, and its percent-encoded form, which ASGI has
+    already decoded by the time it arrives), an absolute path (``/`` joined onto
+    a ``Path`` discards the left-hand side entirely), and a symlink inside the
+    root pointing outside it (``resolve()`` follows links, so the escape shows
+    up in the comparison).
+
+    ``is_file()`` is the second half: a directory answers nothing, so neither
+    route can be talked into a listing, and a missing asset 404s instead of
+    raising.
+
+    The whole resolution runs inside one ``try``. ``resolve()`` raises rather
+    than answering for a path the OS cannot even look at — a NUL byte
+    (``js/api.js%00.txt``, which ASGI delivers decoded) is a ``ValueError`` from
+    ``lstat`` before any containment check runs, and an over-long name or a
+    symlink loop is an ``OSError``. Every one of those is the same answer this
+    function already gives for a path that is not a file under the root, so
+    they are answered the same way: ``None``, and a 404 from both callers.
+    """
+    try:
+        candidate = (root / asset_path).resolve()
+        if not candidate.is_relative_to(root.resolve()) or not candidate.is_file():
+            return None
+    except (ValueError, OSError):
+        return None
+    return candidate
+
+
+def _asset_media_type(candidate: Path) -> str:
+    """The content type to serve *candidate* as.
+
+    :data:`_STATIC_TEXT_TYPES` first — it is the deliberate mapping, and it is
+    what decides whether the design-system route rewrites a body — then
+    ``mimetypes`` for images and fonts, then a bytes-shaped fallback so an
+    unknown suffix is still served rather than guessed wrong as text.
+    """
+    mapped = _STATIC_TEXT_TYPES.get(candidate.suffix.lower())
+    if mapped is not None:
+        return mapped
+    guessed, _ = mimetypes.guess_type(candidate.name)
+    return guessed or "application/octet-stream"
 
 
 @router.api_route(
@@ -766,22 +838,15 @@ async def proxy_panel_design_system(panel_id: str, asset_path: str, request: Req
     if not _DESIGN_SYSTEM_DIR.is_dir():  # pragma: no cover - packaging guard
         return Response(content="design system unavailable", status_code=404)
 
-    # Contain the path: reject anything that escapes the static root via
-    # traversal or an absolute path before touching the filesystem.
-    candidate = (_DESIGN_SYSTEM_DIR / asset_path).resolve()
-    if not candidate.is_relative_to(_DESIGN_SYSTEM_DIR.resolve()) or not candidate.is_file():
+    candidate = _contained_asset(_DESIGN_SYSTEM_DIR, asset_path)
+    if candidate is None:
         return Response(content="Not found", status_code=404)
 
     headers = {"cache-control": _DEFAULT_NO_CACHE}
-    media_type = _DS_TEXT_TYPES.get(candidate.suffix.lower())
+    media_type = _asset_media_type(candidate)
 
-    if media_type is None:
-        guessed, _ = mimetypes.guess_type(candidate.name)
-        return Response(
-            content=candidate.read_bytes(),
-            headers=headers,
-            media_type=guessed or "application/octet-stream",
-        )
+    if candidate.suffix.lower() not in _STATIC_TEXT_TYPES:
+        return Response(content=candidate.read_bytes(), headers=headers, media_type=media_type)
 
     # Text assets carry root-absolute self-references (e.g.
     # osprey-theme-switcher.js dynamically imports '/design-system/js/
@@ -789,6 +854,198 @@ async def proxy_panel_design_system(panel_id: str, asset_path: str, request: Req
     # into this panel's namespace — and therefore back to the hub's copy.
     text = _rewrite_content(candidate.read_text(encoding="utf-8"), panel_id, compute_url_prefix())
     return Response(content=text, headers=headers, media_type=media_type)
+
+
+@router.api_route(
+    "/panel/{panel_id}/terminal-static/{asset_path:path}",
+    methods=["GET", "HEAD"],
+)
+async def proxy_panel_terminal_static(panel_id: str, asset_path: str):
+    """Serve the TERMINAL's own ``static/`` tree to an embedded panel.
+
+    MUST stay declared above :func:`proxy_panel` for the same reason the
+    design-system route does: that route's ``{path:path}`` is a catch-all and
+    Starlette matches in declaration order.
+
+    The hub's chip modules have to run on a panel page. The notebook panel is
+    JupyterLab, served through this proxy under ``/panel/jupyter/``, so the
+    browser's origin is the hub — but every path the Lab page emits is relative
+    to JupyterLab's own ``base_url``, which is ``/panel/jupyter/``. A
+    ``/static/js/...`` reference from that page therefore resolves into the
+    *sidecar's* namespace and 404s, and :func:`_rewrite_content` rewrites the
+    literal to ``/panel/jupyter/static/...`` for good measure. This route is the
+    address that lands back on the hub's own files from inside a panel's path.
+
+    Unlike the design-system route, bodies are served **verbatim**. These
+    modules address the hub's API root-absolutely through ``withPrefix()`` in
+    ``api.js``, which resolves ``/api/...`` against the deployment prefix at
+    runtime; rewriting those literals into ``/panel/jupyter/api/...`` would aim
+    the chip's reads at the sidecar instead of the terminal that answers them.
+    Relative imports (``./api.js``) need no rewrite — they already resolve
+    inside this route's own directory.
+
+    The tier is the design-system route's: nothing under ``/panel/`` is exempt
+    from the auth gate, so this is operator-tier like every other panel path,
+    and ``PANEL_TIER_ROUTES`` is untouched. That is the right level — the page
+    doing the importing is one the operator is already logged in to.
+
+    Only :data:`_TERMINAL_STATIC_SUFFIXES` are served; the rest of the tree —
+    the two Jinja page sources among it — answers 404 here.
+    """
+    if not _TERMINAL_STATIC_DIR.is_dir():  # pragma: no cover - packaging guard
+        return Response(content="terminal static assets unavailable", status_code=404)
+
+    candidate = _contained_asset(_TERMINAL_STATIC_DIR, asset_path)
+    if candidate is None or candidate.suffix.lower() not in _TERMINAL_STATIC_SUFFIXES:
+        return Response(content="Not found", status_code=404)
+
+    return Response(
+        content=candidate.read_bytes(),
+        headers={"cache-control": _DEFAULT_NO_CACHE},
+        media_type=_asset_media_type(candidate),
+    )
+
+
+#: The one panel whose page carries the hub's control-target bar.
+#:
+#: The notebook panel is a page an operator runs code from, so it is the one
+#: embedded panel where "which machine does this land on, and may it write?"
+#: has to be answerable without leaving the frame. Every other panel's HTML is
+#: relayed untouched.
+_LAB_BAR_PANEL_ID = "jupyter"
+
+#: The bar's entry module, relative to the terminal-static route's root.
+_LAB_BAR_MODULE = "js/control-target-lab-bar.js"
+
+#: First path segments that are JupyterLab's own application documents — the
+#: only pages the bar goes on.
+#:
+#: An allow-list, not an exclusion list, because a content type is not a page:
+#: jupyter-server serves a user's own ``.html`` file as ``text/html``
+#: (``files/handlers.py`` guesses by suffix), so ``files/report.html``, the
+#: ``view/`` wrapper JupyterLab opens it in and an ``nbconvert/html/`` export
+#: all look exactly like the Lab page to a content-type gate. The bar inside
+#: one of those would be a second chip in a viewer frame, a second event
+#: stream against the browser's connection cap, and the hub's stylesheet
+#: cascading into a document somebody else wrote. Default-deny is what keeps a
+#: page nobody has thought of yet out of that list.
+_LAB_BAR_PAGES = frozenset({"lab", "tree", "notebooks", "doc", "consoles", "edit"})
+
+#: The opening ``<head>`` tag, wherever the backend put its attributes.
+#:
+#: ``\b`` refuses ``<header>``. The FIRST match wins, which for JupyterLab is
+#: the real head — its template opens ``<!doctype html><html lang="en"><head>``
+#: — but would not be for a backend that put the string in a comment or a
+#: script ahead of it. Worth re-reading if this ever serves a second sidecar.
+_HEAD_OPEN_RE = re.compile(r"<head\b[^>]*>", re.IGNORECASE)
+
+
+def _script_safe(value: object) -> str:
+    """*value* as JSON that cannot end the ``<script>`` carrying it.
+
+    ``json.dumps`` escapes quotes and backslashes but leaves ``<`` alone, and
+    inside a script the HTML parser looks for ``</script`` before the
+    JavaScript parser sees anything. ``\\u003c`` is a valid JSON escape, so
+    both the prefix global and the import map parse identically to the
+    unescaped form.
+
+    The prefix is deployment configuration (``/u/<user>``), not operator input,
+    so this is depth rather than a fix for a live hole — but every string
+    interpolated into a script tag is escaped for that tag on principle, and
+    both tags below are built from the same one.
+    """
+    return json.dumps(value).replace("<", "\\u003c")
+
+
+def _control_target_bar_markup(panel_prefix: str, outer_prefix: str) -> str:
+    """The three tags that put the control-target bar on an embedded page.
+
+    Args:
+        panel_prefix: ``{outer_prefix}/panel/{panel_id}``, i.e. the sidecar's
+            own ``base_url`` without the trailing slash.
+        outer_prefix: the per-user mount prefix (``compute_url_prefix()``).
+
+    Three tags, in the order they have to run:
+
+    1. **The prefix global.** ``withPrefix()`` in ``api.js`` reads
+       ``window.__OSPREY_PREFIX__`` and prepends it to every root-absolute
+       ``/api/...`` the chip asks for. It is the OUTER prefix, never the panel
+       path: the chip reads the *hub's* ``/api/terminal/posture``, and a prefix
+       of ``/panel/jupyter`` would aim every read at JupyterLab, which answers
+       none of them.
+    2. **A scoped import map**, for the one root-absolute module specifier in
+       the bar's import closure (``confirm-skip.js`` imports
+       ``/design-system/js/storage-scope.js``). The hub's own page retargets
+       that with a document-wide import map; here the mapping is confined to a
+       ``scopes`` entry keyed on the bar's own directory, so nothing the panel
+       itself imports can be redirected by it. With an empty prefix the mapping
+       is the identity, which is what the hub's map is there too.
+    3. **The module.** Its ``src`` is fully formed:
+       ``/terminal-static/`` is deliberately absent from
+       :data:`_REWRITE_PREFIXES`, so a root-absolute literal would never be
+       rewritten into the panel's namespace for us.
+
+    A module script is deferred by definition, so all three land before the
+    page's own scripts run and none of them blocks the parse.
+    """
+    module_src = f"{panel_prefix}/terminal-static/{_LAB_BAR_MODULE}"
+    import_map = {
+        "scopes": {
+            f"{panel_prefix}/terminal-static/js/": {
+                "/design-system/": f"{outer_prefix}/design-system/",
+            }
+        }
+    }
+    return (
+        f"<script>window.__OSPREY_PREFIX__ = {_script_safe(outer_prefix)};</script>"
+        f'<script type="importmap">{_script_safe(import_map)}</script>'
+        f'<script type="module" src="{html.escape(module_src, quote=True)}"></script>'
+    )
+
+
+def _inject_control_target_bar(
+    text: str, panel_id: str, path: str, base_type: str, outer_prefix: str
+) -> str:
+    """Put the control-target bar into the notebook panel's HTML, and nothing else's.
+
+    Called after :func:`_rewrite_content`, so what goes in is what comes out —
+    a rewrite pass over this markup would send the bar's own URLs into the
+    panel's namespace.
+
+    Four conditions, all narrow on purpose: the notebook panel
+    (:data:`_LAB_BAR_PANEL_ID`), one of JupyterLab's own application pages
+    (:data:`_LAB_BAR_PAGES`), an HTML body, and a document with a ``<head>`` to
+    inject into. Anything else is relayed byte-for-byte — a JSON API answer, a
+    stylesheet, another panel's page, an HTML fragment that is not a document,
+    and above all **a user's own ``.html`` file**, which the sidecar serves as
+    ``text/html`` from ``files/`` exactly as it serves the Lab page.
+
+    The insert is at the top of ``<head>``, which is the earliest point the
+    prefix global can be set, and therefore the only point that is certainly
+    before the module graph it configures. It costs the page a few hundred
+    bytes ahead of its own ``<meta charset>``, which stays far inside the
+    1024 bytes the encoding sniff is allowed to read.
+
+    **No CSP is rewritten here.** The relayed ``/lab`` response carries
+    jupyter-server's own ``Content-Security-Policy``, which declares
+    ``frame-ancestors`` and nothing about scripts, so the injected tags run. A
+    backend that grew a ``script-src`` would silently stop the bar loading
+    rather than break the page — the failure to look for is a blank bar with a
+    CSP violation in the console, and the answer would be a deliberate decision
+    about that header, not a rewrite hidden in this function.
+    """
+    if panel_id != _LAB_BAR_PANEL_ID or base_type != "text/html":
+        return text
+    if path.lstrip("/").split("/", 1)[0] not in _LAB_BAR_PAGES:
+        return text
+
+    head = _HEAD_OPEN_RE.search(text)
+    if head is None:
+        return text
+
+    panel_prefix = f"{outer_prefix}/panel/{panel_id}"
+    markup = _control_target_bar_markup(panel_prefix, outer_prefix)
+    return f"{text[: head.end()]}{markup}{text[head.end() :]}"
 
 
 @router.api_route(
@@ -979,6 +1236,10 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
     if base_type in _REWRITABLE_TYPES and "/vendor/" not in path:
         text = resp.text
         text = _rewrite_content(text, panel_id, outer_prefix)
+        # After the rewrite, never before: everything injected here is already
+        # fully formed for this deployment, and a second pass over it would
+        # aim the bar's own URLs into the panel's namespace.
+        text = _inject_control_target_bar(text, panel_id, path, base_type, outer_prefix)
         return Response(
             content=text,
             status_code=resp.status_code,

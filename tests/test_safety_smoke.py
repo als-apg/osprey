@@ -36,6 +36,8 @@ from osprey.mcp_server.control_system.server_context import (
 )
 from osprey.stores.artifact_store import reset_artifact_store
 from osprey.utils.workspace import reset_config_cache
+from osprey_connectors import posture_store
+from tests._control_context_fixtures import write_control_context
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -67,13 +69,16 @@ def _reset_singletons():
 
 
 @pytest.fixture
-def smoke_env(tmp_path):
+def smoke_env(tmp_path, monkeypatch):
     """Set up a complete mock control system environment.
 
     Creates:
       - config.yml with mock connector, limits enabled, selective approval
       - channel_limits.json with test channels
-      - _agent_data directory structure
+      - _agent_data directory structure, stamped and carrying a control-context
+        record — the hooks refuse every write outright without one, so a
+        deployment that never wrote it would fail these scenarios at the first
+        hook in the chain rather than at the layer each one is about
       - config variant with writes_enabled: false
     """
     # Channel limits database
@@ -140,11 +145,20 @@ def smoke_env(tmp_path):
     for subdir in ["channel_results", "archiver_data", "python_outputs"]:
         (ws / subdir).mkdir(parents=True)
 
+    # The deployment this operator would be sitting in front of: a controls
+    # server is running and the deployment is on the baseline machine. The hooks
+    # read exactly this file to decide whether writes are on the table at all,
+    # and `_run_hook` copies the parent environment, so stamping the root here
+    # is what puts the subprocesses in the same deployment.
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(ws))
+    write_control_context(ws, target="live", generation=1)
+
     return {
         "tmp_path": tmp_path,
         "config_path": config_path,
         "config_writes_off_path": config_writes_off_path,
         "limits_path": limits_path,
+        "agent_data_root": ws,
     }
 
 

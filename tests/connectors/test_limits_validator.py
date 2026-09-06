@@ -506,7 +506,7 @@ class TestFromConfigCallShapes:
 
     No argument is the deployment-wide question every caller asked before per-type
     blocks existed; ``connector_type=`` is what a connector holding its own type
-    asks; ``target=`` is what a tool, hook or roster following the session's target
+    asks; ``target=`` is what a tool, hook or roster following the recorded control target
     asks. Passing both states the posture twice, and is a caller bug rather than a
     posture.
     """
@@ -670,7 +670,7 @@ class TestFromConfigCallShapes:
 class TestFromConfigMostRestrictive:
     """The posture a caller with no target of its own has to assume.
 
-    The stdlib hook's fallback: with the session's control target unreadable, the
+    The stdlib hook's fallback: with the deployment's control target unreadable, the
     machine the write is about could be any of the reachable ones, so the answer
     holds across all of them and names the deployment-wide keys — no per-type
     line decides a union.

@@ -25,45 +25,38 @@ without it rather than a guess.
 
 The switch
 ----------
-The switch itself lives in
-:class:`~osprey.mcp_server.control_system.connector_host_manager.ConnectorHostManager`,
-which owns the child process, the generation counter and the spawn-then-swap
-order. This module is the *gate* in front of it: three refusals, in a fixed
-order, and then a delegation.
+The target is the DEPLOYMENT's, held in one control-context record, and only
+that record's owner writes it. So this tool no longer switches anything: it
+asks for a switch and reports what the record says came of it.
 
-The three refusals are :func:`switch_gate`, a function rather than tool-body
-code, because the agent's tool is no longer the only way a session moves: the
-session-control reconciler asks the same question immediately before
-``hosts.switch()``, on a path that has no MCP request behind it. The gate
-therefore takes the server context and a target name and nothing else, and the
-tool's only remaining job with a refusal is to report it. Two implementations
-of "may this session move there" would eventually disagree, and the surface an
-operator happened to use would decide which answer they got.
+Two paths, one answer. When this server owns the record it takes the verdict
+from :func:`~osprey.mcp_server.control_system.target_eligibility.evaluate_switch`
+and writes the terminus — a refusal, or the new target with the minted
+generation — in one atomic replace. When it does not, it files a request file
+named for this process and polls the record until ``last_switch.request_id`` is
+its own; the owner runs the very same gate and writes the very same terminus.
+Neither path mints a generation for a request naming the target of record: that
+is answered where it stands, and a generation bumped for a switch that did not
+happen would refuse every write bound to the old one for nothing.
 
-Why the order is fixed
-----------------------
-Each refusal answers a different question, and the order runs from "this
-session may never switch at all" to "this particular destination is not usable
-right now". Reporting the narrowest true reason last means the answer always
-names the nearest thing an operator can act on:
+The gate itself lives in :mod:`target_eligibility`, context-free, because the
+operator's Switch on the web terminal has to get the same answer from a process
+that owns no manager. Its ladder — a read-only run, an execution in flight,
+eligibility, then reachability — is documented there, and the tool's whole job
+with a refusal is to report it in the words the gate chose.
 
-1. **A read-only run** (``OSPREY_EXECUTION_MODE=readonly``) mutates nothing.
-   Agent code submitted read-only is a claim about the whole run, and a switch
-   is session state — so the claim is enforced here rather than being
-   negotiated per target. It is checked first precisely because everything else
-   might also refuse: a read-only session that asks for an ineligible target
-   should be told it cannot switch, not sent off to fix a config key that would
-   still leave it unable to switch.
-2. **An execution in flight.** The python executor's sandbox is stamped with
-   the target and generation at launch, so a switch under a running execution
-   retires the connector host that run was promised. The executor records a
-   marker file for the duration of every run (see the marker contract below)
-   and this tool refuses while one is live.
-3. **Eligibility**, from :mod:`target_eligibility` and nowhere else. The reason
-   string a refusal carries is the module's own, so the roster and this tool
-   can never disagree about why a target is unusable — including the honesty
-   rule (a simulated present with an invented past) and the FR-8 posture the
-   live machine requires.
+What is left for this tool to wait for is its own connector host. The record
+moving is the deployment's answer; the reconcile loop is what brings this
+server's child to it, and until that lands the session's tools are still
+talking to the previous target. So an applied terminus is followed by a bounded
+wait on this server's own report — bounded by the spawn, probe and drain
+timeouts this process holds, which is why the bound is computed here and never
+guessed by a reader.
+
+A deployment that has not settled refuses rather than queues: while any live
+server is still applying a generation, a second terminus would overwrite the
+answer to the gesture somebody is still watching for. That refusal names the
+pids so an operator can see which server to wait for.
 
 The in-flight marker contract
 -----------------------------
@@ -98,20 +91,26 @@ reverse) for two string constants.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
-from dataclasses import dataclass, field
-from typing import Any
+import time
+import uuid
+from datetime import UTC, datetime
+from typing import Any, NoReturn
 
-from osprey.mcp_server.control_system.connector_host_manager import (
-    SwitchError,
-    target_display_metadata,
-)
+from osprey.audit.posture import posture_session
+from osprey.mcp_server.control_system import target_state
+from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.control_system.target_eligibility import (
+    REASON_EXECUTION_IN_FLIGHT,
+    REASON_READONLY_RUN,
+    GateVerdict,
     derive_endpoints,
     effective_writes_for_target,
+    evaluate_switch,
     target_availability,
 )
 from osprey.mcp_server.control_system.target_state import (
@@ -126,7 +125,7 @@ from osprey.mcp_server.http import (
     SWITCH_OUTCOME_SUCCESS,
     notify_target_switch_async,
 )
-from osprey_connectors.control_system.base import is_readonly_run
+from osprey_connectors import control_context
 from osprey_connectors.types import configured_targets, target_limits_posture
 
 logger = logging.getLogger("osprey.mcp_server.tools.control_target")
@@ -141,28 +140,42 @@ __all__ = [
     "control_target",
     "control_target_set",
     "in_flight_executions",
-    "switch_gate",
     "target_rows",
 ]
 
 # The in-flight marker names and reader are re-exported from ``target_state``
 # (imported above and named in ``__all__``); see the module docstring for why
 # they moved. Importers of this module — including the drift guard that pins the
-# spelling against the executor's replica — are unaffected.
+# spelling against the executor's replica — are unaffected. ``GateVerdict`` and
+# the two refusal reasons the gate adds to eligibility's own are re-exported
+# from :mod:`target_eligibility` for the same reason: the gate moved out of this
+# module, and its vocabulary moved with it.
 
 # -- machine-readable refusal reasons ---------------------------------------
 
-#: Reasons this gate adds to the eligibility module's own. Eligibility reasons
-#: travel through verbatim, so a refusal here and a roster row can be matched.
-REASON_READONLY_RUN = "readonly_run"
-REASON_EXECUTION_IN_FLIGHT = "execution_in_flight"
+#: The server context this tool reads its deployment from is not initialized.
 REASON_CONTEXT_UNAVAILABLE = "context_unavailable"
+#: No control-context record: nothing holds this deployment's target.
+REASON_RECORD_UNAVAILABLE = "control_context_unavailable"
+#: A live server is still applying the generation the deployment is on, so no
+#: answer can be written without overwriting the one it will produce.
+REASON_SWITCH_IN_PROGRESS = "switch_in_progress"
+#: A request was filed and no owner took it. The record's owner is named, so an
+#: operator can tell "nobody owns this deployment" from "the owner is wedged".
+REASON_REQUEST_NOT_CONSUMED = "request_not_consumed"
+#: The switch was granted and this server's connector host did not reach it
+#: within the bound its own spawn, probe and drain timeouts imply.
+REASON_SWAP_INCOMPLETE = "swap_incomplete"
+#: A second request from this same process occupies its request slot.
+REASON_REQUEST_PENDING = "request_pending"
+#: The control-target directory could not be written at all.
+REASON_STORE_UNAVAILABLE = "store_unavailable"
 #: An exception the switch did not classify. Reported as a failure rather than
 #: swallowed: the operator approved an attempt, and an attempt that ended in a
 #: way nobody anticipated is still an attempt that ended.
 REASON_INTERNAL_ERROR = "internal_error"
 
-#: Stands in for the session target when it cannot be read at all — the context
+#: Stands in for the control target when it cannot be read at all — the context
 #: is what holds it, so a context failure is exactly the case that has no answer.
 #: Spelled rather than omitted: the operator's line still has to say something.
 UNKNOWN_TARGET = "unknown"
@@ -197,7 +210,7 @@ def _server_context() -> Any:
 
 def _context_unavailable_message() -> str:
     return (
-        "The control-system server context is not initialized, so this session has no "
+        "The control-system server context is not initialized, so this deployment has no "
         "target of record to read or change."
     )
 
@@ -227,35 +240,18 @@ async def _refuse(
     suggestions: list[str],
     details: dict[str, Any],
     error_type: str = ERROR_REFUSED,
-) -> Any:
-    """Report the refusal to the operator, then raise it to the agent."""
-    await _emit_failure(from_target, to_target, str(details.get("reason") or ""))
-    return make_error(error_type, message, suggestions, details=details)
+    notify: bool = True,
+) -> NoReturn:
+    """Report the refusal to the operator, then raise it to the agent.
 
-
-def _in_flight_detail(record: dict[str, Any], target: str) -> tuple[str, list[str], dict[str, Any]]:
-    """The refusal a running execution earns: message, suggestions, details."""
-    running_on = str(record.get("target") or "unknown")
-    whose = (
-        "this session"
-        if record.get("owner_ppid") == os.getppid()
-        else "another session sharing this deployment"
-    )
-    return (
-        f"execution in flight on target {running_on!r}; wait or stop it.",
-        [
-            f"The running execution belongs to {whose} and was launched against target "
-            f"{running_on!r}.",
-            "Wait for it to finish, or stop it, then switch again.",
-        ],
-        {
-            "target": target,
-            "reason": REASON_EXECUTION_IN_FLIGHT,
-            "executing_target": running_on,
-            "executor_pid": record.get("pid"),
-            "started_at": record.get("started_at"),
-        },
-    )
+    *notify* is false for exactly one case: a refusal this process is relaying
+    rather than making. The owner that wrote the terminus into the record
+    already emitted the operator's line, and a second one for the same gesture
+    would read as a second gesture.
+    """
+    if notify:
+        await _emit_failure(from_target, to_target, str(details.get("reason") or ""))
+    make_error(error_type, message, suggestions, details=details)
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +283,7 @@ def _endpoint_rows(derivation: Any, probe_rows: dict[str, Any]) -> dict[str, dic
 def target_rows(
     config: Any,
     *,
-    session_target: str,
+    control_target: str,
     baseline: str,
     probe_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]]:
@@ -300,7 +296,7 @@ def target_rows(
 
     Args:
         config: The full rendered config mapping.
-        session_target: The target this session is on right now.
+        control_target: The target the deployment is on right now.
         baseline: The target this deployment's own config selects.
         probe_snapshot: :meth:`EndpointProber.snapshot`'s output, or ``None``
             when no prober is running — in which case rows carry the derived
@@ -325,7 +321,7 @@ def target_rows(
     # malformed one with the baseline alone.
     section = config.get("control_system") if isinstance(config, dict) else None
     for target in configured_targets(section):
-        # This session's real posture for the target, read ONCE and then used
+        # The deployment's real posture for the target, read ONCE and then used
         # for every answer this row carries. The eligibility verdict, the
         # gateway role and the `writes_permitted` flag are three views of the
         # same fact, and a row that read the store separately for each could
@@ -333,12 +329,12 @@ def target_rows(
         # had not.
         writes_permitted = _writes_permitted(config, target)
         availability = target_availability(
-            config, target, session_target, baseline, writes_enabled=writes_permitted
+            config, target, control_target, baseline, writes_enabled=writes_permitted
         )
         display = metadata.get(target, {})
         row: dict[str, Any] = {
             "target": target,
-            "active": target == session_target,
+            "active": target == control_target,
             "is_baseline": target == baseline,
             "label": display.get("label", ""),
             "real_machine": bool(display.get("real_machine", False)),
@@ -385,13 +381,13 @@ def target_rows(
 
 
 def _writes_permitted(config: Any, target: str) -> bool:
-    """Whether a write to *target* would be permitted on this session, now.
+    """Whether a write to *target* would be permitted on this deployment, now.
 
     Three things decide it: that target's own posture
     (``control_system.connector.<type>.writes_enabled``, falling back to
     ``control_system.writes_enabled`` where its type states none), this run's
-    own claim (``OSPREY_EXECUTION_MODE``), and the operator's narrowing for
-    this session from the header chip. All three are combined by
+    own claim (``OSPREY_EXECUTION_MODE``), and the operator's narrowing from
+    the header chip. All three are combined by
     :func:`~osprey.mcp_server.control_system.target_eligibility.effective_writes_for_target`,
     which is also the value the roster hands
     :func:`~osprey.mcp_server.control_system.target_eligibility.derive_endpoints`
@@ -404,7 +400,7 @@ def _writes_permitted(config: Any, target: str) -> bool:
 
 @mcp.tool()
 async def control_target() -> str:
-    """Report which control system this session is pointed at, and what else it could be.
+    """Report which control system this deployment is pointed at, and what else it could be.
 
     Read-only and side-effect-free: nothing is spawned, connected to or
     written. Ask this before proposing a switch — it says, per target, whether
@@ -459,7 +455,7 @@ async def control_target() -> str:
 
     rows = target_rows(
         context.config.raw,
-        session_target=status["target"],
+        control_target=status["target"],
         baseline=status["baseline_target"],
         probe_snapshot=snapshot,
     )
@@ -468,7 +464,8 @@ async def control_target() -> str:
         {
             "status": "success",
             "description": (
-                f"Session target is {status['target']!r} (generation {status['generation']}); "
+                f"The deployment is on the {status['target']!r} target "
+                f"(generation {status['generation']}); "
                 f"deployment baseline is {status['baseline_target']!r}."
             ),
             "summary": {
@@ -505,108 +502,542 @@ async def control_target() -> str:
 # The switch
 # ---------------------------------------------------------------------------
 
+#: One switch per server process, held from the moment a request is filed to
+#: the moment its outcome is known. Two agent calls in one process would
+#: otherwise write into the same request slot — the second replacing the first,
+#: leaving the first watching for a ``request_id`` no file carries any more —
+#: and would then poll one record for two different answers. The second caller
+#: waits and re-reads: by the time it runs the deployment may already be where
+#: it wanted to go, which is the no-mint answer rather than a second switch.
+_SWITCH_LOCK = asyncio.Lock()
 
-@dataclass(frozen=True)
-class GateVerdict:
-    """One refusal, in the exact words the operator would be told.
+#: How often the record is re-read while an answer is outstanding. The owner
+#: reconciles once a second, so a request cannot be answered more often than
+#: that and a tighter poll would only re-read the same bytes.
+POLL_INTERVAL_S = 1.0
 
-    Carries everything a caller needs to report the refusal on its own surface:
-    the machine-readable ``reason``, the human-readable ``detail`` and the
-    suggestions, plus the structured ``details`` payload that goes into the
-    error envelope (and whose ``reason`` key is the same string). A verdict is
-    a refusal — "may proceed" is spelled ``None`` by :func:`switch_gate`, not
-    as a fourth verdict, so no caller can mistake an allowed switch for a
-    refusal it forgot to check the flag on.
+#: How many owner ticks a filed request may go unanswered before this tool
+#: stops waiting. Well inside the request TTL, so a request withdrawn here was
+#: never going to be swept for staleness first.
+OWNER_TICKS_BEFORE_UNCONSUMED = 5
+
+
+def _now_iso() -> str:
+    """Wall clock, ISO-8601, UTC — the stamp a request carries."""
+    return datetime.now(UTC).isoformat()
+
+
+def _no_record_message() -> str:
+    return (
+        "This deployment has no control-context record, so there is no target of record to "
+        "read or change."
+    )
+
+
+def _gate(
+    context: Any, record: control_context.ControlContext, wanted: str, reports: Any
+) -> GateVerdict:
+    """The switch verdict, from the one gate every surface asks.
+
+    The inputs are gathered here because the gate opens no file: the record's
+    target rather than this manager's, because the answer is written into the
+    record and it is the record the deployment routes by; and the deployment's
+    effective write posture, so a target the operator narrowed is not refused
+    for a gateway role the child would never have selected.
     """
-
-    reason: str
-    detail: str
-    suggestions: list[str] = field(default_factory=list)
-    details: dict[str, Any] = field(default_factory=dict)
-
-
-async def switch_gate(context: Any, wanted: str) -> GateVerdict | None:
-    """Whether this session may switch to *wanted* right now.
-
-    The three refusals, in the fixed order the module docstring explains: a
-    read-only run, an execution in flight, then eligibility — which is where
-    ``already_active`` arrives, since "you are already there" is the roster's
-    answer and not a check of this gate's own.
-
-    It takes the server context and a target name and nothing else: the second
-    caller is the session-control reconciler, which asks this immediately
-    before :meth:`ConnectorHostManager.switch` on a path that has no MCP
-    request behind it. The session's target of record and the deployment
-    baseline are therefore read from the manager the context holds, not passed
-    in — two callers that supplied their own would eventually supply different
-    ones.
-
-    Args:
-        context: The controls server context (already resolved; a context that
-            could not be read is its caller's problem to report, because the
-            two surfaces owe the operator different things for that failure).
-        wanted: The target the session wants to move to.
-
-    Returns:
-        The refusal, or ``None`` when nothing refuses and the caller may switch.
-    """
-    hosts = context.connector_hosts
-
-    # (1) A read-only run mutates nothing, whatever the destination.
-    if is_readonly_run():
-        return GateVerdict(
-            reason=REASON_READONLY_RUN,
-            detail=(
-                "a switch mutates session state; read-only sessions stay on the "
-                "deployment baseline."
-            ),
-            suggestions=[
-                "Re-run this without the read-only execution mode to change the "
-                "control-system target."
-            ],
-            details={"target": wanted, "reason": REASON_READONLY_RUN},
-        )
-
-    # (2) A run in flight was stamped with the target it started on. This reads
-    # another process's files, so there is a window: an execution that starts
-    # between this check and the swap is not seen here. That window is closed
-    # elsewhere and not by widening this check — the sandbox is pinned to the
-    # generation it launched under, and its writes refuse once the session moves
-    # past it. What this check buys is the refusal arriving as an answer to the
-    # switch rather than as a failure inside a running script.
-    running = in_flight_executions()
-    if running:
-        message, suggestions, details = _in_flight_detail(running[0], wanted)
-        return GateVerdict(
-            reason=REASON_EXECUTION_IN_FLIGHT,
-            detail=message,
-            suggestions=suggestions,
-            details=details,
-        )
-
-    # (3) Eligibility, session-relative, in the eligibility module's own words.
-    availability = target_availability(
+    return evaluate_switch(
         context.config.raw,
         wanted,
-        hosts.active_target(),
-        hosts.baseline,
+        current_target=record.target,
+        baseline=context.connector_hosts.baseline,
+        in_flight=in_flight_executions(),
+        reports=reports,
+        writes_enabled=_writes_permitted(context.config.raw, wanted),
     )
-    if not availability.available_now:
-        return GateVerdict(
-            reason=str(availability.reason or ""),
-            detail=availability.detail,
+
+
+async def _refuse_switch_in_progress(
+    record: control_context.ControlContext, wanted: str, reports: Any
+) -> NoReturn:
+    """Today's refusal shape for a deployment that has not settled yet.
+
+    No record is written and no request is left behind: a terminus written now
+    would overwrite the answer to the gesture still in flight, which is the one
+    somebody is actually waiting for.
+    """
+    pids = control_context.blocking_pids(record, reports, None)
+    named = ",".join(str(pid) for pid in pids) or "an unnamed server"
+    await _refuse(
+        from_target=record.target,
+        to_target=wanted,
+        message=(
+            f"switch_in_progress:{named}. A control-target switch is already in flight on "
+            f"pid {named}, so this one was not filed."
+        ),
+        suggestions=[
+            "Nothing was changed: the deployment is still on the target it was on.",
+            "Wait for the control-target chip to settle, then ask for the switch again.",
+        ],
+        details={
+            "target": wanted,
+            "reason": REASON_SWITCH_IN_PROGRESS,
+            "pids": list(pids),
+        },
+    )
+
+
+def _terminus(
+    record: control_context.ControlContext,
+    *,
+    request_id: str,
+    wanted: str,
+    requested_at: str,
+    status: str,
+    reason: str | None,
+    detail: str,
+    generation: int | None,
+) -> control_context.ControlContext:
+    """The record as it will be once this request has been answered.
+
+    The block itself is
+    :func:`~osprey_connectors.control_context.terminus`; what this server adds
+    is who asked. It is answering its own agent, so the requester is this
+    session — or this process, for a run that reports no session.
+    """
+    return control_context.terminus(
+        record,
+        request_id=request_id,
+        target=wanted,
+        requested_at=requested_at,
+        requested_by=posture_session() or f"pid:{os.getpid()}",
+        status=status,
+        reason=reason,
+        detail=detail,
+        generation=generation,
+    )
+
+
+async def _record_write_failed(from_target: str, wanted: str) -> NoReturn:
+    """The answer when the record would not take this server's write."""
+    await _refuse(
+        from_target=from_target,
+        to_target=wanted,
+        message="The control-context record could not be updated, so the target was not changed.",
+        suggestions=[
+            "Nothing was changed: the deployment is still on the target it was on.",
+            "Check that the agent-data directory is writable, then ask for the switch again.",
+        ],
+        details={"target": wanted, "reason": REASON_INTERNAL_ERROR},
+        error_type=ERROR_FAILED,
+    )
+
+
+async def _apply_here(
+    context: Any, record: control_context.ControlContext, wanted: str, reports: Any
+) -> str:
+    """The owning server's own answer: gate it, then write the terminus.
+
+    This server owns the record, so there is nobody to ask and nothing to wait
+    for — the verdict is taken and the answer written in one place, in exactly
+    the shape a consumed request file would have produced. The wait that
+    follows is for this server's *own* connector host to reach the generation
+    the record now names, which is a different question from whether the switch
+    was granted.
+    """
+    if not control_context.converged(record, reports, None):
+        return await _refuse_switch_in_progress(record, wanted, reports)
+
+    request_id = uuid.uuid4().hex
+    requested_at = _now_iso()
+    verdict = _gate(context, record, wanted, reports)
+
+    if not verdict.allowed:
+        control_context.write_terminus(
+            _terminus(
+                record,
+                request_id=request_id,
+                wanted=wanted,
+                requested_at=requested_at,
+                status=control_context.SWITCH_REFUSED,
+                reason=str(verdict.reason or ""),
+                detail=verdict.detail,
+                generation=None,
+            ),
+            request_id,
+        )
+        return await _refuse(
+            from_target=record.target,
+            to_target=wanted,
+            message=verdict.detail,
+            suggestions=verdict.suggestions,
+            details=verdict.details,
+        )
+
+    generation = record.generation + 1
+    if not control_context.write_terminus(
+        _terminus(
+            record,
+            request_id=request_id,
+            wanted=wanted,
+            requested_at=requested_at,
+            status=control_context.SWITCH_APPLIED,
+            reason=None,
+            detail=control_context.applied_detail(wanted, generation),
+            generation=generation,
+        ),
+        request_id,
+    ):
+        return await _record_write_failed(record.target, wanted)
+
+    return await _await_the_swap(context, wanted, generation, previous_target=record.target)
+
+
+async def _file_request(record: control_context.ControlContext, wanted: str) -> str:
+    """Ask the owner for the switch, and return the id it was filed under.
+
+    The body is the whole of what a consumer reads, and the file is named for
+    THIS process: a request survives exactly as long as the session waiting for
+    its answer, and is swept with it.
+    """
+    request_id = uuid.uuid4().hex
+    try:
+        target_state.write_request(
+            {
+                "request_id": request_id,
+                "target": wanted,
+                "requested_at": _now_iso(),
+                "session": posture_session(),
+                "requested_by_pid": os.getpid(),
+            }
+        )
+    except target_state.RequestSuperseded:
+        return await _refuse(
+            from_target=record.target,
+            to_target=wanted,
+            message=(
+                "Another switch request from this server is already pending, so this one was "
+                "not filed."
+            ),
+            suggestions=["Wait for the pending switch to be answered, then ask again."],
+            details={"target": wanted, "reason": REASON_REQUEST_PENDING},
+        )
+    except OSError as exc:
+        logger.warning("Could not file a switch request for %r: %s", wanted, exc)
+        return await _refuse(
+            from_target=record.target,
+            to_target=wanted,
+            message=(
+                "The control-target directory could not be written, so the switch could not be "
+                "asked for."
+            ),
+            suggestions=["Check that the agent-data directory is writable, then ask again."],
+            details={"target": wanted, "reason": REASON_STORE_UNAVAILABLE},
+            error_type=ERROR_UNAVAILABLE,
+        )
+    return request_id
+
+
+async def _request_and_wait(
+    context: Any, record: control_context.ControlContext, wanted: str, reports: Any
+) -> str:
+    """File a request with the owner, then wait for the record to answer it.
+
+    The gate is asked here as well as by the owner, and deliberately: the
+    read-only rung is a claim about THIS run, and the process that made it is
+    the only one that can see it — an owner in another process would evaluate
+    its own execution mode and let the switch through. Everything refused here
+    is refused again by the owner a moment later; what the local call buys is
+    that the answer is about the run that asked.
+    """
+    verdict = _gate(context, record, wanted, reports)
+    if not verdict.allowed:
+        # A follower writes nothing to the record: this is this process's
+        # answer to its own agent, not a terminus for a gesture the owner never
+        # saw.
+        return await _refuse(
+            from_target=record.target,
+            to_target=wanted,
+            message=verdict.detail,
+            suggestions=verdict.suggestions,
+            details=verdict.details,
+        )
+
+    return await _poll_for_the_terminus(
+        context, record, wanted, await _file_request(record, wanted)
+    )
+
+
+async def _poll_for_the_terminus(
+    context: Any, filed_against: control_context.ControlContext, wanted: str, request_id: str
+) -> str:
+    """Wait for the record to carry this request's own answer.
+
+    The record is polled and the request file is not: the owner unlinks a
+    request only after its record write has been read back, so an absent file
+    with no terminus means the request was dropped, not that it was applied.
+
+    Two ways this ends without an answer, and both withdraw the request rather
+    than leave it for an owner to apply into a session that has stopped
+    watching. The deployment stops being converged — a switch somebody else
+    asked for landed first — or no owner takes this one within
+    :data:`OWNER_TICKS_BEFORE_UNCONSUMED` ticks, which names the process that
+    should have consumed it.
+    """
+    previous_target = filed_against.target
+    for _ in range(OWNER_TICKS_BEFORE_UNCONSUMED):
+        record = control_context.read_record() or filed_against
+        answer = await _answered(context, record, wanted, request_id, previous_target)
+        if answer is not None:
+            return answer
+
+        reports = control_context.live_reports()
+        if not control_context.converged(record, reports, None):
+            target_state.remove_request()
+            return await _refuse_switch_in_progress(record, wanted, reports)
+
+        await asyncio.sleep(POLL_INTERVAL_S)
+
+    record = control_context.read_record() or filed_against
+    answer = await _answered(context, record, wanted, request_id, previous_target)
+    if answer is not None:
+        return answer
+
+    target_state.remove_request()
+    owner_pid = record.owner.pid if record.owner is not None else None
+    named = "no process" if owner_pid is None else f"pid {owner_pid}"
+    return await _refuse(
+        from_target=record.target,
+        to_target=wanted,
+        message=(
+            f"no owner consumed the request within {OWNER_TICKS_BEFORE_UNCONSUMED} ticks; the "
+            f"control context is owned by {named}, and the target was not changed."
+        ),
+        suggestions=[
+            "Nothing was changed: the deployment is still on the target it was on.",
+            f"Check that {named} is still serving this deployment, then ask for the switch again.",
+        ],
+        details={
+            "target": wanted,
+            "reason": REASON_REQUEST_NOT_CONSUMED,
+            "owner_pid": owner_pid,
+        },
+    )
+
+
+async def _answered(
+    context: Any,
+    record: control_context.ControlContext,
+    wanted: str,
+    request_id: str,
+    previous_target: str,
+) -> str | None:
+    """This request's terminus, reported — or ``None`` while there is none yet.
+
+    The refusal is the owner's gate verdict relayed rather than re-derived: it
+    was taken at the moment the switch would have happened, and this process's
+    own facts are a moment older. It reaches the agent without an activity line
+    of its own, because the owner that wrote the terminus already emitted one
+    and two lines for one gesture read as two gestures.
+    """
+    last_switch = record.last_switch or {}
+    if last_switch.get("request_id") != request_id:
+        return None
+
+    status = str(last_switch.get("status") or "")
+    if status == control_context.SWITCH_REFUSED:
+        reason = str(last_switch.get("reason") or "")
+        detail = str(last_switch.get("detail") or "")
+        return await _refuse(
+            from_target=record.target,
+            to_target=wanted,
+            message=detail or f"the switch to {wanted!r} was refused.",
             suggestions=[
                 "Ask for the target roster to see what each target would need to become usable."
             ],
-            details=availability.as_dict(),
+            details={"target": wanted, "reason": reason},
+            notify=False,
         )
 
-    return None
+    generation = last_switch.get("generation")
+    if not isinstance(generation, int):
+        generation = record.generation
+    return await _await_the_swap(
+        context,
+        wanted,
+        generation,
+        previous_target=previous_target,
+        notify_success=False,
+    )
+
+
+def _report_block(generation: int) -> dict[str, Any]:
+    """This server's own progress through the generation it is reaching for.
+
+    ``{}`` for a report that says nothing about this generation: a block for an
+    older one is not evidence about this swap, and a reader that treated it as
+    one would report the previous switch's outcome for this one.
+    """
+    try:
+        report = control_context.read_report(target_state.report_file_path())
+    except Exception:
+        logger.debug("Could not read this server's report", exc_info=True)
+        return {}
+    block = getattr(report, "last_switch", None)
+    if not isinstance(block, dict) or block.get("generation") != generation:
+        return {}
+    return block
+
+
+async def _await_the_swap(
+    context: Any,
+    wanted: str,
+    generation: int,
+    *,
+    previous_target: str,
+    notify_success: bool = True,
+) -> str:
+    """Wait for THIS server to reach the generation the record now names.
+
+    The record moving is the deployment's answer; it is not yet this server's
+    connector. The reconcile loop picks the new generation up within a tick and
+    publishes ``applying`` before its first await, and the swap that follows is
+    bounded by the spawn, probe and drain timeouts this process holds — which
+    is why the bound is computed here rather than guessed by a reader.
+
+    A server with no live child adopts silently and publishes nothing at all,
+    so "the manager is on the wanted binding and nothing says otherwise" is a
+    landing too. Without that, a deployment that has never launched a connector
+    host would wait out the whole bound for a report that was never coming.
+    """
+    hosts = context.connector_hosts
+    deadline = time.monotonic() + hosts.applying_bound_s()
+    while True:
+        block = _report_block(generation)
+        status = str(block.get("status") or "")
+        if status == target_state.SWITCH_APPLIED:
+            break
+        if status == target_state.SWITCH_FAILED:
+            return await _swap_failed(previous_target, wanted, generation, block)
+        if (
+            status != target_state.SWITCH_APPLYING
+            and hosts.active_target() == wanted
+            and hosts.active_generation() >= generation
+        ):
+            break
+        if time.monotonic() >= deadline:
+            return await _swap_failed(previous_target, wanted, generation, block, incomplete=True)
+        await asyncio.sleep(POLL_INTERVAL_S)
+
+    if notify_success:
+        await notify_target_switch_async(
+            from_target=previous_target,
+            to_target=wanted,
+            outcome=SWITCH_OUTCOME_SUCCESS,
+            generation=generation,
+        )
+    logger.info("Control target is now %r (generation %s)", wanted, generation)
+    return _binding_payload(
+        hosts,
+        wanted,
+        generation,
+        previous_target,
+        description=f"Control-system target is now {wanted!r} (generation {generation}).",
+    )
+
+
+async def _swap_failed(
+    previous_target: str,
+    wanted: str,
+    generation: int,
+    block: dict[str, Any],
+    *,
+    incomplete: bool = False,
+) -> NoReturn:
+    """This server did not reach the generation the deployment is on.
+
+    Reported as a failure and not as a refusal: the switch was granted, the
+    record moved, and it is this server's connector host that did not follow.
+    The record is left exactly as it is — the deployment's target of record is
+    not this server's to revoke, and the next reconcile tick tries again.
+    """
+    reason = str(block.get("reason") or "") or REASON_SWAP_INCOMPLETE
+    detail = str(block.get("detail") or "")
+    if incomplete or not detail:
+        detail = (
+            f"the swap did not complete: this server has not reached target {wanted!r} "
+            f"(generation {generation})."
+        )
+    await _emit_failure(previous_target, wanted, reason)
+    make_error(
+        ERROR_FAILED,
+        detail,
+        [
+            "The deployment's target of record has moved; this server's connector host has "
+            "not followed it.",
+            "Check this server's log for the launch failure, then ask for the switch again.",
+        ],
+        details={"target": wanted, "reason": reason, "generation": generation},
+    )
+
+
+def _binding_payload(
+    hosts: Any, target: str, generation: int, previous_target: str, *, description: str
+) -> str:
+    """The success answer, from what this server can honestly report.
+
+    Everything here is read after the swap rather than returned by it: this
+    tool no longer performs the switch, so the child, its connector type and
+    the channel that proved it are the running host's own report of itself.
+    """
+    status = hosts.status()
+    return json.dumps(
+        {
+            "status": "success",
+            "description": description,
+            "summary": {
+                "target": target,
+                "generation": generation,
+                "previous_target": previous_target,
+                "target_changed": target != previous_target,
+                "connector_type": status["connector_type"],
+                "probe_channel": status["probe_channel"],
+            },
+            "access_details": {
+                "selected_role": status["selected_role"],
+                "baseline_target": status["baseline_target"],
+                "child_pid": status["child_pid"],
+                "connector_host_alive": status["child_alive"],
+                "drain_timeout_s": status["drain_timeout_s"],
+            },
+        },
+        default=str,
+    )
+
+
+def _already_there(record: control_context.ControlContext, hosts: Any) -> str:
+    """The no-mint answer: the deployment is already where the caller asked.
+
+    The same answer the owner writes for a request naming the target of record,
+    and it has to be the same one: a generation bumped for a switch that did
+    not happen would refuse every write bound to the old one, for nothing.
+    Nothing is emitted to the operator's feed either — a line for a switch that
+    did not happen is a switch in the feed that did not happen.
+    """
+    return _binding_payload(
+        hosts,
+        record.target,
+        record.generation,
+        record.target,
+        description=(
+            f"Control-system target is already {record.target!r} "
+            f"(generation {record.generation}); nothing was switched."
+        ),
+    )
 
 
 @mcp.tool()
 async def control_target_set(target: str) -> str:
-    """Point this session's control-system tools at a different target.
+    """Point this deployment's control-system tools at a different target.
 
     Targets are ``live`` (the machine this deployment's facility authored),
     ``va`` (the virtual accelerator it deploys) and ``standin`` (the live
@@ -614,34 +1045,38 @@ async def control_target_set(target: str) -> str:
     hardware and is a machine of its own rather than a mode of ``live``). A
     deployment has the ones its config describes, and ``control_target`` is the
     authority on which: a target absent from that roster is not switchable
-    here, whatever this list names. The switch replaces the process that talks
-    to the control system: the destination is spawned and proven reachable
-    BEFORE the current one is retired, so a switch that fails leaves the
-    session exactly where it was.
+    here, whatever this list names.
 
-    Refused, in this order, when: the run is read-only; an execution is in
-    flight; or the destination is not available to this session — already
-    active, unconfigured, or short of the posture that target requires. The
-    strict limits posture guards ``live`` and ``standin`` alike; the operator
-    acknowledgment is the live machine's alone, since standing the soft IOC up
-    was itself the deployment saying what it is. A ``standin`` this deployment
-    has not actually stood up is refused ``standin_not_deployed``, so the
-    switch cannot be talked onto hardware under a soft label. The refusal names
-    the reason the target roster reports.
+    The target belongs to the DEPLOYMENT and not to this session: every window,
+    notebook kernel and sandbox on it moves too. The control-context record's
+    owner is the only process that changes it, so this tool either writes the
+    answer itself — when this server owns the record — or asks the owner for it
+    and waits for the answer to appear in the record.
+
+    Refused when: the run is read-only; an execution is in flight anywhere on
+    this deployment, in which case the refusal names the busy client; the
+    destination is not available — already active, unconfigured, or short of the
+    posture that target requires; or the live servers have measured the
+    destination unreachable. A deployment that has not settled on its current
+    generation answers ``switch_in_progress`` naming the servers still applying,
+    and nothing is filed. Asking for the target the deployment is already on is
+    not a switch at all: it is answered where it stands, and mints no
+    generation.
 
     Args:
-        target: The session target to switch to — ``live``, ``va`` or
-            ``standin``.
+        target: The target to switch to — ``live``, ``va`` or ``standin``.
 
     Returns:
-        JSON naming the new target, the generation it is on, the connector type
-        and gateway the child came up against, and the channel that proved it.
+        JSON naming the target, the generation it is on, and the connector host
+        now serving it.
     """
     wanted = str(target or "").strip()
+    async with _SWITCH_LOCK:
+        return await _switch(wanted)
 
-    # Resolved before the first refusal, not as one: every outcome is reported
-    # to the operator as a move *from* somewhere, and that is the session's
-    # target of record. The order of the three refusals below is unaffected.
+
+async def _switch(wanted: str) -> str:
+    """The switch itself, with the one-at-a-time lock already held."""
     context = _server_context()
     if context is None:
         return await _refuse(
@@ -655,96 +1090,27 @@ async def control_target_set(target: str) -> str:
             details={"target": wanted, "reason": REASON_CONTEXT_UNAVAILABLE},
             error_type=ERROR_UNAVAILABLE,
         )
-    hosts = context.connector_hosts
-    session_target = hosts.active_target()
 
-    # The three refusals, in their fixed order, from the one function the
-    # operator-initiated switch consults too. Read them in :func:`switch_gate`;
-    # this tool's job with a verdict is only to report it the way it always has.
-    verdict = await switch_gate(context, wanted)
-    if verdict is not None:
+    # Read after the lock, not before it: the caller that waited answers about
+    # the deployment as it is now, and the switch it was queued behind may be
+    # the very one it wanted.
+    record = control_context.read_record()
+    if record is None:
         return await _refuse(
-            from_target=session_target,
+            from_target=UNKNOWN_TARGET,
             to_target=wanted,
-            message=verdict.detail,
-            suggestions=verdict.suggestions,
-            details=verdict.details,
+            message=_no_record_message(),
+            suggestions=[
+                "Wait for the controls MCP server to claim the control context, then ask again."
+            ],
+            details={"target": wanted, "reason": REASON_RECORD_UNAVAILABLE},
+            error_type=ERROR_UNAVAILABLE,
         )
 
-    try:
-        result = await hosts.switch(wanted)
-    except SwitchError as exc:
-        logger.warning("Target switch to %r failed at stage %r: %s", wanted, exc.stage, exc.detail)
-        # A failed switch left the session where it was, and the operator who
-        # approved the attempt is told so rather than left to infer it.
-        await _emit_failure(session_target, wanted, exc.reason)
-        suggestions = [
-            f"The session is still on target {hosts.active_target()!r}; nothing was switched.",
-        ]
-        if exc.gateway:
-            # Both roles usually share a hostname and differ only by port, so
-            # without this line the failure reads as "the control system is
-            # down" when only one gateway beside a healthy one is unserved.
-            suggestions.append(
-                f"The readiness probe ran through the {exc.gateway['role']!r} gateway at "
-                f"{exc.gateway['host']}:{exc.gateway['port']}. Check that a gateway process "
-                "is actually serving that host and port — the control system itself, and "
-                "this target's other gateway roles, may be healthy."
-            )
-        suggestions.append("Fix what the detail names, then ask for the switch again.")
-        return make_error(
-            ERROR_FAILED,
-            exc.detail,
-            suggestions,
-            details=exc.as_dict(),
-        )
-    except BaseException:
-        # Anything the switch did not classify — a cancellation, a bug, an
-        # error from a layer below. The operator watching this session saw an
-        # attempt begin and must see that it ended, whatever ended it; the
-        # exception itself still travels, unchanged, to the agent.
-        await _emit_failure(session_target, wanted, REASON_INTERNAL_ERROR)
-        raise
+    if wanted == record.target:
+        return _already_there(record, context.connector_hosts)
 
-    await notify_target_switch_async(
-        from_target=result["previous_target"],
-        to_target=result["target"],
-        outcome=SWITCH_OUTCOME_SUCCESS,
-        generation=result["generation"],
-    )
-
-    status = hosts.status()
-    logger.info("Session target is now %r (generation %s)", result["target"], result["generation"])
-    description = (
-        f"Control-system target is now {result['target']!r} (generation {result['generation']})."
-    )
-    access_details = {
-        "endpoint": result["endpoint"],
-        "selected_role": result["selected_role"],
-        "baseline_target": status["baseline_target"],
-        "child_pid": result["child_pid"],
-        "previous_drained": result["previous_drained"],
-        "drain_timeout_s": result["drain_timeout_s"],
-    }
-    # A landing that could not use the write gateway is a success with a
-    # warning, not a silent success: the operator has a gateway to fix.
-    fallback = result.get("write_gateway_fallback")
-    if fallback:
-        description += f" WARNING: {fallback['detail']}"
-        access_details["write_gateway_fallback"] = fallback
-    return json.dumps(
-        {
-            "status": "success",
-            "description": description,
-            "summary": {
-                "target": result["target"],
-                "generation": result["generation"],
-                "previous_target": result["previous_target"],
-                "target_changed": result["target_changed"],
-                "connector_type": result["connector_type"],
-                "probe_channel": result["probe_channel"],
-            },
-            "access_details": access_details,
-        },
-        default=str,
-    )
+    reports = control_context.live_reports()
+    if control_context.owned_here(record):
+        return await _apply_here(context, record, wanted, reports)
+    return await _request_and_wait(context, record, wanted, reports)

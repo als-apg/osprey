@@ -14,7 +14,7 @@ The payload shape is a fixed interface contract shared with the hook::
     response: {"ok": true, "recorded": bool}
 
 Two identities appear in it and they are not the same thing. ``pool_key`` is
-the session key the browser, the PTY pool and the posture store all use — it
+the session key the browser, the PTY pool and the audit ledger all use — it
 never changes. ``session_id`` is Claude Code's own session id, which names the
 transcript file and *does* change: a ``/clear`` starts a fresh transcript while
 the key stays put. So a report both marks the key busy or idle and records

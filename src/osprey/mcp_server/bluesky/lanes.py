@@ -10,11 +10,11 @@ This module is the host's half of the producer split the lane axis is built on:
 
 * each **bridge** publishes what it statically is — its lane key and the target
   that lane serves (``queue_backend.resolve_lane_identity``). It cannot do more:
-  the session's target lives in a state file the controls MCP server writes on
-  the host, outside every bridge container's filesystem;
-* the **host** — here — compares that against the session target it alone can
-  see, and composes the *active/inactive* view: the active lane is the lane
-  whose target equals the session target.
+  the deployment's target lives in the control-context record on the host,
+  outside every bridge container's filesystem;
+* the **host** — here — compares that against the deployment's target, which it
+  alone can see, and composes the *active/inactive* view: the active lane is
+  the lane whose target equals the deployment's.
 
 Two deployment shapes, one code path
 ------------------------------------
@@ -27,7 +27,7 @@ The branch point is the LANE COUNT, and it is the only one:
   so the refusal and the routing decision are the same computed fact rather than
   two rules that could drift.
 * **Two lanes.** The switch is no longer a refusal but an address: the operation
-  is routed to the lane serving the session's target, and refused only when no
+  is routed to the lane serving the deployment's target, and refused only when no
   single lane serves it — a config that renders two lanes for the same target,
   or an ambiguity — which fails closed for the same reason a wrong-machine write
   is unrecoverable.
@@ -87,16 +87,17 @@ class Lane:
 
 @dataclass(frozen=True)
 class LaneSituation:
-    """Every lane this deployment renders, plus which one the session is on.
+    """Every lane this deployment renders, plus which one the deployment is on.
 
     Attributes:
         lanes: The rendered lanes, in render order. Never empty — lane 1 always
             exists, including when the config cannot be read at all.
-        active: The lane serving the session's target, or ``None`` when no
+        active: The lane serving the deployment's target, or ``None`` when no
             single lane does. ``None`` is the refusal case on BOTH deployment
-            shapes: on a single-lane deployment it means the session is switched
-            away from the only lane there is, and on a two-lane one it means the
-            rendered lanes do not cover the session's target unambiguously.
+            shapes: on a single-lane deployment it means the deployment is
+            switched away from the only lane there is, and on a two-lane one it
+            means the
+            rendered lanes do not cover the deployment's target unambiguously.
         target_situation: The session/baseline pair the active lane was resolved
             against, kept so a caller renders its refusal from the same facts
             rather than resolving them a second time.
@@ -112,9 +113,9 @@ class LaneSituation:
         return len(self.lanes) > 1
 
     @property
-    def session_target(self) -> str:
-        """The control target this session is pointed at."""
-        return self.target_situation.session_target
+    def control_target(self) -> str:
+        """The control target this deployment is pointed at."""
+        return self.target_situation.control_target
 
     @property
     def baseline_target(self) -> str:
@@ -166,29 +167,29 @@ def discover_lanes(baseline_target: str) -> tuple[Lane, ...]:
 
 
 def resolve_lane_situation() -> LaneSituation:
-    """Resolve the rendered lanes and which of them the session is on.
+    """Resolve the rendered lanes and which of them the deployment is on.
 
     Never raises. Every failure — an unreadable config, unreadable session state
     — collapses to the same answer an unswitched single-lane deployment gets,
     which is the direction that keeps a deployment that never switches (today,
     nearly all of them) behaving exactly as it always has.
 
-    The active lane is the lane whose target equals the session target, and it
+    The active lane is the lane whose target equals the deployment's target, and it
     is deliberately resolved by an EXACT match on exactly one lane: zero matches
-    (no rendered lane serves where the session is pointed) and more than one
+    (no rendered lane serves where the deployment is pointed) and more than one
     (two lanes rendered for the same target) are both "no answer", and no answer
     fails closed into a refusal rather than into a guess about which machine a
     plan would run on.
     """
     situation = target_banner.resolve_target_situation()
     lanes = discover_lanes(situation.baseline_target)
-    matches = [lane for lane in lanes if lane.target == situation.session_target]
+    matches = [lane for lane in lanes if lane.target == situation.control_target]
     if len(matches) != 1:
         if matches:
             logger.debug(
                 "Ambiguous plan lanes: %d lanes serve target %r",
                 len(matches),
-                situation.session_target,
+                situation.control_target,
             )
         return LaneSituation(lanes=lanes, active=None, target_situation=situation)
     return LaneSituation(lanes=lanes, active=matches[0], target_situation=situation)
@@ -204,7 +205,7 @@ def compose_lane_capability(capability: object, *, active: bool) -> dict:
     reads the capability shape gains a field rather than losing one.
 
     :param capability: The ``capability`` object from a lane's ``/health``.
-    :param active: Whether this lane serves the session's target.
+    :param active: Whether this lane serves the deployment's target.
     """
     composed = dict(capability) if isinstance(capability, dict) else {}
     composed["active"] = active
@@ -215,8 +216,8 @@ def lane_roster(situation: LaneSituation) -> list[dict]:
     """The rendered lanes as plain dicts, each marked active or not.
 
     The roster a refusal carries so whoever reads it can see the whole board:
-    which lanes exist, which machine each drives, and which one the session is
-    on right now. Exactly one entry is ``active`` whenever
+    which lanes exist, which machine each drives, and which one the deployment
+    is on right now. Exactly one entry is ``active`` whenever
     :attr:`LaneSituation.active` is set, and none is when it is not.
     """
     active_key = situation.active.key if situation.active else None

@@ -1,11 +1,11 @@
-"""The one place a session target becomes a connector type — and its refusals.
+"""The one place a control target becomes a connector type — and its refusals.
 
-A session target (``live`` / ``va`` / ``standin``) is a run-time argument; a
+A control target (``live`` / ``va`` / ``standin``) is a run-time argument; a
 connector type (``epics`` / ``virtual_accelerator`` / ``live_standin`` / …) is
 what a config selects. Each target names a machine — the facility's own, the
 virtual accelerator, the soft-IOC stand-in the deployment runs itself. Every
 holder
-that follows the session target — the connector-host parent, its child, an
+that follows the control target — the connector-host parent, its child, an
 executor sandbox — has to make that translation, and any holder making it
 privately is free to route somewhere the roster never claimed. So the
 translation is pinned here, including the cases where it must refuse rather than

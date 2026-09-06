@@ -29,6 +29,7 @@ import pytest
 from osprey.connectors.control_system.base import ChannelWriteResult, WriteOutcome
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.server_context import initialize_server_context
+from tests._control_context_fixtures import write_control_context
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -709,7 +710,7 @@ async def test_a_single_refusal_envelope_says_what_the_refusal_said(tmp_path, mo
     """The raised envelope replaces the results, so it must carry their reason.
 
     A refusal's ``error`` field is the only place the monitor names WHICH
-    posture refused and where it lifts — this session's read-only setting for
+    posture refused and where it lifts — the deployment's read-only setting for
     one control target and the header chip that set it, or the config key for a
     deployment refusal. Naming the channel and stopping there is a dead end,
     and the single-channel write is exactly the common case where the agent
@@ -719,8 +720,8 @@ async def test_a_single_refusal_envelope_says_what_the_refusal_said(tmp_path, mo
 
     refusal = (
         "Write to 'PV:A' blocked: writes are off for the 'standin' control target "
-        "in this session — turned off from the control-target chip in the header, "
-        "and in force for this session only."
+        "— turned off from the control-target chip in the header; applies "
+        "deployment-wide."
     )
     result = _make_write_result(
         channel="PV:A",
@@ -1107,7 +1108,7 @@ async def test_emitted_key_is_the_constant_the_rules_name(tmp_path, monkeypatch)
 
 
 # ---------------------------------------------------------------------------
-# the limits posture is the one the session's target runs under
+# the limits posture is the one the recorded control target runs under
 # ---------------------------------------------------------------------------
 
 #: A deployment that relaxed unlisted channels for its simulator alone: the
@@ -1144,13 +1145,13 @@ _SPLIT_POSTURE_TARGETS_META = {
 
 
 def _prepare_split_posture(tmp_path, monkeypatch, target):
-    """A split-posture deployment serving *target*, with a real state file.
+    """A split-posture deployment serving *target*, with real files on disk.
 
     Nothing here is a stand-in for the thing under test: the config is loaded
     off disk, the limits database is a real file, and the target arrives the way
-    the tool actually learns it — from the state file the controls server
-    publishes, read through ``target_state``. The one rebinding is the state
-    root, so these files land in a directory this test owns.
+    the tool actually learns it — from the deployment's control-context record.
+    The one rebinding is the state root, so these files land in a directory this
+    test owns.
     """
     db_path = tmp_path / "limits.json"
     db_path.write_text(
@@ -1166,7 +1167,10 @@ def _prepare_split_posture(tmp_path, monkeypatch, target):
     (tmp_path / "config.yml").write_text(config_text)
     root = tmp_path / "var" / "agent_data"
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
-    target_state.write_on_start(target, _SPLIT_POSTURE_TARGETS_META, generation=0)
+    # The target the tool builds its validator from is the deployment's, read
+    # off the control-context record; the report carries the display metadata.
+    write_control_context(root, target=target, generation=0)
+    target_state.write_server_record(_SPLIT_POSTURE_TARGETS_META)
     initialize_server_context()
 
 

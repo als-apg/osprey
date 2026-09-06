@@ -7,9 +7,9 @@
 # virtual accelerator and hold none on the machine that has beam. An operator
 # here queues and runs a plan against the simulator through the real path — the
 # same approval prompt, the same per-channel limits, the same connector — and
-# the same tool call refuses when the session is pointed at the live machine.
+# the same tool call refuses when the deployment is pointed at the live machine.
 #
-# Which of the two a call reaches is the session's control TARGET, so the
+# Which of the two a call reaches is the deployment's control TARGET, so the
 # target switch is what arms and disarms this tier while nothing in the profile
 # changes. Two keys do the work below: the flat `control_system.writes_enabled`
 # is what a connector type inherits when it says nothing, so pinning it false

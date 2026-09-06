@@ -43,40 +43,23 @@ class TestPopSession:
         assert popped.is_alive
 
     def test_forgets_the_key_completely(self):
-        """Pool entry, fingerprint, audit alias and attachment all go."""
+        """Pool entry, fingerprint and attachment all go."""
         registry = PtyRegistry(max_background=3)
         registry._sessions["k"] = _mock_session()
         registry._env_fingerprints["k"] = "fp"
         registry.attach_session("k", OWNER)
-        registry.rekey_session("k", "new")
 
-        registry.pop_session("new")
+        registry.pop_session("k")
 
-        assert "new" not in registry._sessions
-        assert "new" not in registry._env_fingerprints
-        assert "new" not in registry._audit_keys
-        assert not registry.is_attached("new")
-
-    def test_clears_the_notebook_binding_under_the_audit_alias(self):
-        """A rekeyed session's binding names the key its child stamped."""
-        registry = PtyRegistry(max_background=3)
-        registry._sessions["spawned"] = _mock_session()
-        registry.rekey_session("spawned", "current")
-
-        with patch("osprey.interfaces.web_terminal.pty_manager._clear_notebook_binding") as clear:
-            registry.pop_session("current")
-
-        clear.assert_called_once_with("spawned")
+        assert "k" not in registry._sessions
+        assert "k" not in registry._env_fingerprints
+        assert not registry.is_attached("k")
 
     def test_unknown_key_returns_none(self):
         """No pooled session, no error — the bookkeeping is a no-op."""
         registry = PtyRegistry(max_background=3)
 
-        with patch("osprey.interfaces.web_terminal.pty_manager._clear_notebook_binding") as clear:
-            assert registry.pop_session("absent") is None
-
-        # The binding is still cleared, under the key itself.
-        clear.assert_called_once_with("absent")
+        assert registry.pop_session("absent") is None
 
     def test_reservation_survives_the_pop(self):
         """A hand-off pops and re-fills under one reservation."""

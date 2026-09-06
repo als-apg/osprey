@@ -11,9 +11,9 @@ import json
 import logging
 import re
 
-from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
+from osprey_connectors import control_context
 
 logger = logging.getLogger("osprey.mcp_server.tools.channel_limits")
 
@@ -26,28 +26,33 @@ VALID_FILTERS = frozenset({"writable", "read_only", "has_step_limit", "has_range
 DEPLOYMENT_WIDE_UNLISTED_KEY = "control_system.limits_checking.allow_unlisted_channels"
 
 
-def _session_target() -> str | None:
-    """The control target this server is on, or ``None`` if there is no record.
+def _record_target() -> str | None:
+    """The control target the deployment's record names, or ``None`` without one.
+
+    Read from :func:`osprey_connectors.control_context.read_record` — the same
+    record ``channel_write`` and the approval prompt read. Asking one record
+    the same way everywhere is what makes the limits this tool reports the
+    limits a write to that target is actually checked against.
 
     ``None`` is the single answer for every "there is no usable target" case —
-    no state file, an unreadable state directory, a record whose target is not
-    a non-empty string. Every one of them means the same thing to the caller:
-    ask :meth:`LimitsValidator.from_config` without a target and get the
+    no record, an unreadable one, a record whose target is not a non-empty
+    string. Every one of them means the same thing to the caller: ask
+    :meth:`LimitsValidator.from_config` without a target and get the
     deployment-wide block, which is the posture a target that resolves to
     nothing gets anyway.
 
-    Reading is wrapped because :func:`target_state.state_dir` resolves a shared
-    data root and can raise, and a read-only metadata lookup must not fail on
-    the way to reporting what the deployment allows.
+    Reading is wrapped because resolving the shared agent-data root can raise,
+    and a read-only metadata lookup must not fail on the way to reporting what
+    the deployment allows.
     """
     try:
-        record = target_state.read()
+        record = control_context.read_record()
     except Exception:  # noqa: BLE001 - a target that cannot be read is simply absent
-        logger.debug("Could not read the control-system target state", exc_info=True)
+        logger.debug("Could not read the control-context record", exc_info=True)
         return None
-    if not isinstance(record, dict):
+    if record is None:
         return None
-    target = record.get("target")
+    target = record.target
     if not isinstance(target, str) or not target.strip():
         return None
     return target.strip()
@@ -213,7 +218,7 @@ async def channel_limits(
     Returns:
         JSON with channel limits configuration or database summary. The
         reported ``allow_unlisted_channels`` is the posture of the control
-        target this session is on and may be ``null`` — no config key states
+        target this deployment is on and may be ``null`` — no config key states
         an answer, and unlisted channels are refused; ``allow_unlisted_key``
         names the key that answered.
     """
@@ -261,11 +266,11 @@ async def channel_limits(
 
     validator = None
     if LimitsValidator is not None:
-        # The posture reported is the one this session writes under: a
+        # The posture reported is the one a write would land under: a
         # deployment may relax unlisted channels for its virtual accelerator
-        # alone, and reporting the deployment-wide answer on a VA session would
-        # describe a machine the caller is not on.
-        validator = LimitsValidator.from_config(target=_session_target())
+        # alone, and reporting the deployment-wide answer while the record is
+        # on VA would describe a machine the caller is not pointed at.
+        validator = LimitsValidator.from_config(target=_record_target())
 
     if validator is None:
         return json.dumps(

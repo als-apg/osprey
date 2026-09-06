@@ -1,11 +1,12 @@
 """A persona of a two-lane deployment is told both plan lanes.
 
 ``bluesky.second_lane`` renders a second bridge, and the lane resolver picks
-the lane a session is on by matching each lane's declared ``target`` against
-the session target. These tests drive the REAL injector's output through the
-Reach Contract's projection and then ask the REAL lane resolver what it makes
-of the persona's config — so a projection that copied the port but not the
-target, or lane 1 but not lane 2, fails here rather than in a container.
+the lane the deployment is on by matching each lane's declared ``target`` against
+the recorded control target. These tests drive the REAL injector's output
+through the Reach Contract's projection and then ask the REAL lane resolver
+what it makes of the persona's config — so a projection that copied the port
+but not the target, or lane 1 but not lane 2, fails here rather than in a
+container.
 """
 
 from __future__ import annotations

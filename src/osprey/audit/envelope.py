@@ -53,13 +53,16 @@ from typing import Any, ClassVar
 # Closed sets
 # --------------------------------------------------------------------------
 
-#: The posture was minted at connection time for the `/ws/operator` chat
-#: session (see routes/websocket.py) — operator_key is addressable by
-#: nothing else, so whatever the store held for it then is the whole story.
+#: The `/ws/operator` chat session stamped the record (see routes/websocket.py),
+#: whose id is minted per connection. It names the SURFACE that spawned the
+#: process, not a posture frozen at connection time: the posture itself is
+#: resolved from the control-context record at decision time, the same as under
+#: :data:`POSTURE_SOURCE_LIVE`.
 POSTURE_SOURCE_SPAWN = "spawn"
 
-#: The posture was read live from the posture store at decision time, so it
-#: reflects a runtime toggle rather than the value the session started with.
+#: A session the posture surface can address stamped the record — a PTY pool key
+#: (routes/websocket.py) or a chat id in the bare-UUID grammar (routes/chat.py,
+#: routes/session_handoff.py), as opposed to a caller-chosen id.
 POSTURE_SOURCE_LIVE = "live"
 
 #: The record was emitted by something that is not a session child at all —
@@ -158,15 +161,16 @@ class AuditEnvelope:
         Kept verbatim even when the writer routes the record elsewhere (the
         maintenance-phase marker), so the record still says who decided.
     :param actor: Whose action it was, from ``identity.acting_identity()``.
-    :param posture: The session's true posture at decision time — ``sandbox``
-        or ``writes`` as the rest of Osprey spells them.
+    :param posture: The posture in force at decision time — ``sandbox`` or
+        ``writes`` as the rest of Osprey spells them.
     :param posture_source: How *posture* was established; one of
         :data:`POSTURE_SOURCES`. Explicit, never derived from *posture*.
-    :param session: The posture-store key that governed this record — the chat
-        id for chat children, the spawn-time key for PTY sessions. ``None``
-        only where no posture-store key exists; *posture_source* already says
-        why. A top-level field, never smuggled into *detail*, so toggle events
-        and tool records join on one key.
+    :param session: The session key this record is joined on in the audit trail
+        — an identity, not a gate; the posture came from the record. The chat id
+        for chat children, the spawn-time key for PTY sessions. ``None`` only
+        where no session key exists; *posture_source* already says why. A
+        top-level field, never smuggled into *detail*, so toggle events and tool
+        records join on one key.
     :param subject: What was acted on — an MCP tool name, a dotted config key,
         a project-relative path, a login subject. An identifier, never a value.
     :param decision: What happened; see :data:`DECISIONS`.

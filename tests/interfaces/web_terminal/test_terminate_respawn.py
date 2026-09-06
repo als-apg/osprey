@@ -48,8 +48,7 @@ from osprey.interfaces.web_terminal.operator_session import (
 )
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import chat as chat_routes
-from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
-from osprey_connectors import session_store
+from osprey_connectors import posture_store
 
 # A Claude session-file stem: the PTY topology's key.
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
@@ -72,7 +71,7 @@ def workspace_dir(tmp_path):
 def shared_root(tmp_path, monkeypatch):
     """Stand in for the deployment's shared agent-data root.
 
-    Stamped, not patched. ``session_store.agent_data_root()`` reads
+    Stamped, not patched. ``posture_store.agent_data_root()`` reads
     ``OSPREY_AGENT_DATA_ROOT`` FIRST and only falls back to
     ``resolve_shared_data_root``, so patching the resolver is inert for any
     developer whose shell carries the stamp — which is exactly the environment
@@ -83,11 +82,11 @@ def shared_root(tmp_path, monkeypatch):
     """
     root = tmp_path / "shared_agent_data"
     root.mkdir()
-    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
     yield root
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
 
 
 @pytest.fixture
@@ -507,7 +506,9 @@ class TestChatPoolEnvFingerprint:
         assert len(created) == 1
 
     @pytest.mark.asyncio
-    async def test_a_narrowing_does_not_rebuild_the_chat_child(self, client):
+    async def test_a_narrowing_does_not_rebuild_the_chat_child(
+        self, client, shared_root, write_control_context
+    ):
         """End to end on the real registry and the real chat handler.
 
         The point of the whole feature: a posture flip must not cost the
@@ -515,7 +516,7 @@ class TestChatPoolEnvFingerprint:
         the pool at all — the hand-off finds the chat already holding the key
         and gives it straight back — so no environment is compared and nothing
         can decide to rebuild. The narrowing still governs that child, because
-        its next write reads the store. The fingerprint rule itself is pinned
+        its next write reads the record. The fingerprint rule itself is pinned
         by the pool-level tests in this class.
         """
         registry = OperatorRegistry()
@@ -530,7 +531,9 @@ class TestChatPoolEnvFingerprint:
             ),
         ):
             first, _token, _ = await chat_routes._acquire_chat_turn(request, CHAT_A)
-            websocket_routes._session_postures(client.app)[CHAT_A] = {"standin": "sandbox"}
+            # The narrowing lands on the deployment's record, between the two
+            # turns — the shape a posture toggle really takes now.
+            write_control_context(shared_root, target="standin", posture={"standin": "sandbox"})
             second, _token2, fresh_conversation = await chat_routes._acquire_chat_turn(
                 request, CHAT_A
             )
@@ -541,7 +544,7 @@ class TestChatPoolEnvFingerprint:
         # conversation did not start over and the client is sent no divider.
         assert fresh_conversation is False
         assert first.stop_calls == 0
-        # No mode was ever stamped; the child was handed the store key instead.
+        # No mode was ever stamped; the child was handed the record's key instead.
         assert "OSPREY_EXECUTION_MODE" not in first.env
         assert first.env[POSTURE_SESSION_ENV] == CHAT_A
 

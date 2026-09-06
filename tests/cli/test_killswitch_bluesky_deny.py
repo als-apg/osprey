@@ -338,7 +338,7 @@ def test_extends_clone_of_bluesky_denied_with_rewritten_prefix(tmp_path):
 # Per-target posture: which targets a session here can actually be pointed at
 # ---------------------------------------------------------------------------
 
-#: The connector block backing each session target on a switch-rendering
+#: The connector block backing each control target on a switch-rendering
 #: deployment. Spelled out rather than resolved, so a preset that stopped
 #: configuring both targets fails these tests instead of quietly making them
 #: assert the all-off render.

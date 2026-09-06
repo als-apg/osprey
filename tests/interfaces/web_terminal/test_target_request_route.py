@@ -1,30 +1,32 @@
 """Tests for ``POST /api/terminal/target`` — the operator's switch gesture.
 
-The web server never switches a control target. It has no handle on the
-connector: the controls MCP server owns it, and that server is a stdio child of
-the Claude process inside the PTY with no inbound channel. So this route writes
-**desired state** — one request file, addressed by ``server_pid`` to exactly the
-controls server this session runs — and answers ``202``. The reconciler inside
-that server picks it up, re-evaluates the same gate ``control_target_set``
-applies, and publishes the outcome back into the state file.
+A deployment has ONE control context: a record naming the target, the
+generation the fleet coordinates on, and the terminus of the last switch. The
+web terminal owns that record while it runs, so this route does not file
+desired state for somebody else to apply — it takes the record, runs the switch
+gate against it, and writes the answer, both halves inside one mutation.
 
-Three consequences the tests below pin:
+Four consequences the tests below pin:
 
-* **No availability pre-check.** Whether the target is eligible, reachable, or
-  already active is the reconciler's question, evaluated immediately before the
-  switch. A route that pre-judged it would answer from a snapshot taken a
-  moment earlier and disagree with the gate that actually decides.
-* **The address is the record's ``server_pid``**, never this process's pid and
-  never a guess: a request written for a server that has since been replaced is
-  dropped by its successor rather than honoured.
-* **One audit record per POST**, carrying the *spawn* session key, so the
-  gesture joins on the same key every record the session's own child emits
-  carries.
+* **The verdict is taken against the record the answer is written into.** The
+  facts hop gathers the render, the fleet's reports and the execution markers;
+  the gate runs inside the mutation, so no verdict can be about a deployment
+  state that has since moved.
+* **A refusal is a record write that moves nothing else.** ``last_switch``
+  carries the gate's reason and sentence; target and generation stay where they
+  were, and no generation is minted for a switch that did not happen.
+* **A terminal that does not own the context refuses.** No owner is
+  ``503 store_unavailable``; following another terminal is
+  ``409 context_owned_elsewhere`` naming its pid and port — as a fast rung off
+  ``app.state`` and again, for the race, from the mutation primitive itself.
+* **One audit record per POST**, carrying the *spawn* session key — or no
+  session at all, on the ``jupyter_lab`` surface, for the Lab bar's gesture.
 """
 
 from __future__ import annotations
 
 import json
+import os
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -36,38 +38,29 @@ import yaml
 from fastapi.testclient import TestClient
 
 from osprey.audit import writer as audit_writer
+from osprey.interfaces.web_terminal import control_context_owner
+from osprey.interfaces.web_terminal import jupyter_sidecar as jupyter_sidecar_module
 from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
-from osprey.mcp_server.control_system import target_banner, target_state
-from osprey_connectors import session_store
+from osprey.mcp_server.control_system import target_eligibility, target_state
+from osprey_connectors import control_context, posture_store
+from tests._control_context_fixtures import owner, write_control_context, write_server_report
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 SESSION_B = "bbbbbbbb-1111-2222-3333-444444444444"
 
-#: The PTY process the terminal card is attached to, and the Claude Code
-#: process inside it (a descendant when ``claude_code.cli_version`` pins the
-#: CLI and the PTY child is ``npx``).
+#: The PTY process the terminal card is attached to.
 PTY_PID = 7000
-CLAUDE_PID = 7001
 
-#: The controls MCP server's own pid — the address every request file carries.
+#: A controls server that is running, and one that is not.
 SERVER_PID = 5150
+DEAD_SERVER_PID = 5151
 
-PARENT_MAP = {CLAUDE_PID: PTY_PID, PTY_PID: 6000, 6000: 1}
-
-#: The Channel Access port a co-deployed stand-in serves on.
-STANDIN_PORT = 5074
-
-#: Per-target display metadata in the shape a controls server publishes.
-TARGET_META = {
-    "live": {"label": "LIVE MACHINE", "endpoint": "gw:5064", "real_machine": True},
-    "va": {"label": "virtual accelerator (simulation)", "endpoint": "localhost:5064"},
-    "standin": {
-        "label": "LIVE MACHINE (stand-in)",
-        "endpoint": f"localhost:{STANDIN_PORT}",
-        "real_machine": True,
-    },
-}
+#: The terminal that owns the context in the follower cases. ``os.getppid()``
+#: is a real, live process, so the owner task follows it for the same reason
+#: the route does rather than claiming over a pid nothing answers to.
+OTHER_TERMINAL_PID = os.getppid()
+OTHER_TERMINAL_PORT = 8090
 
 
 # -- fixtures ---------------------------------------------------------------
@@ -77,21 +70,22 @@ TARGET_META = {
 def agent_data_root(tmp_path, monkeypatch):
     """Point every resolver at one throwaway agent-data root.
 
-    ``OSPREY_AGENT_DATA_ROOT`` is the single stamp ``target_state.state_dir()``
-    and ``session_store`` both prefer, which is exactly why the feature stamps
-    it into every session child. Patching ``resolve_shared_data_root`` instead
-    would redirect only one of the two — ``session_store`` binds the resolver at
-    import — and the other half would write into the repository's own
+    ``OSPREY_AGENT_DATA_ROOT`` is the single stamp the record reader and
+    ``posture_store`` both prefer, which is exactly why the feature stamps it
+    into every session child. Patching ``resolve_shared_data_root`` instead
+    would redirect only one of the two — ``posture_store`` binds the resolver
+    at import — and the other half would write into the repository's own
     ``var/agent_data``.
     """
     root = tmp_path / "agent_data"
-    root.mkdir()
+    (root / posture_store.STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
-    session_store.invalidate_cache()
-    websocket_routes._reset_session_record_memo()
+    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
+    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     yield root
-    session_store.invalidate_cache()
-    websocket_routes._reset_session_record_memo()
+    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 @pytest.fixture
@@ -103,57 +97,86 @@ def workspace_dir(tmp_path):
 
 @pytest.fixture
 def config_path(tmp_path):
-    """A render carrying all three control targets.
+    """A render whose ``va`` target is eligible from a ``live`` baseline.
 
-    ``epics`` is the facility's own machine, ``live_standin`` the co-deployed
-    stand-in, ``virtual_accelerator`` the simulator — three separate connector
-    blocks, therefore three separate targets, which is what makes
-    ``configured_targets`` answer with three names.
+    Both connector blocks carry gateways and a probe channel, so the gate gets
+    past eligibility and the tests below can reach the reachability rung — the
+    one the fleet's reports decide. ``va`` is the wanted target throughout
+    because it carries none of FR-8's posture gates, which have their own
+    suite.
     """
-    gateway = {"address": "gw", "port": 5064, "use_name_server": True}
-    standin_gateway = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
     path = tmp_path / "config.yml"
-    path.write_text(
-        yaml.safe_dump(
-            {
-                "control_system": {
-                    "type": "live_standin",
-                    "writes_enabled": False,
-                    "connector": {
-                        "epics": {
-                            "gateways": {
-                                "read_only": dict(gateway),
-                                "write_access": dict(gateway),
-                            }
+    path.write_text(yaml.safe_dump(render()), encoding="utf-8")
+    return path
+
+
+def render() -> dict:
+    """The rendered config the suite is built on."""
+    return {
+        "control_system": {
+            "type": "epics",
+            "writes_enabled": False,
+            "connector": {
+                "epics": {
+                    "timeout": 5.0,
+                    "probe_channel": "LIVE:PROBE:CHANNEL",
+                    "gateways": {
+                        "read_only": {
+                            "address": "gw.example.org",
+                            "port": 5064,
+                            "use_name_server": False,
                         },
-                        "live_standin": {
-                            "gateways": {
-                                "read_only": dict(standin_gateway),
-                                "write_access": dict(standin_gateway),
-                            }
+                        "write_access": {
+                            "address": "gw.example.org",
+                            "port": 5084,
+                            "use_name_server": False,
                         },
-                        "virtual_accelerator": {"simulation_file": "data/sim.json"},
                     },
                 },
-                "services": {"live_standin": {"port": STANDIN_PORT}},
-                "deployed_services": ["virtual_accelerator", "live_standin"],
-            }
-        ),
-        encoding="utf-8",
-    )
-    return path
+                "virtual_accelerator": {
+                    "timeout": 5.0,
+                    "probe_channel": "VA:PROBE:CHANNEL",
+                    "gateways": {
+                        "read_only": {
+                            "address": "localhost",
+                            "port": 5074,
+                            "use_name_server": True,
+                        },
+                        "write_access": {
+                            "address": "localhost",
+                            "port": 5074,
+                            "use_name_server": True,
+                        },
+                    },
+                },
+            },
+            "target_switch": {target_eligibility.ACK_LEAF: "gw.example.org"},
+        },
+        "archiver": {"type": "epics_archiver"},
+    }
 
 
 @pytest.fixture
 def client(agent_data_root, workspace_dir, config_path):
-    with patch(
-        "osprey.interfaces.web_terminal.app._load_web_config",
-        return_value={"watch_dir": str(workspace_dir)},
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as test_client:
-            test_client.app.state.config_path = config_path
-            yield test_client
+    """A terminal that owns the control context, with the owner task quiesced.
+
+    The record is written **before** the app starts, so the lifespan claim
+    merges into it rather than minting a fresh one from ``load_osprey_config``,
+    which this process has no workspace for. ``start`` is stubbed out for the
+    same reason a test never wants a second writer: every tick this suite needs
+    has already happened by the time the client is handed over, and a loop
+    ticking underneath the assertions would be a race, not coverage.
+    """
+    write_control_context(agent_data_root, target="live", generation=1)
+    with patch.object(control_context_owner.ControlContextOwnerTask, "start", lambda self: None):
+        with patch(
+            "osprey.interfaces.web_terminal.app._load_web_config",
+            return_value={"watch_dir": str(workspace_dir)},
+        ):
+            app = create_app(shell_command="echo")
+            with TestClient(app) as test_client:
+                test_client.app.state.config_path = config_path
+                yield test_client
 
 
 @pytest.fixture
@@ -179,16 +202,10 @@ def ledger():
 
 
 @contextmanager
-def attached_pty(client, session_id, pid=PTY_PID, *, alive=True, exit_code=None):
-    """Make the registry report a PTY with *pid* for *session_id*.
-
-    ``alive``/``exit_code`` are what :class:`PtySession` reports for its child;
-    the default is a running one. A dead PTY keeps its pid — ``Popen.pid``
-    outlives the process — which is exactly why the route reads liveness
-    rather than inferring it from the pid.
-    """
+def attached_pty(client, session_id, pid=PTY_PID):
+    """Make the registry report a PTY with *pid* for *session_id*."""
     registry = client.app.state.pty_registry
-    pty = SimpleNamespace(pid=pid, is_alive=alive, exit_code=exit_code)
+    pty = SimpleNamespace(pid=pid, is_alive=True, exit_code=None)
     with patch.object(
         registry,
         "get_session",
@@ -198,47 +215,48 @@ def attached_pty(client, session_id, pid=PTY_PID, *, alive=True, exit_code=None)
 
 
 @contextmanager
-def synthetic_process_tree(parent_map=None):
-    """Replace the ancestor walk's one syscall seam with a fixed parent map."""
-    tree = PARENT_MAP if parent_map is None else parent_map
-    with patch.object(target_banner, "_parent_pid", side_effect=lambda pid: tree.get(int(pid))):
-        yield
-
-
-@contextmanager
 def only_alive(*pids):
-    """Report exactly *pids* as running processes."""
+    """Report exactly *pids* as running processes.
+
+    One patch reaches every reader in the request: ``control_context`` owns the
+    predicate, and ``target_state.is_process_alive`` — which the route hands to
+    the report filter and the marker sweep — delegates to it at call time.
+    """
     wanted = {int(p) for p in pids}
-    with patch.object(target_state, "is_process_alive", side_effect=lambda pid: int(pid) in wanted):
-        yield
 
+    def alive(pid):
+        try:
+            return int(pid) in wanted
+        except (TypeError, ValueError):
+            return False
 
-@contextmanager
-def live_session(client, session_id=SESSION_A, *, target="standin", server_pid=SERVER_PID):
-    """A session whose controls server has published a live state record."""
-    write_target_state(target=target, owner_ppid=PTY_PID, server_pid=server_pid)
-    with attached_pty(client, session_id), synthetic_process_tree(), only_alive(server_pid):
+    with patch.object(control_context, "is_process_alive", side_effect=alive):
         yield
 
 
 def state_dir() -> Path:
-    return target_state.state_dir()
+    return control_context.state_dir()
 
 
-def write_target_state(*, target, owner_ppid, server_pid, targets=TARGET_META):
-    """Publish one controls-server state record under the stamped root."""
-    directory = state_dir()
+def write_inflight_marker(
+    root: Path, *, pid, target="live", session="s", surface="cli", kernel_id=None
+):
+    """Plant one execution marker, as the python executor writes it."""
+    directory = root / posture_store.STATE_DIR_NAME
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{target_state.STATE_FILE_PREFIX}{server_pid}.json"
+    path = (
+        directory / f"{target_state.INFLIGHT_FILE_PREFIX}{pid}{target_state.INFLIGHT_FILE_SUFFIX}"
+    )
     path.write_text(
         json.dumps(
             {
+                "pid": pid,
                 "target": target,
                 "generation": 1,
-                "server_pid": server_pid,
-                "owner_ppid": owner_ppid,
-                "targets": targets,
-                "children": [],
+                "session": session,
+                "surface": surface,
+                "kernel_id": kernel_id,
+                "started_at": "2026-08-30T00:00:00+00:00",
             }
         ),
         encoding="utf-8",
@@ -246,28 +264,49 @@ def write_target_state(*, target, owner_ppid, server_pid, targets=TARGET_META):
     return path
 
 
-def request_path(server_pid=SERVER_PID) -> Path:
-    return state_dir() / f"{target_state.REQUEST_FILE_PREFIX}{server_pid}.json"
+@contextmanager
+def jupyter_sidecar(client, *, url="http://127.0.0.1:9999/panel/jupyter", notebook=None):
+    """A Jupyter panel whose sidecar answers *notebook* for any kernel id.
+
+    ``notebook=None`` is a sidecar that cannot name the kernel — no session row,
+    a 403, a body in an unexpected shape — which is the same answer as no
+    sidecar at all as far as the refusal is concerned.
+    """
+    client.app.state.jupyter_server_url = url
+    client.app.state.panel_auth_headers = {"jupyter": {"authorization": "Bearer t"}}
+    with patch.object(
+        jupyter_sidecar_module, "kernel_notebook_path", side_effect=lambda *_: notebook
+    ):
+        yield
 
 
-def write_request_file(*, server_pid=SERVER_PID, target="va", age_s=0.0, request_id="pending-1"):
-    """Plant a request file *age_s* seconds old."""
-    created = datetime.now(UTC) - timedelta(seconds=age_s)
-    path = request_path(server_pid)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            {
-                "request_id": request_id,
-                "target": target,
-                "server_pid": server_pid,
-                "created_at": created.isoformat(),
-                "requested_by": "someone",
+def reachable(target="va", state=None):
+    """A report's reachability block saying *target* answered its last probe."""
+    return {
+        "targets": {
+            target: {
+                "read_only": {
+                    "state": state or target_eligibility.REACHABILITY_REACHED,
+                    "probed_at": datetime.now(UTC).isoformat(),
+                }
             }
-        ),
-        encoding="utf-8",
-    )
-    return path
+        }
+    }
+
+
+def applying_block(generation=1, *, expires_in_s=30.0):
+    """A server's ``last_switch`` while it is mid-swap, with its own bound."""
+    return {
+        "generation": generation,
+        "status": control_context.REPORT_APPLYING,
+        "at": datetime.now(UTC).isoformat(),
+        "expires_at": (datetime.now(UTC) + timedelta(seconds=expires_in_s)).isoformat(),
+    }
+
+
+def read_record():
+    control_context.invalidate_cache()
+    return control_context.read_record()
 
 
 #: The 400's sentence for a target this render does not configure, spelled
@@ -276,376 +315,423 @@ UNKNOWN_TARGET_SENTENCE = "This deployment configures no control target by that 
 
 
 def post_target(client, session_id=SESSION_A, target="va"):
-    return client.post(
-        "/api/terminal/target",
-        json={"session_id": session_id, "target": target},
-    )
+    body = {"target": target}
+    if session_id is not None:
+        body["session_id"] = session_id
+    return client.post("/api/terminal/target", json=body)
 
 
 # -- the refusal ladder -----------------------------------------------------
 
 
 class TestGrammar:
-    """400 before anything is read: the id and the target name are identifiers."""
+    """400 before anything is opened: the id and the target name are identifiers."""
 
     @pytest.mark.parametrize(
         "bad_id",
-        ["../../etc/passwd", "operator-deadbeef", "", "AAAAAAAA-1111-2222-3333-444444444444"],
+        ["", "not-a-uuid", "operator-abc12345", SESSION_A.upper(), SESSION_A + "x"],
     )
     def test_a_session_id_outside_the_closed_grammar_is_400(self, client, bad_id):
-        resp = post_target(client, session_id=bad_id)
-        assert resp.status_code == 400
-        assert resp.json()["detail"]["error"] == "invalid_session_id"
+        response = post_target(client, session_id=bad_id)
+        assert response.status_code == 400
+        assert response.json()["detail"]["error"] == "invalid_session_id"
 
-    def test_a_target_this_build_never_heard_of_is_400(self, client):
-        with live_session(client):
-            resp = post_target(client, target="banana")
-        assert resp.status_code == 400
-        assert resp.json()["detail"]["error"] == "unknown_target"
-        assert resp.json()["detail"]["message"].startswith(UNKNOWN_TARGET_SENTENCE + " It has: ")
+    def test_a_body_with_no_session_id_is_accepted(self, client):
+        """The gesture needs no session: the control context is the deployment's."""
+        response = post_target(client, session_id=None)
+        assert response.status_code == 202, response.text
+        assert response.json()["session_id"] is None
 
-    def test_a_target_this_deployment_did_not_configure_is_400(self, client, tmp_path):
-        """``va`` is a real target name; a render without its block has no such row.
-
-        The vocabulary is ``configured_targets``, never ``CONTROL_TARGETS`` —
-        writing a request for a machine the deployment never described would
-        put the reconciler in the position of refusing a switch nobody could
-        have meant.
-        """
-        path = tmp_path / "va-less.yml"
-        path.write_text(
-            yaml.safe_dump({"control_system": {"type": "epics", "connector": {"epics": {}}}}),
-            encoding="utf-8",
-        )
-        client.app.state.config_path = path
-        with live_session(client, target="live"):
-            resp = post_target(client, target="va")
-        assert resp.status_code == 400
-        assert resp.json()["detail"]["error"] == "unknown_target"
-        assert resp.json()["detail"]["message"] == UNKNOWN_TARGET_SENTENCE + " It has: live."
+    def test_a_target_this_deployment_did_not_configure_is_400(self, client):
+        response = post_target(client, target="standin")
+        assert response.status_code == 400
+        detail = response.json()["detail"]
+        assert detail["error"] == "unknown_target"
+        assert UNKNOWN_TARGET_SENTENCE in detail["message"]
+        assert "live, va" in detail["message"]
 
     def test_a_body_missing_a_field_is_422(self, client):
-        assert client.post("/api/terminal/target", json={"target": "va"}).status_code == 422
-        assert (
-            client.post("/api/terminal/target", json={"session_id": SESSION_A}).status_code == 422
+        response = client.post("/api/terminal/target", json={"session_id": SESSION_A})
+        assert response.status_code == 422
+
+    def test_a_refused_grammar_moves_no_record(self, client):
+        before = read_record()
+        post_target(client, session_id="nope")
+        assert read_record() == before
+
+
+class TestOwnership:
+    """Who may write the record at all, before any judgement about the switch."""
+
+    def test_a_terminal_with_no_owner_is_503(self, client):
+        del client.app.state.control_context_owner
+        response = post_target(client)
+        assert response.status_code == 503
+        assert response.json()["detail"]["error"] == "store_unavailable"
+
+    def test_a_follower_is_409_naming_the_owners_pid_and_port(self, client):
+        client.app.state.control_context_follows = owner(
+            pid=OTHER_TERMINAL_PID, port=OTHER_TERMINAL_PORT
         )
+        response = post_target(client)
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["error"] == "context_owned_elsewhere"
+        assert str(OTHER_TERMINAL_PID) in detail["message"]
+        assert str(OTHER_TERMINAL_PORT) in detail["message"]
 
-    def test_a_refused_grammar_writes_no_request(self, client):
-        with live_session(client):
-            post_target(client, target="banana")
-        assert not request_path().exists()
+    def test_a_takeover_between_the_hint_and_the_write_is_the_same_409(
+        self, client, agent_data_root
+    ):
+        """``app.state`` can be a tick stale; the primitive is the guard."""
+        write_control_context(
+            agent_data_root,
+            target="live",
+            generation=1,
+            owned_by=owner(pid=OTHER_TERMINAL_PID, port=OTHER_TERMINAL_PORT),
+        )
+        response = post_target(client)
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["error"] == "context_owned_elsewhere"
+        assert str(OTHER_TERMINAL_PID) in detail["message"]
 
-
-class TestSessionNotStarted:
-    """409 when nothing has published a record this session owns.
-
-    One status, three rungs, split by what the PTY registry says about the
-    session's process: no PTY at all, a PTY whose process has exited, and a
-    live PTY that has not started a controls server yet. Only the last one
-    can be answered by sending a prompt, so only it says so.
-    """
-
-    def test_no_pty_at_all_is_409(self, client):
-        with synthetic_process_tree(), only_alive():
-            resp = post_target(client)
-        assert resp.status_code == 409
-        detail = resp.json()["detail"]
-        assert detail["error"] == "session_not_started"
-        assert "no running session" in detail["message"]
-        assert "prompt" not in detail["message"]
-
-    def test_a_pty_with_no_published_record_is_409(self, client):
-        with attached_pty(client, SESSION_A), synthetic_process_tree(), only_alive():
-            resp = post_target(client)
-        assert resp.status_code == 409
-        detail = resp.json()["detail"]
-        assert detail["error"] == "session_not_started"
-        assert "Send one prompt first" in detail["message"]
-
-    def test_a_pty_whose_process_exited_is_409_agent_exited(self, client):
-        """A dead agent is named as such, with its exit code — not asked for a prompt.
-
-        ``PtySession.pid`` still reports the child's pid after it exits, so the
-        process-table walk finds nothing and lands on the same "no record"
-        rung a fresh session does. The instruction there — send a prompt —
-        cannot be followed with no process to send it to.
-        """
-        with (
-            attached_pty(client, SESSION_A, alive=False, exit_code=1),
-            synthetic_process_tree(),
-            only_alive(),
+    def test_a_failing_write_is_503_and_moves_nothing(self, client):
+        before = read_record()
+        with patch.object(
+            control_context_owner, "write_record", side_effect=OSError("read-only volume")
         ):
-            resp = post_target(client)
-        assert resp.status_code == 409
-        detail = resp.json()["detail"]
-        assert detail["error"] == "agent_exited"
-        assert "exit code 1" in detail["message"]
-        assert "prompt" not in detail["message"]
+            response = post_target(client)
+        assert response.status_code == 503
+        assert response.json()["detail"]["error"] == "store_write_failed"
+        assert read_record() == before
 
-    def test_a_clean_exit_is_still_an_exit(self, client):
-        """Exit code 0 is an exit code, not the absence of one."""
-        with (
-            attached_pty(client, SESSION_A, alive=False, exit_code=0),
-            synthetic_process_tree(),
-            only_alive(),
-        ):
-            resp = post_target(client)
-        assert resp.status_code == 409
-        detail = resp.json()["detail"]
-        assert detail["error"] == "agent_exited"
-        assert "exit code 0" in detail["message"]
 
-    def test_a_pty_whose_process_exited_without_a_code_is_still_agent_exited(self, client):
-        with (
-            attached_pty(client, SESSION_A, alive=False, exit_code=None),
-            synthetic_process_tree(),
-            only_alive(),
-        ):
-            resp = post_target(client)
-        assert resp.status_code == 409
-        detail = resp.json()["detail"]
-        assert detail["error"] == "agent_exited"
-        assert "exit code" not in detail["message"]
+class TestSwitchInProgress:
+    """A fleet mid-swap owns ``last_switch``; nothing else may write it."""
 
-    def test_a_record_owned_by_another_session_is_409(self, client):
-        """The ancestor walk is the ownership rule; a stranger's record is not ours."""
-        write_target_state(target="standin", owner_ppid=999_001, server_pid=SERVER_PID)
-        with attached_pty(client, SESSION_A), synthetic_process_tree(), only_alive(SERVER_PID):
-            resp = post_target(client)
-        assert resp.status_code == 409
-        assert resp.json()["detail"]["error"] == "session_not_started"
+    def test_a_live_server_applying_this_generation_is_409(self, client, agent_data_root):
+        write_server_report(agent_data_root, SERVER_PID, last_switch=applying_block(1))
+        with only_alive(SERVER_PID, os.getpid()):
+            response = post_target(client)
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["error"] == "switch_in_progress"
+        assert str(SERVER_PID) in detail["message"]
 
-    def test_a_dead_controls_server_is_409(self, client):
-        """The agent is alive and its controls server is not: a prompt restarts it."""
-        write_target_state(target="standin", owner_ppid=PTY_PID, server_pid=SERVER_PID)
-        with attached_pty(client, SESSION_A), synthetic_process_tree(), only_alive():
-            resp = post_target(client)
-        assert resp.status_code == 409
-        assert resp.json()["detail"]["error"] == "session_not_started"
-
-    def test_a_dead_agent_with_a_stale_record_is_agent_exited(self, client):
-        """A record left behind by a dead agent does not turn it back into a live one."""
-        write_target_state(target="standin", owner_ppid=PTY_PID, server_pid=SERVER_PID)
-        with (
-            attached_pty(client, SESSION_A, alive=False, exit_code=137),
-            synthetic_process_tree(),
-            only_alive(),
-        ):
-            resp = post_target(client)
-        assert resp.status_code == 409
-        assert resp.json()["detail"]["error"] == "agent_exited"
-
-    def test_a_refused_session_writes_no_request(self, client):
-        with synthetic_process_tree(), only_alive():
+    def test_the_refusal_writes_nothing(self, client, agent_data_root):
+        write_server_report(agent_data_root, SERVER_PID, last_switch=applying_block(1))
+        before = read_record()
+        with only_alive(SERVER_PID, os.getpid()):
             post_target(client)
-        assert not request_path().exists()
+        assert read_record() == before
+
+    def test_a_swap_past_its_own_bound_no_longer_blocks(self, client, agent_data_root):
+        write_server_report(
+            agent_data_root,
+            SERVER_PID,
+            reachability=reachable(),
+            last_switch=applying_block(1, expires_in_s=-1.0),
+        )
+        with only_alive(SERVER_PID, os.getpid()):
+            response = post_target(client)
+        assert response.status_code == 202, response.text
+
+    def test_a_dead_servers_applying_block_does_not_block(self, client, agent_data_root):
+        write_server_report(agent_data_root, DEAD_SERVER_PID, last_switch=applying_block(1))
+        with only_alive(os.getpid()):
+            response = post_target(client)
+        assert response.status_code == 202, response.text
 
 
-class TestStoreUnavailable:
-    """503 when the request has nowhere to land — never a silent success."""
+class TestTheGate:
+    """The switch gate's own refusals, in the gate's own words."""
 
-    def test_an_unresolvable_state_dir_is_503(self, client):
-        with (
-            live_session(client),
-            patch.object(target_state, "state_dir", side_effect=RuntimeError("no root")),
-        ):
-            resp = post_target(client)
-        assert resp.status_code == 503
-        assert resp.json()["detail"]["error"] == "store_unavailable"
+    def test_a_read_only_run_is_refused(self, client, monkeypatch):
+        monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+        response = post_target(client)
+        assert response.status_code == 409
+        assert response.json()["detail"]["error"] == target_eligibility.REASON_READONLY_RUN
 
-    def test_a_failing_write_is_503(self, client):
-        with (
-            live_session(client),
-            patch.object(target_state, "write_request", side_effect=OSError("read-only fs")),
-        ):
-            resp = post_target(client)
-        assert resp.status_code == 503
-        assert resp.json()["detail"]["error"] == "store_write_failed"
-        assert not request_path().exists()
+    def test_an_execution_in_flight_names_the_busy_client(self, client, agent_data_root):
+        write_inflight_marker(agent_data_root, pid=9100, session="other-session")
+        with only_alive(9100, os.getpid()):
+            response = post_target(client)
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["error"] == target_eligibility.REASON_EXECUTION_IN_FLIGHT
+        # One fact and one action: who holds the target, and what to do. The
+        # gate's headline says neither without repeating both, so it is dropped.
+        assert "belongs to session other-se" in detail["message"]
+        assert "Wait for it to finish, or stop it, then switch again." in detail["message"]
+        assert "wait or stop it" not in detail["message"]
 
+    def test_a_busy_notebook_kernel_is_named_by_its_notebook(self, client, agent_data_root):
+        """The one refusal only this surface can sharpen.
 
-class TestRequestPending:
-    """409 while one gesture is still outstanding; a stale one is not a gesture."""
-
-    def test_a_fresh_request_blocks_a_second_one(self, client):
-        write_request_file(age_s=1.0, target="live")
-        with live_session(client):
-            resp = post_target(client, target="va")
-        assert resp.status_code == 409
-        assert resp.json()["detail"]["error"] == "request_pending"
-        # The pending request is untouched — this route never overwrites one.
-        assert json.loads(request_path().read_text(encoding="utf-8"))["request_id"] == "pending-1"
-
-    def test_an_expired_request_does_not_block(self, client):
-        write_request_file(age_s=target_state.REQUEST_TTL_S + 5, target="live")
-        with live_session(client):
-            resp = post_target(client, target="va")
-        assert resp.status_code == 202
-        written = json.loads(request_path().read_text(encoding="utf-8"))
-        assert written["target"] == "va"
-        assert written["request_id"] == resp.json()["request_id"]
-
-    def test_a_request_addressed_to_another_server_does_not_block(self, client):
-        """Requests are addressed by pid; another server's file is not ours."""
-        write_request_file(server_pid=SERVER_PID + 1, age_s=1.0)
-        with live_session(client):
-            resp = post_target(client, target="va")
-        assert resp.status_code == 202
-
-    def test_a_request_overwritten_by_a_concurrent_post_is_409(self, client):
-        """The freshness read and the write are not one atomic step.
-
-        Two operators clicking Switch in the same moment both pass the "is one
-        pending?" read — there is an ``await`` between it and the write — and
-        ``os.replace`` cannot refuse a slot somebody else owns. So the write is
-        read back, and the one that did not survive is told what the earlier
-        read would have told it: a request is pending. Exactly one request
-        lives, and neither operator is left watching a ``request_id`` no file
-        carries.
+        A kernel's session key is ``kernel:<id>``, which names no window an
+        operator can go and look at. The terminal owns the sidecar, so it hands
+        the gate a resolver and the refusal says which notebook to interrupt.
         """
-        real_write = target_state._atomic_write_json
+        write_inflight_marker(
+            agent_data_root,
+            pid=9200,
+            session="kernel:abcdef0123456789",
+            surface=target_eligibility.SURFACE_NOTEBOOK_KERNEL,
+            kernel_id="abcdef0123456789",
+        )
+        with only_alive(9200, os.getpid()), jupyter_sidecar(client, notebook="studies/orbit.ipynb"):
+            response = post_target(client)
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["error"] == target_eligibility.REASON_EXECUTION_IN_FLIGHT
+        assert "notebook studies/orbit.ipynb" in detail["message"]
+        assert "Interrupt that kernel to proceed." in detail["message"]
+        # The kernel remedy stands alone: the gate's headline would have put
+        # the vaguer "wait or stop it" beside it.
+        assert "wait or stop it" not in detail["message"]
 
-        def _overwritten(path, payload):
-            real_write(path, payload)
-            # The competing POST's write lands last, exactly as it would.
-            real_write(path, {**payload, "request_id": "the-other-operator"})
+    def test_a_kernel_the_sidecar_cannot_name_falls_back_to_its_id(self, client, agent_data_root):
+        """A resolver that answers nothing is not a refusal that fails."""
+        write_inflight_marker(
+            agent_data_root,
+            pid=9200,
+            session="kernel:abcdef0123456789",
+            surface=target_eligibility.SURFACE_NOTEBOOK_KERNEL,
+            kernel_id="abcdef0123456789",
+        )
+        with only_alive(9200, os.getpid()), jupyter_sidecar(client, notebook=None):
+            response = post_target(client)
+        assert response.status_code == 409
+        assert "notebook kernel abcdef01" in response.json()["detail"]["message"]
+
+    def test_no_jupyter_panel_asks_no_sidecar(self, client, agent_data_root):
+        """A panel that is off or retracted leaves the URL unset; nothing is called."""
+        write_inflight_marker(
+            agent_data_root,
+            pid=9200,
+            session="kernel:abcdef0123456789",
+            surface=target_eligibility.SURFACE_NOTEBOOK_KERNEL,
+            kernel_id="abcdef0123456789",
+        )
+        with (
+            only_alive(9200, os.getpid()),
+            patch.object(jupyter_sidecar_module, "kernel_notebook_path") as query,
+        ):
+            response = post_target(client)
+        query.assert_not_called()
+        assert response.status_code == 409
+        assert "notebook kernel abcdef01" in response.json()["detail"]["message"]
+
+    def test_a_sidecar_that_raises_degrades_to_the_id(self, client, agent_data_root):
+        """Naming the busy client must never turn a refusal into a stack trace."""
+        write_inflight_marker(
+            agent_data_root,
+            pid=9200,
+            session="kernel:abcdef0123456789",
+            surface=target_eligibility.SURFACE_NOTEBOOK_KERNEL,
+            kernel_id="abcdef0123456789",
+        )
+        client.app.state.jupyter_server_url = "http://127.0.0.1:9999/panel/jupyter"
+        client.app.state.panel_auth_headers = {"jupyter": {}}
+        with (
+            only_alive(9200, os.getpid()),
+            patch.object(
+                jupyter_sidecar_module,
+                "kernel_notebook_path",
+                side_effect=RuntimeError("sidecar exploded"),
+            ),
+        ):
+            response = post_target(client)
+        assert response.status_code == 409
+        assert "notebook kernel abcdef01" in response.json()["detail"]["message"]
+
+    def test_the_gate_runs_no_network_call_under_the_record_lock(self, client, agent_data_root):
+        """The sidecar is asked in the facts hop, never inside the mutation.
+
+        A two-second sidecar timeout taken under the record lock would stall
+        the owner task's tick and every other write behind it, so the lookup
+        the gate is handed must already be resolved. Pinned by asserting the
+        query happens before the mutation starts, not during it.
+        """
+        write_inflight_marker(
+            agent_data_root,
+            pid=9200,
+            session="kernel:abcdef0123456789",
+            surface=target_eligibility.SURFACE_NOTEBOOK_KERNEL,
+            kernel_id="abcdef0123456789",
+        )
+        order: list[str] = []
+        real_apply = control_context_owner.ControlContextOwner._apply
+
+        def tracking_apply(self, fn, verify_owner):
+            order.append("mutation")
+            return real_apply(self, fn, verify_owner)
 
         with (
-            live_session(client),
-            patch.object(target_state, "_atomic_write_json", side_effect=_overwritten),
+            only_alive(9200, os.getpid()),
+            jupyter_sidecar(client, notebook="studies/orbit.ipynb"),
+            patch.object(
+                jupyter_sidecar_module,
+                "kernel_notebook_path",
+                side_effect=lambda *_: order.append("sidecar") or "studies/orbit.ipynb",
+            ),
+            patch.object(control_context_owner.ControlContextOwner, "_apply", tracking_apply),
         ):
-            resp = post_target(client, target="va")
+            response = post_target(client)
+        assert response.status_code == 409
+        assert order == ["sidecar", "mutation"]
 
-        assert resp.status_code == 409
-        assert resp.json()["detail"]["error"] == "request_pending"
-        # The winner's request is intact — the loser removed nothing.
-        assert json.loads(request_path().read_text(encoding="utf-8"))["request_id"] == (
-            "the-other-operator"
+    def test_an_ineligible_target_is_not_told_to_read_the_roster(self, client, tmp_path):
+        """The popover IS the roster; "ask for the target roster" is agent copy."""
+        render_without_va_gateways = render()
+        render_without_va_gateways["control_system"]["connector"]["virtual_accelerator"].pop(
+            "gateways"
         )
+        path = tmp_path / "no-va-gateways.yml"
+        path.write_text(yaml.safe_dump(render_without_va_gateways), encoding="utf-8")
+        client.app.state.config_path = path
 
-    def test_an_uncontested_write_reads_itself_back(self, client):
-        """The read-back must not turn ordinary writes into false collisions."""
-        with live_session(client):
-            resp = post_target(client, target="va")
-        assert resp.status_code == 202
-        assert (
-            json.loads(request_path().read_text(encoding="utf-8"))["request_id"]
-            == (resp.json()["request_id"])
+        response = post_target(client)
+        assert response.status_code == 409
+        message = response.json()["detail"]["message"]
+        assert "Ask for the target roster" not in message
+        assert "gateways" in message
+
+    def test_a_live_server_that_has_published_no_reachability_refuses(
+        self, client, agent_data_root
+    ):
+        write_server_report(agent_data_root, SERVER_PID)
+        with only_alive(SERVER_PID, os.getpid()):
+            response = post_target(client)
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["error"] == target_eligibility.REASON_REACHABILITY_UNKNOWN
+        assert str(SERVER_PID) in detail["message"]
+
+    def test_a_target_the_fleet_reports_down_refuses(self, client, agent_data_root):
+        write_server_report(
+            agent_data_root,
+            SERVER_PID,
+            reachability={
+                "targets": {
+                    "va": {
+                        "read_only": {
+                            "state": target_eligibility.REACHABILITY_DOWN,
+                            "probed_at": datetime.now(UTC).isoformat(),
+                        }
+                    }
+                }
+            },
         )
+        with only_alive(SERVER_PID, os.getpid()):
+            response = post_target(client)
+        assert response.status_code == 409
+        assert response.json()["detail"]["error"] == target_eligibility.REASON_TARGET_UNREACHABLE
+
+    def test_zero_live_servers_allows_the_switch(self, client):
+        assert post_target(client).status_code == 202
+
+    def test_a_refusal_is_a_record_write_that_moves_nothing_else(self, client, monkeypatch):
+        monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+        post_target(client)
+        record = read_record()
+        assert record.target == "live"
+        assert record.generation == 1
+        assert record.last_switch["status"] == control_context.SWITCH_REFUSED
+        assert record.last_switch["reason"] == target_eligibility.REASON_READONLY_RUN
+        assert record.last_switch["generation"] is None
 
 
-# -- the accepted gesture ---------------------------------------------------
+class TestApplied:
+    """What the record carries once a switch is granted."""
 
+    def test_the_target_and_the_generation_move_together(self, client):
+        response = post_target(client)
+        assert response.status_code == 202, response.text
+        record = read_record()
+        assert record.target == "va"
+        assert record.generation == 2
+        assert response.json()["generation"] == 2
 
-class TestAcceptedRequest:
-    def test_a_switch_is_accepted_with_a_request_id(self, client):
-        with live_session(client):
-            resp = post_target(client, target="va")
-        assert resp.status_code == 202
-        body = resp.json()
-        assert body["session_id"] == SESSION_A
-        assert body["target"] == "va"
-        assert body["request_id"]
+    def test_the_terminus_names_the_request(self, client):
+        request_id = post_target(client).json()["request_id"]
+        block = read_record().last_switch
+        assert block["request_id"] == request_id
+        assert block["status"] == control_context.SWITCH_APPLIED
+        assert block["target"] == "va"
+        assert block["generation"] == 2
 
-    def test_the_written_file_is_addressed_by_the_records_server_pid(self, client):
-        """The address is the record's pid, never this web server's own."""
-        with live_session(client, server_pid=6321):
-            resp = post_target(client, target="va")
-        assert resp.status_code == 202
-        path = request_path(6321)
-        assert path.exists()
-        written = json.loads(path.read_text(encoding="utf-8"))
-        assert written["server_pid"] == 6321
-        assert written["request_id"] == resp.json()["request_id"]
-        assert written["target"] == "va"
+    def test_the_requester_is_the_session_when_there_is_one(self, client):
+        post_target(client, session_id=SESSION_A)
+        assert read_record().last_switch["requested_by"] == SESSION_A
 
-    def test_the_request_carries_a_created_at_and_a_requester(self, client):
-        """Both are what makes the request ageable and attributable."""
-        with live_session(client):
-            post_target(client, target="va")
-        written = json.loads(request_path().read_text(encoding="utf-8"))
-        assert target_state.is_request_fresh(written)
-        assert written["requested_by"]
+    def test_a_session_less_gesture_is_recorded_against_this_process(self, client):
+        post_target(client, session_id=None)
+        assert read_record().last_switch["requested_by"] == f"pid:{os.getpid()}"
+
+    def test_the_target_it_is_already_on_succeeds_without_minting(self, client):
+        before = read_record()
+        response = post_target(client, target="live")
+        assert response.status_code == 202, response.text
+        assert response.json()["generation"] == 1
+        assert "already" in response.json()["detail"]
+        assert read_record() == before
 
     def test_every_request_id_is_fresh(self, client):
-        with live_session(client):
-            first = post_target(client, target="va").json()["request_id"]
-            request_path().unlink()
-            second = post_target(client, target="live").json()["request_id"]
+        first = post_target(client).json()["request_id"]
+        second = post_target(client, target="live").json()["request_id"]
         assert first != second
 
-    def test_the_active_target_is_not_pre_refused(self, client):
-        """No availability pre-check: ``already_active`` is the reconciler's word.
-
-        The gate is re-evaluated immediately before the switch, inside the
-        server that owns the connector. Answering here from a snapshot taken a
-        moment earlier is how a route and a gate come to disagree.
-        """
-        with live_session(client, target="standin"):
-            resp = post_target(client, target="standin")
-        assert resp.status_code == 202
-        assert json.loads(request_path().read_text(encoding="utf-8"))["target"] == "standin"
-
-    def test_an_unreachable_target_is_not_pre_refused(self, client):
-        """Nothing here probes; ``live`` is accepted with no gateway reachable."""
-        with live_session(client):
-            resp = post_target(client, target="live")
-        assert resp.status_code == 202
-
-
-# -- audit ------------------------------------------------------------------
+    def test_the_owner_stamp_survives_the_write(self, client):
+        post_target(client)
+        record = read_record()
+        assert record.owner is not None
+        assert record.owner.pid == os.getpid()
+        assert record.owner.kind == control_context.OWNER_WEB_TERMINAL
 
 
 class TestAudit:
-    def test_an_accepted_gesture_files_exactly_one_record(self, client, ledger):
-        with live_session(client):
-            assert post_target(client, target="va").status_code == 202
-        assert len(ledger) == 1
-        record = ledger[0]
-        assert record["subject"] == "control_target_set"
-        assert record["decision"] == "allowed"
-        assert record["session"] == SESSION_A
+    """One ledger line per POST, joinable to the session that made it."""
 
-    def test_the_record_names_the_target_and_the_request(self, client, ledger):
-        with live_session(client):
-            request_id = post_target(client, target="va").json()["request_id"]
+    def test_an_accepted_gesture_files_exactly_one_record(self, client, ledger):
+        assert post_target(client).status_code == 202
+        assert len(ledger) == 1
+        assert ledger[0]["decision"] == "allowed"
+        assert ledger[0]["subject"] == websocket_routes.AUDIT_SUBJECT_TARGET_SET
+
+    def test_the_record_names_the_target_and_the_generation(self, client, ledger):
+        request_id = post_target(client).json()["request_id"]
         detail = ledger[0]["detail"]
-        assert "va" in detail
-        assert request_id in detail
+        assert "target=va" in detail
+        assert f"request_id={request_id}" in detail
+        assert "generation=2" in detail
 
     def test_a_refusal_files_exactly_one_record_too(self, client, ledger):
-        write_request_file(age_s=1.0)
-        with live_session(client):
-            assert post_target(client, target="va").status_code == 409
+        assert post_target(client, target="standin").status_code == 400
         assert len(ledger) == 1
         assert ledger[0]["decision"] == "refused"
-        assert ledger[0]["reason"] == "request_pending"
+        assert ledger[0]["reason"] == "unknown_target"
 
     def test_a_malformed_session_id_still_leaves_exactly_one_record(self, client, ledger):
-        """The one refusal the route does NOT file itself is still filed once.
-
-        ``_require_session_uuid`` runs before there is a legitimate key to put
-        in the envelope's ``session`` field, so the route does not record it and
-        ``HttpAuditMiddleware`` files its own ``route_refused`` line instead.
-        A refused request leaves one line, never two and never none.
-        """
-        with live_session(client):
-            assert post_target(client, session_id="../../etc/passwd").status_code == 400
+        assert post_target(client, session_id="nope").status_code == 400
+        # The grammar check raises before the route's own recorder, so this is
+        # the middleware's line — one, and refused.
         assert len(ledger) == 1
         assert ledger[0]["decision"] == "refused"
 
-    def test_the_record_joins_on_the_spawn_key(self, client, ledger):
-        """A rekeyed session's gesture is filed under the key its child exported.
+    def test_the_record_joins_on_the_session_key(self, client, ledger):
+        """The ledger line and the record's ``requested_by`` name one key."""
+        with attached_pty(client, SESSION_A):
+            assert post_target(client).status_code == 202
+        assert ledger[0]["session"] == SESSION_A
+        assert read_record().last_switch["requested_by"] == SESSION_A
 
-        The running child cannot have ``OSPREY_POSTURE_SESSION`` rewritten
-        without being killed, so every record it emits carries the spawn key. A
-        gesture filed under the *current* key would split one session into two
-        unrelated actors in the ledger.
-        """
-        registry = client.app.state.pty_registry
-        with (
-            patch.object(registry, "audit_session_key", side_effect=lambda key: SESSION_B),
-            live_session(client),
-        ):
-            assert post_target(client, target="va").status_code == 202
-        assert ledger[0]["session"] == SESSION_B
+    def test_a_session_less_gesture_is_filed_on_the_lab_surface(self, client, ledger):
+        assert post_target(client, session_id=None).status_code == 202
+        assert ledger[0]["session"] is None
+        assert ledger[0]["surface"] == websocket_routes.LAB_MUTATION_SURFACE
+
+    def test_a_session_gesture_keeps_the_http_surface(self, client, ledger):
+        assert post_target(client).status_code == 202
+        assert ledger[0]["surface"] == websocket_routes.HTTP_MUTATION_SURFACE

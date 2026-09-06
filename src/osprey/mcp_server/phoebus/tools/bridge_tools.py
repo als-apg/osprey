@@ -25,7 +25,7 @@ The bridge addresses one running Phoebus product, whose PV context was fixed
 when that product started: a session-level control-system target switch does
 not re-address it. Phoebus therefore stays pinned to the deployment baseline,
 and these tools say so rather than letting the discrepancy pass silently —
-``phoebus_drive`` refuses outright while the session is switched, and every
+``phoebus_drive`` refuses outright while the deployment is switched, and every
 read tool prepends one informational line to its normal output. Both strings
 come from :mod:`osprey.mcp_server.control_system.target_banner`, shared with
 the health runtime's equivalent row. On the baseline nothing is added and the
@@ -460,7 +460,7 @@ async def phoebus_perceive(display: str = "active") -> str:
     Returns:
         JSON ``{"status": "success", "display": <ref>, "perception": {...}}`` where
         ``perception`` is the bridge's stable schema (``display`` + ``widgets``).
-        While the session target differs from the deployment baseline, one
+        While the control target differs from the deployment baseline, one
         informational line naming both targets precedes that JSON (see the
         module docstring).
     """
@@ -504,7 +504,7 @@ async def phoebus_perceive_region(
     Returns:
         JSON ``{"status": "success", "display": <ref>, "perception": {...}}`` whose
         widget list is filtered to the rectangle and sorted top-left first.
-        While the session target differs from the deployment baseline, one
+        While the control target differs from the deployment baseline, one
         informational line naming both targets precedes that JSON (see the
         module docstring).
     """
@@ -550,7 +550,7 @@ async def phoebus_snapshot(
 
     Returns:
         JSON artifact response including the saved file path. Use the Read tool on
-        that path to view the snapshot. While the session target differs from the
+        that path to view the snapshot. While the control target differs from the
         deployment baseline, one informational line naming both targets precedes
         that JSON (see the module docstring).
     """

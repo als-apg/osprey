@@ -15,13 +15,13 @@ so the only thing that can sandbox a session is the sandbox posture itself.
 from __future__ import annotations
 
 import json
-import os
 
 import pytest
 from fastmcp.exceptions import ToolError
 
 from osprey.audit import posture as posture_module
 from osprey.mcp_server.python_executor.tools._execution_gates import enforce_posture_clamp
+from tests._control_context_fixtures import DEFAULT_TARGET, write_control_context
 
 pytestmark = pytest.mark.unit
 
@@ -123,7 +123,7 @@ def test_other_values_leave_both_modes_unchanged(monkeypatch, value):
 
 
 # --------------------------------------------------------------------------
-# The per-(session, target) posture: the clamp reads the store through posture()
+# The per-target posture: the clamp reads the record through posture()
 # --------------------------------------------------------------------------
 #
 # A session narrows ONE control target from the header chip. Nothing respawns
@@ -137,75 +137,72 @@ SESSION_KEY = "11111111-2222-3333-4444-555555555555"
 
 
 @pytest.fixture(autouse=True)
-def _no_inherited_session(monkeypatch):
-    """Clear the session markers so a developer's own shell cannot answer here.
+def _no_ambient_deployment(control_context_root, monkeypatch):
+    """Point every test at an empty deployment, and clear the sandbox pin.
 
-    ``posture()`` consults the posture store only for a process carrying
-    ``OSPREY_POSTURE_SESSION``; the tests above are about the environment alone
-    and must not read a store because the terminal that started pytest happened
-    to be a session child.
+    ``read_record()`` with no ``OSPREY_AGENT_DATA_ROOT`` falls back to
+    ``<repo>/var/agent_data``, where a developer's own stack leaves a real
+    record behind — so *deleting* the variable would answer these tests from
+    whatever that stack was last pointed at. Stamping a scratch root instead
+    makes "this deployment has no record" true by construction, which is what
+    the environment-only tests above are asserting under.
+
+    ``CONTROL_TARGET_ENV_VAR`` is cleared for the same reason on the other
+    reader: it is the executor sandbox's own write pin and it outranks the
+    record, so an inherited one would name a target no test here wrote.
     """
     from osprey.audit import posture as posture_module
-    from osprey_connectors import session_store
+    from osprey_connectors import posture_store
 
     for marker in (
         posture_module.POSTURE_SESSION_ENV_VAR,
         posture_module.CONTROL_TARGET_ENV_VAR,
-        posture_module.OSPREY_AGENT_DATA_ROOT,
     ):
         monkeypatch.delenv(marker, raising=False)
-    session_store.invalidate_cache()
-    posture_module.invalidate_session_target_cache()
-    yield
-    session_store.invalidate_cache()
-    posture_module.invalidate_session_target_cache()
+    posture_store.invalidate_cache()
+    yield control_context_root
+    posture_store.invalidate_cache()
 
 
 @pytest.fixture
-def session(tmp_path, monkeypatch):
-    """A session child of a controls server, with a per-target posture store.
+def session(control_context_root, monkeypatch):
+    """A process under a deployment whose control-context record it can move.
 
-    Returns a handle whose ``.on(target)`` publishes the state record naming the
-    session's target and whose ``.narrow(**entries)`` writes the store.
+    Returns a handle whose ``.on(target)`` points the deployment at a target
+    and whose ``.narrow(**entries)`` writes the per-target narrowings. Both
+    write the WHOLE record every time: the target and the posture are two
+    fields of one file now, so a second write naming only the posture would
+    drop the target the first one set.
+
+    The session key is still stamped — the ledger joins on it — but nothing
+    indexes a posture by it any more, which is why ``.narrow()`` names no
+    session.
     """
     from osprey.audit import posture as posture_module
-    from osprey_connectors import session_store
 
-    root = tmp_path / "agent_data"
-    directory = root / session_store.STATE_DIR_NAME
-    directory.mkdir(parents=True)
-    monkeypatch.setenv(posture_module.OSPREY_AGENT_DATA_ROOT, str(root))
     monkeypatch.setenv(posture_module.POSTURE_SESSION_ENV_VAR, SESSION_KEY)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
 
     class _Session:
         key = SESSION_KEY
+        target = DEFAULT_TARGET
+        narrowings: dict[str, str] = {}
 
-        @staticmethod
-        def on(target: str) -> None:
-            pid = os.getpid()
-            (directory / f"target_state_{pid}.json").write_text(
-                json.dumps(
-                    {
-                        "target": target,
-                        "generation": 0,
-                        "server_pid": pid,
-                        "owner_ppid": os.getppid(),
-                        "targets": {},
-                        "children": [],
-                    }
-                )
+        @classmethod
+        def _publish(cls) -> None:
+            write_control_context(
+                control_context_root, target=cls.target, posture=dict(cls.narrowings)
             )
-            session_store.invalidate_cache()
-            posture_module.invalidate_session_target_cache()
 
-        @staticmethod
-        def narrow(**entries: str) -> None:
-            (directory / session_store.STORE_FILENAME).write_text(
-                json.dumps({SESSION_KEY: entries})
-            )
-            session_store.invalidate_cache()
-            posture_module.invalidate_session_target_cache()
+        @classmethod
+        def on(cls, target: str) -> None:
+            cls.target = target
+            cls._publish()
+
+        @classmethod
+        def narrow(cls, **entries: str) -> None:
+            cls.narrowings = dict(entries)
+            cls._publish()
 
     return _Session
 
@@ -221,7 +218,7 @@ def _executor_records(audit_root) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
-def test_a_narrowed_session_target_refuses_a_readwrite_run(session, _audit_zone):
+def test_a_narrowed_control_target_refuses_a_readwrite_run(session, _audit_zone):
     """The narrowing lands on a session already running, with no respawn."""
     session.on("live")
     session.narrow(live="sandbox")
@@ -235,10 +232,10 @@ def test_a_narrowed_session_target_refuses_a_readwrite_run(session, _audit_zone)
 def test_a_narrowed_target_refusal_names_that_target(session, _audit_zone):
     """Per target, so the refusal says WHICH machine — and says nothing wider.
 
-    This gate runs before every readwrite tool call, so "this session is in the
-    sandbox posture" would read as a session-wide block to an operator whose
-    session is working normally on every other target. The name has to be the
-    one ``posture()`` clamped on, which is why both read the same resolver.
+    This gate runs before every readwrite tool call, so an unqualified "writes
+    are off" would read as a block on every machine while the deployment is
+    working normally on every other target. The name has to be the one
+    ``posture()`` clamped on, which is why both read the same resolver.
     """
     session.on("live")
     session.narrow(live="sandbox")
@@ -249,7 +246,7 @@ def test_a_narrowed_target_refusal_names_that_target(session, _audit_zone):
     envelope = _envelope(exc_info)
     message = envelope["error_message"]
     assert "'live' control target" in message
-    assert "for this session only" in message
+    assert "applies deployment-wide" in message
     assert "This terminal session is in the sandbox posture" not in message
     assert "Turn writes back on for 'live' from the control-target chip in the header" in " ".join(
         envelope["suggestions"]
@@ -279,7 +276,7 @@ def test_a_target_lost_between_the_two_reads_names_no_machine(session, _audit_zo
     session.on("live")
     session.narrow(live="sandbox")
     _clamp_fires(monkeypatch)
-    monkeypatch.setattr(posture_module, "session_control_target", lambda: None)
+    monkeypatch.setattr(posture_module, "recorded_control_target", lambda: None)
 
     with pytest.raises(ToolError) as exc_info:
         enforce_posture_clamp("readwrite", tool="execute")
@@ -309,7 +306,7 @@ def test_a_raising_target_resolver_still_refuses(session, _audit_zone, monkeypat
     session.on("live")
     session.narrow(live="sandbox")
     _clamp_fires(monkeypatch)
-    monkeypatch.setattr(posture_module, "session_control_target", _explode)
+    monkeypatch.setattr(posture_module, "recorded_control_target", _explode)
 
     with pytest.raises(ToolError) as exc_info:
         enforce_posture_clamp("readwrite", tool="execute")
@@ -363,14 +360,18 @@ def test_an_unnarrowed_session_runs(session, _audit_zone):
     assert enforce_posture_clamp("readwrite", tool="execute") is None
 
 
-def test_an_unresolvable_target_is_not_a_session_wide_clamp(session, _audit_zone):
-    """No state record: the process cannot say which machine it is about.
+def test_no_record_at_all_is_not_a_deployment_wide_clamp(session, _audit_zone):
+    """No record: the process cannot say which machine it is about.
 
     Refusing here would refuse writes on targets nobody narrowed. The
     fail-closed layer for one specific write is the connector's reference
     monitor, which takes the most restrictive entry when it cannot name a
     target; this gate answers the environment.
-    """
-    session.narrow(live="sandbox")
 
+    The narrowing cannot be staged alongside the missing target any more —
+    one record per deployment carries both, so "narrowed, but the target is
+    unknowable" is a state that no longer exists on disk. It survives only as
+    the window between the gate's two reads, which the two tests above stage
+    by hand.
+    """
     assert enforce_posture_clamp("readwrite", tool="execute") is None

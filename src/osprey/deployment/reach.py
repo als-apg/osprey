@@ -921,7 +921,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
             ProjectedKey("services.bluesky.port", gate=_bluesky_server_on),
             # Written by the build only on a two-lane deployment, where it says
             # which control target lane 1 serves; the lane resolver reads it
-            # to pick the lane the session is on. Absent on a single-lane host
+            # to pick the lane the deployment is on. Absent on a single-lane host
             # means absent here, which is that resolver's single-lane answer.
             ProjectedKey("services.bluesky.target", gate=_bluesky_server_on),
         ),
@@ -1017,7 +1017,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         # render carries `services: {}` except for the keys projected into it,
         # and this port is not only how a client dials the stand-in: it is the
         # whole evidence `osprey_connectors.standin.live_standin_active` reads
-        # to decide whether the endpoint a session is on really is this
+        # to decide whether the endpoint the deployment is on really is this
         # deployment's own stand-in container. A gate would withhold it from
         # exactly the renders a multi-user deployment hands its operators, and
         # the same machine would be described one way in a single-user session

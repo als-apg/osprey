@@ -51,15 +51,17 @@
  */
 
 import {
-  REASON_STORE_UNAVAILABLE,
+  SWITCH_APPLIED,
   bannerNote,
   confirmSkipKeyBase,
   confirmSkippable,
+  contextRefusalCode,
+  contextRefusalPhrase,
+  contextWritable,
   descriptor,
   descriptorTone,
   displayName,
   identTitle,
-  isChatSession,
   lockReason,
   reachException,
   reasonPhrase,
@@ -162,9 +164,9 @@ let confirmingTarget = null;
 /**
  * Mount the popover under the header chip and keep it current.
  *
- * Idempotent, and a no-op on a page with no chip: the chip hides itself until
- * the terminal reports a session, and mounts into `.header-actions`, so this
- * has nothing to hang under on a page that renders no header actions.
+ * Idempotent, and a no-op on a page with no chip: the chip mounts into its
+ * bar-item shell, `.header-actions`, or a host its caller passes, so on a page
+ * with none of those there is nothing to hang under.
  *
  * @returns {{open: () => void, close: () => void, isOpen: () => boolean}|null}
  */
@@ -306,7 +308,12 @@ function switchOutcome(row, state) {
   // freshness window above), never what it says. A ticking counter would
   // restate the mechanism, and every re-render — the 5 s poll, every
   // gesture's re-read — would bump it in front of the operator.
-  if (last.status === 'success') return { status: 'success', text: '✓ switched' };
+  // The RECORD's word for an accepted switch is `applied` — never `success`,
+  // which nothing on this path has ever published. The returned `status` is a
+  // different vocabulary: it is the `data-status` value terminal.css keys the
+  // outcome line on, the same split kindAttr makes between the route's words
+  // and the stylesheet's.
+  if (last.status === SWITCH_APPLIED) return { status: 'success', text: '✓ switched' };
   // refused / failed / expired render the operator phrase for the word the
   // gate (or the client's own deadline, for a request nothing ever answered)
   // put on them, with the gate's own sentence on the title where it sent one.
@@ -368,7 +375,7 @@ function render() {
   if (others.length > 0) {
     popover.append(el('div', 'ctc-list-title', active ? 'Other machines' : 'Machines'));
     const list = el('div', 'ctc-rows');
-    for (const row of others) list.append(renderRow(row, state, rows));
+    for (const row of others) list.append(renderRow(row, state));
     popover.append(list);
   }
 
@@ -439,9 +446,8 @@ function renderCard(row, state) {
  * writes switch, and Switch to.
  * @param {any} row
  * @param {any} state
- * @param {any[]} rows
  */
-function renderRow(row, state, rows) {
+function renderRow(row, state) {
   const kind = kindAttr(row);
   const word = stateWord(row);
   const lock = lockReason(row, state);
@@ -468,7 +474,7 @@ function renderRow(row, state, rows) {
   node.append(ident);
 
   node.append(renderSwitch(row, state, word, lock));
-  node.append(renderAction(row, state, rows));
+  node.append(renderAction(row, state));
   return node;
 }
 
@@ -590,17 +596,15 @@ function renderSwitch(row, state, word, lock) {
  * `reason_detail` sentence (falling back to the code) on the `title`.
  * @param {any} row
  * @param {any} state
- * @param {any[]} rows
  */
-function renderAction(row, state, rows) {
+function renderAction(row, state) {
   const action = el('div', 'ctc-action');
-  // A chat session has no controls server to address a request to; and one
-  // request is outstanding at a time, so while it is out no row offers a
+  // One request is outstanding at a time, so while it is out no row offers a
   // second.
-  if (isChatSession(rows) || isPending()) return action;
-  if (row.available_now && state.store_available) {
+  if (isPending()) return action;
+  if (row.available_now && contextWritable(state)) {
     const swap = button('ctc-switch', 'Switch to');
-    swap.title = `Move this session's reads and writes to ${displayName(row, kindAttr(row))}`;
+    swap.title = `Move all control reads and writes to ${displayName(row, kindAttr(row))}`;
     swap.addEventListener('click', (event) => {
       event.stopPropagation();
       confirmSwitchTo(row, state, event.shiftKey);
@@ -608,8 +612,13 @@ function renderAction(row, state, rows) {
     action.append(swap);
     return action;
   }
-  const code = row.reason || (state.store_available ? '' : REASON_STORE_UNAVAILABLE);
-  const reason = el('span', 'ctc-reason', reasonPhrase(code));
+  // The row's own reason wins; the context supplies the fallback, and names
+  // its holder itself — a two-word chip reading "another terminal" over an
+  // agent's controls server would send the operator to a page that does not
+  // exist.
+  const code = row.reason || contextRefusalCode(state);
+  const phrase = row.reason ? reasonPhrase(code) : contextRefusalPhrase(state);
+  const reason = el('span', 'ctc-reason', phrase);
   const detail = typeof row.reason_detail === 'string' && row.reason_detail ? row.reason_detail : '';
   if (detail || code) reason.title = detail || String(code);
   action.append(reason);
@@ -620,6 +629,10 @@ function renderAction(row, state, rows) {
  * The foot: the one-gesture narrowing, and the popover's scope said once.
  * `Turn all writes off` only ever removes reach, so it applies on click; it is
  * disabled when there is nothing left to turn off.
+ *
+ * The note beside it is the popover's scope, said once at rest: one control
+ * context per deployment, so a narrowing recorded here reaches every session,
+ * notebook kernel and hook, not just the page it was made on.
  * @param {any} state
  * @param {any[]} rows
  */
@@ -633,7 +646,7 @@ function renderFoot(state, rows) {
     void setPosture(ALL_TARGETS, 'sandbox', state);
   });
   foot.append(all);
-  foot.append(el('span', 'ctc-foot-note', 'Your session only'));
+  foot.append(el('span', 'ctc-foot-note', 'Applies deployment-wide'));
   return foot;
 }
 
@@ -713,12 +726,20 @@ function setPosture(target, posture, state, ui) {
 }
 
 /**
- * Ask the controls server to switch, then hand the request to the chip.
+ * Ask for the switch, then hand the request to the chip.
  *
- * The route accepts and answers `202` with a `request_id`; nothing has
- * switched yet. The chip owns what happens next — the 500 ms poll, matching
- * the outcome by that id, and calling it expired if nothing ever answers — so
- * all this does is record which row is waiting.
+ * The route answers `202` with a `request_id` and the `generation` the record
+ * will carry; nothing has switched yet. The chip owns what happens next — the
+ * 500 ms poll, waiting until every live controls server reports that
+ * generation, and the local deadline if nothing ever answers — so all this
+ * does is record which row is waiting and hand over both values.
+ *
+ * **A request for the target the deployment is already on is not a wait.** It
+ * is accepted at the CURRENT generation and writes no terminus, because
+ * nothing moved. Arming a pending switch on it would leave the chip in
+ * `switching…` until the TTL and then report `request_expired` for a request
+ * that succeeded. Only reachable as a race — the active row offers no Switch —
+ * but the answer says plainly that it happened, so it is read.
  * @param {any} row
  * @param {any} state
  * @param {ConfirmUi} [ui]  the confirm this gesture was raised from, if any
@@ -727,8 +748,14 @@ function setPosture(target, posture, state, ui) {
 function requestSwitch(row, state, ui) {
   const json = { session_id: state.session_id, target: row.target };
   return postGesture('/api/terminal/target', json, row.target, ui, (body) => {
+    const generation = typeof body?.generation === 'number' ? body.generation : null;
+    const held = row.target === state.control_target;
+    if (held && generation !== null && generation === state.generation) {
+      pendingTarget = null;
+      return;
+    }
     pendingTarget = row.target;
-    markPending(String(body?.request_id || ''), row.target);
+    markPending(String(body?.request_id || ''), row.target, generation);
   });
 }
 
@@ -780,7 +807,7 @@ function confirmTurnOn(row, state, reshow = false) {
 }
 
 /**
- * The confirm for switching this session onto another machine — or, when its
+ * The confirm for switching the deployment onto another machine — or, when its
  * waiver is recorded and Shift is not held, the request posted directly.
  * Wording lives in control-target-facts.js ({@link switchConfirm}); this
  * only wires the gesture.

@@ -23,11 +23,51 @@
  * writes move hardware, or nothing moves.
  */
 
-/** `available_now` reason a chat session's rows carry (routes/websocket.py). */
-export const REASON_CHAT_SESSION = 'chat_session';
-
 /** The refusal word for a row whose Switch is missing because the store is. */
 export const REASON_STORE_UNAVAILABLE = 'store_unavailable';
+
+/**
+ * The refusal word for a row whose Switch is missing because something else
+ * holds the control context. The same literal the write routes answer 409
+ * with, so the row and the refusal an operator would have got by clicking
+ * agree. Its phrase is deliberately kind-neutral; {@link contextHolderWords}
+ * is what names the holder.
+ */
+const REASON_CONTEXT_OWNED_ELSEWHERE = 'context_owned_elsewhere';
+
+/**
+ * What can own the control context (`OWNER_WEB_TERMINAL` /
+ * `OWNER_CONTROLS_SERVER` in osprey_connectors/control_context.py). A web
+ * terminal is a page an operator can open, and its `port` is where; a controls
+ * server is an agent's own process and carries no port, so it is named by pid.
+ */
+export const OWNER_WEB_TERMINAL = 'web_terminal';
+export const OWNER_CONTROLS_SERVER = 'controls_server';
+
+/**
+ * The RECORD's word for a switch request it accepted (`SWITCH_APPLIED` in
+ * osprey_connectors/control_context.py). Its sibling `SWITCH_REFUSED` is not
+ * mirrored here: a refusal is recognised by its `generation` being null, which
+ * is what makes it one, and any other non-applied verdict is read the same way.
+ */
+export const SWITCH_APPLIED = 'applied';
+
+/**
+ * A controls SERVER's own word for "I was asked for that generation and could
+ * not get there" (`REPORT_FAILED` in osprey_connectors/control_context.py,
+ * written as `SWITCH_FAILED` in mcp_server/control_system/target_state.py —
+ * the reader's spelling and the writer's for one word). Deliberately distinct
+ * from {@link SWITCH_APPLIED}, which is a request's terminus rather than a
+ * server's progress.
+ *
+ * The one server-row status this module reads: `applying` and `applied` are
+ * both answered by the generation comparison in {@link resolvePendingSwitch},
+ * and only a failure is news that comparison would wait forever for.
+ */
+export const REPORT_FAILED = 'failed';
+
+/** The refusal word a switch the fleet never applied is rendered under. */
+export const REASON_SWITCH_FAILED = 'switch_failed';
 
 /**
  * The operator word for each machine kind, keyed on the `data-target-kind`
@@ -65,7 +105,7 @@ export const KIND_READ_PHRASES = {
  * approvals or limits, which are configuration this file cannot see.
  * @type {Record<string, string>}
  */
-export const KIND_DESCRIPTORS = {
+const KIND_DESCRIPTORS = {
   live: 'Writes move hardware',
   standin: "Copy of the real machine's controls · nothing moves",
   va: 'Physics model · nothing moves',
@@ -78,7 +118,7 @@ export const KIND_DESCRIPTORS = {
  * authoring it is the go-live edit — so the descriptor says "not set up"
  * rather than implying a fault.
  */
-export const NOT_SET_UP_REASONS = new Set([
+const NOT_SET_UP_REASONS = new Set([
   'connector_block_missing',
   'gateways_missing',
   'probe_channel_missing',
@@ -168,6 +208,8 @@ export const REASON_PHRASES = {
   standin_not_deployed: 'stand-in not deployed',
   selected_role_missing: 'no endpoint for role',
   [REASON_STORE_UNAVAILABLE]: 'store unavailable',
+  [REASON_CONTEXT_OWNED_ELSEWHERE]: 'held elsewhere',
+  [REASON_SWITCH_FAILED]: 'not applied',
 };
 
 /**
@@ -183,20 +225,102 @@ export function reasonPhrase(code) {
 }
 
 /**
- * Whether this session is a chat.
+ * Whether a change made here would actually be written.
  *
- * A chat has no PTY and so no controls server of its own to address a switch
- * request to, which the route says by giving EVERY row `chat_session` as its
- * unavailability reason. Its write toggles are untouched — the posture store
- * is keyed on the session, not on the topology.
- * @param {any[]} rows
+ * Two ways it would not, and both are refusals the write routes already make,
+ * so a surface that offered the gesture anyway would be sending the operator
+ * to find out by clicking:
+ *
+ * - there is no control context to write to (`store_available: false`, or an
+ *   `owner` of `null` — nothing owns the context anywhere). Both answer 503.
+ * - this terminal FOLLOWS another one (`owner.self === false`). That answers
+ *   409 naming the owner's pid and port.
+ *
+ * `owner` absent rather than null is read as "this payload does not say", and
+ * only the store decides — an older route must not turn every row read-only.
+ * @param {any} state
+ * @returns {boolean}
  */
-export function isChatSession(rows) {
-  return rows.length > 0 && rows.every((row) => row.reason === REASON_CHAT_SESSION);
+export function contextWritable(state) {
+  if (!state?.store_available) return false;
+  if (state.owner === null) return false;
+  return state.owner?.self !== false;
 }
 
 /**
- * Whether the run, and nothing this session can do, is holding this row's
+ * The refusal code a row carries when the CONTEXT is why it has no Switch,
+ * `''` when the context is not the reason. The row's own `reason` still wins;
+ * this is the fallback that says which of the two context refusals it would
+ * have been.
+ * @param {any} state
+ * @returns {string}
+ */
+export function contextRefusalCode(state) {
+  if (contextWritable(state)) return '';
+  return state?.owner?.self === false
+    ? REASON_CONTEXT_OWNED_ELSEWHERE
+    : REASON_STORE_UNAVAILABLE;
+}
+
+/**
+ * Who holds the control context, in the two words a row has space for, and the
+ * longer phrase the banner uses.
+ *
+ * Keyed on `owner.kind`, because a context owned by an agent's controls server
+ * is not a terminal an operator can open — a banner naming a terminal there
+ * sends them looking for a page that does not exist. Mirrors
+ * `_OWNER_KIND_WORDS` in control_context_owner.py, which the write routes'
+ * own 409 sentence is built from, so the two refusals for one situation agree.
+ *
+ * An unrecognised kind is named as a process rather than guessed at: the pid
+ * is true whatever it is.
+ * @param {any} owner  the payload's `owner` block
+ * @returns {{short: string, long: string}}
+ */
+export function contextHolderWords(owner) {
+  const pid = owner?.pid;
+  const port = owner?.port;
+  if (owner?.kind === OWNER_CONTROLS_SERVER) {
+    return {
+      short: 'the controls server',
+      long: pid
+        ? `The controls server (pid ${pid}) holds the control context.`
+        : 'The controls server holds the control context.',
+    };
+  }
+  if (owner?.kind === OWNER_WEB_TERMINAL) {
+    return {
+      short: 'another terminal',
+      // The port is the whole point of the line: it is where the operator goes
+      // to make the change this terminal will refuse.
+      long: port
+        ? `Another terminal on port ${port} holds the control context.`
+        : 'Another terminal holds the control context.',
+    };
+  }
+  return {
+    short: 'another process',
+    long: pid
+      ? `Another process (pid ${pid}) holds the control context.`
+      : 'Another process holds the control context.',
+  };
+}
+
+/**
+ * The short phrase standing where a row's Switch would be when the CONTEXT is
+ * why it has no Switch, `''` when the context is not the reason.
+ * @param {any} state
+ * @returns {string}
+ */
+export function contextRefusalPhrase(state) {
+  const code = contextRefusalCode(state);
+  if (!code) return '';
+  if (code === REASON_STORE_UNAVAILABLE) return REASON_PHRASES[REASON_STORE_UNAVAILABLE];
+  return contextHolderWords(state?.owner).short;
+}
+
+/**
+ * Whether the run, and nothing an operator can do here, is holding this row's
  * writes off.
  *
  * Read from the route's own `readonly_run`, never inferred from the columns:
@@ -207,7 +331,7 @@ export function isChatSession(rows) {
  * @param {any} row
  * @param {any} state
  */
-export function writesHeldByTheRun(row, state) {
+function writesHeldByTheRun(row, state) {
   return Boolean(state?.readonly_run) && Boolean(row.ceiling_writes);
 }
 
@@ -215,17 +339,20 @@ export function writesHeldByTheRun(row, state) {
  * Why this row's writes cannot be turned on or off, or `null` when they can.
  *
  * Ordered from the widest cause to the narrowest, so an operator reads the one
- * they could act on: a store that cannot record anything outranks a run that
- * would ignore it, which outranks a deployment that never arms this target,
- * which outranks a gateway table with nowhere to narrow TO. Spoken in the
- * operator's words; the machine vocabulary stays in the route payload.
+ * they could act on: a context nothing here can write outranks a run that
+ * would ignore the write, which outranks a deployment that never arms this
+ * target, which outranks a gateway table with nowhere to narrow TO. Spoken in
+ * the operator's words; the machine vocabulary stays in the route payload.
  * @param {any} row
  * @param {any} state
  * @returns {string|null}
  */
 export function lockReason(row, state) {
-  if (!state?.store_available) return 'changes cannot be recorded right now';
-  if (!state.enforceable) return 'changes here would not reach the agent';
+  if (!contextWritable(state)) {
+    return state?.owner?.self === false
+      ? `held by ${contextHolderWords(state.owner).short}`
+      : 'changes cannot be recorded right now';
+  }
   if (writesHeldByTheRun(row, state)) return 'the whole deployment is running read-only';
   if (!row.ceiling_writes) return 'kept read-only by the deployment';
   // Narrowing this row would select a gateway role the deployment has not
@@ -243,11 +370,11 @@ export function lockReason(row, state) {
  * @returns {{text: string, tone: string}|null}
  */
 export function bannerNote(state) {
-  if (!state.store_available) {
-    return { text: 'Changes cannot be recorded right now — the posture store is unavailable.', tone: 'error' };
+  if (state?.owner?.self === false) {
+    return { text: contextHolderWords(state.owner).long, tone: 'warn' };
   }
-  if (!state.enforceable) {
-    return { text: 'Changes here will not reach the agent yet.', tone: 'warn' };
+  if (!contextWritable(state)) {
+    return { text: 'Changes cannot be recorded right now — the posture store is unavailable.', tone: 'error' };
   }
   // The run alone decides this line. Keying it on every row would hide the
   // banner from a readonly run with one unarmed row — that row is held by the
@@ -300,7 +427,7 @@ export function reachException(reachability) {
  * @param {string} kind
  * @returns {string|null}
  */
-export function hardwareNote(kind) {
+function hardwareNote(kind) {
   return kind === 'live' ? 'Real machine — writes move hardware.' : null;
 }
 
@@ -325,8 +452,12 @@ export function identTitle(row) {
  * Everything the turn-writes-on confirm says. Only this direction asks —
  * turning off removes reach and is undone by a click; turning on is the
  * gesture after which a write the agent makes can land. The body names no
- * endpoint: the one the roster carries is where reads go under the session's
- * current posture, not where the write this dialog allows would land.
+ * endpoint: the one the roster carries is where reads go under the recorded
+ * posture, not where the write this dialog allows would land.
+
+ * The scope line is the first thing it says, because one control context per
+ * deployment means arming writes here arms them for every session, notebook
+ * kernel and hook — not for the page the click was made on.
  * @param {any} row
  * @param {string} kind
  * @returns {{title: string, body: ConfirmRun[][], live: string|null, confirmLabel: string}}
@@ -335,7 +466,7 @@ export function turnOnConfirm(row, kind) {
   return {
     title: `Turn writes on for ${displayName(row, kind)}?`,
     body: [
-      ['For ', { em: 'your session' }, '.'],
+      ['For ', { em: 'every session on this deployment' }, '.'],
       ['Takes effect at the next write — nothing restarts.'],
     ],
     live: hardwareNote(kind),
@@ -345,11 +476,12 @@ export function turnOnConfirm(row, kind) {
 
 /**
  * Everything the switch confirm says. The first line states the consequence —
- * where control goes next, naming writes only when the session arrives able to
- * make them. The second names the write state the session will ARRIVE in,
- * because writes on/off is per machine and does not travel; the word is
- * stateWord's own, so the dialog and the chip a moment later can never
- * disagree.
+ * where control goes next, naming writes only when the deployment arrives able
+ * to make them. The second names the write state it will ARRIVE in, because
+ * writes on/off is per machine and does not travel; the word is stateWord's
+ * own, so the dialog and the chip a moment later can never disagree. Neither
+ * line claims a scope: the switch moves the whole deployment, and saying so
+ * twice per dialog is filler.
  * @param {any} row
  * @param {string} kind
  * @param {'writes'|'sandbox'|'read-only'} word  stateWord's answer for the row
@@ -358,13 +490,9 @@ export function turnOnConfirm(row, kind) {
 export function switchConfirm(row, kind, word) {
   const arrival =
     word === 'writes'
-      ? ['Writes are ', { em: 'on' }, ' there for your session.']
+      ? ['Writes are ', { em: 'on' }, ' there.']
       : word === 'sandbox'
-        ? [
-            'Writes are ',
-            { em: 'off' },
-            ' there for your session — nothing moves until you turn them on.',
-          ]
+        ? ['Writes are ', { em: 'off' }, ' there — nothing moves until you turn them on.']
         : ['Writes are ', { em: 'locked' }, ' read-only there by the deployment.'];
   return {
     title: `Switch to ${displayName(row, kind)}?`,
@@ -394,6 +522,136 @@ export function switchConfirm(row, kind, word) {
  */
 export function confirmSkippable(gesture, kind) {
   return gesture === 'switch' || kind !== 'live';
+}
+
+/* ---- has the switch this browser asked for landed? ---------------------- */
+
+/**
+ * *value* as a non-negative integer, or `null`. Booleans excluded, because
+ * `true >= 1` and a payload that ever sends one must not read as generation 1.
+ * @param {unknown} value
+ * @returns {number|null}
+ */
+function nonNegativeInt(value) {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) return null;
+  return value;
+}
+
+/**
+ * The switch request this browser is waiting on.
+ * @typedef {object} PendingSwitch
+ * @property {string} requestId  the id the POST answered with
+ * @property {number|null} [generation]  the generation that POST said the
+ *   record would carry once the fleet has followed it, `null` when the answer
+ *   named none
+ */
+
+/**
+ * What the roster just read says about that request.
+ * @typedef {object} PendingOutcome
+ * @property {'waiting'|'answered'|'applied'|'failed'} state
+ * @property {number|null} pid  the server that failed, for `failed` only
+ * @property {string|null} detail  that server's own sentence, where it sent one
+ */
+
+/**
+ * Whether the switch this browser asked for has landed, and what happened.
+ *
+ * A switch is not one event but two: the RECORD moves (the terminus names the
+ * request and bumps the generation), and then every live controls server
+ * rebuilds its connector host and reports the generation it arrived at. The
+ * operator is waiting on the second — a chip that stopped at the terminus
+ * would say the deployment is on the new machine while a server is still on the
+ * old one.
+ *
+ * So the rule is a comparison, not a memory: **pending is done when every live
+ * server reports the generation it was asked for.** That survives a page
+ * reload, a second tab and a missed frame, because nothing in it depends on
+ * having seen the terminus go by.
+ *
+ * Three answers the comparison cannot give on its own:
+ *
+ * - a **refusal**, or any other verdict that is not `applied`, moves neither
+ *   target nor generation, so no server will ever report it. It is matched by
+ *   `request_id` on the terminus — a `generation` of `null` is exactly what
+ *   makes a terminus a refusal.
+ * - a **failure** is one server saying it was asked for that generation and
+ *   could not get there. Without it the comparison would wait for a report
+ *   that is not coming, so the pid is named and the wait ends.
+ * - **nobody to wait for.** There is one controls server per agent session, so
+ *   `servers: []` is a normal state — a deployment before its first agent
+ *   session, between sessions, or one whose only server died mid-switch. There
+ *   the record's own terminus is the whole answer, because a server that
+ *   starts later adopts the record's generation on the way up. Waiting there
+ *   would manufacture 30 s of `switching…` and then a false expiry on every
+ *   switch made before the agent is running.
+ *
+ * `[].every()` is true, so the empty case is decided BEFORE the comparison and
+ * on the terminus, never by the comparison — with neither a live server nor a
+ * matching terminus nobody has answered at all, and that is still `waiting`.
+ * Nothing here invents a deadline; the client's own TTL owns a request the
+ * deployment never answers.
+ *
+ * @param {any} view  the payload of `GET /api/terminal/posture`
+ * @param {PendingSwitch|null} pending
+ * @returns {PendingOutcome}
+ */
+export function resolvePendingSwitch(view, pending) {
+  /** @type {PendingOutcome} */
+  const waiting = { state: 'waiting', pid: null, detail: null };
+  /** @type {PendingOutcome} */
+  const answered = { state: 'answered', pid: null, detail: null };
+  if (!view || !pending || !pending.requestId) return waiting;
+
+  const terminus = view.last_switch;
+  const ours = Boolean(terminus) && terminus.request_id === pending.requestId;
+  const terminusGeneration = ours ? nonNegativeInt(terminus.generation) : null;
+  if (ours && (terminusGeneration === null || terminus.status !== SWITCH_APPLIED)) {
+    return answered;
+  }
+
+  const generation = nonNegativeInt(pending.generation);
+  if (generation === null) return waiting;
+
+  const rows = Array.isArray(view.servers) ? view.servers : [];
+  if (!rows.length) {
+    // No fleet to converge. The record accepting this request at or past the
+    // generation asked for is the whole of what "landed" can mean here.
+    return terminusGeneration !== null && terminusGeneration >= generation
+      ? { state: 'applied', pid: null, detail: null }
+      : waiting;
+  }
+
+  for (const row of rows) {
+    const block = row && typeof row.last_switch === 'object' ? row.last_switch : null;
+    if (!block || block.status !== REPORT_FAILED) continue;
+    // A block naming another generation is about a swap the fleet has already
+    // moved past; it says nothing about the one being waited on.
+    if (nonNegativeInt(block.generation) !== generation) continue;
+    const detail = typeof block.detail === 'string' && block.detail.trim() ? block.detail : null;
+    return { state: 'failed', pid: nonNegativeInt(row.pid), detail };
+  }
+
+  const arrived = rows.every((/** @type {any} */ row) => {
+    const applied = nonNegativeInt(row?.applied_generation);
+    return applied !== null && applied >= generation;
+  });
+  return arrived ? { state: 'applied', pid: null, detail: null } : waiting;
+}
+
+/**
+ * The sentence under a switch the record accepted and a controls server then
+ * failed to apply. Names the pid, because "the switch did not land" without
+ * one leaves nobody to look at; carries the server's own words where it sent
+ * any, since it is the only process that knows why.
+ * @param {number|null} pid
+ * @param {string|null} [detail]
+ * @returns {string}
+ */
+export function switchFailureNote(pid, detail = null) {
+  const who = pid === null ? 'A controls server' : `Controls server pid ${pid}`;
+  const said = String(detail || '').trim();
+  return said ? `${who}: ${said}` : `${who} did not apply the switch.`;
 }
 
 /**

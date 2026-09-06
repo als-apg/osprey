@@ -320,7 +320,7 @@ class TestASuccessfulLogin:
         assert record["posture_source"] == POSTURE_SOURCE_APP
 
     def test_no_session_key_is_invented(self, zone: Path) -> None:
-        """``session`` is the posture-store key that governed the record. A
+        """``session`` is the audit session id that governed the record. A
         login has none — the browser has no session yet — and the field is
         present as null rather than dropped, so every line carries one shape."""
         with _password_client() as client:

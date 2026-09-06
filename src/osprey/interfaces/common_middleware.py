@@ -1544,7 +1544,7 @@ class WebAuthMiddleware:
         only where it differs. Letting a header choose the actor would let a
         caller file records under somebody else's name.
 
-        ``session`` is ``None`` and stays that way: no posture-store key exists
+        ``session`` is ``None`` and stays that way: no audit session id exists
         for a request that never reached a session, and inventing one would
         join this record to a session that never existed.
 

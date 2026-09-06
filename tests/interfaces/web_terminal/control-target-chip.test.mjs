@@ -5,9 +5,9 @@
  *
  * The chip is the header's one-line answer to "if the agent writes now, where
  * does it land, and will it be refused?". It reads ONE truth —
- * `GET /api/terminal/posture?session_id=` — and derives nothing from what this
- * page last did, so a posture narrowed in another tab and a target the agent
- * switched mid-turn both reach the operator.
+ * `GET /api/terminal/posture` — and derives nothing from what this page last
+ * did, so a posture narrowed in another tab and a target the agent switched
+ * mid-turn both reach the operator.
  *
  * What these tests pin down, in the order a reviewer would ask about it:
  *
@@ -17,6 +17,14 @@
  *   and is no longer a child of the host. A second init re-renders rather than
  *   mounting a second chip, and re-homes the same node if the shell shows up
  *   after a fallback mount;
+ * - a caller may hand it a `host` of its own, and the module reaches nothing
+ *   the terminal page owns — which is what lets the JupyterLab bar mount it;
+ * - the roster is a fact about the DEPLOYMENT: the read carries no session id,
+ *   and nothing here waits for a session to be settled;
+ * - the pushed `{type: 'control_context'}` frame is what makes the chip
+ *   current; the 5 s poll is the fallback behind it;
+ * - a switch is done when every live controls server reports the generation
+ *   the POST answered with — not when the record's terminus turns up;
  * - the full state matrix reaches the DOM as data attributes and words: four
  *   kinds (live / stand-in / virtual accelerator / simulated) × three states
  *   (writes / sandbox / read-only). Not one colour is decided here — the
@@ -36,32 +44,21 @@
  * - every request goes through api.js's `withPrefix`, so the multi-user
  *   per-user mount is covered.
  *
- * Seams: terminal.js is mocked (it owns the session id); `fetch` is stubbed the
- * way the other suites here stub it; the SSE factory is injected the way
- * session.js's `wireActivityStrip` injects it, since happy-dom has no
- * EventSource. Module-private state (the mounted chip, the last payload) has no
- * reset API, so each test gets a fresh module instance via vi.resetModules() +
- * dynamic import — same pattern as posture-badge.test.mjs.
+ * Seams: nothing is mocked — the module reaches no other page module, which is
+ * itself asserted below. `fetch` is stubbed the way the other suites here stub
+ * it; the SSE factory is injected the way session.js's `wireActivityStrip`
+ * injects it, since happy-dom has no EventSource. Module-private state (the
+ * mounted chip, the last payload) has no reset API, so each test gets a fresh
+ * module instance via vi.resetModules() + dynamic import — same pattern as
+ * posture-badge.test.mjs.
  */
+
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-const SESSION = 'aaaaaaaa-1111-2222-3333-444444444444';
 const MODULE = '../../../src/osprey/interfaces/web_terminal/static/js/control-target-chip.js';
-
-/** Mutable stand-in for terminal.js, reachable from the hoisted vi.mock factory. */
-const term = vi.hoisted(() => ({
-  /** @type {string|null} */
-  sessionId: /** @type {string|null} */ (null),
-  /** @type {(() => void)[]} */
-  listeners: [],
-}));
-
-vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () => ({
-  getCurrentSessionId: () => term.sessionId,
-  /** @param {() => void} fn */
-  onSessionChange: (fn) => term.listeners.push(fn),
-}));
 
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/control-target-chip.js')} */
 let chipModule;
@@ -138,15 +135,35 @@ const rowOf = (o = {}) => ({
   ...o,
 });
 
+/**
+ * One live controls server, as `servers[]` publishes it. The default row has
+ * arrived at the record's generation, which is what a settled deployment looks
+ * like: nothing outstanding for anyone to wait on.
+ * @param {object} [o]
+ */
+const serverOf = (o = {}) => ({
+  pid: 4242,
+  session: null,
+  applied_target: 'standin',
+  applied_generation: 3,
+  last_switch: null,
+  last_posture_realign: null,
+  updated_at: '2026-08-30T12:00:00+00:00',
+  ...o,
+});
+
 /** @param {object} [o] */
 const viewOf = (o = {}) => ({
-  session_id: SESSION,
-  session_target: 'standin',
+  // The read carries no session id, so the route echoes none back. Seeding one
+  // would let an assertion pass on a value production never sees.
+  session_id: null,
+  control_target: 'standin',
+  generation: 3,
+  owner: { kind: 'web_terminal', pid: 1000, port: 8080, self: true },
+  servers: [serverOf()],
   store_available: true,
   readonly_run: false,
-  enforceable: true,
-  enforceable_reason: null,
-  execution_in_flight: false,
+  execution_in_flight: [],
   last_switch: null,
   last_posture_realign: null,
   targets: [rowOf({ ...KINDS.standin, active: true, is_baseline: true })],
@@ -258,12 +275,14 @@ async function flush() {
 /**
  * Boot the chip against a given roster.
  * @param {any} [payload]
- * @param {{sessionId?: string|null}} [opts]
+ * @param {{host?: HTMLElement|null}} [opts]
  */
 async function boot(payload, opts = {}) {
   served = payload ?? viewOf();
-  term.sessionId = opts.sessionId === undefined ? SESSION : opts.sessionId;
-  chipModule.initControlTargetChip({ eventSourceFactory: fakeEventSourceFactory() });
+  chipModule.initControlTargetChip({
+    host: opts.host,
+    eventSourceFactory: fakeEventSourceFactory(),
+  });
   await flush();
 }
 
@@ -280,8 +299,6 @@ function pushFrame(/** @type {any} */ frame) {
 
 beforeEach(async () => {
   vi.resetModules();
-  term.sessionId = SESSION;
-  term.listeners = [];
   served = viewOf();
   stubFetch();
   mountFixture();
@@ -393,20 +410,94 @@ describe('mount', () => {
     expect(chip.querySelector('.ctc-caret')?.textContent).toBe('▾');
   });
 
-  test('stays hidden, and reads nothing, until the terminal reports a session', async () => {
-    await boot(viewOf(), { sessionId: null });
-    expect(anchorEl()?.hidden).toBe(true);
-    expect(chipEl()?.hidden).toBe(true);
-    expect(getCount()).toBe(0);
+  test('reads and paints without waiting for any session to be settled', async () => {
+    // The roster is a fact about the deployment: one record says where its
+    // control system points. A chip that waited for a session id would never
+    // paint on a page that has no terminal.
+    await boot();
+    expect(getCount()).toBe(1);
+    expect(anchorEl()?.hidden).toBe(false);
+    expect(chipEl()?.hidden).toBe(false);
   });
 
-  test('does nothing at all on a page with no header', async () => {
+  test('does nothing at all on a page with no header and no host', async () => {
     document.body.innerHTML = '<div id="elsewhere"></div>';
     chipModule.initControlTargetChip({ eventSourceFactory: fakeEventSourceFactory() });
     await flush();
     expect(chipEl()).toBeNull();
     expect(anchorEl()).toBeNull();
     expect(getCount()).toBe(0);
+  });
+
+  test('mounts into a host the caller hands it, header or no header', async () => {
+    // The JupyterLab page has neither the `control-target` shell nor
+    // `.header-actions`; the bar module that owns its own element passes it.
+    document.body.innerHTML = '<div id="lab-bar"></div>';
+    const host = /** @type {HTMLElement} */ (document.querySelector('#lab-bar'));
+    await boot(viewOf(), { host });
+    expect(anchorEl()?.parentElement).toBe(host);
+    expect(chipEl()?.hidden).toBe(false);
+  });
+
+  test('a host beats the header the discovery would have found', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    await boot(viewOf(), { host });
+    expect(anchorEl()?.parentElement).toBe(host);
+    expect(document.querySelector('[data-bar-item="control-target"]')?.children).toHaveLength(0);
+  });
+
+  test('reaches nothing the terminal page owns', async () => {
+    // 8.x loads this module on the JupyterLab page, where terminal.js does not
+    // exist. An import of it would be a page-breaking 404 there, and the chip
+    // has no session question left to ask anyway. Read statically rather than
+    // through a mock, because a mock is exactly what would hide the import.
+    const source = readFileSync(fileURLToPath(new URL(MODULE, import.meta.url)), 'utf8');
+    // Static AND dynamic: a lazy `import('./terminal.js')` behind a "only on
+    // the terminal page" guard is the likeliest way the closure would regrow,
+    // and it is exactly what a mock would hide.
+    const imports = [...source.matchAll(/(?:from|import\()\s*'(\.\/[^']+)'/g)]
+      .map((m) => m[1])
+      .sort();
+    expect(imports).toEqual([
+      './activity-format.js',
+      './api.js',
+      './control-target-facts.js',
+    ]);
+    // Belt and braces, and quote-style-proof: the name must not appear at all.
+    expect(source).not.toContain('terminal.js');
+  });
+
+  test('and nothing it imports reaches it either', async () => {
+    // The test above reads ONE file, so it cannot see a `terminal.js` pulled in
+    // one level down. `api.js` gaining that import would break the JupyterLab
+    // page in exactly the same way and this suite would stay green, so walk the
+    // whole relative closure instead of the chip's own first line of imports.
+    //
+    // Comments are stripped first: a JSDoc `@typedef {import('./x.js').Y}` is
+    // documentation, not an edge, and reading it as one would drag half the
+    // page's modules in behind it.
+    const dir = new URL(MODULE.replace(/[^/]+$/, ''), import.meta.url);
+    const strip = (/** @type {string} */ src) =>
+      src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    /** @type {Set<string>} */
+    const closure = new Set();
+    const queue = ['control-target-chip.js'];
+    while (queue.length) {
+      const name = /** @type {string} */ (queue.pop());
+      if (closure.has(name)) continue;
+      closure.add(name);
+      const src = strip(readFileSync(fileURLToPath(new URL(name, dir)), 'utf8'));
+      for (const found of src.matchAll(/(?:from|import\()\s*'\.\/([^']+)'/g)) {
+        queue.push(found[1]);
+      }
+    }
+    expect([...closure].sort()).toEqual([
+      'activity-format.js',
+      'api.js',
+      'control-target-chip.js',
+      'control-target-facts.js',
+    ]);
   });
 });
 
@@ -426,7 +517,7 @@ describe('state matrix', () => {
       test(`${kindName} × ${stateName} → data attributes and words`, async () => {
         await boot(
           viewOf({
-            session_target: kind.target,
+            control_target: kind.target,
             targets: [rowOf({ ...kind, ...state, active: true, is_baseline: true })],
           })
         );
@@ -500,16 +591,25 @@ describe('state matrix', () => {
     expect(chipEl()?.dataset.targetKind).toBe('live');
   });
 
-  test('data-enforceable folds in the store, and a dimmed chip still renders', async () => {
+  test('data-enforceable answers whether a change here would be written', async () => {
     await boot();
     expect(chipEl()?.dataset.enforceable).toBe('true');
 
+    // No context to write to: the write routes answer 503.
     served = viewOf({ store_available: false });
+    await chipModule.refetch();
+    expect(chipEl()?.dataset.enforceable).toBe('false');
+    // Dimmed, never hidden — the roster is worth reading either way.
+    expect(anchorEl()?.hidden).toBe(false);
+
+    // Another terminal holds it: the write routes answer 409.
+    served = viewOf({ owner: { kind: 'web_terminal', pid: 77, port: 8123, self: false } });
     await chipModule.refetch();
     expect(chipEl()?.dataset.enforceable).toBe('false');
     expect(anchorEl()?.hidden).toBe(false);
 
-    served = viewOf({ enforceable: false, enforceable_reason: 'no session-owned record' });
+    // Nothing owns it anywhere.
+    served = viewOf({ owner: null });
     await chipModule.refetch();
     expect(chipEl()?.dataset.enforceable).toBe('false');
   });
@@ -521,7 +621,7 @@ describe('active row', () => {
   test('speaks for the active row, not the first one', async () => {
     await boot(
       viewOf({
-        session_target: 'va',
+        control_target: 'va',
         targets: [
           rowOf({ ...KINDS.live, is_baseline: true }),
           rowOf({ ...KINDS.va, active: true }),
@@ -535,7 +635,7 @@ describe('active row', () => {
   test('falls back to the baseline row when no row is marked active', async () => {
     await boot(
       viewOf({
-        session_target: 'nothing-configured',
+        control_target: 'nothing-configured',
         targets: [rowOf(KINDS.live), rowOf({ ...KINDS.standin, is_baseline: true })],
       })
     );
@@ -551,10 +651,42 @@ describe('active row', () => {
 
 /* ---- the refetch hint --------------------------------------------------- */
 
-describe('agent-activity hint', () => {
-  test('subscribes to the shared panel event stream', async () => {
+describe('refetch hints', () => {
+  test('subscribes to the shared panel event stream, once', async () => {
     await boot();
     expect(stream.url).toBe('/api/files/events');
+    // api.js shares one socket per URL across the page's modules, so the chip
+    // must not open a second — and a second init must not subscribe again.
+    const first = stream;
+    chipModule.initControlTargetChip({ eventSourceFactory: fakeEventSourceFactory() });
+    await flush();
+    expect(stream.url).toBeNull();
+    expect(first.stopped).toBe(0);
+  });
+
+  test('the pushed control_context frame triggers a re-read', async () => {
+    // The normal path: the owning terminal watches the record and every
+    // server report and pushes this on any change, whoever caused it.
+    await boot();
+    const before = getCount();
+    pushFrame({ type: 'control_context' });
+    await flush();
+    expect(getCount()).toBe(before + 1);
+  });
+
+  test('a pushed frame beats the idle poll to the news', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+    await boot(viewOf({ targets: [rowOf({ ...KINDS.standin, active: true })] }));
+    expect(shortText()).toBe('Rehearsal');
+
+    served = viewOf({
+      control_target: 'live',
+      targets: [rowOf({ ...KINDS.live, active: true })],
+    });
+    pushFrame({ type: 'control_context' });
+    await flush();
+    // Repainted without a single tick of the 5 s fallback having passed.
+    expect(shortText()).toBe('Real machine');
   });
 
   test('a control_target_set frame triggers a re-read', async () => {
@@ -616,7 +748,7 @@ describe('polling', () => {
     chipModule.markPending('r-7f21', 'live');
     expect(chipEl()?.dataset.pending).toBe('true');
     expect(stateText()).toBe('switching…');
-    // `data-state` still describes the machine the session is ON — the switch
+    // `data-state` still describes the machine the deployment is ON — the switch
     // has not landed, and the dot must not go quiet before it does.
     expect(chipEl()?.dataset.state).toBe('writes');
 
@@ -630,8 +762,8 @@ describe('polling', () => {
     await boot();
     chipModule.markPending('r-7f21', 'live');
     served = viewOf({
-      session_target: 'live',
-      last_switch: { request_id: 'r-7f21', status: 'success', reason: null, age_s: 0 },
+      control_target: 'live',
+      last_switch: { request_id: 'r-7f21', status: 'applied', reason: null, age_s: 0 },
       targets: [rowOf({ ...KINDS.live, active: true })],
     });
     vi.advanceTimersByTime(chipModule.FAST_POLL_MS);
@@ -652,7 +784,7 @@ describe('polling', () => {
     await boot();
     chipModule.markPending('r-mine', 'live');
     served = viewOf({
-      last_switch: { request_id: 'r-someone-else', status: 'success', age_s: 1 },
+      last_switch: { request_id: 'r-someone-else', status: 'applied', age_s: 1 },
     });
     vi.advanceTimersByTime(chipModule.FAST_POLL_MS);
     await flush();
@@ -702,6 +834,183 @@ describe('polling', () => {
     expect(chipModule.getState()?.last_switch?.synthesized).toBeUndefined();
   });
 
+  test('the record accepting the switch is not yet the end of switching…', async () => {
+    await boot();
+    chipModule.markPending('r-7f21', 'live', 4);
+    // The terminus says applied and the record is at 4; the one live controls
+    // server is still on 3. Stopping here would name a machine it has not
+    // reached.
+    served = viewOf({
+      control_target: 'live',
+      generation: 4,
+      last_switch: { request_id: 'r-7f21', status: 'applied', generation: 4, age_s: 0 },
+      servers: [serverOf({ applied_generation: 3 })],
+      targets: [rowOf({ ...KINDS.live, active: true })],
+    });
+    vi.advanceTimersByTime(chipModule.FAST_POLL_MS);
+    await flush();
+    expect(chipModule.isPending()).toBe(true);
+    expect(stateText()).toBe('switching…');
+
+    // The server arrives.
+    served = viewOf({
+      control_target: 'live',
+      generation: 4,
+      last_switch: { request_id: 'r-7f21', status: 'applied', generation: 4, age_s: 1 },
+      servers: [serverOf({ applied_target: 'live', applied_generation: 4 })],
+      targets: [rowOf({ ...KINDS.live, active: true })],
+    });
+    vi.advanceTimersByTime(chipModule.FAST_POLL_MS);
+    await flush();
+    expect(chipModule.isPending()).toBe(false);
+    expect(stateText()).toBe('writes on');
+    expect(shortText()).toBe('Real machine');
+  });
+
+  test('a server that fails the switch ends the wait and is named', async () => {
+    await boot();
+    chipModule.markPending('r-7f21', 'live', 4);
+    served = viewOf({
+      generation: 4,
+      last_switch: { request_id: 'r-7f21', status: 'applied', generation: 4, age_s: 0 },
+      servers: [
+        serverOf({
+          pid: 5150,
+          applied_generation: 3,
+          last_switch: { status: 'failed', generation: 4, detail: 'gateway refused the bind' },
+        }),
+      ],
+    });
+    vi.advanceTimersByTime(chipModule.FAST_POLL_MS);
+    await flush();
+
+    expect(chipModule.isPending()).toBe(false);
+    // The record's own terminus says applied. Rendering that would report a
+    // switch that did not land, so the client's reading wins here.
+    expect(chipModule.getState()?.last_switch).toMatchObject({
+      request_id: 'r-7f21',
+      status: 'failed',
+      reason: 'switch_failed',
+      detail: 'Controls server pid 5150: gateway refused the bind',
+      synthesized: true,
+    });
+  });
+
+  test('the failure clears once the deployment moves on', async () => {
+    await boot();
+    chipModule.markPending('r-7f21', 'live', 4);
+    served = viewOf({
+      generation: 4,
+      servers: [
+        serverOf({
+          pid: 5150,
+          applied_generation: 3,
+          last_switch: { status: 'failed', generation: 4 },
+        }),
+      ],
+    });
+    vi.advanceTimersByTime(chipModule.FAST_POLL_MS);
+    await flush();
+    expect(chipModule.getState()?.last_switch?.synthesized).toBe(true);
+
+    // Somebody switched again and it worked. The old failure is history.
+    served = viewOf({ generation: 5, servers: [serverOf({ applied_generation: 5 })] });
+    await chipModule.refetch();
+    expect(chipModule.getState()?.last_switch).toBeNull();
+  });
+
+  test('a switch a refusal answered ends the wait on the terminus alone', async () => {
+    await boot();
+    chipModule.markPending('r-7f21', 'live', 4);
+    // A refusal moves neither target nor generation — `generation: null` is
+    // what says so — and no server will ever report it.
+    served = viewOf({
+      last_switch: {
+        request_id: 'r-7f21',
+        status: 'refused',
+        reason: 'unreachable',
+        generation: null,
+        age_s: 0,
+      },
+    });
+    vi.advanceTimersByTime(chipModule.FAST_POLL_MS);
+    await flush();
+    expect(chipModule.isPending()).toBe(false);
+    expect(chipModule.getState()?.last_switch?.status).toBe('refused');
+  });
+
+  test('a fleet stalled past the TTL keeps the expiry, terminus or no terminus', async () => {
+    // The wait is on the FLEET, so the record's `applied` terminus is already
+    // in view when the deadline passes. Retiring the expiry on that terminus
+    // would flip the chip to ✓ switched while a server is still on the old
+    // generation — the exact misreport this rule exists to prevent.
+    await boot();
+    chipModule.markPending('r-slow', 'live', 4);
+    const stalled = () =>
+      viewOf({
+        generation: 4,
+        last_switch: { request_id: 'r-slow', status: 'applied', generation: 4, age_s: 30 },
+        servers: [serverOf({ applied_generation: 3 })],
+      });
+    served = stalled();
+    vi.advanceTimersByTime(chipModule.REQUEST_TTL_S * 1000);
+    await flush();
+    expect(chipModule.isPending()).toBe(false);
+    expect(chipModule.getState()?.last_switch).toMatchObject({
+      request_id: 'r-slow',
+      status: 'expired',
+      synthesized: true,
+    });
+
+    // Another read, same lagging server: the expiry must still stand.
+    served = stalled();
+    await chipModule.refetch();
+    expect(chipModule.getState()?.last_switch?.status).toBe('expired');
+
+    // The rebuild finally finishes. NOW the terminus is the truth.
+    served = viewOf({
+      generation: 4,
+      last_switch: { request_id: 'r-slow', status: 'applied', generation: 4, age_s: 40 },
+      servers: [serverOf({ applied_generation: 4 })],
+    });
+    await chipModule.refetch();
+    expect(chipModule.getState()?.last_switch?.status).toBe('applied');
+  });
+
+  test('a failure clears when the server retries the same generation and lands', async () => {
+    // A controls server retries a failed launch on its next call, and
+    // publish_last_switch replaces the block. Without this the chip would pin
+    // `✗ not applied` on a converged fleet until somebody switched again.
+    await boot();
+    chipModule.markPending('r-7f21', 'live', 4);
+    served = viewOf({
+      generation: 4,
+      servers: [
+        serverOf({
+          pid: 5150,
+          applied_generation: 3,
+          last_switch: { status: 'failed', generation: 4 },
+        }),
+      ],
+    });
+    vi.advanceTimersByTime(chipModule.FAST_POLL_MS);
+    await flush();
+    expect(chipModule.getState()?.last_switch?.status).toBe('failed');
+
+    served = viewOf({
+      generation: 4,
+      servers: [
+        serverOf({
+          pid: 5150,
+          applied_generation: 4,
+          last_switch: { status: 'applied', generation: 4 },
+        }),
+      ],
+    });
+    await chipModule.refetch();
+    expect(chipModule.getState()?.last_switch).toBeNull();
+  });
+
   test('teardown releases both timers and the stream', async () => {
     await boot();
     chipModule.markPending('r-1');
@@ -731,7 +1040,7 @@ describe('read ordering', () => {
 
     // The session moves; a newer read lands with the new roster.
     served = viewOf({
-      session_target: 'live',
+      control_target: 'live',
       targets: [rowOf({ ...KINDS.live, active: true })],
     });
     await chipModule.refetch();
@@ -773,13 +1082,13 @@ describe('withPrefix', () => {
     const gets = fetchCalls.filter((c) => c.method === 'GET');
     expect(gets.length).toBeGreaterThan(0);
     for (const call of gets) {
-      expect(call.url.startsWith('/u/alice/api/terminal/posture?session_id=')).toBe(true);
+      expect(call.url).toBe('/u/alice/api/terminal/posture');
     }
   });
 
-  test('the session id is passed as the query the route reads', async () => {
+  test('the read carries no session id — one record answers for the deployment', async () => {
     await boot();
-    expect(fetchCalls[0].url).toBe(`/api/terminal/posture?session_id=${SESSION}`);
+    expect(fetchCalls[0].url).toBe('/api/terminal/posture');
   });
 });
 
@@ -789,7 +1098,7 @@ describe('popover API', () => {
   test('getState answers the payload the route sent', async () => {
     await boot();
     const state = chipModule.getState();
-    expect(state?.session_target).toBe('standin');
+    expect(state?.control_target).toBe('standin');
     expect(state?.targets).toHaveLength(1);
   });
 
@@ -799,7 +1108,7 @@ describe('popover API', () => {
     const off = chipModule.subscribe((s) => seen.push(s));
     await chipModule.refetch();
     expect(seen).toHaveLength(1);
-    expect(seen[0]?.session_target).toBe('standin');
+    expect(seen[0]?.control_target).toBe('standin');
 
     off();
     await chipModule.refetch();
@@ -856,7 +1165,11 @@ describe('popover API', () => {
       'dict detail'
     );
     expect(chipModule.refusalMessage({ detail: 'string detail' }, 400)).toBe('string detail');
-    expect(chipModule.refusalMessage(null, 503)).toContain('503');
+    // The fallback names no session: there is one control target per
+    // deployment, and a body with nothing in it says only what the status does.
+    expect(chipModule.refusalMessage(null, 503)).toBe(
+      'Could not read the control target (HTTP 503).'
+    );
   });
 });
 
@@ -880,7 +1193,7 @@ describe('activeKind', () => {
     test(`answers ${kindName} for the row the chip speaks for`, async () => {
       await boot(
         viewOf({
-          session_target: kind.target,
+          control_target: kind.target,
           targets: [rowOf({ ...kind, active: true, is_baseline: true })],
         })
       );
@@ -898,7 +1211,7 @@ describe('activeKind', () => {
     const seen = /** @type {(string|null)[]} */ ([]);
     const off = chipModule.subscribe(() => seen.push(chipModule.activeKind()));
     served = viewOf({
-      session_target: KINDS.live.target,
+      control_target: KINDS.live.target,
       targets: [rowOf({ ...KINDS.live, active: true })],
     });
     await chipModule.refetch();
@@ -908,25 +1221,14 @@ describe('activeKind', () => {
   });
 });
 
-/* ---- session changes ---------------------------------------------------- */
+/* ---- a torn-down chip stays down ---------------------------------------- */
 
-describe('session changes', () => {
-  test('re-reads when the terminal settles on a session', async () => {
-    await boot(viewOf(), { sessionId: null });
-    expect(getCount()).toBe(0);
-
-    term.sessionId = SESSION;
-    for (const fn of term.listeners) fn();
-    await flush();
-    expect(getCount()).toBe(1);
-    expect(anchorEl()?.hidden).toBe(false);
-  });
-
-  test('a torn-down chip is not revived by a late session change', async () => {
+describe('teardown', () => {
+  test('a late frame does not revive a torn-down chip', async () => {
     await boot();
-    chipModule.teardownControlTargetChip();
     const settled = getCount();
-    for (const fn of term.listeners) fn();
+    chipModule.teardownControlTargetChip();
+    pushFrame({ type: 'control_context' });
     await flush();
     expect(getCount()).toBe(settled);
   });

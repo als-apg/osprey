@@ -71,7 +71,7 @@ from osprey.mcp_server.control_system.target_eligibility import derive_endpoints
 from osprey.mcp_server.control_system.tools.channel_read import channel_read
 from osprey.mcp_server.control_system.tools.control_target import control_target
 from osprey.mcp_server.python_executor import executor as host_executor
-from osprey_connectors import session_store
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.control_system.va_connector import fill_gateway_ports
 from osprey_connectors.errors import ChannelLimitsViolationError
@@ -172,9 +172,19 @@ def child_environment(fixture_dir, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def state_root(tmp_path, monkeypatch):
-    """Anchor the state file in tmp_path instead of a real deployment."""
+    """Anchor the deployment's agent data in tmp_path instead of a real one.
+
+    Two readers have to land in the same place: the per-server reports, which
+    ``target_state`` resolves through its own root helper, and the
+    control-context record, which every other reader reaches through the
+    ``OSPREY_AGENT_DATA_ROOT`` stamp. Anchoring only one of them is how a test
+    reads a record left behind by whatever last ran on this machine.
+    """
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
-    return tmp_path
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    control_context.invalidate_cache()
+    yield tmp_path
+    control_context.invalidate_cache()
 
 
 @pytest.fixture
@@ -323,7 +333,11 @@ class TestRoutingFollowsTheActiveTarget:
 
         result = await pair.manager.switch("va")
 
-        assert (result["target"], result["generation"], result["target_changed"]) == ("va", 1, True)
+        # A direct switch ADOPTS a generation, it does not mint one: the
+        # deployment's counter is the control-context record's, minted by the
+        # record's owner, and this manager only ever agrees with it. So the
+        # target moved and the generation did not.
+        assert (result["target"], result["generation"], result["target_changed"]) == ("va", 0, True)
         after = await read_through_the_tool(SHARED_CHANNEL)
         assert value_read(after, SHARED_CHANNEL) == VA_SEED
 
@@ -349,17 +363,24 @@ class TestRoutingFollowsTheActiveTarget:
         with pytest.raises(ConnectionError):
             await connector.read_channel(LIVE_PROBE, timeout=CALL_TIMEOUT_S)
 
-    async def test_the_roster_and_the_state_file_report_the_new_target(self, pair):
+    async def test_the_roster_and_the_report_file_report_the_new_target(self, pair):
         """What the operator and every out-of-process reader are told.
 
-        The roster is the agent's answer to "where am I", and the state file is
-        what the prompt hook and the executor read. Both are asserted here
-        because a switch that moved the reads but not the reporting would be a
-        session that lies about which machine it is on.
+        The roster is the agent's answer to "where am I", and this server's
+        report is what the rest of the fleet reads to decide whether the
+        deployment has converged on the record. Both are asserted here because
+        a switch that moved the reads but not the reporting would be a session
+        that lies about which machine it is on.
+
+        The move is driven through ``reconcile`` rather than ``switch`` because
+        that is the path a deployment actually takes: the record's owner mints
+        generation 1 and every server is brought into line with it. A direct
+        ``switch`` adopts whatever generation this server already has, so it
+        cannot show a generation arriving in the report at all.
         """
         await read_through_the_tool(SHARED_CHANNEL)
 
-        await pair.manager.switch("va")
+        await pair.manager.reconcile("va", 1)
 
         roster = json.loads(await get_tool_fn(control_target)())
         assert roster["summary"]["target"] == "va"
@@ -371,10 +392,10 @@ class TestRoutingFollowsTheActiveTarget:
 
         child_pid = pair.manager.status()["child_pid"]
         assert isinstance(child_pid, int)
-        record = target_state.read()
-        assert record["target"] == "va"
-        assert record["generation"] == 1
-        assert record["children"] == [child_pid]
+        report = target_state.read()
+        assert report["applied_target"] == "va"
+        assert report["applied_generation"] == 1
+        assert report["children"] == [child_pid]
 
 
 # ------------------------------------------------------------ error fidelity
@@ -593,27 +614,6 @@ def _config_reader(section: dict[str, Any], va_port: int):
     return get_config_value
 
 
-def _write_state_record(target: str = "va", generation: int = 0) -> Path:
-    """One state record describing a live server owned by this session."""
-    pid = os.getpid()
-    path = target_state.state_file_path(pid)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            {
-                "target": target,
-                "generation": generation,
-                "server_pid": pid,
-                "owner_ppid": os.getppid(),
-                "targets": {},
-                "children": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-    return path
-
-
 class _CapturingConnector:
     """Records the type-specific config block the factory handed ``connect()``."""
 
@@ -659,7 +659,7 @@ class TestSandboxEndpointMatchesTheDerivation:
         _CapturingConnector.last_config = None
 
     async def test_the_stamped_sandbox_builds_the_endpoint_the_va_derivation_names(
-        self, sandbox, monkeypatch
+        self, sandbox, state_root, write_control_context, monkeypatch
     ):
         """The host stamps, the sandbox routes, and the two land on one gateway.
 
@@ -671,12 +671,12 @@ class TestSandboxEndpointMatchesTheDerivation:
         answers to "where is the virtual accelerator", from two processes'
         worth of code, and they have to be the same answer.
         """
-        _write_state_record(target="va", generation=2)
+        write_control_context(state_root, target="va", generation=2)
         # The launch pin is computed from the posture store, so the scenario has
         # to say what that store holds rather than inheriting whatever the suite
         # runs under: no session key means nothing addressed this session, which
         # is the un-narrowed answer this test is about.
-        monkeypatch.delenv(session_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+        monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
         monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
         env: dict[str, str] = {}
 
@@ -684,14 +684,13 @@ class TestSandboxEndpointMatchesTheDerivation:
         assert env == {
             host_executor.ENV_CONTROL_TARGET: "va",
             host_executor.ENV_CONTROL_TARGET_GENERATION: "2",
-            host_executor.ENV_CONTROL_TARGET_STATE_PID: str(os.getpid()),
             # Stamped beside the routing names on every launch: which machine
             # the run reaches, and what it was allowed to do to it when it
             # started. Composed rather than spelled, so the pin follows the
             # target this scenario derives instead of a literal that would
             # survive a rename.
-            host_executor.ENV_LAUNCH_POSTURE: session_store.launch_posture_stamp(
-                "va", session_store.POSTURE_WRITES
+            host_executor.ENV_LAUNCH_POSTURE: posture_store.launch_posture_stamp(
+                "va", posture_store.POSTURE_WRITES
             ),
         }
         for name, value in env.items():
