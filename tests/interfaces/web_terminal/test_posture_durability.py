@@ -77,7 +77,9 @@ SPAWN_KEY = "11111111-1111-4111-8111-111111111111"
 CLAUDE_KEY = "22222222-2222-4222-8222-222222222222"
 
 SANDBOX = websocket_routes.POSTURE_SANDBOX
-STORE_NAME = session_store.STORE_FILENAME
+#: The retired store's file name, restated: ``session_store`` no longer
+#: publishes it, and these tests are about that file.
+STORE_NAME = "session-postures.json"
 STATE_DIR = session_store.STATE_DIR_NAME
 
 #: What the legacy bare ``"sandbox"`` means once parsed.
