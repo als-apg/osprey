@@ -75,7 +75,7 @@ def write_state(state_dir, *, target, children=None):
     lookups away would stop testing the match.
     """
     state_dir.mkdir(parents=True, exist_ok=True)
-    path = state_dir / f"{target_state.STATE_FILE_PREFIX}{os.getpid()}.json"
+    path = state_dir / f"{target_state.REPORT_FILE_PREFIX}{os.getpid()}.json"
     path.write_text(
         json.dumps(
             {
@@ -185,7 +185,7 @@ async def test_absent_state_stamps_the_baseline_spelling(archiver_project, state
 async def test_unreadable_state_stamps_the_baseline_spelling(archiver_project, state_root):
     """A corrupt record is not an answer, and "baseline" is the honest spelling of that."""
     state_root.mkdir(parents=True, exist_ok=True)
-    (state_root / f"{target_state.STATE_FILE_PREFIX}{os.getpid()}.json").write_text("{not json")
+    (state_root / f"{target_state.REPORT_FILE_PREFIX}{os.getpid()}.json").write_text("{not json")
 
     _, query = await read_and_load(archiver_project)
 

@@ -29,6 +29,7 @@ import pytest
 from osprey.connectors.control_system.base import ChannelWriteResult, WriteOutcome
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.server_context import initialize_server_context
+from tests._control_context_fixtures import write_control_context
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -1144,13 +1145,13 @@ _SPLIT_POSTURE_TARGETS_META = {
 
 
 def _prepare_split_posture(tmp_path, monkeypatch, target):
-    """A split-posture deployment serving *target*, with a real state file.
+    """A split-posture deployment serving *target*, with real files on disk.
 
     Nothing here is a stand-in for the thing under test: the config is loaded
     off disk, the limits database is a real file, and the target arrives the way
-    the tool actually learns it — from the state file the controls server
-    publishes, read through ``target_state``. The one rebinding is the state
-    root, so these files land in a directory this test owns.
+    the tool actually learns it — from the deployment's control-context record.
+    The one rebinding is the state root, so these files land in a directory this
+    test owns.
     """
     db_path = tmp_path / "limits.json"
     db_path.write_text(
@@ -1166,7 +1167,10 @@ def _prepare_split_posture(tmp_path, monkeypatch, target):
     (tmp_path / "config.yml").write_text(config_text)
     root = tmp_path / "var" / "agent_data"
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
-    target_state.write_on_start(target, _SPLIT_POSTURE_TARGETS_META, generation=0)
+    # The target the tool builds its validator from is the deployment's, read
+    # off the control-context record; the report carries the display metadata.
+    write_control_context(root, target=target, generation=0)
+    target_state.write_server_record(_SPLIT_POSTURE_TARGETS_META)
     initialize_server_context()
 
 

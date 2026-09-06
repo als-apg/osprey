@@ -82,7 +82,7 @@ from osprey.agent_runner import await_mcp_ready, expected_mcp_servers, sdk_env
 from osprey.agent_runner.primitives import _ingest_tool_result
 from osprey.agent_runner.project_paths import claude_project_dir
 from osprey.mcp_server.control_system.connector_host_manager import baseline_target
-from osprey.mcp_server.control_system.target_state import STATE_DIR_NAME, STATE_FILE_GLOB
+from osprey.mcp_server.control_system.target_state import REPORT_FILE_GLOB, STATE_DIR_NAME
 from osprey.mcp_server.control_system.tools.control_target import target_rows
 from tests.e2e.judge import LLMJudge
 from tests.e2e.sdk_helpers import (
@@ -1339,7 +1339,7 @@ def state_files(deployment: SwitchDeployment) -> list[Path]:
     """
     found = [
         path
-        for path in deployment.repo.rglob(STATE_FILE_GLOB)
+        for path in deployment.repo.rglob(REPORT_FILE_GLOB)
         if path.parent.name == STATE_DIR_NAME
     ]
     return sorted(found, key=lambda path: path.stat().st_mtime, reverse=True)

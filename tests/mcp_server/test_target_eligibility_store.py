@@ -29,7 +29,6 @@ this stack derives from it.
 from __future__ import annotations
 
 import contextlib
-import json
 import os
 from typing import Any
 
@@ -44,6 +43,7 @@ from osprey.mcp_server.control_system.tools import control_target
 from osprey_connectors import session_store
 from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
+from tests._control_context_fixtures import write_control_context
 
 # The live-child half runs on the switch suite's fixture connector: a mock
 # variant whose connect() applies the real gateway-role selection, reading the
@@ -134,8 +134,8 @@ def _config(
 def store_root(tmp_path, monkeypatch):
     """A scratch agent-data root this process is stamped at, caches cleared.
 
-    Both stamps together, never one without the other: a process that knows
-    the session key and not the root reads a store nobody writes.
+    The root is the anchor: the record beneath it is what every process on this
+    deployment reads its narrowings from.
     """
     monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", SESSION)
@@ -145,14 +145,9 @@ def store_root(tmp_path, monkeypatch):
     session_store.invalidate_cache()
 
 
-def narrow(root, *targets: str, session: str = SESSION) -> None:
-    """Record the operator's narrowing of *targets* for *session*."""
-    path = root / session_store.STATE_DIR_NAME / session_store.STORE_FILENAME
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps({session: dict.fromkeys(targets, session_store.POSTURE_SANDBOX)}),
-        encoding="utf-8",
-    )
+def narrow(root, *targets: str) -> None:
+    """Record the operator's narrowing of *targets* on this deployment."""
+    write_control_context(root, posture=dict.fromkeys(targets, session_store.POSTURE_SANDBOX))
     session_store.invalidate_cache()
 
 

@@ -59,7 +59,7 @@ def state_root(tmp_path, monkeypatch):
 def write_state(state_dir, *, target, owner_ppid, server_pid, raw=None):
     """Write one state file. ``raw`` replaces the record wholesale (corruption)."""
     state_dir.mkdir(parents=True, exist_ok=True)
-    path = state_dir / f"{target_state.STATE_FILE_PREFIX}{server_pid}.json"
+    path = state_dir / f"{target_state.REPORT_FILE_PREFIX}{server_pid}.json"
     if raw is not None:
         path.write_text(raw)
         return path

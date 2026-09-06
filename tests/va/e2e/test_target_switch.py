@@ -67,6 +67,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
+from osprey.audit.posture import posture_session
 from osprey.mcp_server.control_system import server_context as server_context_mod
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import (
@@ -859,21 +860,19 @@ class TestFailClosedWhenTheChildIsKilledExternally:
 def write_approval_stamp(operations: list[dict], binding: tuple[str, int]) -> Path:
     """Leave the stamp the approval hook leaves, for *binding*.
 
-    The file name is derived through the tool's own
-    ``_approval_stamp_key`` — the hook restates that derivation in stdlib-only
-    Python and a separate test pins the two spellings equal, so using the tool's
-    is using the contract rather than a copy of it. The record carries this
-    process's PID because a stamp another server wrote is deliberately ignored.
+    The file name is derived through the tool's own ``_approval_stamp_key`` and
+    ``_approval_stamp_name`` — the hook restates both derivations in
+    stdlib-only Python and a separate test pins the two spellings equal, so
+    using the tool's is using the contract rather than a copy of it. The stamp
+    carries this process's audit session because a stamp another session
+    rendered is deliberately ignored.
     """
     target, generation = binding
     key = channel_write_module._approval_stamp_key(operations, None)
     assert key is not None
-    path = (
-        target_state.state_dir() / f"{channel_write_module.APPROVAL_STAMP_PREFIX}{key}"
-        f"{channel_write_module.APPROVAL_STAMP_SUFFIX}"
-    )
+    path = target_state.state_dir() / channel_write_module._approval_stamp_name(key)
     path.write_text(
-        json.dumps({"target": target, "generation": generation, "server_pid": os.getpid()}),
+        json.dumps({"target": target, "generation": generation, "session": posture_session()}),
         encoding="utf-8",
     )
     return path

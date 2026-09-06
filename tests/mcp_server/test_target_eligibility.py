@@ -1390,3 +1390,162 @@ def test_availability_matrix(
 
     assert (live.available_now, live.reason) == (live_available, live_reason)
     assert (va.available_now, va.reason) == (va_available, va_reason)
+
+
+# ---------------------------------------------------------------------------
+# In-flight execution markers — naming the client that is busy
+# ---------------------------------------------------------------------------
+
+
+#: Two posture-session keys, long enough that a short key is genuinely shorter
+#: than the whole thing and differs in its leading characters, so a test that
+#: passed on a truncation bug would have to truncate to nothing.
+THIS_SESSION = "aaaabbbbccccdddd"
+OTHER_SESSION = "eeeeffff00001111"
+
+MARKER_STARTED_AT = "2026-09-05T10:00:00+00:00"
+
+
+def _marker(**overrides: Any) -> dict[str, Any]:
+    """One in-flight marker in the schema the executor writes."""
+    marker: dict[str, Any] = {
+        "pid": 4321,
+        "session": OTHER_SESSION,
+        "surface": "python_executor",
+        "kernel_id": None,
+        "target": VA,
+        "launch_posture": "va=sandbox",
+        "started_at": MARKER_STARTED_AT,
+    }
+    marker.update(overrides)
+    return marker
+
+
+def test_a_marker_names_the_target_the_run_is_on() -> None:
+    message, _, details = te.in_flight_detail(_marker(), LIVE)
+
+    assert "execution in flight on target 'va'; wait or stop it" in message
+    assert details["executing_target"] == VA
+    # The target being ASKED for, which is not the one the run is on.
+    assert details["target"] == LIVE
+
+
+def test_a_marker_whose_target_is_missing_reads_unknown_rather_than_none() -> None:
+    message, _, details = te.in_flight_detail(_marker(target=None), VA)
+
+    assert "'unknown'" in message
+    assert details["executing_target"] == "unknown"
+
+
+def test_a_marker_from_this_session_is_named_this_session(monkeypatch) -> None:
+    monkeypatch.setenv("OSPREY_POSTURE_SESSION", THIS_SESSION)
+
+    _, suggestions, _ = te.in_flight_detail(_marker(session=THIS_SESSION), VA)
+
+    assert any("this session" in line for line in suggestions)
+
+
+def test_a_marker_from_another_session_is_named_by_short_key_and_start_time(
+    monkeypatch,
+) -> None:
+    """FR-4: the refusal names the busy client, not merely that one exists."""
+    monkeypatch.setenv("OSPREY_POSTURE_SESSION", THIS_SESSION)
+
+    _, suggestions, _ = te.in_flight_detail(_marker(session=OTHER_SESSION), VA)
+
+    named = " ".join(suggestions)
+    assert te.session_short_key(OTHER_SESSION) in named
+    assert MARKER_STARTED_AT in named
+    assert "this session" not in named
+
+
+def test_a_session_less_marker_is_never_this_session(monkeypatch) -> None:
+    """Two session-less processes are not one session; attribution is impossible.
+
+    A bare ``claude`` writes no ``OSPREY_POSTURE_SESSION``, so both the marker
+    and the reader carry ``None``. Comparing those equal would claim the reader
+    owns a run it may have nothing to do with.
+    """
+    monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
+
+    _, suggestions, _ = te.in_flight_detail(_marker(session=None), VA)
+
+    assert not any("this session" in line for line in suggestions)
+
+
+def test_a_marker_detail_carries_the_schema_the_route_renders() -> None:
+    """The route's ``execution_in_flight`` rows are these fields."""
+    _, _, details = te.in_flight_detail(
+        _marker(session=OTHER_SESSION, surface="notebook_kernel", kernel_id="k-42"),
+        VA,
+    )
+
+    assert details["reason"] == te.REASON_EXECUTION_IN_FLIGHT
+    assert details["executor_pid"] == 4321
+    assert details["started_at"] == MARKER_STARTED_AT
+    assert details["session"] == OTHER_SESSION
+    assert details["surface"] == "notebook_kernel"
+    assert details["kernel_id"] == "k-42"
+
+
+def test_a_marker_carrying_no_owner_ppid_still_names_a_client(monkeypatch) -> None:
+    """The pid-ancestry field is gone; nothing may fall back to it."""
+    monkeypatch.setenv("OSPREY_POSTURE_SESSION", THIS_SESSION)
+
+    marker = _marker(session=THIS_SESSION)
+    assert "owner_ppid" not in marker
+
+    _, suggestions, _ = te.in_flight_detail(marker, VA)
+
+    assert any("this session" in line for line in suggestions)
+
+
+def test_the_executor_writes_a_marker_in_this_schema(tmp_path, monkeypatch) -> None:
+    """The writer's half, read back: one contract, pinned from both ends."""
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(tmp_path / "agent_data"))
+    monkeypatch.setenv("OSPREY_POSTURE_SESSION", THIS_SESSION)
+
+    from osprey.mcp_server.control_system import target_state
+    from osprey.mcp_server.python_executor import executor
+
+    with executor._in_flight_marker(VA, "va=sandbox"):
+        live = target_state.in_flight_executions()
+
+    assert len(live) == 1
+    marker = live[0]
+    assert set(marker) == {
+        "pid",
+        "session",
+        "surface",
+        "kernel_id",
+        "target",
+        "launch_posture",
+        "started_at",
+    }
+    assert marker["session"] == THIS_SESSION
+    assert marker["surface"] == te.SURFACE_PYTHON_EXECUTOR
+    assert marker["kernel_id"] is None
+    assert marker["target"] == VA
+    assert marker["launch_posture"] == "va=sandbox"
+
+    # And the reader names it as this session's, which is the round trip.
+    _, suggestions, _ = te.in_flight_detail(marker, LIVE)
+    assert any("this session" in line for line in suggestions)
+
+
+def test_an_executor_marker_written_without_a_session_carries_none(tmp_path, monkeypatch) -> None:
+    """A bare ``claude`` executor is unattributable, and says so rather than lying."""
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(tmp_path / "agent_data"))
+    monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
+
+    from osprey.mcp_server.control_system import target_state
+    from osprey.mcp_server.python_executor import executor
+
+    with executor._in_flight_marker(VA):
+        marker = target_state.in_flight_executions()[0]
+
+    assert marker["session"] is None
+    assert marker["launch_posture"] is None
+
+    _, suggestions, _ = te.in_flight_detail(marker, LIVE)
+    assert not any("this session" in line for line in suggestions)

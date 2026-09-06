@@ -76,7 +76,7 @@ def write_state(state_dir, *, target, owner_ppid=None, server_pid=None):
     state_dir.mkdir(parents=True, exist_ok=True)
     server_pid = os.getpid() if server_pid is None else server_pid
     owner_ppid = os.getppid() if owner_ppid is None else owner_ppid
-    path = state_dir / f"{target_state.STATE_FILE_PREFIX}{server_pid}.json"
+    path = state_dir / f"{target_state.REPORT_FILE_PREFIX}{server_pid}.json"
     path.write_text(
         json.dumps(
             {

@@ -180,7 +180,7 @@ def _int_or_none(value: object) -> int | None:
 def _state_entries() -> list[Path]:
     """The state files on disk, sorted; empty when the directory cannot be listed."""
     try:
-        return sorted(target_state.state_dir().glob(target_state.STATE_FILE_GLOB))
+        return sorted(target_state.state_dir().glob(target_state.REPORT_FILE_GLOB))
     except OSError:
         return []
 
