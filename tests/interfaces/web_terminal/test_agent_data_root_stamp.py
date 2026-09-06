@@ -1,8 +1,8 @@
 """The agent-data root stamp: one anchor, stamped as a pair with the session key.
 
 A session child, every MCP server below it and the stdlib-only hooks beside it
-all have to agree on ONE directory — the one holding the control-target state
-file and the session-posture store. Left to themselves they derive it three
+all have to agree on ONE directory — the one holding the control-context record
+and the servers' reports beside it. Left to themselves they derive it three
 different ways: the controls server through config, the store reader through
 config again, the hooks through a repo-root guess plus the literal
 ``var/agent_data``. Those derivations agree only for a deployment that never
@@ -61,7 +61,7 @@ from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import ConnectorHostManager
 from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey.mcp_server.sandbox_env import scrub_sandbox_child_env
-from osprey_connectors import session_store
+from osprey_connectors import posture_store
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 SESSION_B = "bbbbbbbb-1111-2222-3333-444444444444"
@@ -105,12 +105,12 @@ def shared_root(tmp_path, monkeypatch):
       empty dict and only adds — which is exactly why naming the PTY case here
       would misstate the risk.
 
-    ``session_store``'s own binding is rebound too, imported by name at module
-    load, or the posture store these tests read would be the real repo's
-    ``var/agent_data/control_target/session-postures.json``.
+    ``posture_store``'s own binding is rebound too, imported by name at module
+    load, or the record these tests read would be the real repo's
+    ``var/agent_data/control_target/control_context.json``.
 
     The delenv is what makes that rebinding do anything at all:
-    ``session_store.agent_data_root()`` reads the variable FIRST and falls back
+    ``posture_store.agent_data_root()`` reads the variable FIRST and falls back
     to the resolver only when it is unset. The suite-wide
     ``session_posture_leak_guard`` (``tests/conftest.py``) POINTS the variable
     at a throwaway root rather than clearing it, so here it must be cleared
@@ -126,11 +126,11 @@ def shared_root(tmp_path, monkeypatch):
             "osprey_connectors.workspace.resolve_shared_data_root",
             return_value=root,
         ),
-        patch.object(session_store, "resolve_shared_data_root", return_value=root),
+        patch.object(posture_store, "resolve_shared_data_root", return_value=root),
     ):
-        session_store.invalidate_cache()
+        posture_store.invalidate_cache()
         yield root
-        session_store.invalidate_cache()
+        posture_store.invalidate_cache()
 
 
 @pytest.fixture
@@ -173,9 +173,19 @@ def _sdk_env(client, session_key=None, *, posture_source=POSTURE_SOURCE_LIVE, ap
     )
 
 
-def _seed_posture(client, key, posture):
-    """Put *posture* in the live store under *key*."""
-    websocket_routes._session_postures(client.app)[key] = posture
+def _seed_posture(write_control_context, root, posture):
+    """Record *posture* for every target on the deployment under *root*.
+
+    The narrowing is deployment-wide now, so there is no key to seed it under:
+    ``sandbox`` narrows every target and ``writes`` is spelled by the absence
+    of an entry. Either way it is a fact about the record, and the point of
+    the tests that call this is that neither shape moves the stamped pair.
+    """
+    narrowed = posture == POSTURE_SANDBOX
+    write_control_context(
+        root,
+        posture=dict.fromkeys(posture_store.CONTROL_TARGETS, POSTURE_SANDBOX) if narrowed else {},
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -239,14 +249,15 @@ class TestTheStampTravelsWithTheSessionKey:
         assert env[OSPREY_AGENT_DATA_ROOT] == str(shared_root)
 
     @pytest.mark.parametrize("posture", [POSTURE_SANDBOX, POSTURE_WRITES, None])
-    def test_the_pair_does_not_depend_on_the_posture(self, client, shared_root, posture):
+    def test_the_pair_does_not_depend_on_the_posture(
+        self, client, shared_root, write_control_context, posture
+    ):
         """The markers are not a privilege; the narrowing-only rule is the
-        posture VALUE's alone. A ``writes`` session and one nobody ever gave a
-        posture are both auditable, and both know where their store lives.
+        posture VALUE's alone. A narrowed deployment and one nobody ever gave a
+        posture are both auditable, and both know where their record lives.
         """
         if posture is not None:
-            _seed_posture(client, SESSION_A, posture)
-            _seed_posture(client, CHAT_ID, posture)
+            _seed_posture(write_control_context, shared_root, posture)
 
         pty = _pty_env(client, SESSION_A)
         sdk = _sdk_env(client, CHAT_ID)
@@ -358,17 +369,17 @@ class TestStateDirPrefersTheStamp:
 
         assert target_state.state_dir() == stamped / target_state.STATE_DIR_NAME
 
-    def test_the_state_file_lands_under_the_stamped_root(self, tmp_path, monkeypatch):
+    def test_the_server_report_lands_under_the_stamped_root(self, tmp_path, monkeypatch):
         """Not just the directory: what a reader globs for is under it too."""
         stamped = tmp_path / "stamped"
         monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(stamped))
         monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path / "config")
 
-        target_state.write_on_start(target_state.TARGET_LIVE, server_pid=4321)
+        target_state.write_server_record(server_pid=4321)
 
-        written = list((stamped / target_state.STATE_DIR_NAME).glob(target_state.STATE_FILE_GLOB))
-        assert [p.name for p in written] == ["target_state_4321.json"]
-        assert target_state.read(4321)["target"] == target_state.TARGET_LIVE
+        written = list((stamped / target_state.STATE_DIR_NAME).glob(target_state.REPORT_FILE_GLOB))
+        assert [p.name for p in written] == ["server_4321.json"]
+        assert target_state.read(4321)["server_pid"] == 4321
         assert not (tmp_path / "config").exists(), "the config derivation was consulted"
 
     def test_unset_is_the_old_derivation_exactly(self, tmp_path, monkeypatch):
@@ -380,8 +391,8 @@ class TestStateDirPrefersTheStamp:
         monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
 
         assert target_state.state_dir() == tmp_path / target_state.STATE_DIR_NAME
-        assert target_state.state_file_path(99) == (
-            tmp_path / target_state.STATE_DIR_NAME / "target_state_99.json"
+        assert target_state.report_file_path(99) == (
+            tmp_path / target_state.STATE_DIR_NAME / "server_99.json"
         )
 
     def test_an_empty_stamp_is_no_stamp(self, tmp_path, monkeypatch):

@@ -1,7 +1,7 @@
 """Tests for PtyRegistry LRU session pool behavior.
 
 Uses mock PtySession objects (no real PTY spawning) to verify pool
-semantics: reuse, eviction, attach/detach, and rekey.
+semantics: reuse, eviction, and attach/detach.
 """
 
 from __future__ import annotations
@@ -128,27 +128,6 @@ class TestPtyRegistryPool:
         s.terminate.assert_not_called()
         assert "x" not in registry._attached
         assert "x" in registry._sessions  # still in pool
-
-    def test_rekey_session(self):
-        """rekey_session moves entry from old key to new key."""
-        registry = PtyRegistry(max_background=3)
-        s = _mock_session()
-        registry._sessions["temp-key"] = s
-        registry.attach_session("temp-key", OWNER)
-
-        registry.rekey_session("temp-key", "real-uuid")
-
-        assert "temp-key" not in registry._sessions
-        assert registry._sessions["real-uuid"] is s
-        # _attached should also be updated
-        assert "temp-key" not in registry._attached
-        assert "real-uuid" in registry._attached
-
-    def test_rekey_noop_when_old_key_missing(self):
-        """rekey_session does nothing if old key doesn't exist."""
-        registry = PtyRegistry(max_background=3)
-        registry.rekey_session("nonexistent", "new-key")
-        assert "new-key" not in registry._sessions
 
     def test_cleanup_all_terminates_pool_sessions(self):
         """cleanup_all terminates all sessions, including detached pool entries."""

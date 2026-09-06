@@ -50,7 +50,7 @@ from osprey.interfaces.web_terminal.session_handoff import (
     get_state,
 )
 from osprey.interfaces.web_terminal.turn_state import BUSY, IDLE
-from osprey_connectors import session_store
+from osprey_connectors import posture_store
 from tests.interfaces.web_terminal._fakes import FakeChatPool, FakeChatSession, FakeClock
 from tests.interfaces.web_terminal.test_handoff_phase_a import KEY
 from tests.interfaces.web_terminal.test_handoff_phase_b import RecordingPty, pool_pty, set_store
@@ -68,10 +68,10 @@ def shared_root(tmp_path, monkeypatch):
     """
     root = tmp_path / "shared_agent_data"
     root.mkdir()
-    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    session_store.invalidate_cache()
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    posture_store.invalidate_cache()
     yield root
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
 
 
 # ---------------------------------------------------------------------------

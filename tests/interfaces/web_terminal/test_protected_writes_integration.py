@@ -80,7 +80,7 @@ SETUP_MOD = "osprey.mcp_server.workspace.tools.setup"
 AUDIT_RECORD_FIELDS = {"ts", *AuditEnvelope.REQUIRED_FIELDS, "detail"}
 
 #: The one field that is legitimately ``null`` here: these flows run outside a
-#: Web Terminal session, so nothing stamped a posture-store key. Exempt from
+#: Web Terminal session, so nothing stamped a audit session id. Exempt from
 #: the *non-empty string* loop only -- ``session`` is checked on its own terms
 #: below, because "may be null" is not "may be anything".
 NULLABLE_RECORD_FIELDS = {"session"}
