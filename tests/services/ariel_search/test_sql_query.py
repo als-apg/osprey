@@ -162,6 +162,27 @@ class TestValidateSqlQueryRejects:
         with pytest.raises(ValueError, match="Table 'pg_stat_activity'"):
             validate_sql_query("WITH x AS (SELECT * FROM pg_stat_activity) SELECT * FROM x")
 
+    def test_server_side_file_read_names_no_table(self):
+        """A query with no FROM at all had nothing to check, so it used to pass."""
+        with pytest.raises(ValueError, match="reads no allowlisted table"):
+            validate_sql_query("SELECT pg_read_file('/etc/passwd')")
+
+    def test_tableless_select_is_refused(self):
+        """Same shape without the file read: a SELECT that reads nothing is refused."""
+        with pytest.raises(ValueError, match="reads no allowlisted table"):
+            validate_sql_query("SELECT version()")
+
+    def test_cte_only_query_is_refused(self):
+        """Every reference resolving to a CTE leaves no real table behind."""
+        with pytest.raises(ValueError, match="reads no allowlisted table"):
+            validate_sql_query("WITH x AS (SELECT 1 AS n) SELECT * FROM x")
+
+    def test_the_refusal_names_the_allowed_tables(self):
+        """The message an agent reads says what it may query instead."""
+        with pytest.raises(ValueError) as exc_info:
+            validate_sql_query("SELECT pg_read_file('/etc/passwd')")
+        assert "enhanced_entries" in str(exc_info.value)
+
 
 class TestValidateSqlQueryVariantSets:
     """The two constants are read at call time — swap in copies, never mutate."""
