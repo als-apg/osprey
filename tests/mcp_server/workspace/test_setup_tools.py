@@ -494,3 +494,104 @@ async def test_patch_file_not_found(project_dir):
     (project_dir / ".mcp.json").unlink()
     with _patch_config_path(project_dir), assert_raises_error(error_type="not_found"):
         await fn(file=".mcp.json", key_path="foo", value="bar")
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_inspect_reports_the_unexpanded_config(project_dir, monkeypatch):
+    """No resolved ``${VAR}`` value reaches the payload — the placeholder does."""
+    fn = _get_setup_inspect()
+    config_path = project_dir / "config.yml"
+    config_path.write_text(
+        "control_system:\n"
+        "  type: mock\n"
+        "ariel:\n"
+        "  database:\n"
+        "    uri: postgresql://ariel:${ARIEL_DB_PASSWORD}@db:5432/ariel\n"
+        "models:\n"
+        "  providers:\n"
+        "    anthropic:\n"
+        "      api_key: ${ANTHROPIC_API_KEY}\n"
+    )
+    monkeypatch.setenv("ARIEL_DB_PASSWORD", "hunter2-from-the-env")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-from-the-env")
+    # What ``load_osprey_config`` hands back, and what used to be reported
+    # verbatim: every placeholder already replaced by its environment value.
+    expanded = {
+        "control_system": {"type": "mock"},
+        "ariel": {"database": {"uri": "postgresql://ariel:hunter2-from-the-env@db:5432/ariel"}},
+        "models": {"providers": {"anthropic": {"api_key": "sk-ant-from-the-env"}}},
+    }
+
+    with _patch_config_path(project_dir), _patch_load_config(expanded):
+        payload = await fn()
+
+    result = json.loads(payload)
+
+    assert "hunter2-from-the-env" not in payload
+    assert "sk-ant-from-the-env" not in payload
+    assert "${ARIEL_DB_PASSWORD}" in result["config"]["ariel"]["database"]["uri"]
+    assert result["config"]["models"]["providers"]["anthropic"]["api_key"] == (
+        "${ANTHROPIC_API_KEY}"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_inspect_masks_a_secret_typed_into_the_config(project_dir):
+    """A literal under a sensitive key name is masked, placeholders or not."""
+    fn = _get_setup_inspect()
+    (project_dir / "config.yml").write_text(
+        "control_system:\n"
+        "  type: mock\n"
+        "models:\n"
+        "  providers:\n"
+        "    anthropic:\n"
+        "      api_key: sk-ant-typed-straight-in\n"
+        "      base_url: https://api.anthropic.com\n"
+    )
+    config = yaml.safe_load((project_dir / "config.yml").read_text())
+
+    with _patch_config_path(project_dir), _patch_load_config(config):
+        payload = await fn()
+
+    result = json.loads(payload)
+    provider = result["config"]["models"]["providers"]["anthropic"]
+
+    assert "sk-ant-typed-straight-in" not in payload
+    assert provider["api_key"] == "***"
+    # Everything that is not a secret still reads as itself.
+    assert provider["base_url"] == "https://api.anthropic.com"
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_inspect_masks_secrets_in_the_mcp_servers_blob(project_dir):
+    """`.mcp.json` gets the same walk: it carries per-server env blocks."""
+    fn = _get_setup_inspect()
+    (project_dir / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "workspace": {
+                        "command": "python",
+                        "env": {
+                            "SOME_TOKEN": "tok-typed-straight-in",
+                            "OSPREY_CONFIG": "/app/config.yml",
+                        },
+                    }
+                }
+            }
+        )
+    )
+    config = yaml.safe_load((project_dir / "config.yml").read_text())
+
+    with _patch_config_path(project_dir), _patch_load_config(config):
+        payload = await fn()
+
+    result = json.loads(payload)
+    env = result["mcp_servers"]["mcpServers"]["workspace"]["env"]
+
+    assert "tok-typed-straight-in" not in payload
+    assert env["SOME_TOKEN"] == "***"
+    assert env["OSPREY_CONFIG"] == "/app/config.yml"
