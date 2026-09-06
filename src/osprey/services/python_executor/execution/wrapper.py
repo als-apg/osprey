@@ -483,6 +483,143 @@ if not _execution_dir.exists():
                     )
                 except Exception as _p4p_error:
                     print(f"⚠️  p4p.client.cothread guard failed: {{_p4p_error}}")
+
+                # --- Tango. Its writes carry the attribute name only; the
+                # channel a limits database is keyed by is the full
+                # ``device/attribute`` address, so it is rebuilt from the
+                # proxy's own device name. Each client below gets its OWN
+                # try/except for the same reason the p4p flavours do: one
+                # client absent or broken must not skip the ones after it.
+                try:
+                    import tango as _tango
+
+                    def _tango_channel(_proxy, _attr):
+                        return f"{{_proxy.dev_name()}}/{{_attr}}"
+
+                    def _tango_pairs(_name_val):
+                        '''Normalise write_attributes' argument to (name, value) pairs.
+
+                        A shape that cannot be paired up fails CLOSED — the
+                        write raises rather than reaching the device
+                        unvalidated, which is the same trade the p4p batch
+                        guard makes.
+                        '''
+                        _pairs = []
+                        for _item in _name_val:
+                            try:
+                                _attr, _value = _item
+                            except (TypeError, ValueError) as _shape_error:
+                                raise ValueError(
+                                    "tango write_attributes requires (attribute, value) "
+                                    "pairs so each write can be limits-checked"
+                                ) from _shape_error
+                            _pairs.append((_attr, _value))
+                        return _pairs
+
+                    if hasattr(_tango, "DeviceProxy"):
+                        if hasattr(_tango.DeviceProxy, "write_attribute"):
+                            _orig_tango_write = _tango.DeviceProxy.write_attribute
+
+                            def _checked_tango_write(self, attr_name, value, *args, **kwargs):
+                                '''Limits-checked wrapper for DeviceProxy.write_attribute().'''
+                                _limits_validator.validate(
+                                    _tango_channel(self, attr_name), value
+                                )
+                                return _orig_tango_write(self, attr_name, value, *args, **kwargs)
+
+                            _tango.DeviceProxy.write_attribute = _checked_tango_write
+
+                        if hasattr(_tango.DeviceProxy, "write_attributes"):
+                            _orig_tango_write_many = _tango.DeviceProxy.write_attributes
+
+                            def _checked_tango_write_many(self, name_val, *args, **kwargs):
+                                '''Limits-checked wrapper for DeviceProxy.write_attributes().'''
+                                _pairs = _tango_pairs(name_val)
+                                for _attr, _value in _pairs:
+                                    _limits_validator.validate(
+                                        _tango_channel(self, _attr), _value
+                                    )
+                                # The materialised pairs, not the argument: a
+                                # generator was consumed by the check above, and
+                                # forwarding it would write nothing at all.
+                                return _orig_tango_write_many(self, _pairs, *args, **kwargs)
+
+                            _tango.DeviceProxy.write_attributes = _checked_tango_write_many
+
+                    print("✅ Monkeypatched tango DeviceProxy.write_attribute(s)()")
+                except ImportError:
+                    print("ℹ️  tango not available - Tango limits checking disabled")
+                except Exception as _tango_error:
+                    print(f"⚠️  tango guard failed: {{_tango_error}}")
+
+                # --- DOOCS. ``doocs4py.set`` is the call the shipped DOOCS
+                # connector writes through, so a readwrite script naming it
+                # reaches the same hardware the mediated path does.
+                try:
+                    import doocs4py as _doocs4py
+
+                    if hasattr(_doocs4py, "set"):
+                        _orig_doocs_set = _doocs4py.set
+
+                        def _checked_doocs_set(address, value, *args, **kwargs):
+                            '''Limits-checked wrapper for doocs4py.set().'''
+                            _limits_validator.validate(address, value)
+                            return _orig_doocs_set(address, value, *args, **kwargs)
+
+                        _doocs4py.set = _checked_doocs_set
+
+                    print("✅ Monkeypatched doocs4py.set()")
+                except ImportError:
+                    print("ℹ️  doocs4py not available - DOOCS limits checking disabled")
+                except Exception as _doocs_error:
+                    print(f"⚠️  doocs4py guard failed: {{_doocs_error}}")
+
+                # --- caproto. Two entry points, in two modules: the sync
+                # client's module-level write() and the threading client's
+                # PV.write(), which knows its own channel name.
+                try:
+                    import caproto.sync.client as _caproto_sync
+
+                    if hasattr(_caproto_sync, "write"):
+                        _orig_caproto_write = _caproto_sync.write
+
+                        def _checked_caproto_write(pv_name, data, *args, **kwargs):
+                            '''Limits-checked wrapper for caproto.sync.client.write().'''
+                            _limits_validator.validate(pv_name, data)
+                            return _orig_caproto_write(pv_name, data, *args, **kwargs)
+
+                        _caproto_sync.write = _checked_caproto_write
+
+                    print("✅ Monkeypatched caproto.sync.client.write()")
+                except ImportError:
+                    print(
+                        "ℹ️  caproto.sync.client not available - "
+                        "caproto limits checking disabled"
+                    )
+                except Exception as _caproto_error:
+                    print(f"⚠️  caproto.sync.client guard failed: {{_caproto_error}}")
+
+                try:
+                    from caproto.threading.client import PV as _CaprotoPV
+
+                    if hasattr(_CaprotoPV, "write"):
+                        _orig_caproto_pv_write = _CaprotoPV.write
+
+                        def _checked_caproto_pv_write(self, data, *args, **kwargs):
+                            '''Limits-checked wrapper for caproto threading PV.write().'''
+                            _limits_validator.validate(self.name, data)
+                            return _orig_caproto_pv_write(self, data, *args, **kwargs)
+
+                        _CaprotoPV.write = _checked_caproto_pv_write
+
+                    print("✅ Monkeypatched caproto.threading.client PV.write()")
+                except ImportError:
+                    print(
+                        "ℹ️  caproto.threading.client not available - "
+                        "caproto limits checking disabled"
+                    )
+                except Exception as _caproto_error:
+                    print(f"⚠️  caproto.threading.client guard failed: {{_caproto_error}}")
             except Exception as e:
                 print(f"⚠️  Limits checking setup failed: {{e}}")
                 import traceback

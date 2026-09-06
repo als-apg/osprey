@@ -131,9 +131,9 @@ Nine safety layers are applied in sequence:
    in **every** execution mode.
 
 7. **Limits monkeypatch** (``ExecutionWrapper`` /
-   ``LimitsValidator``)---at runtime, ``epics.caput()`` calls are
-   intercepted and validated against the channel limits database.
-   Out-of-range values are blocked.
+   ``LimitsValidator``)---at runtime, direct client writes this build knows
+   how to intercept (pyepics, p4p, Tango, caproto and DOOCS) are validated
+   against the channel limits database. Out-of-range values are blocked.
 
 8. **Process isolation**---code always runs in a separate subprocess, never
    inside the MCP server process.
