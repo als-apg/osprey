@@ -5,6 +5,9 @@ including validation that generated projects use the new
 registry helper pattern correctly.
 """
 
+import json
+from pathlib import Path
+
 import pytest
 
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
@@ -13,6 +16,49 @@ from osprey.cli.templates.manager import TemplateManager
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
+
+
+def _bundle_data_root(bundle: str = "control_assistant") -> Path:
+    """The tree these fixtures hand the render as the profile's ``data:``.
+
+    A build copies the tree its profile's ``data:`` key names, and that key is
+    required — nothing falls back to a packaged tree any more. These fixtures
+    render straight from a bundle rather than from a profile, so they name the
+    tree that bundle packages, which is the content the render used to reach
+    for on its own.
+    """
+    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+
+
+def _create_project(manager: TemplateManager, **kwargs) -> Path:
+    """``create_project`` plus the three steps a real build takes next.
+
+    A build renders the framework template, overlays the resolved profile's
+    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
+    regenerates ``.claude/`` from the finished config. The template carries
+    only derived and profile-field-derived keys, so a fixture that stops after
+    the render holds half a config — the declarative half is the preset's, and
+    the artifacts rendered before it landed do not know about the deployment's
+    control system, services or servers. These fixtures render from a bundle
+    rather than from a profile, so they overlay the preset ``osprey init``
+    pairs with that bundle.
+    """
+    from osprey.cli.build_profile import resolve_build_profile
+    from osprey.utils.config_writer import config_update_fields
+
+    bundle = kwargs.setdefault("data_bundle", "control_assistant")
+    preset = bundle.replace("_", "-")
+    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    project = manager.create_project(**kwargs)
+    profile, _preset_dir = resolve_build_profile(None, preset=preset)
+    config_update_fields(project / "config.yml", profile.config)
+    manager.generate_manifest(
+        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
+    )
+    # The build's last render, and the one that ships: `create_project` wrote
+    # `.claude/` from a config.yml that did not yet carry the preset's block.
+    manager.regenerate_claude_code(project)
+    return project
 
 
 class TestTemplateManager:
@@ -38,7 +84,8 @@ class TestTemplateManager:
         """Test creating project with control_assistant template."""
         manager = TemplateManager()
 
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="test-project",
             output_dir=tmp_path,
             data_bundle="control_assistant",
@@ -68,7 +115,8 @@ class TestTemplateManager:
 
         manager = TemplateManager()
 
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="test-project",
             output_dir=tmp_path,
             data_bundle="control_assistant",
@@ -109,7 +157,8 @@ class TestTemplateManager:
         with pytest.raises(
             BuildProfileError, match="tier 1 requires channel_finder_mode: in_context"
         ):
-            manager.create_project(
+            _create_project(
+                manager,
                 project_name="test-project",
                 output_dir=tmp_path,
                 data_bundle="control_assistant",
@@ -125,7 +174,8 @@ class TestTemplateManager:
         manager = TemplateManager()
 
         with pytest.raises(BuildProfileError, match="tier must be 1 or 3"):
-            manager.create_project(
+            _create_project(
+                manager,
                 project_name="test-project",
                 output_dir=tmp_path,
                 data_bundle="control_assistant",
@@ -163,7 +213,8 @@ class TestTemplateManager:
 
         manager = TemplateManager()
         with pytest.raises(_StopAfterMaterialize):
-            manager.create_project(
+            _create_project(
+                manager,
                 project_name="test-project",
                 output_dir=tmp_path,
                 data_bundle="control_assistant",
@@ -202,7 +253,8 @@ class TestTemplateManager:
         manager = TemplateManager()
 
         with pytest.raises(BuildProfileError, match="graph has no tiered artifacts; omit tier"):
-            manager.create_project(
+            _create_project(
+                manager,
                 project_name="test-project",
                 output_dir=tmp_path,
                 data_bundle="control_assistant",
@@ -215,24 +267,35 @@ class TestTemplateManager:
         manager = TemplateManager()
 
         # Create first project
-        manager.create_project(
-            "test-project",
-            tmp_path,
-            "control_assistant",
+        _create_project(
+            manager,
+            project_name="test-project",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
         )
 
         # Try to create again — directory-exists check fires before
         # channel-finder validation, so no context needed here.
         with pytest.raises(ValueError, match="already exists"):
-            manager.create_project("test-project", tmp_path, "control_assistant")
+            _create_project(
+                manager,
+                project_name="test-project",
+                output_dir=tmp_path,
+                data_bundle="control_assistant",
+            )
 
     def test_invalid_template_raises_error(self, tmp_path):
         """Test that invalid template name raises error."""
         manager = TemplateManager()
 
         with pytest.raises(ValueError, match="not found"):
-            manager.create_project("test-project", tmp_path, "nonexistent_template")
+            _create_project(
+                manager,
+                project_name="test-project",
+                output_dir=tmp_path,
+                data_bundle="nonexistent_template",
+            )
 
 
 class TestBuildClaudeCodeContextHierarchy:
@@ -339,7 +402,8 @@ class TestBuildClaudeCodeContextHierarchy:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
         manager = TemplateManager()
 
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="test-hier-embed",
             output_dir=tmp_path,
             data_bundle="control_assistant",
@@ -365,6 +429,19 @@ class TestBuildClaudeCodeContextPipelineMode:
     def _config(**channel_finder):
         return {"facility_name": "TestFacility", "channel_finder": dict(channel_finder)}
 
+    @staticmethod
+    def _project_selecting_the_agent(tmp_path):
+        """A project directory whose manifest selects the channel-finder agent.
+
+        The paradigm rule only fires for a project that ships that agent, and
+        the selection is read from the project's own ``.osprey-manifest.json``.
+        A bare directory selects nothing, so the rule would never be reached.
+        """
+        (tmp_path / ".osprey-manifest.json").write_text(
+            json.dumps({"artifacts": {"agents": ["channel-finder"]}}), encoding="utf-8"
+        )
+        return tmp_path
+
     @pytest.mark.unit
     def test_missing_pipeline_mode_raises(self, tmp_path):
         """A channel_finder block with no pipeline_mode is an error, not a default."""
@@ -373,7 +450,7 @@ class TestBuildClaudeCodeContextPipelineMode:
             claude_code.build_claude_code_context(
                 manager.template_root,
                 manager.jinja_env,
-                tmp_path,
+                self._project_selecting_the_agent(tmp_path),
                 self._config(pipelines={}),
             )
 
@@ -385,7 +462,7 @@ class TestBuildClaudeCodeContextPipelineMode:
             claude_code.build_claude_code_context(
                 manager.template_root,
                 manager.jinja_env,
-                tmp_path,
+                self._project_selecting_the_agent(tmp_path),
                 self._config(pipeline_mode="bogus"),
             )
 
@@ -397,7 +474,7 @@ class TestBuildClaudeCodeContextPipelineMode:
         ctx = claude_code.build_claude_code_context(
             manager.template_root,
             manager.jinja_env,
-            tmp_path,
+            self._project_selecting_the_agent(tmp_path),
             self._config(pipeline_mode=mode),
         )
         assert ctx["channel_finder_pipeline"] == mode
@@ -432,21 +509,20 @@ class TestTemplateManifest:
 
     def test_load_manifest_nonexistent_template(self):
         """Returns None for unknown template."""
-        manager = TemplateManager()
-        mf = manifest.load_template_manifest(manager.template_root, "nonexistent_template")
+        mf = manifest.load_template_manifest("nonexistent_template")
         assert mf is None
 
     def test_load_manifest_preset_profile_fallback_includes_web_panels(self):
         """Preset-profile fallback must surface web_panels in the artifacts dict.
 
-        Direct ``TemplateManager.create_project()`` callers rely on this fallback
-        (control_assistant has no manifest.yml). If web_panels is dropped,
+        Direct ``TemplateManager.create_project()`` callers rely on this
+        fallback: the bundle name resolves to the ``control-assistant`` preset,
+        which is where the declaration lives. If web_panels is dropped,
         config.yml renders ``panels: {}`` and the web terminal shows only the
         universal panels — the exact bug reported when ARIEL / channel-finder
         panels went missing.
         """
-        manager = TemplateManager()
-        mf = manifest.load_template_manifest(manager.template_root, "control_assistant")
+        mf = manifest.load_template_manifest("control_assistant")
         assert mf is not None
         artifacts = mf.get("artifacts", {})
         # The preset profile declares these panels; they must round-trip through
@@ -463,7 +539,8 @@ class TestTemplateManifest:
         import yaml as _yaml
 
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="init-panels-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
@@ -512,7 +589,8 @@ class TestTemplateManifest:
         shipped file, and every shipped event hook is wired into settings.json.
         """
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="ctrl-hooks-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
@@ -541,15 +619,13 @@ class TestTemplateManifest:
 
     def test_backward_compat_no_manifest(self, tmp_path):
         """If manifest doesn't exist, all files are generated (backward compat)."""
-        manager = TemplateManager()
-
         # get_tracked_files falls back to REGEN_TRACKED_FILES when no manifest
-        tracked = manifest.get_tracked_files(manager.template_root, "nonexistent_template")
+        tracked = manifest.get_tracked_files("nonexistent_template")
         assert tracked == list(manifest.REGEN_TRACKED_FILES)
 
         # resolve_manifest_outputs with allowed_outputs=None means no filtering
         # Verify by checking that load_template_manifest returns None
-        mf = manifest.load_template_manifest(manager.template_root, "nonexistent_template")
+        mf = manifest.load_template_manifest("nonexistent_template")
         assert mf is None
 
 
@@ -598,10 +674,10 @@ class TestBuiltinPanelRegistryDrift:
     worked around it with an explicit ``web.panels.okf.enabled: true`` override.
     """
 
-    PANEL_TEMPLATES = [
-        "apps/control_assistant/config.yml.j2",
-        "apps/ariel_standalone/config.yml.j2",
-    ]
+    #: The one template that renders the builtin-panel loop. The selection is
+    #: derived from the profile's ``web_panels:`` field, so it belongs to the
+    #: framework template rather than to any deployment's own ``config:``.
+    PANEL_TEMPLATES = ["project/config.yml.j2"]
 
     @pytest.mark.parametrize("template_path", PANEL_TEMPLATES)
     def test_registry_injected_enables_builtin_absent_from_old_literal(self, template_path):
@@ -633,11 +709,15 @@ class TestBuiltinPanelRegistryDrift:
         assert "ariel" not in panels
 
     @pytest.mark.parametrize("template_path", PANEL_TEMPLATES)
-    def test_fallback_literal_excludes_okf_when_registry_absent(self, template_path):
-        """Safety-net fallback: without ``builtin_panels`` in context the template
-        falls back to its inline literal, which excludes ``okf``. Proves the fix is the
-        registry injection — okf is enabled only because the registry supplies it,
-        not by accident of an expanded literal."""
+    def test_no_builtin_is_enabled_when_the_registry_is_absent(self, template_path):
+        """The registry is the only source: without it, no builtin is enabled.
+
+        The template carries no inline list of its own to fall back to, so a
+        selection it cannot check against the registry enables nothing rather
+        than being waved through. Proves ``okf`` is enabled above because
+        ``BUILTIN_PANELS`` supplies it, not by accident of a literal that
+        happens to name it.
+        """
         import yaml
 
         manager = TemplateManager()
@@ -647,10 +727,8 @@ class TestBuiltinPanelRegistryDrift:
             port_base=DEFAULT_PORT_BASE,
             osprey_ports=layout_ports(DEFAULT_PORT_BASE),
         )
-        panels = yaml.safe_load(rendered)["web"]["panels"]
 
-        assert "okf" not in panels  # fallback literal omits okf
-        assert panels.get("channel-finder", {}).get("enabled") is True
+        assert yaml.safe_load(rendered).get("web") is None
 
     def test_create_project_enables_okf_builtin_panel(self, tmp_path):
         """End-to-end: ``manager.py`` injects ``sorted(BUILTIN_PANELS)`` → template
@@ -660,7 +738,8 @@ class TestBuiltinPanelRegistryDrift:
         import yaml
 
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="okf-panel-e2e",
             output_dir=tmp_path,
             data_bundle="control_assistant",
@@ -673,65 +752,68 @@ class TestBuiltinPanelRegistryDrift:
         assert "ariel" not in panels
 
 
-class TestControlAssistantMongoDBTemplate:
-    """The archiver block in the control-assistant config template.
+class TestControlAssistantMongoDBArchiver:
+    """Where a control-assistant deployment learns to reach its archive.
 
-    The load-bearing invariant: the build's `va_archiver:` override sets
-    leaves in an EXISTING mapping, so the `mongodb_archiver:` block must be
-    LIVE in the template — a commented example could not receive the derived
-    connection keys, and the preset's values would land beside it instead of
-    in it.
+    The preset selects ``mongodb_archiver`` and deploys the store to back it,
+    but it deliberately spells none of the store's coordinates: those are
+    derived once from its ``va_archiver:`` block, so the profile never states
+    where the archive lives twice. That splits the contract in two, and both
+    halves are pinned here — the preset documents the option and refuses to
+    restate the coordinates, and the derivation supplies every key the
+    connector refuses to default.
     """
 
     @staticmethod
-    def _template_text() -> str:
-        from pathlib import Path
+    def _preset_text() -> str:
+        from osprey.cli.build_profile_presets import _presets_dir
 
-        import osprey
+        return (_presets_dir() / "control-assistant.yml").read_text(encoding="utf-8")
 
-        path = (
-            Path(osprey.__file__).parent
-            / "templates"
-            / "apps"
-            / "control_assistant"
-            / "config.yml.j2"
-        )
-        return path.read_text(encoding="utf-8")
-
-    def test_template_documents_mongodb_option(self):
-        """The options comment must list mongodb_archiver, and must not send the
-        reader after an install that no longer exists.
+    def test_preset_documents_the_mongodb_option(self):
+        """The preset must name mongodb_archiver, and must not send the reader
+        after an install that no longer exists.
 
         pymongo is a core dependency; the ``archiver-mongodb`` extra is gone, and
         pip accepts an unknown extra with a warning rather than an error — so a
         stale hint here would have a reader install nothing and hit the same
         failure again.
         """
-        template = self._template_text()
+        preset = self._preset_text()
 
-        assert "#   - mongodb_archiver:" in template
-        assert "archiver-mongodb" not in template
+        assert "archiver.type: mongodb_archiver" in preset
+        assert "archiver-mongodb" not in preset
 
-    def test_template_shows_required_mongodb_keys(self):
-        """A LIVE block covers every key the connector refuses to default.
+    def test_preset_states_none_of_the_derived_coordinates(self):
+        """Spelling them under ``config:`` is refused, so the preset must not."""
+        preset = self._preset_text()
 
-        Live rather than commented. The template's own default stays
-        ``mock_archiver`` — a project that deploys no store should read a mock
-        that admits it is one — but the control-assistant PRESET selects
-        ``mongodb_archiver`` and deploys the store to back it, and the build
-        writes these keys from its ``va_archiver:`` block.
+        live = [
+            line
+            for line in preset.splitlines()
+            if line.strip().startswith("archiver.mongodb_archiver.")
+        ]
+        assert not live, f"the preset restates derived coordinates: {live}"
+
+    def test_the_derivation_supplies_every_required_key(self):
+        """The block covers every key the connector refuses to default.
+
+        The connector reads its coordinates under
+        ``archiver.mongodb_archiver.*``, and nothing else writes them, so a key
+        missing from this derivation is a deployment that cannot reach its own
+        archive.
         """
-        template = self._template_text()
-
-        assert "\n  mongodb_archiver:\n" in template, (
-            "the mongodb block must be live, not commented"
+        from osprey.cli.build_profile_archiver import (
+            CONNECTION_CONFIG_PREFIX,
+            VAArchiverConfig,
+            va_archiver_config_overrides,
         )
-        block = template.split("\n  mongodb_archiver:\n", 1)[1]
-        # Stop at the next key at the same depth, so a later `host:` elsewhere
-        # in the template cannot stand in for one this block is missing.
-        body = block.split("\n\n", 1)[0]
-        for key in ("host", "name", "collection", "auth", "username", "password_env"):
-            assert f"    {key}:" in body, f"required key {key!r} missing from the mongodb block"
+
+        overrides = va_archiver_config_overrides(VAArchiverConfig())
+        for key in ("host", "port", "name", "collection", "auth", "username", "password_env"):
+            assert f"{CONNECTION_CONFIG_PREFIX}.{key}" in overrides, (
+                f"required key {key!r} missing from the derived connection block"
+            )
 
 
 if __name__ == "__main__":

@@ -35,6 +35,39 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
+def _facility_data(root: Path, bundle: str = "hello_world") -> Path:
+    """Lay down the facility data tree beside a fixture profile.
+
+    ``osprey init`` materializes this tree from the preset's bundle and writes
+    ``data: data`` into the profile it emits. A hand-written fixture profile
+    has to do the same: ``data:`` is required, must resolve to a real
+    directory, and a preset that reads a channel-limits database or a knowledge
+    zone out of it needs the packaged content, not an empty directory.
+    """
+    from osprey.cli.templates.manager import TemplateManager
+
+    destination = root / "data"
+    shutil.copytree(
+        TemplateManager().template_root / "apps" / bundle / "data",
+        destination,
+        dirs_exist_ok=True,
+    )
+    return destination
+
+
+#: The keys every deployment must state, for fixtures that build a profile of
+#: their own rather than inheriting a preset. The posture floor refuses a build
+#: whose profile leaves any of them to a reader's fallback.
+_POSTURE_FLOOR = (
+    "  control_system.type: mock\n"
+    "  archiver.type: mock_archiver\n"
+    "  approval.enabled: true\n"
+    "  approval.default_policy: always\n"
+    "  claude_code.telemetry.enabled: false\n"
+    "  hooks.debug: false\n"
+)
+
+
 def _config_yaml(project_dir: Path) -> dict:
     return yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
 
@@ -265,9 +298,11 @@ def test_unknown_profile_key_fails_the_build(
     """
     profile = tmp_path / "repo" / "profile.yml"
     profile.parent.mkdir()
+    _facility_data(profile.parent)
     profile.write_text(
         "name: TypoTest\n"
-        "data_bundle: hello_world\n"
+        "extends: hello-world\n"
+        "data: data\n"
         "provider: anthropic\n"
         "mcp_server: {}\n"  # typo of mcp_servers
         "permission: []\n"  # typo of permissions
@@ -282,13 +317,18 @@ def test_unknown_profile_key_fails_the_build(
 
 
 def test_manifest_schema_version_bumped(runner: CliRunner, tmp_path: Path) -> None:
-    """B2/C3/C12: manifest schema bump from 1.1.0 to 1.2.0."""
+    """The manifest records the schema it was written against.
+
+    Bumped to 1.3.0 when the retired bundle key left ``creation``: a reader
+    of an older manifest must be able to tell that the key it is looking for
+    was dropped rather than merely absent from this project.
+    """
     result = _materialize(runner, str(tmp_path), "smoke", "hello-world")
     assert result.exit_code == 0, result.output
     import json
 
     manifest = json.loads((_project(tmp_path, "smoke") / ".osprey-manifest.json").read_text())
-    assert manifest["schema_version"] == "1.2.0"
+    assert manifest["schema_version"] == "1.3.0"
 
 
 def test_manifest_uses_build_args_not_init_args(runner: CliRunner, tmp_path: Path) -> None:
@@ -478,9 +518,11 @@ def test_profile_mcp_servers_persisted_to_config(runner: CliRunner, tmp_path: Pa
     """A profile's mcp_servers land in the built project's config.yml."""
     profile = tmp_path / "repo" / "profile.yml"
     profile.parent.mkdir()
+    _facility_data(profile.parent)
     profile.write_text(
         "name: McpTest\n"
-        "data_bundle: hello_world\n"
+        "extends: hello-world\n"
+        "data: data\n"
         "provider: anthropic\n"
         "mcp_servers:\n"
         "  echo:\n"
@@ -504,9 +546,11 @@ def test_profile_categories_persisted_to_config(runner: CliRunner, tmp_path: Pat
     """A profile's custom artifact categories land in the built config.yml."""
     profile = tmp_path / "repo" / "profile.yml"
     profile.parent.mkdir()
+    _facility_data(profile.parent)
     profile.write_text(
         "name: CatTest\n"
-        "data_bundle: hello_world\n"
+        "extends: hello-world\n"
+        "data: data\n"
         "provider: anthropic\n"
         "artifact_server:\n"
         "  categories:\n"
@@ -532,8 +576,11 @@ def test_profile_md_files_registered_as_user_owned(runner: CliRunner, tmp_path: 
     profile_dir = tmp_path / "repo"
     (profile_dir / "rules").mkdir(parents=True)
     (profile_dir / "rules" / "extra.md").write_text("# Custom rule\nuser-defined content\n")
+    _facility_data(profile_dir)
     profile = profile_dir / "profile.yml"
-    profile.write_text("name: ConventionTest\ndata_bundle: hello_world\nprovider: anthropic\n")
+    profile.write_text(
+        "extends: hello-world\nname: ConventionTest\ndata: data\nprovider: anthropic\n"
+    )
     result = _render_from(runner, str(profile))
     assert result.exit_code == 0, result.output
     project_dir = _project(tmp_path, "repo")
@@ -556,7 +603,7 @@ def test_extends_missing_base_aborts(
     """A profile's `extends` pointing at a missing file produces a clear error,
     not a stack trace, when the build resolves it."""
     profile = tmp_path / "profile.yml"
-    profile.write_text("name: Orphan\nextends: ./does-not-exist.yml\ndata_bundle: hello_world\n")
+    profile.write_text("name: Orphan\nextends: ./does-not-exist.yml\ndata: data\n")
     with caplog.at_level(logging.WARNING):
         result = _render_from(runner, str(profile))
     assert result.exit_code != 0
@@ -570,8 +617,8 @@ def test_extends_cycle_detected(
     than recursing until the stack gives out."""
     a = tmp_path / "profile.yml"
     b = tmp_path / "b.yml"
-    a.write_text("name: A\nextends: ./b.yml\ndata_bundle: hello_world\n")
-    b.write_text("name: B\nextends: ./profile.yml\ndata_bundle: hello_world\n")
+    a.write_text("name: A\nextends: ./b.yml\ndata: data\n")
+    b.write_text("name: B\nextends: ./profile.yml\ndata: data\n")
     with caplog.at_level(logging.WARNING):
         result = _render_from(runner, str(a))
     assert result.exit_code != 0
@@ -599,7 +646,7 @@ def test_each_bundled_preset_builds_clean(preset: str, runner: CliRunner, tmp_pa
     import json
 
     manifest = json.loads((project_dir / ".osprey-manifest.json").read_text())
-    assert manifest["schema_version"] == "1.2.0"
+    assert manifest["schema_version"] == "1.3.0"
     # 3. The materialized profile still names the preset it came from.
     assert _profile_yaml(tmp_path / "smoke")["provenance"]["preset"] == preset
     # 4. Every preset must explicitly pin the facility timezone — agent timestamp
@@ -837,15 +884,22 @@ class TestBuildProfileChannelFinderModeValidation:
         from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
         from osprey.cli.build_profile import BuildProfile
 
+        (tmp_path / "data").mkdir(exist_ok=True)
         for mode in VALID_CHANNEL_FINDER_MODES:
-            BuildProfile(name="t", channel_finder_mode=mode).validate(tmp_path)
+            # The graph paradigm answers from a store the profile declares, so
+            # its profile has to spell one; the others need no `config:` block.
+            config = {"services.graphdb.path": "./services/graphdb"} if mode == "graph" else {}
+            BuildProfile(name="t", data="data", channel_finder_mode=mode, config=config).validate(
+                tmp_path
+            )
 
     def test_validate_accepts_none_channel_finder_mode(self, tmp_path: Path) -> None:
         """None is valid at the profile level — manager.py raises only if
         channel-finder is actually selected and no mode is pinned."""
         from osprey.cli.build_profile import BuildProfile
 
-        BuildProfile(name="t", channel_finder_mode=None).validate(tmp_path)
+        (tmp_path / "data").mkdir(exist_ok=True)
+        BuildProfile(name="t", data="data", channel_finder_mode=None).validate(tmp_path)
 
 
 class TestMirroredLogbookSeedNotMutated:
@@ -874,13 +928,15 @@ class TestMirroredLogbookSeedNotMutated:
                 },
             ]
         }
+        _facility_data(profile_dir)
         seed_text = json.dumps(seed)
         (profile_dir / "project" / "data" / "logbook_seed" / "demo_logbook.json").write_text(
             seed_text
         )
         profile = profile_dir / "profile.yml"
         profile.write_text(
-            "name: SeedVerbatim\ndata_bundle: hello_world\nprovider: anthropic\nmodel: haiku\n"
+            "extends: hello-world\nname: SeedVerbatim\ndata: data\n"
+            "provider: anthropic\nmodel: haiku\n"
         )
 
         result = _render_from(runner, str(profile))
@@ -905,12 +961,18 @@ class TestDeployServicesKnob:
     defaults true, so every existing (self-contained) build is unchanged.
     """
 
-    # A profile whose bundle template would normally scaffold postgresql +
-    # openobserve and whose ``bluesky:`` block would normally inject a bridge
-    # service — so an attached build has real scaffolding to suppress.
+    # A profile whose preset would normally scaffold postgresql + openobserve
+    # and whose ``bluesky:`` block would normally inject a bridge service — so
+    # an attached build has real scaffolding to suppress. The inherited
+    # ``va_archiver:`` block is dropped: a deployment that records its own
+    # archive projects the recorder's path into an attached render on purpose
+    # (osprey.deployment.reach), and that one deliberate exception would blunt
+    # the "nothing here is a service this render would run" assertion below.
     _PROFILE = (
         "name: Attachment Test\n"
-        "data_bundle: control_assistant\n"
+        "extends: control-assistant\n"
+        "data: data\n"
+        "va_archiver: null\n"
         "provider: anthropic\n"
         "model: haiku\n"
         "channel_finder_mode: hierarchical\n"
@@ -921,12 +983,13 @@ class TestDeployServicesKnob:
     def _build(self, runner: CliRunner, tmp_path: Path, extra: str) -> Path:
         profile = tmp_path / "smoke" / "profile.yml"
         profile.parent.mkdir()
+        _facility_data(profile.parent, "control_assistant")
         profile.write_text(self._PROFILE + extra)
         # The bundle's source zone, which `osprey init` lays down beside the
         # profile and the deploy binds into every entitled container. A bare
         # profile without it is refused by the Reach Contract (the bind source
         # would be an empty directory), and this class is about the knob.
-        (profile.parent / "data" / "facility_knowledge").mkdir(parents=True)
+        (profile.parent / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
         result = _render_from(runner, str(profile))
         assert result.exit_code == 0, result.output
         return _project(tmp_path, "smoke")
@@ -1044,11 +1107,7 @@ def test_persona_delta_build_resolves_from_the_profile_root(
     )
     (root / "data" / "FACILITY_MARKER.txt").write_text("from the root\n")
     (root / "profile.yml").write_text(
-        "name: RootProfile\n"
-        "data_bundle: hello_world\n"
-        "provider: anthropic\n"
-        "model: sonnet\n"
-        "data: data\n"
+        "name: RootProfile\nextends: hello-world\nprovider: anthropic\nmodel: sonnet\ndata: data\n"
     )
     (root / "personas" / "readonly.yml").write_text("name: ReadOnly\nmodel: haiku\n")
 
@@ -1106,11 +1165,7 @@ def test_persona_exclusion_keeps_the_artifact_out_of_the_built_project(
         "---\ndescription: profile-shipped namespaced command\n---\n\nBody.\n"
     )
     (root / "profile.yml").write_text(
-        "name: RootProfile\n"
-        "data_bundle: hello_world\n"
-        "provider: anthropic\n"
-        "model: sonnet\n"
-        "data: data\n"
+        "name: RootProfile\nextends: hello-world\nprovider: anthropic\nmodel: sonnet\ndata: data\n"
     )
     (root / "personas" / "narrow.yml").write_text(
         "name: Narrow\n"
@@ -1165,17 +1220,17 @@ def test_persona_exclusion_of_a_panel_switches_its_inherited_block_off(
 
     root = tmp_path / "prof"
     (root / "personas").mkdir(parents=True)
-    (root / "data" / "facility_knowledge").mkdir(parents=True)
+    _facility_data(root, "control_assistant")
+    (root / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text(
         "name: RootProfile\n"
-        "data_bundle: control_assistant\n"
+        "data: data\n"
         "provider: anthropic\n"
         "model: haiku\n"
         "channel_finder_mode: hierarchical\n"
         "hooks: [memory-guard]\n"
         "web_panels: [okf, lattice, grafana]\n"
-        "config:\n"
-        "  web.panels.lattice.label: LATTICE\n"
+        "config:\n" + _POSTURE_FLOOR + "  web.panels.lattice.label: LATTICE\n"
         "  web.panels.grafana.label: GRAFANA\n"
         "  web.panels.grafana.url: http://grafana.local:3000\n"
     )
@@ -1267,38 +1322,23 @@ class TestGraphModeRequiresAGraphStore:
 
 class TestRenderConfigReading:
     """`TemplateManager.render_config` — the config-only reading `osprey build`
-    takes of an app template when a standalone attached profile has no hosting
+    takes of the framework template when a standalone attached profile has no hosting
     deployment to be told by."""
 
-    def test_unknown_bundle_is_refused_by_name(self, tmp_path: Path) -> None:
-        from osprey.cli.templates.manager import TemplateManager
-
-        with pytest.raises(ValueError, match="no-such-bundle"):
-            TemplateManager().render_config(
-                "probe", tmp_path, tmp_path / "config.yml", data_bundle="no-such-bundle"
-            )
-
-    def test_a_bundle_without_a_config_template_is_refused(self, tmp_path: Path) -> None:
-        """`project_template_for` finds neither an app copy nor the shared
-        `project/` default, and the reading names the bundle instead of
-        rendering nothing."""
+    def test_a_template_root_without_a_config_template_is_refused(self, tmp_path: Path) -> None:
+        """`project_template_for` finds no shared `project/` copy, and the
+        reading names the root instead of rendering nothing."""
         from osprey.cli.templates import scaffolding
         from osprey.cli.templates.manager import TemplateManager
 
         manager = TemplateManager()
-        assert (
-            scaffolding.project_template_for(
-                manager.template_root, "control_assistant", "no-such-file.txt"
-            )
-            is None
-        )
-        # An empty template root ships the file for no bundle at all.
+        assert scaffolding.project_template_for(manager.template_root, "no-such-file.txt") is None
+        # An empty template root ships no config template at all.
         with pytest.raises(ValueError, match="renders no config.yml"):
             scaffolding.render_project_config(
                 tmp_path,
                 manager.jinja_env,
                 tmp_path / "config.yml",
-                "bare-bundle",
                 {},
             )
 

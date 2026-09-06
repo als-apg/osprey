@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.cli.build_profile import load_profile
+from osprey.cli.build_profile import resolve_build_profile
 from osprey.cli.templates.artifact_library import validate_artifacts
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -36,9 +36,15 @@ COMMANDS_ROOT = SRC_OSPREY / "templates" / "claude_code" / "claude" / "commands"
 _MCP_REF_RE = re.compile(r"mcp__([a-zA-Z0-9_-]+)__([a-zA-Z0-9_]+)")
 
 
-def _all_presets() -> list[Path]:
-    """Return every preset YAML shipped with osprey."""
-    return sorted(p for p in PRESETS_DIR.glob("*.yml") if not p.name.startswith("_"))
+def _all_presets() -> list[str]:
+    """Return the name of every preset shipped with osprey.
+
+    Names rather than paths: a preset file is not a profile file. It carries
+    preset-side keys (``app_template:``) that resolution consumes and the
+    profile loader refuses outright, so the only way to read one is through
+    the same entry point the build uses.
+    """
+    return sorted(p.stem for p in PRESETS_DIR.glob("*.yml") if not p.name.startswith("_"))
 
 
 def _collect_framework_tool_names() -> dict[str, set[str]]:
@@ -128,10 +134,10 @@ def _server_alias_map(server_tools: dict[str, set[str]]) -> dict[str, set[str]]:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("preset_path", _all_presets(), ids=lambda p: p.stem)
-def test_preset_yaml_parses_and_artifacts_resolve(preset_path: Path) -> None:
+@pytest.mark.parametrize("preset", _all_presets())
+def test_preset_yaml_parses_and_artifacts_resolve(preset: str) -> None:
     """Each preset must parse, validate, and reference only artifacts that exist."""
-    profile = load_profile(preset_path)
+    profile, _preset_dir = resolve_build_profile(None, preset=preset)
 
     artifacts = {}
     for artifact_type in ("hooks", "rules", "skills", "agents", "output_styles"):
@@ -142,8 +148,8 @@ def test_preset_yaml_parses_and_artifacts_resolve(preset_path: Path) -> None:
         validate_artifacts(artifacts)
 
 
-@pytest.mark.parametrize("preset_path", _all_presets(), ids=lambda p: p.stem)
-def test_preset_web_panels_against_registry(preset_path: Path) -> None:
+@pytest.mark.parametrize("preset", _all_presets())
+def test_preset_web_panels_against_registry(preset: str) -> None:
     """Every ``web_panels`` entry must be a built-in panel or a URL-backed custom panel.
 
     Mirrors the real contract in ``build_profile`` validation: a panel is valid
@@ -156,17 +162,16 @@ def test_preset_web_panels_against_registry(preset_path: Path) -> None:
     build DERIVES is legitimately url-less in the preset. The deploying profile
     derives it from its own sidecar block, and an attached persona is told it
     by projection from the hosting render — so a persona preset that spelled
-    the URL would be stating a fact it cannot keep true. Each preset is loaded
-    unresolved here, without its ``extends:`` chain, so the sidecar block that
-    satisfies the real validator is not visible at this level either way; the
-    build-time refusal for a selected panel the deployment cannot back is
-    ``reach.selected_panel_errors``, not this static scan.
+    the URL would be stating a fact it cannot keep true. This scan sees only
+    what the preset chain itself declares, not what a deployment's sidecar
+    block would add; the build-time refusal for a selected panel the deployment
+    cannot back is ``reach.selected_panel_errors``, not this static scan.
     """
     from osprey.deployment.reach import REACH_CONTRACTS
     from osprey.profiles.web_panels import BUILTIN_PANELS
 
     derived = {p.panel for c in REACH_CONTRACTS.values() for p in c.projected if p.panel}
-    profile = load_profile(preset_path)
+    profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config = getattr(profile, "config", {}) or {}
     unknown = [
         p
@@ -174,7 +179,7 @@ def test_preset_web_panels_against_registry(preset_path: Path) -> None:
         if p not in BUILTIN_PANELS and p not in derived and f"web.panels.{p}.url" not in config
     ]
     assert not unknown, (
-        f"{preset_path.name} declares unknown web_panels: {unknown} "
+        f"{preset}.yml declares unknown web_panels: {unknown} "
         f"(valid: built-in {sorted(BUILTIN_PANELS)}, a panel the Reach Contract "
         f"projects a URL for {sorted(derived)}, or a web.panels.<id>.url override)"
     )

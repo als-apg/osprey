@@ -388,12 +388,11 @@ def init_project(
         "--set",
         f"connector={connector}",
     ]
-    # An override FILE, not ``--set config.archiver.type=``: the preset spells
-    # the key in its literal dotted form, and a ``--set`` nested path would
-    # merge a second, competing ``archiver`` mapping alongside it whose winner
-    # is decided by key order — which the build refuses outright rather than
-    # render. A ``-O`` layer replaces the dotted key in the spelling the
-    # profile already uses.
+    # An override FILE rather than ``--set config.archiver.type=``, which would
+    # now reach the same leaf: the file is also where the stand-in pin below
+    # goes, and one layer carrying both keeps this to a single ``-O`` argument.
+    # Either way the key is written in the literal dotted spelling the preset
+    # already uses, so it replaces that entry instead of landing beside it.
     preset_pins = tmp_path / "_archiver-pin.yml"
     pins = f"config:\n  archiver.type: {archiver}\n"
     if _preset_declares_virtual_accelerator(template):

@@ -42,8 +42,9 @@ triggers:
 """
 
 _PROFILE_YAML = """\
+extends: hello-world
 name: NcBridgeTest
-data_bundle: hello_world
+data: data
 provider: anthropic
 model: haiku
 dispatch:
@@ -112,6 +113,7 @@ def _build_bridge_project(
     """
     repo_dir = tmp_path / "ncproj"
     repo_dir.mkdir()
+    (repo_dir / "data").mkdir(exist_ok=True)
     (repo_dir / "triggers.yml").write_text(_TRIGGERS_YAML, encoding="utf-8")
     (repo_dir / "profile.yml").write_text(
         _PROFILE_YAML.format(nextcloud_bridge=nextcloud_bridge), encoding="utf-8"
@@ -413,8 +415,9 @@ def test_full_build_bridge_without_dispatch_block_aborts(
     """
     repo_dir = tmp_path / "ncproj"
     repo_dir.mkdir()
+    (repo_dir / "data").mkdir(exist_ok=True)
     (repo_dir / "profile.yml").write_text(
-        "name: NcNoDispatch\ndata_bundle: hello_world\nprovider: anthropic\n"
+        "extends: hello-world\nname: NcNoDispatch\ndata: data\nprovider: anthropic\n"
         "model: haiku\nnextcloud_bridge: {}\n",
         encoding="utf-8",
     )

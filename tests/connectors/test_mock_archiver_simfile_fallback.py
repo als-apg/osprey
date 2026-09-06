@@ -14,7 +14,7 @@ resolved from the control-system side through the same
 archiver-side value still wins — pointing the archiver at a different model is
 legitimate — but the divergence is logged at WARNING.
 
-Both directions are covered here, plus the template, which ships no third copy
+Both directions are covered here, plus the preset, which ships no third copy
 of the path.
 
 A note on the virtual-accelerator cases below, which would otherwise read as
@@ -48,15 +48,7 @@ ARCHIVER_LOGGER = "mock_archiver_connector"
 CONTROL_SYSTEM_VALUE = 42.0
 ARCHIVER_ONLY_VALUE = 7.0
 
-TEMPLATE = (
-    Path(__file__).resolve().parents[2]
-    / "src"
-    / "osprey"
-    / "templates"
-    / "apps"
-    / "control_assistant"
-    / "config.yml.j2"
-)
+PRESET = "control-assistant"
 
 START = datetime(2024, 1, 1, 0, 0, 0)
 END = datetime(2024, 1, 1, 1, 0, 0)
@@ -305,19 +297,24 @@ class TestExplicitArchiverValueWins:
         await connector.disconnect()
 
 
-class TestTemplateDropsTheDuplicate:
+class TestPresetDropsTheDuplicate:
     def test_archiver_block_declares_no_simulation_file(self):
-        archiver_section = TEMPLATE.read_text().split("\narchiver:\n", 1)[1]
+        import osprey.profiles
+        from osprey.cli.build_profile_archiver import _expand_dotted
+        from osprey.cli.build_profile_resolve import resolve_build_profile
 
-        live_keys = [
-            line
-            for line in archiver_section.splitlines()
-            if line.strip().startswith("simulation_file:")
-        ]
-        assert not live_keys, (
-            "the archiver block still declares simulation_file — it is derived from "
-            f"the control-system config now: {live_keys}"
+        profile, _profile_dir = resolve_build_profile(None, PRESET)
+        archiver = _expand_dotted(profile.config).get("archiver", {})
+        mock_archiver = archiver.get("mock_archiver") or {}
+
+        assert "simulation_file" not in mock_archiver, (
+            "the preset still writes archiver.mock_archiver.simulation_file — it is "
+            "derived from the control-system config now"
         )
-        assert "control_system.connector.<type>.simulation_file" in archiver_section, (
+
+        source = (Path(osprey.profiles.__file__).parent / "presets" / f"{PRESET}.yml").read_text(
+            encoding="utf-8"
+        )
+        assert "control_system.connector.<type>.simulation_file" in source, (
             "the archiver block should say where its machine model comes from"
         )

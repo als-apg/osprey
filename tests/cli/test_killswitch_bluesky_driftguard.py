@@ -31,6 +31,7 @@ to the deployment-wide key alone.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import yaml
 
@@ -42,6 +43,50 @@ from osprey.registry.mcp import (
     FRAMEWORK_SERVERS,
     MIXED_READ_WRITE_TEMPLATES,
 )
+
+
+def _bundle_data_root(bundle: str = "control_assistant") -> Path:
+    """The tree these fixtures hand the render as the profile's ``data:``.
+
+    A build copies the tree its profile's ``data:`` key names, and that key is
+    required — nothing falls back to a packaged tree any more. These fixtures
+    render straight from a bundle rather than from a profile, so they name the
+    tree that bundle packages, which is the content the render used to reach
+    for on its own.
+    """
+    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+
+
+def _create_project(manager: TemplateManager, **kwargs) -> Path:
+    """``create_project`` plus the three steps a real build takes next.
+
+    A build renders the framework template, overlays the resolved profile's
+    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
+    regenerates ``.claude/`` from the finished config. The template carries
+    only derived and profile-field-derived keys, so a fixture that stops after
+    the render holds half a config — the declarative half is the preset's, and
+    the artifacts rendered before it landed do not know about the deployment's
+    control system, services or servers. These fixtures render from a bundle
+    rather than from a profile, so they overlay the preset ``osprey init``
+    pairs with that bundle.
+    """
+    from osprey.cli.build_profile import resolve_build_profile
+    from osprey.utils.config_writer import config_update_fields
+
+    bundle = kwargs.setdefault("data_bundle", "control_assistant")
+    preset = bundle.replace("_", "-")
+    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    project = manager.create_project(**kwargs)
+    profile, _preset_dir = resolve_build_profile(None, preset=preset)
+    config_update_fields(project / "config.yml", profile.config)
+    manager.generate_manifest(
+        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
+    )
+    # The build's last render, and the one that ships: `create_project` wrote
+    # `.claude/` from a config.yml that did not yet carry the preset's block.
+    manager.regenerate_claude_code(project)
+    return project
+
 
 _PROJECT_COUNTER = 0
 
@@ -78,7 +123,8 @@ def _build_project(
     global _PROJECT_COUNTER
     _PROJECT_COUNTER += 1
     manager = TemplateManager()
-    project_dir = manager.create_project(
+    project_dir = _create_project(
+        manager,
         project_name=f"killswitch-driftguard-{_PROJECT_COUNTER}",
         output_dir=tmp_path,
         data_bundle="control_assistant",
@@ -109,9 +155,9 @@ def _rerender(
     builds. Both matter: the render counts only the targets a session here can
     be pointed at, and a deployment has two of those only when it renders the
     switch — its own type is one of the targets and both have a configured
-    block. The control-assistant preset builds a ``mock`` and already carries an
-    ``epics`` block for ``live`` and a ``virtual_accelerator`` block for ``va``,
-    so naming ``epics`` as the type is what makes both selectable.
+    block. The control-assistant preset builds the live stand-in and already
+    carries an ``epics`` block for ``live`` and a ``virtual_accelerator`` block
+    for ``va``, so naming a type here is what decides which are selectable.
     """
     config = yaml.safe_load((project_dir / "config.yml").read_text())
     config["control_system"]["writes_enabled"] = writes_enabled
@@ -309,7 +355,8 @@ def test_agreeing_per_connector_keys_render_byte_identically_with_writes_off(tmp
     that deployment already had.
     """
     manager = TemplateManager()
-    project_dir = manager.create_project(
+    project_dir = _create_project(
+        manager,
         project_name="killswitch-identity-off",
         output_dir=tmp_path,
         data_bundle="control_assistant",
@@ -331,7 +378,8 @@ def test_agreeing_per_connector_keys_render_byte_identically_with_writes_off(tmp
 def test_agreeing_per_connector_keys_render_byte_identically_with_writes_on(tmp_path):
     """The same identity in the armed direction."""
     manager = TemplateManager()
-    project_dir = manager.create_project(
+    project_dir = _create_project(
+        manager,
         project_name="killswitch-identity-on",
         output_dir=tmp_path,
         data_bundle="control_assistant",
@@ -360,7 +408,10 @@ def test_an_armed_block_for_an_unreachable_machine_still_renders_the_deny(tmp_pa
     nor ask.
     """
     project_dir = _build_project(
-        tmp_path, writes_enabled=False, connector_writes={_LIVE_CONNECTOR: True}
+        tmp_path,
+        writes_enabled=False,
+        control_system_type="mock",
+        connector_writes={_LIVE_CONNECTOR: True},
     )
     deny = _rendered_permissions(project_dir)["deny"]
     assert "mcp__controls__channel_write" in deny

@@ -38,14 +38,10 @@ from osprey.cli.templates.manager import TemplateManager
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.utils.config import ConfigBuilder
 
-# The three bundled templates that render an ``execution:`` block. The other app
-# bundles (ariel_standalone, channel_finder_standalone) ship no such block and so
-# never recorded an interpreter path.
-CONFIG_TEMPLATES = (
-    "project/config.yml.j2",
-    "apps/control_assistant/config.yml.j2",
-    "apps/hello_world/config.yml.j2",
-)
+# The one bundled template that renders an ``execution:`` block. It is derived
+# from the profile's ``environment:`` declaration, so it belongs to the
+# framework template rather than to any deployment's own ``config:``.
+CONFIG_TEMPLATES = ("project/config.yml.j2",)
 
 # Any path that names a Python interpreter, e.g. /Users/x/proj/.venv/bin/python3.11.
 _INTERPRETER_PATH = re.compile(r"bin/python[\d.]*$")
@@ -118,7 +114,7 @@ def _fake_venv_interpreter(root: Path) -> Path:
 
 
 class TestTemplatesRenderTheDeclaration:
-    """All three config templates render an ``environment:`` record and no host path."""
+    """The config template renders an ``environment:`` record and no host path."""
 
     @pytest.fixture(scope="class")
     def jinja_env(self):
@@ -134,11 +130,15 @@ class TestTemplatesRenderTheDeclaration:
 
     @pytest.mark.parametrize("template_name", CONFIG_TEMPLATES)
     def test_renders_without_a_declaration(self, jinja_env, template_name):
-        """With nothing declared the block still renders, as empty defaults."""
+        """With nothing declared the block still renders, as empty defaults.
+
+        Only ``environment:`` is the template's to render. ``execution_method``
+        is a declarative key a deployment states in its own ``config:``, and
+        the built-config test below is where its value is pinned.
+        """
         rendered = jinja_env.get_template(template_name).render(self.PORTS)
         execution = yaml.safe_load(rendered)["execution"]
 
-        assert execution["execution_method"] == "subprocess"
         assert execution["environment"] == {
             "python": None,
             "packages": [],
@@ -166,7 +166,7 @@ class TestTemplatesRenderTheDeclaration:
 
     @pytest.mark.parametrize("template_name", CONFIG_TEMPLATES)
     def test_no_python_env_path_key(self, jinja_env, template_name):
-        """The retired key is gone from the templates entirely."""
+        """The retired key is gone from the template entirely."""
         rendered = jinja_env.get_template(template_name).render(self.PORTS)
 
         assert "python_env_path" not in rendered

@@ -25,6 +25,17 @@ from osprey.cli.build_profile_schema import env_names_errors
 from osprey.errors import BuildProfileError
 
 
+@pytest.fixture(autouse=True)
+def _facility_data_tree(tmp_path: Path) -> None:
+    """The tree every profile's ``data:`` key names, beside the profile.
+
+    ``data:`` is required of every repo profile and must resolve to a real
+    directory, so without this each profile below would report one extra
+    failure about a key none of these tests is about.
+    """
+    (tmp_path / "data").mkdir(exist_ok=True)
+
+
 def _errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
     """Validate ``profile`` and return the individual accumulated failures."""
     with pytest.raises(BuildProfileError) as exc:
@@ -47,7 +58,7 @@ def _triggers(tmp_path: Path, name: str = "trig.yml") -> str:
 
 def _profile(**raw: Any) -> BuildProfile:
     """Parse a profile from the YAML surface, filling in the required name."""
-    return _parse_profile({"name": "envaxis", **raw})
+    return _parse_profile({"name": "envaxis", "data": "data", **raw})
 
 
 # --- the shared checker ---------------------------------------------------
@@ -385,6 +396,7 @@ def test_a_profile_declaring_no_env_anywhere_stays_clean(tmp_path: Path) -> None
     """The axis is inert when unset — an untouched profile validates as before."""
     profile = BuildProfile(
         name="envaxis",
+        data="data",
         dispatch=DispatchConfig(triggers=_triggers(tmp_path)),
         services={
             "gchat_bridge": ServiceDef(template="osprey.gchat_bridge", config={"port": 8080})

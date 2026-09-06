@@ -49,6 +49,50 @@ from osprey.registry.mcp import FRAMEWORK_SERVERS
 
 from ._vocabulary_guard import hardcoded_vocabulary_hits
 
+
+def _bundle_data_root(bundle: str = "control_assistant") -> Path:
+    """The tree these fixtures hand the render as the profile's ``data:``.
+
+    A build copies the tree its profile's ``data:`` key names, and that key is
+    required — nothing falls back to a packaged tree any more. These fixtures
+    render straight from a bundle rather than from a profile, so they name the
+    tree that bundle packages, which is the content the render used to reach
+    for on its own.
+    """
+    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+
+
+def _create_project(manager: TemplateManager, **kwargs) -> Path:
+    """``create_project`` plus the three steps a real build takes next.
+
+    A build renders the framework template, overlays the resolved profile's
+    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
+    regenerates ``.claude/`` from the finished config. The template carries
+    only derived and profile-field-derived keys, so a fixture that stops after
+    the render holds half a config — the declarative half is the preset's, and
+    the artifacts rendered before it landed do not know about the deployment's
+    control system, services or servers. These fixtures render from a bundle
+    rather than from a profile, so they overlay the preset ``osprey init``
+    pairs with that bundle.
+    """
+    from osprey.cli.build_profile import resolve_build_profile
+    from osprey.utils.config_writer import config_update_fields
+
+    bundle = kwargs.setdefault("data_bundle", "control_assistant")
+    preset = bundle.replace("_", "-")
+    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    project = manager.create_project(**kwargs)
+    profile, _preset_dir = resolve_build_profile(None, preset=preset)
+    config_update_fields(project / "config.yml", profile.config)
+    manager.generate_manifest(
+        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
+    )
+    # The build's last render, and the one that ships: `create_project` wrote
+    # `.claude/` from a config.yml that did not yet carry the preset's block.
+    manager.regenerate_claude_code(project)
+    return project
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -108,7 +152,8 @@ def _assert_graph_session_surface(project: Path) -> None:
 
 @pytest.fixture(scope="module")
 def built_ariel_standalone_project(tmp_path_factory) -> Path:
-    return TemplateManager().create_project(
+    return _create_project(
+        TemplateManager(),
         project_name="ariel-graph-surface",
         output_dir=tmp_path_factory.mktemp("ariel_standalone_build"),
         data_bundle="ariel_standalone",
@@ -237,7 +282,8 @@ def test_channel_finder_standalone_renders_no_graph_surface_at_all(tmp_path):
     rest of the tree, where a rule or a hook config naming an unlaunchable tool
     would be just as broken and just as quiet.
     """
-    project = TemplateManager().create_project(
+    project = _create_project(
+        TemplateManager(),
         project_name="cf-standalone-graph-surface",
         output_dir=tmp_path,
         data_bundle="channel_finder_standalone",
@@ -272,19 +318,37 @@ def _write_profile(repo: Path, config: dict | None = None) -> Path:
         yaml.dump(
             {
                 "name": "Graph Surface",
-                "app_template": "control_assistant",
+                # The preset carries the posture floor and names the bundle.
+                "extends": "control-assistant",
+                "data": "data",
                 "provider": "anthropic",
                 "model": "haiku",
                 "channel_finder_mode": "hierarchical",
+                # The preset deploys a virtual accelerator, which serves the
+                # project's own channels and refuses a build whose data tree
+                # stages none. This repo ships the source zone only, and the
+                # accelerator is not what these tests are about.
+                "virtual_accelerator": None,
                 "config": {"control_system.type": "mock", **(config or {})},
             },
             default_flow_style=False,
         ),
         encoding="utf-8",
     )
-    # The bundle's source zone `osprey init` lays down beside the profile; the
-    # Reach Contract refuses a render whose bind source is not there.
-    (repo / "data" / "facility_knowledge").mkdir(parents=True)
+    # The facility data tree `osprey init` lays down beside the profile. Copied
+    # whole rather than stubbed: the Reach Contract refuses a render whose
+    # source zone is not there, and the limits validator reads
+    # `channel_limits.json` out of the same tree.
+    import shutil
+
+    from osprey.cli.templates.manager import TemplateManager
+
+    shutil.copytree(
+        TemplateManager().template_root / "apps" / "control_assistant" / "data",
+        repo / "data",
+        dirs_exist_ok=True,
+    )
+    (repo / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
     return repo
 
 

@@ -9,15 +9,23 @@ rejects the pair it cannot fold.
 
 from __future__ import annotations
 
+import functools
+import re
 from pathlib import Path
 
 import pytest
 import yaml
 
+from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.build_profile import list_presets
-from osprey.cli.build_profile_emit import _collapse_config_prefixes, emit_standalone_profile_yaml
+from osprey.cli.build_profile_emit import (
+    _CHANNEL_FINDER_MODE_LIST,
+    _collapse_config_prefixes,
+    emit_standalone_profile_yaml,
+)
+from osprey.cli.build_profile_presets import _presets_dir
 from osprey.errors import BuildProfileError
-from osprey.port_layout import default_port
+from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 
 #: A landing-page port for the fixtures below, spelled as the layout lookup a
 #: real config carries so no retired number rides along in a filler value.
@@ -190,16 +198,38 @@ def test_scalar_below_the_shallowest_key_is_rejected_naming_the_blocking_path() 
 
 
 def test_emit_rejects_a_scalar_parent_introduced_by_an_override(tmp_path: Path) -> None:
-    """The rejection is reachable from the CLI surface, not only from the
-    helper: an ``-O`` layer is how a facility would introduce such a pair."""
+    """The rejection is reachable from the CLI surface, not only from the helper.
+
+    The pair has to come from ONE layer to survive as far as the collapse: a
+    key the command line states outranks whatever an inherited layer spells
+    beneath it, and the deeper key is dropped before there is a pair to fold.
+    An overlay writing both spellings itself is what is left, and it is the
+    real shape of the mistake — one file, two statements about one path.
+    """
     override = tmp_path / "o.yml"
     override.write_text(
-        "config:\n  modules.web_terminals: false\n",
+        "config:\n  modules.web_terminals: false\n  modules.web_terminals.enabled: true\n",
         encoding="utf-8",
     )
 
     with pytest.raises(BuildProfileError, match="modules.web_terminals.enabled"):
         _emit("control-assistant-readonly", (override,))
+
+
+def test_an_override_scalar_replaces_the_subtree_it_names(tmp_path: Path) -> None:
+    """The other half of the same rule: stated alone, the scalar just wins.
+
+    ``config_update_fields`` applies the key verbatim and would replace the
+    whole subtree at render time, so the emitted profile says that outright
+    instead of carrying the inherited leaves it is about to overwrite.
+    """
+    override = tmp_path / "o.yml"
+    override.write_text("config:\n  modules.web_terminals: false\n", encoding="utf-8")
+
+    config = yaml.safe_load(_emit("control-assistant-readonly", (override,)))["config"]
+
+    assert config["modules.web_terminals"] is False
+    assert not [key for key in config if key.startswith("modules.web_terminals.")]
 
 
 # ---------------------------------------------------------------------------
@@ -252,3 +282,87 @@ def test_collapsing_an_emitted_config_is_a_no_op(preset: str) -> None:
     config = yaml.safe_load(_emit(preset)).get("config") or {}
 
     assert _collapse_config_prefixes(config) == config
+
+
+# ---------------------------------------------------------------------------
+# What an emitted comment may say
+# ---------------------------------------------------------------------------
+
+
+def _comment_lines(text: str) -> list[str]:
+    """Every comment line of an emitted profile, whole-line and trailing alike."""
+    lines: list[str] = []
+    for line in text.splitlines():
+        if "#" in line:
+            lines.append(line[line.index("#") :].strip())
+    return lines
+
+
+@functools.cache
+def _preset_comment_lines() -> frozenset[str]:
+    """Comment lines the preset FILES contribute, verbatim.
+
+    The emitter copies a preset's own comments onto the keys it emits, so a
+    line already present in a preset file is that file's to answer for and the
+    presets are checked on their own terms. What is left is what the EMITTER
+    writes, which is what the two assertions below are about.
+    """
+    return frozenset(
+        line.strip()
+        for path in _presets_dir().glob("*.yml")
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip().startswith("#")
+    )
+
+
+def _emitter_comment_lines(preset: str) -> list[str]:
+    from_presets = _preset_comment_lines()
+    return [line for line in _comment_lines(_emit(preset)) if line not in from_presets]
+
+
+@pytest.mark.parametrize("preset", list_presets())
+def test_no_emitted_comment_spells_a_layout_port(preset: str) -> None:
+    """A port number in a comment is wrong for every deployment that moved.
+
+    Every framework port is a slot of the deployment's own block, so a number
+    written into a comment describes the default base and nothing else — and a
+    profile that sets `deployment.port_base` then carries a comment that lies
+    about its own ports. The comments name the slot instead.
+    """
+    numbers = {str(port) for port in layout_ports(DEFAULT_PORT_BASE).values()}
+
+    offenders = [
+        line for line in _emitter_comment_lines(preset) if numbers & set(re.findall(r"\d+", line))
+    ]
+
+    assert not offenders
+
+
+@pytest.mark.parametrize("preset", list_presets())
+def test_no_emitted_comment_freezes_a_channel_finder_mode(preset: str) -> None:
+    """Mode names appear only where the emitter renders them from the constant.
+
+    The paradigms this release accepts are ``VALID_CHANNEL_FINDER_MODES``; a
+    name typed into a comment keeps describing the release it was written in.
+    The one place they are named is the enumeration the emitter builds from
+    that constant, so that fragment is removed before the line is scanned.
+
+    A mode reaches a comment in one of two shapes, and both are what this
+    looks for: written as a VALUE (``# channel_finder_mode: hierarchical`` —
+    the commented example that used to pin one), or spelled as an identifier no
+    English sentence produces (``in_context``). Two of the four names are
+    ordinary words — a knowledge *graph* and a *hierarchical* menu are prose,
+    not settings — so a bare occurrence of those is not evidence of anything.
+    """
+    as_a_value = {f": {mode}" for mode in VALID_CHANNEL_FINDER_MODES}
+    as_an_identifier = {mode for mode in VALID_CHANNEL_FINDER_MODES if "_" in mode}
+
+    offenders = []
+    for line in _emitter_comment_lines(preset):
+        scrubbed = line.replace(_CHANNEL_FINDER_MODE_LIST, "")
+        if any(spelling in scrubbed for spelling in as_a_value):
+            offenders.append(line)
+        elif as_an_identifier & set(re.findall(r"[A-Za-z_]+", scrubbed)):
+            offenders.append(line)
+
+    assert not offenders

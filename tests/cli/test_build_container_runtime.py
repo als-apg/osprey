@@ -32,17 +32,19 @@ from osprey.deployment import runtime_helper
 CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
 
 PROFILE = """\
+extends: hello-world
 name: Runtime Pin
-app_template: hello_world
+data: data
 provider: anthropic
-config:
-{override}"""
+"""
 
 
 def _build_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, override: str = ""):
     repo = tmp_path / "repo"
     repo.mkdir()
-    (repo / "profile.yml").write_text(PROFILE.format(override=override))
+    (repo / "data").mkdir(exist_ok=True)
+    body = PROFILE + (f"config:\n{override}" if override else "")
+    (repo / "profile.yml").write_text(body)
     monkeypatch.chdir(repo)
     result = CliRunner().invoke(build, CI_FLAGS)
     return repo, result

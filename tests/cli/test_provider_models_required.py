@@ -19,63 +19,28 @@ config OSPREY itself generated.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 import pytest
 import yaml
 
-import osprey.templates
 from osprey.build.claude_code_resolver import (
     TIER_MODEL_ENV_VARS,
     ClaudeCodeModelResolver,
 )
-from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
-
-TEMPLATE_ROOT = Path(osprey.templates.__file__).parent
-
-# Every shipped config template carrying an `api.providers` block.
-SHIPPED_TEMPLATES = (
-    "project/config.yml.j2",
-    "apps/control_assistant/config.yml.j2",
-    "apps/hello_world/config.yml.j2",
-    "apps/ariel_standalone/config.yml.j2",
-    "apps/channel_finder_standalone/config.yml.j2",
-)
+from osprey.profiles.providers import packaged_catalog_path
 
 
-def _render(relative_path: str) -> dict:
-    """Render a shipped template the way ``osprey build`` does and parse it.
+def _shipped_providers() -> dict:
+    """The provider stanzas a build renders into ``api.providers``.
 
-    ``ChainableUndefined`` lets attribute chains on unsupplied context vars
-    render empty instead of raising, so one context serves every template.
+    One packaged catalog answers for every deployment now: ``providers.yml``
+    ships beside the presets, ``osprey init`` writes it into the deployment,
+    and the build renders it into ``api.providers``. No config template carries
+    a provider stanza of its own, so there is one source to check rather than
+    one per app.
     """
-    from jinja2 import ChainableUndefined, Environment, FileSystemLoader
-
-    env = Environment(
-        loader=FileSystemLoader(str(TEMPLATE_ROOT)),
-        undefined=ChainableUndefined,
-        keep_trailing_newline=True,
-    )
-    rendered = env.get_template(relative_path).render(
-        port_base=DEFAULT_PORT_BASE,
-        osprey_ports=layout_ports(DEFAULT_PORT_BASE),
-        project_name="demo",
-        facility_name="Demo Facility",
-        default_provider="anthropic",
-        default_model="claude-haiku-4-5-20251001",
-        channel_finder_mode="in_context",
-        default_pipeline="in_context",
-        enable_in_context=True,
-        enable_hierarchical=False,
-        enable_middle_layer=False,
-        channel_finder_tools=[],
-        project_root="/tmp/demo",
-    )
-    return yaml.safe_load(rendered) or {}
-
-
-def _shipped_providers(relative_path: str) -> dict:
-    return _render(relative_path).get("api", {}).get("providers", {}) or {}
+    catalog = yaml.safe_load(packaged_catalog_path().read_text(encoding="utf-8")) or {}
+    return catalog.get("providers") or {}
 
 
 class TestMapLessProviderIsRefused:
@@ -216,41 +181,38 @@ class TestNonTierKeysWarn:
         assert not caplog.records
 
 
-class TestShippedTemplatesCarryRealMaps:
-    """No shipped provider stanza can trip the refusal."""
+class TestTheShippedCatalogCarriesRealMaps:
+    """No stanza in the packaged provider catalog can trip the refusal."""
 
-    @pytest.mark.parametrize("relative_path", SHIPPED_TEMPLATES)
-    def test_every_provider_maps_all_tiers(self, relative_path):
-        providers = _shipped_providers(relative_path)
-        assert providers, f"{relative_path} declares no api.providers"
+    def test_every_provider_maps_all_tiers(self):
+        providers = _shipped_providers()
+        assert providers, "the packaged catalog declares no providers"
         for name, entry in providers.items():
             models = (entry or {}).get("models") or {}
             missing = [tier for tier in TIER_MODEL_ENV_VARS if tier not in models]
             assert not missing, (
-                f"{relative_path}: api.providers.{name} maps no model for "
+                f"providers.yml: {name} maps no model for "
                 f"{missing} — selecting it would fail to resolve."
             )
 
-    @pytest.mark.parametrize("relative_path", SHIPPED_TEMPLATES)
-    def test_every_provider_resolves(self, relative_path):
-        providers = _shipped_providers(relative_path)
+    def test_every_provider_resolves(self):
+        providers = _shipped_providers()
         for name in providers:
             spec = ClaudeCodeModelResolver.resolve(
                 {"provider": name}, providers, include_telemetry=False
             )
-            assert spec is not None, f"{relative_path}: {name!r} resolved to None"
+            assert spec is not None, f"providers.yml: {name!r} resolved to None"
             assert set(spec.tier_to_model) == set(TIER_MODEL_ENV_VARS)
             assert spec.env_block["ANTHROPIC_MODEL"] == spec.tier_to_model[spec.default_model_tier]
 
-    @pytest.mark.parametrize("relative_path", SHIPPED_TEMPLATES)
-    def test_no_provider_borrows_another_providers_ids(self, relative_path):
+    def test_no_provider_borrows_another_providers_ids(self):
         """The map must be the provider's own naming, not Anthropic's.
 
         Anthropic-direct IDs under a non-Anthropic, non-proxy-to-Anthropic
         stanza are the exact residue the removed fallback used to manufacture.
         """
         anthropic_only = {"gpt", "gemini", "mistral", "deepseek"}
-        for name, entry in _shipped_providers(relative_path).items():
+        for name, entry in _shipped_providers().items():
             models = (entry or {}).get("models") or {}
             families = {
                 family
@@ -260,6 +222,6 @@ class TestShippedTemplatesCarryRealMaps:
             }
             if families:
                 assert not any("claude" in model_id for model_id in models.values()), (
-                    f"{relative_path}: api.providers.{name} mixes Claude IDs into a "
+                    f"providers.yml: {name} mixes Claude IDs into a "
                     f"{sorted(families)} provider map."
                 )

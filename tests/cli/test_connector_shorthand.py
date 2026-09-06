@@ -39,6 +39,17 @@ from osprey.connectors.types import (
 from osprey.errors import BuildProfileError
 
 
+@pytest.fixture(autouse=True)
+def _facility_data_tree(tmp_path: Path) -> None:
+    """The tree every profile's ``data:`` key names, beside the profile.
+
+    ``data:`` is required of a repo profile and must resolve to a real
+    directory, so without this each profile below would report one extra
+    failure about a key none of these tests is about.
+    """
+    (tmp_path / "data").mkdir(exist_ok=True)
+
+
 def _flat(text: str) -> str:
     """Collapse whitespace so assertions survive terminal line wrapping."""
     return " ".join(text.split())
@@ -67,14 +78,14 @@ def test_connector_joins_the_shorthand_override_keys() -> None:
 
 def test_parse_folds_shorthand_into_dotted_config_key() -> None:
     """``connector:`` resolves to ``config['control_system.type']``."""
-    profile = _parse_profile({"name": "x", "connector": "virtual_accelerator"})
+    profile = _parse_profile({"name": "x", "data": "data", "connector": "virtual_accelerator"})
 
     assert profile.config[CONNECTOR_CONFIG_KEY] == "virtual_accelerator"
 
 
 def test_parse_consumes_the_shorthand_key() -> None:
     """The raw mapping is left with the literal spelling only."""
-    raw = {"name": "x", "connector": "epics"}
+    raw = {"name": "x", "data": "data", "connector": "epics"}
     _parse_profile(raw)
 
     assert CONNECTOR_PROFILE_KEY not in raw
@@ -84,7 +95,12 @@ def test_parse_consumes_the_shorthand_key() -> None:
 def test_shorthand_overrides_an_existing_literal_key() -> None:
     """A profile naming both resolves to the shorthand's value, not the literal's."""
     profile = _parse_profile(
-        {"name": "x", "connector": "doocs", "config": {CONNECTOR_CONFIG_KEY: "mock"}}
+        {
+            "name": "x",
+            "data": "data",
+            "connector": "doocs",
+            "config": {CONNECTOR_CONFIG_KEY: "mock"},
+        }
     )
 
     assert profile.config[CONNECTOR_CONFIG_KEY] == "doocs"
@@ -92,7 +108,9 @@ def test_shorthand_overrides_an_existing_literal_key() -> None:
 
 def test_parse_without_shorthand_leaves_config_untouched() -> None:
     """No shorthand, no injected config key — the fold is opt-in."""
-    profile = _parse_profile({"name": "x", "config": {"control_system.type": "mock"}})
+    profile = _parse_profile(
+        {"name": "x", "data": "data", "config": {"control_system.type": "mock"}}
+    )
 
     assert profile.config == {"control_system.type": "mock"}
 
@@ -100,7 +118,9 @@ def test_parse_without_shorthand_leaves_config_untouched() -> None:
 def test_config_must_be_a_mapping_to_carry_the_shorthand() -> None:
     """A scalar ``config:`` cannot hold the folded key, and says so."""
     with pytest.raises(BuildProfileError, match="must be a mapping to carry"):
-        _parse_profile({"name": "x", "connector": "mock", "config": "not-a-mapping"})
+        _parse_profile(
+            {"name": "x", "data": "data", "connector": "mock", "config": "not-a-mapping"}
+        )
 
 
 # ── --set / -O layering ──────────────────────────────────────────────────────
@@ -115,7 +135,7 @@ def test_merge_cli_overrides_folds_set_shorthand() -> None:
 
 def test_set_shorthand_wins_over_the_base_layer() -> None:
     """The base layer's connector is replaced, not merged alongside."""
-    base = {"name": "x", "config": {CONNECTOR_CONFIG_KEY: "mock"}}
+    base = {"name": "x", "data": "data", "config": {CONNECTOR_CONFIG_KEY: "mock"}}
     merged = merge_cli_overrides(base, (), ("connector=virtual_accelerator",))
 
     assert merged["config"][CONNECTOR_CONFIG_KEY] == "virtual_accelerator"
@@ -126,7 +146,7 @@ def test_override_file_shorthand_is_folded(tmp_path: Path) -> None:
     override = tmp_path / "over.yml"
     override.write_text("connector: doocs\n", encoding="utf-8")
 
-    merged = merge_cli_overrides({"name": "x"}, (override,), ())
+    merged = merge_cli_overrides({"name": "x", "data": "data"}, (override,), ())
 
     assert merged["config"][CONNECTOR_CONFIG_KEY] == "doocs"
     assert CONNECTOR_PROFILE_KEY not in merged
@@ -137,16 +157,16 @@ def test_last_layer_naming_the_connector_wins(tmp_path: Path) -> None:
     override = tmp_path / "over.yml"
     override.write_text("connector: doocs\n", encoding="utf-8")
 
-    merged = merge_cli_overrides({"name": "x"}, (override,), ("connector=epics",))
+    merged = merge_cli_overrides({"name": "x", "data": "data"}, (override,), ("connector=epics",))
 
     assert merged["config"][CONNECTOR_CONFIG_KEY] == "epics"
 
 
 def test_merge_without_shorthand_is_unchanged() -> None:
     """No ``connector`` anywhere means no ``config:`` block is invented."""
-    merged = merge_cli_overrides({"name": "x"}, (), ("model=sonnet",))
+    merged = merge_cli_overrides({"name": "x", "data": "data"}, (), ("model=sonnet",))
 
-    assert merged == {"name": "x", "model": "sonnet"}
+    assert merged == {"name": "x", "data": "data", "model": "sonnet"}
 
 
 # ── extends parents and plain file loads ─────────────────────────────────────
@@ -160,11 +180,13 @@ def test_shorthand_in_an_extends_parent_is_folded(tmp_path: Path) -> None:
     layers and still be judged together is the point of checking the *merged*
     config rather than any single layer's.
     """
+    (tmp_path / "data").mkdir(exist_ok=True)
     parent = tmp_path / "parent.yml"
     parent.write_text("name: Parent\nconnector: virtual_accelerator\n", encoding="utf-8")
     child = tmp_path / "child.yml"
     child.write_text(
-        "name: Child\nextends: parent.yml\nconfig:\n  archiver.type: mongodb_archiver\n",
+        "name: Child\nextends: parent.yml\ndata: data\n"
+        "config:\n  archiver.type: mongodb_archiver\n",
         encoding="utf-8",
     )
 
@@ -176,7 +198,8 @@ def test_shorthand_in_an_extends_parent_is_folded(tmp_path: Path) -> None:
 def test_shorthand_in_a_plain_profile_file_is_folded(tmp_path: Path) -> None:
     """``load_profile`` folds it too — not only the preset/override path."""
     profile_file = tmp_path / "profile.yml"
-    profile_file.write_text("name: Plain\nconnector: doocs\n", encoding="utf-8")
+    (tmp_path / "data").mkdir(exist_ok=True)
+    profile_file.write_text("name: Plain\ndata: data\nconnector: doocs\n", encoding="utf-8")
 
     profile = load_profile(profile_file)
 
@@ -189,7 +212,7 @@ def test_shorthand_in_a_plain_profile_file_is_folded(tmp_path: Path) -> None:
 @pytest.mark.parametrize("connector", CLI_CONTROL_SYSTEM_TYPES)
 def test_every_cli_connector_type_is_accepted(connector: str) -> None:
     """The shorthand accepts exactly the types the config CLI offers."""
-    profile = _parse_profile({"name": "x", "connector": connector})
+    profile = _parse_profile({"name": "x", "data": "data", "connector": connector})
 
     assert profile.config[CONNECTOR_CONFIG_KEY] == connector
 
@@ -197,7 +220,7 @@ def test_every_cli_connector_type_is_accepted(connector: str) -> None:
 def test_misspelled_connector_suggests_the_nearest_type() -> None:
     """A typo names the intended type rather than failing later in the build."""
     with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "connector": "virtal_accelerator"})
+        _parse_profile({"name": "x", "data": "data", "connector": "virtal_accelerator"})
 
     message = str(excinfo.value)
     assert "Unknown connector 'virtal_accelerator'" in message
@@ -207,13 +230,13 @@ def test_misspelled_connector_suggests_the_nearest_type() -> None:
 def test_wrong_case_connector_suggests_the_exact_spelling() -> None:
     """Case is not silently normalized — the exact spelling is suggested."""
     with pytest.raises(BuildProfileError, match="did you mean 'epics'"):
-        _parse_profile({"name": "x", "connector": "EPICS"})
+        _parse_profile({"name": "x", "data": "data", "connector": "EPICS"})
 
 
 def test_unrecognizable_connector_lists_every_valid_choice() -> None:
     """With nothing close enough to suggest, the full choice list still lands."""
     with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "connector": "moat"})
+        _parse_profile({"name": "x", "data": "data", "connector": "moat"})
 
     message = str(excinfo.value)
     assert "Valid connectors are:" in message
@@ -224,7 +247,7 @@ def test_unrecognizable_connector_lists_every_valid_choice() -> None:
 def test_custom_connector_path_is_pointed_at_the_literal_key() -> None:
     """A dotted module path is not a shorthand value; the error says what is."""
     with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "connector": "mypackage.MoatConnector"})
+        _parse_profile({"name": "x", "data": "data", "connector": "mypackage.MoatConnector"})
 
     assert CONNECTOR_CONFIG_KEY in str(excinfo.value)
 
@@ -233,7 +256,7 @@ def test_custom_connector_path_is_pointed_at_the_literal_key() -> None:
 def test_non_string_connector_values_are_rejected(value: object) -> None:
     """``--set connector=`` and friends fail rather than resolving to nothing."""
     with pytest.raises(BuildProfileError, match="must name a connector type"):
-        _parse_profile({"name": "x", "connector": value})
+        _parse_profile({"name": "x", "data": "data", "connector": value})
 
 
 def test_invalid_set_value_is_rejected_at_merge_time() -> None:
@@ -345,7 +368,7 @@ def test_the_stand_in_stays_out_of_the_init_list() -> None:
 
 def test_parse_accepts_the_stand_in() -> None:
     """``connector: live_standin`` folds to the literal key like any other type."""
-    profile = _parse_profile({"name": "x", "connector": LIVE_STANDIN})
+    profile = _parse_profile({"name": "x", "data": "data", "connector": LIVE_STANDIN})
 
     assert profile.config[CONNECTOR_CONFIG_KEY] == LIVE_STANDIN
 
@@ -360,7 +383,7 @@ def test_merge_cli_overrides_accepts_the_stand_in() -> None:
 def test_misspelled_stand_in_suggests_the_stand_in() -> None:
     """The suggestion draws from the settable list, so a stand-in typo lands."""
     with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "connector": "live_standn"})
+        _parse_profile({"name": "x", "data": "data", "connector": "live_standn"})
 
     message = str(excinfo.value)
     assert "Unknown connector 'live_standn'" in message
@@ -370,7 +393,7 @@ def test_misspelled_stand_in_suggests_the_stand_in() -> None:
 def test_invalid_connector_lists_the_stand_in_among_the_choices() -> None:
     """The refusal names every settable type, the stand-in included."""
     with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "connector": "moat"})
+        _parse_profile({"name": "x", "data": "data", "connector": "moat"})
 
     assert LIVE_STANDIN in str(excinfo.value)
 

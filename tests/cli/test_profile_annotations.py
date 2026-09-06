@@ -23,7 +23,6 @@ from osprey.cli.build_profile import BuildProfile, list_presets, resolve_build_p
 from osprey.cli.build_profile_emit import (
     _ANNOTATIONS,
     _EXPLICIT_KEYS,
-    _FIELD_TO_YAML,
     _SYNTHESIS_RATIONALE,
     emit_standalone_profile_yaml,
 )
@@ -76,7 +75,13 @@ def _snippet(lines: tuple[str, ...]) -> str:
 
 
 def _yaml_key(field: str) -> str:
-    return _FIELD_TO_YAML.get(field, field)
+    """The YAML spelling of a profile field.
+
+    They are the same word: the one alias the emitter carried mapped the
+    retired bundle field onto ``app_template:``, and that key is preset-side
+    now. Kept as a function so a future alias has one place to land.
+    """
+    return field
 
 
 # ---------------------------------------------------------------------------
@@ -229,9 +234,16 @@ def _sole_key_line(lines: list[str], key: str) -> int:
 
 
 def _resolve(profile_dir: Path, lines: list[str]) -> BuildProfile:
-    """Write *lines* as the profile of a bare directory and resolve them."""
+    """Write *lines* as the profile of a bare directory and resolve them.
+
+    ``osprey init`` writes ``data:`` into the profile it materializes and lays
+    the tree down beside it; the emitter alone produces neither, and validation
+    requires both. So the tree is created and the key added here, exactly as
+    the verb would have.
+    """
+    (profile_dir / "data").mkdir(exist_ok=True)
     path = profile_dir / "profile.yml"
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("data: data\n" + "\n".join(lines) + "\n")
     return resolve_build_profile(path, None)[0]
 
 

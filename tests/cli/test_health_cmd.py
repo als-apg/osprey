@@ -574,7 +574,7 @@ class TestSubdirectoryStance:
     def _repo(tmp_path: Path) -> Path:
         repo = tmp_path / "repo"
         (repo / "build").mkdir(parents=True)
-        (repo / "profile.yml").write_text("name: canary\ndata_bundle: hello_world\n")
+        (repo / "profile.yml").write_text("name: canary\ndata: data\n")
         (repo / "build" / "config.yml").write_text(_VALID_CONFIG)
         return repo
 

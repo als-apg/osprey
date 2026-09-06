@@ -32,6 +32,17 @@ from osprey.cli.build_profile_schema import (
 from osprey.errors import BuildProfileError
 
 
+@pytest.fixture(autouse=True)
+def _facility_data_tree(tmp_path: Path) -> None:
+    """The tree every profile's ``data:`` key names, beside the profile.
+
+    ``data:`` is required of every repo profile and must resolve to a real
+    directory, so without this each profile below would report one extra
+    failure about a key none of these tests is about.
+    """
+    (tmp_path / "data").mkdir(exist_ok=True)
+
+
 def _errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
     """Validate ``profile`` and return the individual accumulated failures."""
     with pytest.raises(BuildProfileError) as exc:
@@ -54,7 +65,7 @@ def _triggers(tmp_path: Path, name: str = "trig.yml") -> str:
 
 def _profile(**raw: Any) -> BuildProfile:
     """Parse a profile from the YAML surface, filling in the required name."""
-    return _parse_profile({"name": "netaxis", **raw})
+    return _parse_profile({"name": "netaxis", "data": "data", **raw})
 
 
 # --- the vocabulary -------------------------------------------------------
@@ -203,6 +214,7 @@ def test_dispatch_network_accepts_host(tmp_path: Path) -> None:
     """The pair moves via its own knob."""
     profile = BuildProfile(
         name="netaxis",
+        data="data",
         dispatch=DispatchConfig(triggers=_triggers(tmp_path), network="host"),
     )
     profile.validate(tmp_path)
@@ -212,6 +224,7 @@ def test_dispatch_network_rejects_an_invalid_value(tmp_path: Path) -> None:
     """An invented mode on the pair knob names the key and the allowed set."""
     profile = BuildProfile(
         name="netaxis",
+        data="data",
         dispatch=DispatchConfig(triggers=_triggers(tmp_path), network="hostnet"),  # type: ignore[arg-type]
     )
     assert _network_errors(profile, tmp_path) == [
@@ -246,6 +259,7 @@ def test_per_half_network_is_rejected_even_when_it_agrees(tmp_path: Path) -> Non
     """A second spelling that happens to agree today drifts tomorrow — reject it."""
     profile = BuildProfile(
         name="netaxis",
+        data="data",
         dispatch=DispatchConfig(triggers=_triggers(tmp_path), network="host"),
         services={
             "event_dispatcher": ServiceDef(
@@ -365,6 +379,7 @@ def test_a_profile_declaring_no_network_anywhere_stays_clean(tmp_path: Path) -> 
     """The axis is inert when unset — an untouched profile validates as before."""
     profile = BuildProfile(
         name="netaxis",
+        data="data",
         dispatch=DispatchConfig(triggers=_triggers(tmp_path)),
         services={
             "gchat_bridge": ServiceDef(template="osprey.gchat_bridge", config={"port": 8080})

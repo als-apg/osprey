@@ -39,13 +39,13 @@ from osprey.errors import BuildProfileError
 def test_mcp_server_entry_must_be_a_mapping() -> None:
     """A non-mapping mcp_servers entry raises, naming the server."""
     with pytest.raises(BuildProfileError, match="MCP server 'broken' must be a mapping"):
-        _parse_profile({"name": "x", "mcp_servers": {"broken": "not-a-mapping"}})
+        _parse_profile({"name": "x", "data": "data", "mcp_servers": {"broken": "not-a-mapping"}})
 
 
 def test_mcp_server_entry_list_value_must_be_a_mapping() -> None:
     """A list-valued mcp_servers entry is rejected the same way a string one is."""
     with pytest.raises(BuildProfileError, match="MCP server 'listy' must be a mapping"):
-        _parse_profile({"name": "x", "mcp_servers": {"listy": ["osprey", "serve"]}})
+        _parse_profile({"name": "x", "data": "data", "mcp_servers": {"listy": ["osprey", "serve"]}})
 
 
 def test_mcp_server_without_command_or_url_raises() -> None:
@@ -53,12 +53,16 @@ def test_mcp_server_without_command_or_url_raises() -> None:
     with pytest.raises(
         BuildProfileError, match="MCP server 'bare' must have either 'command' or 'url'"
     ):
-        _parse_profile({"name": "x", "mcp_servers": {"bare": {}}})
+        _parse_profile({"name": "x", "data": "data", "mcp_servers": {"bare": {}}})
 
 
 def test_mcp_server_with_only_permissions_raises() -> None:
     """Permissions alone are not a transport — the no-command-no-url raise still fires."""
-    raw = {"name": "x", "mcp_servers": {"perms-only": {"permissions": {"allow": ["Read"]}}}}
+    raw = {
+        "name": "x",
+        "data": "data",
+        "mcp_servers": {"perms-only": {"permissions": {"allow": ["Read"]}}},
+    }
     with pytest.raises(
         BuildProfileError, match="MCP server 'perms-only' must have either 'command' or 'url'"
     ):
@@ -70,12 +74,16 @@ def test_mcp_server_with_empty_command_and_url_raises() -> None:
     with pytest.raises(
         BuildProfileError, match="MCP server 'empty' must have either 'command' or 'url'"
     ):
-        _parse_profile({"name": "x", "mcp_servers": {"empty": {"command": "", "url": ""}}})
+        _parse_profile(
+            {"name": "x", "data": "data", "mcp_servers": {"empty": {"command": "", "url": ""}}}
+        )
 
 
 def test_mcp_server_transport_defaults_to_http() -> None:
     """A URL server without a transport key parses as streamable-HTTP."""
-    profile = _parse_profile({"name": "x", "mcp_servers": {"api": {"url": "http://host:9000/mcp"}}})
+    profile = _parse_profile(
+        {"name": "x", "data": "data", "mcp_servers": {"api": {"url": "http://host:9000/mcp"}}}
+    )
     assert profile.mcp_servers["api"].transport == "http"
 
 
@@ -121,7 +129,13 @@ def test_mcp_server_sse_requires_explicit_url() -> None:
     with pytest.raises(
         BuildProfileError, match="MCP server 'legacy' transport 'sse' requires an explicit 'url'"
     ):
-        _parse_profile({"name": "x", "mcp_servers": {"legacy": {"transport": "sse", "port": 9000}}})
+        _parse_profile(
+            {
+                "name": "x",
+                "data": "data",
+                "mcp_servers": {"legacy": {"transport": "sse", "port": 9000}},
+            }
+        )
 
 
 # ── services: ────────────────────────────────────────────────────────────────
@@ -130,7 +144,7 @@ def test_mcp_server_sse_requires_explicit_url() -> None:
 def test_service_entry_must_be_a_mapping() -> None:
     """A non-mapping services entry raises, naming the service."""
     with pytest.raises(BuildProfileError, match="Service 'postgresql' must be a mapping"):
-        _parse_profile({"name": "x", "services": {"postgresql": "not-a-mapping"}})
+        _parse_profile({"name": "x", "data": "data", "services": {"postgresql": "not-a-mapping"}})
 
 
 def test_service_entry_builds_a_servicedef() -> None:
@@ -154,7 +168,7 @@ def test_service_entry_builds_a_servicedef() -> None:
 
 def test_service_entry_defaults_when_empty_mapping() -> None:
     """An empty services mapping parses to an empty template and an empty config."""
-    profile = _parse_profile({"name": "x", "services": {"bare": {}}})
+    profile = _parse_profile({"name": "x", "data": "data", "services": {"bare": {}}})
     assert profile.services["bare"] == ServiceDef(template="", config={})
 
 
@@ -174,7 +188,7 @@ def test_multiple_service_entries_are_all_parsed() -> None:
 
 def test_no_services_block_parses_to_empty_dict() -> None:
     """A profile without a services block gets an empty services mapping."""
-    assert _parse_profile({"name": "x"}).services == {}
+    assert _parse_profile({"name": "x", "data": "data"}).services == {}
 
 
 # ── bluesky: / virtual_accelerator: ──────────────────────────────────────────
@@ -183,13 +197,13 @@ def test_no_services_block_parses_to_empty_dict() -> None:
 def test_bluesky_not_a_mapping_raises() -> None:
     """A non-mapping 'bluesky' block raises during parsing."""
     with pytest.raises(BuildProfileError, match="Profile 'bluesky' must be a mapping"):
-        _parse_profile({"name": "x", "bluesky": "not-a-mapping"})
+        _parse_profile({"name": "x", "data": "data", "bluesky": "not-a-mapping"})
 
 
 def test_virtual_accelerator_not_a_mapping_raises() -> None:
     """A non-mapping 'virtual_accelerator' block raises during parsing."""
     with pytest.raises(BuildProfileError, match="Profile 'virtual_accelerator' must be a mapping"):
-        _parse_profile({"name": "x", "virtual_accelerator": "not-a-mapping"})
+        _parse_profile({"name": "x", "data": "data", "virtual_accelerator": "not-a-mapping"})
 
 
 def test_virtual_accelerator_unknown_key_raises_with_suggestion() -> None:
@@ -199,19 +213,23 @@ def test_virtual_accelerator_unknown_key_raises_with_suggestion() -> None:
         match=r"Unknown virtual_accelerator key\(s\): 'live_standing' "
         r"\(did you mean 'live_standin'\?\)",
     ):
-        _parse_profile({"name": "x", "virtual_accelerator": {"live_standing": 5074}})
+        _parse_profile(
+            {"name": "x", "data": "data", "virtual_accelerator": {"live_standing": 5074}}
+        )
 
 
 def test_virtual_accelerator_live_standin_parses() -> None:
     """A live_standin port lands on the parsed VAConfig."""
-    profile = _parse_profile({"name": "x", "virtual_accelerator": {"live_standin": 5074}})
+    profile = _parse_profile(
+        {"name": "x", "data": "data", "virtual_accelerator": {"live_standin": 5074}}
+    )
     assert profile.virtual_accelerator is not None
     assert profile.virtual_accelerator.live_standin == 5074
 
 
 def test_virtual_accelerator_without_live_standin_parses_to_none() -> None:
     """Omitting live_standin leaves the deployment with no stand-in lane."""
-    profile = _parse_profile({"name": "x", "virtual_accelerator": {"port": 5064}})
+    profile = _parse_profile({"name": "x", "data": "data", "virtual_accelerator": {"port": 5064}})
     assert profile.virtual_accelerator is not None
     assert profile.virtual_accelerator.live_standin is None
 
@@ -223,7 +241,9 @@ def test_virtual_accelerator_live_standin_must_be_true_or_an_int() -> None:
         match="virtual_accelerator.live_standin must be `true`.*"
         r"or a Channel Access port number \(got '5074'\)",
     ):
-        _parse_profile({"name": "x", "virtual_accelerator": {"live_standin": "5074"}})
+        _parse_profile(
+            {"name": "x", "data": "data", "virtual_accelerator": {"live_standin": "5074"}}
+        )
 
 
 def test_virtual_accelerator_live_standin_true_takes_the_layout_slot() -> None:
@@ -232,7 +252,9 @@ def test_virtual_accelerator_live_standin_true_takes_the_layout_slot() -> None:
     The number it gets is the layout's ``va_standin`` slot at the layout's own
     base, since this profile configures no ``deployment.port_base``.
     """
-    profile = _parse_profile({"name": "x", "virtual_accelerator": {"live_standin": True}})
+    profile = _parse_profile(
+        {"name": "x", "data": "data", "virtual_accelerator": {"live_standin": True}}
+    )
     assert profile.virtual_accelerator is not None
     assert profile.virtual_accelerator.live_standin == 10090
 
@@ -269,7 +291,9 @@ def test_virtual_accelerator_live_standin_false_is_refused() -> None:
         BuildProfileError,
         match="virtual_accelerator.live_standin: false is not a way to switch",
     ):
-        _parse_profile({"name": "x", "virtual_accelerator": {"live_standin": False}})
+        _parse_profile(
+            {"name": "x", "data": "data", "virtual_accelerator": {"live_standin": False}}
+        )
 
 
 def test_virtual_accelerator_live_standin_true_refuses_an_impossible_port_base() -> None:
@@ -292,7 +316,7 @@ def test_dispatch_ports_default_to_the_layout_slots() -> None:
     `deployment.port_base` publishes. The stride defaults to the layout's own
     spacing of one.
     """
-    profile = _parse_profile({"name": "x", "dispatch": {"triggers": "t.yml"}})
+    profile = _parse_profile({"name": "x", "data": "data", "dispatch": {"triggers": "t.yml"}})
     assert profile.dispatch is not None
     assert profile.dispatch.dispatcher_port == 10010
     assert profile.dispatch.worker_port_base == 10011
@@ -302,7 +326,7 @@ def test_dispatch_ports_default_to_the_layout_slots() -> None:
 def test_dispatch_worker_port_stride_is_a_recognised_key() -> None:
     """A profile may widen the worker spacing, and the value parses through."""
     profile = _parse_profile(
-        {"name": "x", "dispatch": {"triggers": "t.yml", "worker_port_stride": 10}}
+        {"name": "x", "data": "data", "dispatch": {"triggers": "t.yml", "worker_port_stride": 10}}
     )
     assert profile.dispatch is not None
     assert profile.dispatch.worker_port_stride == 10
@@ -333,7 +357,7 @@ def test_empty_collection_key_parses_to_the_empty_collection(key, empty) -> None
     a bare ``TypeError`` — a traceback where the author should have got a build
     that simply selects no panels.
     """
-    profile = _parse_profile({"name": "x", key: None})
+    profile = _parse_profile({"name": "x", "data": "data", key: None})
     assert getattr(profile, key) == empty
 
 
@@ -346,20 +370,38 @@ def test_empty_web_panels_validates_without_a_traceback() -> None:
     on.
     """
     profile = _parse_profile({"name": "x", "web_panels": None})
-    profile.validate(Path("/nonexistent-profile-root"))
+    # The directory deliberately does not exist: what this pins is that
+    # `validate` REPORTS rather than crashes, so its findings are beside the
+    # point and a missing `data:` tree is one more of them.
+    with pytest.raises(BuildProfileError):
+        profile.validate(Path("/nonexistent-profile-root"))
     assert profile.web_panels == []
 
 
 def test_empty_default_panel_is_the_same_as_an_unset_one() -> None:
     """``default_panel:`` is a scalar, so its empty spelling is already ``None``."""
-    assert _parse_profile({"name": "x", "default_panel": None}).default_panel is None
+    assert (
+        _parse_profile({"name": "x", "data": "data", "default_panel": None}).default_panel is None
+    )
+
+
+@pytest.fixture(autouse=True)
+def _facility_data_tree(tmp_path: Path) -> None:
+    """The tree every profile's ``data:`` key names, beside the profile.
+
+    ``data:`` is required of a repo profile and must resolve to a real
+    directory, so without this each profile below would report one extra
+    failure about a key none of these tests is about.
+    """
+    (tmp_path / "data").mkdir(exist_ok=True)
 
 
 def _write_persona_repo(root: Path, delta_body: str) -> Path:
     """Write a profile root selecting one panel, plus a persona delta under it."""
     root.mkdir(parents=True, exist_ok=True)
+    (root / "data").mkdir(exist_ok=True)
     (root / "profile.yml").write_text(
-        "name: hello\ndata_bundle: control_assistant\nweb_panels:\n  - ariel\n",
+        "name: hello\ndata: data\nweb_panels:\n  - ariel\n",
         encoding="utf-8",
     )
     (root / "personas").mkdir()

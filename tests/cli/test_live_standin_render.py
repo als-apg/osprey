@@ -96,16 +96,20 @@ SHIPPED_EPICS_BLOCK = {"timeout": 5.0}
 #: operator did not say themselves.
 ACK_NOTE_OPENING = "# Written by `osprey build` for the live stand-in: the `epics` gateways"
 
-#: The commented example the template ships for the acknowledgment, and the two
+#: The commented example the profile ships for the acknowledgment, and the two
 #: commented gateway-port examples beside it. They are the instructions for
 #: pointing a deployment at a real machine by hand, and no build consumes them.
-COMMENTED_ACK_EXAMPLE = "# live_gateway_acknowledged:"
-COMMENTED_PORT_EXAMPLE = "# port: 10091"
+#: Preset keys are flat and dotted, so the comment carries the whole path.
+COMMENTED_ACK_EXAMPLE = "# control_system.target_switch.live_gateway_acknowledged:"
+#: The prose that stands in for the gateway-port examples. No value ships:
+#: a gateway port is derived from `services.virtual_accelerator.port`, and
+#: the one case that needs a written one is documented instead of shown.
+GATEWAY_PORT_PROSE = "reach a VA this deployment does not run"
 
-#: The template's own end-of-line comment on the strict-limits key. It explains
-#: the KEY rather than the shipped value, so it stays true for a deployment that
-#: sets either — nothing rewrites it at build time.
-LIMITS_COMMENT = "false refuses any channel the database does not list"
+#: The profile's own comment on the strict-limits pair. It explains the KEYS
+#: rather than the shipped values, so it stays true for a deployment that sets
+#: either — nothing rewrites it at build time.
+LIMITS_COMMENT = "refused rather than waved through"
 
 #: Where a profile names the machine every session starts on, and the baseline a
 #: deployment with no stand-in falls back to.
@@ -235,6 +239,16 @@ def _config_text(build: Path) -> str:
     return (build / "config.yml").read_text(encoding="utf-8")
 
 
+def _profile_text(build: Path) -> str:
+    """The deployment's own ``profile.yml``, comments and all.
+
+    Half of what this file pins is prose an operator reads beside the key it
+    explains, and that prose lives where the operator edits. A rendered
+    ``build/config.yml`` carries the values without it.
+    """
+    return (build.parent / "profile.yml").read_text(encoding="utf-8")
+
+
 def _compose(build: Path, service: str) -> dict[str, Any]:
     path = build / "services" / service / "docker-compose.yml"
     return yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -359,14 +373,22 @@ class TestTheRenderedConfigDescribesTheStandIn:
         the template happened to ship — and it must still read true beside the
         ``false`` the profile asked for.
         """
-        text = _config_text(standin_build)
         limits = _config(standin_build)["control_system"]["limits_checking"]
 
         assert limits["enabled"] is True
         assert limits["allow_unlisted_channels"] is False
-        line = next(row for row in text.splitlines() if "allow_unlisted_channels" in row)
-        assert "allow_unlisted_channels: false" in line
-        assert LIMITS_COMMENT in line
+
+        # The explanation stays where the operator edits: beside the key in
+        # profile.yml, not in the render the build overwrites.
+        rows = _profile_text(standin_build).splitlines()
+        key = next(
+            i
+            for i, row in enumerate(rows)
+            if row.strip().startswith("control_system.limits_checking.allow_unlisted_channels:")
+        )
+        assert "allow_unlisted_channels: false" in rows[key]
+        prose = "\n".join(row for row in reversed(rows[:key]) if row.strip().startswith("#"))
+        assert LIMITS_COMMENT in prose, "the comment explaining the key no longer sits above it"
 
     def test_live_standin_render_derives_no_operator_acknowledgment(self, standin_build) -> None:
         """``live`` has nothing to acknowledge that the operator did not say.
@@ -379,11 +401,12 @@ class TestTheRenderedConfigDescribesTheStandIn:
         """
         config = _config(standin_build)
         text = _config_text(standin_build)
+        profile = _profile_text(standin_build)
 
         target_switch = config["control_system"].get("target_switch") or {}
         assert "live_gateway_acknowledged" not in target_switch
         assert "    live_gateway_acknowledged:" not in text
-        assert COMMENTED_ACK_EXAMPLE in text
+        assert COMMENTED_ACK_EXAMPLE in profile
         assert ACK_NOTE_OPENING not in text
 
 
@@ -617,17 +640,18 @@ class TestABuildWithoutTheKeyIsUntouched:
         """The commented examples are the instructions for going to the machine.
 
         A build that derives nothing must leave them standing — the
-        acknowledgment example, the two commented gateway ports, and the
-        end-of-line comment on the strict-limits key, which explains the key
-        rather than the value and so is true either way.
+        acknowledgment example, the prose about when a gateway port is written
+        by hand, and the comment on the strict-limits pair, which explains the
+        keys rather than the values and so is true either way. They live in
+        profile.yml, where the operator edits; the render carries the values.
         """
         text = _config_text(plain_build)
+        profile = _profile_text(plain_build)
 
-        assert COMMENTED_ACK_EXAMPLE in text
+        assert COMMENTED_ACK_EXAMPLE in profile
         assert "    live_gateway_acknowledged:" not in text
-        assert text.count(COMMENTED_PORT_EXAMPLE) == 2
-        line = next(row for row in text.splitlines() if "allow_unlisted_channels" in row)
-        assert LIMITS_COMMENT in line
+        assert GATEWAY_PORT_PROSE in profile
+        assert LIMITS_COMMENT in profile
 
     def test_live_standin_render_off_is_stable_across_a_rebuild(self, tmp_path: Path) -> None:
         """Rebuilding the same repo rewrites the same bytes.

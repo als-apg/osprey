@@ -37,7 +37,6 @@ from osprey.utils.workspace import agent_data_base_dir
 
 PRESET = "control-assistant"
 PROJECT_NAME = "checksum-stability"
-_PRESET_PATH = Path(__file__).resolve().parents[2] / "src/osprey/profiles/presets" / f"{PRESET}.yml"
 
 
 def _data_checksums(project: Path) -> dict[str, str]:
@@ -235,15 +234,19 @@ class TestTheLoaderRejectsUnknownProfileKeys:
 
     def test_a_shipped_preset_loads(self, tmp_path: Path) -> None:
         """Control: the rejection below is about the added key, not the fixture."""
-        from osprey.cli.build_profile import load_profile
+        from osprey.cli.build_profile import resolve_build_profile
 
-        assert load_profile(_PRESET_PATH) is not None
+        profile, _preset_dir = resolve_build_profile(None, preset=PRESET)
+        assert profile is not None
 
     def test_an_unknown_top_level_key_is_rejected(self, tmp_path: Path) -> None:
-        from osprey.cli.build_profile import load_profile
+        from osprey.cli.build_profile import _load_preset_raw, load_profile
         from osprey.errors import BuildProfileError
 
-        profile = yaml.safe_load(_PRESET_PATH.read_text(encoding="utf-8"))
+        # The preset as a profile layer — `app_template:` already consumed, the
+        # way resolution consumes it. Spelling that key in a repo profile is
+        # itself refused, and this test is about the *unknown* key below.
+        profile, _preset_path = _load_preset_raw(PRESET)
         profile["definitely_not_a_profile_key"] = "x"
         path = tmp_path / "profile.yml"
         path.write_text(yaml.safe_dump(profile), encoding="utf-8")

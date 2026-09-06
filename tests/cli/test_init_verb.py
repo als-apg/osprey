@@ -24,6 +24,7 @@ different kinds of thing:
 from __future__ import annotations
 
 import io
+import re
 import stat
 import subprocess
 import sys
@@ -217,13 +218,33 @@ def test_every_source_path_the_exemplar_names_is_emitted(exemplar_repo: Path) ->
 #: that does not exist.
 RETIRED_VERB_STRINGS = (
     "osprey deploy ",
-    "osprey profile ",
     "osprey build <",
     "config set-control-system",
     "set-epics-gateway",
     "claude regen",
     "profile try",
 )
+
+#: How an emitted artifact spells a verb of the ``profile`` group.
+#:
+#: ``"osprey profile "`` used to sit in the tuple above, back when every verb
+#: an emitted artifact could name under that group was retired. It cannot stay:
+#: the packaged provider catalog and the retired-key refusal both name
+#: ``osprey profile expand``, which is a live verb. So the group literal is
+#: replaced with a live-command check, which trades one axis for another: it no
+#: longer refuses the group outright, and in exchange it refuses any verb the
+#: group does not actually answer to — including one retired or renamed later,
+#: the day it goes rather than whenever someone remembers to add its string.
+#: The pattern reads lowercase verbs only, so an uppercase spelling or an
+#: ``osprey profile --flag`` mention is not matched and not judged.
+PROFILE_VERB_MENTION = re.compile(r"osprey profile ([a-z][a-z0-9-]*)")
+
+
+def _live_profile_verbs() -> frozenset[str]:
+    """Every subcommand ``osprey profile`` currently answers to."""
+    from osprey.cli.profile_cmd import profile
+
+    return frozenset(profile.commands)
 
 
 def _emitted_source_files(repo: Path) -> list[Path]:
@@ -251,6 +272,22 @@ def test_no_emitted_artifact_names_a_retired_verb(exemplar_repo: Path) -> None:
         for verb in RETIRED_VERB_STRINGS
         if verb in path.read_text(encoding="utf-8", errors="ignore")
     ]
+    assert offenders == []
+
+
+def test_every_profile_verb_an_emitted_artifact_names_exists(exemplar_repo: Path) -> None:
+    """The same rule for the ``profile`` group, checked against the live group."""
+    live = _live_profile_verbs()
+    offenders = sorted(
+        {
+            f"{path.relative_to(exemplar_repo)}: 'osprey profile {verb}'"
+            for path in _emitted_source_files(exemplar_repo)
+            for verb in PROFILE_VERB_MENTION.findall(
+                path.read_text(encoding="utf-8", errors="ignore")
+            )
+            if verb not in live
+        }
+    )
     assert offenders == []
 
 

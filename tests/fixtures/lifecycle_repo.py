@@ -10,7 +10,7 @@ The layout is the four-zone repo — one directory, four kinds of content::
 
     als-exemplar/
     │  ═ SOURCE — tracked, user-edited ═══════════════
-    ├── profile.yml  triggers.yml  README.md
+    ├── profile.yml  providers.yml  triggers.yml  README.md
     ├── data/  personas/  web-terminal-context/
     ├── .gitignore  .env.example  .env.shared  ci-extra.yml
     ├── .gitlab-ci.yml  scripts/verify.sh   (with_ci=True only)
@@ -49,13 +49,18 @@ that way. What the redesign does change: the four-zone header, comments moved
 onto the new verb surface, the persona catalog pointed at ``build/`` and at
 ``personas/*.yml``, and the deploy block above.
 
-Two values cannot be frozen into the text: the installed OSPREY version and the
-bundled presets' content hashes, both of which the real emission stamps into the
-provenance header. They are written as ``@OSPREY_VERSION@`` and
-``@PRESET_HASH:<preset>@`` sentinels and expanded at materialization, so a
-byte-comparison against a live ``osprey init`` stays meaningful as the repo
-moves. Sentinels rather than ``str.format``/``%`` because the YAML carries
-literal ``${VAR:-default}`` shell expansions.
+Three values cannot be frozen into the text: the installed OSPREY version, the
+bundled presets' content hashes, and the provider catalog's content hash, all of
+which the real emission stamps into the provenance header. They are written as
+``@OSPREY_VERSION@``, ``@PRESET_HASH:<preset>@`` and ``@PROVIDERS_HASH@``
+sentinels and expanded at materialization, so a byte-comparison against a live
+``osprey init`` stays meaningful as the repo moves. Sentinels rather than
+``str.format``/``%`` because the YAML carries literal ``${VAR:-default}`` shell
+expansions.
+
+``providers.yml`` is the fourth thing not frozen. Init copies the packaged
+catalog beside the profile verbatim, so the fixture reads that file rather than
+holding a second copy of it; see :func:`packaged_providers_yml`.
 
 Usage::
 
@@ -111,8 +116,7 @@ EXECUTABLE_FILES: frozenset[str] = frozenset({"scripts/verify.sh"})
 # SOURCE zone — profile.yml
 # ─────────────────────────────────────────────────────────────────────────────
 
-PROFILE_YML = """\
-# Als Exemplar — OSPREY deployment repo
+PROFILE_YML = r"""# Als Exemplar — OSPREY deployment repo
 #
 # This file is your assistant's settings. Edit it, then run `osprey build`.
 #
@@ -137,32 +141,16 @@ PROFILE_YML = """\
 
 name: Als Exemplar
 
-# Which packaged app this builds. "control_assistant" is the full one. Its data
-# files are copied into data/, and that copy is what the build uses from then on.
-app_template: control_assistant
-
 # Which model answers. `osprey set provider=...` / `osprey set model=...` edit
 # these in place, keeping your comments.
 provider: anthropic
 model: haiku   # tier (haiku/sonnet/opus), or any model ID the provider serves
 
-# Any custom gateway works too: name it as the provider, describe it under
-# `config:` below, and put its key in this repo's .env — the variable name
-# derives from the provider name, <NAME>_API_KEY. Worked example:
-#
-# provider: my-gateway
-# config:
-#   api.providers.my-gateway.api_key: ${MY_GATEWAY_API_KEY}
-#   api.providers.my-gateway.base_url: https://my-gateway.example.com/v1
-#   # Optional — the gateway speaks Anthropic natively (e.g. a LiteLLM proxy
-#   # in Anthropic mode), so the local translation proxy is skipped:
-#   api.providers.my-gateway.api_protocol: anthropic
-#   # Optional tier map, model IDs as the gateway names them. Unmapped tiers
-#   # fall back to `model:` above, with a build-time warning:
-#   api.providers.my-gateway.models:
-#     haiku: claude-haiku-4-5
-#     sonnet: claude-sonnet-4-6
-#     opus: claude-opus-4-6
+# `provider:` names an entry in providers.yml, the provider catalog beside this
+# file. To use a gateway of your own, add its entry there (api_key, base_url and
+# a models tier map) and name it here; the key goes in this repo's .env under the
+# variable the entry's `api_key` references. A `config: api.providers.*` key is
+# refused: the catalog is the one home for provider endpoints.
 
 # How the agent searches for channels: `graph` answers from the facility
 # knowledge graph this deployment runs (`services.graphdb`), the same store
@@ -323,7 +311,27 @@ va_archiver:
 #
 # This block is where configuration lives. build/config.yml is generated from
 # it and should never be hand-edited. `osprey set` writes here.
+#
+# Not written here, because the build derives them: the project's paths, the
+# provider catalog (providers.yml beside this file), the agent's, the
+# semantic processor's and the logbook composer's provider and model (from
+# `provider:` / `model:` above), the channel-finder pipeline block (from
+# `channel_finder_mode:`), the panel selection (from `web_panels:`), every
+# host port, and everything the `bluesky:`, `virtual_accelerator:`,
+# `va_archiver:`, `dispatch:` and `mcp_servers:` sections above stand for.
 config:
+  # ── Facility ───────────────────────────────────────────────────────────────
+  # Your facility's name, used in the agent's prompts and on the web landing
+  # page. Defaults to the deployment name.
+  # facility.name: My Facility
+  # This facility's compiled ontology table, the JSON `osprey knowledge
+  # compile-ontology` writes, relative to the project root. It is the one
+  # source for the device vocabulary the channel-finder subagent's terminology
+  # table renders. Drop the key and the subagent is told no vocabulary was
+  # declared; point it at a missing file and the build stops and says so.
+  facility.ontology: data/facility_ontology.json
+
+  # ── Control system ─────────────────────────────────────────────────────────
   # Which machine a session starts on. "live_standin" is the stand-in declared
   # above, so this deployment's baseline is a facility-shaped soft IOC that
   # behaves like hardware and moves nothing. "virtual_accelerator" is the
@@ -342,12 +350,31 @@ config:
   # `osprey set config.archiver.type=epics_archiver` and
   # `osprey set va_archiver=null`, because the recorded archive goes with it.
   control_system.type: live_standin
+  # Master write switch, the FIRST guard in the write-safety chain: while
+  # false, every hardware write is refused before the limits check or the
+  # approval prompt is consulted. On here because the baseline is the stand-in,
+  # which cannot move a magnet; the read-only persona pins it off. Write
+  # posture is per connector type: a `control_system.connector.<type>.
+  # writes_enabled` overrides this for that type alone, and only a literal
+  # `true` arms writes at either level.
+  control_system.writes_enabled: true
+  # Extra tools the kill switch refuses while writes are off. Framework write
+  # tools are covered automatically; list your own servers' write tools here.
+  # control_system.write_tools: [mcp__my_server__dangerous_write]
+  # Operator-facing names for the control targets on the web terminal's
+  # control-target chip. Defaults: "Real machine", "Rehearsal", "Simulator".
+  # control_system.target_display_names.live: Real machine
+  # control_system.target_display_names.standin: Rehearsal
+  # control_system.target_display_names.va: Simulator
   # Every write checked against data/channel_limits.json, and a channel that
   # file does not list refused rather than waved through. Both hardware-shaped
   # targets — `standin` and `live` — require this pair before a session may
   # switch onto them, so a rehearsal runs the posture the real machine gets.
   control_system.limits_checking.enabled: true
   control_system.limits_checking.allow_unlisted_channels: false
+  # The limits file, relative to the build directory. It is a build copy: edit
+  # the one in data/ beside this file and rebuild.
+  control_system.limits_checking.database_path: data/channel_limits.json
   # The sandbox simulator is the exception, and it states the exception as a
   # whole block: a per-type posture REPLACES the pair above for that connector
   # type rather than merging with it, so both leaves are written out here.
@@ -361,9 +388,120 @@ config:
   # rehearse.
   control_system.connector.virtual_accelerator.limits_checking.enabled: true
   control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels: true
+  # Largest array channel_read returns inline, in elements. Anything bigger is
+  # saved as an artifact and reported as a summary plus a handle. One call
+  # inlines at most 4x this many elements across all the channels it read;
+  # past that budget a channel takes the artifact path and says so.
+  control_system.read_inline_max_elements: 2000
+  # Newest N UNPINNED read artifacts kept per channel; older ones are pruned
+  # on save. Pinned entries are never pruned. 0 keeps everything.
+  control_system.channel_read_artifact_retention: 20
+  # Pattern detection: every control-system operation in generated code is
+  # caught for approval, direct library calls included (epics.caput, .put()).
+  # Extend the framework's patterns for a custom library; `override` REPLACES
+  # them and drops that circumvention coverage.
+  # control_system.patterns.mode: extend
+  # control_system.patterns.write: ['my_custom_cs_lib\.write\(']
+  # control_system.patterns.read: ['my_custom_cs_lib\.read\(']
+  #
+  # Mock connector: driven by the simulation machine model below. Switch
+  # scenarios with `osprey sim apply NAME...` (see the sim-scenarios skill).
+  control_system.connector.mock.simulation_file: data/simulation/machine.json
+  # Virtual-accelerator connector: a containerized PyAT-backed soft IOC
+  # reached over real EPICS Channel Access, with the same gateway shape as the
+  # `epics` block. Deployed by the `virtual_accelerator:` section above.
+  #
+  # Channel Access timeout in seconds.
+  control_system.connector.virtual_accelerator.timeout: 5.0
+  # Same machine model as the mock connector, so `osprey sim apply` stays
+  # consistent whichever connector is active.
+  control_system.connector.virtual_accelerator.simulation_file: data/simulation/machine.json
+  # Write posture for the simulator alone. Uncomment to arm writes here while
+  # the master switch keeps the live machine read-only; the shipped
+  # `control-assistant-va-readwrite` persona is exactly this key.
+  # control_system.connector.virtual_accelerator.writes_enabled: true
+  # Channel the target switch reads to prove this target is reachable before
+  # making it active. Served by the simulation machine model.
+  control_system.connector.virtual_accelerator.probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
+  # Gateways in CA name-server (TCP) mode against localhost, the one
+  # host-to-container configuration that works across container runtimes. No
+  # port is written: the connector follows `services.virtual_accelerator.port`,
+  # so moving the deployed soft IOC is a one-place edit. Set a port on a
+  # gateway only to reach a VA this deployment does not run.
+  control_system.connector.virtual_accelerator.gateways.read_only.address: localhost
+  control_system.connector.virtual_accelerator.gateways.read_only.use_name_server: true
+  # The write lane, same host and mode as the read lane.
+  control_system.connector.virtual_accelerator.gateways.write_access.address: localhost
+  control_system.connector.virtual_accelerator.gateways.write_access.use_name_server: true
+  # EPICS connector for the live machine: ships unconfigured on purpose. A
+  # facility's gateways cannot be guessed, and shipping someone else's would
+  # make the `live` target look ready while pointing at hardware you never
+  # configured. Authoring the gateways and probe channel below is the go-live
+  # edit; until then the live target shows as not configured.
+  #
+  # Channel Access timeout in seconds.
+  control_system.connector.epics.timeout: 5.0
+  # Write posture for the live machine. Stating it pins it: a type with its
+  # own posture never falls back to the master switch.
+  # control_system.connector.epics.writes_enabled: false
+  # Limits posture for the live machine alone, both leaves required.
+  # control_system.connector.epics.limits_checking.enabled: true
+  # control_system.connector.epics.limits_checking.allow_unlisted_channels: false
+  # Channel the target switch reads to prove the live machine is reachable.
+  # While unset this target is never switched to.
+  # control_system.connector.epics.probe_channel: SR:BEAM:CURRENT
+  # Your facility's Channel Access gateways. use_name_server: true for SSH
+  # tunnels (EPICS_CA_NAME_SERVERS), false for a direct gateway
+  # (EPICS_CA_ADDR_LIST).
+  # control_system.connector.epics.gateways.read_only.address: your-ca-gateway.example.com
+  # control_system.connector.epics.gateways.read_only.port: 5064
+  # control_system.connector.epics.gateways.read_only.use_name_server: false
+  # control_system.connector.epics.gateways.write_access.address: your-ca-gateway.example.com
+  # control_system.connector.epics.gateways.write_access.port: 5084
+  # control_system.connector.epics.gateways.write_access.use_name_server: false
+  # PVAccess read routing: addresses matching these globs are read through
+  # p4p (the transport camera frames arrive on); everything else stays on
+  # Channel Access. Read-only, and `pva_gateway` is the ONLY route: EPICS_PVA_*
+  # variables never reach the connector. `address` maps to
+  # EPICS_PVA_ADDR_LIST (UDP search, default port 5076), or to
+  # EPICS_PVA_NAME_SERVERS when use_name_server is true (TCP, default 5075).
+  # control_system.connector.epics.pva_channels: ["*:IMAGE*", "*:ARRAY*"]
+  # control_system.connector.epics.pva_gateway.address: your-pva-gateway.example.com
+  # control_system.connector.epics.pva_gateway.use_name_server: false
+  # Target switch: how a running session moves between the connectors above.
+  #
+  # Seconds in-flight operations get to finish on the old target before it is
+  # torn down regardless.
+  control_system.target_switch.drain_timeout_s: 5
+  # Seconds between background reachability probes of every target's gateways.
+  control_system.target_switch.probe_interval_s: 30
+  # Operator acknowledgment for the live machine: set it to your own live
+  # gateway's hostname to confirm the `epics` gateways above really are your
+  # facility's. While unset a session may not switch TO the live target.
+  # control_system.target_switch.live_gateway_acknowledged: your-ca-gateway.example.com
+
+  # ── Archiver ───────────────────────────────────────────────────────────────
   # Use the archive declared by `va_archiver:` above. Declaring the block does
   # not turn it on; without this line you would deploy a store and not read it.
+  # The store's coordinates (`archiver.mongodb_archiver.*`) are derived from
+  # that block, so they are not written here. The alternatives are
+  # "mock_archiver" (synthesized history) and "epics_archiver" (an Archiver
+  # Appliance, configured below).
   archiver.type: mongodb_archiver
+  # When a read names no bin size, the bin is chosen so a continuously archived
+  # channel returns about this many points. The agent is told which bin it got.
+  archiver.auto_bin_points: 10000
+  # Mock archiver: synthesizes history from the same simulation machine model
+  # as the control-system connector, derived from
+  # `control_system.connector.<type>.simulation_file`. Set only to override.
+  # archiver.mock_archiver.simulation_file: data/simulation/machine.json
+  # EPICS Archiver Appliance: ships unconfigured on purpose, for the same
+  # reason as the `epics` gateways. Authoring it travels with the flip to
+  # `archiver.type: epics_archiver`.
+  # archiver.epics_archiver.url: https://your-archiver.example.com:8443
+  # archiver.epics_archiver.timeout: 60
+
+  # ── Scan plans (Bluesky) ───────────────────────────────────────────────────
   # Both servers are off by default in OSPREY. Turn them on so the agent can
   # write and launch plans, and run read-only health checks.
   claude_code.servers.bluesky.enabled: true
@@ -373,6 +511,196 @@ config:
   # until the next Start. Delete the line (or set it false) for a queue that
   # comes up stopped and drains only after a Start.
   bluesky.queue_autostart: true
+  # Extra plan directories, as IN-CONTAINER paths (the bridge mounts this
+  # config at /app/project/config.yml). Plans found here load at the `preset`
+  # trust tier and are exec'd on discovery with no review: a directory listed
+  # here is code you choose to run. To publish a host directory instead, use
+  # the `bluesky.plan_dir` field above.
+  # bluesky.plan_dirs: [/app/project/extra_plans]
+
+  # ── Channel finder ─────────────────────────────────────────────────────────
+  # The pipeline itself is derived from `channel_finder_mode:` above. When that
+  # field selects the graph paradigm it answers from the `services.graphdb.*`
+  # store below.
+  #
+  # The scored benchmark query set every paradigm reads, materialized by the
+  # build; `osprey channel-finder benchmark` runs it (`--queries-path FILE`
+  # for another).
+  channel_finder.benchmark.dataset_path: data/benchmarks/queries.json
+  # osprey:panel-port channel_finder
+  # The CHANNELS tab's own web server. It launches when `channel-finder` is in
+  # `web_panels:` above, on this deployment's channel-finder slot;
+  # OSPREY_CHANNEL_FINDER_PORT or the port key below override it. `host` has
+  # no env override. Uncomment to move or disable it.
+  # channel_finder.web.host: 127.0.0.1
+  # channel_finder.web.port: <a port outside this deployment's block>
+  # channel_finder.web.auto_launch: true
+  # Descriptive names for channels that belong to no device family, generated
+  # offline by `osprey channel-finder build-database --use-llm`. That flag
+  # needs `provider` set (no fallback to the agent's provider); `model_id` is a
+  # tier or a model ID the provider serves. Build-time only.
+  # channel_finder.channel_name_generation.llm_model.provider: anthropic
+  # channel_finder.channel_name_generation.llm_model.model_id: haiku
+  # channel_finder.channel_name_generation.llm_model.max_tokens: 1000
+  # channel_finder.channel_name_generation.llm_batch_size: 10
+
+  # ── Human-in-the-loop approval ─────────────────────────────────────────────
+  # The THIRD guard: a write that passed the master switch and the limits check
+  # still pauses for a yes/no prompt. Applied by the approval hook, so it
+  # reaches only hook-wired tools; the health check, channel-finder queries and
+  # most workspace tools are gated by the rendered settings.json permissions.
+  approval.enabled: true
+  # Policy for any hook-wired tool not listed below. "always" is fail-closed:
+  # reads need their own "skip" entry to run unprompted.
+  approval.default_policy: always
+  # Per-tool policies: always (prompt every time), skip (no prompt), or
+  # selective (content-aware, for `execute` only; other tools read it as
+  # always).
+  approval.tools.channel_write: always
+  approval.tools.channel_read: skip
+  approval.tools.archiver_read: skip
+  # Python execution: content-aware, so a script that only reads runs unprompted.
+  approval.tools.execute: selective
+  # The agent's own config-editing tool: a config change needs approval.
+  approval.tools.setup_patch: always
+  # Creating a logbook entry always asks first.
+  approval.tools.entry_create: always
+
+  # ── Hook observability ─────────────────────────────────────────────────────
+  # On here. Every hook call logs one line to stderr and appends to
+  # .claude/hooks/hook_debug.jsonl (never rotated: prune it yourself), which
+  # is what the web terminal's Safety panel hook feed reads. OSPREY_HOOK_DEBUG
+  # in the environment forces it on regardless of this key.
+  hooks.debug: true
+
+  # ── ARIEL logbook search ───────────────────────────────────────────────────
+  # No `ariel.database.uri`: the DSN is derived from `services.postgresql.*`
+  # below, so moving the database stays a one-place edit. Set it only to point
+  # ARIEL at a Postgres this deployment does not run; an explicit uri wins.
+  # ariel.database.uri: postgresql://ariel:${ARIEL_DB_PASSWORD}@logbook-db.example.org:5432/ariel
+  # No `ariel.ingestion` block: the logbook is seeded from the simulation
+  # scenario bundles by `osprey sim apply NAME...`. For production, add
+  # `ariel.ingestion.adapter` and `ariel.ingestion.source_url` for your
+  # logbook system and use `osprey ariel ingest`.
+  # osprey:panel-port ariel
+  # The ARIEL tab's own web server. It launches when `ariel` is in
+  # `web_panels:` above, on this deployment's ARIEL slot; OSPREY_ARIEL_PORT or
+  # the port key below override it. `host` has no env override.
+  # ariel.web.host: 127.0.0.1
+  # ariel.web.port: <a port outside this deployment's block>
+  # ariel.web.auto_launch: true
+  # Which module answers a search that names no mode: the web interface's
+  # opening tab, `osprey ariel search` without `--mode`, and the service API.
+  # Naming a module that is off below is refused at startup.
+  ariel.default_search_mode: hybrid
+  # Facility vocabulary: control-room shorthand ("t/s the bpm offset") mapped
+  # to the words the logbook prose contains, so a search typed in shorthand
+  # finds the entries about it. Plain dictionary matching, every rewrite
+  # reported back as `expanded_terms`. The file is read once at startup; a
+  # broken one fails loudly there (panel in CONFIGURATION INVALID mode, search
+  # 503, MCP server refuses to start). Check edits with
+  # `osprey ariel vocab-check data/ariel/vocabulary.yml`.
+  ariel.vocabulary.enabled: true
+  # A twenty-concept EXAMPLE covering what most storage-ring facilities share
+  # (a linac or FEL should delete the orbit-and-ring group). A starting point,
+  # not your vocabulary: edit it. Relative to the project root.
+  ariel.vocabulary.path: data/ariel/vocabulary.yml
+  # Whether a search that expresses no preference gets expansion. The
+  # per-request `expand_query` argument overrides it either way.
+  ariel.vocabulary.expand_by_default: true
+  # Reverse expansion gates. Matching a form and adding its canonical is
+  # always on (`bpm` finds "beam position monitor"); these decide whether a
+  # spelled-out canonical also searches its short form. Free recall for an
+  # acronym, noise for an ordinary word ("calibration" → "cal").
+  ariel.vocabulary.canonical_to_acronym: true
+  ariel.vocabulary.canonical_to_shorthand: false
+  # No `ariel.vocabulary.expand_modes`: unset, every enabled search module
+  # expands. Set `[keyword, semantic]` to drop `hybrid` alone if the reranked
+  # ordering degrades under expansion.
+  #
+  # Search modules. Knobs MUST sit under `settings`: the loader keeps only
+  # `enabled`, `provider`, `model` and `settings` and drops any other key
+  # silently. Entries seeded by `osprey sim apply` carry no embeddings: run
+  # `osprey ariel migrate` then `osprey ariel enhance` to recover semantic
+  # search; hybrid search answers immediately from the exported mirror.
+  #
+  # Keyword search over Postgres.
+  ariel.search_modules.keyword.enabled: true
+  # Pattern tokens in a keyword query: `*` globs and explicit `/regex/`, run
+  # as case-insensitive matches (a glob is also anchored to word boundaries).
+  # Both need 3 consecutive literal characters to use the index. Set false to
+  # make `*` and `/…/` plain words again.
+  ariel.search_modules.keyword.settings.patterns_enabled: true
+  # Wall-clock envelope for a pattern search, in seconds. A pattern that cannot
+  # use the index scans the whole logbook; this returns a timeout diagnostic
+  # instead of holding the panel open.
+  ariel.search_modules.keyword.settings.pattern_timeout_seconds: 10.0
+  # Semantic search over pgvector embeddings. Degrades to keyword-only when
+  # Ollama or pgvector is unavailable, and says so.
+  ariel.search_modules.semantic.enabled: true
+  # Embedding provider (an entry in providers.yml) and model.
+  ariel.search_modules.semantic.provider: ollama
+  ariel.search_modules.semantic.model: nomic-embed-text
+  # Hybrid keyword+semantic search answered by the qmd sidecar: the
+  # best-ranked retrieval this preset ships, and the only semantic-quality
+  # mode that needs nothing on the host. It needs `services.qmd.*` below and
+  # the `qmd_export` enhancement; switch all three off together or not at
+  # all. Unlike semantic search it does not degrade: a query against a
+  # missing sidecar is reported as "search is down".
+  ariel.search_modules.hybrid.enabled: true
+  # qmd's LLM reranker: an LLM reviews every candidate, so it dominates query
+  # latency. One key for both surfaces, the agent's hybrid_search tool and the
+  # ARIEL panel; each can override it per call or per session.
+  ariel.search_modules.hybrid.settings.rerank: true
+  # Candidates the reranker considers. Lowering it trades recall for latency.
+  ariel.search_modules.hybrid.settings.candidate_limit: 40
+  # Enhancement modules, run during ingestion.
+  #
+  # Semantic processor: LLM keyword extraction and summarisation. Off because
+  # it costs LLM calls; the provider and model follow `provider:` / `model:`.
+  ariel.enhancement_modules.semantic_processor.enabled: false
+  # Token budget for each of its LLM calls.
+  ariel.enhancement_modules.semantic_processor.model.max_tokens: 256
+  # Text embedding for semantic search. Degrades gracefully when Ollama or
+  # pgvector is unavailable.
+  ariel.enhancement_modules.text_embedding.enabled: true
+  ariel.enhancement_modules.text_embedding.provider: ollama
+  # Embedding models and their vector dimension.
+  ariel.enhancement_modules.text_embedding.models:
+    - name: nomic-embed-text
+      dimension: 768
+  # qmd export: one markdown file per entry into the mirror tree the sidecar
+  # indexes. On for the same reason `hybrid` above is; an enabled export with
+  # no mirror_path is refused at startup.
+  ariel.enhancement_modules.qmd_export.enabled: true
+  # The mirror tree, relative to the project root. Under var/ (the durable
+  # STATE zone, kept out of git): it is machine-written and as large as the
+  # logbook. The compose generator binds this same path into the sidecar.
+  ariel.enhancement_modules.qmd_export.settings.mirror_path: var/ariel_mirror
+  # Default provider for EMBEDDING modules that name none of their own. Not a
+  # general fallback: the semantic processor's provider is derived separately.
+  ariel.embedding.provider: ollama
+
+  # ── Logbook composition ────────────────────────────────────────────────────
+  # The compose panel in the artifact gallery. Its provider follows
+  # `provider:` above; this is the tier used when the operator picks none
+  # (haiku | sonnet | opus), mapped to a model ID through providers.yml.
+  logbook.composition.default_tier: haiku
+
+  # ── Facility knowledge ─────────────────────────────────────────────────────
+  # OKF bundle (subsystems, devices, procedures, physics notes) behind the
+  # facility_knowledge server, `osprey knowledge` and the KNOWLEDGE tab.
+  # Relative to the project root. Replace with your own bundle once you have
+  # customised the example content.
+  facility_knowledge.bundle_path: data/facility_knowledge
+  # osprey:panel-port okf
+  # The KNOWLEDGE tab's own web server. It launches when `okf` is in
+  # `web_panels:` above, on this deployment's knowledge slot. Uncomment to
+  # move or disable it.
+  # facility_knowledge.host: 127.0.0.1
+  # facility_knowledge.port: <a port outside this deployment's block>
+  # facility_knowledge.auto_launch: true
+
   # ── Tier floor ─────────────────────────────────────────────────────────────
   # The privileges every tier built from this preset starts WITHOUT. Each key
   # here is off at the bottom and lifted back on by exactly the tier that is
@@ -400,14 +728,222 @@ config:
   # skill library is ordinary work. What this turns off is writing to it: the
   # gallery's edit, create and delete surfaces are shared deployment state.
   web.scaffold_gallery.write_enabled: false
-  # system.timezone: America/Los_Angeles
-  # Your facility's name, used in the agent's prompts and on the web landing
-  # page. Defaults to the deployment name.
-  # facility.name: My Facility
-  # Starting theme for every web terminal. Each browser can override it from
-  # the display menu.
+  # Override model IDs per tier, or the tier one agent runs at.
+  # claude_code.models.haiku: anthropic/claude-haiku-alt
+  # claude_code.agent_models.logbook-search: haiku
+  # claude_code.agent_models.logbook-deep-research: sonnet
+  # Switch a framework server or subagent off, or add an MCP server of your
+  # own (the `mcp_servers:` field above is the usual home for one).
+  # claude_code.servers.python.enabled: false
+  # claude_code.agents.logbook-search.enabled: false
+
+  # ── Telemetry ──────────────────────────────────────────────────────────────
+  # The agent emits OTLP logs and metrics to the OpenObserve store this
+  # deployment runs (`services.openobserve.*` below). On by default: the
+  # harness already records every prompt and API body to disk, so this adds no
+  # exposure, only a queryable local store you own.
+  claude_code.telemetry.enabled: true
+  # openobserve | generic
+  claude_code.telemetry.backend: openobserve
+  # http/protobuf | grpc. grpc needs an explicit `claude_code.telemetry.endpoint`
+  # and is refused against the auto-derived openobserve endpoint (HTTP only).
+  claude_code.telemetry.protocol: http/protobuf
+  # No endpoint key: with backend openobserve it is derived per network
+  # context (the host's OpenObserve slot, or the store's own listen port
+  # inside the deploy network), so the in-container dispatch worker does not
+  # emit to its own loopback.
+  # The store's INGEST account: `osprey up` creates a service account named by
+  # ZO_INGEST_USER_EMAIL and writes the token it issues to this repo's .env as
+  # ZO_INGEST_SA_TOKEN. No default for the token on purpose: a literal default
+  # would be a published credential.
+  claude_code.telemetry.openobserve.user: ${ZO_INGEST_USER_EMAIL:-ingest@example.com}
+  claude_code.telemetry.openobserve.password: ${ZO_INGEST_SA_TOKEN}
+  # OpenObserve organisation the records land in.
+  claude_code.telemetry.openobserve.org: default
+  # Content gates, all on. The store captures full transcripts behind the
+  # ZO_ROOT_USER_PASSWORD `osprey up` writes into .env; anyone with that
+  # password and a route to the host can read everything. Set any gate to
+  # false to keep that category out of the emitted telemetry.
+  claude_code.telemetry.log_user_prompts: true
+  claude_code.telemetry.log_assistant_responses: true
+  claude_code.telemetry.log_tool_details: true
+  # Raw provider request and response bodies.
+  claude_code.telemetry.log_raw_api_bodies: true
+
+  # ── Services ───────────────────────────────────────────────────────────────
+  # Containerized companion services. Declare one as `services.<name>.*` and
+  # add its name to `deployed_services` below to launch it with `osprey up`.
+  # The `bluesky:`, `virtual_accelerator:`, `va_archiver:` and `dispatch:`
+  # sections above add their own services at build time. No host ports are
+  # written here: each service publishes on its fixed slot above
+  # `deployment.port_base` (set that key to move the whole block). Add
+  # `services.<name>.port` (`port_host` for the stores) only to pin one
+  # outside it.
+  #
+  # PostgreSQL backs ARIEL logbook search. Compose directory, under build/.
+  services.postgresql.path: ./services/postgresql
+  # Database and role ARIEL connects as. No password key: it lives in this
+  # repo's .env as ARIEL_DB_PASSWORD (minted by `osprey up`), read by both the
+  # container and the agent's ARIEL DSN, which is derived from this block.
+  services.postgresql.database_name: ariel
+  services.postgresql.username: ariel
+  # OpenObserve, the local telemetry store the agent emits to (see
+  # `claude_code.telemetry.*` above). `osprey up` mints a strong
+  # ZO_ROOT_USER_PASSWORD into .env. Compose directory, under build/.
+  services.openobserve.path: ./services/openobserve
+  # Growth bound: drop telemetry older than N days (min 3). A named volume has
+  # no size cap, so age is the size knob; `osprey health` warns as the backing
+  # disk fills.
+  services.openobserve.retention_days: 14
+  # qmd, the semantic-search sidecar. It indexes the facility-knowledge bundle
+  # and the ARIEL markdown mirror that `ariel.enhancement_modules.qmd_export`
+  # writes, and answers ranked KNOWLEDGE search and the `hybrid` logbook mode
+  # over HTTP, with its language models baked into the image (no Ollama
+  # needed). The image is built locally on the first `osprey up`; the ~2.1 GB
+  # of models make that first build long. It publishes on
+  # `deployment.bind_address` with no token and no TLS, so leave that on
+  # loopback. To run without it, remove this key, `services.qmd.interval`, the
+  # `qmd` entry below and the two ARIEL consumers (`qmd_export`, `hybrid`).
+  services.qmd.path: ./services/qmd
+  # Fallback corpus-sweep period in seconds. The bundle's `.qmd-touch` marker
+  # is the primary re-index trigger, so this is the ceiling on staleness.
+  # Raise it on a large corpus, where a no-op sweep is not free.
+  services.qmd.interval: 30
+  # Neo4j graph store holding a DISPOSABLE mirror of an RDF/Turtle corpus. The
+  # TTL on disk stays the source of truth and `osprey knowledge seed-graph`
+  # rebuilds the graph from it. It answers the multi-hop questions keyword and
+  # semantic search cannot, and it is what the channel finder reads when
+  # `channel_finder_mode:` selects the graph paradigm.
+  # No password key: the container reads GRAPHDB_PASSWORD from this repo's
+  # .env, minted by `osprey up`.
+  services.graphdb.path: ./services/graphdb
+  # Pinned to the 5.26 LTS line: neosemantics (n10s), the plugin that imports
+  # the RDF, has no manifest entry for anything newer. Repoint it at a mirror
+  # or a pre-baked image on an air-gapped host.
+  services.graphdb.image: neo4j:5.26-community
+  # Corpus to seed the store from, relative to the build directory. This is
+  # the demo machine: the same devices and channels the channel database in
+  # data/ describes, rebuilt as a graph, so graph answers and channel search
+  # agree. Regenerate it after editing the channel database with
+  # `osprey knowledge build-ttl data/demo_machine.ttl`. Point it at your own
+  # TTL, or remove the key to bring the store up bootstrapped but empty.
+  services.graphdb.ttl_path: ./data/demo_machine.ttl
+  # JVM memory. Neo4j sizes nothing automatically inside a container, so all
+  # three are spelled out. Budget roughly heap_max_size + pagecache_size +
+  # ~0.5G overhead; a substantially larger graph wants more.
+  services.graphdb.heap_initial_size: 512m
+  services.graphdb.heap_max_size: 1G
+  # Off-heap cache for graph data and indexes, separate from the heap.
+  services.graphdb.pagecache_size: 512m
+  # Bounds on ONE agent query through the `read_cypher` tool: the server-side
+  # transaction timeout in seconds, and the rows returned before truncation
+  # (the tool says when it cut). Raising them spends the agent's context.
+  services.graphdb.query_timeout_s: 15
+  services.graphdb.query_max_rows: 200
+  # To use a graph store this deployment does not run, name it here and take
+  # `graphdb` out of `deployed_services`. Nothing is minted on that path: set
+  # GRAPHDB_PASSWORD in this repo's .env yourself.
+  # services.graphdb.uri: bolt://graph.example.org:7687
+  # services.graphdb.username: neo4j
+  # Which declared services `osprey up` launches. qmd and graphdb each go
+  # together with their `services.<name>.*` keys above: remove both or neither.
+  deployed_services:
+    - postgresql
+    - openobserve
+    - qmd
+    - graphdb
+  # Host interface the services publish on. 127.0.0.1 keeps every port
+  # loopback-only, the safe state; 0.0.0.0 exposes them to the network.
+  # deployment.bind_address: 127.0.0.1
+
+  # ── Web terminal ───────────────────────────────────────────────────────────
+  # Every panel tab is served by its own small web server, configured under its
+  # own section: WORKSPACE `artifact_server`, ARIEL `ariel.web`, CHANNELS
+  # `channel_finder.web`, LATTICE `lattice_dashboard`, KNOWLEDGE
+  # `facility_knowledge`, SYSTEM `health.web`. Each defaults to its slot above
+  # `deployment.port_base`; the panel's env var wins, then its `port` key.
+  # Multi-user deployments export the env var per user. The reference guide's
+  # ports page prints the table.
+  #
+  # osprey:panel-port artifact
+  # The WORKSPACE tab's artifact server. Under `osprey web` it launches at
+  # startup whatever the panel list says; `auto_launch: false` is the only
+  # thing that stops it. `host` has no env override.
+  artifact_server.host: 127.0.0.1
+  artifact_server.auto_launch: true
+  # Seed one shipped example (an interactive plot, synthetic data) into an
+  # empty WORKSPACE on the gallery's first start. Deleting it there is permanent.
+  artifact_server.example_artifact: true
+  # osprey:panel-port lattice_dashboard
+  # The LATTICE tab never auto-launches here: it needs this section and
+  # `lattice` in `web_panels:` above.
+  # lattice_dashboard.host: 127.0.0.1
+  # lattice_dashboard.port: <a port outside this deployment's block>
+  # lattice_dashboard.auto_launch: true
+  # osprey:panel-port system_health
+  # The SYSTEM tab needs no section: with `system-health` in `web_panels:` it
+  # binds its slot. Uncomment only to move it or switch it off.
+  # health.web.host: 127.0.0.1
+  # health.web.port: <a port outside this deployment's block>
+  # health.web.auto_launch: true
+  # The terminal process itself (`osprey web`), every key at its default. The
+  # multi-user compose sets OSPREY_TERMINAL_BIND_HOST on every container, which
+  # outranks `host`; `shell` REPLACES the launcher and defeats the CLI pin.
+  # web_terminal.host: 127.0.0.1
+  # web_terminal.port: <a port outside this deployment's block>
+  # web_terminal.max_background_sessions: 5
+  # web_terminal.watch_dir: var/agent_data
+  # Starting theme for every web terminal. A family ("main", "desy",
+  # "high-contrast", "retro") leaves light/dark to the viewer's OS; a concrete
+  # id ("desy-light") pins it. Each browser can override it from the display
+  # menu, and a roster entry's `theme:` overrides it per user.
   web.theme: light
-  # ── Web terminals ──────────────────────────────────────────────────────────
+  # Target of the Documentation button. Point it at a locally hosted copy of
+  # the docs when the control room has no route to the public site.
+  web.docs_url: https://als-apg.github.io/osprey
+  # The Feedback dialog's outbound channels. Nothing is posted for the user:
+  # the browser opens a prefilled GitHub issue form or mail draft. Every
+  # submission is also recorded here (`osprey feedback list` / `export`).
+  #
+  # owner/repo whose new-issue form the GitHub channel prefills. Point it at
+  # the repository your users' reports should land in; "" offers no GitHub
+  # channel.
+  web.feedback.github_repo: als-apg/osprey
+  # Further trackers, one channel each: a `gitlab` entry takes the project's
+  # base URL, a `github` entry owner/repo; `label` captions it.
+  # web.feedback.trackers:
+  #   - kind: gitlab
+  #     url: https://git.example.org/controls/osprey
+  #     label: Facility GitLab
+  # Recipient of the prefilled mailto: draft the Email channel opens.
+  web.feedback.email: thellert@lbl.gov
+  # Ceiling in bytes on the on-disk feedback store (256 MB). Above it the
+  # oldest saved session contexts are deleted; submission headers are kept.
+  web.feedback.max_store_bytes: 268435456
+  # Channel-name typeahead in the web panels: the build snapshots the names in
+  # this deployment's channel-finder database next to the generated config, so
+  # a form field can complete what an operator types. No control-system
+  # traffic and nothing to sync at run time.
+  web.channel_suggestions.enabled: true
+  # Guards the browser, not the build: every panel load fetches the whole
+  # snapshot, so a database with more channels than this is skipped (the build
+  # says so) and the fields simply offer no suggestions.
+  web.channel_suggestions.max_channels: 50000
+  # Custom panels are `web.panels.<id>.*` keys here; the built-in tabs are
+  # switched by `web_panels:` above. `rewrite_json_paths` opts a backend's
+  # JSON bootstrap endpoints into the reverse proxy's path rewrite.
+  # web.panels.my-grafana.label: GRAFANA
+  # web.panels.my-grafana.url: http://grafana.local:3000
+  # web.panels.my-grafana.health_endpoint: /api/health
+  # web.panels.my-grafana.path: /
+  # web.panels.my-grafana.hidden: true
+  # web.panels.my-grafana.rewrite_json_paths: ["/config.json"]
+  # Runtime panel control by the agent, off by default. Named layouts a human
+  # applies from the "+" popover are the `panel_presets:` field, not a key.
+  # web.allow_runtime_panels: true
+  # web.runtime_panel_allowlist: ["grafana.local:3000"]
+
+  # ── Multi-user web terminals ───────────────────────────────────────────────
   # `osprey up` runs a landing page and one terminal per user listed below.
   # `osprey web` honours only `auth.session_lifetime` from this block, so a
   # single terminal on your own machine works at any time. Set
@@ -426,7 +962,7 @@ config:
     enabled: true
 @WEB_TERMINALS_IMAGE_SOURCE@
     # No port keys here on purpose. Every host port this deployment publishes
-    # is `deployment.port_base` (10000 unless you set it) plus a fixed offset:
+    # is `deployment.port_base` (set that key to move them all) plus a fixed offset:
     # the landing page at the base itself, the shared services just above it,
     # one hundred ports per per-user family from base + 100 up, and the stores
     # at base + 800. User number i gets its family's first port + i, so
@@ -551,6 +1087,24 @@ config:
         build_profile: personas/knowledge.yml
         landing_group: Standalone deployments
 
+  # ── Runtime ────────────────────────────────────────────────────────────────
+  # Agent Python runs as a host subprocess.
+  execution.execution_method: subprocess
+  # Console colour theme for the CLI: default | custom. With custom, set the
+  # colours (`cli.custom_theme.primary` and friends) and optionally a banner.
+  cli.theme: default
+  # cli.custom_theme.primary: "#C75F71"
+  # cli.banner: |
+  #   Your custom ASCII art here
+  # Facility timezone: how operator times are read and every timestamp is
+  # rendered. Pinned to UTC for reproducibility; set your real zone in
+  # production (e.g. America/Los_Angeles). Avoid ${TZ:-...}: inheriting the
+  # host $TZ makes archiver queries and simulated events non-deterministic.
+  system.timezone: UTC
+  # Container runtime `osprey up` uses: auto (Docker first, then Podman),
+  # docker, or podman. CONTAINER_RUNTIME in the environment overrides it.
+  container_runtime: auto
+
 # ── Answering webhooks (optional) ────────────────────────────────────────────
 # Lets an outside system ask the agent a question over HTTP. The triggers that
 # ship need no control system, so a single `curl` after `osprey up` exercises
@@ -598,9 +1152,12 @@ requires_osprey_version: '>=2026.9.0'
 # preset has moved on; `osprey validate` refuses every difference from the
 # preset that no `# DEVIATION: <why>` comment above the line claims (tag set
 # by `deviation_marker:`). This profile is the source of truth either way.
+# `providers_hash` is the same record for providers.yml beside this file;
+# `osprey profile expand --providers` refreshes the packaged entries in it.
 provenance:
   preset: control-assistant
   preset_hash: @PRESET_HASH:control-assistant@
+  providers_hash: @PROVIDERS_HASH@
 # true builds its own services stack; false attaches to another project's.
 deploy_services: true
 # Services this profile declares. Injected ones are added at build time.
@@ -612,7 +1169,7 @@ panel_presets: {}
 # Build-time only (1 or 3), selecting which bundled tier DB is materialized.
 # Left unset the build picks a paradigm-aware default, which is why it stays
 # commented: pinning it here would override that default on every rebuild.
-# Tier 1 ships the in_context paradigm only.
+# Tier 1 is the flat whole-database view, so it serves one paradigm only.
 #
 # tier: 3
 
@@ -871,9 +1428,10 @@ config:
   # build copies every such fact from the deployment's own render into it
   # (the Reach Contract, `osprey.deployment.reach`). Per-user web-terminal
   # containers run `network_mode: host`, so container `localhost` IS the
-  # deployment host and the copied ports are dialed there. Built alone, with
-  # no hosting deployment in the repo, the build copies what the app template
-  # deploys at its defaults instead — and a host that differs is named here.
+  # deployment host and the copied ports are dialed there. The build renders
+  # no services for this persona and writes `deployed_services: []` into its
+  # config — every `services.*` key inherited from the base profile is dropped
+  # from this render — and a host that differs is named here.
 """
 
 PERSONA_KNOWLEDGE_YML = """\
@@ -986,9 +1544,10 @@ config:
   # copies every such fact from the deployment's own render into it (the
   # Reach Contract, `osprey.deployment.reach`). Per-user web-terminal
   # containers run `network_mode: host`, so container `localhost` IS the
-  # deployment host and the copied ports are dialed there. Built alone, with
-  # no hosting deployment in the repo, the build copies what the app template
-  # deploys at its defaults instead — and a host that differs is named here.
+  # deployment host and the copied ports are dialed there. The build renders
+  # no services for this persona and writes `deployed_services: []` into its
+  # config — every `services.*` key inherited from the base profile is dropped
+  # from this render — and a host that differs is named here.
 """
 
 PERSONA_READONLY_YML = """\
@@ -1045,9 +1604,10 @@ config:
   # containers run `network_mode: host`, so container `localhost` IS the
   # deployment host and the copied ports are dialed there. Move a port on the
   # hosting profile and every persona follows; spell a different one here and
-  # the build refuses the contradiction. Built alone, with no hosting
-  # deployment in the repo, the build copies what the app template deploys
-  # at its defaults instead — and a host that differs IS named here.
+  # the build refuses the contradiction. The build renders no services for
+  # this persona and writes `deployed_services: []` into its config — every
+  # `services.*` key inherited from the base profile is dropped from this
+  # render — and a host that differs IS named here.
 """
 
 PERSONA_READWRITE_YML = """\
@@ -1106,9 +1666,10 @@ config:
   # `network_mode: host`, so container `localhost` IS the deployment host and
   # the copied ports are dialed there. Move a port on the hosting profile and
   # every persona follows; spell a different one here and the build refuses
-  # the contradiction. Built alone, with no hosting deployment in the repo,
-  # the build copies what the app template deploys at its defaults instead
-  # — and a host that differs IS named here.
+  # the contradiction. The build renders no services for this persona and
+  # writes `deployed_services: []` into its config — every `services.*` key
+  # inherited from the base profile is dropped from this render — and a host
+  # that differs IS named here.
 """
 
 PERSONA_ADMIN_YML = """\
@@ -1193,9 +1754,10 @@ config:
   # containers run `network_mode: host`, so container `localhost` IS the
   # deployment host and the copied ports are dialed there. Move a port on the
   # hosting profile and every persona follows; spell a different one here and
-  # the build refuses the contradiction. Built alone, with no hosting
-  # deployment in the repo, the build copies what the app template deploys
-  # at its defaults instead — and a host that differs IS named here.
+  # the build refuses the contradiction. The build renders no services for
+  # this persona and writes `deployed_services: []` into its config — every
+  # `services.*` key inherited from the base profile is dropped from this
+  # render — and a host that differs IS named here.
 """
 
 
@@ -1486,7 +2048,7 @@ the folder name is the assistant's name.
 | Generated files | `build/` | no | no, safe to delete |
 | The agent's memory and audit log | `var/agent_data/`, `var/audit/` | no | yes |
 
-In full, the first row is: `profile.yml`, `data/`, `personas/`, `triggers.yml`, `web-terminal-context/`, `.env.example`, `.gitignore`, `.env.shared`, `README.md`, `ci-extra.yml`, `.gitlab-ci.yml`, `scripts/verify.sh`.
+In full, the first row is: `profile.yml`, `providers.yml`, `data/`, `personas/`, `triggers.yml`, `web-terminal-context/`, `.env.example`, `.gitignore`, `.env.shared`, `README.md`, `ci-extra.yml`, `.gitlab-ci.yml`, `scripts/verify.sh`.
 
 `build/` is generated from your settings every time you run `osprey build`.
 Deleting it is always safe: no settings, no keys and no agent memory live there.
@@ -1840,7 +2402,8 @@ wants() { case " $PROBE_GROUPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 # ── Deployed services ────────────────────────────────────────────────────────
 if wants services; then
   printf '\\n%s── Services ──%s\\n\\n' "$BOLD" "$RESET"
-  probe_tcp  'virtual-accelerator: Channel Access on 5064' localhost 5064
+  probe_tcp  'virtual-accelerator: Channel Access on 5064'  localhost 5064
+  probe_http 'openobserve: telemetry store on 10050'        http://localhost:10050/healthz
 fi
 
 # ── Web tier ─────────────────────────────────────────────────────────────────
@@ -2338,6 +2901,7 @@ CI_PIPELINE_FILES: Mapping[str, str] = {
 
 _PRESET_HASH_SENTINEL = re.compile(r"@PRESET_HASH:([a-z0-9-]+)@")
 _VERSION_SENTINEL = "@OSPREY_VERSION@"
+_PROVIDERS_HASH_SENTINEL = "@PROVIDERS_HASH@"
 _IMAGE_SOURCE_MARKER = "@WEB_TERMINALS_IMAGE_SOURCE@"
 _DEPLOY_BLOCK_MARKER = "@DEPLOY_BLOCK@"
 
@@ -2356,14 +2920,37 @@ def _preset_hash(preset_name: str) -> str:
     return compute_preset_hash(preset_name) or "(unavailable)"
 
 
-def expand_sentinels(text: str) -> str:
-    """Resolve ``@OSPREY_VERSION@`` and ``@PRESET_HASH:<preset>@`` in ``text``.
+def _providers_hash() -> str:
+    """Content hash of the packaged provider catalog, as init stamps it."""
+    from osprey.profiles.providers import compute_providers_hash, packaged_catalog_path
 
-    The two values the real emission stamps at materialization time. Resolving
-    them here rather than freezing them keeps a byte-comparison against a live
-    ``osprey init`` honest across version bumps and preset edits.
+    return compute_providers_hash(packaged_catalog_path())
+
+
+def packaged_providers_yml() -> str:
+    """The packaged ``providers.yml``, which ``osprey init`` copies verbatim.
+
+    Read rather than frozen, for the same reason the hashes are sentinels: the
+    package owns this file's content, so a frozen copy would prove only that
+    someone remembered to update two places. What the byte comparison is for is
+    that init copies the catalog through unchanged, and that is what reading it
+    here asserts.
+    """
+    from osprey.profiles.providers import packaged_catalog_path
+
+    return packaged_catalog_path().read_text(encoding="utf-8")
+
+
+def expand_sentinels(text: str) -> str:
+    """Resolve the version, preset-hash and providers-hash sentinels in ``text``.
+
+    The values the real emission stamps at materialization time. Resolving them
+    here rather than freezing them keeps a byte-comparison against a live
+    ``osprey init`` honest across version bumps, preset edits and additions to
+    the provider catalog.
     """
     text = text.replace(_VERSION_SENTINEL, _osprey_version())
+    text = text.replace(_PROVIDERS_HASH_SENTINEL, _providers_hash())
     return _PRESET_HASH_SENTINEL.sub(lambda m: _preset_hash(m.group(1)), text)
 
 
@@ -2391,6 +2978,9 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
 
     files = dict(BASE_SOURCE_FILES)
     files["profile.yml"] = profile.replace(_DEPLOY_BLOCK_MARKER + "\n", deploy_block)
+    # The provider catalog init writes beside the profile. Not in
+    # BASE_SOURCE_FILES because it is read from the package rather than frozen.
+    files["providers.yml"] = packaged_providers_yml()
     if with_ci:
         files.update(CI_PIPELINE_FILES)
     return {path: expand_sentinels(text) for path, text in files.items()}

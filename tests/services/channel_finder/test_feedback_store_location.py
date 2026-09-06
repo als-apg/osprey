@@ -5,7 +5,7 @@ the agent runs. A project's ``data/`` tree is re-rendered from the profile on
 every build and checksummed into the manifest, so runtime writes there read as
 project drift and are erased by ``osprey build`` — taking the operator's
 accumulated feedback with them. These tests pin the shipped defaults: the config
-templates, the app fallback, and the capture hook must all agree.
+template, the app fallback, and the capture hook must all agree.
 
 Every assertion is written against
 :data:`~osprey.utils.workspace.DEFAULT_AGENT_DATA_BASE_DIR` rather than a
@@ -19,7 +19,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
 import yaml
 
 from osprey.interfaces.channel_finder.app import FEEDBACK_DIR
@@ -27,10 +26,10 @@ from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 SRC = Path(__file__).resolve().parents[3] / "src" / "osprey"
 
-CONFIG_TEMPLATES = (
-    SRC / "templates/apps/control_assistant/config.yml.j2",
-    SRC / "templates/apps/channel_finder_standalone/config.yml.j2",
-)
+# The framework template is the one shipped config template that writes a
+# feedback store_path. The packaged app templates that used to carry their own
+# copy are gone; a deployment states the rest in its profile's `config:` block.
+CONFIG_TEMPLATE = SRC / "templates/project/config.yml.j2"
 CAPTURE_HOOK = SRC / "templates/claude_code/claude/hooks/osprey_cf_feedback_capture.py"
 
 
@@ -38,24 +37,44 @@ def test_app_default_is_under_the_agent_data_root():
     assert FEEDBACK_DIR.startswith(f"{DEFAULT_AGENT_DATA_BASE_DIR}/")
 
 
-@pytest.mark.parametrize("template", CONFIG_TEMPLATES, ids=lambda p: p.parent.name)
-def test_config_template_default_is_under_the_agent_data_root(template):
-    store_paths = re.findall(r"^\s*store_path:\s*(\S+)", template.read_text(), re.MULTILINE)
+def test_config_template_default_is_under_the_agent_data_root():
+    store_paths = re.findall(r"^\s*store_path:\s*(\S+)", CONFIG_TEMPLATE.read_text(), re.MULTILINE)
 
-    assert store_paths, f"no feedback store_path found in {template}"
+    assert store_paths, f"no feedback store_path found in {CONFIG_TEMPLATE}"
     for path in store_paths:
         assert path.startswith(f"{DEFAULT_AGENT_DATA_BASE_DIR}/"), (
-            f"{template} points a runtime writer at {path}"
+            f"{CONFIG_TEMPLATE} points a runtime writer at {path}"
         )
 
 
-@pytest.mark.parametrize("template", CONFIG_TEMPLATES, ids=lambda p: p.parent.name)
-def test_config_template_yaml_still_parses(template):
-    """The relocation is a value change, not a structural one."""
-    rendered = re.sub(r"{%.*?%}", "", template.read_text(), flags=re.DOTALL)
-    rendered = re.sub(r"{{.*?}}", "placeholder", rendered)
+def test_config_template_yaml_still_parses():
+    """The relocation is a value change, not a structural one.
+
+    Rendered for real, in the mode that emits the block: the hierarchical
+    pipeline is the one that writes a feedback store.
+    """
+    from osprey.cli.templates.manager import TemplateManager, _enable_flags
+    from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
+
+    context = {
+        "project_name": "demo",
+        "project_root": "/repos/demo",
+        "default_provider": "anthropic",
+        "default_model": "haiku",
+        "port_base": DEFAULT_PORT_BASE,
+        "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
+        "provider_catalog": {"anthropic": {"base_url": "https://api.anthropic.com/v1"}},
+        "builtin_panels": [],
+        "selected_web_panels": [],
+        "ariel_server_on": False,
+        "channel_finder_mode": "hierarchical",
+        "default_pipeline": "hierarchical",
+        **_enable_flags("hierarchical"),
+    }
+    rendered = TemplateManager().jinja_env.get_template("project/config.yml.j2").render(**context)
 
     assert yaml.safe_load(rendered) is not None
+    assert "store_path" in rendered
 
 
 def test_capture_hook_writes_under_the_agent_data_root():

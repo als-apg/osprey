@@ -105,8 +105,13 @@ def _shared(repo_root: Path) -> _SharedRenderInputs:
     )
 
 
-def _profile(name: str = "deployment", *, data: str | None = None, va: bool = True) -> BuildProfile:
-    """A profile that deploys a virtual accelerator, optionally with a ``data:`` tree."""
+def _profile(name: str = "deployment", *, data: str = "data", va: bool = True) -> BuildProfile:
+    """A profile that deploys a virtual accelerator from its own ``data:`` tree.
+
+    Every profile carries one — ``data:`` is required and is the build's only
+    source of the project's ``data/`` — so the key is spelled by default here
+    rather than passed by each test.
+    """
     return BuildProfile(
         name=name,
         data=data,
@@ -346,15 +351,6 @@ def test_a_tree_with_no_channel_databases_refuses_the_build(tmp_path, capsys):
     assert "hierarchical" in message and "in_context" in message and "middle_layer" in message
     assert "virtual_accelerator" in message
     assert _DEAD_FALLBACK_SENTENCE not in _printed(capsys)
-
-
-def test_a_bundled_tree_with_no_channel_databases_refuses_too(tmp_path, capsys):
-    """The refusal does not turn on `data:`. A deployed accelerator needs channels."""
-    data_root = tmp_path / "bundled" / "data"
-    data_root.mkdir(parents=True)
-
-    with pytest.raises(BuildProfileError):
-        _report(_shared(tmp_path), _profile(), data_root, None)
 
 
 def test_a_tree_missing_its_scenario_seed_refuses_and_names_the_file(partial_tree, tmp_path):
@@ -664,7 +660,6 @@ def _graph_repo(root: Path, *, corpus: str | None = _GRAPH_CORPUS) -> Path:
         (data / "facility.ttl").write_text(corpus)
     (root / "profile.yml").write_text(
         "name: Graph VA\n"
-        "app_template: control_assistant\n"
         "provider: anthropic\n"
         "channel_finder_mode: graph\n"
         "data: data\n"
@@ -672,6 +667,21 @@ def _graph_repo(root: Path, *, corpus: str | None = _GRAPH_CORPUS) -> Path:
         "  port: 5064\n"
         "config:\n"
         "  services.graphdb.ttl_path: ./data/facility.ttl\n"
+        # The stores this repo's enabled servers dial: the graph the channel
+        # finder answers from, and the logbook database the ariel server and
+        # its agents read. Each is spelled with the compose directory its
+        # fragment is located by. The posture keys every deployment must state
+        # follow.
+        "  services.graphdb.path: ./services/graphdb\n"
+        "  services.postgresql.path: ./services/postgresql\n"
+        "  services.postgresql.database_name: ariel\n"
+        "  services.postgresql.username: ariel\n"
+        "  deployed_services: [graphdb, postgresql]\n"
+        "  control_system.type: mock\n"
+        "  archiver.type: mock\n"
+        "  claude_code.telemetry.enabled: false\n"
+        "  hooks.debug: false\n"
+        "  system.timezone: UTC\n"
     )
     return root
 

@@ -45,6 +45,7 @@ REMOTE_SOURCE = "https://logbook.example.org/api/entries"
 _PROFILE = """\
 extends: ariel-standalone
 name: Ariel Sync Fixture
+data: data
 {services}config:
   ariel.ingestion.source_url: {source_url}
 """
@@ -57,11 +58,12 @@ services:
     template: osprey.ariel_sync
 """
 
-#: The shipped standalone ARIEL preset with nothing laid over it. Its app
-#: template seeds ``ariel.ingestion.source_url`` with a path under ``data/``.
+#: The shipped standalone ARIEL preset with nothing laid over it. The preset
+#: seeds ``ariel.ingestion.source_url`` with a path under ``data/``.
 _STANDALONE_PROFILE = """\
 extends: ariel-standalone
 name: Ariel Standalone Fixture
+data: data
 """
 
 
@@ -83,6 +85,7 @@ def _build(runner: CliRunner, tmp_path: Path, profile: str) -> tuple[str, Path]:
     """
     repo = tmp_path / "ariel-sync-fixture"
     repo.mkdir()
+    (repo / "data").mkdir(exist_ok=True)
     (repo / "profile.yml").write_text(profile, encoding="utf-8")
 
     result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])

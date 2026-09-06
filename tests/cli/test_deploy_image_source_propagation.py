@@ -67,7 +67,7 @@ def runner() -> CliRunner:
 
 
 def _profile(deploy: dict[str, Any] | None, config: dict[str, Any] | None) -> dict[str, Any]:
-    raw: dict[str, Any] = {"name": "Demo", "data_bundle": "hello_world"}
+    raw: dict[str, Any] = {"name": "Demo", "extends": "hello-world", "data": "data"}
     if deploy is not None:
         raw["deploy"] = deploy
     if config is not None:
@@ -199,6 +199,7 @@ def test_the_spelling_probe_reports_only_a_real_duplicate(
 def _build_project(runner: CliRunner, tmp_path: Path, profile_body: dict[str, Any]) -> dict:
     """Write *profile_body* at the repo root and build it in place."""
     profile = tmp_path / "profile.yml"
+    (tmp_path / "data").mkdir(exist_ok=True)
     profile.write_text(yaml.safe_dump(profile_body, sort_keys=False), encoding="utf-8")
     result = runner.invoke(
         build,

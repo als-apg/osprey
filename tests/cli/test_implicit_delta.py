@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey.cli.build_cmd import _profile_data_bundle
 from osprey.cli.build_profile import compute_profile_hash
 from osprey.cli.build_profile_load import load_profile, load_profile_document
 from osprey.errors import BuildProfileError
@@ -38,7 +39,6 @@ from osprey.errors import BuildProfileError
 # interchangeable when they are not.
 _HOST = """\
 name: Facility
-app_template: hello_world
 data: data
 provider: anthropic
 model: sonnet
@@ -81,7 +81,9 @@ def test_delta_inherits_every_key_it_does_not_name(host: Path) -> None:
     profile = load_profile(persona)
 
     assert profile.name == "Reader"
-    assert profile.data_bundle == "hello_world"
+    # The root records no preset, so the bundle it inherits is the framework
+    # default — the bundle is read back from the preset chain, not from a key.
+    assert _profile_data_bundle(profile) == "control_assistant"
     assert profile.provider == "anthropic"
     assert profile.model == "sonnet"
     assert profile.channel_finder_mode == "in_context"
@@ -119,8 +121,12 @@ def test_root_extends_chain_is_resolved_before_the_merge(tmp_path: Path) -> None
     has by way of its ``extends`` base still reaches the persona.
     """
     root = tmp_path / "facility"
-    _write(root / "base.yml", "name: Base\napp_template: hello_world\nmodel: opus\n")
-    _write(root / "profile.yml", "extends: ./base.yml\nname: Facility\nprovider: cborg\n")
+    (root / "data").mkdir(parents=True)
+    _write(root / "base.yml", "name: Base\nmodel: opus\n")
+    _write(
+        root / "profile.yml",
+        "extends: ./base.yml\nname: Facility\ndata: data\nprovider: cborg\n",
+    )
     persona = _persona(root, "reader", "name: Reader\n")
 
     profile = load_profile(persona)
@@ -188,9 +194,7 @@ def test_a_standalone_profile_anchors_at_its_own_directory(tmp_path: Path) -> No
     """Only ``personas/`` files re-anchor; every other file is unaffected."""
     root = tmp_path / "plain"
     _write(root / "data" / "channels.json", "{}\n")
-    profile_path = _write(
-        root / "profile.yml", "name: Plain\napp_template: hello_world\ndata: data\n"
-    )
+    profile_path = _write(root / "profile.yml", "name: Plain\ndata: data\n")
 
     loaded = load_profile_document(profile_path)
 
@@ -200,7 +204,8 @@ def test_a_standalone_profile_anchors_at_its_own_directory(tmp_path: Path) -> No
 
 def test_a_bare_file_outside_any_profile_still_loads(tmp_path: Path) -> None:
     """A one-off YAML in a scratch directory is not a delta and needs no root."""
-    profile_path = _write(tmp_path / "scratch.yml", "name: Scratch\napp_template: hello_world\n")
+    (tmp_path / "data").mkdir()
+    profile_path = _write(tmp_path / "scratch.yml", "name: Scratch\ndata: data\n")
 
     loaded = load_profile_document(profile_path)
 

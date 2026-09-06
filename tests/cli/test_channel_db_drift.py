@@ -34,7 +34,7 @@ import pytest
 
 from osprey.cli.build_profile import compute_profile_hash
 
-PROFILE_YAML = "name: Facility\napp_template: hello_world\ndata: data\n"
+PROFILE_YAML = "name: Facility\ndata: data\n"
 
 
 def _write(path: Path, text: str) -> Path:

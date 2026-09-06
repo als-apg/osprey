@@ -158,8 +158,11 @@ def test_provenance_names_the_preset_and_its_hash(preset: str) -> None:
 def test_provenance_survives_a_resolution_round_trip(tmp_path) -> None:
     """The key is only useful if the loader keeps it: written as YAML, read back
     as a ``ProfileProvenance``, unchanged."""
+    # ``osprey init`` writes `data:` into the profile it materializes and lays
+    # the tree down beside it; the emitter alone produces neither.
+    (tmp_path / "data").mkdir()
     profile_file = tmp_path / "profile.yml"
-    profile_file.write_text(_standalone(HOST_PRESET), encoding="utf-8")
+    profile_file.write_text("data: data\n" + _standalone(HOST_PRESET), encoding="utf-8")
 
     resolved, _dir = resolve_build_profile(profile_file, None)
 

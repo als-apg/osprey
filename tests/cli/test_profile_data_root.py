@@ -43,13 +43,23 @@ def _write_profile(profile_dir: Path, **extra) -> Path:
 
     profile: dict = {
         "name": "Data Root Test",
-        "data_bundle": "control_assistant",
+        "extends": "control-assistant",
         "data": "data",
         "provider": "cborg",
         "model": "haiku",
         "channel_finder_mode": "in_context",
+        # The preset deploys a virtual accelerator, which serves the project's
+        # own channels and so refuses a build whose data tree stages none. These
+        # tests replace that tree wholesale — that is their subject — so the
+        # inherited block is dropped rather than fed.
+        "virtual_accelerator": None,
+        # With no accelerator to stand up, the baseline moves off the stand-in
+        # the preset selects and onto the connector that needs no service.
+        "config": {"control_system.type": "mock"},
     }
+    extra_config = dict(extra.pop("config", {}) or {})
     profile.update(extra)
+    profile["config"].update(extra_config)
     path = profile_dir / "profile.yml"
     path.write_text(yaml.dump(profile, default_flow_style=False))
     return path

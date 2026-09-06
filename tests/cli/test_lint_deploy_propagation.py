@@ -40,6 +40,16 @@ DEPLOY_BLOCK: dict[str, Any] = {
     "host": {"name": "demo-deploy", "user": "osprey", "project_path": "/opt/demo"},
 }
 
+#: The posture keys a build refuses to guess at. Stated once here because they
+#: are the price of admission to a build, not a subject of any test in this file
+#: — the deploy/lint parity these tests are about is judged past them.
+POSTURE_FLOOR: dict[str, Any] = {
+    "control_system.type": "mock",
+    "archiver.type": "mock_archiver",
+    "claude_code.telemetry.enabled": False,
+    "hooks.debug": False,
+}
+
 #: A roster that stands up the persona stack — which is what makes the
 #: mode-coherence check apply at all (a config with no catalog resolves through
 #: the pre-catalog path and is never asked about ``registry.url``).
@@ -162,7 +172,8 @@ def test_a_malformed_config_block_is_refused_by_name_not_by_traceback(
     """
     path = tmp_path / "profile" / "profile.yml"
     path.parent.mkdir(parents=True)
-    path.write_text("name: Bad\ndata_bundle: hello_world\nconfig: []\n", encoding="utf-8")
+    (path.parent / "data").mkdir()
+    path.write_text("name: Bad\ndata: data\nconfig: []\n", encoding="utf-8")
 
     validated = runner.invoke(profile_group, ["validate", str(path)])
     with caplog.at_level("ERROR"):
@@ -186,7 +197,8 @@ def test_an_empty_config_block_is_not_a_malformed_one(runner: CliRunner, tmp_pat
     """
     path = tmp_path / "profile" / "profile.yml"
     path.parent.mkdir(parents=True)
-    path.write_text("name: Empty\ndata_bundle: hello_world\nconfig:\n", encoding="utf-8")
+    (path.parent / "data").mkdir()
+    path.write_text("name: Empty\ndata: data\nconfig:\n", encoding="utf-8")
 
     result = runner.invoke(profile_group, ["validate", str(path)])
 
@@ -215,17 +227,30 @@ def test_the_duplicate_home_refusal_still_fires(runner: CliRunner, tmp_path: Pat
 def _write_profile(
     directory: Path, *, deploy: dict[str, Any] | None, config: dict[str, Any]
 ) -> Path:
-    """A minimal buildable profile carrying the multi-user stack."""
+    """A minimal buildable profile carrying the multi-user stack.
+
+    "Minimal" now means the posture floor as well. ``data``,
+    ``channel_finder_mode``, ``hooks`` and :data:`POSTURE_FLOOR` are here to
+    make the profile buildable at all, not because these tests are about any of
+    them: a repo profile must name a data tree, the channel-finder agent the
+    default artifact set selects refuses to render without a paradigm, the four
+    posture keys are the ones a build refuses to guess, and ``memory-guard`` is
+    what gates ``Write`` — a profile that could write with no gate is refused.
+    A caller stating one of them keeps its own value.
+    """
     raw: dict[str, Any] = {
         "name": "Demo Facility",
-        "data_bundle": "hello_world",
+        "data": "data",
         "provider": "anthropic",
         "model": "haiku",
-        "config": config,
+        "channel_finder_mode": "hierarchical",
+        "hooks": ["memory-guard"],
+        "config": {**POSTURE_FLOOR, **config},
     }
     if deploy is not None:
         raw["deploy"] = deploy
     directory.mkdir(parents=True, exist_ok=True)
+    (directory / "data").mkdir(exist_ok=True)
     path = directory / "profile.yml"
     path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
     return path

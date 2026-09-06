@@ -22,7 +22,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_ROOT = Path(osprey.__file__).resolve().parent
 CLAUDE_CODE_TEMPLATES = PACKAGE_ROOT / "templates" / "claude_code"
 MCP_SERVER_ROOT = PACKAGE_ROOT / "mcp_server"
-CONFIG_KEY_MANIFEST = REPO_ROOT / "scripts" / "config_key_manifest.yml"
+#: Package data, beside providers.yml — `osprey config --defaults` renders the
+#: manifest's `default:` column at run time, and a wheel ships only src/osprey.
+CONFIG_KEY_MANIFEST = PACKAGE_ROOT / "profiles" / "config_key_manifest.yml"
 
 #: Tools the agent harness provides on its own, outside any MCP server.
 _HARNESS_TOOLS = frozenset(
@@ -172,7 +174,7 @@ def test_every_hot_cold_key_setup_mode_lists_has_a_manifest_entry() -> None:
     unknown = [key for key in keys if not any(_key_pattern(key).match(k) for k in known)]
     assert unknown == [], (
         "setup-mode lists config keys the manifest has no reader for "
-        f"(scripts/config_key_manifest.yml `keys:`): {unknown}"
+        f"(osprey/profiles/config_key_manifest.yml `keys:`): {unknown}"
     )
 
 

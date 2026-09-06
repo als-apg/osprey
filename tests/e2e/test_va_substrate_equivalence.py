@@ -359,12 +359,11 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
 
     # Extends control-assistant (which already ships data/simulation/machine.json
     # + channel_limits.json) with the one flag it doesn't default to: the
-    # control-system type. Written as a flat dotted-string key under `config:`
-    # (matching the preset's own convention) rather than a `--set
-    # config.control_system.type=...` CLI override -- `--set` builds a NESTED
-    # dict for every dotted segment, which would replace the entire
-    # `control_system:` block (wiping writes_enabled/limits_checking/connector
-    # gateways) instead of overriding just the `type` field.
+    # control-system type. Written as a flat dotted-string key under `config:`,
+    # the spelling the preset itself uses and the one `--set
+    # config.control_system.type=...` would now produce -- either reaches the
+    # same leaf, and neither disturbs the rest of the `control_system` block
+    # (writes_enabled/limits_checking/connector gateways).
     # `dispatch: null` drops control-assistant's default event-dispatcher
     # stack (Node + Claude CLI image) -- irrelevant here and far slower to
     # build than the VA image already is.

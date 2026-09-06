@@ -60,9 +60,12 @@ def _deploy(**overrides: Any) -> dict[str, Any]:
 
 
 def _write_profile(tmp_path: Path, deploy: Any) -> Path:
-    body: dict[str, Any] = {"name": "Facility", "data_bundle": "hello_world"}
+    body: dict[str, Any] = {"name": "Facility", "extends": "hello-world", "data": "data"}
     if deploy is not None:
         body["deploy"] = deploy
+    # ``data:`` is required of a repo profile and must resolve to a real
+    # directory, so the tree is part of writing a valid profile.
+    (tmp_path / "data").mkdir(exist_ok=True)
     path = tmp_path / "profile.yml"
     path.write_text(yaml.safe_dump(body, sort_keys=False), encoding="utf-8")
     return path

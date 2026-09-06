@@ -42,6 +42,50 @@ from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE, FRAMEWORK_SERV
 
 from ._vocabulary_guard import hardcoded_vocabulary_hits
 
+
+def _bundle_data_root(bundle: str = "control_assistant") -> Path:
+    """The tree these fixtures hand the render as the profile's ``data:``.
+
+    A build copies the tree its profile's ``data:`` key names, and that key is
+    required — nothing falls back to a packaged tree any more. These fixtures
+    render straight from a bundle rather than from a profile, so they name the
+    tree that bundle packages, which is the content the render used to reach
+    for on its own.
+    """
+    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+
+
+def _create_project(manager: TemplateManager, **kwargs) -> Path:
+    """``create_project`` plus the three steps a real build takes next.
+
+    A build renders the framework template, overlays the resolved profile's
+    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
+    regenerates ``.claude/`` from the finished config. The template carries
+    only derived and profile-field-derived keys, so a fixture that stops after
+    the render holds half a config — the declarative half is the preset's, and
+    the artifacts rendered before it landed do not know about the deployment's
+    control system, services or servers. These fixtures render from a bundle
+    rather than from a profile, so they overlay the preset ``osprey init``
+    pairs with that bundle.
+    """
+    from osprey.cli.build_profile import resolve_build_profile
+    from osprey.utils.config_writer import config_update_fields
+
+    bundle = kwargs.setdefault("data_bundle", "control_assistant")
+    preset = bundle.replace("_", "-")
+    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    project = manager.create_project(**kwargs)
+    profile, _preset_dir = resolve_build_profile(None, preset=preset)
+    config_update_fields(project / "config.yml", profile.config)
+    manager.generate_manifest(
+        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
+    )
+    # The build's last render, and the one that ships: `create_project` wrote
+    # `.claude/` from a config.yml that did not yet carry the preset's block.
+    manager.regenerate_claude_code(project)
+    return project
+
+
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
 
 _SUBMIT_RESPONSE = "mcp__osprey_workspace__submit_response"
@@ -125,7 +169,8 @@ def _settings_permission_entries(project_dir: Path) -> list[str]:
 
 def _control_assistant(tmp_path: Path, name: str, mode: str, *, deploy_services: bool = True):
     manager = TemplateManager()
-    project_dir = manager.create_project(
+    project_dir = _create_project(
+        manager,
         project_name=name,
         output_dir=tmp_path,
         data_bundle="control_assistant",
@@ -278,7 +323,7 @@ def test_disabling_the_graph_server_leaves_the_graph_paradigm_intact(tmp_path):
 
 
 def test_a_project_with_no_graph_store_still_renders_the_graph_paradigm(tmp_path):
-    """``deploy_services: false`` renders ``services: {}`` — no store at all.
+    """A project that declares no store at all still renders the paradigm.
 
     The paradigm is a rendering decision and the store is a deployment one, so
     the agent renders the same either way; what changes is whether the tools it
@@ -286,10 +331,18 @@ def test_a_project_with_no_graph_store_still_renders_the_graph_paradigm(tmp_path
     a frontmatter gated on ``graphdb_configured`` — would silently produce an
     agent with no channel-finding tools whenever the store is external or
     attached rather than deployed.
+
+    A deployment declares its store by spelling ``services.graphdb`` in its own
+    ``config:``, so taking the block back out of the rendered config is how
+    this fixture gets a project that runs none.
     """
-    _manager, project_dir = _control_assistant(
+    from osprey.utils.config_writer import config_delete_field
+
+    manager, project_dir = _control_assistant(
         tmp_path, "cf-graph-nostore", "graph", deploy_services=False
     )
+    config_delete_field(project_dir / "config.yml", "services.graphdb")
+    manager.regenerate_claude_code(project_dir)
 
     config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
     assert (config.get("services") or {}).get("graphdb") is None, "the render shape under test"
@@ -301,7 +354,8 @@ def test_a_project_with_no_graph_store_still_renders_the_graph_paradigm(tmp_path
 
 def test_channel_finder_standalone_renders_its_paradigm_and_no_graph_server(tmp_path):
     """The bundle that ships neither a store nor a graph paradigm."""
-    project_dir = TemplateManager().create_project(
+    project_dir = _create_project(
+        TemplateManager(),
         project_name="cf-standalone-tools",
         output_dir=tmp_path,
         data_bundle="channel_finder_standalone",

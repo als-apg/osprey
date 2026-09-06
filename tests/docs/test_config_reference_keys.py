@@ -13,7 +13,7 @@ exist for their own reasons:
 
 * the reference pages, where a documented key is written as an RST inline
   literal — ``web.theme``, ``services.postgresql.port`` — and
-* ``scripts/config_key_manifest.yml``, the config-key resurrection guard's
+* ``src/osprey/profiles/config_key_manifest.yml``, the config-key resurrection guard's
   ledger, whose top-level ``keys:`` mapping is the authoritative list of every
   dotted path the shipped templates render and the code reads. That manifest is
   independently enforced against the source tree by
@@ -47,8 +47,10 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 #: absent directory is a vacuous pass rather than a failure.
 _REFERENCE_DIR = "docs/source/reference/configuration"
 
-#: The guard manifest, relative to the repo root.
-_MANIFEST_PATH = "scripts/config_key_manifest.yml"
+#: The guard manifest, relative to the repo root. It ships inside the package,
+#: beside providers.yml: `osprey config --defaults` renders its `default:`
+#: column at run time and a wheel carries only src/osprey.
+_MANIFEST_PATH = "src/osprey/profiles/config_key_manifest.yml"
 
 #: Top-level sections of ``config.yml``. A dotted literal has to start with one
 #: of these to be treated as a config key at all — the bar that keeps prose
@@ -170,7 +172,7 @@ def test_every_documented_config_key_is_declared_in_the_manifest() -> None:
         detail.append(f"{path}:{number}: {key} ({why})")
     assert offenders == [], (
         "Every config key documented in the configuration reference must be a "
-        "declared key in scripts/config_key_manifest.yml — a documented key the "
+        "declared key in osprey/profiles/config_key_manifest.yml — a documented key the "
         "code does not read is a setting the reader will copy in and watch do "
         "nothing. Undeclared keys remain:\n" + "\n".join(detail)
     )

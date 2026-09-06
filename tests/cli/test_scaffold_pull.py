@@ -96,14 +96,19 @@ def test_packaged_data_source_resolver_shares_the_absent_bundle_check(
 
 
 def test_resolve_preset_bundle_returns_the_name_and_its_app_template() -> None:
-    """The resolved profile's ``data_bundle`` is what comes back beside the name."""
+    """The preset's own bundle is what comes back beside the name.
+
+    Read back from the preset chain the way the build reads it: the bundle is a
+    preset-side fact, and the resolved profile carries no such key.
+    """
+    from osprey.cli.build_cmd import _profile_data_bundle
     from osprey.cli.build_profile import resolve_build_profile
 
     expected, _preset_dir = resolve_build_profile(None, "control-assistant")
 
     assert _resolve_preset_bundle("control-assistant") == (
         "control-assistant",
-        expected.data_bundle,
+        _profile_data_bundle(expected),
     )
 
 

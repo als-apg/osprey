@@ -14,7 +14,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli import build_profile_presets
-from osprey.cli.build_cmd import build
+from osprey.cli.build_cmd import _profile_data_bundle, build
 from osprey.cli.build_profile import (
     _load_preset_raw,
     _preset_exists,
@@ -59,11 +59,13 @@ def test_preset_exists_returns_none_for_path_shaped_value() -> None:
 def test_extends_by_preset_name_resolves(tmp_path: Path) -> None:
     """A profile with ``extends: hello-world`` (bare name) resolves to the bundled preset."""
     profile = tmp_path / "p.yml"
-    profile.write_text("extends: hello-world\nname: ChildOfPreset\n")
+    (tmp_path / "data").mkdir()
+    profile.write_text("extends: hello-world\nname: ChildOfPreset\ndata: data\n")
     resolved, profile_dir = resolve_build_profile(profile.resolve(), preset=None)
     assert resolved.name == "ChildOfPreset"  # child wins
-    # Preset's data_bundle/provider must flow through.
-    assert resolved.data_bundle == "hello_world"
+    # The preset's bundle and provider must flow through. The bundle is a
+    # preset-side fact, read back from the chain the way the build reads it.
+    assert _profile_data_bundle(resolved) == "hello_world"
     assert resolved.provider == "anthropic"
     # Preset's hook list must be present (child added nothing → list is the preset's).
     assert "hook-log" in resolved.hooks
@@ -74,16 +76,17 @@ def test_extends_by_path_still_works(tmp_path: Path) -> None:
     base = tmp_path / "base.yml"
     base.write_text(
         "name: BaseFromFile\n"
-        "data_bundle: hello_world\n"
+        "extends: hello-world\ndata: data\n"
         "provider: anthropic\n"
         "model: claude-haiku-4-5\n"
         "hooks: [hook-log]\n"
     )
     child = tmp_path / "child.yml"
+    (tmp_path / "data").mkdir()
     child.write_text("extends: ./base.yml\nname: ChildOfFile\n")
     resolved, _ = resolve_build_profile(child.resolve(), preset=None)
     assert resolved.name == "ChildOfFile"
-    assert resolved.data_bundle == "hello_world"
+    assert _profile_data_bundle(resolved) == "hello_world"
 
 
 def test_extends_path_shaped_value_resolves_via_filesystem(tmp_path: Path) -> None:
@@ -92,9 +95,10 @@ def test_extends_path_shaped_value_resolves_via_filesystem(tmp_path: Path) -> No
     """
     base = tmp_path / "als-base.yml"
     base.write_text(
-        "name: AlsBase\ndata_bundle: hello_world\nprovider: anthropic\nhooks: [hook-log]\n"
+        "name: AlsBase\nextends: hello-world\ndata: data\nprovider: anthropic\nhooks: [hook-log]\n"
     )
     child = tmp_path / "client.yml"
+    (tmp_path / "data").mkdir()
     child.write_text("extends: als-base.yml\nname: AlsClient\n")
     resolved, _ = resolve_build_profile(child.resolve(), preset=None)
     assert resolved.name == "AlsClient"
@@ -128,12 +132,13 @@ def test_extends_preset_chain_via_intermediate_file(tmp_path: Path) -> None:
     mid = tmp_path / "mid.yml"
     mid.write_text("extends: hello-world\nname: MidLayer\nmodel: claude-opus-4-5\n")
     child = tmp_path / "child.yml"
-    child.write_text("extends: ./mid.yml\nname: Leaf\n")
+    (tmp_path / "data").mkdir()
+    child.write_text("extends: ./mid.yml\nname: Leaf\ndata: data\n")
     resolved, _ = resolve_build_profile(child.resolve(), preset=None)
     # Leaf wins on name; mid wins on model; preset provides data_bundle.
     assert resolved.name == "Leaf"
     assert resolved.model == "claude-opus-4-5"
-    assert resolved.data_bundle == "hello_world"
+    assert _profile_data_bundle(resolved) == "hello_world"
 
 
 def test_build_from_a_repo_whose_profile_extends_a_preset_by_name(
@@ -146,7 +151,10 @@ def test_build_from_a_repo_whose_profile_extends_a_preset_by_name(
     here even if the resolver itself still behaved correctly on its own."""
     repo = tmp_path / "ext-repo"
     repo.mkdir()
-    (repo / "profile.yml").write_text("extends: hello-world\nname: ExtTest\n", encoding="utf-8")
+    (repo / "data").mkdir()
+    (repo / "profile.yml").write_text(
+        "extends: hello-world\nname: ExtTest\ndata: data\n", encoding="utf-8"
+    )
 
     result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
 

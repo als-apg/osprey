@@ -91,6 +91,7 @@ def test_every_connector_block_is_checked() -> None:
 _PROFILE = """\
 extends: hello-world
 name: PVA Advisory Fixture
+data: data
 config:
   control_system.connector.epics.pva_channels: ["*:image"]
 {gateway}"""
@@ -109,6 +110,7 @@ def _build(tmp_path: Path, profile: str) -> str:
     """
     repo = tmp_path / "pva-advisory-fixture"
     repo.mkdir()
+    (repo / "data").mkdir(exist_ok=True)
     (repo / "profile.yml").write_text(profile, encoding="utf-8")
 
     result = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])

@@ -39,9 +39,20 @@ from osprey.port_layout import DEFAULT_PORT_BASE, WORKER_MAX, default_port
 _TRIGGERS = "tutorial_triggers.yml"
 
 
+@pytest.fixture(autouse=True)
+def _facility_data_tree(tmp_path: Path) -> None:
+    """The tree every profile's ``data:`` key names, beside the profile.
+
+    ``data:`` is required of every repo profile and must resolve to a real
+    directory, so without this each profile below would report one extra
+    failure about a key none of these tests is about.
+    """
+    (tmp_path / "data").mkdir(exist_ok=True)
+
+
 def _profile(**raw: Any) -> BuildProfile:
     """Parse a minimal profile carrying whatever blocks a test needs."""
-    return _parse_profile({"name": "ports", **raw})
+    return _parse_profile({"name": "ports", "data": "data", **raw})
 
 
 def _dispatch_profile(**dispatch: Any) -> BuildProfile:
@@ -272,14 +283,25 @@ def test_the_second_lane_is_derived_at_the_deployments_own_base() -> None:
 # --- the layout seed -------------------------------------------------------
 
 
-def test_the_ledger_carries_the_layout_slots_the_build_deploys() -> None:
-    """A profile that spells no ports still spends the framework's own.
+#: The service blocks a stock deployment declares. A profile states which
+#: services it runs; nothing renders one underneath it, so a fixture that spells
+#: none has no ports to seed.
+_DEPLOYED_SERVICES = {
+    "services.openobserve.path": "./services/openobserve",
+    "services.qmd.path": "./services/qmd",
+    "services.postgresql.path": "./services/postgresql",
+    "services.graphdb.path": "./services/graphdb",
+}
 
-    The app template renders these blocks and derives their ports from the
-    layout, so the numbers appear nowhere in the profile — and a ledger that
-    only read the profile would clear a colliding port as free.
+
+def test_the_ledger_carries_the_layout_slots_the_build_deploys() -> None:
+    """A profile that spells the blocks but no ports still spends the layout's.
+
+    A deployment declares the services it runs; their ports are derived from
+    the layout and appear nowhere in the profile — so a ledger that only read
+    the profile would clear a colliding port as free.
     """
-    claimed = _profile()._claimed_ports()
+    claimed = _profile(config=dict(_DEPLOYED_SERVICES))._claimed_ports()
 
     assert claimed["services.openobserve.port"] == default_port("openobserve")
     assert claimed["services.qmd.port"] == default_port("qmd")
@@ -295,7 +317,7 @@ def test_the_seed_follows_the_profiles_own_port_base() -> None:
     default base when the profile resolved one of its own.
     """
     base = DEFAULT_PORT_BASE + 10000
-    claimed = _profile(config={"deployment.port_base": base})._claimed_ports()
+    claimed = _profile(config={**_DEPLOYED_SERVICES, "deployment.port_base": base})._claimed_ports()
 
     assert claimed["services.qmd.port"] == default_port("qmd", base=base)
     assert claimed["services.qmd.port"] != default_port("qmd")
@@ -304,7 +326,7 @@ def test_the_seed_follows_the_profiles_own_port_base() -> None:
 def test_a_port_the_profile_moves_keeps_the_profiles_own_number() -> None:
     """The seed fills gaps; it never overwrites what an author wrote."""
     moved = default_port("qmd") + 4321
-    claimed = _profile(config={"services.qmd.port": moved})._claimed_ports()
+    claimed = _profile(config={**_DEPLOYED_SERVICES, "services.qmd.port": moved})._claimed_ports()
 
     assert claimed["services.qmd.port"] == moved
 

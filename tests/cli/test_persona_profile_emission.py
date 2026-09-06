@@ -448,16 +448,17 @@ def _persona_override(tmp_path: Path, personas: dict) -> Path:
     return path
 
 
-def test_persona_rendering_a_different_app_template_is_rejected(
-    runner: CliRunner, tmp_path: Path
-) -> None:
-    """One shared ``../data`` tree cannot serve two app templates. Caught before
-    anything is written, and every affected persona is named at once."""
+def test_a_persona_cannot_name_a_bundle_of_its_own(runner: CliRunner, tmp_path: Path) -> None:
+    """One shared ``../data`` tree cannot serve two bundles — and now nothing asks it to.
+
+    The rule used to be a per-persona check: a persona naming a different
+    ``app_template:`` was refused because every persona reads the root's one
+    materialized tree. The key has left the profile schema entirely, so the
+    same mistake is now refused earlier and for a plainer reason — there is no
+    profile key to write it into. Caught before anything is written, either way.
+    """
     target = tmp_path / "my-facility"
 
-    # Pinned to a database paradigm so the app-template rule is the one refusal
-    # in play: in the preset's graph mode, hello_world's missing graph store
-    # would be refused first and this test would pass for the wrong reason.
     result = _new(
         runner,
         target,
@@ -469,8 +470,7 @@ def test_persona_rendering_a_different_app_template_is_rejected(
     )
 
     assert result.exit_code == 2
-    assert "cannot serve both" in result.output
-    assert "readonly" in result.output and "readwrite" in result.output
+    assert "app_template is no longer a profile key" in result.output
     assert not target.exists()  # fail-before-mutating
 
 

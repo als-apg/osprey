@@ -30,6 +30,8 @@ from osprey.errors import BuildProfileError
 
 
 def _write(path: Path, text: str) -> Path:
+    """Write a profile and the ``data:`` tree every profile must name."""
+    (path.parent / "data").mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     return path
 
@@ -43,7 +45,7 @@ def test_child_excludes_inherited_skill(tmp_path: Path) -> None:
     """A child ``exclude`` removes an entry contributed by its ``extends`` base."""
     _write(
         tmp_path / "base.yml",
-        "name: Base\ndata_bundle: hello_world\nskills: [alpha, beta, gamma]\n",
+        "name: Base\ndata: data\nskills: [alpha, beta, gamma]\n",
     )
     child = _write(
         tmp_path / "child.yml",
@@ -59,10 +61,7 @@ def test_exclude_works_across_multiple_fields(tmp_path: Path) -> None:
     """Every declared excludable field is subtracted independently."""
     _write(
         tmp_path / "base.yml",
-        "name: Base\ndata_bundle: hello_world\n"
-        "skills: [s1, s2]\n"
-        "rules: [r1, r2]\n"
-        "dependencies: [pkg-a, pkg-b]\n",
+        "name: Base\ndata: data\nskills: [s1, s2]\nrules: [r1, r2]\ndependencies: [pkg-a, pkg-b]\n",
     )
     child = _write(
         tmp_path / "child.yml",
@@ -84,7 +83,7 @@ def test_deeper_layer_readds_excluded_entry_and_wins(tmp_path: Path) -> None:
     """base [a,b,c] → parent excludes b → child re-adds b: b survives."""
     _write(
         tmp_path / "base.yml",
-        "name: Base\ndata_bundle: hello_world\nskills: [a, b, c]\n",
+        "name: Base\ndata: data\nskills: [a, b, c]\n",
     )
     _write(
         tmp_path / "parent.yml",
@@ -110,7 +109,7 @@ def test_override_file_readd_does_not_win(tmp_path: Path) -> None:
     """An override file merges into the top layer pre-exclusion; its re-add is stripped."""
     _write(
         tmp_path / "base.yml",
-        "name: Base\ndata_bundle: hello_world\nskills: [a, b, c]\n",
+        "name: Base\ndata: data\nskills: [a, b, c]\n",
     )
     child = _write(
         tmp_path / "child.yml",
@@ -128,7 +127,7 @@ def test_set_readd_does_not_win(tmp_path: Path) -> None:
     """A ``--set`` re-add also merges pre-exclusion and is stripped."""
     _write(
         tmp_path / "base.yml",
-        "name: Base\ndata_bundle: hello_world\nskills: [a, b, c]\n",
+        "name: Base\ndata: data\nskills: [a, b, c]\n",
     )
     child = _write(
         tmp_path / "child.yml",
@@ -151,7 +150,7 @@ def test_exclude_is_not_an_unknown_key(tmp_path: Path) -> None:
     """
     _write(
         tmp_path / "base.yml",
-        "name: Base\ndata_bundle: hello_world\nskills: [a, b]\n",
+        "name: Base\ndata: data\nskills: [a, b]\n",
     )
     child = _write(
         tmp_path / "child.yml",
@@ -172,7 +171,7 @@ def test_exclude_nonexistent_entry_is_silent_noop(tmp_path: Path) -> None:
     """Excluding an entry the base never declared changes nothing and raises nothing."""
     _write(
         tmp_path / "base.yml",
-        "name: Base\ndata_bundle: hello_world\nskills: [a, b]\n",
+        "name: Base\ndata: data\nskills: [a, b]\n",
     )
     child = _write(
         tmp_path / "child.yml",
@@ -193,7 +192,7 @@ def test_exclude_without_extends_applies_to_self(
     """Base-less ``exclude`` only touches the file's own declarations (with a debug log)."""
     profile = _write(
         tmp_path / "p.yml",
-        "name: Solo\ndata_bundle: hello_world\nskills: [a, b]\nexclude:\n  skills: [b]\n",
+        "name: Solo\ndata: data\nskills: [a, b]\nexclude:\n  skills: [b]\n",
     )
     with caplog.at_level(logging.DEBUG, logger="osprey.cli.build_profile_merge"):
         resolved, _ = resolve_build_profile(profile.resolve(), preset=None)
@@ -203,7 +202,7 @@ def test_exclude_without_extends_applies_to_self(
 
 def test_exclude_unknown_field_raises(tmp_path: Path) -> None:
     """Excluding a non-list / unknown field is rejected with a clear error."""
-    _write(tmp_path / "base.yml", "name: Base\ndata_bundle: hello_world\n")
+    _write(tmp_path / "base.yml", "name: Base\ndata: data\n")
     child = _write(
         tmp_path / "child.yml",
         "extends: ./base.yml\nname: Child\nexclude:\n  config: [x]\n",
@@ -216,7 +215,7 @@ def test_exclude_non_list_value_raises(tmp_path: Path) -> None:
     """A field mapped to a non-list value is rejected."""
     _write(
         tmp_path / "base.yml",
-        "name: Base\ndata_bundle: hello_world\nskills: [a]\n",
+        "name: Base\ndata: data\nskills: [a]\n",
     )
     child = _write(
         tmp_path / "child.yml",
@@ -309,7 +308,7 @@ def test_resolve_extends_by_bundled_preset_name(tmp_path: Path, monkeypatch) -> 
     """``extends`` resolves a bundled preset by name before falling back to a sibling path."""
     presets_dir = tmp_path / "presets"
     presets_dir.mkdir()
-    _write(presets_dir / "demo-base.yml", "name: Base\ndata_bundle: hello_world\nskills: [a]\n")
+    _write(presets_dir / "demo-base.yml", "name: Base\ndata: data\nskills: [a]\n")
     monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: presets_dir)
 
     profiles_dir = tmp_path / "profiles"
