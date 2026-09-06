@@ -125,6 +125,78 @@ def test_non_write_tools_pass(tmp_path, hook_runner):
 
 
 @pytest.mark.unit
+def test_clone_channel_write_is_validated(tmp_path, hook_runner):
+    """An `extends: controls` clone's channel_write is limits-checked too.
+
+    `build_extended_server` rewrites this hook's matcher to
+    `mcp__<clone>__channel_write`, so the hook already ran on these calls. Keyed
+    on the framework server's own literal name it exited 0 and reported nothing
+    — which in a transcript is indistinguishable from a write that passed.
+    """
+    config = _make_limits_config(
+        tmp_path,
+        {"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
+    )
+
+    result = hook_runner(
+        "osprey_limits.py",
+        "mcp__ring__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 999.0}]},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config={"server_prefixes": ["mcp__ring__"]},
+    )
+
+    assert result is not None
+    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+@pytest.mark.unit
+def test_clone_channel_read_still_passes(tmp_path, hook_runner):
+    """Short-name keying must not start denying a clone's reads."""
+    config = _make_limits_config(
+        tmp_path,
+        {"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
+    )
+
+    result = hook_runner(
+        "osprey_limits.py",
+        "mcp__ring__channel_read",
+        {"channels": ["TEST:PV"]},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config={"server_prefixes": ["mcp__ring__"]},
+    )
+
+    assert result is None
+
+
+@pytest.mark.unit
+def test_clone_is_validated_without_a_hook_config(tmp_path, hook_runner):
+    """No prefixes to read still resolves a short name from the tool's shape.
+
+    `short_tool_name` falls back to the `mcp__<server>__<tool>` split, so a
+    render whose hook_config could not be read still validates the write rather
+    than waving it through.
+    """
+    config = _make_limits_config(
+        tmp_path,
+        {"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
+    )
+
+    result = hook_runner(
+        "osprey_limits.py",
+        "mcp__ring__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 999.0}]},
+        config_path=config,
+        cwd=tmp_path,
+    )
+
+    assert result is not None
+    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+@pytest.mark.unit
 def test_unlisted_channel_blocked_by_default(tmp_path, hook_runner):
     """Unlisted channels are blocked when allow_unlisted_channels is false (default)."""
     config = _make_limits_config(

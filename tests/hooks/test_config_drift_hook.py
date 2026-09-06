@@ -3,9 +3,9 @@
 The hook warns (never blocks) when config.yml has drifted from the rendered
 .claude/settings.json. Two layers of coverage:
 
-* The pure helpers (``_writes_enabled_in_config``, ``_channel_write_denied``,
-  ``_detect_drift``) are imported and called directly, one test per documented
-  return branch. The hook is stdlib-only and imports nothing at module scope, so
+* The pure helpers (``_writes_enabled_in_config``, ``_kill_switch_tools``,
+  ``_write_tools_denied``, ``_detect_drift``) are imported and called directly,
+  one test per documented return branch. The hook is stdlib-only and imports nothing at module scope, so
   a plain import is safe — it is still written inside the test bodies so that
   importing this file stays free of side effects (tests/README.md §5).
 * The end-to-end behaviour goes through the shared ``hook_runner_raw`` harness,
@@ -29,6 +29,12 @@ HOOK_SCRIPT = "osprey_config_drift.py"
 # Spelled out here rather than imported: the tests state the contract the hook is
 # supposed to implement, independently of the constant the hook happens to use.
 CHANNEL_WRITE = "mcp__controls__channel_write"
+
+# What the same tool is called on an `extends: controls` clone. A deployment
+# whose controls server is a clone denies THIS and nothing named `controls`, so
+# a hook keyed on the framework literal claims nothing about its posture while
+# looking like it had checked.
+CLONE_CHANNEL_WRITE = "mcp__ring__channel_write"
 
 # Channel-write states a rendered settings.json can be in.
 DENIED = "denied"
@@ -69,7 +75,9 @@ class _RaisingPath:
 # --------------------------------------------------------------------------- #
 
 
-def _make_project(project_dir, *, writes_enabled: bool | None, channel_write: str):
+def _make_project(
+    project_dir, *, writes_enabled: bool | None, channel_write: str, write_tool: str = CHANNEL_WRITE
+):
     """Write config.yml + .claude/settings.json in a chosen (possibly drifted) state.
 
     ``writes_enabled=None`` omits the key entirely; ``channel_write=NO_PERMISSIONS``
@@ -79,24 +87,37 @@ def _make_project(project_dir, *, writes_enabled: bool | None, channel_write: st
     if writes_enabled is not None:
         lines.append(f"  writes_enabled: {'true' if writes_enabled else 'false'}")
     return _make_project_from_text(
-        project_dir, "\n".join(lines) + "\n", channel_write=channel_write
+        project_dir,
+        "\n".join(lines) + "\n",
+        channel_write=channel_write,
+        write_tool=write_tool,
     )
 
 
-def _make_project_from_text(project_dir, config_text: str, *, channel_write: str):
-    """Same, for a config.yml whose exact text matters (shapes a bool cannot express)."""
-    (project_dir / ".claude").mkdir(parents=True, exist_ok=True)
+def _make_project_from_text(
+    project_dir, config_text: str, *, channel_write: str, write_tool: str = CHANNEL_WRITE
+):
+    """Same, for a config.yml whose exact text matters (shapes a bool cannot express).
+
+    ``write_tool`` names the deployment's own write tool: the framework's by
+    default, a clone's when the test is about a clone. It is written into both
+    ``hook_config.json`` (where the hook reads the set from) and
+    ``permissions.deny`` (where the kill switch puts it).
+    """
+    (project_dir / ".claude" / "hooks").mkdir(parents=True, exist_ok=True)
     config_path = project_dir / "config.yml"
     settings_path = project_dir / ".claude" / "settings.json"
+    hook_config_path = project_dir / ".claude" / "hooks" / "hook_config.json"
 
     config_path.write_text(config_text, encoding="utf-8")
+    hook_config_path.write_text(json.dumps({"write_tools": [write_tool]}), encoding="utf-8")
 
     if channel_write == NO_PERMISSIONS:
         settings = {"hooks": {}}
     else:
         deny = ["Bash", "Edit"]
         if channel_write == DENIED:
-            deny.append(CHANNEL_WRITE)
+            deny.append(write_tool)
         settings = {"permissions": {"deny": deny}}
     settings_path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
     return config_path, settings_path
@@ -185,7 +206,63 @@ def test_writes_enabled_in_config_is_none_when_unreadable(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# _channel_write_denied — JSON read of permissions.deny
+# _kill_switch_tools — which tools this render's kill switch denies
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        (json.dumps({"write_tools": [CLONE_CHANNEL_WRITE]}), (CLONE_CHANNEL_WRITE,)),
+        (
+            json.dumps({"write_tools": [CHANNEL_WRITE, CLONE_CHANNEL_WRITE]}),
+            (CHANNEL_WRITE, CLONE_CHANNEL_WRITE),
+        ),
+        # A whole facility-custom server names no tool that could be in deny.
+        (json.dumps({"write_tools": [CHANNEL_WRITE, "mcp__site__.*"]}), (CHANNEL_WRITE,)),
+        # A mixed read/write tool keeps its reads with writes off, so it is not
+        # denied outright and says nothing about the posture.
+        (
+            json.dumps(
+                {
+                    "write_tools": [CHANNEL_WRITE, "mcp__bluesky__queue_add"],
+                    "mixed_read_write_tools": ["mcp__bluesky__queue_add"],
+                }
+            ),
+            (CHANNEL_WRITE,),
+        ),
+        (json.dumps({"write_tools": []}), ()),
+        (json.dumps({"write_tools": [1, None]}), ()),
+    ],
+    ids=["clone-only", "framework-and-clone", "wildcard-dropped", "mixed-dropped", "empty", "junk"],
+)
+def test_kill_switch_tools(tmp_path, payload, expected):
+    hook_config_path = tmp_path / "hook_config.json"
+    hook_config_path.write_text(payload, encoding="utf-8")
+
+    assert _hook()._kill_switch_tools(hook_config_path) == expected
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [None, "{ this is not json", json.dumps(["not", "a", "mapping"]), json.dumps({})],
+    ids=["file-missing", "malformed-json", "top-level-not-a-mapping", "key-absent"],
+)
+def test_kill_switch_tools_falls_back_to_the_framework_tool(tmp_path, payload):
+    """A render without a readable hook_config still gets the old check.
+
+    Falling back to nothing would silently retire the check on exactly the
+    deployments least likely to notice.
+    """
+    hook_config_path = tmp_path / "hook_config.json"
+    if payload is not None:
+        hook_config_path.write_text(payload, encoding="utf-8")
+
+    assert _hook()._kill_switch_tools(hook_config_path) == (CHANNEL_WRITE,)
+
+
+# --------------------------------------------------------------------------- #
+# _write_tools_denied — JSON read of permissions.deny
 # --------------------------------------------------------------------------- #
 
 
@@ -212,15 +289,38 @@ def test_writes_enabled_in_config_is_none_when_unreadable(tmp_path):
         "malformed-json",
     ],
 )
-def test_channel_write_denied(tmp_path, payload, expected):
+def test_write_tools_denied(tmp_path, payload, expected):
     settings_path = tmp_path / "settings.json"
     settings_path.write_text(payload, encoding="utf-8")
 
-    assert _hook()._channel_write_denied(settings_path) is expected
+    assert _hook()._write_tools_denied(settings_path, (CHANNEL_WRITE,)) is expected
 
 
-def test_channel_write_denied_is_none_when_file_missing(tmp_path):
-    assert _hook()._channel_write_denied(tmp_path / "settings.json") is None
+def test_write_tools_denied_is_none_when_file_missing(tmp_path):
+    assert _hook()._write_tools_denied(tmp_path / "settings.json", (CHANNEL_WRITE,)) is None
+
+
+def test_write_tools_denied_abstains_on_an_empty_tool_set(tmp_path):
+    """Nothing to compare is not "writes are allowed"."""
+    settings_path = tmp_path / "settings.json"
+    settings_path.write_text(json.dumps({"permissions": {"deny": []}}), encoding="utf-8")
+
+    assert _hook()._write_tools_denied(settings_path, ()) is None
+
+
+def test_write_tools_denied_abstains_on_a_partial_deny(tmp_path):
+    """The kill switch renders the whole set together, so half of it is not a posture.
+
+    A hand-edited settings.json is what produces this, and the mtime check is
+    the signal for that — warning about the write posture would name the wrong
+    control.
+    """
+    settings_path = tmp_path / "settings.json"
+    settings_path.write_text(
+        json.dumps({"permissions": {"deny": [CHANNEL_WRITE]}}), encoding="utf-8"
+    )
+
+    assert _hook()._write_tools_denied(settings_path, (CHANNEL_WRITE, CLONE_CHANNEL_WRITE)) is None
 
 
 # --------------------------------------------------------------------------- #
@@ -234,12 +334,13 @@ def test_detect_drift_is_none_when_an_artifact_is_missing(tmp_path, missing):
     config_path, settings_path = _make_project(tmp_path, writes_enabled=True, channel_write=DENIED)
     (config_path if missing == "config" else settings_path).unlink()
 
-    assert _hook()._detect_drift(config_path, settings_path) is None
+    hook_config_path = tmp_path / ".claude" / "hooks" / "hook_config.json"
+    assert _hook()._detect_drift(config_path, settings_path, hook_config_path) is None
 
 
 def test_detect_drift_fails_open_when_stat_raises():
     # Both signals blow up on IO: the hook returns no message rather than guessing.
-    assert _hook()._detect_drift(_RaisingPath(), _RaisingPath()) is None
+    assert _hook()._detect_drift(_RaisingPath(), _RaisingPath(), _RaisingPath()) is None
 
 
 def test_detect_drift_prefers_the_targeted_check_over_mtime(tmp_path):
@@ -248,9 +349,29 @@ def test_detect_drift_prefers_the_targeted_check_over_mtime(tmp_path):
     config_path, settings_path = _make_project(tmp_path, writes_enabled=True, channel_write=DENIED)
     _set_mtimes(config_path, settings_path, config_newer=True)
 
-    message = _hook()._detect_drift(config_path, settings_path)
+    hook_config_path = tmp_path / ".claude" / "hooks" / "hook_config.json"
+    message = _hook()._detect_drift(config_path, settings_path, hook_config_path)
     assert "still blocks writes" in message
     assert "changed since" not in message
+
+
+def test_detect_drift_sees_a_clone_the_framework_literal_would_miss(tmp_path):
+    """The #244 case on a deployment whose controls server is an `extends` clone.
+
+    Its kill switch denies `mcp__ring__channel_write`; nothing named `controls`
+    appears anywhere in the render. Probing the framework literal read that as
+    "not denied", so a config that had turned writes back ON matched a settings
+    file that still blocked them, and the operator was told nothing.
+    """
+    config_path, settings_path = _make_project(
+        tmp_path, writes_enabled=True, channel_write=DENIED, write_tool=CLONE_CHANNEL_WRITE
+    )
+    _set_mtimes(config_path, settings_path, config_newer=False)
+    hook_config_path = tmp_path / ".claude" / "hooks" / "hook_config.json"
+
+    message = _hook()._detect_drift(config_path, settings_path, hook_config_path)
+    assert message is not None
+    assert "still blocks writes" in message
 
 
 # --------------------------------------------------------------------------- #
