@@ -518,7 +518,10 @@ class TestRunQuickstart:
 
         messages: list[str] = []
         result = await ops.run_quickstart(
-            {**_DB, "ingestion": {"source_url": "file:///entries.json"}},
+            {
+                **_DB,
+                "ingestion": {"adapter": "generic_json", "source_url": "file:///entries.json"},
+            },
             source=None,
             progress=messages.append,
         )
@@ -545,7 +548,10 @@ class TestRunQuickstart:
         messages: list[str] = []
         with caplog.at_level(logging.DEBUG, logger="ariel"):
             result = await ops.run_quickstart(
-                {**_DB, "ingestion": {"source_url": "file:///entries.json"}},
+                {
+                    **_DB,
+                    "ingestion": {"adapter": "generic_json", "source_url": "file:///entries.json"},
+                },
                 source=None,
                 progress=messages.append,
             )

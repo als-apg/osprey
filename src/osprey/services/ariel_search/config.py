@@ -335,6 +335,35 @@ class WriteConfig:
         )
 
 
+def _known_ingestion_adapters() -> list[str]:
+    """Adapter names to offer an operator who named none.
+
+    The live registry first — a deployment that registered its own adapter must
+    see it here — and the framework's built-in registrations as the fallback,
+    since a config can be parsed outside a project, where there is no registry
+    to ask.
+
+    Returns:
+        Sorted adapter names, or an empty list if neither source can answer.
+    """
+    try:
+        from osprey.registry.manager import get_registry
+
+        names = get_registry().list_ariel_ingestion_adapters()
+        if names:
+            return sorted(names)
+    except Exception:  # noqa: BLE001 — the refusal matters more than the list
+        pass
+
+    try:
+        from osprey.registry.builtins import FrameworkRegistryProvider
+
+        registrations = FrameworkRegistryProvider().get_registry_config()
+        return sorted(r.name for r in registrations.ariel_ingestion_adapters)
+    except Exception:  # noqa: BLE001 — same
+        return []
+
+
 @dataclass
 class IngestionConfig:
     """Configuration for logbook ingestion.
@@ -372,7 +401,29 @@ class IngestionConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "IngestionConfig":
-        """Create IngestionConfig from dictionary."""
+        """Create IngestionConfig from dictionary.
+
+        Args:
+            data: The ``ariel.ingestion`` block.
+
+        Returns:
+            The parsed configuration.
+
+        Raises:
+            ConfigurationError: If ``adapter`` is absent. There is no sensible
+                default — the old one, ``"generic"``, is not a registered name
+                at all, so an ingestion block without an adapter never worked;
+                it just failed later, at the first ingest, instead of here.
+        """
+        if not data.get("adapter"):
+            available = ", ".join(_known_ingestion_adapters())
+            suffix = f" Registered adapters: {available}." if available else ""
+            raise ConfigurationError(
+                "ariel.ingestion.adapter is required: name the adapter that reads "
+                f"your logbook.{suffix}",
+                config_key="ingestion.adapter",
+            )
+
         proxy_url = data.get("proxy_url") or os.environ.get("ARIEL_SOCKS_PROXY")
 
         watch = WatchConfig()
@@ -384,7 +435,7 @@ class IngestionConfig:
             write = WriteConfig.from_dict(data["write"])
 
         return cls(
-            adapter=data.get("adapter", "generic"),
+            adapter=data["adapter"],
             source_url=data.get("source_url"),
             poll_interval_seconds=data.get("poll_interval_seconds", 3600),
             proxy_url=proxy_url,

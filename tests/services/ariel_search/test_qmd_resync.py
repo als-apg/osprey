@@ -538,7 +538,10 @@ class TestWatchWiring:
         monkeypatch.setattr(sched_mod, "IngestionScheduler", _Scheduler)
         monkeypatch.setattr(ops, "resync_qmd_mirror_best_effort", _resync)
 
-        config_dict = {**_DB, "ingestion": {"source_url": "https://logbook.example/api"}}
+        config_dict = {
+            **_DB,
+            "ingestion": {"adapter": "generic_json", "source_url": "https://logbook.example/api"},
+        }
         await ops.run_watch(config_dict, None, None, False, None, False)
 
         assert order == ["resync", "poll", "resync", "poll"]
