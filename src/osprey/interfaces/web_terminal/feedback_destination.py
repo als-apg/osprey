@@ -26,6 +26,7 @@ degraded case nobody is watching.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
@@ -223,3 +224,84 @@ def coerce_store_ceiling(value: object, default: int = DEFAULT_FEEDBACK_MAX_STOR
         default,
     )
     return default
+
+
+@dataclass(frozen=True)
+class FeedbackDestination:
+    """Everything the Documentation and Feedback controls need, resolved.
+
+    One struct rather than five loose values, because the fields are not
+    independent: ``trackers`` is partly *derived* from ``github_repo`` (the
+    sugar expansion), so a caller that resolved them separately could hold a
+    repo the tracker list does not mention. Returning them together makes that
+    unrepresentable.
+    """
+
+    docs_url: str
+    """``web.docs_url`` — ``""`` when the deployment retired the link."""
+
+    email: str
+    """``web.feedback.email`` — ``""`` when the deployment retired the channel."""
+
+    github_repo: str
+    """``web.feedback.github_repo`` — the sugar, already folded into *trackers*."""
+
+    trackers: list[dict[str, str]] = field(default_factory=list)
+    """The outbound channels the dialog offers, in render order."""
+
+    max_store_bytes: int = DEFAULT_FEEDBACK_MAX_STORE_BYTES
+    """Ceiling on the on-disk record store. Server-side only."""
+
+
+def resolve_feedback_destination(
+    *,
+    docs_url: object = None,
+    email: object = None,
+    github_repo: object = None,
+    trackers: object = None,
+    max_store_bytes: object = None,
+) -> FeedbackDestination:
+    """Resolve the raw config values into one coherent destination.
+
+    Deliberately **pure**: it reads no config of its own and takes whatever the
+    reader returned, so the ``get_config_value`` calls stay in the lifespan
+    where the config-key manifest can see them, and this function stays
+    callable from a route that has no config at all.
+
+    That second caller is the point. ``GET /api/panels`` falls back to shipped
+    defaults whenever app state is missing, and it used to reach them by
+    re-typing the literals — including a hand-rolled second copy of the
+    ``github_repo`` -> one-GitHub-tracker sugar. Both callers now run this one
+    function, so the lifespan's answer and the fallback's answer cannot
+    disagree even in principle.
+
+    Every argument is ``None`` by default and ``None`` means *absent*, so a
+    bare call is the unconfigured deployment: the one whose owner is the
+    OSPREY project itself.
+
+    Each field is coerced separately. A single unusable value must not drag the
+    others back to project defaults — silently redirecting a facility's
+    feedback address to the upstream maintainers because its store ceiling was
+    written ``256MB`` is exactly the failure a fail-open path must not produce.
+
+    Args:
+        docs_url: Raw ``web.docs_url``.
+        email: Raw ``web.feedback.email``.
+        github_repo: Raw ``web.feedback.github_repo``.
+        trackers: Raw ``web.feedback.trackers``.
+        max_store_bytes: Raw ``web.feedback.max_store_bytes``.
+
+    Returns:
+        A freshly built :class:`FeedbackDestination`; nothing is shared between
+        calls, so no caller can mutate the next one's tracker list.
+    """
+    resolved_repo = coerce_config_str(
+        "web.feedback.github_repo", github_repo, DEFAULT_FEEDBACK_GITHUB_REPO
+    )
+    return FeedbackDestination(
+        docs_url=coerce_config_str("web.docs_url", docs_url, DEFAULT_DOCS_URL),
+        email=coerce_config_str("web.feedback.email", email, DEFAULT_FEEDBACK_EMAIL),
+        github_repo=resolved_repo,
+        trackers=resolve_feedback_trackers(coerce_feedback_trackers(trackers), resolved_repo),
+        max_store_bytes=coerce_store_ceiling(max_store_bytes),
+    )

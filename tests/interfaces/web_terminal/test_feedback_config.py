@@ -29,6 +29,7 @@ from osprey.interfaces.web_terminal.feedback_destination import (
     coerce_config_str,
     coerce_feedback_trackers,
     coerce_store_ceiling,
+    resolve_feedback_destination,
     resolve_feedback_trackers,
 )
 from osprey.interfaces.web_terminal.routes.panels import router as panels_router
@@ -447,3 +448,100 @@ class TestFeedbackTrackers:
             assert app.state.feedback_trackers == [
                 {"kind": "github", "label": "GitHub", "repo": DEFAULT_FEEDBACK_GITHUB_REPO}
             ]
+
+
+class TestResolveFeedbackDestination:
+    """One resolver behind both the lifespan and the ``/api/panels`` fallback.
+
+    The duplication this replaced lived on the fallback path, so a drift
+    between the two spellings only showed when app state was missing. These
+    tests pin the two paths to each other rather than to literals, so the same
+    class of drift cannot come back through a copy that merely *looks* right.
+    """
+
+    def test_no_arguments_is_the_unconfigured_deployment(self):
+        """A deployment that configured nothing is owned by the OSPREY project."""
+        destination = resolve_feedback_destination()
+        assert destination.docs_url == DEFAULT_DOCS_URL
+        assert destination.email == DEFAULT_FEEDBACK_EMAIL
+        assert destination.github_repo == DEFAULT_FEEDBACK_GITHUB_REPO
+        assert destination.max_store_bytes == DEFAULT_FEEDBACK_MAX_STORE_BYTES
+        assert destination.trackers == [
+            {"kind": "github", "label": "GitHub", "repo": DEFAULT_FEEDBACK_GITHUB_REPO}
+        ]
+
+    def test_the_sugar_expansion_happens_once(self):
+        """``github_repo`` becomes a tracker entry inside the resolver, not outside it."""
+        destination = resolve_feedback_destination(github_repo="facility/ops")
+        assert destination.github_repo == "facility/ops"
+        assert destination.trackers == [
+            {"kind": "github", "label": "GitHub", "repo": "facility/ops"}
+        ]
+
+    def test_a_blank_repo_retires_the_github_channel(self):
+        """The blank posture survives the move into the resolver."""
+        destination = resolve_feedback_destination(github_repo="")
+        assert destination.github_repo == ""
+        assert destination.trackers == []
+
+    def test_configured_trackers_precede_the_sugar(self):
+        """Render order is the facility's list, then the ``github_repo`` sugar."""
+        destination = resolve_feedback_destination(
+            trackers=[{"kind": "gitlab", "url": GITLAB_URL, "label": "Ops"}],
+            github_repo="facility/ops",
+        )
+        assert destination.trackers == [
+            {"kind": "gitlab", "label": "Ops", "url": GITLAB_URL},
+            {"kind": "github", "label": "GitHub", "repo": "facility/ops"},
+        ]
+
+    def test_one_unusable_value_does_not_drag_the_others_to_defaults(self):
+        """Each field is coerced separately — the fail-open posture app.py states."""
+        destination = resolve_feedback_destination(
+            email="controls@example.org",
+            max_store_bytes="256MB",
+        )
+        assert destination.email == "controls@example.org"
+        assert destination.max_store_bytes == DEFAULT_FEEDBACK_MAX_STORE_BYTES
+
+    def test_every_field_is_returned_fresh(self):
+        """No caller can mutate the next caller's trackers."""
+        first = resolve_feedback_destination()
+        first.trackers.append({"kind": "github", "label": "X", "repo": "a/b"})
+        assert len(resolve_feedback_destination().trackers) == 1
+
+    def test_the_panels_fallback_is_the_resolver_and_not_a_copy(self):
+        """The route's defaults ARE the resolver's output, field for field.
+
+        This is the test the whole commit exists for: it fails if anyone
+        re-types a default into the ``getattr`` fallbacks, however carefully.
+        """
+        app = FastAPI()
+        app.include_router(panels_router)
+        app.state.project_cwd = "/tmp"
+        payload = TestClient(app).get("/api/panels").json()
+
+        unconfigured = resolve_feedback_destination()
+        assert payload["docs_url"] == unconfigured.docs_url
+        assert payload["feedback_email"] == unconfigured.email
+        assert payload["feedback_trackers"] == unconfigured.trackers
+
+    def test_the_lifespan_resolves_the_same_way_the_fallback_does(self, project_dir, shared_root):
+        """A configured lifespan and a direct resolve agree on every field."""
+        overrides = {
+            "web.docs_url": "https://docs.example.org",
+            "web.feedback.email": "controls@example.org",
+            "web.feedback.github_repo": "facility/ops",
+        }
+        with _lifespan_client(project_dir, shared_root, overrides=overrides) as (client, app):
+            payload = client.get("/api/panels").json()
+
+        expected = resolve_feedback_destination(
+            docs_url="https://docs.example.org",
+            email="controls@example.org",
+            github_repo="facility/ops",
+        )
+        assert payload["docs_url"] == expected.docs_url
+        assert payload["feedback_email"] == expected.email
+        assert payload["feedback_trackers"] == expected.trackers
+        assert app.state.feedback_max_store_bytes == expected.max_store_bytes

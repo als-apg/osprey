@@ -43,10 +43,7 @@ from osprey.interfaces.web_terminal.feedback_destination import (
     DEFAULT_FEEDBACK_EMAIL,
     DEFAULT_FEEDBACK_GITHUB_REPO,
     DEFAULT_FEEDBACK_MAX_STORE_BYTES,
-    coerce_config_str,
-    coerce_feedback_trackers,
-    coerce_store_ceiling,
-    resolve_feedback_trackers,
+    resolve_feedback_destination,
 )
 from osprey.interfaces.web_terminal.file_watcher import (
     FileEventBroadcaster,
@@ -2228,17 +2225,21 @@ def _create_lifespan(
                 exc_info=True,
             )
             raw_docs_url = raw_github_repo = raw_email = raw_trackers = raw_max_store_bytes = None
-        app.state.docs_url = coerce_config_str("web.docs_url", raw_docs_url, DEFAULT_DOCS_URL)
-        app.state.feedback_github_repo = coerce_config_str(
-            "web.feedback.github_repo", raw_github_repo, DEFAULT_FEEDBACK_GITHUB_REPO
+        # One resolver, so this block and the `GET /api/panels` fallback cannot
+        # disagree: `trackers` is derived from `github_repo`, and two copies of
+        # that derivation are two chances to drift.
+        destination = resolve_feedback_destination(
+            docs_url=raw_docs_url,
+            email=raw_email,
+            github_repo=raw_github_repo,
+            trackers=raw_trackers,
+            max_store_bytes=raw_max_store_bytes,
         )
-        app.state.feedback_trackers = resolve_feedback_trackers(
-            coerce_feedback_trackers(raw_trackers), app.state.feedback_github_repo
-        )
-        app.state.feedback_email = coerce_config_str(
-            "web.feedback.email", raw_email, DEFAULT_FEEDBACK_EMAIL
-        )
-        app.state.feedback_max_store_bytes = coerce_store_ceiling(raw_max_store_bytes)
+        app.state.docs_url = destination.docs_url
+        app.state.feedback_github_repo = destination.github_repo
+        app.state.feedback_trackers = destination.trackers
+        app.state.feedback_email = destination.email
+        app.state.feedback_max_store_bytes = destination.max_store_bytes
 
         # The server-side stores are sited on the CONFIGURED agent-data root
         # and deliberately NOT on workspace_dir: with web_terminal.watch_dir
