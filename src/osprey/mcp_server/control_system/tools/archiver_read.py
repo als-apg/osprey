@@ -60,10 +60,31 @@ def auto_bin_seconds(span: timedelta, target_points: int) -> int:
 def _parse_time(time_str: str) -> datetime:
     """Parse a time string into a timezone-aware datetime.
 
-    Supports ISO-8601 and simple relative expressions like "1h ago", "30m ago", "2d ago".
+    Accepts ``now``, simple relative expressions like ``1h ago``, ``30m ago``,
+    ``2d ago``, and ISO-8601 (``datetime.fromisoformat``, which since 3.11 also
+    takes the space-separated ``2026-04-03 14:00`` form).
+
+    Nothing else. A dotted or slashed date is AMBIGUOUS — ``03.04.2026`` is the
+    third of April to most of the world and the fourth of March in the US —
+    and a general-purpose parser resolves it silently, one way, and stamps the
+    result facility-local. An archiver window off by a month reads as "there is
+    no data" or, worse, as somebody else's shift. So an unrecognized spelling
+    raises here and the caller answers with the ``validation_error`` whose
+    hints already name ISO-8601, rather than guessing. This matches the sibling
+    entry point in :mod:`osprey.mcp_server.ariel.server`.
+
     Naive inputs (operator-provided wall-clock with no offset) are interpreted as
     facility-local — the agent rule promises operator times are facility-local, so the
     query window and the echoed range must honor the facility zone, not the box/UTC.
+
+    Args:
+        time_str: The operator's spelling of the instant.
+
+    Returns:
+        A timezone-aware datetime.
+
+    Raises:
+        ValueError: If *time_str* is not one of the accepted spellings.
     """
     tz = get_facility_timezone()
     if not time_str or time_str.strip().lower() == "now":
@@ -82,10 +103,7 @@ def _parse_time(time_str: str) -> datetime:
             except ValueError:
                 pass  # unparseable amount — fall through to dateutil below
 
-    # Fall back to dateutil for ISO / human strings
-    from dateutil import parser as dateutil_parser
-
-    dt = dateutil_parser.parse(time_str)
+    dt = datetime.fromisoformat(time_str.strip())
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=tz)
     return dt
@@ -272,8 +290,10 @@ async def archiver_read(
 
     Args:
         channels: List of PV/channel addresses to query.
-        start_time: Start of the time range — ISO-8601 or relative (e.g. "2h ago").
-        end_time: End of the time range (default "now").
+        start_time: Start of the time range — ISO-8601 ("2026-04-03T14:00") or
+            relative (e.g. "2h ago"). Nothing else: a dotted or slashed date is
+            ambiguous and is refused rather than read one way.
+        end_time: End of the time range (default "now"), same spellings.
         processing: Aggregation within each bin — one of "raw", "mean", "min",
             "max", "median", "std", "count".
         bin_size: Bin size in seconds. ``None`` (the default) picks a
@@ -336,7 +356,11 @@ async def archiver_read(
         return make_error(
             "validation_error",
             f"Could not parse start_time '{start_time}': {exc}",
-            ["Use ISO-8601 format or relative expressions like '2h ago'."],
+            [
+                "Use ISO-8601 (2026-04-03, 2026-04-03T14:00) or a relative "
+                "expression like '2h ago'.",
+                "A dotted or slashed date (03.04.2026) is ambiguous and is not read.",
+            ],
         )
 
     try:
@@ -345,7 +369,11 @@ async def archiver_read(
         return make_error(
             "validation_error",
             f"Could not parse end_time '{end_time}': {exc}",
-            ["Use ISO-8601 format or 'now'."],
+            [
+                "Use ISO-8601 (2026-04-03, 2026-04-03T14:00), a relative "
+                "expression like '2h ago', or 'now'.",
+                "A dotted or slashed date (03.04.2026) is ambiguous and is not read.",
+            ],
         )
 
     async with connector_error_handler("archiver_read", connector_name="archiver"):
