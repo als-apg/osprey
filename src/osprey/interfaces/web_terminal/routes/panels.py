@@ -18,6 +18,12 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from osprey.interfaces.common_middleware import apply_url_prefix, compute_url_prefix
+from osprey.interfaces.web_terminal.feedback_destination import (
+    DEFAULT_DOCS_URL,
+    DEFAULT_FEEDBACK_EMAIL,
+    DEFAULT_FEEDBACK_GITHUB_REPO,
+    resolve_feedback_trackers,
+)
 from osprey.interfaces.web_terminal.routes.agent_activity import record_activity
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, BUILTIN_PANELS
 
@@ -370,17 +376,22 @@ async def get_panels(request: Request):
     open_tiles_ts = getattr(request.app.state, "open_tiles_ts", None)
     open_tiles_age = None if open_tiles_ts is None else time.time() - open_tiles_ts
     open_tiles_dock = getattr(request.app.state, "open_tiles_dock", None)
-    # Utility-cluster targets. The defaults mirror app.DEFAULT_DOCS_URL /
-    # DEFAULT_FEEDBACK_GITHUB_REPO (as the one sugar tracker) /
-    # DEFAULT_FEEDBACK_EMAIL, spelled as literals here for the same
-    # routes->app import-cycle reason as above.
-    docs_url = getattr(request.app.state, "docs_url", "https://als-apg.github.io/osprey")
+    # Utility-cluster targets. The fallbacks are the shipped defaults
+    # themselves, imported from the feedback_destination leaf — no literal is
+    # re-typed here. The leaf is reachable from a route module because it
+    # imports neither the app nor any route, so the cycle that forced the old
+    # literals (app -> routes -> panels) does not arise.
+    #
+    # The sugar expansion is called rather than hand-rolled for the same
+    # reason: `github_repo` -> one GitHub tracker entry is a rule, and a
+    # second copy of it here could disagree with the lifespan's.
+    docs_url = getattr(request.app.state, "docs_url", DEFAULT_DOCS_URL)
     feedback_trackers = getattr(
         request.app.state,
         "feedback_trackers",
-        [{"kind": "github", "label": "GitHub", "repo": "als-apg/osprey"}],
+        resolve_feedback_trackers([], DEFAULT_FEEDBACK_GITHUB_REPO),
     )
-    feedback_email = getattr(request.app.state, "feedback_email", "thellert@lbl.gov")
+    feedback_email = getattr(request.app.state, "feedback_email", DEFAULT_FEEDBACK_EMAIL)
     # Onboarding tour: the resolved invite policy, the derived capability
     # list for the "Ask in plain language" card, and whether the logbook
     # (ARIEL panel) is available. All resolved at startup (web.tour /

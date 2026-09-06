@@ -43,6 +43,9 @@ from osprey.interfaces.web_terminal.feedback_composer import (
     render_bundle,
     validate_session_id,
 )
+from osprey.interfaces.web_terminal.feedback_destination import (
+    DEFAULT_FEEDBACK_MAX_STORE_BYTES,
+)
 from osprey.interfaces.web_terminal.feedback_store import (
     new_record_id,
     prune_store,
@@ -62,10 +65,11 @@ EXCERPT_CHARS = 200
 """How much of the report the header carries, for the ``osprey feedback list``
 table. The full text lives in the paired context document."""
 
-DEFAULT_MAX_STORE_BYTES = 256 * 1024 * 1024
-"""Mirrors ``app.DEFAULT_FEEDBACK_MAX_STORE_BYTES`` (256 MB). Spelled as a
-literal here, as routes do for every app.state default, to keep routes from
-importing the app module."""
+DEFAULT_MAX_STORE_BYTES = DEFAULT_FEEDBACK_MAX_STORE_BYTES
+"""The shipped store ceiling (256 MB), under the name this module's fallback
+path reads it by. Not a second spelling: it is bound to the one definition in
+:mod:`~osprey.interfaces.web_terminal.feedback_destination`, which a route may
+import because that module imports neither the app nor any route."""
 
 MAX_REQUEST_BYTES = 4 * 1024 * 1024
 """Largest report + scrollback one submission may carry, in UTF-8 bytes.

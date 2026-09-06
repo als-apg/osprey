@@ -20,7 +20,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.interfaces.web_terminal.app import (
+from osprey.interfaces.web_terminal.app import create_app
+from osprey.interfaces.web_terminal.feedback_destination import (
     DEFAULT_DOCS_URL,
     DEFAULT_FEEDBACK_EMAIL,
     DEFAULT_FEEDBACK_GITHUB_REPO,
@@ -28,7 +29,6 @@ from osprey.interfaces.web_terminal.app import (
     coerce_config_str,
     coerce_feedback_trackers,
     coerce_store_ceiling,
-    create_app,
     resolve_feedback_trackers,
 )
 from osprey.interfaces.web_terminal.routes.panels import router as panels_router
