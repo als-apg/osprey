@@ -39,7 +39,7 @@ stdin ──► Parse JSON
               │
               ▼
   STAGE 2  Load config.yml
-           Read session target
+           Read the record
               │
               ▼
          Armed for that
@@ -64,8 +64,8 @@ order:
 2. **Deployment posture, per target.** Write posture is a property of the
    machine a call would reach, not of the deployment as a whole: a facility can
    arm its virtual accelerator and leave its ring unarmed. So the question is
-   only answerable once the call has been pointed at a target — the session's,
-   from the state file — and the answer comes from
+   only answerable once the call has been pointed at a target — the one the
+   control-context record names — and the answer comes from
    `control_system.connector.<type>.writes_enabled` over
    `control_system.writes_enabled`.
 
@@ -83,7 +83,7 @@ the render can tell a custom server's reads from its writes, and the server
 asked for the gate at server level.
 
 Lane-bound queue tools skip stage 2. A queue operation is addressed by *lane*,
-and the lane's own bridge refuses what it must; the session target says nothing
+and the lane's own bridge refuses what it must; the control target says nothing
 about it. Which tools those are is rendered into `hook_config.json` off the tool
 registry rather than spelled here, so renaming one never touches this file.
 Stage 1 still applies to them in full.
@@ -143,7 +143,7 @@ _LANE_ADDRESSED_KEY = "lane_addressed_tools"
 
 #: The posture refusal, said once: it is lifted by one action, so it teaches the
 #: operator one dialect. ``{scope}`` carries :data:`_POSTURE_DENY_SCOPE` when the
-#: session's target is known and is empty otherwise — a narrowing now belongs to
+#: record's target is known and is empty otherwise — a narrowing belongs to
 #: one machine, and a refusal that named none would describe the session-wide
 #: sandbox this deployment may not be in.
 _POSTURE_DENY_REASON = (
@@ -156,16 +156,15 @@ _POSTURE_DENY_REASON = (
 #: The target half of :data:`_POSTURE_DENY_REASON`.
 _POSTURE_DENY_SCOPE = " to the {target} target"
 
-#: The refusal for the one cell where the posture cannot be READ: the session
-#: carries a posture key, the agent-data root was not stamped beside it, and the
-#: directory this hook derived holds no live control-target state. An empty store
-#: read there proves nothing, and an unreadable posture is not a permissive one.
+#: The refusal for the one cell where the posture cannot be READ: the agent-data
+#: root was not stamped on this process, and the directory this hook derived
+#: instead holds no readable control-context record. An empty answer read there
+#: proves nothing, and an unreadable posture is not a permissive one.
 #: See ``osprey_target_state.posture_unknown``.
 _POSTURE_UNKNOWN_DENY_REASON = (
-    "\U0001f512 WRITE STATE UNKNOWN — this session carries a posture key, but "
-    "no live control-target state was found where this hook looks, so the "
-    "write state set on the control-target chip in the header cannot be "
-    "read.\n\n"
+    "\U0001f512 WRITE STATE UNKNOWN — no control-context record was found "
+    "where this hook looks, so the write state set on the control-target chip "
+    "in the header cannot be read.\n\n"
     "Writes stay refused until the controls MCP server is running; config.yml "
     "is not the gate here."
 )
@@ -295,13 +294,13 @@ def _deployment_posture(hook_input):
 
     Returns ``(armed, keys, target, refusal)`` — the decision, the config keys a
     refusal should name, the target it was answered for (``None`` when the
-    session's target could not be identified), and which KIND of refusal it is
+    record's target could not be identified), and which KIND of refusal it is
     (``None`` when armed).
 
     Two things gate a write here, and two different actions lift them: the
     deployment's own posture for that target, which moves in ``config.yml``, and
-    the operator's per-(session, target) narrowing, which moves on the
-    control-target chip in the header. ``osprey_target_state.effective_writes_for``
+    the operator's per-target narrowing, which moves on the control-target chip
+    in the header. ``osprey_target_state.effective_writes_for``
     is the single rule that combines them — the stdlib restatement of
     ``osprey_connectors.session_store.effective_writes``, so this hook and the
     connector's reference monitor cannot answer one write differently. The KIND
@@ -325,24 +324,24 @@ def _deployment_posture(hook_input):
             # build, so this is theoretical rather than an upgrade path.
             return False, [_GLOBAL_WRITES_KEY], None, _REFUSAL_DEPLOYMENT
 
-        result = _target_state.read_session_target(hook_input)
+        result = _target_state.read_target(hook_input)
         # A baseline fallback still NAMES the deployment's baseline target, and
-        # answering for it would state a posture for a session that may have
+        # answering for it would state a posture for a deployment that may have
         # switched away from it. `effective_writes_for` reads `None` as "the
         # posture every target this session could reach agrees on", which is the
         # only answer here that cannot become a guess in favour of hardware.
         target = None if _target_state.is_baseline(result) else result.get("target")
 
         if target is None and _target_state.posture_unknown(hook_input):
-            # The session could have been narrowed and this hook cannot see
+            # The deployment could have been narrowed and this hook cannot see
             # where. Refused before the config is consulted at all: no config
             # key would lift it, so naming one would be the wrong instruction.
             #
             # Asked only when no target resolved, which is not a shortcut but
-            # the same question: a resolved target came FROM a live record in
-            # that directory, which is the evidence `posture_unknown` looks for.
-            # Skipping it there spares every ordinary write a second walk of the
-            # state directory on the PreToolUse path.
+            # the same question: a resolved target came FROM the record in that
+            # directory, which is the evidence `posture_unknown` looks for.
+            # Skipping it there spares every ordinary write a second read of the
+            # record on the PreToolUse path.
             return False, _refusal_keys(section, target), target, _REFUSAL_POSTURE_UNKNOWN
 
         if _target_state.effective_writes_for(hook_input, section, target):
@@ -355,7 +354,7 @@ def _deployment_posture(hook_input):
         # nothing must not become one that writes. It is also the one shape
         # where this hook and `osprey_approval` deliberately disagree: approval
         # falls through to its normal prompt, this hook still refuses.
-        if _target_state.session_sandboxed(hook_input, target) or _target_state.is_readonly_run():
+        if _target_state.target_sandboxed(hook_input, target) or _target_state.is_readonly_run():
             return False, _refusal_keys(section, target), target, _REFUSAL_POSTURE
         return False, _refusal_keys(section, target), target, _REFUSAL_DEPLOYMENT
     except Exception:
@@ -497,7 +496,7 @@ def main():
     if os.environ.get("OSPREY_EXECUTION_MODE") == "readonly":
         _deny_posture(hook_input, tool_name)
 
-    # -- Stage 2: deployment posture, for this session's target ----------
+    # -- Stage 2: deployment posture, for the record's target ------------
     if _is_lane_addressed(short_name):
         log_hook("writes-check", hook_input, status="allow", detail="lane_addressed")
         sys.exit(0)

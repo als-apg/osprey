@@ -1,30 +1,34 @@
-"""The session posture as the ledger records it — one reader for every surface.
+"""The posture as the ledger records it — one reader for every surface.
 
 Three in-process recorders — the MCP audit middleware, the executor's gates and
 the protected-set funnel — file records that carry the same three facts about
 the process they run in: which posture it is under, how that posture was
-established, and which posture-store key it belongs to. All three read them
+established, and which audit session it belongs to. All three read them
 from the environment the Web Terminal's spawn sites stamp, and all three spell
 them the same way, so the answers live here once and each recorder imports
 them. This module is a leaf below all three: the middleware and the gates
 already depend on the audit package, and nothing here depends on them.
 
 The posture *value* has two sources, and :func:`posture` is the seam between
-them. The environment answers for a process that belongs to no session — a
-dispatch worker, an ``agent_runner`` child, a CLI run — and its answer is
-returned before anything else is read. A process that carries a posture-store
-key belongs to a Web Terminal session, whose operator narrows write posture per
-CONTROL TARGET: "the live machine is read-only for me, leave the virtual
-accelerator alone". No environment variable can carry that, because setting one
-would sandbox both targets, so the answer for a session comes from the
-per-(session, target) store — :mod:`osprey_connectors.session_store`, imported
-lazily so that the leaf stays a leaf and the session-less paths never pay for
-it. The store can only NARROW: an environment that already says sandbox is
-returned unchanged, and no store entry has ever granted a write.
+them. The environment answers first: a process launched read-only is sandboxed
+and nothing else has to be read. Otherwise the answer comes from the operator's
+narrowing, which is per CONTROL TARGET — "the live machine is read-only, leave
+the virtual accelerator alone". No environment variable can carry that, because
+setting one would sandbox both targets, so it is a field of the control-context
+record, read through :mod:`osprey_connectors.session_store` and imported lazily
+so that the leaf stays a leaf. That record can only NARROW: an environment that
+already says sandbox is returned unchanged, and no narrowing has ever granted a
+write.
+
+The narrowing belongs to the DEPLOYMENT rather than to a process tree inside
+it, so :data:`POSTURE_SESSION_ENV_VAR` does not index it and does not gate it:
+a dispatch worker, an ``agent_runner`` child and a CLI run are answered from
+the same record as a Web Terminal session's child. That variable is the audit
+session id, which is what the ledger joins records on.
 
 :func:`posture` never raises. Three refusal paths call it on every tool call,
 and an exception from any of them would cost the call rather than answer it, so
-every way of failing to read the store — a missing file, a corrupt one, an
+every way of failing to read the record — a missing file, a corrupt one, an
 unresolvable target, an import that fails — degrades to the environment answer.
 
 The spellings are the wire contract with the spawn sites
@@ -65,8 +69,8 @@ __all__ = [
 #: MCP servers included.
 POSTURE_ENV_VAR = "OSPREY_EXECUTION_MODE"
 
-#: How the posture in :data:`POSTURE_ENV_VAR` was established, and the
-#: posture-store key it belongs to. Stamped by the Web Terminal spawn sites and
+#: How the posture in :data:`POSTURE_ENV_VAR` was established, and the audit
+#: session id it belongs to. Stamped by the Web Terminal spawn sites and
 #: absent everywhere else (a dispatch worker, a CLI run, a container-level
 #: execution mode), which is what
 #: :data:`~osprey.audit.envelope.POSTURE_SOURCE_PROCESS` is for.
@@ -76,8 +80,8 @@ POSTURE_SESSION_ENV_VAR = "OSPREY_POSTURE_SESSION"
 #: The agent-data root the spawning surface resolved, stamped as a PAIR with
 #: :data:`POSTURE_SESSION_ENV_VAR` — never one without the other. A session
 #: child, the MCP servers below it and the stdlib-only hooks all have to agree
-#: on ONE directory for the control-target state file and the session-posture
-#: store; each deriving it for itself means a deployment that moves
+#: on ONE directory for the control-target state file and the control-context
+#: record; each deriving it for itself means a deployment that moves
 #: ``agent_data.base_dir``, or a hook that can only guess the repo root, reads a
 #: different directory from the one the server writes. The spawn sites resolve
 #: it once and say so here, so every reader below has an authoritative anchor
@@ -120,31 +124,29 @@ def posture() -> str:
 
     1. **The environment.** ``OSPREY_EXECUTION_MODE == "readonly"`` is a
        sandbox — a *value* comparison, never a presence check, because the
-       writes posture and a readwrite run set the same variable. A process with
-       no posture-store key (:func:`posture_session` is ``None``) is answered
-       here and nothing else is read: a dispatch worker, an ``agent_runner``
-       child and a CLI run belong to no session, so no store entry can address
-       them and no file read may be charged to them.
-    2. **The per-(session, target) store**, for a process that does carry a
-       key. The entry that governs it is the one for the SESSION's current
-       control target (:func:`session_control_target`); a sandbox entry there
-       is a sandbox here. An entry for any OTHER target says nothing about this
-       process — narrowing the live machine must leave a session working on the
-       virtual accelerator alone, which is the entire point of the feature.
+       writes posture and a readwrite run set the same variable. It
+       short-circuits: the record holds narrowings only, so consulting it could
+       not change that answer.
+    2. **The control-context record's posture**, indexed by the control target
+       this process's writes are about (:func:`session_control_target`); a
+       sandbox narrowing there is a sandbox here. A narrowing on any OTHER
+       target says nothing about this process — narrowing the live machine must
+       leave a process working on the virtual accelerator alone, which is the
+       entire point of the feature.
 
-    An environment that already says sandbox short-circuits: the store holds
-    narrowings only, so consulting it could not change the answer.
+    :data:`POSTURE_SESSION_ENV_VAR` is not consulted: the narrowing is the
+    deployment's, so a process that belongs to no session is answered from the
+    same record as one that does.
 
-    Never raises. See :func:`_session_target_is_sandboxed` for the degradation
-    rule: every failure to read the store answers the environment.
+    Never raises. See :func:`_target_is_sandboxed` for the degradation rule:
+    every failure to read the record answers the environment.
     """
     env_answer = (
         POSTURE_SANDBOX if os.environ.get(POSTURE_ENV_VAR) == SANDBOX_MODE else POSTURE_WRITES
     )
-    session_key = posture_session()
-    if session_key is None or env_answer == POSTURE_SANDBOX:
+    if env_answer == POSTURE_SANDBOX:
         return env_answer
-    return POSTURE_SANDBOX if _session_target_is_sandboxed(session_key) else env_answer
+    return POSTURE_SANDBOX if _target_is_sandboxed() else env_answer
 
 
 def posture_source(declared: str | None = None) -> str:
@@ -167,15 +169,20 @@ def posture_source(declared: str | None = None) -> str:
 
 
 def posture_session() -> str | None:
-    """The posture-store key this process's posture belongs to, if it was stamped."""
+    """The audit session id this process's records belong to, if it was stamped.
+
+    An identifier the ledger joins on, and since the narrowing moved into the
+    control-context record it is nothing more: no reader indexes a posture by
+    it, and a process without one is narrowed exactly like a process with one.
+    """
     return (os.environ.get(POSTURE_SESSION_ENV_VAR) or "").strip() or None
 
 
 # -- the session's control target ------------------------------------------
 
 #: The resolved session target, cached against the signature of the state
-#: files that produced it. Same shape and same reason as the store's own cache
-#: in :mod:`osprey_connectors.session_store`: :func:`posture` runs on every
+#: files that produced it. Same shape and same reason as the record's own cache
+#: in :mod:`osprey_connectors.control_context`: :func:`posture` runs on every
 #: tool call, and a glob plus a JSON parse per call is a cost the answer does
 #: not need to pay twice for one unchanged directory.
 _TARGET_CACHE_LOCK = threading.Lock()
@@ -195,7 +202,7 @@ def _state_signature(path: Path) -> tuple[str, int, int, int] | None:
     The inode is part of it because the state file is replaced atomically
     (temp file plus ``os.replace``), so two switches inside one filesystem
     clock tick differ by inode when mtime and size do not — the rule
-    :mod:`osprey_connectors.session_store` and :mod:`osprey.health.signatures`
+    :mod:`osprey_connectors.control_context` and :mod:`osprey.health.signatures`
     already follow. The path is part of it so that a reader whose agent-data
     root moved does not answer from the previous root's cache.
     """
@@ -223,7 +230,7 @@ def session_control_target() -> str | None:
        it was pinned to, not of the one the session has since switched to. The
        value is checked against ``target_state.TARGET_NAMES`` exactly as a
        record's is — a stamp naming something no reader knows can only index
-       the store to a key nothing writes, so it is dropped in favour of the
+       the posture to a key nothing writes, so it is dropped in favour of the
        state record rather than answered with.
     2. Otherwise the controls server's state record for this session, matched
        by :func:`osprey.mcp_server.control_system.target_state.session_record`
@@ -271,7 +278,7 @@ def session_control_target() -> str | None:
                 stamped,
             )
 
-        entries = sorted(target_state.state_dir().glob(target_state.STATE_FILE_GLOB))
+        entries = sorted(target_state.state_dir().glob(target_state.REPORT_FILE_GLOB))
         signature: Any = (owner_ppid, tuple(_state_signature(entry) for entry in entries))
     except Exception:  # noqa: BLE001 — an unreadable state directory is "unknown"
         logger.debug(
@@ -290,17 +297,17 @@ def session_control_target() -> str | None:
     return target
 
 
-def _session_target_is_sandboxed(session_key: str) -> bool:
-    """Whether the store narrows *session_key*'s current target to the sandbox.
+def _target_is_sandboxed() -> bool:
+    """Whether the record narrows this process's control target to the sandbox.
 
     The one place :mod:`osprey_connectors.session_store` is reached from the
     audit package, and the one place the degradation rule lives: ``False`` for
-    every way of not knowing — no store, a corrupt or unreadable one, a target
+    every way of not knowing — no record, a corrupt or unreadable one, a target
     that cannot be resolved, a connector package that cannot be imported. The
-    caller then answers the environment, which is what a session with nothing
-    narrowed has always been answered.
+    caller then answers the environment, which is what a deployment with
+    nothing narrowed has always been answered.
 
-    ``False`` is not a grant. A store entry can only narrow, so failing to read
+    ``False`` is not a grant. A narrowing can only refuse, so failing to read
     one leaves whatever the deployment and the environment already decided —
     including a deployment-wide read-only run, which no reader here can lift.
     """
@@ -310,7 +317,7 @@ def _session_target_is_sandboxed(session_key: str) -> bool:
         target = session_control_target()
         if target is None:
             return False
-        return session_store.target_posture(session_key, target) == session_store.POSTURE_SANDBOX
+        return session_store.target_posture(target) == session_store.POSTURE_SANDBOX
     except Exception:  # noqa: BLE001 — posture() is called on every tool call
-        logger.debug("Session-posture store unavailable; answering the environment", exc_info=True)
+        logger.debug("Control-context record unavailable; answering the environment", exc_info=True)
         return False

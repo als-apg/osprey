@@ -721,6 +721,7 @@ EXPECTED_ERROR_CLASSES = {
     "path_traversal": "Safety",
     "protected_key": "Safety",
     "session_target_mismatch": "Safety",
+    "switch_in_progress": "Safety",
     "lane_mismatch": "Safety",
     "browse_only_connector": "Safety",
     "unsupported_connector": "Safety",

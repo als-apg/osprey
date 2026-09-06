@@ -1,11 +1,11 @@
-"""Shared, stdlib-only reader for the control-system target-state file.
+"""Shared, stdlib-only reader for the deployment's control-context record.
 
-Not a hook: this is the frontmatter-less library that hooks and the status line
-import to answer one question — *which control-system target is this session
-pointed at?* The controls MCP server is the single writer
-(``osprey.mcp_server.control_system.target_state``); everything here reads, and
-reads read-only. Stale files are the writer's to sweep; a reader that deleted
-them would be a second opinion about identity.
+Not a hook: this is the frontmatter-less library that the hooks import to
+answer two questions — *which control-system target is this deployment pointed
+at?* and *may a write reach it?* The record is written by whichever process
+owns it (the web terminal, else a controls MCP server); everything here reads,
+and reads read-only. Stale files are the owner's to sweep; a reader that
+deleted them would be a second opinion about identity.
 
 Hooks run outside the osprey venv, so every path through this module is standard
 library only — no ``osprey`` import is required to succeed, no PyYAML, no third
@@ -16,92 +16,77 @@ Path contract
 -------------
 Restated from the writer's docstring, in stdlib terms::
 
-    <agent_data_root>/control_target/target_state_<server_pid>.json
-    <agent_data_root>/control_target/session-postures.json
+    <agent_data_root>/control_target/control_context.json
+    <agent_data_root>/control_target/server_<server_pid>.json
 
 * ``agent_data_root`` resolves by ONE rule, the same one the writer and the
   connector-side reader use: the ``OSPREY_AGENT_DATA_ROOT`` stamp when it names
-  a non-blank path, else ``<repo_root>/var/agent_data``. The stamp is what a
-  session child carries, always beside ``OSPREY_POSTURE_SESSION``; a child
-  holding one anchor and not the other would read a store nobody writes.
+  a non-blank path, else ``<repo_root>/var/agent_data``;
 * ``repo_root`` comes from :func:`osprey_hook_log.get_repo_root` — the repo, not
-  the render: ``build/`` is disposable and ``data/`` is checksummed.
+  the render: ``build/`` is disposable and ``data/`` is checksummed;
 * the DERIVED base dir is the framework default ``var/agent_data``. A project
   that overrides ``agent_data.base_dir`` and does not stamp the root moves the
   directory somewhere this reader does not look; the reader then reports the
   baseline fallback, which is the documented fail-closed outcome rather than a
   wrong target — and :func:`posture_unknown` turns that same silence into a
-  refusal for the one session shape that could have been narrowed unseen.
-* one file per server process, discovered by the glob ``target_state_*.json``;
-  one posture store for the whole root, named :data:`STORE_FILENAME`.
+  refusal for every process the stamp did not reach;
+* ONE record for the whole deployment, and one report per controls server,
+  discovered by the glob ``server_*.json``.
 
-Multi-session resolution (CC-3, fail-closed)
---------------------------------------------
-Two Claude Code sessions can share one checkout, so the directory can hold two
-live state files that disagree. The tiebreak is parentage: each record carries
-the ``owner_ppid`` the server captured at start — the Claude Code process that
-spawned it. This reader walks its own ancestor PID chain and selects the unique
-live file whose ``owner_ppid`` is on that chain.
+There is no per-session record and no ancestor walk. The target, its generation
+and the operator's narrowings are properties of the DEPLOYMENT: two Claude Code
+sessions sharing a checkout read one file and get one answer, and a hook that
+tried to tell them apart would be inventing a distinction the writer does not
+make.
 
-Zero matches or more than one both resolve to the **deployment baseline**
-fallback. Ambiguity is not broken by guessing: naming the wrong target is worse
-than naming none, because the caller renders "deployment baseline (state
-unavailable)" and the operator knows to look, whereas a confidently wrong
-``Target:`` line is a safety claim nobody audits.
+Record contract
+---------------
+Restated from ``osprey_connectors.control_context``, whose parser this one
+mirrors — a filter here that admitted a record that one rejects would let a
+hook answer for a machine no other reader believes in::
 
-Return contract (shared with the status-line consumer)
-------------------------------------------------------
-:func:`read_session_target` returns a dict whose five keys are ALWAYS present::
+    {"schema": 1, "target": "live"|"va"|"standin", "generation": int >= 0,
+     "posture": {target: "sandbox"}, "owner": {...}|null, "last_switch": {...}|null}
+
+``schema``, ``target`` and ``generation`` are the record's IDENTITY: any of
+them absent, mistyped or unrecognised and there is no record at all, because
+every one of them is a field no reader can default. ``posture`` degrades on its
+own to "nothing narrowed". ``owner`` and ``last_switch`` are deliberately not
+carried out of the parse: which process may WRITE the record is the owner's
+business, and hooks never evaluate convergence — a hook decides about the tool
+call in front of it, at the generation the record states, and a switch landing
+mid-call is the executor's and the kernel's to catch.
+
+Return contract
+---------------
+:func:`read_target` returns a dict whose four keys are ALWAYS present::
 
     {
       "target": "va" | "live" | "standin" | None,
       "generation": int | None,
-      "display": {"label": str, "endpoint": str, "real_machine": bool} | None,
       "fallback": None | "baseline",
-      "reason": None | "no state" | "ambiguous" | "unreadable",
+      "reason": None | "no state" | "unreadable",
     }
 
 ``fallback`` is the explicit sentinel: falsy on success, ``"baseline"`` when the
 caller must render the deployment baseline. Callers branch on it and never on a
 missing key. There is no third outcome and no exception path — every failure
-mode (absent directory, dead server, corrupt JSON, schema drift, an unwalkable
-process tree) arrives as the same baseline marker, differing only in ``reason``.
+mode (absent directory, absent record, corrupt JSON, schema drift) arrives as
+the same baseline marker, differing only in ``reason``.
 
-:func:`read_session_record` is the same call with the projection left off: it
-hands back the writer's RAW record for callers that need metadata the contract
-dict cannot carry — the approval prompt previewing the DESTINATION of a
-prospective switch, which is by definition not the selected target. Both go
-through :func:`_select_record`, so the fail-closed selection rules exist once.
-A caller that walked the state directory itself would eventually walk it
-differently; the liveness filter is the easiest of these rules to leave out, and
-leaving it out means a crashed server's stale file answering for a live one.
-
-::
-
-    read_session_target() / read_session_record()
-        |
-        v
-    _select_record()
-        |
-        v
-    resolve state dir --(missing)--> baseline / "no state"
-        |
-        v
-    glob target_state_*.json
-        |
-        +--> dead server_pid   --> ignore (never delete)
-        +--> unreadable/corrupt --> ignore, remember
-        |
-        v
-    ancestor pid chain (/proc/<pid>/stat, else `ps -o ppid= -p`)
-        |
-        v
-    owner_ppid on chain?  --0--> baseline / "no state" | "unreadable"
-        |                 --2+-> baseline / "ambiguous"
-        |
-        1
-        v
-    {target, generation, display}
+How a target is SPOKEN OF
+-------------------------
+The record names which machine the deployment points at; it does not carry the
+label, the endpoint or the ``real_machine`` claim a prompt renders. Those are
+the writer's own rendering of the deployment's config, published by every
+controls server into its report (``targets``), and :func:`read_target_view`
+folds them onto the record so a prompt describes one read of one target rather
+than assembling an identity of its own. Reports are read from the LIVE servers
+only, the rule every other reader of that directory follows, and any of them
+answers because they all render one config. With no live server there is no
+metadata and the caller renders its explicit "state unavailable" line — which
+is what it rendered before this record existed, for the same reason: nobody is
+there to say what the target IS.
 
 Write posture (a second question, answered from config)
 -------------------------------------------------------
@@ -147,67 +132,51 @@ key and no per-type key anywhere. That is the shape every deployment had before
 the per-type key existed, and a hook must leave it exactly as it found it rather
 than reading silence as a refusal.
 
-Session write posture (a third question, answered from a store)
----------------------------------------------------------------
-An operator narrows one control target for one session from the control-target
-chip in the header: "stand-in is read-only for me, leave the virtual accelerator
-alone". That narrowing is recorded in a single JSON file under the agent-data
-root and is enforced at WRITE time rather than delivered by respawning the
-agent, which is what lets a flip land on a session already mid-conversation.
+Recorded posture (a third question, answered from the record)
+-------------------------------------------------------------
+An operator narrows one control target from the control-target chip in the
+header: "stand-in is read-only, leave the virtual accelerator alone". That
+narrowing is the record's ``posture`` field and is enforced at WRITE time
+rather than delivered by respawning the agent, which is what lets a flip land
+on a session already mid-conversation.
 
 ``osprey_connectors.session_store`` is the canonical reader. Hooks cannot import
-it, so its four rules are restated here — a change there is a change here.
+it, so its rules are restated here — a change there is a change here.
 
-**1. Where the file is.** :data:`STORE_FILENAME` inside :data:`STATE_DIR_NAME`
-under the agent-data root, so the store is co-sited with the control-target
-state file and one directory answers "session state for the control targets".
-The root resolves by the ONE rule the path contract above states, used by the
-writer and by both readers; there is no third path and no fallback. For
-*reading*, an unresolvable root is indistinguishable from an empty store:
-nothing has been narrowed, so the deployment ceiling stays in charge. (The
-session-wide posture that predated targets kept a store directly under the
-agent-data root; that location is retired and no reader consults it.)
+**1. Whose narrowing it is.** The deployment's. It is keyed by TARGET and by
+nothing else: an operator taking the ring away takes it away from every agent
+on this deployment, and a hook that asked whether the narrowing was addressed
+to *its own* session would let a session the operator never saw write to the
+machine they just closed.
 
-**2. What the shapes mean.** The file is a JSON object keyed by session key. A
-value is either a per-target object (``{"live": "sandbox"}``) or one of the two
-bare legacy strings the session-wide posture wrote before targets existed:
-
-* bare ``"sandbox"`` narrows EVERY target in :data:`CONTROL_TARGETS`;
-* bare ``"writes"`` is dropped — the writes posture is the *absence* of an
-  entry, never a stored assertion, so nothing in this file can ever widen.
-
-Anything else — an unknown value, a non-string key, a per-target leaf nobody
-recognises — is dropped rather than honoured: what survives this filter decides
-whether a real machine is written to, so a hand-edited or future-version entry
-must not reach the decision. Every surviving key is returned, ``operator-`` keys
-included. Their drop-on-restore rule belongs to the web server's startup load
-alone: an enforcement reader that dropped them would ignore a narrowing that is
-live for the rest of that process's life.
+**2. What the shapes mean.** ``posture`` is either a per-target object
+(``{"live": "sandbox"}``) or the bare string ``"sandbox"``, which narrows every
+target in :data:`CONTROL_TARGETS`. Bare ``"writes"`` is dropped — the writes
+posture is the *absence* of a narrowing, never a stored assertion, so nothing
+in this field can ever widen. Anything else — an unknown value, a non-string
+key, a leaf nobody recognises — is dropped rather than honoured: what survives
+this filter decides whether a real machine is written to, so a hand-edited or
+future-version entry must not reach the decision.
 
 **3. How a lookup combines.** :func:`effective_writes_for` is the whole rule::
 
-    ceiling AND not readonly run AND (store entry != sandbox)
+    ceiling AND not readonly run AND (recorded posture != sandbox)
 
 The ceiling is the deployment's own posture, read through this module's own
-predicates and never re-derived: :func:`writes_posture` for the target this
-session holds, and :func:`most_restrictive_posture` when it holds none. That
+predicates and never re-derived: :func:`writes_posture` for the target the
+record states, and :func:`most_restrictive_posture` when it states none. That
 second half is the one place this restatement is deliberately STRICTER than the
 module it restates, which takes the union across configured targets for a caller
 that holds no target at all — right for a roster describing a deployment, wrong
 for a gate, which must not be handed the more permissive of two answers it
-cannot choose between. The store can only narrow the ceiling. With a session key
-and no resolvable target the MOST RESTRICTIVE entry for that key wins (any
-sandbox refuses). With no session key at all the store is not consulted: nothing
-addressed the session, so nothing narrowed it.
+cannot choose between. The record can only narrow the ceiling. With no target
+resolved the MOST RESTRICTIVE entry wins: any sandbox refuses.
 
 **4. When a change is seen.** Every read re-reads the file. The canonical reader
 caches its parse against ``(st_mtime_ns, st_size, st_ino)`` because it lives in
 a long-running process; a hook is a fresh process per tool call, where reading
-is already the freshest answer there is. A missing file is an empty store, not
-an error.
-
-:func:`posture_unknown` is the one shape where a hook must refuse rather than
-read an empty store as "nothing was narrowed" — see its own docstring.
+is already the freshest answer there is. A missing record is not an empty
+posture, though — see :func:`posture_unknown`.
 
 This module never writes to stdout and never raises into a hook.
 """
@@ -216,7 +185,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -235,31 +203,34 @@ except Exception:  # pragma: no cover - hooks must never crash the agent
 #: writer; part of the greppable path contract.
 STATE_DIR_NAME = "control_target"
 
-STATE_FILE_PREFIX = "target_state_"
-STATE_FILE_SUFFIX = ".json"
-STATE_FILE_GLOB = f"{STATE_FILE_PREFIX}*{STATE_FILE_SUFFIX}"
+#: The record's filename, mirroring ``control_context.RECORD_FILENAME``.
+RECORD_FILENAME = "control_context.json"
+
+#: The payload version this reader understands. There is exactly one: hooks and
+#: record change together, and a deployment is regenerated rather than migrated,
+#: so a payload spelling anything else is not this record.
+SCHEMA_VERSION = 1
+
+#: One report per controls server, beside the record. Read for the per-target
+#: display metadata only — the identity itself is the record's.
+REPORT_FILE_PREFIX = "server_"
+REPORT_FILE_SUFFIX = ".json"
+REPORT_FILE_GLOB = f"{REPORT_FILE_PREFIX}*{REPORT_FILE_SUFFIX}"
 
 #: Value of the ``fallback`` key when the caller must render the deployment
 #: baseline. Falsy (``None``) means the record was resolved.
 FALLBACK_BASELINE = "baseline"
 
-#: The three ``reason`` values that accompany :data:`FALLBACK_BASELINE`.
+#: The two ``reason`` values that accompany :data:`FALLBACK_BASELINE`. There is
+#: no ambiguity value: one deployment has one record, and a reader that could
+#: not decide which of two files answered belonged to the pid-keyed model this
+#: one replaces.
 REASON_NO_STATE = "no state"
-REASON_AMBIGUOUS = "ambiguous"
 REASON_UNREADABLE = "unreadable"
 
-#: Bound on the ancestor walk. A process tree deeper than this, or one with a
-#: cycle, is pathological; stopping is a "no match", which is fail-closed.
-MAX_ANCESTOR_HOPS = 64
-
-#: Seconds to wait for the ``ps`` fallback. A hook that blocked on a wedged
-#: process table would stall the agent, so the wait is short and a timeout is
-#: simply the end of the chain.
-PS_TIMEOUT_S = 5
-
-#: The three session targets, spelled as the state file and the config spell
-#: them. A target names a MACHINE — the facility's own, the virtual accelerator,
-#: the stand-in soft IOC a deployment runs for itself — and not a connector type.
+#: The three control targets, spelled as the record and the config spell them.
+#: A target names a MACHINE — the facility's own, the virtual accelerator, the
+#: stand-in soft IOC a deployment runs for itself — and not a connector type.
 TARGET_LIVE = "live"
 TARGET_VA = "va"
 TARGET_STANDIN = "standin"
@@ -302,12 +273,12 @@ WRITES_ENABLED_LEAF = "writes_enabled"
 #: The agent-data root stamp a session child carries. Read by NAME rather than
 #: imported from ``osprey.audit.posture``, which declares it for the stamping
 #: side: hooks are stdlib-only and must not grow an ``osprey`` import to learn
-#: one string.
+#: one string. Its absence is half of :func:`posture_unknown`.
 AGENT_DATA_ROOT_ENV_VAR = "OSPREY_AGENT_DATA_ROOT"
 
-#: The posture-store key this session was launched under. Stamped as a PAIR with
-#: :data:`AGENT_DATA_ROOT_ENV_VAR` — one without the other would read a store
-#: nobody writes, which is what :func:`posture_unknown` refuses on.
+#: This session's audit id. It indexes nothing any more — the posture it used to
+#: key is the deployment's — and it is read only by the write-approval stamp,
+#: which records WHO approved beside what was approved.
 POSTURE_SESSION_ENV_VAR = "OSPREY_POSTURE_SESSION"
 
 #: The session-wide execution mode, and the one value of it that sandboxes.
@@ -316,17 +287,13 @@ POSTURE_SESSION_ENV_VAR = "OSPREY_POSTURE_SESSION"
 EXECUTION_MODE_ENV_VAR = "OSPREY_EXECUTION_MODE"
 SANDBOX_MODE = "readonly"
 
-#: The posture store's filename inside :func:`resolve_state_dir`. Mirrors
-#: ``STORE_FILENAME`` on the canonical reader; part of the path contract.
-STORE_FILENAME = "session-postures.json"
-
 #: The narrowing value — the only one that ever refuses anything — and the
 #: un-narrowed one, recorded by some writers and meaningful to none: it is
-#: dropped on parse so the store holds narrowings and nothing else.
+#: dropped on parse so the record holds narrowings and nothing else.
 POSTURE_SANDBOX = "sandbox"
 POSTURE_WRITES = "writes"
 
-#: The two values a store entry may spell. Everything else is dropped.
+#: The two values a posture entry may spell. Everything else is dropped.
 VALID_POSTURES = (POSTURE_SANDBOX, POSTURE_WRITES)
 
 __all__ = [
@@ -335,22 +302,21 @@ __all__ = [
     "EXECUTION_MODE_ENV_VAR",
     "FALLBACK_BASELINE",
     "LIVE_STANDIN_TYPE",
-    "MAX_ANCESTOR_HOPS",
     "MOCK_TYPE",
     "POSTURE_SANDBOX",
     "POSTURE_SESSION_ENV_VAR",
     "POSTURE_WRITES",
-    "REASON_AMBIGUOUS",
     "REASON_NO_STATE",
     "REASON_UNREADABLE",
+    "RECORD_FILENAME",
+    "REPORT_FILE_GLOB",
+    "REPORT_FILE_PREFIX",
+    "REPORT_FILE_SUFFIX",
     "SANDBOX_MODE",
+    "SCHEMA_VERSION",
     "SIMULATED_TYPES",
     "STANDIN_TYPES",
     "STATE_DIR_NAME",
-    "STATE_FILE_GLOB",
-    "STATE_FILE_PREFIX",
-    "STATE_FILE_SUFFIX",
-    "STORE_FILENAME",
     "TARGET_LIVE",
     "TARGET_STANDIN",
     "TARGET_VA",
@@ -358,29 +324,27 @@ __all__ = [
     "VIRTUAL_ACCELERATOR_TYPE",
     "WRITES_ENABLED_LEAF",
     "agent_data_root",
-    "ancestor_pids",
     "baseline_result",
     "effective_writes_for",
-    "has_live_record",
     "is_baseline",
     "is_readonly_run",
     "most_restrictive_posture",
-    "parent_pid",
-    "parse_store",
+    "parse_posture",
+    "parse_record",
     "posture_unknown",
-    "read_session_record",
-    "read_session_store",
-    "read_session_target",
-    "read_state_file",
+    "read_json_file",
+    "read_record",
+    "read_target",
+    "read_target_view",
+    "record_path",
+    "recorded_posture",
     "resolve_state_dir",
     "selected_target",
     "session_key",
-    "session_sandboxed",
-    "session_store_record",
-    "session_target_posture",
     "session_types",
-    "store_path",
     "target_metadata",
+    "target_posture",
+    "target_sandboxed",
     "target_type",
     "type_posture",
     "writes_posture",
@@ -400,7 +364,6 @@ def baseline_result(reason=REASON_NO_STATE):
     return {
         "target": None,
         "generation": None,
-        "display": None,
         "fallback": FALLBACK_BASELINE,
         "reason": reason,
     }
@@ -421,13 +384,12 @@ def is_baseline(result):
 
 
 def agent_data_root(hook_input=None):
-    """The agent-data root the state file and the posture store share.
+    """The agent-data root the record and the reports share.
 
-    Rule 1 of the restated store contract, and the anchor of the path contract
-    above: the :data:`AGENT_DATA_ROOT_ENV_VAR` stamp when it names a non-blank
-    path, else ``<repo_root>/var/agent_data``. ``None`` when neither answers — a
-    session whose repo root cannot be resolved has no state and no store, which
-    is a different thing from having empty ones.
+    Rule 1 of the path contract: the :data:`AGENT_DATA_ROOT_ENV_VAR` stamp when
+    it names a non-blank path, else ``<repo_root>/var/agent_data``. ``None``
+    when neither answers — a session whose repo root cannot be resolved has no
+    record, which is a different thing from having an empty one.
 
     The stamp comes first because it is the only answer that is right when a
     project moved ``agent_data.base_dir``: the derivation below is the framework
@@ -447,51 +409,25 @@ def agent_data_root(hook_input=None):
 
 
 def resolve_state_dir(hook_input=None):
-    """Directory holding every server's state file, or ``None`` if unresolvable.
+    """Directory holding the record, the server reports and the approval stamps.
 
-    Also where the posture store lives, so that one directory answers "session
-    state for the control targets" rather than two.
-
-    Not created here — a reader that created state directories would leave
-    litter in every repo a hook ever ran in.
+    ``None`` when the root is unresolvable. Not created here — a reader that
+    created state directories would leave litter in every repo a hook ever ran
+    in.
     """
     root = agent_data_root(hook_input)
     return None if root is None else os.path.join(root, STATE_DIR_NAME)
 
 
-def store_path(hook_input=None):
-    """The posture store's path, or ``None`` when the root is unresolvable.
+def record_path(hook_input=None):
+    """The record's path, or ``None`` when the root is unresolvable.
 
-    The same file the canonical reader's ``store_path()`` names; a store the
-    writer puts in one directory and a reader looks for in another is a
+    The same file the canonical reader's ``record_path()`` names; a record the
+    owner writes in one directory and a hook looks for in another is a
     narrowing that silently never applies.
     """
     directory = resolve_state_dir(hook_input)
-    return None if directory is None else os.path.join(directory, STORE_FILENAME)
-
-
-def _pid_from_filename(name):
-    """PID encoded in a state file's name, or ``None`` if it is not a number."""
-    if not name.startswith(STATE_FILE_PREFIX) or not name.endswith(STATE_FILE_SUFFIX):
-        return None
-    stem = name[len(STATE_FILE_PREFIX) : -len(STATE_FILE_SUFFIX)]
-    try:
-        return int(stem)
-    except ValueError:
-        return None
-
-
-def _list_state_files(directory):
-    """State-file paths in *directory*, sorted. Empty on any filesystem trouble."""
-    try:
-        names = sorted(
-            n
-            for n in os.listdir(directory)
-            if n.startswith(STATE_FILE_PREFIX) and n.endswith(STATE_FILE_SUFFIX)
-        )
-    except OSError:
-        return []
-    return [os.path.join(directory, n) for n in names]
+    return None if directory is None else os.path.join(directory, RECORD_FILENAME)
 
 
 # -- liveness --------------------------------------------------------------
@@ -523,101 +459,11 @@ def _is_process_alive(pid):
     return True
 
 
-# -- ancestor pid chain ----------------------------------------------------
-
-
-def _ppid_from_proc(pid):
-    """Parent PID from ``/proc/<pid>/stat`` (Linux), or ``None``.
-
-    The ``comm`` field is parenthesized and may itself contain spaces and
-    parentheses, so the fields are taken after the LAST ``)``: they begin with
-    ``state`` and ``ppid``.
-    """
-    try:
-        with open(f"/proc/{int(pid)}/stat", encoding="utf-8", errors="replace") as handle:
-            data = handle.read()
-    except (OSError, TypeError, ValueError):
-        return None
-    try:
-        fields = data[data.rindex(")") + 1 :].split()
-        return int(fields[1])
-    except (ValueError, IndexError):
-        return None
-
-
-def _ppid_from_ps(pid):
-    """Parent PID from ``ps -o ppid= -p <pid>`` (macOS and any POSIX), or ``None``.
-
-    ``ps`` is the only portable answer where ``/proc`` does not exist. It is
-    stdlib-reachable through :mod:`subprocess`, bounded by
-    :data:`PS_TIMEOUT_S`, and every failure — missing binary, non-zero exit,
-    timeout, unparseable output — is simply "no parent".
-    """
-    try:
-        completed = subprocess.run(
-            ["ps", "-o", "ppid=", "-p", str(int(pid))],
-            capture_output=True,
-            text=True,
-            timeout=PS_TIMEOUT_S,
-            check=False,
-        )
-    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
-        return None
-    if completed.returncode != 0:
-        return None
-    try:
-        return int((completed.stdout or "").strip())
-    except (AttributeError, ValueError):
-        return None
-
-
-def parent_pid(pid):
-    """Parent of *pid*, or ``None`` when the chain cannot be walked further.
-
-    ``/proc`` first because it is a file read rather than a process spawn; the
-    ``ps`` fallback carries macOS, where ``/proc`` does not exist and the first
-    attempt fails immediately and cheaply.
-    """
-    ppid = _ppid_from_proc(pid)
-    if ppid is None:
-        ppid = _ppid_from_ps(pid)
-    return ppid
-
-
-def ancestor_pids(start_pid=None, max_hops=MAX_ANCESTOR_HOPS):
-    """This process's ancestor PID chain, nearest first.
-
-    The chain INCLUDES *start_pid* itself: a server re-parented onto the hook's
-    own process would still be this session's, and including it costs nothing
-    because a PID cannot be both this process and another session's parent.
-
-    The walk stops at PID 1, at ``max_hops``, on a repeat (a cycle can only come
-    from a lying process table), or the moment a parent cannot be determined.
-    Any failure mid-walk simply ends the chain — a short chain yields no match,
-    which is the fail-closed answer.
-    """
-    try:
-        current = os.getpid() if start_pid is None else int(start_pid)
-    except (TypeError, ValueError):
-        return []
-
-    chain = []
-    for _ in range(max(0, int(max_hops))):
-        if current <= 1:
-            break
-        chain.append(current)
-        parent = parent_pid(current)
-        if parent is None or parent <= 1 or parent in chain:
-            break
-        current = parent
-    return chain
-
-
 # -- record reading --------------------------------------------------------
 
 
-def read_state_file(path):
-    """Load one state file, or ``None`` if absent, unreadable, or corrupt.
+def read_json_file(path):
+    """Load one JSON object, or ``None`` if absent, unreadable, or corrupt.
 
     Never raises. ``ValueError`` covers ``JSONDecodeError`` and
     ``UnicodeDecodeError`` alike; a non-dict payload is corruption too.
@@ -630,33 +476,125 @@ def read_state_file(path):
     return loaded if isinstance(loaded, dict) else None
 
 
-def _coerce_display(record, target):
-    """Display metadata for *target*, degraded rather than missing.
+def _usable_int(value, minimum):
+    """*value* as an int of at least *minimum*, or ``None``.
 
-    Schema-tolerant by construction: a record written by an older or newer
-    writer, or one whose ``targets`` mapping lacks the selected target, still
-    yields the three keys a caller renders. An empty ``label`` degrades to the
-    target NAME — ``va``, ``live`` and ``standin`` are truthful minimal labels —
-    so the rendered line never has a blank where an identity belongs.
+    ``bool`` is excluded on purpose: it is an ``int`` in Python, and a payload
+    carrying ``true`` where a generation belongs states nothing about one.
     """
-    targets = record.get("targets")
-    meta = targets.get(target) if isinstance(targets, dict) else None
-    if not isinstance(meta, dict):
-        meta = {}
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+        return None
+    return value
+
+
+def parse_posture(value):
+    """One record's ``posture`` as a ``{target: posture}`` map of NARROWINGS.
+
+    Rule 2 of the restated posture contract, and the same filter
+    ``session_store.parse_store`` applies to the same field: what survives here
+    decides whether a real machine is written to, so an entry the two filters
+    disagree about is a narrowing that silently does not apply. Returns an empty
+    map for anything that narrows nothing.
+    """
+    if isinstance(value, str):
+        if value == POSTURE_SANDBOX:
+            # The bare string the session-wide posture wrote before targets
+            # existed: it narrowed everything, so it narrows every target.
+            return dict.fromkeys(CONTROL_TARGETS, POSTURE_SANDBOX)
+        # Bare "writes" — and every unknown string — narrows nothing.
+        return {}
+    if isinstance(value, dict):
+        return {
+            target: posture
+            for target, posture in value.items()
+            if isinstance(target, str) and posture == POSTURE_SANDBOX
+        }
+    return {}
+
+
+def parse_record(raw):
+    """Decode a record into ``{target, generation, posture}``, or ``None``.
+
+    Accepts the decoded JSON object or the raw text of one. The identity fields
+    are all-or-nothing (see the module docstring): a schema this reader does not
+    know, a target outside the vocabulary, and a missing or negative generation
+    each mean there is no record here, because none of the three can be guessed
+    at and a guess would be a safety claim. ``posture`` degrades on its own to
+    "nothing narrowed". Never raises.
+    """
+    if isinstance(raw, (bytes, bytearray)):
+        try:
+            raw = raw.decode("utf-8")
+        except Exception:
+            return None
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            return None
+    if not isinstance(raw, dict):
+        return None
+    if _usable_int(raw.get("schema"), SCHEMA_VERSION) != SCHEMA_VERSION:
+        return None
+    target = raw.get("target")
+    if target not in CONTROL_TARGETS:
+        return None
+    generation = _usable_int(raw.get("generation"), 0)
+    if generation is None:
+        return None
     return {
-        "label": str(meta.get("label") or "") or target,
-        "endpoint": str(meta.get("endpoint") or ""),
-        "real_machine": bool(meta.get("real_machine", False)),
+        "target": target,
+        "generation": generation,
+        "posture": parse_posture(raw.get("posture")),
     }
+
+
+def _read_record(hook_input=None):
+    """``(record, reason)`` for the deployment's record. Never raises.
+
+    Exactly one of the two is set. The reason separates "there is no record"
+    from "there is one and it cannot be read", which is the difference between
+    a deployment nobody has started yet and one whose record something
+    corrupted; both refuse, and an operator has to be able to tell them apart.
+    """
+    path = record_path(hook_input)
+    if not path:
+        return None, REASON_NO_STATE
+    try:
+        with open(path, encoding="utf-8") as handle:
+            raw = handle.read()
+    except OSError:
+        return None, REASON_NO_STATE
+    except ValueError:  # UnicodeDecodeError: a record written as not-UTF-8
+        return None, REASON_UNREADABLE
+    record = parse_record(raw)
+    if record is None:
+        return None, REASON_UNREADABLE
+    return record, None
+
+
+def read_record(hook_input=None):
+    """The deployment's control-context record, or ``None``. Never raises.
+
+    ``{target, generation, posture}`` — the three things a hook answers from.
+    ``None`` for every degraded outcome: no agent-data root, no record, a
+    schema this reader does not know, or identity fields it cannot read. A
+    caller that must name which of those happened asks :func:`read_target` for
+    the reason.
+    """
+    try:
+        record, _reason = _read_record(hook_input)
+        return record
+    except Exception:  # pragma: no cover - defensive; every step above is total
+        return None
 
 
 def selected_target(record):
     """The usable ``target`` string on *record*, or ``None`` if it has none.
 
-    A record whose ``target`` is absent or empty is corruption in the one field
-    that cannot be defaulted: there is no safe guess among ``live``, ``va`` and
-    ``standin``. Exported because a caller holding a raw record (see
-    :func:`read_session_record`) has to answer the same question the same way.
+    Exported because a caller holding a record (see :func:`read_target_view`)
+    has to answer the same question the same way. Tolerant of any input at all,
+    so no caller has to defend itself against the shape it was handed.
     """
     if not isinstance(record, dict):
         return None
@@ -666,14 +604,125 @@ def selected_target(record):
     return target.strip()
 
 
+def read_target(hook_input=None):
+    """Resolve the control target this deployment is pointed at. Never raises.
+
+    A projection of :func:`read_record` onto the shared contract dict — a
+    resolved ``{target, generation}`` or the explicit baseline fallback. See the
+    module docstring for the contract and the fail-closed rule.
+
+    Args:
+        hook_input: The parsed hook stdin payload, used only to resolve the repo
+            root. Optional, because hooks that read no stdin still need an
+            answer.
+
+    Returns:
+        dict: keys ``target``, ``generation``, ``fallback``, ``reason`` — always
+        all four.
+    """
+    try:
+        record, reason = _read_record(hook_input)
+        if record is None:
+            return baseline_result(reason)
+        return {
+            "target": record["target"],
+            "generation": record["generation"],
+            "fallback": None,
+            "reason": None,
+        }
+    except Exception:
+        # The contract's last line of defence: a hook that raised here would
+        # take the agent's turn down over one line of a prompt.
+        return baseline_result(REASON_UNREADABLE)
+
+
+# -- how a target is spoken of ---------------------------------------------
+
+
+def _report_paths(directory):
+    """Report-file paths in *directory*, sorted. Empty on any trouble at all."""
+    try:
+        names = sorted(
+            n
+            for n in os.listdir(directory)
+            if n.startswith(REPORT_FILE_PREFIX) and n.endswith(REPORT_FILE_SUFFIX)
+        )
+    except OSError:
+        return []
+    return [os.path.join(directory, n) for n in names]
+
+
+def _pid_from_report_name(name):
+    """PID encoded in a report file's name, or ``None`` if it is not a number."""
+    stem = name[len(REPORT_FILE_PREFIX) : -len(REPORT_FILE_SUFFIX)]
+    try:
+        return int(stem)
+    except ValueError:
+        return None
+
+
+def _published_targets(hook_input=None):
+    """Per-target display metadata as the live controls servers publish it.
+
+    The first live report that states any is the answer, and there is nothing
+    to choose between: every server renders this block from the one config the
+    deployment was built with. A dead server's report is ignored and never
+    deleted — sweeping belongs to the writer, and a reader that deleted files
+    would be a second opinion about which servers exist.
+
+    ``{}`` when no live server has published metadata, which is the deployment
+    with nothing running: the caller then says the identity is unavailable
+    rather than assembling one of its own.
+    """
+    directory = resolve_state_dir(hook_input)
+    if not directory:
+        return {}
+    for path in _report_paths(directory):
+        pid = _pid_from_report_name(os.path.basename(path))
+        if pid is None or not _is_process_alive(pid):
+            continue
+        report = read_json_file(path)
+        if report is None:
+            continue
+        targets = report.get("targets")
+        if isinstance(targets, dict) and targets:
+            return targets
+    return {}
+
+
+def read_target_view(hook_input=None):
+    """The record with the servers' per-target metadata folded in, or ``None``.
+
+    The same record :func:`read_record` returns, plus a ``targets`` mapping —
+    the identity the deployment's own writer publishes for each machine, read
+    through :func:`_published_targets`. It is a VIEW assembled here and not a
+    shape any writer stores: the record says which target, the reports say what
+    that target IS, and a prompt naming a machine needs both from one read so
+    its "where you are" and "where you would be" lines cannot straddle a switch.
+
+    ``None`` when there is no readable record, exactly as :func:`read_record`.
+    An empty ``targets`` is the ordinary answer with no controls server running
+    and is not a failure of the read. Never raises.
+    """
+    try:
+        record = read_record(hook_input)
+        if record is None:
+            return None
+        view = dict(record)
+        view["targets"] = _published_targets(hook_input)
+        return view
+    except Exception:  # pragma: no cover - defensive; every step above is total
+        return None
+
+
 def target_metadata(record, target):
     """The RAW per-target metadata mapping on *record*, or ``None``.
 
-    The counterpart to :func:`_coerce_display` for callers that must tell a
-    metadata key that is ABSENT from one that is present and false — schema
-    drift from an older or newer writer, where a coerced default would state a
-    machine identity the record never claimed. Returns the writer's own mapping,
-    untouched; ``None`` when there is none for *target*.
+    For callers that must tell a metadata key that is ABSENT from one that is
+    present and false — a report from an older or newer writer, where a coerced
+    default would state a machine identity nobody claimed. Returns the writer's
+    own mapping, untouched; ``None`` when there is none for *target*, which is
+    also what a record read without :func:`read_target_view` yields.
     """
     if not isinstance(record, dict):
         return None
@@ -682,171 +731,6 @@ def target_metadata(record, target):
         return None
     meta = targets.get(target)
     return meta if isinstance(meta, dict) else None
-
-
-def _resolve_record(record, target):
-    """Project one selected record onto the success half of the contract.
-
-    ``generation`` is soft — a missing or unparseable one degrades to ``0``
-    rather than discarding an otherwise good target.
-    """
-    try:
-        generation = int(record.get("generation", 0))
-    except (TypeError, ValueError):
-        generation = 0
-
-    return {
-        "target": target,
-        "generation": generation,
-        "display": _coerce_display(record, target),
-        "fallback": None,
-        "reason": None,
-    }
-
-
-# -- public entry point ----------------------------------------------------
-
-
-def read_session_target(hook_input=None):
-    """Resolve this session's control-system target. Never raises.
-
-    A thin projection of :func:`read_session_record` onto the shared contract
-    dict — a resolved ``{target, generation, display}`` or the explicit baseline
-    fallback. The selection itself lives in one place (:func:`_select_record`)
-    so no caller can end up with a differently-selected record; see the module
-    docstring for the contract and the fail-closed rule.
-
-    Args:
-        hook_input: The parsed hook stdin payload, used only to resolve the repo
-            root. Optional, because hooks that read no stdin still need an
-            answer.
-
-    Returns:
-        dict: keys ``target``, ``generation``, ``display``, ``fallback``,
-        ``reason`` — always all five.
-    """
-    try:
-        record, target, reason = _select_record(hook_input)
-        if record is None:
-            return baseline_result(reason)
-        return _resolve_record(record, target)
-    except Exception:
-        # The contract's last line of defence: a hook that raised here would
-        # take the agent's turn down over a status line.
-        return baseline_result(REASON_UNREADABLE)
-
-
-def read_session_record(hook_input=None):
-    """The RAW state record this session resolves to, or ``None``. Never raises.
-
-    The same selection as :func:`read_session_target`, because it is literally
-    the same call — identical liveness, parentage, ambiguity and corrupt-target
-    rules. What differs is what comes back: the writer's own record, so a caller
-    can read metadata the projected contract dict cannot carry.
-
-    That caller is the approval prompt, which previews the DESTINATION of a
-    prospective target switch: destination metadata is by definition not the
-    selected target's ``display``. Handing the record out here is what keeps the
-    fail-closed selection rules in one place — a caller that re-walked the
-    directory itself would sooner or later walk it differently (skipping the
-    liveness filter, say, and preferring a crashed server's stale file).
-
-    ``None`` for every baseline outcome. A caller that must name the reason asks
-    :func:`read_session_target` for it.
-    """
-    try:
-        record, _target, _reason = _select_record(hook_input)
-        return record
-    except Exception:
-        return None
-
-
-def _live_records(paths):
-    """``(records, saw_unreadable)`` for the state files a live server owns.
-
-    Factored out of :func:`_select_record` because :func:`has_live_record` asks
-    the same question with the parentage step left off — whether the resolved
-    directory is one a running server writes to at all. A second walk written
-    beside this one would eventually drop the liveness filter, and a crashed
-    server's stale file would answer for a live one.
-    """
-    live_records = []
-    saw_unreadable = False
-    for path in paths:
-        pid = _pid_from_filename(os.path.basename(path))
-        if pid is not None and not _is_process_alive(pid):
-            # Dead owner: ignore the file, never delete it. Sweeping belongs to
-            # the writer; this reader is read-only by design.
-            continue
-        record = read_state_file(path)
-        if record is None:
-            saw_unreadable = True
-            continue
-        if pid is None and not _is_process_alive(record.get("server_pid")):
-            continue
-        live_records.append(record)
-    return live_records, saw_unreadable
-
-
-def has_live_record(hook_input=None):
-    """Whether the resolved state directory holds ANY live server's record.
-
-    Deliberately not "this session's record": the question is whether the
-    directory this reader *derived* is the one a writer actually writes to. A
-    live record there is the evidence that it is — see :func:`posture_unknown`,
-    the only caller. Never raises.
-    """
-    try:
-        directory = resolve_state_dir(hook_input)
-        if not directory:
-            return False
-        records, _saw_unreadable = _live_records(_list_state_files(directory))
-        return bool(records)
-    except Exception:  # pragma: no cover - defensive; every step above is total
-        return False
-
-
-def _select_record(hook_input):
-    """Select this session's state record: ``(record, target, reason)``.
-
-    The single authority on WHICH record answers for this session. Exactly one
-    of ``record`` and ``reason`` is set: on success ``(record, target, None)``
-    with *target* already validated non-empty, on every failure
-    ``(None, None, <reason>)``.
-    """
-    directory = resolve_state_dir(hook_input)
-    if not directory:
-        return None, None, REASON_NO_STATE
-
-    paths = _list_state_files(directory)
-    if not paths:
-        return None, None, REASON_NO_STATE
-
-    live_records, saw_unreadable = _live_records(paths)
-
-    if not live_records:
-        return None, None, (REASON_UNREADABLE if saw_unreadable else REASON_NO_STATE)
-
-    chain = set(ancestor_pids())
-    matches = []
-    for record in live_records:
-        try:
-            owner_ppid = int(record.get("owner_ppid"))
-        except (TypeError, ValueError):
-            continue
-        if owner_ppid in chain:
-            matches.append(record)
-
-    if len(matches) > 1:
-        return None, None, REASON_AMBIGUOUS
-    if not matches:
-        return None, None, (REASON_UNREADABLE if saw_unreadable else REASON_NO_STATE)
-
-    record = matches[0]
-    target = selected_target(record)
-    if target is None:
-        return None, None, REASON_UNREADABLE
-    return record, target, None
 
 
 # -- write posture ---------------------------------------------------------
@@ -1033,7 +917,7 @@ def type_posture(section, connector_type):
 
 
 def writes_posture(section, target):
-    """Whether *section* arms writes for one session *target*. Never raises.
+    """Whether *section* arms writes for one control *target*. Never raises.
 
     ``True`` armed, ``False`` not armed, and ``None`` for a section that states
     no posture anywhere — see the module docstring for why silence is its own
@@ -1043,7 +927,7 @@ def writes_posture(section, target):
     Args:
         section: The ``control_system:`` config section. A caller holding a
             whole rendered config passes ``config.get("control_system")``.
-        target: The session target — one of :data:`CONTROL_TARGETS`.
+        target: The control target — one of :data:`CONTROL_TARGETS`.
     """
     if not _states_posture(section):
         return None
@@ -1079,144 +963,58 @@ def most_restrictive_posture(section):
     )
 
 
-# -- session posture store -------------------------------------------------
+# -- recorded posture ------------------------------------------------------
 
 
-def _target_map(value):
-    """One store entry's value as a ``{target: posture}`` map of NARROWINGS.
+def recorded_posture(hook_input=None):
+    """The narrowings the record carries — ``{target: "sandbox"}``.
 
-    Rule 2 of the restated store contract. Returns an empty map for anything
-    that narrows nothing, which is what drops the key.
+    Empty when there is no readable record. That is not the same claim as
+    "nothing was narrowed": :func:`posture_unknown` is the predicate that tells
+    the two apart, and it refuses on exactly the shape where an empty answer
+    here could be hiding one. Never raises.
     """
-    if isinstance(value, str):
-        if value == POSTURE_SANDBOX:
-            # The bare legacy string the session-wide posture wrote before
-            # targets existed: it narrowed the whole session, so it narrows
-            # every target.
-            return dict.fromkeys(CONTROL_TARGETS, POSTURE_SANDBOX)
-        # Bare "writes" — and every unknown string — narrows nothing.
+    record = read_record(hook_input)
+    if record is None:
         return {}
-    if isinstance(value, dict):
-        return {
-            target: posture
-            for target, posture in value.items()
-            if isinstance(target, str) and posture == POSTURE_SANDBOX
-        }
-    return {}
+    posture = record.get("posture")
+    return dict(posture) if isinstance(posture, dict) else {}
 
 
-def parse_store(raw):
-    """Decode a store into ``{session_key: {target: "sandbox"}}``. Never raises.
-
-    Accepts the decoded JSON object or the raw text of one. A corrupt,
-    truncated or hand-edited store is an EMPTY store: the alternative — every
-    write failing on a file nobody can repair from the browser — is worse than
-    losing narrowings an operator can set again. Every surviving key is
-    returned, ``operator-`` keys included.
-    """
-    if isinstance(raw, (bytes, bytearray)):
-        try:
-            raw = raw.decode("utf-8")
-        except Exception:
-            return {}
-    if isinstance(raw, str):
-        try:
-            raw = json.loads(raw)
-        except Exception:
-            return {}
-    if not isinstance(raw, dict):
-        return {}
-    parsed = {}
-    for key, value in raw.items():
-        if not isinstance(key, str):
-            continue
-        narrowed = _target_map(value)
-        if narrowed:
-            parsed[key] = narrowed
-    return parsed
-
-
-def _read_store_file(path):
-    """The parsed store at *path*. Empty on any trouble at all; never raises.
-
-    ``UnicodeDecodeError`` is caught beside ``OSError`` on purpose: it is a
-    ``ValueError``, so a store written by something that was not UTF-8 would
-    otherwise propagate. Nothing may raise into a hook — see the module
-    docstring — and an undecodable store is a corrupt store, which rule 2
-    already answers as empty.
-    """
-    if not path:
-        return {}
-    try:
-        with open(path, encoding="utf-8") as handle:
-            return parse_store(handle.read())
-    except (OSError, UnicodeDecodeError):
-        return {}
-
-
-def read_session_store(hook_input=None):
-    """The whole posture store — ``{session_key: {target: "sandbox"}}``.
-
-    Read from :func:`store_path`, the one location the store has. Missing,
-    unresolvable, unreadable, undecodable or corrupt all arrive as an EMPTY
-    store: for a reader, nothing has been narrowed, so the deployment ceiling
-    stays in charge. Never raises.
-
-    Re-read on every call. The canonical reader caches against the file's
-    ``(st_mtime_ns, st_size, st_ino)`` because it lives in a long-running
-    process; a hook is a fresh process per tool call.
-    """
-    return _read_store_file(store_path(hook_input))
-
-
-def session_key():
-    """This session's posture-store key, or ``None`` when it carries none.
-
-    ``None`` is the answer for every CLI session and every deployment that never
-    opened the header chip: nothing addressed the session, so nothing narrowed
-    it and the store is not consulted at all.
-    """
-    return (os.environ.get(POSTURE_SESSION_ENV_VAR) or "").strip() or None
-
-
-def session_store_record(hook_input=None):
-    """The narrowings recorded for THIS session — ``{target: "sandbox"}``.
-
-    Empty without a session key: rule 3's "with no session key at all the store
-    is not consulted". Never raises.
-    """
-    key = session_key()
-    if not key:
-        return {}
-    entry = read_session_store(hook_input).get(key)
-    return entry if isinstance(entry, dict) else {}
-
-
-def session_target_posture(record, target):
-    """The stored posture for one target inside one session's *record*.
+def _posture_for(posture, target):
+    """The recorded posture for one target inside a *posture* map.
 
     ``"sandbox"`` or ``None``. A *target* of ``None`` takes the MOST RESTRICTIVE
-    entry in the record — any sandbox answers sandbox — because a caller that
-    cannot say which machine it is about must not be granted the most permissive
-    answer. Tolerant of any *record* at all, so no caller has to defend itself.
+    entry — any sandbox answers sandbox — because a caller that cannot say which
+    machine it is about must not be granted the most permissive answer.
     """
-    if not isinstance(record, dict) or not record:
+    if not isinstance(posture, dict) or not posture:
         return None
     if target:
-        return record.get(target)
-    return POSTURE_SANDBOX if POSTURE_SANDBOX in record.values() else None
+        return posture.get(target)
+    return POSTURE_SANDBOX if POSTURE_SANDBOX in posture.values() else None
 
 
-def session_sandboxed(hook_input, target):
-    """Whether the operator narrowed this (session, target). Never raises.
+def target_posture(target, hook_input=None):
+    """The recorded posture for *target*, or ``None``. Never raises.
 
-    The store half of :func:`effective_writes_for` on its own, for a caller that
-    already knows writes are refused and needs to say WHICH refusal it is: a
-    narrowing is lifted on the header chip, an unarmed deployment in config.yml,
-    and telling an operator the wrong one sends them to a control that will not
-    move.
+    The counterpart of ``session_store.target_posture``: one target, one
+    answer, read from the deployment's record rather than from anything this
+    process happens to carry.
     """
-    return session_target_posture(session_store_record(hook_input), target) == POSTURE_SANDBOX
+    return _posture_for(recorded_posture(hook_input), target)
+
+
+def target_sandboxed(hook_input, target):
+    """Whether the operator narrowed this target. Never raises.
+
+    The record half of :func:`effective_writes_for` on its own, for a caller
+    that already knows writes are refused and needs to say WHICH refusal it is:
+    a narrowing is lifted on the header chip, an unarmed deployment in
+    config.yml, and telling an operator the wrong one sends them to a control
+    that will not move.
+    """
+    return target_posture(target, hook_input) == POSTURE_SANDBOX
 
 
 def is_readonly_run():
@@ -1229,48 +1027,58 @@ def is_readonly_run():
     return os.environ.get(EXECUTION_MODE_ENV_VAR) == SANDBOX_MODE
 
 
+def session_key():
+    """This session's audit id, or ``None`` when it carries none.
+
+    It keys nothing: the posture is the deployment's, and this string only says
+    WHO a write-approval stamp belongs to. ``None`` for a bare ``claude`` and
+    for every process the web terminal did not spawn.
+    """
+    return (os.environ.get(POSTURE_SESSION_ENV_VAR) or "").strip() or None
+
+
 def posture_unknown(hook_input=None):
-    """Whether this session's posture cannot be read where a narrowing would be.
+    """Whether the posture cannot be read where a narrowing would be.
 
-    All three at once, and nothing less:
+    Both at once, and nothing less:
 
-    * a session key is set — the session is one the header chip can address, so
-      a narrowing for it is possible at all;
     * :data:`AGENT_DATA_ROOT_ENV_VAR` is NOT stamped — the directory below was
       derived from the framework default rather than handed over, and a project
       that moved ``agent_data.base_dir`` moved it out from under this reader;
-    * that directory holds no live control-target record — the evidence that
-      the derivation found the right directory after all is missing.
+    * there is no readable record in that directory — the evidence that the
+      derivation found the right directory after all is missing.
 
-    Stamped, or with a live record present, an empty store means exactly what it
-    says and nothing is refused on its account. Only in this one cell is the
-    store unreadable *and* possibly non-empty, and an unreadable posture is not
-    a permissive one. Never raises.
+    Deliberately fail-closed for an unstamped process on a deployment whose
+    record has never been written: a readwrite call from a bare ``claude`` or a
+    dispatch worker is refused until the first controls server has published,
+    and succeeds on retry afterwards. The alternative reads a directory nobody
+    writes as "nothing was narrowed", which is the one wrong answer that ends
+    at a machine.
+
+    Stamped, or with a readable record, the record means exactly what it says
+    and nothing is refused on its account. Never raises.
     """
-    if not session_key():
-        return False
     if (os.environ.get(AGENT_DATA_ROOT_ENV_VAR) or "").strip():
         return False
-    return not has_live_record(hook_input)
+    return read_record(hook_input) is None
 
 
 def effective_writes_for(hook_input, section, target):
     """Whether a write may proceed here and now. Never raises.
 
-    Rule 3 of the restated store contract, spelled once::
+    Rule 3 of the restated posture contract, spelled once::
 
-        ceiling AND not readonly run AND (store entry != sandbox)
+        ceiling AND not readonly run AND (recorded posture != sandbox)
 
-    The ceiling is :func:`writes_posture` for the target this session holds, and
-    :func:`most_restrictive_posture` when it holds none — the fail-closed half,
+    The ceiling is :func:`writes_posture` for the target the record states, and
+    :func:`most_restrictive_posture` when it states none — the fail-closed half,
     and the one place this restatement is stricter than the module it restates
-    (see the module docstring). The store can only narrow it.
+    (see the module docstring). The record can only narrow it.
 
     Args:
         hook_input: The hook's stdin payload, for repo-root resolution.
         section: The ``control_system:`` config section.
-        target: The session control target, or ``None`` when it could not be
-            identified.
+        target: The control target, or ``None`` when it could not be resolved.
 
     Returns:
         ``True`` only when the deployment arms this machine, the process is not
@@ -1281,4 +1089,4 @@ def effective_writes_for(hook_input, section, target):
         return False
     if is_readonly_run():
         return False
-    return not session_sandboxed(hook_input, target)
+    return not target_sandboxed(hook_input, target)

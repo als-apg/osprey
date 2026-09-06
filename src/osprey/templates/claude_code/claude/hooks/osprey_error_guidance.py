@@ -159,6 +159,10 @@ ERROR_CLASS_MAP = {
     "path_traversal": "Safety",
     "protected_key": "Safety",
     "session_target_mismatch": "Safety",
+    # A target switch is still in flight: the write was refused before the
+    # control system was touched. Wait for it to settle and re-issue; never
+    # route around the gate.
+    "switch_in_progress": "Safety",
     "lane_mismatch": "Safety",
     # This deployment cannot do what was asked (a connector that cannot
     # execute plans, a logbook adapter that cannot write): explain, do not

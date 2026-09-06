@@ -75,13 +75,14 @@ that states no posture anywhere prompts exactly as it always has.
 
 ## Write-approval stamps
 
-A `channel_write` ask also leaves a *stamp* beside the target state: the target
-and generation this prompt was rendered against, written before the dialog is
-shown. The controls server reads it back when the tool finally runs and refuses
-the write if the session has moved since — see `_stamp_write_approval` for the
-correlation key and the multi-session rule. The stamp is an enrichment, never a
-gate: a render that cannot write one simply produces a prompt the server cannot
-cross-check, exactly as every older render already does.
+A `channel_write` ask also leaves a *stamp* beside the control context: the
+target, the generation and the audit session this prompt was rendered against,
+written before the dialog is shown. The controls server reads it back when the
+tool finally runs and refuses the write if the deployment has moved since — see
+`_stamp_write_approval` for the correlation key and the multi-session rule. The
+stamp is an enrichment, never a gate: a render that cannot write one simply
+produces a prompt the server cannot cross-check, exactly as every older render
+already does.
 
 ## Bluesky plan lanes
 
@@ -91,7 +92,7 @@ machine. The queue describers therefore name the lane an operation binds to,
 fetch their detail from that lane's own bridge, and say out loud when a start
 names a lane the session has switched away from (which the deployment refuses).
 The lane map is render-time truth read from the config's ``services.<lane>``
-blocks; the session's target still comes only from the state file. A single-lane
+blocks; the control target still comes only from the record. A single-lane
 deployment has nothing to address and renders exactly what it always did.
 """
 
@@ -116,7 +117,7 @@ from osprey_hook_log import (
     write_tools,
 )
 
-# The shared, stdlib-only reader for the control-system target state — the ONLY
+# The shared, stdlib-only reader for the control-context record — the ONLY
 # source this hook consults for target identity (see `_target_line`). Imported
 # here, while this file's own directory is still the first `sys.path` entry the
 # line above put there, because the reader is a sibling script rather than an
@@ -218,7 +219,7 @@ def build_approval_output(reason_detail: str, hook_input=None, read_record=None)
     *read_record* extends that guarantee to the whole prompt. A describer that
     also names a target — the plan lane a queue operation binds to, the
     destination of a switch — is handed the same reader, so one prompt describes
-    one read of the state file rather than two reads a switch could land between.
+    one read of the record rather than two reads a switch could land between.
     Left unset, this resolves its own, exactly as before.
     """
     record = (read_record or _record_reader(hook_input))()
@@ -264,7 +265,7 @@ def _record_ask(hook_input):
 
 
 def _read_record_once(hook_input=None):
-    """The session's state record, or ``None`` \u2014 and never an exception.
+    """The deployment's control context, or ``None`` \u2014 and never an exception.
 
     :func:`_target_line` already degrades to the baseline line on any trouble;
     this is the same tolerance moved one level up, so that hoisting the read out
@@ -278,7 +279,7 @@ def _read_record_once(hook_input=None):
 
 
 def _record_reader(hook_input=None):
-    """A callable resolving this session's state record AT MOST once.
+    """A callable resolving the deployment's control context AT MOST once.
 
     Threading a reader rather than a record is what lets one prompt describe one
     read without making a prompt that needs no record pay for one. Every ask
@@ -510,7 +511,8 @@ def _sanitize_label(text) -> str:
 # ---------------------------------------------------------------------------
 # One line, on every prompt, answering the question no tool argument answers:
 # is this session pointed at the real machine or at a simulation? It is read
-# EXCLUSIVELY from the target-state file the controls server writes. The
+# EXCLUSIVELY from the control-context record and the metadata the deployment's
+# own controls servers publish beside it. The
 # rendered config.yml is in this hook's hand throughout and is deliberately not
 # consulted: config states what the deployment STARTS as, so on a session that
 # switched at run time it would produce a confident, stale, wrong safety claim —
@@ -518,8 +520,8 @@ def _sanitize_label(text) -> str:
 # that looks answered.
 
 #: Rendered whenever the target cannot be resolved: no switch capability in this
-#: render, no controls server running, two sessions sharing the checkout, or a
-#: corrupt record. The wording is fixed — operators and tests both key off it —
+#: render, no record written yet, no controls server running to say what the
+#: target IS, or a corrupt record. The wording is fixed — operators and tests both key off it —
 #: and it is never omitted, because a missing line reads as "not the machine".
 _TARGET_BASELINE_LINE = "Target: deployment baseline (state unavailable)"
 
@@ -549,11 +551,18 @@ _UNREAD = object()
 #: cannot import the name the controls server registers.
 _CHANNEL_WRITE_TOOL = "channel_write"
 
-#: Stamp files live beside the target state, under a prefix the state-file glob
-#: (``target_state_*.json``) cannot match — a stamp must never be mistaken for a
-#: server's state file by the reader here or the sweeper on the writer's side.
+#: Stamp files live beside the control-context record, under a prefix neither
+#: that record's name nor the server-report glob (``server_*.json``) can match —
+#: a stamp must never be mistaken for a server's report by the reader here or
+#: the sweeper on the writer's side.
 WRITE_APPROVAL_PREFIX = "write_approval_"
 WRITE_APPROVAL_SUFFIX = ".json"
+
+#: The session component of a stamp's file name when there is no audit session
+#: to name — a bare ``claude``, a dispatch worker, anything the web terminal did
+#: not spawn. A word rather than a hash so it cannot collide with one: every
+#: session that exists hashes to sixteen hex digits.
+WRITE_APPROVAL_SESSIONLESS_SLUG = "anon"
 
 #: How long a stamp stays on disk. Long enough that a human can think before
 #: clicking, short enough that the directory does not accumulate one file per
@@ -602,6 +611,39 @@ def write_approval_key(tool_input) -> str | None:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
 
 
+def write_approval_session_slug(session) -> str:
+    """The file-name component that keeps one session's stamps off another's.
+
+    A hash rather than the session id itself, because that id is a
+    ``kernel:<uuid>`` or whatever the web terminal minted and has never been
+    constrained to characters a file name may carry. Sixteen hex digits is
+    plenty to separate the handful of sessions one checkout ever holds at once,
+    and the server derives the same slug from its own ``posture_session()``.
+
+    A process with no session gets :data:`WRITE_APPROVAL_SESSIONLESS_SLUG`, so
+    every session-less render of the same write lands on ONE file. That
+    collision is deliberate and benign: nothing distinguishes one unattributed
+    process from another — that is what having no audit session means — and the
+    colliding payloads are equal by construction, since the name is the write's
+    own hash and the binding comes from the one record they all read.
+    """
+    if not session:
+        return WRITE_APPROVAL_SESSIONLESS_SLUG
+    return hashlib.sha256(str(session).encode("utf-8")).hexdigest()[:16]
+
+
+def write_approval_filename(session, key) -> str:
+    """The name a stamp for *key*, rendered under *session*, is filed under.
+
+    The server restates this derivation in its own module, for the same reason
+    it restates the key: hooks run outside the osprey venv and cannot import it.
+    A test drives the server's reader against a file only this function wrote,
+    so the two spellings cannot drift apart without failing.
+    """
+    slug = write_approval_session_slug(session)
+    return f"{WRITE_APPROVAL_PREFIX}{slug}_{key}{WRITE_APPROVAL_SUFFIX}"
+
+
 def _channel_write_summary(tool_input) -> str:
     """``channel=value`` for every write in the call, or ``""`` if there is none.
 
@@ -620,7 +662,7 @@ def _channel_write_summary(tool_input) -> str:
 
 
 def _stamp_binding(record):
-    """``(target, generation, server_pid)`` for a stamp, each possibly ``None``.
+    """``(target, generation)`` for a stamp, both possibly ``None``.
 
     Normalized exactly as the server normalizes the same record: a target that
     is not a non-empty string, or a generation that is not an integer, makes the
@@ -629,18 +671,14 @@ def _stamp_binding(record):
     of an intermittent mismatch.
     """
     if not isinstance(record, dict) or _target_state is None:
-        return None, None, None
-    try:
-        server_pid = int(record.get("server_pid"))
-    except (TypeError, ValueError):
-        server_pid = None
+        return None, None
     target = _target_state.selected_target(record)
     if not isinstance(target, str) or not target:
-        return None, None, server_pid
+        return None, None
     try:
-        return target, int(record.get("generation")), server_pid
+        return target, int(record.get("generation"))
     except (TypeError, ValueError):
-        return None, None, server_pid
+        return None, None
 
 
 def _prune_write_approvals(directory) -> None:
@@ -671,11 +709,14 @@ def _stamp_write_approval(hook_input, record) -> None:
     rendered binding down is what lets the server compare against what the human
     was actually shown rather than against a state it inherited.
 
-    The stamp carries the ``server_pid`` of the record it was rendered from. Two
-    sessions sharing one checkout write into one directory, and an identical
-    write payload would otherwise collide; a stamp whose ``server_pid`` is not
-    the reading server's is ignored by it, which costs that call its comparison
-    and never produces a wrong one.
+    The stamp is keyed on three things — the target, the generation, and the
+    audit session this prompt was rendered under. Two sessions sharing one
+    agent-data root write into one directory, and an identical write payload
+    would otherwise put one session's approval where the other's server looks
+    for its own: the session goes into the file NAME so neither overwrites the
+    other, and into the payload so a reading server can tell whose it is even
+    if it does find it. A stamp that is not the reading server's is ignored by
+    it, which costs that call its comparison and never produces a wrong one.
 
     Never raises, and never blocks the prompt: every failure — no reader, no
     resolvable state directory, an unwritable disk — simply leaves no stamp, and
@@ -697,14 +738,15 @@ def _stamp_write_approval(hook_input, record) -> None:
         os.makedirs(directory, exist_ok=True)
         _prune_write_approvals(directory)
 
-        target, generation, server_pid = _stamp_binding(record)
-        path = os.path.join(directory, f"{WRITE_APPROVAL_PREFIX}{key}{WRITE_APPROVAL_SUFFIX}")
+        target, generation = _stamp_binding(record)
+        session = _target_state.session_key()
+        path = os.path.join(directory, write_approval_filename(session, key))
         payload = {
             "tool": _CHANNEL_WRITE_TOOL,
             "key": key,
             "target": target,
             "generation": generation,
-            "server_pid": server_pid,
+            "session": session,
             "rendered_at": time.time(),
         }
         tmp = f"{path}.tmp"
@@ -716,14 +758,16 @@ def _stamp_write_approval(hook_input, record) -> None:
 
 
 def _session_state_record(hook_input=None):
-    """The raw state record this session resolves to, or ``None``.
+    """The deployment's control context as this prompt sees it, or ``None``.
 
-    A one-line delegation to the reader's :func:`read_session_record`, which
-    applies the identical liveness, parentage and ambiguity rules
-    :func:`read_session_target` does. This hook deliberately holds NO copy of
-    those rules: a second walk of the state directory would eventually differ
-    from the first — dropping the liveness filter is the easy mistake, and it
-    ends with a crashed server's stale file answering for the live one.
+    A one-line delegation to the reader's :func:`read_target_view`: the
+    control-context record — which target the deployment is on, at which
+    generation — with the per-target metadata the live controls servers publish
+    folded onto it, so the identity line, the switch-destination preview and
+    the lane lines all describe ONE read. This hook deliberately holds no copy
+    of those rules: a second read assembled here would eventually differ from
+    the reader's, and a prompt that named a machine the gate does not is worse
+    than a prompt that names none.
 
     ``None`` for every baseline outcome, for a render with no reader, and on any
     trouble at all; the caller renders the explicit baseline or "cannot be
@@ -732,20 +776,20 @@ def _session_state_record(hook_input=None):
     state = _target_state
     if state is None:
         return None
-    return state.read_session_record(hook_input)
+    return state.read_target_view(hook_input)
 
 
 def _target_identity_phrase(record, target):
     """How one target is SPOKEN OF on this prompt, or ``None`` if it cannot be.
 
     The single place the two identity phrasings live, because more than one
-    surface now names a target: the ``Target:`` line names the session's, and
+    surface now names a target: the ``Target:`` line names the deployment's, and
     the plan-lane lines name the target a lane is wired to. A second spelling of
     "virtual accelerator (simulation)" would eventually drift from this one, and
     two different phrasings for one machine on one prompt is exactly the
     ambiguity the line exists to remove.
 
-    ``None`` means the record makes no readable claim about *target* — the
+    ``None`` means no live server states a readable claim about *target* — the
     tri-state of :func:`_real_machine_claim`, propagated rather than flattened,
     so every caller renders its own explicit "unknown" instead of inheriting a
     silent "simulation".
@@ -779,9 +823,9 @@ def _target_line(hook_input=None, record=_UNREAD) -> str:
     patch or an execution has to know where the session points, and a line that
     appears only on some prompts teaches them to read its absence as safe.
 
-    *record* lets a caller that has already resolved the session's record pass it
-    in, so the line and the write-approval stamp describe one read of the file
-    rather than two. Left unset, the record is resolved here exactly as before.
+    *record* lets a caller that has already resolved the control context pass it
+    in, so the line and the write-approval stamp describe one read rather than
+    two. Left unset, the context is resolved here exactly as before.
 
     Fail-open like the rest of this hook — every failure, including the reader
     module being absent from an older render and a record whose identity field
@@ -812,18 +856,18 @@ def _describe_control_target_set(
     the endpoint it would hold, and the channel the switch will probe to prove
     the destination is really there.
 
-    Everything comes from the same state file as the identity line, and — when
-    the caller hands one over — from the same READ of it, so the "where you are"
-    line and the "where you would be" lines below it cannot straddle a switch
-    that landed mid-prompt. Its per-target metadata is read schema-tolerantly: a
-    record written by a writer that does not record a probe channel for this
+    Everything comes from the same control context as the identity line, and —
+    when the caller hands one over — from the same READ of it, so the "where you
+    are" line and the "where you would be" lines below it cannot straddle a
+    switch that landed mid-prompt. Its per-target metadata is read
+    schema-tolerantly: a server that does not publish a probe channel for this
     destination simply yields no probe line, rather than an empty one or an
     exception.
     """
     destination = tool_input.get("target")
     if not isinstance(destination, str) or not destination.strip():
         return ["Destination: not named in this call — the switch would be refused."]
-    # The raw value is what the state file is keyed by; the escaped copy is what
+    # The raw value is what the metadata is keyed by; the escaped copy is what
     # this prompt prints. Sanitizing before the lookup would turn a hostile
     # target name into a silent miss instead of a visible one.
     destination = destination.strip()
@@ -840,7 +884,7 @@ def _describe_control_target_set(
     meta = _target_state.target_metadata(record, destination)
     if meta is None:
         return [
-            f"Destination: {shown} — the state file records no metadata for it. "
+            f"Destination: {shown} — no controls server records metadata for it. "
             f"Approval is not blocked; the endpoint cannot be shown."
         ]
 
@@ -851,7 +895,7 @@ def _describe_control_target_set(
         # nature must not read as "simulation". Saying so keeps the endpoint and
         # probe lines below useful without attaching a safety claim to them.
         lines.append(
-            "⚠️  The state file does not record whether this destination is the real "
+            "⚠️  No controls server records whether this destination is the real "
             "machine — treat it as unknown."
         )
     elif claim:
@@ -869,13 +913,13 @@ def _describe_control_target_set(
 
 
 #: Tool short name -> describer, for tools whose approval detail comes from the
-#: target state rather than from the bridge. A table of its own rather than an
+#: control context rather than from the bridge. A table of its own rather than an
 #: entry in `_QUEUE_DESCRIBERS` further down, because the two groups answer from
-#: different places: these tools are described entirely from the state file the
-#: controls server writes, while the queue tools describe a bridge they reach
-#: over HTTP. Both tables' describers take the same three arguments — resolving
-#: the state file means resolving the repo root, and the hook payload's ``cwd``
-#: is part of that derivation.
+#: different places: these tools are described entirely from the state the
+#: deployment's own processes write, while the queue tools describe a bridge they
+#: reach over HTTP. Both tables' describers take the same three arguments —
+#: resolving that state means resolving the repo root, and the hook payload's
+#: ``cwd`` is part of that derivation.
 #:
 #: The key is a literal for the same reason the queue table's keys are — this
 #: hook is deployed standalone and cannot import the name the controls server
@@ -1316,7 +1360,7 @@ def _queue_item_lines(snapshot, base_url: str) -> list[str]:
 #   blocks — the deployment's own statement of its shape, and the same key the
 #   host reads (`mcp_server/bluesky/lanes.discover_lanes`). Session state could
 #   not answer it: a lane's target does not move when a session switches;
-# * the SESSION target still comes exclusively from the state file, exactly as
+# * the control target still comes exclusively from the record, exactly as
 #   the `Target:` line does. Reading it from config would produce a confident,
 #   stale answer on the one deployment shape this axis exists for.
 #
@@ -1372,7 +1416,7 @@ def _baseline_target(config: dict) -> str:
 
     This is lane TOPOLOGY, not identity: it answers what the deployment is wired
     to, which is a render-time fact config is the authority on. Where the SESSION
-    is pointed is a different question, and only the state file may answer it.
+    is pointed is a different question, and only the record may answer it.
     """
     section = config.get("control_system") if isinstance(config, dict) else None
     cs_type = section.get("type") if isinstance(section, dict) else None
@@ -1428,14 +1472,14 @@ def _lane_situation(config: dict, hook_input=None, read_record=None) -> dict:
     """Everything the lane lines are rendered from, resolved once.
 
     Keys: ``lanes`` (the rendered map), ``multi`` (whether there is anything to
-    address at all), ``record`` (the session's state record, or ``None``),
+    address at all), ``record`` (the deployment's control context, or ``None``),
     ``session_target`` and ``active`` (the lane serving it, or ``None``).
 
     Never raises: an unreadable config is a single-lane deployment and an
-    unreadable state file is an unknown session target, which are the two
+    unreadable record is an unknown control target, which are the two
     answers that degrade the prompt rather than blocking it.
 
-    The state file is read only when there is more than one lane. A single-lane
+    The record is read only when there is more than one lane. A single-lane
     deployment has nothing to address, renders no lane line at all, and must
     therefore do exactly the work — and exactly the file reads — it did before
     lanes existed. That is why *read_record* is a reader and not a record: the
@@ -1480,9 +1524,9 @@ def _lane_target_phrase(situation: dict, lane_target) -> str:
 
     The identity voice is :func:`_target_identity_phrase`'s, so a lane and the
     ``Target:`` line above it name one machine the same way. What this adds is
-    the way a lane can have no phrasable identity — a state file that records
-    nothing about the target the lane serves — said out loud rather than left
-    blank or guessed at.
+    the way a lane can have no phrasable identity — no live controls server
+    publishing anything about the target the lane serves — said out loud rather
+    than left blank or guessed at.
 
     The empty-target guard is defensive only: every lane :func:`_rendered_lanes`
     reports serves a target, declared or baseline. It is here so that a caller
@@ -1494,7 +1538,7 @@ def _lane_target_phrase(situation: dict, lane_target) -> str:
     phrase = _target_identity_phrase(situation["record"], lane_target)
     if phrase:
         return phrase
-    return f"{_sanitize_label(lane_target)} (identity not recorded in the state file)"
+    return f"{_sanitize_label(lane_target)} (identity not published by any live server)"
 
 
 def _lane_roster_text(situation: dict) -> str:
@@ -1506,7 +1550,7 @@ def _session_target_phrase(situation: dict) -> str:
     """How this session's own target is spoken of in a lane line."""
     session_target = situation["session_target"]
     if not session_target:
-        return "unavailable (the session's target state could not be read)"
+        return "unavailable (the control target could not be read)"
     return _lane_target_phrase(situation, session_target)
 
 
@@ -1519,7 +1563,7 @@ def _unresolved_lane_lines(situation: dict, action: str) -> list[str]:
     """
     if not situation["session_target"]:
         return [
-            f"Bluesky PLAN lane: unresolved — the session's target state could not be "
+            f"Bluesky PLAN lane: unresolved — the control target could not be "
             f"read, so this prompt cannot name the lane {action} would act on. Approval "
             f"is not blocked; this deployment renders {len(situation['lanes'])} lanes "
             f"({_lane_roster_text(situation)})."
@@ -1718,10 +1762,10 @@ def _lane_start_lines(situation: dict, tool_input: dict) -> tuple[list[str], str
     if situation["session_target"] is None:
         # The lane is real and the queue below is genuinely its own; what cannot
         # be said is whether it is the lane the session is on. Saying "mismatch"
-        # here would be a claim the state file never made.
+        # here would be a claim the record never made.
         return [
             bound_line,
-            "This session's target state could not be read, so this prompt cannot say "
+            "The control target could not be read, so this prompt cannot say "
             "whether that is the lane this session is on. Approval is not blocked; a "
             "start on a lane the session has left is refused by the deployment.",
         ], requested
@@ -1998,7 +2042,7 @@ def _create_pre_execution_notebook(code: str, exec_mode: str, config: dict) -> s
 #
 # What this file owns is the TARGETING: which target a given call would act on.
 #
-# * every ordinary write tool follows the SESSION target, from the state file;
+# * every ordinary write tool follows the control target, from the record;
 # * a queue START binds to a plan lane instead, and the lane's target is
 #   render-time truth in the rendered config — the same map the prompt's lane
 #   lines read. A start naming no lane binds to the single rendered lane where
@@ -2071,25 +2115,25 @@ def _lane_posture(config, section, tool_input):
 def _session_posture(section, hook_input):
     """Posture for the target this SESSION is pointed at.
 
-    Two layers, composed in the store's own direction — it only ever narrows:
+    Two layers, composed in the narrowing's own direction — it only ever narrows:
 
     * the DEPLOYMENT ceiling, from the rendered config. ``None`` (no posture
       stated anywhere) survives untouched: with no ceiling there is no
       guaranteed deny to defer into, so the prompt stays.
-    * the OPERATOR's narrowing of this (session, target), from the posture
-      store. ``osprey_writes_check`` reads the same store on the same shape
+    * the OPERATOR's narrowing of that target, from the control-context
+      record. ``osprey_writes_check`` reads the same record on the same shape
       (its ``effective_writes_for`` call), so an armed target the operator
       sandboxed is still a guaranteed deny — and keeping the prompt there
       would ask the human to approve a write the next hook refuses.
     """
-    result = _target_state.read_session_target(hook_input)
+    result = _target_state.read_target(hook_input)
     if _target_state.is_baseline(result):
         # A baseline fallback still NAMES the deployment's baseline target, and
-        # answering for it would state a posture for a session that may have
+        # answering for it would state a posture for a deployment that may have
         # switched away from it. The posture every target this session could
         # REACH agrees on is the only one that cannot become a guess in favour
         # of hardware — the same call `osprey_writes_check` makes on the same
-        # shape, so the two cannot part company over an unidentified session.
+        # shape, so the two cannot part company over an unidentified target.
         target = None
         ceiling = _target_state.most_restrictive_posture(section)
     else:
@@ -2097,7 +2141,7 @@ def _session_posture(section, hook_input):
         ceiling = _target_state.writes_posture(section, target)
     if ceiling is not True:
         return ceiling
-    if _target_state.session_sandboxed(hook_input, target):
+    if _target_state.target_sandboxed(hook_input, target):
         return False
     return True
 
@@ -2111,7 +2155,7 @@ def _call_write_posture(config, tool_name, short_name, tool_input, hook_input):
     be placed, and a config that states no posture anywhere.
 
     Everything the answer depends on — the generated write-tool list, the config
-    section, the state file, the lane map — sits inside one ``try``, and a
+    section, the record, the lane map — sits inside one ``try``, and a
     failure resolves the way :func:`_unanswerable_posture` describes rather than
     propagating: an uncaught exception here would exit non-zero with no JSON and
     let the call through with neither a prompt nor a decision.
