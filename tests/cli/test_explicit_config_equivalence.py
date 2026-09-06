@@ -22,7 +22,8 @@ masking different things.
 Allowed differences: the delta table
 ------------------------------------
 :data:`CELL_DELTAS` is the *complete* list of leaves a cell is allowed to differ
-from its fixture by. It is exact in both directions. A difference that is not
+from its fixture by, save the host-resolved ones below. It is exact in both
+directions. A difference that is not
 declared fails, and a declared difference that is not observed fails too, so a
 delta cannot outlive the change that justified it. Requirement 1 sanctions two,
 which land with the tasks that cause them:
@@ -46,6 +47,15 @@ which land with the tasks that cause them:
 ``execution.environment.*`` is named in Requirement 1 too, but the freeze strips
 that whole mapping (it resolves to an interpreter path), so it can never surface
 as a delta and needs no entry here.
+
+One leaf is exempt from the table rather than declared in it. ``osprey build``
+answers the presets' ``container_runtime: auto`` with the runtime that served
+the build, so the rendered value states a fact about the building host: it is
+``docker`` where these fixtures were frozen and ``auto`` on a host with no
+working runtime. :data:`HOST_RESOLVED_LEAVES` compares that leaf for presence
+and for being one of the answers the build can give, never for which one. A
+table entry could not do the job, because a delta that covered a runtime-less
+host would go stale on every host that resolves one.
 
 A delta may also carry ``pending=<task>``, which makes it a prediction rather
 than an allowance: a difference an upcoming task is expected to introduce. It is
@@ -580,6 +590,50 @@ def _describe(document: str, path: str, fixture_value: Any, live_value: Any) -> 
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Leaves the build resolves from the host
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: Leaves whose rendered value states a fact about the machine that built them,
+#: mapped to the answers the build can give. ``osprey build`` answers the
+#: presets' ``container_runtime: auto`` with the runtime that served the build:
+#: ``docker`` on the host that froze the fixtures, and ``auto`` left standing on
+#: a host with no working runtime. Comparing the value would therefore pass only
+#: on hosts configured like the freezing one.
+#:
+#: This is not a delta. :data:`CELL_DELTAS` is exact in both directions, so an
+#: entry covering a runtime-less host would go stale on every host that has one.
+#: Nor can the leaf be masked away: ``test_explicit_config_partition`` reads the
+#: same fixtures as the ledger of what a preset states, and pins
+#: ``container_runtime`` as a key the preset states as ``auto`` and the render
+#: resolves — so it has to survive in the baseline.
+#:
+#: The leaf is still compared, just not for which answer: both sides must carry
+#: one of these, so a leaf that vanishes, or that resolves to something which is
+#: not a runtime, is still a difference.
+HOST_RESOLVED_LEAVES: Mapping[str, frozenset[str]] = {
+    "container_runtime": frozenset({"auto", "docker", "podman"}),
+}
+
+
+def is_host_resolution(path: str, fixture_value: Any, live_value: Any) -> bool:
+    """Whether a differing leaf is only the build answering for its host.
+
+    Args:
+        path: Dotted path of the leaf.
+        fixture_value: What the frozen document carries.
+        live_value: What the live render carries.
+
+    Returns:
+        True when *path* is host-resolved and both sides carry one of the
+        answers the build can give for it.
+    """
+    answers = HOST_RESOLVED_LEAVES.get(path)
+    if answers is None:
+        return False
+    return fixture_value in answers and live_value in answers
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # The comparison machinery itself
 #
 # These build no deployment and pin the two properties the cell assertions
@@ -640,6 +694,19 @@ def test_a_delta_must_say_what_differs() -> None:
         Delta(document="root", path="api.providers", live=1, added=("a",))
 
 
+def test_a_host_resolved_leaf_differs_only_between_the_builds_answers() -> None:
+    """The build answering per host is not a difference; anything else still is."""
+    assert is_host_resolution("container_runtime", "docker", "auto")
+    assert is_host_resolution("container_runtime", "auto", "podman")
+
+    # A leaf that vanished, or that is not a runtime at all, is a real difference.
+    assert not is_host_resolution("container_runtime", "docker", ABSENT)
+    assert not is_host_resolution("container_runtime", "docker", "containerd")
+
+    # The exemption is per leaf, not a blanket one for those values.
+    assert not is_host_resolution("execution_method", "docker", "auto")
+
+
 def test_every_pending_delta_names_a_task() -> None:
     """A pending entry says what it is waiting for, so it can be retired."""
     for cell, deltas in CELL_DELTAS.items():
@@ -695,6 +762,8 @@ def test_live_render_equals_frozen_baseline(cell: Cell, rendered_cells: CellRend
 
     problems: list[str] = []
     for (document, path), (fixture_value, live_value) in sorted(observed.items()):
+        if is_host_resolution(path, fixture_value, live_value):
+            continue
         delta = declared.get((document, path))
         if delta is None:
             problems.append(f"  undeclared  {_describe(document, path, fixture_value, live_value)}")

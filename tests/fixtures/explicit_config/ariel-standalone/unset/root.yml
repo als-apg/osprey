@@ -82,6 +82,7 @@ claude_code:
       password: ${ZO_INGEST_SA_TOKEN}
       user: ${ZO_INGEST_USER_EMAIL:-ingest@example.com}
     protocol: http/protobuf
+container_runtime: docker
 deployed_services:
 - postgresql
 - openobserve

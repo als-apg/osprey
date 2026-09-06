@@ -37,6 +37,7 @@ claude_code:
       enabled: false
   telemetry:
     enabled: false
+container_runtime: docker
 deployed_services: []
 execution:
   execution_method: subprocess

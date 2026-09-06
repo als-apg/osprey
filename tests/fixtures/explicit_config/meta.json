@@ -129,7 +129,6 @@
       "api.providers": "sorted list of provider names, in place of the catalog mapping"
     },
     "stripped": {
-      "container_runtime": "osprey build answers the preset's container_runtime: auto with the runtime that served the build, which is a fact about the building host",
       "execution.environment": "execution.environment.python resolves to an interpreter path on a machine that has one",
       "project_root": "absolute path of the directory the freeze built in"
     }
