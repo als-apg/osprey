@@ -344,7 +344,11 @@ class IngestionConfig:
         source_url: URL for source system API (optional)
         poll_interval_seconds: Polling interval for incremental ingestion
         proxy_url: SOCKS proxy URL (e.g., "socks5://localhost:1080")
-        verify_ssl: Whether to verify SSL certificates (default: False for internal servers)
+        verify_ssl: Whether to verify TLS certificates (default: True). Set false
+            only as a deliberate opt-out for a logbook whose certificate cannot
+            be verified any other way.
+        ca_bundle: Path to a PEM bundle to verify against, for a site CA that is
+            not in the image trust store (optional)
         chunk_days: Days per API request for time windowing (default: 365)
         request_timeout_seconds: Timeout for HTTP requests (default: 60)
         max_retries: Maximum retry attempts for failed requests (default: 3)
@@ -357,7 +361,8 @@ class IngestionConfig:
     source_url: str | None = None
     poll_interval_seconds: int = 3600
     proxy_url: str | None = None
-    verify_ssl: bool = False
+    verify_ssl: bool = True
+    ca_bundle: str | None = None
     chunk_days: int = 365
     request_timeout_seconds: int = 60
     max_retries: int = 3
@@ -383,7 +388,8 @@ class IngestionConfig:
             source_url=data.get("source_url"),
             poll_interval_seconds=data.get("poll_interval_seconds", 3600),
             proxy_url=proxy_url,
-            verify_ssl=data.get("verify_ssl", False),
+            verify_ssl=data.get("verify_ssl", True),
+            ca_bundle=data.get("ca_bundle"),
             chunk_days=data.get("chunk_days", 365),
             request_timeout_seconds=data.get("request_timeout_seconds", 60),
             max_retries=data.get("max_retries", 3),

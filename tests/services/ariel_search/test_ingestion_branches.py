@@ -376,7 +376,7 @@ class TestALSPostEntry:
 
     @pytest.mark.asyncio
     async def test_verify_ssl_true_passes_certificate_verification(self):
-        """verify_ssl=True hands aiohttp its default verifying context."""
+        """verify_ssl=True, the default, hands aiohttp its default verifying context."""
         adapter = _als_write_adapter(verify_ssl=True)
         session = _http_session(post=_http_response(text="<response><id>7</id></response>"))
 
@@ -387,12 +387,12 @@ class TestALSPostEntry:
 
     @pytest.mark.asyncio
     async def test_verify_ssl_false_builds_permissive_context(self):
-        """verify_ssl=False (the default) disables hostname and certificate checks.
+        """verify_ssl=False disables hostname and certificate checks.
 
-        Internal olog servers carry self-signed certificates; the default is
-        permissive so ingestion works, and this pins exactly how permissive.
+        The written opt-out for an olog whose certificate cannot be verified at
+        all. This pins exactly how permissive it is; the default is on.
         """
-        adapter = _als_write_adapter()
+        adapter = _als_write_adapter(verify_ssl=False)
         session = _http_session(post=_http_response(text="<response><id>7</id></response>"))
 
         with _patched_session(adapter, session):

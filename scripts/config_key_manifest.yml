@@ -1068,6 +1068,21 @@ keys:
   ariel.ingestion: {covered-by: ariel}
   ariel.ingestion.adapter: {covered-by: ariel.ingestion}
   ariel.ingestion.source_url: {evidence: 'source_url'}
+  ariel.ingestion.verify_ssl:
+    rendered: false
+    evidence: 'data\.get\("verify_ssl", True\)'
+    note: >-
+      The default is spelled in the evidence because it is the safe posture: an
+      ingest that cannot verify the logbook's certificate must fail rather than
+      trust whatever answered, so a silent flip back to False has to red this
+      guard.
+  ariel.ingestion.ca_bundle:
+    rendered: false
+    evidence: 'data\.get\("ca_bundle"\)'
+    note: >-
+      Commented in both templates that carry an `ingestion:` block: a site CA
+      path is facility content, and the shipped default (the image trust store)
+      is the right answer for a deployment that has none.
   ariel.default_search_mode: {evidence: 'default_search_mode'}
   # The facility vocabulary: shorthand the operators type, mapped to the words
   # the logbook prose actually uses. Read ONCE at config parse — the file is
