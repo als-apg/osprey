@@ -545,9 +545,26 @@ Bare exclusion accepts ``skills``, ``rules``, ``hooks``, ``agents``,
 accepts any convention directory. Excluding something that is not there is a
 silent no-op.
 
+``config:`` is the one key under ``exclude:`` whose value is a mapping rather
+than a list. Each entry names a list-valued ``config:`` key by its dotted
+spelling and lists what to take out of it:
+
+.. code-block:: yaml
+
+   exclude:
+     config:
+       deployed_services:
+         - mongodb                    # this layer deploys everything else
+
+This is how a layer deploys fewer services than the profile it sits on. Lists
+under ``config:`` union across ``extends`` and across a host-variant overlay,
+so a layer cannot state a shorter list; it names the entries it drops instead.
+A key the profile does not carry is a silent no-op; a key that holds anything
+other than a list is refused.
+
 An excluded ``web_panels`` entry renders no tab, whatever the persona still
-inherits about that panel under ``config:``. ``exclude:`` never reaches inside
-``config:`` — a ``web.panels.lattice.label`` or a custom panel's
+inherits about that panel under ``config:``. ``exclude:`` takes entries out of
+lists, never scalars — a ``web.panels.lattice.label`` or a custom panel's
 ``web.panels.<id>.url`` the base profile set is still in the persona's render —
 but ``web_panels`` is what shows a tab: the build writes ``enabled`` onto every
 ``web.panels.<id>`` block a render carries, ``true`` for a selected panel and
@@ -676,7 +693,9 @@ Three cases worth knowing about:
 
 An overlay adds and replaces; it does not subtract. Lists are merged rather
 than swapped, so use :ref:`exclude: <profile-exclude>` to take something away
-on one host — that works in an overlay like anywhere else.
+on one host — that works in an overlay like anywhere else, and
+``exclude: {config: {deployed_services: [...]}}`` is how one host deploys
+fewer services than the profile it builds from.
 
 
 .. _profile-secrets:
@@ -787,8 +806,11 @@ to ``profile.yml`` and renders the whole ``build/`` zone from it.
 
    ``osprey build`` takes no configuration overrides. Change a setting with
    ``osprey set``, which writes it into ``profile.yml`` — comments and
-   formatting intact — and then build. The profile always describes what the
-   build will produce, so there is no layer that vanishes afterwards.
+   formatting intact — and then build. ``osprey init --set`` makes the same
+   edit before the file exists. Either way the value at the key is replaced,
+   so a list you state is the list the profile holds. The profile always
+   describes what the build will produce, so there is no layer that vanishes
+   afterwards.
 
 Every build wipes and re-renders ``build/`` and preserves what you own: the env
 chain (``.env.shared`` and ``.env``), ``var/``, and the repository's ``.git``.
@@ -852,7 +874,7 @@ What the build does
 ===================
 
 1. Settle the profile (materialize from a preset on first use, or read the one
-   you named), writing any ``--set`` / ``-O`` / ``--tier`` into it.
+   you named), writing any ``--set`` / ``--tier`` into it.
 2. Resolve and validate the profile, including any persona delta merged over it.
 3. Check ``requires_osprey_version``; abort if unsatisfied.
 4. Clear the previous render. ``build/`` is wiped whole and re-made; nothing

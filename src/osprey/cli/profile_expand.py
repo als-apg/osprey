@@ -490,7 +490,7 @@ def _reference_document(preset: str, *, repo_name: str, profile_name: str) -> Co
         *((persona_catalog_layer(personas, repo_name=repo_name),) if personas else ()),
         *((triggers_layer(),) if hasattr(resolved.get("dispatch"), "items") else ()),
     )
-    text = emit_standalone_profile_yaml(preset, (), (), profile_name, extra_layers=layers)
+    text = emit_standalone_profile_yaml(preset, (), profile_name, extra_layers=layers)
     return YAML().load(text)
 
 

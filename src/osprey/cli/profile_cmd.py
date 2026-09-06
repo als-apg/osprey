@@ -1045,7 +1045,8 @@ def _off_chain_problem(persona_name: str, persona_preset: str, host_preset: str)
             f"through {_normalize_preset_name(str(parent))!r}. A persona file holds its own "
             f"layer and nothing else, so emitting one here would drop that preset's settings "
             f"— point the catalog entry at a preset that extends {host_preset!r} directly, or "
-            f"drop this entry from the catalog (a `-O` override removing it), materialize, "
+            f"drop this entry from the catalog (`--set config.modules.web_terminals.personas."
+            f"{persona_name}=null`), materialize, "
             f"then hand-write {_PERSONA_PROFILE_DIRNAME}/{persona_name}.yml as a delta over "
             f"profile.yml and add the entry back to the emitted profile"
         )
@@ -1199,8 +1200,8 @@ def _persona_profile_texts(
     Each entry is emitted as a pure DELTA — the persona preset's own layer, no
     ``extends:`` (:func:`~.build_profile_emit.emit_persona_delta_yaml`) — over
     the host profile it sits beside. The host therefore stays the single source
-    of truth: edits there, and the caller's baked ``-O``/``--set`` layers with
-    them, reach every persona through the implicit merge instead of being copied
+    of truth: edits there, and the caller's baked ``--set`` edits with them,
+    reach every persona through the implicit merge instead of being copied
     around. A catalog entry whose preset is not a delta over ``host_preset``
     (the bundled shape: ``control-assistant-readonly`` over
     ``control-assistant``) is rejected rather than approximated — see
@@ -1501,7 +1502,6 @@ class _MaterializedProfile(NamedTuple):
 def _materialize_profile_directory(
     target_dir: Path,
     preset_name: str,
-    overrides: tuple[Path, ...] = (),
     set_pairs: tuple[str, ...] = (),
     *,
     profile_name: str | None = None,
@@ -1514,9 +1514,9 @@ def _materialize_profile_directory(
     the ``providers.yml`` catalog beside it (:func:`_plan_provider_catalog`),
     the bundle's ``data/`` tree copied verbatim, the profile's ``.env`` channel
     (:func:`_write_secret_channel`), and a tutorial ``README.md`` explaining the
-    convention directories. ``-O`` files and ``--set`` pairs are merged with the
-    same layering as the render path, so a validated build one-liner carries
-    into the profile without hand-editing.
+    convention directories. ``--set`` pairs are edits of the resolved preset,
+    made the way ``osprey set`` makes them to the file afterwards, so a
+    validated build one-liner carries into the profile without hand-editing.
 
     Fail-before-mutating: the preset, its layers, and the rendered profile text
     are all produced before the first ``mkdir``, and anything that fails after
@@ -1529,8 +1529,7 @@ def _materialize_profile_directory(
     Args:
         target_dir: The profile directory to create.
         preset_name: Bundled preset to materialize, in either spelling.
-        overrides: ``-O`` files, layered in order.
-        set_pairs: ``--set`` pairs, layered last.
+        set_pairs: ``--set`` pairs, each replacing the value at its key.
         profile_name: Display name for the emitted profile. Defaults to one
             derived from the repo directory's own name. ``--set name=`` wins
             over both.
@@ -1548,7 +1547,7 @@ def _materialize_profile_directory(
 
     Raises:
         click.UsageError: For user errors — existing target, an ``extends``
-            override, a roster carrying an unreadable ``access`` value
+            edit, a roster carrying an unreadable ``access`` value
             (:func:`_unreadable_access_problems`), or layers that produce an
             invalid profile.
         BuildProfileError: For packaging problems (missing seed or data tree).
@@ -1558,7 +1557,7 @@ def _materialize_profile_directory(
     from .build_profile import (
         EXTENDS_OVERRIDE_REFUSAL,
         _normalize_preset_name,
-        merge_cli_overrides,
+        cli_edit_layer,
         resolve_build_profile,
     )
     from .build_profile_emit import (
@@ -1569,24 +1568,24 @@ def _materialize_profile_directory(
     from .build_profile_presets import preset_data_bundle
     from .templates.manager import TemplateManager
 
-    # Resolving through the public path validates the preset AND its -O/--set
-    # layers up front, and names the bundle whose data tree gets copied. It also
+    # Resolving through the public path validates the preset AND its --set
+    # edits up front, and names the bundle whose data tree gets copied. It also
     # rejects a user-supplied `data:` in preset mode, which is right: this
     # command materializes the tree, so pointing it elsewhere is a mistake.
     # Everything it rejects is a user error, so it surfaces as one.
     try:
-        baked = merge_cli_overrides({}, overrides, set_pairs)
-        if "extends" in baked:
-            # The shared refusal: the same override file must be answered the
-            # same way here and on a later build's write-back into this
-            # profile. Asked before the layers are resolved, so the answer is
-            # about the key and never about whatever the named parent requires.
+        edit = cli_edit_layer(set_pairs)
+        if "extends" in edit:
+            # The shared refusal: the same edit must be answered the same way
+            # here and on a later `osprey set` into this profile. Asked before
+            # anything is resolved, so the answer is about the key and never
+            # about whatever the named parent requires.
             raise click.UsageError(EXTENDS_OVERRIDE_REFUSAL)
-        resolved, preset_dir = resolve_build_profile(None, preset_name, overrides, set_pairs)
+        resolved, preset_dir = resolve_build_profile(None, preset_name, set_pairs=set_pairs)
     except BuildProfileError as e:
         raise click.UsageError(f"Cannot materialize {preset_name!r}: {e}") from e
 
-    name_override = baked.get("name")
+    name_override = edit.get("name")
 
     target = target_dir.resolve()
 
@@ -1663,11 +1662,10 @@ def _materialize_profile_directory(
     roster = _roster_user_names(resolved.config)
 
     # The materialized tree is what the build must read, so `data:` is emitted
-    # as an active key — injected through the same --set layering a user would
-    # use, rather than through a second path into the resolved content.
+    # as an active key — injected through the same --set edit a user would
+    # make, rather than through a second path into the resolved content.
     profile_text = emit_standalone_profile_yaml(
         preset_name=normalized_preset,
-        overrides=overrides,
         set_pairs=(*set_pairs, f"data={_PROFILE_DATA_DIRNAME}"),
         profile_name=profile_name_default,
         extra_layers=extra_layers,
@@ -1800,11 +1798,11 @@ def _materialize_profile_directory(
         written, _written_dir = resolve_build_profile((target / "profile.yml").resolve(), None)
     except BuildProfileError as e:
         # Emission round-trips for every bundled preset (guarded by tests), so
-        # with layers present they are the thing to look at; without them this
+        # with edits present they are the thing to look at; without them this
         # is a framework bug and blaming the user's flags would misdirect.
         blame = (
-            "Overrides produce an invalid profile"
-            if (overrides or set_pairs)
+            "The --set edits produce an invalid profile"
+            if set_pairs
             else "The materialized profile does not validate"
         )
         raise click.UsageError(f"{blame}: {e}\n{_cleanup(target, seeded=tuple(seeded))}") from e

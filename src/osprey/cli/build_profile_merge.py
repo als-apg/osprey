@@ -208,6 +208,47 @@ def _split_exclude_entry(field_name: str, source: str | None, entry: Any) -> tup
     return entry, False
 
 
+def _apply_config_exclude(merged: dict[str, Any], entries: Any) -> None:
+    """Subtract ``exclude.config`` entries from list-valued ``config:`` keys.
+
+    Each key names a ``config:`` entry by its dotted spelling and maps to the
+    items to remove from the list held there. A key the merged config does not
+    carry is a silent no-op, like any other absent exclusion; a key that is
+    present but holds something other than a list is refused, because the
+    profile would then be making two statements about one fact.
+
+    Args:
+        merged: The merged raw profile dict (mutated in place).
+        entries: The raw ``exclude.config`` value.
+
+    Raises:
+        BuildProfileError: If ``entries`` is not a mapping, maps a key to a
+            non-list, or names a key whose inherited value is not a list.
+    """
+    if not isinstance(entries, dict):
+        raise BuildProfileError(
+            "exclude.config must be a mapping of dotted config key to the list of "
+            f"entries to remove (got {type(entries).__name__})"
+        )
+    config = merged.get("config")
+    for key, removal in entries.items():
+        if not isinstance(removal, list):
+            raise BuildProfileError(
+                f"exclude.config.{key} must be a list of entries to remove "
+                f"(got {type(removal).__name__})"
+            )
+        if not isinstance(config, dict) or key not in config:
+            continue
+        current = config[key]
+        if not isinstance(current, list):
+            raise BuildProfileError(
+                f"exclude.config.{key}: the inherited value is not a list "
+                f"(got {type(current).__name__}). exclude: takes entries out of a "
+                "list; to change a scalar, state it under config: instead."
+            )
+        config[key] = [item for item in current if item not in removal]
+
+
 def _apply_exclude(
     merged: dict[str, Any],
     exclude: Any,
@@ -241,6 +282,14 @@ def _apply_exclude(
     omitting the files while leaving it standing would deploy a server whose
     source is missing, and there is no built-in version to fall back to.
 
+    ``config`` is the one key whose value is a mapping rather than a list: each
+    entry names a list-valued ``config:`` key by its dotted spelling and lists
+    the items to subtract from it (``exclude: {config: {deployed_services:
+    [mongodb]}}``). That is how a layer — a host-variant overlay above all —
+    deploys fewer services than the profile it sits on: the inheritance merge
+    unions lists, so a layer cannot state a shorter one, and taking away has
+    to be said. See :func:`_apply_config_exclude`.
+
     Excluding an entry that is not present is a silent no-op. Because this runs
     after each ``_deep_merge`` in :func:`_resolve_extends`, a deeper ``extends``
     layer that re-adds an entry merges in afterwards and wins; an entry re-added
@@ -273,12 +322,16 @@ def _apply_exclude(
             f"(got {type(exclude).__name__})"
         )
     for field_name, entries in exclude.items():
+        if field_name == "config":
+            _apply_config_exclude(merged, entries)
+            continue
         source = _convention_source_for_field(field_name)
         if field_name not in _EXCLUDABLE_FIELDS and source is None:
             raise BuildProfileError(
                 f"exclude: unknown or non-list field {field_name!r} (must be one of "
-                f"{sorted(_EXCLUDABLE_FIELDS)}, or a convention directory: "
-                f"{sorted(CONVENTION_SOURCES)})"
+                f"{sorted(_EXCLUDABLE_FIELDS)}, a convention directory: "
+                f"{sorted(CONVENTION_SOURCES)}, or 'config' mapping a dotted key to "
+                "the entries to remove from its list)"
             )
         if not isinstance(entries, list):
             raise BuildProfileError(

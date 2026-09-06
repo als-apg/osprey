@@ -650,16 +650,15 @@ behind it. The static deny is the stronger of the two, so reach for it — a
 profile that arms nothing — whenever the requirement is "this tier can never
 move anything".
 
-.. admonition:: Permission lists grow across ``extends``; they never shrink
+.. admonition:: Permission lists grow across ``extends``; taking an entry out is explicit
    :class: important
 
    The permission lists under ``config:`` — ``deny``, ``ask`` and their
    ``remove_*`` companions — **union** with the ones they inherit. A child
-   profile or a persona delta can add to an inherited permission list, but it
-   has no way to take an entry out of it: ``exclude:`` subtracts from the
-   convention lists (``skills``, ``agents``, ``web_panels`` and their
-   siblings — see :ref:`profile-exclude`) and does not reach inside ``config:``
-   at all.
+   profile or a persona delta can add to an inherited permission list; to
+   take an entry out it has to say so, with ``remove_deny`` / ``remove_ask``
+   (which match by substring) or with ``exclude: config:`` naming the exact
+   entry (see :ref:`profile-exclude`).
 
    That is why a preset that wants to withhold a privilege from every tier and
    grant it back to one writes the floor as ``deny``, and lets the privileged

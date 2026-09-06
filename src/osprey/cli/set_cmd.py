@@ -138,7 +138,10 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     KEY is a top-level profile key (provider, model, tier, channel_finder_mode,
     connector) or a dotted path. Keys under `config.` address the rendered
     config: `config.control_system.type=epics` writes that literal dotted entry
-    into the profile's config: block, replacing the value already there.
+    into the profile's config: block, replacing the value already there. A
+    mapping value states the whole block at that key: `config.approval.tools={…}`
+    replaces every `approval.tools.*` entry, `config.approval.tools.execute=skip`
+    changes that one leaf.
 
     VALUE is read as YAML — true/false become booleans, bare numbers become
     numbers, everything else is text.

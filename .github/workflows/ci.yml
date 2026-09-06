@@ -867,18 +867,13 @@ jobs:
           echo "⏭️  skipped: podman is absent from this runner (see the pin step above)."
           exit 0
         fi
-        cat > /tmp/two-shape-parse-override.yml <<'EOF'
-        dispatch:
-          triggers: tutorial_triggers.yml
-          worker_count: 1
-          workspace_mode: isolated
-          network: bridge
-        config:
-          claude_code.telemetry.enabled: false
-          deployed_services: []
-        EOF
         uv run osprey init parse-check --preset hello-world --no-git \
-          --override /tmp/two-shape-parse-override.yml
+          --set dispatch.triggers=tutorial_triggers.yml \
+          --set dispatch.worker_count=1 \
+          --set dispatch.workspace_mode=isolated \
+          --set dispatch.network=bridge \
+          --set config.claude_code.telemetry.enabled=false \
+          --set 'config.deployed_services=[]'
         cd parse-check
         # The two chain members carry the SAME key with DIFFERENT values, so
         # the interpolated result below distinguishes "the merged env file was

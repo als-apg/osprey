@@ -99,11 +99,11 @@ already encloses the target or ``--no-git`` is given.
 
 ``--list-presets`` — List bundled preset names and exit.
 
-``-O, --override FILE`` — Layer a YAML file on top of the preset before writing
-(repeatable, in order).
-
-``--set KEY.PATH=VALUE`` — Inline scalar/list override baked into the emitted
-profile (repeatable). RHS is parsed as YAML. Top-level shorthands: ``provider``,
+``--set KEY.PATH=VALUE`` — Edit the emitted profile (repeatable): the value at
+``KEY.PATH`` is replaced, whatever the preset holds there — a list you state is
+the list the profile holds. The same edit ``osprey set`` makes once the profile
+exists. RHS is parsed as YAML, so ``[]`` and ``null`` are values. Top-level
+shorthands: ``provider``,
 ``model``, ``channel_finder_mode``, ``connector``, ``port_base`` (move the whole
 deployment onto another thousand-port block, e.g. ``--set port_base=42000`` —
 handy for a second stack beside one already on the default 10000 block).

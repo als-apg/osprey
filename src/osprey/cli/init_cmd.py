@@ -848,8 +848,8 @@ def _replacing_source_zone(target: Path, *, active: bool) -> Iterator[None]:
     """Hold the existing source zone aside for the duration of the block.
 
     ``--force`` replaces the source zone, and the replacement only comes into
-    existence INSIDE this block: the preset resolves there, the ``-O``/``--set``
-    layers merge there, the persona deltas are emitted there, and the profile
+    existence INSIDE this block: the preset resolves there, the ``--set``
+    edits apply there, the persona deltas are emitted there, and the profile
     that was written is validated there — the last of those after files are on
     disk. So the old zone is moved rather than removed. The block returns and
     the holding directory goes; it raises and every entry goes back exactly as
@@ -1149,11 +1149,10 @@ def _point_at_set(ctx: click.Context, param: click.Parameter, value: str | None)
     """Answer a profile shorthand typed as a flag with the spelling that works.
 
     ``--provider cborg`` is the natural guess and is not an option: the
-    shorthands are values baked into the emitted profile, so they are written
+    shorthands are values written into the emitted profile, so they are spelled
     ``--set provider=cborg``. Click answers an unknown option with the nearest
-    one it has by edit distance, which for ``--provider`` is ``--override`` —
-    a different feature, taking a file. Left to that, the first thing an
-    operator meets is a suggestion that would not have worked either.
+    one it has by edit distance — a suggestion that would not have worked
+    either, so the first thing an operator met was a second wrong spelling.
 
     Registered as hidden options rather than checked after parsing, because
     Click rejects an unknown option before any callback of ours runs.
@@ -1202,14 +1201,6 @@ def _reject_shorthand_flags(command: Callable) -> Callable:
     default=None,
     metavar="NAME",
     help="Bundled preset to materialize (see --list-presets).",
-)
-@click.option(
-    "--override",
-    "-O",
-    "overrides",
-    multiple=True,
-    type=click.Path(exists=False, dir_okay=False, path_type=Path),
-    help="Layer a YAML file on top of the preset before writing (repeatable).",
 )
 @click.option(
     "--set",
@@ -1266,7 +1257,6 @@ def init(
     ctx: click.Context,
     directory: Path | None,
     preset: str | None,
-    overrides: tuple[Path, ...],
     set_pairs: tuple[str, ...],
     force: bool,
     no_git: bool,
@@ -1356,7 +1346,6 @@ def init(
                     materialized = _materialize_profile_directory(
                         target,
                         preset,
-                        overrides,
                         set_pairs,
                         profile_name=_directory_derived_name(target.name),
                         seed_dirs=WRITE_ONCE_DIRS if first_ever else None,

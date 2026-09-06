@@ -1,7 +1,7 @@
 """Raw profile-YAML document reads — the single parse point.
 
 Every layer of the profile pipeline reads its YAML through
-:func:`_read_profile_document`: the bundled preset, each ``-O`` override file,
+:func:`_read_profile_document`: the bundled preset, each host-variant overlay,
 the ``extends:`` parent inside :func:`~osprey.cli.build_profile_merge._resolve_extends`,
 the positional profile file, and the hashing path. One read point is what lets
 the empty-collection flattening below apply to every layer identically, so an

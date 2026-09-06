@@ -3151,10 +3151,11 @@ def _build_repo(
 
     try:
         # Which profile this HOST builds, decided before anything is resolved.
-        # The overlay is a profile layer like a `-O` file: it merges over
-        # `profile.yml` by the same deep merge, ahead of `extends:` resolution,
-        # and anchors at the repo root — so the render reads the merged result
-        # and every profile-relative path still points at this repo. A future
+        # The overlay is an inheritance layer: it merges over `profile.yml` by
+        # the same deep merge a persona delta uses, ahead of `extends:`
+        # resolution, and anchors at the repo root — so the render reads the
+        # merged result and every profile-relative path still points at this
+        # repo. A future
         # `osprey build --variant` would win over the file; nothing in the
         # command line names a variant today.
         variant = resolve_variant_selection(repo_root)

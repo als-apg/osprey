@@ -258,7 +258,7 @@ def _profile_port_base(raw: dict[str, Any]) -> int:
 
     Args:
         raw: The fully-merged raw profile mapping — presets, ``extends``
-            parents, ``-O`` layers and ``--set`` pairs already folded in.
+            parents, overlays and ``--set`` edits already folded in.
 
     Returns:
         The base the profile configures, or
@@ -582,8 +582,8 @@ def _reject_permission_list_shapes(config: Any) -> None:
     profile is refused instead of guessed at.
 
     Runs on the fully-resolved ``config:`` block, so no source escapes: the
-    preset, an ``-O`` overlay, a ``--set`` pair, an ``extends`` parent or a
-    persona base.
+    preset, a host-variant overlay, a ``--set`` pair, an ``extends`` parent or
+    a persona base.
 
     Args:
         config: The profile's ``config:`` block (ignored when not a mapping —
@@ -713,9 +713,9 @@ PORT_BASE_PROFILE_KEY = "port_base"
 def _apply_connector_shorthand(raw: dict[str, Any]) -> dict[str, Any]:
     """Fold a top-level ``connector:`` shorthand into the ``config:`` block.
 
-    Applied to the merged CLI layers
-    (:func:`~osprey.cli.build_profile_resolve.merge_cli_overrides`) and again
-    here at parse time, so no entry path — preset, ``-O`` file, ``--set`` pair,
+    Applied to the command line's edit
+    (:func:`~osprey.cli.build_profile_resolve.cli_edit_layer`) and again
+    here at parse time, so no entry path — preset, ``--set`` pair,
     ``extends`` parent, or a hand-written profile loaded directly — can carry
     the shorthand and have it silently ignored. Idempotent: a mapping without
     the key is returned unchanged.

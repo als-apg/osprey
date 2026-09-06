@@ -8,10 +8,10 @@ Content and comments are produced by two cooperating passes:
 
 1. **Content** comes from the exact pipeline the render path uses
    (:func:`~osprey.cli.build_profile_presets._load_preset_raw` +
-   :func:`~osprey.cli.build_profile_resolve.merge_cli_overrides` +
-   :func:`~osprey.cli.build_profile_merge._resolve_extends`), so the emitted
+   :func:`~osprey.cli.build_profile_merge._resolve_extends` +
+   :func:`~osprey.cli.build_profile_resolve.apply_cli_edits`), so the emitted
    profile resolves to byte-identical semantics as building from the preset
-   directly (with the same ``-O`` / ``--set`` layers).
+   directly (with the same ``--set`` edits).
 2. **Comments** come from ruamel.yaml round-trip documents of the preset
    file(s) — the whole ``extends`` chain, root first, overlaid child-over-base
    so each layer contributes the comments for the keys it introduces. The
@@ -43,7 +43,7 @@ from osprey.profiles.providers import compute_providers_hash, packaged_catalog_p
 from .build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
 from .build_profile_merge import _deep_merge, _resolve_extends, compute_preset_hash
 from .build_profile_presets import PRESET_DATA_BUNDLE_KEY, _load_preset_raw
-from .build_profile_resolve import _drop_shadowed_config_keys, merge_cli_overrides
+from .build_profile_resolve import apply_cli_edits
 from .profile_conventions import BUILD_OUTPUT_DIR, PROFILE_TRIGGERS_FILENAME
 from .profile_root import PERSONA_DIRNAME
 
@@ -1277,7 +1277,7 @@ def materialized_profile(preset_name: str, *, repo_name: str, profile_name: str)
         *((persona_catalog_layer(personas, repo_name=repo_name),) if personas else ()),
         *((triggers_layer(),) if isinstance(resolved.get("dispatch"), Mapping) else ()),
     )
-    text = emit_standalone_profile_yaml(preset_name, (), (), profile_name, extra_layers=layers)
+    text = emit_standalone_profile_yaml(preset_name, (), profile_name, extra_layers=layers)
     # Parsed the way the profile on disk is, so the comparison downstream sees
     # exactly the keys a build would load from this text.
     document = _parse_profile_document(text, f"materialized preset {preset_name!r}")
@@ -1286,7 +1286,6 @@ def materialized_profile(preset_name: str, *, repo_name: str, profile_name: str)
 
 def emit_standalone_profile_yaml(
     preset_name: str,
-    overrides: tuple[Path, ...],
     set_pairs: tuple[str, ...],
     profile_name: str,
     extra_layers: tuple[Mapping[str, Any], ...] = (),
@@ -1297,13 +1296,14 @@ def emit_standalone_profile_yaml(
 
     Args:
         preset_name: Bundled preset to materialize (any CLI spelling).
-        overrides: ``-O`` override files, layered in declaration order.
-        set_pairs: ``--set KEY=VALUE`` pairs, layered on top.
+        set_pairs: ``--set KEY=VALUE`` pairs — edits of the resolved document,
+            each replacing the value at the key it names
+            (:func:`~osprey.cli.build_profile_resolve.apply_cli_edits`).
         profile_name: Display name written to the profile's ``name:`` key.
-        extra_layers: Raw profile fragments merged after the user's layers,
-            through the same :func:`_deep_merge` channel a trailing ``-O`` file
-            would use — so they win over the user's, and so nothing here is a
-            second path into the resolved content. ``osprey init`` uses
+        extra_layers: Raw profile fragments merged after the user's edits,
+            through the :func:`_deep_merge` channel — so they win over the
+            user's, and so nothing here is a second path into the resolved
+            content. ``osprey init`` uses
             this to repoint the emitted persona catalog at the sibling profiles
             it is about to write: those values are derived from the resolved
             catalog, so they cannot come from a file the caller passes.
@@ -1320,22 +1320,19 @@ def emit_standalone_profile_yaml(
 
     Returns:
         Complete ``profile.yml`` content: fully explicit (no ``extends:``),
-        preset comments preserved, overrides applied in place.
+        preset comments preserved, edits applied in place.
     """
-    # Content authority — identical layering to the render path: preset raw,
-    # -O files, --set pairs, then extends resolution (which also applies any
-    # exclude: subtractions and consumes the extends/exclude keys).
+    # Content authority — identical to the render path: preset raw, extends
+    # resolution (which also applies any exclude: subtractions and consumes the
+    # extends/exclude keys), then the command line's edits of the resolved
+    # document — an edit replaces the value at the key it names, so a list the
+    # operator states is the list the profile holds.
     raw, base_anchor = _load_preset_raw(preset_name)
-    stated: list[tuple[str, ...]] = []
-    raw = merge_cli_overrides(raw, overrides, set_pairs, stated_config_paths=stated)
-    for layer in extra_layers:
-        raw = _deep_merge(raw, dict(layer))
     chain: list[Path] = []
     resolved = _resolve_extends(raw, base_anchor, chain)
-    # What the command line stated outranks the deeper keys the preset (or a
-    # parent) spells beneath it — the same prune the render path makes, so the
-    # profile this bakes says what building the same arguments would deploy.
-    resolved = _drop_shadowed_config_keys(resolved, stated)
+    resolved = apply_cli_edits(resolved, set_pairs)
+    for layer in extra_layers:
+        resolved = _deep_merge(resolved, dict(layer))
     resolved["name"] = profile_name
 
     # The schema floor a *reader* of this profile needs — pinned, never the
