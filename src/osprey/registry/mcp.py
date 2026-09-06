@@ -1330,6 +1330,21 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition | None:
                 resolved.append(hook)
             else:
                 logger.warning("Unknown hook preset %r for server %r — skipping", preset, name)
+        if "limits" in pre_presets:
+            # The rule below matches every tool on the server, but the limits
+            # hook only knows one input shape: a `channel_write`-shaped call
+            # carrying `channel`/`value` or an `operations` list. It abstains on
+            # anything else — which is right (denying would deny reads) and is
+            # also why attaching it to a whole server is not the guarantee the
+            # config line looks like.
+            logger.warning(
+                "Server %r attaches the 'limits' hook preset to every tool "
+                "(mcp__%s__.*), but the hook validates only channel_write-shaped "
+                "input (a `channel`/`value` pair, or an `operations` list). Tools "
+                "on this server that write in another shape are NOT limits-checked",
+                name,
+                name,
+            )
         if resolved:
             hooks_pre = [HookRule(matcher=f"mcp__{name}__.*", hooks=resolved)]
 

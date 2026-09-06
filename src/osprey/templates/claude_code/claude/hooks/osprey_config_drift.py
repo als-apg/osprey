@@ -19,7 +19,7 @@ SessionStart ──► stat config.yml & .claude/settings.json
    (b) exactly one writes_enabled key?  ── no ─► claim nothing about writes
                      │ yes
                      ▼
-       its value  vs  channel_write in deny? ──► precise drift
+    its value vs this render's write_tools in deny? ──► precise drift
                      │
                      ▼
    drift?  ── yes ─► warn (stderr + additionalContext) ─► exit 0
@@ -29,11 +29,21 @@ SessionStart ──► stat config.yml & .claude/settings.json
 ## Details
 
 `config.yml` is a build-time input: safety-critical fields (notably the write
-posture, which bakes ``mcp__controls__channel_write`` into ``settings.json``'s
+posture, which bakes this render's write tools into ``settings.json``'s
 ``permissions.deny``) only take effect once the artifacts are re-rendered by
 ``osprey build``. The web and CLI entry points auto-regenerate, but a
 hand-edited config.yml launched via raw ``claude`` would otherwise run stale
 settings with no signal. This hook is that signal.
+
+The tools check (b) looks for come from this render's own
+``.claude/hooks/hook_config.json`` — the same ``write_tools`` list the
+writes-check hook and the MCP audit middleware read — not from a literal spelled
+here. A deployment whose controls server is an ``extends`` clone denies
+``mcp__<clone>__channel_write`` and nothing named ``controls``, so a hook probing
+the framework literal claimed nothing while looking like it had checked. Entries
+naming a whole server (``mcp__<name>__.*``) and tools whose reads survive the
+kill switch (``mixed_read_write_tools``) are dropped: neither is denied outright,
+so neither says anything about the posture. An empty list abstains.
 
 Check (b) covers one shape of deployment only: the one whose whole posture is
 ``control_system.writes_enabled``. Posture is per connector type, and a config
@@ -73,7 +83,16 @@ from pathlib import Path
 # reads the single key. Even a mis-parse cannot weaken the write-block gate.
 _WRITES_ENABLED_KEY = re.compile(r"^\s*writes_enabled:", re.MULTILINE | re.IGNORECASE)
 _WRITES_ENABLED = re.compile(r"^\s*writes_enabled:\s*(true|false)\b", re.MULTILINE | re.IGNORECASE)
-_CHANNEL_WRITE = "mcp__controls__channel_write"
+#: Suffix marking a `mcp__<server>__.*` entry in `write_tools` — a whole server
+#: gated by the writes-check hook, whose tool names are unknown at render time.
+#: Such an entry names no tool that could appear in `permissions.deny`, so the
+#: kill-switch comparison skips it.
+_MATCHER_WILDCARD = ".*"
+
+#: Read when `hook_config.json` cannot be, so this check keeps working on a
+#: render that predates the file. It is the framework's own controls tool: the
+#: literal this hook used to be written against.
+_FALLBACK_WRITE_TOOLS = ("mcp__controls__channel_write",)
 
 _REGEN_HINT = "run 'osprey build' and restart for changes to take effect"
 
@@ -92,8 +111,55 @@ def _writes_enabled_in_config(config_path: Path) -> bool | None:
     return match.group(1).lower() == "true"
 
 
-def _channel_write_denied(settings_path: Path) -> bool | None:
-    """Whether channel_write is in permissions.deny (None if undeterminable)."""
+def _kill_switch_tools(hook_config_path: Path) -> tuple[str, ...]:
+    """The tools the writes kill switch renders into ``permissions.deny``.
+
+    Read from this render's own ``hook_config.json`` rather than spelled here,
+    because the answer is per deployment: an ``extends`` clone of the controls
+    server contributes ``mcp__<clone>__channel_write``, and a facility-custom
+    server that opts into the writes-check hook contributes an
+    ``mcp__<name>__.*`` matcher. A hook that probes one framework literal claims
+    nothing about either — and on a deployment whose only write tool is a clone
+    it claimed nothing at all while looking like it had checked.
+
+    Two kinds of entry are dropped:
+
+    * wildcard matchers — they name no tool that could be in ``permissions.deny``;
+    * ``mixed_read_write_tools`` — tools whose reads stay available with writes
+      off, so they are not denied outright and their absence from ``deny`` says
+      nothing about the posture.
+
+    An unreadable or malformed file falls back to the framework's own controls
+    tool, which is what this check was written against before there was a file
+    to read. An empty result means "claim nothing", which the caller handles.
+    """
+    try:
+        data = json.loads(hook_config_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return _FALLBACK_WRITE_TOOLS
+    if not isinstance(data, dict):
+        return _FALLBACK_WRITE_TOOLS
+    tools = data.get("write_tools")
+    if not isinstance(tools, list):
+        return _FALLBACK_WRITE_TOOLS
+    mixed = data.get("mixed_read_write_tools")
+    mixed_set = {t for t in mixed if isinstance(t, str)} if isinstance(mixed, list) else set()
+    return tuple(
+        tool
+        for tool in tools
+        if isinstance(tool, str) and not tool.endswith(_MATCHER_WILDCARD) and tool not in mixed_set
+    )
+
+
+def _write_tools_denied(settings_path: Path, tools: tuple[str, ...]) -> bool | None:
+    """Whether *tools* are in permissions.deny (None if undeterminable).
+
+    All-or-nothing on purpose: the kill switch renders the whole set together,
+    so a partial overlap is not a posture — it is a hand-edited settings.json,
+    and check (a) is the signal for that.
+    """
+    if not tools:
+        return None
     try:
         data = json.loads(settings_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -106,17 +172,22 @@ def _channel_write_denied(settings_path: Path) -> bool | None:
     deny = perms.get("deny", [])
     if not isinstance(deny, list):
         return None
-    return _CHANNEL_WRITE in deny
+    denied = {tool for tool in tools if tool in deny}
+    if not denied:
+        return False
+    if len(denied) == len(tools):
+        return True
+    return None
 
 
-def _detect_drift(config_path: Path, settings_path: Path) -> str | None:
+def _detect_drift(config_path: Path, settings_path: Path, hook_config_path: Path) -> str | None:
     """Return a drift warning message, or None when artifacts look in sync."""
     if not config_path.exists() or not settings_path.exists():
         return None
 
     # (b) Targeted, high-signal check: does the kill-switch match the config?
     writes_enabled = _writes_enabled_in_config(config_path)
-    denied = _channel_write_denied(settings_path)
+    denied = _write_tools_denied(settings_path, _kill_switch_tools(hook_config_path))
     if writes_enabled is not None and denied is not None:
         if writes_enabled and denied:
             return (
@@ -144,8 +215,9 @@ def main() -> int:
         project_dir = Path(os.environ.get("CLAUDE_PROJECT_DIR", "."))
         config_path = project_dir / "config.yml"
         settings_path = project_dir / ".claude" / "settings.json"
+        hook_config_path = project_dir / ".claude" / "hooks" / "hook_config.json"
 
-        message = _detect_drift(config_path, settings_path)
+        message = _detect_drift(config_path, settings_path, hook_config_path)
         if not message:
             return 0
 

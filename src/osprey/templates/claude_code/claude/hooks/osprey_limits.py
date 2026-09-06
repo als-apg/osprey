@@ -111,7 +111,14 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from osprey_hook_log import AUDIT_DECISION_REFUSED, emit_audit, get_hook_input, log_hook
+from osprey_hook_log import (
+    AUDIT_DECISION_REFUSED,
+    emit_audit,
+    get_hook_input,
+    load_hook_config,
+    log_hook,
+    short_tool_name,
+)
 
 # The shared, stdlib-only reader for the control-system target state, imported
 # while this file's own directory is still the first `sys.path` entry the line
@@ -150,6 +157,26 @@ def _control_target(hook_input):
         return None
 
 
+def _server_prefixes():
+    """Every MCP server prefix this render generated into hook_config.
+
+    Resolved the way `osprey_writes_check._server_prefixes` resolves it, and
+    for the same reason: an ``extends`` clone of the controls server renames
+    only the prefix, so a check written against the full tool name would miss
+    every clone. Never raises — `short_tool_name` still resolves a short name
+    from the ``mcp__<server>__<tool>`` shape with no prefixes at all.
+    """
+    try:
+        hook_config = load_hook_config()
+        return [
+            prefix
+            for key in ("server_prefixes", "approval_prefixes")
+            for prefix in hook_config.get(key) or ()
+        ]
+    except Exception:
+        return []
+
+
 def _supports_per_target_postures(validator_cls):
     """Whether the installed framework can resolve a limits posture per target.
 
@@ -183,8 +210,13 @@ def main():
 
     tool_name = hook_input.get("tool_name", "")
 
-    # Only validate channel_write
-    if tool_name != "mcp__controls__channel_write":
+    # Only validate channel_write — matched on the SHORT name, so a clone of
+    # the controls server (`extends: controls`) is validated too. The registry
+    # rewrites this hook's matcher to `mcp__<clone>__channel_write`, so the
+    # hook already fired on those calls; keying on the framework server's own
+    # literal name made it exit 0 and report nothing, which reads in the
+    # transcript exactly like a write that passed its limits check.
+    if short_tool_name(tool_name, _server_prefixes()) != "channel_write":
         sys.exit(0)
 
     tool_input = hook_input.get("tool_input", {})

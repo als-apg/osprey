@@ -426,6 +426,51 @@ class TestResolveServers:
         # Warning should have been logged
         assert any("bogus" in r.message for r in caplog.records)
 
+    def test_limits_preset_warns_that_it_only_knows_channel_write(self, caplog):
+        """`limits` on a custom server reads like a guarantee it cannot give.
+
+        The rendered rule matches every tool on the server, but the hook only
+        understands a channel_write-shaped call — a `channel`/`value` pair or an
+        `operations` list — and abstains on anything else. Abstaining is right
+        (denying would deny reads), which is exactly why the config line has to
+        be told about at build time rather than discovered from an unchecked
+        write.
+        """
+        ctx = _base_ctx()
+        cfg = {
+            "servers": {
+                "my-plc": {
+                    "command": "python",
+                    "args": ["-m", "my_plc_server"],
+                    "hooks": {"pre_tool_use": ["limits"]},
+                    "permissions": {"ask": ["set_output"]},
+                }
+            }
+        }
+        with caplog.at_level(logging.WARNING):
+            resolve_servers(cfg, ctx)
+
+        assert "channel_write-shaped" in caplog.text
+        assert "my-plc" in caplog.text
+
+    def test_no_limits_warning_without_the_limits_preset(self, caplog):
+        """The warning names a real risk, so it must not fire on every server."""
+        ctx = _base_ctx()
+        cfg = {
+            "servers": {
+                "my-plc": {
+                    "command": "python",
+                    "args": ["-m", "my_plc_server"],
+                    "hooks": {"pre_tool_use": ["approval"]},
+                    "permissions": {"ask": ["set_output"]},
+                }
+            }
+        }
+        with caplog.at_level(logging.WARNING):
+            resolve_servers(cfg, ctx)
+
+        assert "channel_write-shaped" not in caplog.text
+
     def test_custom_server_no_hooks_key(self):
         """Custom server without hooks key gets no pre-tool-use hooks."""
         ctx = _base_ctx()

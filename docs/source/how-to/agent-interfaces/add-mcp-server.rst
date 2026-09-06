@@ -99,6 +99,13 @@ own to edit:
    :ref:`tool permission <profile-tool-permissions>` — ``ask:`` prompts before
    the call — or a framework server, which can carry hooks of its own.
 
+   One preset is narrower than attaching it to a whole server suggests:
+   ``limits`` validates only ``channel_write``-shaped input — a call carrying a
+   ``channel``/``value`` pair, or an ``operations`` list. It abstains on any
+   other shape (denying would deny the server's reads), so a tool that writes
+   in another shape is *not* limits-checked. The build says so in a warning
+   when a server attaches it.
+
 Every key an ``mcp_servers:`` entry accepts — the remote ``url`` and
 ``transport`` forms, the ``port`` shorthand, the placeholder rules, and how to
 ship the server's own Python package inside the profile so the launch command
