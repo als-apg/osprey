@@ -290,27 +290,25 @@ Two layers enforce the set:
 
 .. _python-executor-session-posture:
 
-Session posture
----------------
+Write posture
+-------------
 
-An operator can turn a Web Terminal session's writes off on one control
-target from the control-target chip in the header (see
-:ref:`web-terminal-session-posture`). This server reads that setting at the
-moment a run asks for writes --- not from the environment it was started with,
-so a change made mid-conversation applies to the next run --- and a
-``readwrite`` ``execute`` on such a target is refused by the executor's own
-posture gate, whatever the deployment itself permits:
+An operator can turn writes off on one control target from the control-target
+chip in the header (see :ref:`web-terminal-session-posture`). The setting is
+the deployment's, not one conversation's. This server reads it at the moment a
+run asks for writes --- not from the environment it was started with, so a
+change made mid-conversation applies to the next run --- and a ``readwrite``
+``execute`` on such a target is refused by the executor's own posture gate,
+whatever the deployment itself permits:
 
-   Writes are off for the '<target>' control target in this session --- turned
-   off from the control-target chip in the header, and in force for this
-   session only.
+   Writes are off for the '<target>' control target --- turned off from the
+   control-target chip in the header; applies deployment-wide.
 
 Where the run's target cannot be identified, the most restrictive state
-recorded for the session decides, and the message says so --- *"Writes are off
-for at least one control target in this session (the run's target could not be
-identified, so the most restrictive decides) --- turned off from the
-control-target chip in the header."* --- rather than granting the run the most
-permissive answer.
+recorded for the deployment decides, and the message says so --- *"Writes are off
+for at least one control target (the run's target could not be identified, so
+the most restrictive decides) --- turned off from the control-target chip in
+the header."* --- rather than granting the run the most permissive answer.
 
 The agent is told to re-run as ``readonly`` --- reads are untouched --- or to
 turn writes back on from the chip. The deployment's ``config.yml`` is not the
@@ -320,6 +318,12 @@ A run that has already started cannot be *widened*: it keeps the launch pin it
 started under, so a script cannot gain write access to a machine the operator
 took away from it while it was running. A narrowing that lands mid-run is
 honoured by the reference monitor inside the sandbox at the moment of the write.
+
+A run is also refused outright while a control-target switch has not yet
+reached every control-system server. The sandbox is stamped with the target and
+the switch generation it was launched for, and a run that could be routed to
+either of two machines is not launched at all --- the refusal names the servers
+still working, and the run is worth retrying once the chip settles.
 
 When a write is refused
 -----------------------
@@ -331,7 +335,7 @@ Three things happen, at whichever layer catches it:
    attempted and blocked, not merely that a script failed.
 3. The attempt is recorded in the audit trail, at
    ``var/audit/<identity>/executor.jsonl`` --- one JSON object per line, with a
-   timestamp, who was acting, the session's posture, the layer that refused
+   timestamp, who was acting, the write posture in force, the layer that refused
    (the record's ``reason``), and the offending source kept verbatim. That
    directory is durable: builds never touch it, and ``osprey reset`` keeps
    it unless you pass ``--purge-audit``.

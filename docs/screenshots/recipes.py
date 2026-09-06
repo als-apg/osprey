@@ -202,8 +202,8 @@ REGISTRY: list[DocShot] = [
     # The tutorial baseline is the stand-in, so the shot shows the full shape —
     # the Rehearsal card with its writes switch, the real machine's not-set-up
     # row, and the simulator — real roster, real states, nothing staged. The
-    # popover only exists open, and only renders banner-free once the session's
-    # controls server has published a record, so the flow lives in
+    # popover only exists open, and only renders banner-free once the terminal
+    # holds the deployment's control-context record, so the flow lives in
     # capture._capture_web_terminal_static rather than in a subview click.
     DocShot(
         name="control_target_popover",

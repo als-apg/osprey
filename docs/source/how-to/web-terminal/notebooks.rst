@@ -57,8 +57,10 @@ trash to bring it back from.
 
 When the terminal starts the sidecar and ``notebooks/`` holds no notebook at
 all, it writes ``getting-started.ipynb``, a two-cell notebook holding one note
-and one code cell. Any existing ``.ipynb`` suppresses it, and it is never
-rewritten once written, so it is yours to edit or delete.
+and one code cell. The note reads *Cells read and write through the
+deployment's current control target and write posture.* Any existing ``.ipynb``
+suppresses it, and it is never rewritten once written, so it is yours to edit
+or delete.
 
 The code cell reads a channel where the deployment already names one it can
 serve, so running it returns a value rather than only importing two names.
@@ -69,59 +71,70 @@ names neither — the ``hello-world`` preset runs a mock connector and declares
 no channel — gets the import line alone, because a cell naming a channel
 nothing serves would fail on its first run.
 
-Which session a kernel follows
-------------------------------
+Which machine a kernel writes to
+--------------------------------
 
-A kernel has no control-system identity of its own. It follows a terminal
-session, and the rule is **the session most recently attached** in the
-browser. Open a chat session first, then start the kernel.
+A kernel has no control-system identity of its own, and it follows no chat
+session. Cells read and write through the deployment's current control target
+and write posture — the same one the chip in the header shows and the agent
+uses.
 
-At start the kernel stamps itself with that session's control target, the
-target's generation, and the write posture in force. A cell can read those
-back:
+The kernel re-reads that before **every cell**, so a switch made anywhere, by
+anyone, reaches the next cell you run. A cell can read back what it was routed
+with:
 
 .. code-block:: python
 
    import os
 
-   os.environ["OSPREY_CONTROL_TARGET"]    # the target this kernel is pinned to
-   os.environ["OSPREY_LAUNCH_POSTURE"]    # what it was allowed to write at launch
+   os.environ["OSPREY_CONTROL_TARGET"]             # the machine this cell writes to
+   os.environ["OSPREY_CONTROL_TARGET_GENERATION"]  # which switch it belongs to
+   os.environ["OSPREY_LAUNCH_POSTURE"]             # what this cell may write
 
-A running kernel keeps the target it started with and can never write more
-than it could at launch. Turning writes off takes effect on its next write.
-Switch the control target from the chip, or turn writes on, and the kernel
-does not follow — restart it. (The chip's own "nothing restarts" wording
-covers the agent's ``execute()`` runs, which are a fresh child process every
-time. A kernel is not.) The first write after the change says which case you
-are in:
+**Nothing restarts.** Switch the control target from the chip, or turn writes
+on or off, and the next cell you run is routed by the new state.
 
-.. code-block:: text
+A cell already running is not re-routed --- but taking writes away still
+reaches it. The two directions are not symmetric, and the difference is worth
+knowing:
 
-   The session's control target changed. Restart the kernel to follow it.
-   This kernel started with writes off. Turn writes on from the chip, then restart the kernel.
+- **Turning writes off lands at once.** The connector re-reads the write
+  posture on every write, so the running cell's very next write is refused.
+- **Turning writes on waits for the next cell.** A cell can never write more
+  than it was allowed when it started, so widening cannot reach it.
+- **Switching the machine waits for the next cell** as well, so a switch never
+  lands halfway through your work.
 
-Closing a session tile detaches the tile. It does not end the session, so the
-kernel keeps following that session — and can still write whatever it could
-write at launch — until the session itself ends. *+ New* in the tile ends the
-current session and starts another, and the running kernel's next write is
-refused:
-
-.. code-block:: text
-
-   The chat session this kernel followed has ended. Restart the kernel.
-
-A kernel started with no chat session open carries no target at all. Reads
-answer from the deployment's baseline target, and every write is refused:
+Re-run the cell to pick up either of the last two, and the refusal says which
+one you are in:
 
 .. code-block:: text
 
-   No chat session was open when this kernel started. Open one, then restart the kernel.
+   The control target changed while this cell ran. Re-run the cell.
+   Writes are off for this cell. Turn writes on from the chip, then re-run the cell.
 
-You meet that state in two places: before a terminal's first session exists,
-and after the session a kernel followed has ended.
+A switch takes a moment to reach the machines, and a cell run in that window is
+routed nowhere rather than to a guess:
+
+.. code-block:: text
+
+   switch_in_progress:5150. A control-target switch is in progress on pid 5150; re-run the cell when the chip settles.
+
+It works the other way too. From a cell's first control-system call until that
+cell ends, a switch asked for anywhere in the deployment is refused and names
+the kernel holding the target, so whoever asked knows to interrupt it rather
+than wait on nothing. A cell that touches no channel holds nothing.
+
+A cell carries no target at all in two cases: the deployment's control-context
+record is missing or unreadable, or it names a machine this deployment cannot
+build --- a target whose connector block was never rendered, or was removed
+under it. Reads then answer from the deployment's baseline target and every
+write is refused. The first case clears itself as soon as the web terminal has
+written the record; the second is a configuration gap and stays until somebody
+fixes it.
 
 A refusal for any other reason — a write ceiling, a limits violation — carries
-no extra line, because no restart would change it.
+no extra line, because nothing you do in the notebook would change it.
 
 A page reload keeps the kernel running, but the notebook comes back as it was
 last saved. Output from cells that ran since that save is gone.
