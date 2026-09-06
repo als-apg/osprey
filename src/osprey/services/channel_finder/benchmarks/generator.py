@@ -32,7 +32,9 @@ def load_template(source_path: Path | None = None) -> tuple[dict, list[dict]]:
     """Load a hierarchical template and expand to flat channels.
 
     Args:
-        source_path: Path to hierarchical JSON. Defaults to built-in template.
+        source_path: Path to hierarchical JSON. Defaults to the packaged demo
+            template — callers that write into a deployment's own database
+            directory name the source explicitly rather than relying on it.
 
     Returns:
         (tree_data, expanded_channels) tuple.
@@ -332,7 +334,9 @@ _HWUNITS_BY_FIELD: dict[str, str] = {
 _DEFAULT_HWUNITS = ""
 
 
-def format_in_context(channels: list[dict], tier_spec: TierSpec) -> dict:
+def format_in_context(
+    channels: list[dict], tier_spec: TierSpec, source: Path | str | None = None
+) -> dict:
     """Format channels for the in-context (flat) database paradigm.
 
     Filters *channels* by *tier_spec* and returns a dict with
@@ -343,6 +347,9 @@ def format_in_context(channels: list[dict], tier_spec: TierSpec) -> dict:
         channels: Full list of expanded channel dicts from
             :func:`expand_hierarchy`.
         tier_spec: Tier specification controlling which channels to include.
+        source: The hierarchical database these channels were expanded from,
+            recorded in ``_metadata`` so a generated file says which machine's
+            channels it holds. Omitted when the caller did not name one.
 
     Returns:
         Dict with ``_metadata`` and ``channels`` keys, loadable by
@@ -357,13 +364,16 @@ def format_in_context(channels: list[dict], tier_spec: TierSpec) -> dict:
         }
         for ch in filtered
     ]
+    metadata = {
+        "version": "1.0",
+        "tier": tier_spec.name,
+        "total_channels": len(channel_entries),
+        "generated_by": "osprey-benchmark-generator",
+    }
+    if source is not None:
+        metadata["source"] = str(source)
     return {
-        "_metadata": {
-            "version": "1.0",
-            "tier": tier_spec.name,
-            "total_channels": len(channel_entries),
-            "generated_by": "osprey-benchmark-generator",
-        },
+        "_metadata": metadata,
         "channels": channel_entries,
     }
 

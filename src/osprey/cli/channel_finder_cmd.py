@@ -502,7 +502,19 @@ def web(ctx, host: str, port: int | None):
     "--source",
     type=click.Path(exists=True, dir_okay=False),
     default=None,
-    help="Source hierarchical database (default: built-in template)",
+    help="Source hierarchical database to generate from",
+)
+@click.option(
+    "--demo",
+    is_flag=True,
+    default=False,
+    help="Generate from the packaged demo template instead of a --source file",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Overwrite database files that already exist in the output directory",
 )
 @click.option(
     "--format",
@@ -524,7 +536,15 @@ def web(ctx, host: str, port: int | None):
     default=False,
     help="Verify generated databases load correctly through pipeline database classes",
 )
-def generate(output_dir: str, source: str | None, fmt: str, tier: str, do_validate: bool):
+def generate(
+    output_dir: str,
+    source: str | None,
+    demo: bool,
+    force: bool,
+    fmt: str,
+    tier: str,
+    do_validate: bool,
+):
     """Generate channel databases from a hierarchical template.
 
     Produces database files from a hierarchical channel template.
@@ -536,18 +556,24 @@ def generate(output_dir: str, source: str | None, fmt: str, tier: str, do_valida
       - hierarchical.json  (tree format)
       - middle_layer.json  (MML-style with setup blocks)
 
+    Say where the channels come from: --source names your own hierarchical
+    database, --demo asks for the packaged demo one. Existing files in the
+    output directory are left alone unless you pass --force; the default
+    output directory is the one the pipelines read.
+
     Examples:
 
     \b
-      osprey channel-finder generate
-      osprey channel-finder generate --tier 1 --format in_context
       osprey channel-finder generate --source my_channels.json
-      osprey channel-finder generate --validate
+      osprey channel-finder generate --demo
+      osprey channel-finder generate --source my_channels.json --tier 1 --format in_context
+      osprey channel-finder generate --source my_channels.json --validate --force
     """
     import json
     from pathlib import Path
 
     from osprey.services.channel_finder.benchmarks.generator import (
+        TEMPLATE_DB_PATH,
         TIER_1,
         TIER_3,
         TierSpec,
@@ -557,10 +583,23 @@ def generate(output_dir: str, source: str | None, fmt: str, tier: str, do_valida
         load_template,
     )
 
+    # Where the channels come from is stated, never assumed. The old default
+    # wrote the demo machine's channels into the very directory the pipelines
+    # read, so a bare `generate` in a real deployment replaced that facility's
+    # database with somebody else's.
+    if source and demo:
+        raise click.ClickException("--source and --demo name two different sources; pass one.")
+    if not source and not demo:
+        raise click.ClickException(
+            "Say where the channels come from: --source PATH for your own "
+            "hierarchical database, or --demo for the packaged demo one."
+        )
+
+    source_path = Path(source) if source else TEMPLATE_DB_PATH
+
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    source_path = Path(source) if source else None
     tree_data, channels = load_template(source_path)
 
     if tier == "none":
@@ -577,7 +616,7 @@ def generate(output_dir: str, source: str | None, fmt: str, tier: str, do_valida
     # One writer per paradigm in FILE_DATABASE_PARADIGMS; Click has already
     # rejected any other --format before this point.
     format_map = {
-        "in_context.json": lambda: format_in_context(channels, tier_spec),
+        "in_context.json": lambda: format_in_context(channels, tier_spec, source=source_path),
         "hierarchical.json": lambda: format_hierarchical(tree_data, tier_spec),
         "middle_layer.json": lambda: format_middle_layer(channels, tier_spec),
     }
@@ -593,6 +632,13 @@ def generate(output_dir: str, source: str | None, fmt: str, tier: str, do_valida
     elif fmt != "all":
         filename = f"{fmt}.json"
         format_map = {filename: format_map[filename]}
+
+    existing = [name for name in format_map if (out / name).exists()]
+    if existing and not force:
+        raise click.ClickException(
+            f"{', '.join(sorted(existing))} already exist in {out}/. "
+            "Pass --force to overwrite them, or --output-dir to write elsewhere."
+        )
 
     for filename, builder in format_map.items():
         path = out / filename
