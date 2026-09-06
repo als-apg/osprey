@@ -25,12 +25,92 @@ class TestGenerateSubcommand:
         assert "--output-dir" in result.output
         assert "--validate" in result.output
         assert "--source" in result.output
+        assert "--demo" in result.output
+        assert "--force" in result.output
         assert "--format" in result.output
         assert "--tier" in result.output
 
+    def test_bare_generate_is_refused(self, runner, tmp_path):
+        """Neither --source nor --demo means nobody said whose channels these are."""
+        result = runner.invoke(channel_finder, ["generate", "--output-dir", str(tmp_path)])
+
+        assert result.exit_code != 0
+        assert "--source" in result.output
+        assert "--demo" in result.output
+        assert not (tmp_path / "in_context.json").exists()
+
+    def test_source_and_demo_together_are_refused(self, runner, tmp_path):
+        """Two sources named is a mistake, not a precedence question."""
+        from osprey.services.channel_finder.benchmarks.generator import TEMPLATE_DB_PATH
+
+        result = runner.invoke(
+            channel_finder,
+            [
+                "generate",
+                "--demo",
+                "--source",
+                str(TEMPLATE_DB_PATH),
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert not (tmp_path / "in_context.json").exists()
+
+    def test_existing_files_are_not_overwritten(self, runner, tmp_path):
+        """The default output directory is the one the pipelines read."""
+        existing = tmp_path / "in_context.json"
+        existing.write_text('{"_metadata": {}, "channels": []}')
+
+        result = runner.invoke(
+            channel_finder,
+            ["generate", "--demo", "--output-dir", str(tmp_path), "--format", "in_context"],
+        )
+
+        assert result.exit_code != 0
+        assert "--force" in result.output
+        assert existing.read_text() == '{"_metadata": {}, "channels": []}'
+
+    def test_force_overwrites(self, runner, tmp_path):
+        """--force is how a deliberate regeneration says so."""
+        existing = tmp_path / "in_context.json"
+        existing.write_text('{"_metadata": {}, "channels": []}')
+
+        result = runner.invoke(
+            channel_finder,
+            [
+                "generate",
+                "--demo",
+                "--output-dir",
+                str(tmp_path),
+                "--format",
+                "in_context",
+                "--force",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(existing.read_text())["channels"]
+
+    def test_metadata_records_the_source(self, runner, tmp_path):
+        """A generated file says which hierarchical database it came from."""
+        from osprey.services.channel_finder.benchmarks.generator import TEMPLATE_DB_PATH
+
+        result = runner.invoke(
+            channel_finder,
+            ["generate", "--demo", "--output-dir", str(tmp_path), "--format", "in_context"],
+        )
+
+        assert result.exit_code == 0, result.output
+        data = json.loads((tmp_path / "in_context.json").read_text())
+        assert data["_metadata"]["source"] == str(TEMPLATE_DB_PATH)
+
     def test_generates_three_files(self, runner, tmp_path):
         """Running generate creates 3 database files."""
-        result = runner.invoke(channel_finder, ["generate", "--output-dir", str(tmp_path)])
+        result = runner.invoke(
+            channel_finder, ["generate", "--demo", "--output-dir", str(tmp_path)]
+        )
         assert result.exit_code == 0, f"Failed: {result.output}"
 
         assert (tmp_path / "in_context.json").exists()
@@ -43,7 +123,7 @@ class TestGenerateSubcommand:
 
         _, all_channels = load_template()
 
-        runner.invoke(channel_finder, ["generate", "--output-dir", str(tmp_path)])
+        runner.invoke(channel_finder, ["generate", "--demo", "--output-dir", str(tmp_path)])
 
         data = json.loads((tmp_path / "in_context.json").read_text())
         assert isinstance(data, dict)
@@ -63,7 +143,7 @@ class TestGenerateSubcommand:
 
         runner.invoke(
             channel_finder,
-            ["generate", "--output-dir", str(tmp_path), "--tier", "1"],
+            ["generate", "--demo", "--output-dir", str(tmp_path), "--tier", "1"],
         )
 
         data = json.loads((tmp_path / "in_context.json").read_text())
@@ -78,7 +158,7 @@ class TestGenerateSubcommand:
 
         _, all_channels = load_template()
 
-        runner.invoke(channel_finder, ["generate", "--output-dir", str(tmp_path)])
+        runner.invoke(channel_finder, ["generate", "--demo", "--output-dir", str(tmp_path)])
 
         data = json.loads((tmp_path / "hierarchical.json").read_text())
         channels = expand_hierarchy(data)
@@ -93,7 +173,7 @@ class TestGenerateSubcommand:
 
         _, all_channels = load_template()
 
-        runner.invoke(channel_finder, ["generate", "--output-dir", str(tmp_path)])
+        runner.invoke(channel_finder, ["generate", "--demo", "--output-dir", str(tmp_path)])
 
         data = json.loads((tmp_path / "middle_layer.json").read_text())
         pvs = collect_middle_layer_pvs(data)
@@ -102,14 +182,14 @@ class TestGenerateSubcommand:
     def test_output_dir_flag(self, runner, tmp_path):
         """--output-dir creates files in specified directory."""
         custom = tmp_path / "custom_output"
-        result = runner.invoke(channel_finder, ["generate", "--output-dir", str(custom)])
+        result = runner.invoke(channel_finder, ["generate", "--demo", "--output-dir", str(custom)])
         assert result.exit_code == 0
         assert (custom / "in_context.json").exists()
 
     def test_validate_flag(self, runner, tmp_path):
         """--validate produces validation output."""
         result = runner.invoke(
-            channel_finder, ["generate", "--output-dir", str(tmp_path), "--validate"]
+            channel_finder, ["generate", "--demo", "--output-dir", str(tmp_path), "--validate"]
         )
         assert result.exit_code == 0
         assert "validated" in result.output.lower() or "OK" in result.output
@@ -118,7 +198,7 @@ class TestGenerateSubcommand:
         """--format in_context generates only one file."""
         result = runner.invoke(
             channel_finder,
-            ["generate", "--output-dir", str(tmp_path), "--format", "in_context"],
+            ["generate", "--demo", "--output-dir", str(tmp_path), "--format", "in_context"],
         )
         assert result.exit_code == 0
         assert (tmp_path / "in_context.json").exists()
@@ -138,7 +218,7 @@ class TestGenerateSubcommand:
 
         result = runner.invoke(
             channel_finder,
-            ["generate", "--output-dir", str(tmp_path), "--tier", "1"],
+            ["generate", "--demo", "--output-dir", str(tmp_path), "--tier", "1"],
         )
         assert result.exit_code == 0
 
@@ -154,7 +234,16 @@ class TestGenerateSubcommand:
         """--tier 1 with a non-in_context --format is refused."""
         result = runner.invoke(
             channel_finder,
-            ["generate", "--output-dir", str(tmp_path), "--tier", "1", "--format", "hierarchical"],
+            [
+                "generate",
+                "--demo",
+                "--output-dir",
+                str(tmp_path),
+                "--tier",
+                "1",
+                "--format",
+                "hierarchical",
+            ],
         )
         assert result.exit_code != 0
         assert "in_context" in result.output
@@ -191,6 +280,7 @@ class TestGenerateSubcommand:
             channel_finder,
             [
                 "generate",
+                "--demo",
                 "--output-dir",
                 str(tmp_path),
                 "--format",

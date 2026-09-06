@@ -175,7 +175,7 @@ language via the agent, or invoke the CLI directly:
 
 .. code-block:: bash
 
-   osprey channel-finder generate     # build database from template
+   osprey channel-finder generate --source my_channels.json   # build database from template
    osprey channel-finder benchmark    # evaluate on a query dataset
 
 .. tip::
