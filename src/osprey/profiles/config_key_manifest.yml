@@ -1686,7 +1686,13 @@ keys:
       last of them rather than outliving them all.
     default: {}
   web.feedback.github_repo:
-    evidence: 'get_config_value\(\s*"web\.feedback\.github_repo",\s*DEFAULT_FEEDBACK_GITHUB_REPO\s*\)'
+    evidence: 'get_config_value\("web\.feedback\.github_repo", None\)'
+    note: >-
+      Read with a None sentinel rather than its own default, unlike its
+      neighbours: `web.feedback.owner` can stand in for this key, and the
+      resolver has to tell "absent" from "spelled, and equal to the default"
+      to know which of the two wins. The default lives in
+      interfaces/web_terminal/feedback_destination.py and is applied there.
     default: als-apg/osprey
   web.feedback.trackers:
     # Documented in every template as a commented example beside github_repo,
@@ -1696,8 +1702,70 @@ keys:
     evidence: 'get_config_value\(\s*"web\.feedback\.trackers",\s*None\s*\)'
     default: null
   web.feedback.email:
-    evidence: 'get_config_value\(\s*"web\.feedback\.email",\s*DEFAULT_FEEDBACK_EMAIL\s*\)'
+    evidence: 'get_config_value\("web\.feedback\.email", None\)'
+    note: >-
+      Read with a None sentinel for the same reason as
+      `web.feedback.github_repo` — see that entry.
     default: thellert@lbl.gov
+  web.feedback.owner:
+    # Documented in every template that carries a `web:` block as a commented
+    # example, never rendered as a live key: the shipped destination is the
+    # OSPREY project, and a facility that redirects feedback writes the block
+    # by hand. Rendering it live would force `osprey profile expand` on every
+    # already-deployed profile to clear a drift report.
+    rendered: false
+    evidence: 'get_config_value\("web\.feedback\.owner", None\)'
+    note: >-
+      One block naming who owns this deployment: `name`, `email` and a
+      forge-agnostic `tracker`. The leaf keys `web.feedback.email` and
+      `web.feedback.github_repo` still outrank it wherever they are spelled,
+      so no already-deployed profile changes meaning. The three leaves below
+      have no dotted lookup of their own — the block is read whole and taken
+      apart by `coerce_feedback_owner`, so they are covered-by rather than
+      evidenced.
+    default: derived
+    default_note: >-
+      absent means the OSPREY project owns the deployment: the destination
+      falls through to `web.feedback.email` / `web.feedback.github_repo`,
+      and past those to DEFAULT_FEEDBACK_EMAIL / DEFAULT_FEEDBACK_GITHUB_REPO
+      in interfaces/web_terminal/feedback_destination.py
+  web.feedback.owner.name: {rendered: false, covered-by: web.feedback.owner, default: n/a}
+  web.feedback.owner.email: {rendered: false, covered-by: web.feedback.owner, default: n/a}
+  web.feedback.owner.tracker: {rendered: false, covered-by: web.feedback.owner, default: n/a}
+  web.feedback.owner.tracker.kind:
+    {rendered: false, covered-by: web.feedback.owner.tracker, default: n/a}
+  web.feedback.owner.tracker.target:
+    {rendered: false, covered-by: web.feedback.owner.tracker, default: n/a}
+  web.feedback.owner.tracker.label:
+    {rendered: false, covered-by: web.feedback.owner.tracker, default: n/a}
+  provenance:
+    # Stamped into the RESOLVED config by build_profile_emit, never written in
+    # a template, so it is not part of the rendered union and carries
+    # rendered: false rather than an all-templates disposition.
+    rendered: false
+    evidence: 'get_config_value\("provenance\.'
+    default: derived
+    default_note: >-
+      stamped into the resolved config by build_profile_emit from the preset
+      the profile extends; a profile that extends no preset carries none, and
+      the feedback report then omits the stamp
+    note: >-
+      Build provenance, and — since the feedback destination gained an
+      escalation path — read at run time after all. The web terminal stamps
+      the preset and its content hash into a feedback report so a facility
+      maintainer can forward a framework bug upstream without anyone
+      re-deriving what was running. The evidence anchors on the prefix the
+      two leaf readers share, so this entry dies with the last of them.
+  provenance.preset:
+    rendered: false
+    evidence: 'get_config_value\("provenance\.preset", None\)'
+    default: derived
+    default_note: the preset name build_profile_emit stamps, absent without a preset
+  provenance.preset_hash:
+    rendered: false
+    evidence: 'get_config_value\("provenance\.preset_hash", None\)'
+    default: derived
+    default_note: the preset's resolved-content hash build_profile_emit stamps, absent without a preset
   web.feedback.max_store_bytes:
     evidence: 'get_config_value\(\s*"web\.feedback\.max_store_bytes",\s*DEFAULT_FEEDBACK_MAX_STORE_BYTES\s*\)'
     default: 268435456

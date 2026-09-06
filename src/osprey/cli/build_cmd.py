@@ -3356,6 +3356,7 @@ def _build_repo(
             # that is itself attached hosts nothing and projects nothing.
             from .build_profile_reach import (
                 ariel_ingestion_advisories,
+                feedback_owner_advisories,
                 pva_address_source_advisories,
             )
 
@@ -3364,6 +3365,10 @@ def _build_repo(
             # with no address source are named once, here. Advisory: the
             # build is sound, the reads would time out.
             for advisory in pva_address_source_advisories(rendered):
+                output.note(f"⚠ {advisory}")
+            # Feedback has one destination but two settings that aim it.
+            # Advisory: the build is sound, half the reports go upstream.
+            for advisory in feedback_owner_advisories(rendered):
                 output.note(f"⚠ {advisory}")
             if build_profile.deploy_services:
                 shared = shared._replace(host_config=rendered)

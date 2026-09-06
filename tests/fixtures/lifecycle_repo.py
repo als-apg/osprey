@@ -910,11 +910,28 @@ config:
   # the docs when the control room has no route to the public site.
   web.docs_url: https://als-apg.github.io/osprey
   # The Feedback dialog's outbound channels. Nothing is posted for the user:
-  # the browser opens a prefilled GitHub issue form or mail draft. Every
-  # submission is also recorded here (`osprey feedback list` / `export`).
+  # the browser opens a prefilled issue form or mail draft. Every submission
+  # is also recorded here (`osprey feedback list` / `export`).
   #
-  # owner/repo whose new-issue form the GitHub channel prefills. Point it at
-  # the repository your users' reports should land in; "" offers no GitHub
+  # Reports go to ONE destination: whoever owns this deployment. A user is
+  # not asked whether a bug is OSPREY's or this facility's configuration.
+  # Left unconfigured, the owner is the OSPREY project itself. A facility
+  # that names an owner becomes the destination, and the reports it
+  # receives carry a one-click link for forwarding a framework bug
+  # upstream. One block, because the address and the tracker have to move
+  # together: redirecting the mail but leaving the tracker upstream sends
+  # half the reports to strangers.
+  # web.feedback.owner:
+  #   name: ALS Controls
+  #   email: controls@example.org
+  #   tracker:
+  #     kind: gitlab            # gitlab | github
+  #     target: https://git.example.org/controls/osprey
+  #                             # gitlab: the project URL; github: owner/name
+  #     label: Controls GitLab  # optional caption for the radio
+  # owner/repo whose new-issue form the GitHub channel prefills. Predates
+  # `owner` above and still wins over it wherever it is spelled, so an
+  # existing deployment keeps meaning what it meant; "" offers no GitHub
   # channel.
   web.feedback.github_repo: als-apg/osprey
   # Further trackers, one channel each: a `gitlab` entry takes the project's
@@ -923,7 +940,8 @@ config:
   #   - kind: gitlab
   #     url: https://git.example.org/controls/osprey
   #     label: Facility GitLab
-  # Recipient of the prefilled mailto: draft the Email channel opens.
+  # Recipient of the prefilled mailto: draft the Email channel opens. Wins
+  # over `owner.email` above, on the same grounds as `github_repo`.
   web.feedback.email: thellert@lbl.gov
   # Ceiling in bytes on the on-disk feedback store (256 MB). Above it the
   # oldest saved session contexts are deleted; submission headers are kept.
