@@ -14,6 +14,15 @@ from osprey.services.python_executor.execution.fs_guard import (
     render_fs_guard,
 )
 from osprey.services.python_executor.execution.net_guard import render_net_guard
+
+# The write surface the readonly guard installs. Imported rather than spelled
+# here so that the guard and the readonly import denylist
+# (``analysis.safety_checks``) are produced by one table and cannot describe
+# different libraries. Re-exported by this module because every existing
+# consumer — the guard tests included — reads it from here.
+from osprey.services.python_executor.write_surface import (
+    _READONLY_WRITE_TARGETS,
+)
 from osprey.utils.logger import get_logger
 
 logger = get_logger("execution_wrapper")
@@ -57,143 +66,6 @@ READONLY_FS_REFUSAL_PREFIX = f"Refused ({READONLY_REFUSAL_MARKER}):"
 #: :meth:`ExecutionWrapper._get_filesystem_guard` for what that costs and why it
 #: is still the right trade.
 READWRITE_FS_REFUSAL_PREFIX = DEFAULT_DENYLIST_PREFIX
-
-
-#: Every entry point a readonly run refuses, as ``(dotted target, attributes)``.
-#: This table is the canonical machine-readable answer to "what counts as a
-#: control-system write from Python" — the docs list is written from it, and a
-#: library added here needs no other change to be enforced.
-#:
-#: The dotted target is resolved by importing its longest importable prefix and
-#: then walking attributes, so a module (``epics``), a module attribute
-#: (``epics.ca``) and a class (``p4p.client.thread.Context``) are all spelled
-#: the same way. Attributes that do not exist on the resolved object are
-#: skipped, which is what makes listing several client flavours free: an
-#: uninstalled or older library simply contributes nothing.
-#:
-#: Patching the object in ``sys.modules`` — rather than inspecting the source —
-#: is what makes this immune to spelling. ``importlib.import_module("epics")``,
-#: ``from epics import caput as _w`` and ``getattr(epics, "ca" + "put")`` all
-#: end up holding the refusing function, because they all resolve through the
-#: one module object this mutates.
-_READONLY_WRITE_TARGETS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    # --- EPICS Channel Access (pyepics) ---
-    ("epics", ("caput", "caput_many")),
-    ("epics.PV", ("put",)),
-    ("epics.ca", ("put", "put_complete")),
-    # --- PVAccess (p4p): one client Context per concurrency flavour, plus the
-    # server-side SharedPV, which puts values on the wire when it is opened or
-    # posted to.
-    ("p4p.client.thread.Context", ("put", "rpc")),
-    ("p4p.client.asyncio.Context", ("put", "rpc")),
-    ("p4p.client.cothread.Context", ("put", "rpc")),
-    ("p4p.server.raw.SharedPV", ("post", "open")),
-    ("p4p.server.thread.SharedPV", ("post", "open")),
-    ("p4p.server.asyncio.SharedPV", ("post", "open")),
-    # --- Channel Access (caproto) ---
-    ("caproto.sync.client", ("write", "write_read")),
-    ("caproto.threading.client.PV", ("write", "write_all")),
-    ("caproto.threading.client.Batch", ("write",)),
-    ("caproto.asyncio.client.PV", ("write",)),
-    # --- PVAccess (pvaPy). Its ``Channel`` carries one typed setter per scalar
-    # and array type, so the ``put`` prefix is swept dynamically below rather
-    # than enumerated here; ``put`` itself is listed so the table still names
-    # the library.
-    ("pvaccess.Channel", ("put", "putGet")),
-    # --- Tango. ``command_inout`` is included because a Tango command is an
-    # action on the device, not a read — refusing it is the readonly reading.
-    # ``PyTango`` is the legacy alias for the same package; when both import,
-    # they resolve to the same class object and the second patch is a no-op.
-    (
-        "tango.DeviceProxy",
-        (
-            "write_attribute",
-            "write_attributes",
-            "write_attribute_asynch",
-            "write_attributes_asynch",
-            "write_read_attribute",
-            "write_read_attributes",
-            "write_pipe",
-            "put_property",
-            "command_inout",
-            "command_inout_asynch",
-        ),
-    ),
-    ("tango.AttributeProxy", ("write", "write_asynch", "write_read")),
-    (
-        "PyTango.DeviceProxy",
-        (
-            "write_attribute",
-            "write_attributes",
-            "write_read_attribute",
-            "command_inout",
-        ),
-    ),
-    # --- Routes out of Python. A readonly run has no legitimate use for these:
-    # ``import subprocess`` is already refused in every mode by the static
-    # import check, so anything reaching the process-spawning surface at
-    # runtime got there by an evasion. ``os.fork`` is deliberately absent —
-    # forking alone cannot run a new program, and refusing it would break
-    # ordinary multiprocessing for no security gain, since the exec half of
-    # every fork+exec is refused here.
-    (
-        "subprocess",
-        (
-            "run",
-            "Popen",
-            "call",
-            "check_call",
-            "check_output",
-            "getoutput",
-            "getstatusoutput",
-        ),
-    ),
-    ("_posixsubprocess", ("fork_exec",)),
-    # ``os`` re-exports these from ``posix``; patching only ``os`` would leave
-    # ``import posix; posix.system(...)`` open, so both modules are swept.
-    (
-        "os",
-        (
-            "system",
-            "popen",
-            "execl",
-            "execle",
-            "execlp",
-            "execlpe",
-            "execv",
-            "execve",
-            "execvp",
-            "execvpe",
-            "spawnl",
-            "spawnle",
-            "spawnlp",
-            "spawnlpe",
-            "spawnv",
-            "spawnve",
-            "spawnvp",
-            "spawnvpe",
-            "posix_spawn",
-            "posix_spawnp",
-        ),
-    ),
-    (
-        "posix",
-        (
-            "system",
-            "popen",
-            "execv",
-            "execve",
-            "posix_spawn",
-            "posix_spawnp",
-        ),
-    ),
-    # --- Loading a shared library sidesteps every Python-level guard above:
-    # ``ctypes.CDLL("libca")`` reaches Channel Access without importing a
-    # single client package. ``LibraryLoader.__getattr__`` is patched too,
-    # because ``ctypes.cdll.libca`` never goes through ``CDLL`` by that name.
-    ("ctypes", ("CDLL", "PyDLL", "WinDLL", "OleDLL")),
-    ("ctypes.LibraryLoader", ("LoadLibrary", "__getattr__")),
-)
 
 
 class ExecutionWrapper:

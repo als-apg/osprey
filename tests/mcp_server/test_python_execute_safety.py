@@ -186,6 +186,10 @@ def _readonly_import_issues(code):
         pytest.param("import pvaccess", id="pvaccess"),
         pytest.param("import tango", id="tango"),
         pytest.param("from PyTango import DeviceProxy", id="pytango"),
+        pytest.param("import doocs4py", id="doocs4py"),
+        pytest.param("from doocs4py import set as _w", id="doocs4py-alias"),
+        pytest.param("import aioca", id="aioca"),
+        pytest.param("from aioca import caput", id="aioca-from-import"),
         pytest.param("def f():\n    import epics\n    return epics", id="nested-in-function"),
     ],
 )
@@ -193,6 +197,25 @@ def test_readonly_imports_denied(code):
     issues = _readonly_import_issues(code)
     assert issues, code
     assert all("readonly" in i for i in issues), issues
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param("from ophyd_async.core import SignalRW", id="ophyd-async"),
+        pytest.param("import bluesky", id="bluesky"),
+        pytest.param("from bluesky import RunEngine", id="bluesky-run-engine"),
+    ],
+)
+def test_readonly_allows_framework_imports(code):
+    """Frameworks are not import-denied; only their write calls refuse.
+
+    ophyd-async and Bluesky are how a readonly script reads a device tree or a
+    catalog. Denying the import would refuse legitimate analysis; the runtime
+    guard refuses the calls that move hardware instead.
+    """
+    assert _readonly_import_issues(code) == []
 
 
 @pytest.mark.unit
