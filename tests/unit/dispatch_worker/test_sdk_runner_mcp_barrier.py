@@ -115,5 +115,120 @@ async def test_no_declared_servers_is_skipped_rather_than_polled_to_the_deadline
     assert elapsed < 1.0, f"run stalled {elapsed:.1f}s on an empty MCP expectation"
 
 
+@pytest.mark.asyncio
+async def test_required_server_not_connected_refuses_to_send_the_prompt(monkeypatch):
+    """The CLI fixes a session's MCP toolset at the first turn, so a server the
+    trigger's own allow-list names that is not connected by then is lost for
+    the whole run: the agent would run without the tool it was dispatched to
+    use and report "completed". Refuse before the prompt goes out, naming the
+    server and the status it was left in."""
+    events: list[str] = []
+    monkeypatch.setattr(sdk_runner, "ClaudeSDKClient", lambda options: _FakeClient(events))
+    monkeypatch.setattr(
+        sdk_runner, "expected_mcp_servers", lambda _p: {"controls", "osprey_workspace"}
+    )
+    monkeypatch.setattr(
+        sdk_runner,
+        "await_mcp_ready",
+        lambda _c, _e: _ready(
+            [
+                {"name": "controls", "status": "connected", "tools": [{"name": "channel_read"}]},
+                {"name": "osprey_workspace", "status": "pending"},
+            ]
+        ),
+    )
+    snapshot: list[dict] = []
+
+    with pytest.raises(sdk_runner.McpNotReadyError) as excinfo:
+        await _drain(
+            sdk_runner._stream_with_ready_mcp(
+                object(),
+                "/proj",
+                object(),
+                required_servers={"osprey_workspace"},
+                mcp_snapshot=snapshot,
+            )
+        )
+
+    assert "query" not in events, "prompt was sent despite a required server being absent"
+    assert events[-1] == "disconnect"
+    msg = str(excinfo.value)
+    assert "osprey_workspace" in msg and "pending" in msg
+    # The snapshot is handed back even on refusal, so the run record can carry it.
+    assert {s["name"]: s["status"] for s in snapshot} == {
+        "controls": "connected",
+        "osprey_workspace": "pending",
+    }
+
+
+@pytest.mark.asyncio
+async def test_failed_required_server_is_named_with_its_error(monkeypatch):
+    events: list[str] = []
+    monkeypatch.setattr(sdk_runner, "ClaudeSDKClient", lambda options: _FakeClient(events))
+    monkeypatch.setattr(sdk_runner, "expected_mcp_servers", lambda _p: {"osprey_workspace"})
+    monkeypatch.setattr(
+        sdk_runner,
+        "await_mcp_ready",
+        lambda _c, _e: _ready(
+            [{"name": "osprey_workspace", "status": "failed", "error": "spawn: ENOENT"}]
+        ),
+    )
+
+    with pytest.raises(sdk_runner.McpNotReadyError) as excinfo:
+        await _drain(
+            sdk_runner._stream_with_ready_mcp(
+                object(), "/proj", object(), required_servers={"osprey_workspace"}
+            )
+        )
+
+    assert "failed" in str(excinfo.value) and "spawn: ENOENT" in str(excinfo.value)
+    assert "query" not in events
+
+
+@pytest.mark.asyncio
+async def test_optional_server_not_connected_still_runs(monkeypatch, caplog):
+    """A declared server the trigger does not allow-list cannot be called by
+    the main thread anyway; its absence is logged, not fatal."""
+    events: list[str] = []
+    monkeypatch.setattr(sdk_runner, "ClaudeSDKClient", lambda options: _FakeClient(events))
+    monkeypatch.setattr(sdk_runner, "expected_mcp_servers", lambda _p: {"controls", "graph"})
+    monkeypatch.setattr(
+        sdk_runner,
+        "await_mcp_ready",
+        lambda _c, _e: _ready(
+            [
+                {"name": "controls", "status": "connected", "tools": [{"name": "channel_read"}]},
+                {"name": "graph", "status": "pending"},
+            ]
+        ),
+    )
+    snapshot: list[dict] = []
+
+    with caplog.at_level(logging.WARNING, logger=sdk_runner.logger.name):
+        messages = await _drain(
+            sdk_runner._stream_with_ready_mcp(
+                object(),
+                "/proj",
+                object(),
+                required_servers={"controls"},
+                mcp_snapshot=snapshot,
+            )
+        )
+
+    assert messages == ["message-1", "message-2"]
+    assert "graph" in caplog.text and "not connected" in caplog.text
+    assert [s["tools"] for s in snapshot] == [1, 0]
+
+
+def test_required_servers_are_read_off_the_allow_list():
+    """Every ``mcp__<server>__<tool>`` (or server-level ``mcp__<server>``) entry
+    names a server the run cannot do without; built-in tools name none."""
+    assert sdk_runner.required_mcp_servers(
+        ["Glob", "Read", "mcp__osprey_workspace__artifact_register", "mcp__controls", "Task"]
+    ) == {"osprey_workspace", "controls"}
+    assert sdk_runner.required_mcp_servers([]) == set()
+    assert sdk_runner.required_mcp_servers(["mcp__channel-finder__search"]) == {"channel-finder"}
+
+
 async def _ready(servers: list[dict]) -> list[dict]:
     return servers

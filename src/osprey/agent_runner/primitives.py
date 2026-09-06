@@ -649,28 +649,47 @@ async def _drain_response(
 # MCP readiness barrier + instrumentation
 # ---------------------------------------------------------------------------
 #
-# OSPREY MCP servers register ASYNCHRONOUSLY: the controls stdio subprocess does
-# heavyweight cold-start work (config prime, connector registration, tool-module
-# imports) and only finishes its MCP handshake ~1–1.5s after the CLI launches —
-# noticeably slower than the python/osprey_workspace servers. If the agent's first
-# turn fires before that handshake completes, the controls tools are simply not in
-# its toolset, and a less-persistent agent reports "no controls server connected"
-# and gives up. That is a cold-start race, NOT a model capability gap — yet it is
-# scored as a failure, and it cannot be distinguished from a genuine model give-up
-# from the persisted transcript (which does not record MCP status).
+# OSPREY MCP servers register ASYNCHRONOUSLY: each stdio subprocess imports the
+# framework and primes its config before it can finish the MCP handshake, so a
+# declared server connects ~1.5–2s after the CLI launches on an idle machine —
+# and the nine servers of a full deployment come up one after another, CPU-bound,
+# so the last one lands several seconds later still. On a loaded host (a cold
+# two-CPU CI runner starting several sessions at once) that tail stretches past
+# a naive "give it a few seconds" wait.
+#
+# The CLI fixes a session's MCP toolset when the FIRST turn is sent and does not
+# revisit it: a server that connects later never contributes its tools to that
+# session (measured — a workspace server connecting 11s after the first turn
+# left the agent calling its tool by exact name and being told no such tool
+# exists, seven turns later). So a turn fired before the servers it needs are
+# connected does not merely start slow; it runs the whole session without those
+# tools, the agent improvises, and the run is scored as a model give-up when it
+# was a cold start. That cannot be told apart from a genuine model give-up from
+# the persisted transcript, which does not record MCP status.
 #
 # Both problems are solved with the SDK's own ``ClaudeSDKClient.get_mcp_status()``:
-#   * READINESS — poll it until the expected servers are ``connected`` before sending
-#     the prompt, so every agent gets a ready toolset (the harness-enforced equivalent
-#     of the CLI's ``WaitForMcpServers`` tool, independent of whether the model thinks
-#     to call it).
-#   * INSTRUMENTATION — persist the final snapshot so a missing tool is provably INFRA
-#     (server never registered) vs MODEL (tool was there, agent ignored it).
+#   * READINESS — poll it until every expected server is terminal (``connected``,
+#     or ``failed`` — a server the CLI has given up on will not connect later)
+#     before sending the prompt, so every agent gets the toolset it can get (the
+#     harness-enforced equivalent of the CLI's ``WaitForMcpServers`` tool,
+#     independent of whether the model thinks to call it).
+#   * INSTRUMENTATION — hand back the final snapshot so a missing tool is provably
+#     INFRA (server never registered) vs MODEL (tool was there, agent ignored it).
 
-# The default ceiling generously covers the measured ~1.5s controls cold start with
-# headroom for a loaded box. Overridable via env for slow CI hosts.
-_MCP_READY_TIMEOUT_S = float(os.environ.get("OSPREY_E2E_MCP_READY_TIMEOUT", "20"))
+# The ceiling only ever costs a run on a host where a server is still pending —
+# the barrier returns the moment every expected server is terminal. It is sized
+# for a cold, oversubscribed CI runner, not for the idle-machine ~2s, because
+# starting early forfeits the late servers for the whole session (see above).
+# Callers that spawn the CLI should hand the same figure to the CLI's own
+# ``MCP_TIMEOUT`` (its stdio-startup limit, 30s by default), or the CLI marks a
+# slow server failed before this barrier would have seen it connect.
+MCP_READY_TIMEOUT_S = float(os.environ.get("OSPREY_E2E_MCP_READY_TIMEOUT", "90"))
+_MCP_READY_TIMEOUT_S = MCP_READY_TIMEOUT_S
 _MCP_READY_POLL_S = 0.3
+
+# ``get_mcp_status()`` statuses that will not change without a reconnect. The
+# barrier stops waiting once every expected server reports one of these.
+_MCP_TERMINAL_STATUSES = frozenset({"connected", "failed"})
 
 
 def expected_mcp_servers(project_dir: Path) -> set[str]:
@@ -690,8 +709,14 @@ async def await_mcp_ready(
     timeout_s: float = _MCP_READY_TIMEOUT_S,
     poll_s: float = _MCP_READY_POLL_S,
 ) -> list[Any]:
-    """Poll ``get_mcp_status()`` until every server in *expected* reports
-    ``connected`` (or *timeout_s* elapses), then return the final snapshot.
+    """Poll ``get_mcp_status()`` until every server in *expected* is terminal —
+    ``connected`` or ``failed`` — or *timeout_s* elapses, then return the final
+    snapshot.
+
+    A ``failed`` server is one the CLI has given up on (spawn error, or its own
+    startup limit — ``MCP_TIMEOUT`` — expired); it will not connect later, so
+    waiting for it only delays the run. It stays in the snapshot with its
+    ``error`` so the caller can name it.
 
     Resilient to ``get_mcp_status()`` raising early in startup (before the stream
     is live). Never raises: on timeout it returns the last snapshot seen so the
@@ -706,9 +731,36 @@ async def await_mcp_ready(
         except Exception:  # noqa: BLE001 — status not queryable yet; keep polling
             servers = servers or []
         if expected:
-            connected = {s.get("name") for s in servers if s.get("status") == "connected"}
-            if expected <= connected:
+            terminal = {s.get("name") for s in servers if s.get("status") in _MCP_TERMINAL_STATUSES}
+            if expected <= terminal:
                 return servers
         if time.monotonic() >= deadline:
             return servers
         await asyncio.sleep(poll_s)
+
+
+def mcp_servers_connected(servers: list[Any]) -> set[str]:
+    """Names of the servers a ``get_mcp_status()`` snapshot reports ``connected``."""
+    return {s.get("name") for s in servers if s.get("status") == "connected"}
+
+
+def mcp_snapshot_summary(servers: list[Any]) -> list[dict[str, Any]]:
+    """Compact, JSON-friendly form of a ``get_mcp_status()`` snapshot.
+
+    One entry per server: ``name``, ``status``, the number of ``tools`` it
+    registered, and its ``error`` (``None`` unless the CLI reported one). This
+    is what a run record persists so a missing tool can be read off the record
+    as INFRA (server not connected) or MODEL (tool registered, agent ignored it).
+    """
+    summary = []
+    for s in servers:
+        tools = s.get("tools") or []
+        summary.append(
+            {
+                "name": s.get("name"),
+                "status": s.get("status"),
+                "tools": len(tools) if isinstance(tools, list) else 0,
+                "error": s.get("error"),
+            }
+        )
+    return summary
