@@ -1,0 +1,139 @@
+{
+  "api_key_env_stripped": true,
+  "baseline_commit": "246198f1c10cb35bcba3b5fc6b58346ef25d6b24",
+  "baseline_sha": "246198f1c",
+  "cells": [
+    "hello-world/unset",
+    "control-assistant/in_context",
+    "control-assistant/hierarchical",
+    "control-assistant/middle_layer",
+    "control-assistant/graph",
+    "ariel-standalone/unset",
+    "channel-finder-standalone/in_context",
+    "channel-finder-standalone/hierarchical",
+    "channel-finder-standalone/middle_layer",
+    "channel-finder-standalone/graph"
+  ],
+  "completeness": {
+    "ariel-standalone/unset": {
+      "build_configs_checked": 6,
+      "documents": [
+        "root.yml"
+      ],
+      "personas": []
+    },
+    "channel-finder-standalone/hierarchical": {
+      "build_configs_checked": 2,
+      "documents": [
+        "root.yml"
+      ],
+      "personas": []
+    },
+    "channel-finder-standalone/in_context": {
+      "build_configs_checked": 2,
+      "documents": [
+        "root.yml"
+      ],
+      "personas": []
+    },
+    "channel-finder-standalone/middle_layer": {
+      "build_configs_checked": 2,
+      "documents": [
+        "root.yml"
+      ],
+      "personas": []
+    },
+    "control-assistant/graph": {
+      "build_configs_checked": 23,
+      "documents": [
+        "admin.yml",
+        "knowledge.yml",
+        "logbook.yml",
+        "readonly.yml",
+        "readwrite.yml",
+        "root.yml"
+      ],
+      "personas": [
+        "admin",
+        "knowledge",
+        "logbook",
+        "readonly",
+        "readwrite"
+      ]
+    },
+    "control-assistant/hierarchical": {
+      "build_configs_checked": 23,
+      "documents": [
+        "admin.yml",
+        "knowledge.yml",
+        "logbook.yml",
+        "readonly.yml",
+        "readwrite.yml",
+        "root.yml"
+      ],
+      "personas": [
+        "admin",
+        "knowledge",
+        "logbook",
+        "readonly",
+        "readwrite"
+      ]
+    },
+    "control-assistant/in_context": {
+      "build_configs_checked": 23,
+      "documents": [
+        "admin.yml",
+        "knowledge.yml",
+        "logbook.yml",
+        "readonly.yml",
+        "readwrite.yml",
+        "root.yml"
+      ],
+      "personas": [
+        "admin",
+        "knowledge",
+        "logbook",
+        "readonly",
+        "readwrite"
+      ]
+    },
+    "control-assistant/middle_layer": {
+      "build_configs_checked": 23,
+      "documents": [
+        "admin.yml",
+        "knowledge.yml",
+        "logbook.yml",
+        "readonly.yml",
+        "readwrite.yml",
+        "root.yml"
+      ],
+      "personas": [
+        "admin",
+        "knowledge",
+        "logbook",
+        "readonly",
+        "readwrite"
+      ]
+    },
+    "hello-world/unset": {
+      "build_configs_checked": 3,
+      "documents": [
+        "root.yml"
+      ],
+      "personas": []
+    }
+  },
+  "external_source": false,
+  "masked_keys": {
+    "replaced": {
+      "api.providers": "sorted list of provider names, in place of the catalog mapping"
+    },
+    "stripped": {
+      "execution.environment": "execution.environment.python resolves to an interpreter path on a machine that has one",
+      "project_root": "absolute path of the directory the freeze built in"
+    }
+  },
+  "project_name": "osprey-freeze",
+  "regenerate": "python tests/fixtures/explicit_config/freeze.py",
+  "unset_mode_directory": "unset"
+}

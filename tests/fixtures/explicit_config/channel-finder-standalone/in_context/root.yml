@@ -1,0 +1,73 @@
+agent_data:
+  base_dir: var/agent_data
+api:
+  providers:
+  - als-apg
+  - anthropic
+  - cborg
+  - google
+  - ollama
+  - openai
+approval:
+  default_policy: always
+  enabled: true
+artifact_server:
+  auto_launch: true
+  host: 127.0.0.1
+  port: 10200
+build_dir: ./build
+channel_finder:
+  pipeline_mode: in_context
+  pipelines:
+    in_context:
+      database:
+        path: data/channel_databases/in_context.json
+        presentation_mode: template
+        type: template
+      subagent_model: null
+claude_code:
+  default_model: haiku
+  provider: anthropic
+  servers:
+    ariel:
+      enabled: false
+    controls:
+      enabled: false
+    osprey_facility_knowledge:
+      enabled: false
+    python:
+      enabled: false
+  telemetry:
+    enabled: false
+container_runtime: docker
+deployed_services: []
+execution:
+  execution_method: subprocess
+facility:
+  name: Example Research Facility
+  ontology: data/facility_ontology.json
+file_paths:
+  api_calls_dir: api_calls
+  registry_exports_dir: registry_exports
+hooks:
+  debug: true
+project_name: osprey-freeze
+scaffold:
+  user_owned:
+  - rules/facility
+system:
+  timezone: UTC
+web:
+  config_panel:
+    enabled: true
+  default_panel: channel-finder
+  docs_url: https://als-apg.github.io/osprey
+  feedback:
+    email: thellert@lbl.gov
+    github_repo: als-apg/osprey
+    max_store_bytes: 268435456
+  panels:
+    channel-finder:
+      enabled: true
+  scaffold_gallery:
+    write_enabled: true
