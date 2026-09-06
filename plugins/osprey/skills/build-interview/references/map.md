@@ -74,12 +74,15 @@ are invisible to the build.
 
 Recipe, per data path:
 
-1. Open `templates/apps/control_assistant/config.yml.j2`. From a source checkout it sits
-   under `src/osprey/`; from a pip install, join the same path onto the installed package
-   root using the wheel-path recipe in `references/osprey-map.md`.
-2. Grep that template for the path you pulled, for example `data/facility_knowledge`.
-3. Port the whole top-level section that encloses the hit, not the single line. Set each
-   key with `osprey set config.<dotted key>=<value>`.
+1. Open `profiles/presets/control-assistant.yml` — the preset ships every config key it
+   configures, each on the line that documents it. From a source checkout it sits under
+   `src/osprey/`; from a pip install, join the same path onto the installed package root
+   using the wheel-path recipe in `references/osprey-map.md`. A repo that was already
+   `osprey init`-ed from that preset carries the same keys in its own `profile.yml`, so
+   grep that instead when you have one.
+2. Grep it for the path you pulled, for example `data/facility_knowledge`.
+3. Port the whole commented group of keys around the hit (every key sharing its dotted
+   prefix), not the single line. Set each key with `osprey set config.<dotted key>=<value>`.
 4. If the path has a web panel, add that panel to the profile's top-level `web_panels`.
 5. `osprey validate --drift=warn`.
 

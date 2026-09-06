@@ -86,6 +86,7 @@ output, and durable state:
 
    DIRECTORY/
      profile.yml                    the manifest; everything the preset configures
+     providers.yml                  the model-provider catalog `provider:` picks from
      data/ personas/ triggers.yml   the material it names — yours to edit
      .env                           provider keys, seeded from your shell
      build/                         rendered by `osprey build`; gitignored
@@ -109,9 +110,11 @@ handy for a second stack beside one already on the default 10000 block).
 
 ``--force`` — Re-materialize the source zone of an existing deployment
 repository, discarding edits to ``profile.yml``, ``data/``, ``personas/``,
-``triggers.yml``, ``web-terminal-context/``, and ``.env.example``. Never touches
-``.env``, ``.git``, ``var/``, ``build/``, ``.gitignore``, ``README.md``,
-``ci-extra.yml``, the CI file, ``scripts/verify.sh``, or ``mcp_servers/``.
+``triggers.yml``, ``web-terminal-context/``, and ``.env.example``. In
+``providers.yml`` the entries OSPREY ships are reset to the packaged values and
+the ones you added are kept. Never touches ``.env``, ``.git``, ``var/``,
+``build/``, ``.gitignore``, ``README.md``, ``ci-extra.yml``, the CI file,
+``scripts/verify.sh``, or ``mcp_servers/``.
 
 ``--no-git`` — Skip ``git init`` and the initial commit.
 
@@ -186,16 +189,27 @@ problem found is reported, not just the first. Exits 0 when the profile is
 valid, 2 with the accumulated errors when it is not, so a CI job can gate on it.
 
 A profile ``osprey init`` wrote is also compared with the preset it came from,
-persona deltas included: a value that differs, a key or list member the preset
-has and the profile lacks, one the profile adds that neither the preset nor the
-app template knows, or a persona ``exclude:`` of something the preset keeps.
-Each is refused with both ``file:line`` references unless a ``# DEVIATION:
-<why>`` comment within three lines above the profile line claims it (for a
-missing line, a comment anywhere naming the key or member). The tag is set by
-``provenance.deviation_marker``; a marker that no longer marks a difference is
-reported as stale. ``--drift=warn`` prints the differences and passes. ``osprey
-build`` prints the same list under ``-v`` and, whenever the bundled preset's hash
-differs from the recorded one, a one-line note that the preset has moved on.
+persona deltas included, and the two kinds of difference are treated
+differently.
+
+**Structural** differences are refused: a key or list member the preset has and
+the profile lacks, one the profile adds that the preset does not know, or a
+persona ``exclude:`` of something the preset keeps. Each is reported with both
+``file:line`` references unless a ``# DEVIATION: <why>`` comment within three
+lines above the profile line claims it (for a missing line, a comment anywhere
+naming the key or member). The tag is set by ``provenance.deviation_marker``; a
+marker that no longer marks a difference is reported as stale.
+``--drift=warn`` prints them and passes.
+
+**Value** differences — a key both documents carry, set to different values —
+are always only reported, on every setting. The profile is the source of truth,
+so a preset that changes a value in a later OSPREY release turns up as a note
+rather than failing a build that was fine yesterday.
+
+``osprey build`` prints the same list under ``-v`` and, whenever the bundled
+preset's hash differs from the recorded one, a one-line note that the preset
+has moved on. A ``providers.yml`` that no longer matches the packaged catalog
+is reported the same way — as a note, never a refusal.
 
 .. code-block:: bash
 
@@ -219,13 +233,43 @@ setting, use ``osprey set``.
 
 ``--rendered`` — Show the built ``config.yml`` the deployment actually runs on.
 
-``--defaults`` — Show the framework's default template, with every key the
-framework understands and its default. Needs no deployment repository.
+``--defaults`` — Show every key the framework reads and the value it falls back
+to when ``profile.yml`` does not spell that key. Needs no deployment
+repository.
+
+``--defaults`` prints a ledger, not a template to copy: one line per key, in
+full dotted form, grouped by top-level block, with the comment above each key
+saying where the answer comes from. Every answer was read out of the code that
+reads the key, so it is what actually happens when a line is absent — which is
+the question a preset cannot answer, because a preset shows a value. A key with
+a literal default prints it as YAML; where there is no literal, a marker stands
+in:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 74
+
+   * - Marker
+     - Meaning
+   * - ``<required>``
+     - No fallback exists and none may be invented. A deployment's
+       ``profile.yml`` has to spell this key.
+   * - ``<derived>``
+     - Computed when the key is read. The comment above the key names what it
+       is computed from.
+   * - ``<no fallback>``
+     - The reader supplies none: it raises, or nothing reads the key yet, or
+       "unstated" is deliberately not "false". The comment says which.
+   * - ``<covered by KEY>``
+     - The leaf has no reader of its own, so ``KEY`` carries the default that
+       covers it. With no enclosing key in the ledger this reads
+       ``<no separate default>``.
 
 .. code-block:: bash
 
    osprey config
    osprey config --rendered
+   osprey config --defaults | less
    osprey config --defaults > defaults.yml
 
 osprey profile
@@ -237,6 +281,7 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
 .. code-block:: bash
 
    osprey profile validate TARGET
+   osprey profile expand
    osprey profile presets
    osprey profile artifacts
 
@@ -251,6 +296,47 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
 ``osprey profile presets``
    List bundled preset names, one per line. Every name printed is usable as
    ``--preset NAME`` for ``osprey init``.
+
+.. _cli-profile-expand:
+
+``osprey profile expand [--from PRESET] [--providers] [--repo DIRECTORY]``
+   Fill in every config key this profile leaves to its preset.
+
+   A profile written before the app template retired spells only what its
+   facility changed; the rest came from a packaged template the operator never
+   saw. ``expand`` writes those keys into the profile itself, each under the
+   comment the preset documents it with, and drops the retired top-level key
+   that named the template. Nothing already in the file is changed — expansion
+   only adds — so running it twice leaves the profile exactly as the first run
+   left it.
+
+   Which preset it expands from is decided in this order: ``--from`` if given,
+   otherwise ``provenance.preset``, otherwise the app template the profile
+   still names. So a profile with no ``provenance:`` block expands fine, and
+   ``--from`` overrides a stamp that names the wrong preset.
+
+   Two kinds of lacking key are deliberately left out, and both are listed in
+   the output with the reason:
+
+   - a key another block of the profile already owns — ``deploy:`` is the home
+     of ``image_source``, and the build writes it into the config for you;
+   - anything below a catalog whose entries are the deployment's own data: the
+     persona catalog, the provider table, named panel layouts.
+
+   ``--providers`` refreshes ``providers.yml`` in the same pass, resetting the
+   entries OSPREY ships to the packaged values and keeping the ones you added.
+
+   Expanding also stamps ``provenance:``, which turns the preset-drift check
+   on. From then on ``osprey validate`` refuses every unclaimed structural
+   difference from that preset. A profile that had no stamp before will have
+   differences the first time, so the verb counts them and prints the
+   ``--drift=warn`` hint alongside the count.
+
+   .. code-block:: bash
+
+      osprey profile expand
+      osprey profile expand --from control-assistant
+      osprey profile expand --providers
 
 ``osprey profile artifacts``
    List every artifact the six profile lists can name — hooks, rules, skills,

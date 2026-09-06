@@ -175,9 +175,9 @@ the entry, then add the facility's own.
 Pulled only when the gap card records a `close` decision for that row. Contents
 stay as shipped, and the row goes into INTERVIEW.md as curation owed.
 
-- **Triggers** are not in the app template and `osprey scaffold pull` does not
-  carry them. `dispatch.triggers` names either a bundled trigger set or a path in
-  the deployment repo. The preset names a bundled one.
+- **Triggers** are not in the packaged data bundle and `osprey scaffold pull` does
+  not carry them. `dispatch.triggers` names either a bundled trigger set or a path
+  in the deployment repo. The preset names a bundled one.
 - **ARIEL vocabulary** is `data/ariel/vocabulary.yml`, written for the demo
   facility's terms.
 - **Lattice** is `data/lattice/`, one packaged demo lattice file.

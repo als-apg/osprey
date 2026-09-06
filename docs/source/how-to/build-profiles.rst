@@ -827,18 +827,25 @@ variables — reporting every problem found, not just the first.
 
 It also compares the profile with the preset it was materialized from, so a
 line the preset gained after ``osprey init`` (a panel, a hook, a permission)
-does not go missing silently. A difference you mean is claimed once, with a
-comment above the line:
+does not go missing silently. Only *structural* differences are refused — a
+key or list member one document has and the other has not. One you mean is
+claimed once, with a comment above the line:
 
 .. code-block:: yaml
 
    config:
-     # DEVIATION: the control room is dark
-     web.theme: dark
+     # DEVIATION: this deployment reads the facility's own knowledge graph
+     services.graphdb.uri: bolt://graph.facility.example:7687
 
-Unclaimed differences fail the check (``--drift=warn`` only reports them); a
-stale marker is reported too. The tag defaults to ``DEVIATION`` and is set by
-``provenance.deviation_marker``.
+Unclaimed structural differences fail the check (``--drift=warn`` only reports
+them); a stale marker is reported too. The tag defaults to ``DEVIATION`` and is
+set by ``provenance.deviation_marker``.
+
+A key both documents carry with *different values* — ``web.theme: dark`` where
+the preset says ``light`` — is only reported, never refused. The profile is the
+source of truth for what this deployment runs, so an edited setting needs no
+marker, and a preset that changes a value in a later release does not fail a
+build that was fine yesterday.
 
 
 What the build does

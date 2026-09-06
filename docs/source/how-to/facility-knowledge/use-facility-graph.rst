@@ -303,24 +303,34 @@ a corpus of your own to seed that instead.
 Pointing at a Store the Facility Runs
 =====================================
 
-The store does not have to be one this deployment brings up. Give
-``services.graphdb`` an explicit ``uri`` and leave ``graphdb`` out of
-``deployed_services``:
+The store does not have to be one this deployment brings up. In the profile's
+``config:`` block, give ``services.graphdb`` an explicit ``uri`` and leave
+``graphdb`` out of ``deployed_services``:
 
 .. code-block:: yaml
 
-   services:
-     graphdb:
-       uri: bolt://graph.facility.example:7687
-       username: osprey
-     # ... the rest of your services, unchanged
-
-   deployed_services: [postgresql, openobserve, qmd]   # no graphdb
+   config:
+     # DEVIATION: the graph store is the facility's, not this deployment's
+     services.graphdb.uri: bolt://graph.facility.example:7687
+     services.graphdb.username: osprey
+     # ... the rest of your services keys, unchanged
+     # DEVIATION: graphdb is the facility's store, so deployed_services drops it
+     deployed_services: [postgresql, openobserve, qmd]   # no graphdb
 
 Leaving ``graphdb`` in ``deployed_services`` is the mistake to avoid: the build
 still stands up a local Neo4j that nobody then queries. ``deployed_services``
-is a list, so an override replaces it whole — write out the services you *do*
+is a list, so an edit replaces it whole — write out the services you *do*
 want rather than the one you are taking away.
+
+Both edits are structural differences from the preset the profile was
+materialized from, so ``osprey validate`` refuses them until a
+``# DEVIATION: <why>`` comment claims each one — which is what the two comments
+in that block are doing. A dropped list member needs its own marker: one
+comment does not cover the key beside it.
+
+Which differences are refused and which are only reported is set out under
+:ref:`Preset drift, and osprey profile expand <profile-preset-drift>` in the
+profile reference.
 
 Put that account's password in the project ``.env`` as ``GRAPHDB_PASSWORD``.
 Nothing mints one here — the store belongs to somebody else, so OSPREY starts
