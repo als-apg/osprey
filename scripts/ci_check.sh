@@ -85,7 +85,9 @@ fi
 echo ""
 
 echo "→ Running pytest with coverage..."
-if ! uv run pytest tests/ --ignore=tests/e2e -m "not pty" -n 4 --dist loadgroup -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
+# -n auto sizes the worker pool to this machine; CI pins -n 4 to keep its matrix cells
+# comparable. Override with PYTEST_XDIST_AUTO_NUM_WORKERS=<n>.
+if ! uv run pytest tests/ --ignore=tests/e2e -m "not pty" -n auto --dist loadgroup -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
     FAILED_CHECKS+=("pytest")
     echo "❌ Tests failed"
 else
