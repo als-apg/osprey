@@ -58,11 +58,20 @@ class SqlQueryInput(BaseModel):
 def validate_sql_query(query: str) -> None:
     """Validate that a SQL query is safe to execute.
 
-    Uses an allowlist approach:
-    - Must start with SELECT or WITH (for CTEs)
-    - No multi-statement injection (semicolons)
-    - No DML/DDL/DCL keywords
-    - Only allowed tables
+    Four rules, all of which must hold:
+
+    - starts with SELECT or WITH (for CTEs);
+    - one statement — no semicolons in the body;
+    - no DML/DDL/DCL keyword anywhere;
+    - reads at least one allowlisted table, and no table outside the
+      allowlist.
+
+    That last rule is why the check is an allowlist rather than a denylist, and
+    why "names none" is a refusal rather than a pass. A query with no FROM or
+    JOIN at all — ``SELECT pg_read_file('/etc/passwd')`` — has nothing to
+    check against the allowlist, and the read-only transaction the caller opens
+    stops writes, not server-side file reads. So a query that resolves to no
+    allowlisted table is refused on that ground alone.
 
     Args:
         query: The SQL query to validate.
@@ -112,11 +121,13 @@ def validate_sql_query(query: str) -> None:
     table_pattern = r"\b(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)"
     table_refs = re.findall(table_pattern, normalized, re.IGNORECASE)
 
-    for table_ref in table_refs:
+    # Only the references that survive CTE resolution are real tables; a name
+    # a WITH clause defined is a query of its own, already checked by whatever
+    # IT reads.
+    resolved_refs = [ref for ref in table_refs if ref.lower() not in cte_names]
+
+    for table_ref in resolved_refs:
         table_lower = table_ref.lower()
-        # Skip CTE-defined names
-        if table_lower in cte_names:
-            continue
         # Check exact match or prefix match (for text_embeddings_* tables)
         if not any(
             table_lower == allowed or table_lower.startswith(f"{allowed}_")
@@ -126,6 +137,14 @@ def validate_sql_query(query: str) -> None:
                 f"Table '{table_ref}' is not in the allowlist. "
                 f"Allowed tables: enhanced_entries, text_embeddings_*"
             )
+
+    # Nothing to check IS the failure: the loop above passes vacuously for a
+    # query that reads no table, which is exactly the shape a server-side file
+    # read takes.
+    if not resolved_refs:
+        raise ValueError(
+            "Query reads no allowlisted table. Allowed tables: enhanced_entries, text_embeddings_*"
+        )
 
 
 async def sql_query(
