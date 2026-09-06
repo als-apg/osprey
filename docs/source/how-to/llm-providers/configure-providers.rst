@@ -291,6 +291,12 @@ translation proxy:
 (The unmapped ``opus`` tier here falls back to the default model at build
 time, with a warning — map it to silence the substitution.)
 
+``api_protocol`` takes exactly two values, ``anthropic`` and ``openai``.
+Anything else — including a capitalised ``Anthropic`` — is refused when the
+provider is resolved, naming the provider and the two accepted values. Leave
+the key out and the provider is treated as OpenAI, which is what all but the
+Anthropic-native built-ins are.
+
 Spend Attribution on a LiteLLM Gateway
 --------------------------------------
 

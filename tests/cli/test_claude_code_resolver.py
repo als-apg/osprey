@@ -128,6 +128,47 @@ class TestAlsApgProvider:
         assert spec.default_model_tier == "haiku"
 
 
+class TestUnrecognisedApiProtocol:
+    """A misspelled api_protocol is refused where an unknown provider is."""
+
+    def test_resolve_surfaces_the_refusal(self):
+        api_providers = {
+            "my-gateway": {
+                "base_url": "https://gateway.example.org/v1",
+                "api_protocol": "Anthropic",
+                "models": {"haiku": "h", "sonnet": "s", "opus": "o"},
+            }
+        }
+        with pytest.raises(ValueError, match="api.providers.my-gateway.api_protocol"):
+            ClaudeCodeModelResolver.resolve({"provider": "my-gateway"}, api_providers)
+
+    def test_a_valid_protocol_resolves(self):
+        """The check refuses spellings, not the two values themselves."""
+        api_providers = {
+            "my-gateway": {
+                "base_url": "https://gateway.example.org/v1",
+                "api_protocol": "anthropic",
+                "models": {"haiku": "h", "sonnet": "s", "opus": "o"},
+            }
+        }
+        spec = ClaudeCodeModelResolver.resolve({"provider": "my-gateway"}, api_providers)
+        assert spec is not None
+        assert spec.needs_proxy is False
+        assert spec.upstream_base_url is None
+
+    def test_an_absent_protocol_still_routes_through_the_proxy(self):
+        api_providers = {
+            "my-gateway": {
+                "base_url": "https://gateway.example.org/v1",
+                "models": {"haiku": "h", "sonnet": "s", "opus": "o"},
+            }
+        }
+        spec = ClaudeCodeModelResolver.resolve({"provider": "my-gateway"}, api_providers)
+        assert spec is not None
+        assert spec.needs_proxy is True
+        assert spec.upstream_base_url == "https://gateway.example.org/v1"
+
+
 class TestUnsupportedProvider:
     """Unknown provider without api_providers entry raises ValueError."""
 
