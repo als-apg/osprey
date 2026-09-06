@@ -806,7 +806,7 @@ def test_a_sandboxed_cell_refuses_writes_with_the_turn_writes_on_line(
         assert refused.error_name == "ChannelWriteBlockedError", refused
         assert (
             f"Write to '{CHANNEL}' blocked: this run launched while writes were off for "
-            f"'{target}' in this session" in refused.error_value
+            f"'{target}'; a write state set since applies to the next run" in refused.error_value
         ), refused.error_value
         assert HINT_WRITES_OFF in refused.stdout, refused.stdout
 

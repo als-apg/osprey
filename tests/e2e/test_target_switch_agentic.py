@@ -82,8 +82,14 @@ from osprey.agent_runner import await_mcp_ready, expected_mcp_servers, sdk_env
 from osprey.agent_runner.primitives import _ingest_tool_result
 from osprey.agent_runner.project_paths import claude_project_dir
 from osprey.mcp_server.control_system.connector_host_manager import baseline_target
-from osprey.mcp_server.control_system.target_state import REPORT_FILE_GLOB, STATE_DIR_NAME
+from osprey.mcp_server.control_system.target_state import (
+    INFLIGHT_FILE_GLOB,
+    REPORT_FILE_GLOB,
+    REQUEST_FILE_GLOB,
+    STATE_DIR_NAME,
+)
 from osprey.mcp_server.control_system.tools.control_target import target_rows
+from osprey_connectors.control_context import RECORD_FILENAME
 from tests.e2e.judge import LLMJudge
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
@@ -668,6 +674,78 @@ def switch_deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Swit
                 va_port=va_port,
                 va_container=va_name,
             )
+
+
+# ---------------------------------------------------------------------------
+# Putting the deployment back where every scenario expects to find it
+# ---------------------------------------------------------------------------
+
+#: Every file kind the control state is made of, as globs on the state
+#: directory. Named one by one rather than swept wholesale so that a file this
+#: suite does not know about survives a reset instead of being deleted blind.
+CONTROL_STATE_GLOBS = (
+    RECORD_FILENAME,
+    REPORT_FILE_GLOB,
+    REQUEST_FILE_GLOB,
+    INFLIGHT_FILE_GLOB,
+)
+
+
+def clear_control_state(repo: Path) -> list[Path]:
+    """Delete *repo*'s control state, returning the deployment to its baseline.
+
+    Deleting the record rather than rewriting it to the baseline, because an
+    absent record is the one case ``claim_control_context`` starts a fresh one
+    from: the next controls server claims it at the deployment's configured
+    baseline, generation 0, narrowing nothing. Rewriting would have to name an
+    owner for a file no process owns yet.
+
+    The per-server reports and the switch requests go with it. Both are named
+    for processes that have already exited, and a report a dead server left
+    behind still counts toward what a reader takes for the live fleet.
+
+    Globbed from the repo root for the reason :func:`record_files` gives: the
+    writer anchors this directory at the deployment repo while the hook side
+    re-derives it in stdlib-only Python, and one glob agrees with both
+    spellings.
+
+    Safe only while no server is running — it is a bare delete, without the
+    serialisation an owner does around a write.
+    """
+    removed: list[Path] = []
+    for directory in repo.rglob(STATE_DIR_NAME):
+        if not directory.is_dir():
+            continue
+        for pattern in CONTROL_STATE_GLOBS:
+            for path in sorted(directory.glob(pattern)):
+                path.unlink(missing_ok=True)
+                removed.append(path)
+    return removed
+
+
+@pytest.fixture(autouse=True)
+def deployment_starts_at_baseline(request: pytest.FixtureRequest) -> None:
+    """Put the deployment back on its baseline target before each scenario.
+
+    The control-context record is one file per DEPLOYMENT and outlives every
+    process that reads it, so a scenario that ends on the live machine leaves
+    the next one already there — and an agent told to go live, finding the
+    deployment live, rightly does not switch. Every floor below that grades a
+    switch would then fail on an agent that behaved correctly.
+
+    Function-scoped rather than module-scoped because ``pytest.mark.flaky``
+    re-runs the test FUNCTION: a reset that ran once per module would cover the
+    first attempt and leave every rerun starting wherever the attempt before it
+    stopped. It runs before the session opens and never between the phases of
+    one, so the two-prompt scenarios still span a single unbroken session.
+
+    The deployment is requested lazily so that a test which does not build one
+    — the collection floor — is not made to boot two containers to be told
+    there is nothing to clear.
+    """
+    if "switch_deployment" not in request.fixturenames:
+        return
+    clear_control_state(request.getfixturevalue("switch_deployment").repo)
 
 
 # ---------------------------------------------------------------------------
@@ -1322,46 +1400,55 @@ def live_probe_line() -> str:
     return f"{DESTINATION_PROBE_LINE_PREFIX}{BENCH_PROBE_CHANNEL}"
 
 
-def state_files(deployment: SwitchDeployment) -> list[Path]:
-    """Every control-target state file under the deployment, newest first.
+def record_files(deployment: SwitchDeployment) -> list[Path]:
+    """Every control-context record under the deployment, newest first.
 
-    Globbed rather than derived, for the reason the proposal gives: the file is
-    named for the *controls server's* pid, so :func:`target_state.read` called
-    from pytest would resolve this process's pid and find nothing. Searched from
-    the repo root rather than a single computed directory because the writer
-    anchors it at the deployment repo while the hook side re-derives the same
-    path in stdlib-only Python — one glob agrees with both spellings.
+    The RECORD, and not the per-server reports beside it. A report says what
+    one controls server has managed to do — ``applied_target``, null until a
+    child has answered its init frame, and no target published at start at all
+    — while what the deployment is POINTED AT is the record's ``target``,
+    written by whichever process owns the file. A floor that asked a report
+    where the deployment ended up would be reading a field it does not carry.
 
-    A finished session leaves its file behind (nothing calls
-    ``delete_on_shutdown``); the NEXT server start sweeps it. So the newest file
-    is the one the session under test wrote, and older ones — if any survive at
-    all — belong to sessions that have already been graded.
+    Globbed rather than derived, for the reason the proposal gives: the record
+    resolves under an agent-data root that the owning server reads from its own
+    environment, which pytest cannot reproduce. Searched from the repo root
+    rather than a single computed directory because the writer anchors it at
+    the deployment repo while the hook side re-derives the same path in
+    stdlib-only Python — one glob agrees with both spellings.
+
+    There is one record per deployment, so this is normally a single file. It
+    is sorted anyway, so that a second agent-data root under the repo could
+    only ever add an older file behind the live one.
     """
     found = [
         path
-        for path in deployment.repo.rglob(REPORT_FILE_GLOB)
+        for path in deployment.repo.rglob(RECORD_FILENAME)
         if path.parent.name == STATE_DIR_NAME
     ]
     return sorted(found, key=lambda path: path.stat().st_mtime, reverse=True)
 
 
 def assert_control_target(deployment: SwitchDeployment, expected: str, *, context: str) -> None:
-    """Fail unless the session's own state file records *expected* as its target.
+    """Fail unless the deployment's control-context record names *expected*.
 
-    The authoritative answer to "where did that session end up", and the reason
-    no floor here settles for the agent's word on it: the file is written by the
-    controls server as the single writer, so it records where the session really
-    was rather than where the transcript claims it was.
+    The authoritative answer to "where did that session leave the deployment",
+    and the reason no floor here settles for the agent's word on it: the record
+    has exactly one writer at a time, so it says where the deployment really
+    was rather than where the transcript claims it was. It outlives the session
+    that wrote it, which is what makes it readable from pytest once the client
+    has closed — and why every scenario starts from a cleared one
+    (:func:`clear_control_state`).
     """
-    files = state_files(deployment)
+    files = record_files(deployment)
     assert files, (
-        f"{context}: no target-state file exists anywhere under {deployment.repo} — "
-        f"the controls server never wrote one, so nothing in this run recorded which "
-        f"machine the session was pointed at"
+        f"{context}: no control-context record exists anywhere under {deployment.repo} — "
+        f"nothing ever claimed one, so nothing in this run recorded which machine the "
+        f"deployment was pointed at"
     )
     record = json.loads(files[0].read_text(encoding="utf-8"))
     assert record.get("target") == expected, (
-        f"{context}: the session's state file {files[0].name} records "
+        f"{context}: the control-context record {files[0].name} records "
         f"target={record.get('target')!r}, expected {expected!r} "
         f"(generation={record.get('generation')!r}). Files seen: {[f.name for f in files]}"
     )
@@ -1571,9 +1658,10 @@ async def test_agent_rehearses_on_the_simulator_then_moves_the_live_machine(
     prompts are read as the strings an approver would have seen.
 
     The prompt pair is one SESSION, not two runs. A second run would open a
-    second controls server, which resets the recorded control target to the
-    deployment baseline — so the identity question would be answered by a
-    session that had never switched, and would pass while proving nothing.
+    second controls server, which JOINS the control-context record rather than
+    resetting it — the target would survive, but the agent's own account of
+    what it had just done would not, so the identity question would be put to a
+    session that had never switched and would pass while proving nothing.
     """
     before = caget(switch_deployment.bench_port, CORRECTOR_SP)
 

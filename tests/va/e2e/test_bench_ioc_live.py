@@ -72,11 +72,12 @@ from osprey.mcp_server.control_system.endpoint_prober import (
 from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.control_system.tools.channel_read import channel_read
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system import WriteOutcome
 from osprey_connectors.control_system.base import ChannelValue, raise_for_write_result
 from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
 from tests.fixtures import bench_ioc as bench
-from tests.fixtures.control_context import context_for
+from tests.fixtures.control_context import context_for, publish_reachability
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 from tests.va.e2e import conftest as e2e_conftest
 
@@ -404,11 +405,20 @@ def raw_config(
 
 @pytest.fixture(autouse=True)
 def state_root(tmp_path, monkeypatch):
-    """Anchor the target-state directory in ``tmp_path``, not a real deployment."""
+    """Anchor the deployment's agent data in ``tmp_path``, not a real deployment.
+
+    Both anchors are set. The per-server reports resolve through ``target_state``'s
+    own root helper; the control-context record resolves through the
+    ``OSPREY_AGENT_DATA_ROOT`` stamp. Stamping one and not the other leaves this
+    process reading whatever record the developer's machine was last left on.
+    """
     root = tmp_path / "var" / "agent_data"
     (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
-    return root
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    control_context.invalidate_cache()
+    yield root
+    control_context.invalidate_cache()
 
 
 @pytest.fixture(autouse=True)
@@ -593,10 +603,15 @@ class TestASwitchToTheBenchMachine:
     """
 
     async def test_the_tool_switches_onto_the_bench_and_the_reads_follow(
-        self, make_manager, deployment, served_context, quiet_switch_notifications
+        self, make_manager, deployment, served_context, quiet_switch_notifications, reconciling
     ):
         manager = await started_on(make_manager, deployment, "va")
         served_context(manager)
+        # What the controls server's lifespan runs and this suite has to stand
+        # in for: the sweep the switch gate reads a destination's reachability
+        # from, and the loop that carries this server onto a moved record.
+        await publish_reachability(deployment)
+        await reconciling()
         on_the_simulator = (await reading(manager, PROBE_CHANNEL)).value
         assert on_the_simulator != pytest.approx(BENCH_PROBE_VALUE, abs=1e-3), (
             "the virtual accelerator already answered the bench IOC's seeded value, so "
