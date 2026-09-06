@@ -1,6 +1,6 @@
 """The build path a multi-user web-terminal deployment takes on a hello-world base.
 
-This pins the recipe the build interview hands an operator who starts from
+This pins the recipe the install skill hands an operator who starts from
 ``hello-world`` and adopts ``control-assistant``'s web-terminal stack: splice the
 block in, strip what the base cannot serve, set the prefix, emit the persona
 deltas, prune the catalog and the panels, pull the knowledge bundle, validate,
@@ -189,7 +189,7 @@ def drop_unhostable_panels(repo_root: Path) -> None:
     """Remove the whole ``web_panels`` key from the write-armed persona deltas.
 
     The key, not its items: a delta that selects no panels is spelled by not
-    carrying the key at all, which is what the interview tells the operator to
+    carrying the key at all, which is what the install skill tells the operator to
     write and therefore what this pins.
     """
     from osprey.utils.config_writer import load_config_document, save_config_document

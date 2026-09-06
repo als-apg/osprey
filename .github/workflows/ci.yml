@@ -1180,14 +1180,14 @@ jobs:
         claude plugin marketplace add "$GITHUB_WORKSPACE"
         claude plugin install osprey@osprey
 
-    - name: Check the plugin exposes all eight skills
+    - name: Check the plugin exposes all nine skills
       # `details` prints the count and the skill names on one line, so both
       # halves are asserted: the count catches a skill that stopped being
       # discovered, and the names catch one silently renamed or swapped.
       run: |
         claude plugin details osprey@osprey | tee /tmp/details.txt
-        grep -q 'Skills (8)' /tmp/details.txt
-        for s in build-interview contribute design-philosophy doc-sync housekeeping panel pre-commit release; do grep -q "$s" /tmp/details.txt; done
+        grep -q 'Skills (9)' /tmp/details.txt
+        for s in contribute design-philosophy doc-sync housekeeping install panel pre-commit release upstream-scout; do grep -q "$s" /tmp/details.txt; done
 
   build-boot-smoke:
     name: Tier 1 — Build + MCP boot (${{ matrix.preset }})

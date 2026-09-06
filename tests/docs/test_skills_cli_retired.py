@@ -31,15 +31,14 @@ import pytest
 
 #: Every retired name, spelled once, as a single alternation.
 #:
-#: The ``(?<!started)`` lookbehind on ``/osprey-build-interview`` is the one
-#: tolerated survival. The deployer-facing page kept its filename when the skill
-#: was renamed, so Sphinx ``:doc:`` roles and toctree entries legitimately read
-#: ``getting-started/osprey-build-interview``. That is a page path, not a slash
-#: command. The retired *command* is ``/osprey-build-interview`` at a word
-#: boundary, and only the page path is ever preceded by ``started``.
+#: ``build-interview`` appears twice: the ``osprey-`` form the removed CLI created,
+#: and the ``osprey:`` plugin form it carried until the skill became
+#: ``/osprey:install``. The deployer-facing page was renamed with it
+#: (``getting-started/osprey-install``), so no page path survives either.
 RETIRED_PATTERN = re.compile(
     r"osprey skills"
-    r"|(?<!started)/osprey-build-interview"
+    r"|osprey-build-interview"
+    r"|osprey:build-interview"
     r"|osprey-contribute"
     r"|osprey-pre-commit"
     r"|osprey-release"
@@ -163,8 +162,8 @@ def test_the_sweep_would_catch_a_regression(tmp_path: Path, relative_path: str, 
         _assert_clean(tmp_path, (root,))
 
 
-def test_the_documentation_page_filename_is_tolerated() -> None:
-    """``:doc:`` roles and toctree entries keep the old page filename."""
-    kept = "- :doc:`/getting-started/osprey-build-interview` --- the deployer page"
-    assert not RETIRED_PATTERN.search(kept)
+def test_the_renamed_skill_is_retired_in_both_spellings() -> None:
+    """The CLI-era command and the plugin-era name are both gone."""
     assert RETIRED_PATTERN.search("Invoke /osprey-build-interview to start")
+    assert RETIRED_PATTERN.search("type `/osprey:build-interview` in the session")
+    assert not RETIRED_PATTERN.search("type `/osprey:install` in the session")

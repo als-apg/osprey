@@ -258,8 +258,8 @@ OSPREY is installed and ready to use. Here's what to do next:
       Build your first agent with a mock control system. One MCP server, zero
       complexity. Takes about five minutes.
 
-   .. grid-item-card:: **Guided Build Interview**
-      :link: osprey-build-interview
+   .. grid-item-card:: **Install and Set Up**
+      :link: osprey-install
       :link-type: doc
 
       Set OSPREY up for your own detector, beamline, or accelerator subsystem.
