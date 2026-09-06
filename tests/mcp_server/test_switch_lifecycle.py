@@ -67,7 +67,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     Endpoint,
     TargetDerivation,
 )
-from osprey_connectors import posture_store
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
@@ -301,9 +301,19 @@ def child_environment(fixture_dir, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def state_root(tmp_path, monkeypatch):
-    """Anchor the state file in tmp_path instead of a real deployment."""
+    """Anchor the deployment's agent data in tmp_path instead of a real one.
+
+    Both anchors are set. The per-server reports resolve through
+    ``target_state``'s own root helper; the control-context record a served
+    context claims resolves through the ``OSPREY_AGENT_DATA_ROOT`` stamp.
+    Anchoring only one of them writes the record into whatever checkout the
+    tests are running from.
+    """
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
-    return tmp_path
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    control_context.invalidate_cache()
+    yield tmp_path
+    control_context.invalidate_cache()
 
 
 @pytest.fixture

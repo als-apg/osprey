@@ -6,6 +6,14 @@ Extracted from the byte-identical boilerplate duplicated across
 the generic FastAPI-on-a-background-thread launcher, and the function-scoped
 Playwright browser fixture. Suite-specific live-server wrappers (hub launchers
 with their own patch sets) stay local to each file.
+
+The one autouse fixture here anchors the **agent-data root** in ``tmp_path``.
+The web terminal's lifespan claims the deployment's control-context record, so
+every suite that boots that app writes one — into the developer's or the
+runner's own checkout when nothing says otherwise, which is the leak
+``tests/conftest.py::no_agent_data_in_the_repo`` fails the session for. Ten
+modules under this tree do it; the guard is spelled once here rather than in
+each of them, so a new suite cannot reintroduce the leak by forgetting to stamp.
 """
 
 from __future__ import annotations
@@ -261,6 +269,21 @@ def _apply_all(patches: list) -> Iterator[None]:
             p.start()
             stack.callback(p.stop)
         yield
+
+
+@pytest.fixture(autouse=True)
+def _agent_data_root_in_tmp(tmp_path, monkeypatch):
+    """Keep the control-context record an app lifespan claims out of the checkout.
+
+    Stamped rather than patched, because the stamp is the anchor every reader of
+    that record resolves through — this process, any connector-host child it
+    would spawn, and any subprocess that inherits the environment. A test that
+    wants a different root sets its own: an explicitly requested fixture is set
+    up after this one and re-stamps the same variable.
+    """
+    root = tmp_path / "agent-data-root" / "var" / "agent_data"
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
+    return root
 
 
 # ---------------------------------------------------------------------------
