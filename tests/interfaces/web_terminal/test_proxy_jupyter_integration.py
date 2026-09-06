@@ -172,6 +172,23 @@ def kernel_id(started_session: httpx.Response) -> str:
     return str(started_session.json()["kernel"]["id"])
 
 
+@pytest.fixture(autouse=True)
+def sidecar_stderr_on_failure(sidecar: JupyterSidecar) -> Iterator[None]:
+    """The sidecar's last stderr lines, printed once the test is over.
+
+    Captured stdout is shown for a failing test only, so a green run stays
+    silent. A channels socket that goes quiet is otherwise a blank: the
+    test sees no frame, the proxy logs nothing, and the server's own account
+    of it -- nudge attempts, a ``kernel_info`` timeout, an error in the
+    websocket handler -- is on the stderr the sidecar keeps only for its
+    failure report. Printing it here puts that account in the test's own log.
+    """
+    yield
+    tail = sidecar.stderr_tail
+    if tail:
+        print(f"--- notebook sidecar stderr tail ---\n{tail}")
+
+
 # ---------------------------------------------------------------------------
 # Talking to a kernel over the proxied channels socket
 # ---------------------------------------------------------------------------
