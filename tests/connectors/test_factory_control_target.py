@@ -1,10 +1,11 @@
-"""Every connector carries the session target it was built for.
+"""Every connector carries the control target it was built for.
 
 ``ConnectorFactory.build_control_system_connector`` — and
 ``create_control_system_connector``, which is that build plus ``connect()`` —
 stamps two things on the instance it returns: the connector *type*, which selects the deployment's
 connector block and the per-type write posture, and the control *target*, which
-indexes the per-(session, target) posture store. They answer different questions
+indexes the per-target narrowing in the control-context record. They answer
+different questions
 and neither is derivable from the other — a two-lane deployment's VA lane and
 its live baseline resolve to different targets with the same connector type, and
 a degraded bridge lane has a target with no type at all.
@@ -13,7 +14,7 @@ Every site that builds a connector therefore has to name the target it means,
 and there are five of them. Each gets a test here that drives the real site and
 asserts the value that site is entitled to name is the value that reaches the
 instance, because the failure mode is silent: an unstamped connector reads the
-wrong session's posture rather than raising.
+wrong target's posture rather than raising.
 """
 
 from __future__ import annotations
@@ -365,7 +366,7 @@ class TestBlueskyWorker:
         cleared and the deployment-wide key becomes its whole write posture. The
         target stamp survives: the lane's declared target is still the honest
         answer to which machine this worker addresses, and it indexes the
-        session store rather than any config block.
+        posture store rather than any config block.
         """
         from osprey.services.bluesky_bridge import qserver_startup
 

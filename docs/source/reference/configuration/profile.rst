@@ -175,8 +175,8 @@ sections in their own ``config.yml.j2``.
      # ... and one type's own answer, which does not fall back to the key
      # it inherits from. This pair arms the simulator and leaves the machine
      # read-only — but only on a deployment that also configures and deploys a
-     # virtual accelerator, since a session has to be able to reach that target
-     # for the key to mean anything (see the "Use the Virtual Accelerator"
+     # virtual accelerator, since the deployment has to be able to reach that
+     # target for the key to mean anything (see the "Use the Virtual Accelerator"
      # how-to).
      control_system.connector.virtual_accelerator.writes_enabled: true
      # Limits checking works the same way. This pair is the deployment's, and
@@ -438,12 +438,12 @@ would not be a posture at all.
 
 Arming *some* targets and not others renders differently, and the difference is
 worth knowing before you write such a profile. ``settings.json`` is rendered
-once, before any session has picked a target, so a tool that is legal on the
+once, before any target has been picked, so a tool that is legal on the
 simulator and refused on the machine cannot be denied there — and it cannot be
 left in ``ask`` either, or an operator would be prompted to approve a write the
 target's posture forbids. Such a profile therefore renders **neither**: the
 gated tools leave both lists, and the boundary is carried per call by the
-safety hook (which reads the session's active target) and by the connector
+safety hook (which reads the deployment's active target) and by the connector
 behind it. The static deny is the stronger of the two, so reach for it — a
 profile that arms nothing — whenever the requirement is "this tier can never
 move anything".
@@ -662,7 +662,7 @@ never writes a key under ``control_system.connector.epics``, so ``live`` means
 the gateways the facility authored on a stand-in deployment exactly as on one
 without: a facility already pointed at its own control system can stand a
 rehearsal up beside it. What the stand-in rehearses is the procedure, not the
-risk — ``control_target_set standin`` moves a session onto it, and
+risk — ``control_target_set standin`` moves the deployment onto it, and
 ``control_target_set live`` from there walks the real go-live path. See
 :doc:`/how-to/control-systems/switch-control-target`.
 
@@ -680,8 +680,8 @@ derives exactly seven keys from it, all under
 A profile that spells any of the seven in its own ``config:`` block is refused by
 name at build time rather than silently having the derived copy win: two homes
 for one fact are free to disagree, and an address left in ``config:`` reads as
-the endpoint the ``standin`` target dials while every session on it is somewhere
-else. The refusal is scoped to those leaves — a persona's own
+the endpoint the ``standin`` target dials while the deployment is actually
+dialling somewhere else. The refusal is scoped to those leaves — a persona's own
 ``control_system.connector.live_standin.writes_enabled`` says something the build
 has no opinion about, and is yours to write.
 

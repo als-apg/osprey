@@ -195,7 +195,7 @@ def pairing_for_target(config: Any, target: str) -> ArchiverPairing:
 
     Args:
         config: The raw config mapping, as loaded from ``config.yml``.
-        target: The session target being asked for, one of
+        target: The control target being asked for, one of
             :data:`~osprey_connectors.types.CONTROL_TARGETS`.
 
     Returns:

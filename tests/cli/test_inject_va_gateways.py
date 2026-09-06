@@ -1,6 +1,6 @@
 """Deploying the VA service must leave a target able to reach it.
 
-A session is switched to a target the rendered ``config.yml`` already describes —
+A deployment is switched to a target the rendered ``config.yml`` already describes —
 the switch never edits config — so a project that deploys the virtual
 accelerator and carries no ``control_system.connector.virtual_accelerator``
 block has a soft-IOC running and nothing able to point at it. Projects built
@@ -285,7 +285,7 @@ def test_injected_config_is_eligible_once_the_probe_channel_is_named(tmp_path):
 
     # And the roster reports it available from a session sitting on the live
     # baseline — the "va ELIGIBLE in the roster" half of the criterion.
-    availability = target_availability(config, "va", session_target="live", baseline_target="live")
+    availability = target_availability(config, "va", control_target="live", baseline_target="live")
     assert availability.eligible
     assert availability.available_now
 

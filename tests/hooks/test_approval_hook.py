@@ -9,11 +9,12 @@ This hook implements the human-in-the-loop approval system. Based on the
 Also covers pre-execution notebook creation for execute (python) approval.
 """
 
-import json
 import os
 import re
 
 import pytest
+
+from tests._control_context_fixtures import write_control_context, write_server_report
 
 # Default hook_config matching the original hard-coded OSPREY_PREFIXES
 DEFAULT_APPROVAL_CONFIG = {
@@ -1119,7 +1120,7 @@ def test_selective_readwrite_asks_for_aliased_caput(tmp_path, hook_runner, make_
 # and an "ask" from here would reopen `can_use_tool` over it. Two things bound
 # that: the three-way (a config stating no posture prompts exactly as before),
 # and the rule that a defer is only safe where a refusal is GUARANTEED — by
-# `osprey_writes_check`'s deny for the session-targeted tools, or by
+# `osprey_writes_check`'s deny for the tools that follow the control target, or by
 # `queue_start`'s own pre-bridge lane gate for a start whose lane is placed.
 
 #: A hook_config whose `write_tools` covers the two framework write tools and a
@@ -1183,26 +1184,29 @@ def _posture_config(make_config, control_system, services=None):
     return make_config(config)
 
 
-def _write_session_state(repo_root, target):
-    """Point the session at *target* with a state file this process owns.
+def _write_session_state(repo_root, target, posture=None):
+    """Point the deployment at *target* with the record the hooks read.
 
-    ``owner_ppid`` is this pytest process, which is genuinely on the ancestor
-    chain of the hook subprocess, and ``server_pid`` is alive by definition — so
-    the reader's real parentage and liveness rules select this record.
+    Lands under ``<repo_root>/var/agent_data``, which is the root the hooks
+    derive when nothing stamps ``OSPREY_AGENT_DATA_ROOT`` and the subprocess
+    runs with *repo_root* as its ``cwd`` — so the read is the real one.
+
+    A live server's report is written beside it so the prompt's ``Target:``
+    line can name the machine; the identity is the reports', while the target
+    itself is the record's.
     """
-    directory = repo_root / "var" / "agent_data" / "control_target"
-    directory.mkdir(parents=True, exist_ok=True)
-    record = {
-        "target": target,
-        "generation": 1,
-        "server_pid": os.getpid(),
-        "owner_ppid": os.getpid(),
-        "targets": {
+    root = repo_root / "var" / "agent_data"
+    write_control_context(root, target=target, generation=1, posture=posture)
+    write_server_report(
+        root,
+        os.getpid(),
+        applied_target=target,
+        applied_generation=1,
+        targets={
             "live": {"label": "Storage ring", "endpoint": "pva://gw:5075", "real_machine": True},
             "va": {"label": "Virtual accelerator", "endpoint": "pva://127.0.0.1:5074"},
         },
-    }
-    (directory / f"target_state_{os.getpid()}.json").write_text(json.dumps(record))
+    )
 
 
 def _decision(result):
@@ -1273,7 +1277,7 @@ def test_the_queue_tools_that_no_layer_denies_keep_their_prompt(
         pytest.param(ARMED_LIVE_ONLY_CONFIG, "va", None, id="global-no-leaves-the-sim-unarmed"),
     ],
 )
-def test_channel_write_follows_the_session_target(
+def test_channel_write_follows_the_control_target(
     tmp_path, hook_runner, make_config, control_system, target, decision
 ):
     """One tool, two configs, both targets — the posture is per target.
@@ -1281,7 +1285,7 @@ def test_channel_write_follows_the_session_target(
     Each config is the other's mirror, so no row can pass on the deployment-wide
     key alone. `ARMED_LIVE_ONLY_CONFIG` is what makes the state file
     load-bearing: its most-restrictive answer is "not armed", so the `live` row
-    can only prompt if the hook actually read the session's target.
+    can only prompt if the hook actually read the recorded control target.
     """
     config = _posture_config(make_config, control_system)
     _write_session_state(tmp_path, target=target)
@@ -1362,7 +1366,7 @@ def test_queue_start_follows_the_target_its_lane_serves(
     """A start is addressed by LANE, and only a PLACED lane may be deferred.
 
     Which machine a plan lane drives is render-time truth in the config, so a
-    start bound to the disarmed lane defers whatever the session is pointed at:
+    start bound to the disarmed lane defers whatever the deployment is pointed at:
     `queue_start` re-reads that same posture and refuses before its bridge is
     called. A start naming no lane binds to the one lane a single-lane
     deployment has, which is what the tool's own `_bind_lane` does.
@@ -1523,17 +1527,17 @@ def test_a_defer_is_never_the_last_word(
 
 
 @pytest.mark.unit
-def test_a_store_narrowed_target_defers_and_writes_check_denies(
+def test_a_recorded_narrowing_defers_and_writes_check_denies(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
     """An operator narrowing composes like a config disarm: defer, with the deny behind it.
 
     The deployment arms this machine, so the config half of the posture answers
-    "armed" — the per-(session, target) store is the only thing refusing here,
-    and ``osprey_writes_check`` reads the same store
+    "armed" — the narrowing recorded on the control-context record is the only
+    thing refusing here, and ``osprey_writes_check`` reads the same record
     (``effective_writes_for``). Keeping the prompt would ask the human to
     approve a write the next hook is guaranteed to refuse; the matrix above
-    pins the config half of this rule, this test pins the store half.
+    pins the config half of this rule, this test pins the record half.
     """
     session_key = "4f1c2a7e-0000-4000-8000-000000000001"
     config = _posture_config(make_config, ARMED_LIVE_ONLY_CONFIG)
@@ -1552,11 +1556,10 @@ def test_a_store_narrowed_target_defers_and_writes_check_denies(
             )
         )
 
-    # Control: with no narrowing in the store, the armed machine keeps its prompt.
+    # Control: with nothing narrowed, the armed machine keeps its prompt.
     assert run("osprey_approval.py") == "ask"
 
-    store = tmp_path / "var" / "agent_data" / "control_target" / "session-postures.json"
-    store.write_text(json.dumps({session_key: {"live": "sandbox"}}), encoding="utf-8")
+    _write_session_state(tmp_path, target="live", posture={"live": "sandbox"})
 
     assert run("osprey_approval.py") is None, (
         "the narrowing is refused by writes_check, so the prompt must defer to that deny"

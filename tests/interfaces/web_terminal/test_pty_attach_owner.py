@@ -10,7 +10,7 @@ between them.
 Two levels here:
 
 - The registry contract: what ``attach_session``/``detach_session`` do with a
-  token, and how the token survives a rekey, a terminate and a respawn.
+  token, and how the token survives a terminate and a respawn.
 - The handler contract: ``terminal_ws`` honours a refused attach by closing
   with 4409, and releases every key it took by the time the socket is gone.
 
@@ -225,21 +225,6 @@ class TestAttachmentOwnership:
         registry.detach_session("a", owner)
 
         assert list(registry._sessions) == ["b", "a"]
-
-    def test_the_owner_survives_a_rekey(self):
-        """A session renamed under the holder keeps its holder."""
-        registry = PtyRegistry(max_background=3)
-        registry._sessions["temp-key"] = _mock_session()
-        owner = object()
-        registry.attach_session("temp-key", owner)
-
-        registry.rekey_session("temp-key", "real-uuid")
-
-        assert registry.is_attached("temp-key") is False
-        assert registry.attached_owner("real-uuid") is owner
-        # And the holder can still release it under its new name.
-        registry.detach_session("real-uuid", owner)
-        assert registry.is_attached("real-uuid") is False
 
     def test_terminate_clears_the_attachment(self):
         """A terminated session takes its attachment with it."""

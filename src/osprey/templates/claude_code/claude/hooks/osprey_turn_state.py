@@ -67,7 +67,7 @@ deployment's ``settings.json`` is edited by hand.
 The body carries both, and they are not the same thing:
 
 * ``pool_key`` is ``OSPREY_SESSION_ID`` — the session key the browser, the
-  terminal pool and the posture store all share. It never changes.
+  terminal pool and the audit ledger all share. It never changes.
 * ``session_id`` is Claude Code's own session id, read from the hook payload. It
   names the transcript file, and a ``/clear`` moves it while the key stays put.
 

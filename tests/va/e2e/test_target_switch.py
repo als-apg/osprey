@@ -67,6 +67,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
+from osprey.audit.posture import posture_session
 from osprey.mcp_server.control_system import server_context as server_context_mod
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import (
@@ -81,8 +82,14 @@ from osprey.mcp_server.control_system.server_context import (
 from osprey.mcp_server.control_system.tools import channel_write as channel_write_module
 from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.python_executor import executor as host_executor
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system.base import ChannelValue
-from tests.fixtures.control_context import context_for
+from tests.fixtures.control_context import (
+    claim_the_record,
+    context_for,
+    move_the_deployment,
+    publish_reachability,
+)
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 from tests.va.e2e import conftest as e2e_conftest
 
@@ -394,16 +401,26 @@ def raw_config(
 
 @pytest.fixture(autouse=True)
 def state_root(tmp_path, monkeypatch):
-    """Anchor the target-state directory in ``tmp_path``, not a real deployment.
+    """Anchor the deployment's agent data in ``tmp_path``, not a real deployment.
 
     Returned as the shared data root, which is also what the on-disk config
     below resolves to — the executor scenario runs in another process and has to
-    find the same state file this one publishes.
+    find the same record and the same reports this one publishes.
+
+    Both anchors are set. The per-server reports resolve through
+    ``target_state``'s own root helper; the control-context record resolves
+    through the ``OSPREY_AGENT_DATA_ROOT`` stamp, which the sandbox subprocess
+    inherits along with the rest of this environment. Stamping one and not the
+    other leaves this process reading whatever record the developer's machine
+    was last left pointed at.
     """
     root = tmp_path / "var" / "agent_data"
     (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
-    return root
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    control_context.invalidate_cache()
+    yield root
+    control_context.invalidate_cache()
 
 
 @pytest.fixture(autouse=True)
@@ -581,15 +598,21 @@ class TestALiveVaRoundTrip:
         assert outbound["target"] == "va"
         assert homebound["target"] == "live"
 
-    async def test_each_leg_moves_the_generation_and_the_endpoint(self, make_manager, endpoints):
+    async def test_each_leg_moves_the_endpoint_and_mints_no_generation(
+        self, make_manager, endpoints
+    ):
         manager = await started_on(make_manager, "live")
         assert manager.active_generation() == 0
 
         outbound = await manager.switch("va")
         homebound = await manager.switch("live")
 
-        assert outbound["generation"] == 1
-        assert homebound["generation"] == 2
+        # A direct switch is not a deployment move: the record's owner mints
+        # generations and this supervisor is handed them, so both legs report
+        # the one this server already stood on. The generation a real switch
+        # moves is asserted below, through the record.
+        assert outbound["generation"] == 0
+        assert homebound["generation"] == 0
         assert outbound["connector_type"] == "virtual_accelerator"
         assert homebound["connector_type"] == "epics"
         # The child really came up on the destination's own port -- verified by
@@ -613,17 +636,24 @@ class TestALiveVaRoundTrip:
         assert manager.status()["child_pid"] == manager.spawned[2].pid
 
     async def test_the_state_file_follows_the_session_both_ways(self, make_manager):
+        """Both legs driven through the record, which is what mints a generation.
+
+        This server's report is what every out-of-process reader goes by, so a
+        switch that moved the wire but not the report would be a session that
+        lies about which machine it is on.
+        """
         manager = await started_on(make_manager, "live")
+        claim_the_record(manager)
 
-        await manager.switch("va")
-        assert target_state.read()["target"] == "va"
-        assert target_state.read()["generation"] == 1
+        await move_the_deployment(manager, "va")
+        assert target_state.read()["applied_target"] == "va"
+        assert target_state.read()["applied_generation"] == 1
 
-        result = await manager.switch("live")
-        record = target_state.read()
-        assert record["target"] == "live"
-        assert record["generation"] == 2
-        assert record["children"] == [result["child_pid"]]
+        result = await move_the_deployment(manager, "live")
+        report = target_state.read()
+        assert report["applied_target"] == "live"
+        assert report["applied_generation"] == 2
+        assert report["children"] == [result["child_pid"]]
 
 
 # ---------------------------------------------------------------------------
@@ -694,9 +724,9 @@ class TestAFailedSwitchLeavesThePreviousTargetActive:
         assert await wait_for(lambda: candidate.returncode is not None), (
             "the candidate child outlived the switch that failed to adopt it"
         )
-        record = target_state.read()
-        assert record["target"] == "live"
-        assert record["generation"] == 0
+        report = target_state.read()
+        assert report["applied_target"] == "live"
+        assert report["applied_generation"] == 0
 
     async def test_the_roster_still_names_live_at_generation_zero(
         self, make_manager, served_context, wrong_port_deployment
@@ -761,7 +791,9 @@ class TestAFailedSwitchLeavesThePreviousTargetActive:
         result = await manager.switch("va")
 
         assert result["target"] == "va"
-        assert result["generation"] == 1
+        # Nothing minted this a new generation: the correction was a config fix
+        # and a direct switch, not a move of the deployment's record.
+        assert result["generation"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -859,21 +891,19 @@ class TestFailClosedWhenTheChildIsKilledExternally:
 def write_approval_stamp(operations: list[dict], binding: tuple[str, int]) -> Path:
     """Leave the stamp the approval hook leaves, for *binding*.
 
-    The file name is derived through the tool's own
-    ``_approval_stamp_key`` — the hook restates that derivation in stdlib-only
-    Python and a separate test pins the two spellings equal, so using the tool's
-    is using the contract rather than a copy of it. The record carries this
-    process's PID because a stamp another server wrote is deliberately ignored.
+    The file name is derived through the tool's own ``_approval_stamp_key`` and
+    ``_approval_stamp_name`` — the hook restates both derivations in
+    stdlib-only Python and a separate test pins the two spellings equal, so
+    using the tool's is using the contract rather than a copy of it. The stamp
+    carries this process's audit session because a stamp another session
+    rendered is deliberately ignored.
     """
     target, generation = binding
     key = channel_write_module._approval_stamp_key(operations, None)
     assert key is not None
-    path = (
-        target_state.state_dir() / f"{channel_write_module.APPROVAL_STAMP_PREFIX}{key}"
-        f"{channel_write_module.APPROVAL_STAMP_SUFFIX}"
-    )
+    path = target_state.state_dir() / channel_write_module._approval_stamp_name(key)
     path.write_text(
-        json.dumps({"target": target, "generation": generation, "server_pid": os.getpid()}),
+        json.dumps({"target": target, "generation": generation, "session": posture_session()}),
         encoding="utf-8",
     )
     return path
@@ -899,7 +929,7 @@ class TestAnApprovedWriteIsRefusedAfterASwitch:
         approved = manager.active_binding()
         write_approval_stamp(self.OPERATIONS, approved)
 
-        await manager.switch("live")
+        await move_the_deployment(manager, "live")
 
         with assert_raises_error(error_type="target_changed") as captured:
             await get_tool_fn(channel_write_module.channel_write)(operations=self.OPERATIONS)
@@ -920,12 +950,12 @@ class TestAnApprovedWriteIsRefusedAfterASwitch:
         served_context(manager)
         write_approval_stamp(self.OPERATIONS, manager.active_binding())
 
-        await manager.switch("live")
+        await move_the_deployment(manager, "live")
         with assert_raises_error(error_type="target_changed"):
             await get_tool_fn(channel_write_module.channel_write)(operations=self.OPERATIONS)
 
         assert await reading(manager, CORRECTOR_SP) == pytest.approx(0.0)
-        await manager.switch("va")
+        await move_the_deployment(manager, "va")
         assert await reading(manager, CORRECTOR_SP) == pytest.approx(0.0)
 
     async def test_a_stamp_naming_the_current_binding_is_not_a_refusal(
@@ -1016,8 +1046,8 @@ def sandbox(tmp_path, endpoints, state_root):
     The deployment is written to ``config.yml`` in ``tmp_path`` so that the
     subprocess resolves the *same* project root, and therefore the same shared
     data root, that :func:`state_root` patched in this process — the pin is a
-    comparison against a state file, and a subprocess reading a different
-    directory would be comparing against nothing.
+    comparison against the control-context record, and a subprocess reading a
+    different directory would be comparing against nothing.
     """
     config_path = tmp_path / "config.yml"
     config_path.write_text(
@@ -1040,7 +1070,6 @@ def sandbox(tmp_path, endpoints, state_root):
             "OSPREY_CONFIG": str(config_path),
             host_executor.ENV_CONTROL_TARGET: target,
             host_executor.ENV_CONTROL_TARGET_GENERATION: str(generation),
-            host_executor.ENV_CONTROL_TARGET_STATE_PID: str(os.getpid()),
         }
         for stale in ("EPICS_CA_ADDR_LIST", "EPICS_CA_NAME_SERVERS", "EPICS_CA_SERVER_PORT"):
             environment.pop(stale, None)
@@ -1074,6 +1103,9 @@ class TestTheExecutorsWriteIsPinnedToItsTarget:
         self, make_manager, sandbox
     ):
         manager = await started_on(make_manager, "va")
+        # The pin is a comparison against the deployment's record, which a
+        # controls server claims at startup and this suite has to stand in for.
+        claim_the_record(manager)
         target, generation = manager.active_binding()
         try:
             permitted = sandbox(target=target, generation=generation, value=PINNED_WRITE_VALUE)
@@ -1082,7 +1114,7 @@ class TestTheExecutorsWriteIsPinnedToItsTarget:
                 "the stamped sandbox reported a write that never reached the machine"
             )
 
-            await manager.switch("live")
+            await move_the_deployment(manager, "live")
             assert manager.active_generation() != generation
 
             refused = sandbox(target=target, generation=generation, value=REFUSED_WRITE_VALUE)
@@ -1093,7 +1125,7 @@ class TestTheExecutorsWriteIsPinnedToItsTarget:
             assert f"{target!r} generation {generation}" in message
             assert f"generation {manager.active_generation()}" in message
 
-            await manager.switch("va")
+            await move_the_deployment(manager, "va")
             assert await reading(manager, CORRECTOR_SP) == pytest.approx(PINNED_WRITE_VALUE), (
                 "the refused write moved the machine anyway"
             )
@@ -1127,6 +1159,7 @@ class TestASwitchIsRefusedWhileAnExecutionIsInFlight:
     ):
         manager = await started_on(make_manager, "va")
         served_context(manager)
+        await publish_reachability(manager._config.raw)
         child_before = manager.status()["child_pid"]
 
         with host_executor._in_flight_marker("va"):
@@ -1141,15 +1174,18 @@ class TestASwitchIsRefusedWhileAnExecutionIsInFlight:
         assert details["executing_target"] == "va"
         assert details["executor_pid"] == os.getpid()
         assert manager.active_target() == "va"
-        assert manager.active_generation() == 1
+        assert manager.active_generation() == 0
         assert manager.status()["child_pid"] == child_before
 
     async def test_the_same_switch_succeeds_once_the_execution_ends(
-        self, make_manager, served_context, quiet_switch_notifications
+        self, make_manager, served_context, quiet_switch_notifications, reconciling
     ):
         """Anti-vacuous control: the marker is what refused, not the deployment."""
         manager = await started_on(make_manager, "va")
         served_context(manager)
+        await publish_reachability(manager._config.raw)
+
+        await reconciling()
 
         with host_executor._in_flight_marker("va"):
             with assert_raises_error(error_type="target_switch_refused"):
@@ -1163,7 +1199,7 @@ class TestASwitchIsRefusedWhileAnExecutionIsInFlight:
         assert isinstance(await reading(manager, LIVE_PROBE), float)
 
     async def test_a_marker_from_a_dead_executor_does_not_wedge_the_switch(
-        self, make_manager, served_context, quiet_switch_notifications
+        self, make_manager, served_context, quiet_switch_notifications, reconciling
     ):
         """Residue from a killed executor is swept, not honoured.
 
@@ -1172,6 +1208,7 @@ class TestASwitchIsRefusedWhileAnExecutionIsInFlight:
         """
         manager = await started_on(make_manager, "va")
         served_context(manager)
+        await publish_reachability(manager._config.raw)
         finished = subprocess.Popen([sys.executable, "-c", ""])
         finished.wait(timeout=SETTLE_TIMEOUT_S)
         stale = (
@@ -1179,10 +1216,19 @@ class TestASwitchIsRefusedWhileAnExecutionIsInFlight:
             f"{control_target.INFLIGHT_FILE_SUFFIX}"
         )
         stale.write_text(
-            json.dumps({"pid": finished.pid, "owner_ppid": os.getpid(), "target": "va"}),
+            json.dumps(
+                {
+                    "pid": finished.pid,
+                    "session": None,
+                    "surface": "sandbox",
+                    "kernel_id": None,
+                    "target": "va",
+                }
+            ),
             encoding="utf-8",
         )
 
+        await reconciling()
         payload = json.loads(await get_tool_fn(control_target.control_target_set)(target="live"))
 
         assert payload["summary"]["target"] == "live"
@@ -1190,7 +1236,7 @@ class TestASwitchIsRefusedWhileAnExecutionIsInFlight:
 
 
 # ---------------------------------------------------------------------------
-# 7. The single Bluesky lane, while the session is switched
+# 7. The single Bluesky lane, while the deployment is switched
 # ---------------------------------------------------------------------------
 
 
@@ -1199,7 +1245,7 @@ class TestASwitchIsRefusedWhileAnExecutionIsInFlight:
     reason=f"the Bluesky MCP tools are not importable here ({BLUESKY_IMPORT_ERROR})",
 )
 class TestTheSingleBlueskyLaneRefusesWhileTheSessionIsSwitched:
-    """OC-1, against a state file a real container switch published.
+    """OC-1, against a record a real container switch moved.
 
     A deployment renders exactly one plan lane, wired at build time to one
     control target, so a session that has switched away from it must not queue
@@ -1209,7 +1255,7 @@ class TestTheSingleBlueskyLaneRefusesWhileTheSessionIsSwitched:
     load-bearing one. What this adds over the in-process pin in
     ``tests/services/test_single_lane_switch_refusal.py`` is that the switch
     driving it is a real spawn-then-swap between two real machines rather than a
-    hand-written state record.
+    hand-written record.
     """
 
     @pytest.fixture
@@ -1233,19 +1279,20 @@ class TestTheSingleBlueskyLaneRefusesWhileTheSessionIsSwitched:
     ):
         manager = await started_on(make_manager, "live")
         assert manager.baseline == "live"
+        claim_the_record(manager)
 
-        await manager.switch("va")
+        await move_the_deployment(manager, "va")
 
         with patch(f"{bluesky_queue.__name__}._http_post_json") as post:
             with patch(f"{bluesky_queue.__name__}.notify_agent_activity_async"):
                 with assert_raises_error(
-                    error_type=bluesky_backend.REASON_SESSION_TARGET_MISMATCH
+                    error_type=bluesky_backend.REASON_CONTROL_TARGET_MISMATCH
                 ) as captured:
                     await get_tool_fn(bluesky_queue.queue_add)(draft_revision=7)
 
         assert not post.called, "the refusal reached the bridge instead of stopping at the host"
         envelope = captured["envelope"]
-        assert envelope["details"]["session_target"] == "va"
+        assert envelope["details"]["control_target"] == "va"
         assert "va" in envelope["error_message"] and "live" in envelope["error_message"]
 
     async def test_the_lane_is_usable_again_once_the_session_comes_home(
@@ -1258,8 +1305,9 @@ class TestTheSingleBlueskyLaneRefusesWhileTheSessionIsSwitched:
         pointed and not about anything this fixture set up.
         """
         manager = await started_on(make_manager, "live")
-        await manager.switch("va")
-        await manager.switch("live")
+        claim_the_record(manager)
+        await move_the_deployment(manager, "va")
+        await move_the_deployment(manager, "live")
 
         with patch(
             f"{bluesky_queue.__name__}._http_post_json", return_value=(200, {"run_id": "r1"})
@@ -1283,7 +1331,7 @@ def test_the_bluesky_lane_scenario_states_which_way_it_went() -> None:
             "the single-lane Bluesky refusal was NOT exercised: this deployment cannot "
             f"import the Bluesky MCP tools ({BLUESKY_IMPORT_ERROR})"
         )
-    assert bluesky_backend.REASON_SESSION_TARGET_MISMATCH == "session_target_mismatch"
+    assert bluesky_backend.REASON_CONTROL_TARGET_MISMATCH == "control_target_mismatch"
 
 
 # ---------------------------------------------------------------------------
@@ -1307,7 +1355,7 @@ class TestTheSwitchIsBoundByItsDrainDeadline:
     """
 
     async def test_five_consecutive_switches_stay_within_the_drain_bound(
-        self, make_manager, served_context, quiet_switch_notifications, endpoints
+        self, make_manager, served_context, quiet_switch_notifications, endpoints, reconciling
     ):
         manager = await started_on(
             make_manager,
@@ -1318,6 +1366,8 @@ class TestTheSwitchIsBoundByItsDrainDeadline:
             drain_timeout_s=None,
         )
         served_context(manager)
+        await publish_reachability(manager._config.raw)
+        await reconciling()
         bound = DRAIN_TIMEOUT_S + SWITCH_TIMING_SLACK_S
         hung_reads: list[asyncio.Task] = []
         durations: list[float] = []
@@ -1343,10 +1393,6 @@ class TestTheSwitchIsBoundByItsDrainDeadline:
 
                 assert payload["summary"]["target"] == destination
                 assert payload["access_details"]["drain_timeout_s"] == DRAIN_TIMEOUT_S
-                assert payload["access_details"]["previous_drained"] is False, (
-                    "the child drained cleanly, so this switch never met the deadline "
-                    "the timing criterion is about"
-                )
 
             assert all(duration < bound for duration in durations), (
                 f"switch durations {durations} exceeded the {bound}s bound "
@@ -1355,11 +1401,17 @@ class TestTheSwitchIsBoundByItsDrainDeadline:
             assert manager.active_generation() == CONSECUTIVE_SWITCHES
             assert len(manager.spawned) == CONSECUTIVE_SWITCHES + 1
 
+            # Each hung read ending on the drain deadline is also what makes the
+            # timings above a measurement of the deadline: a child that drained
+            # cleanly would have answered its read instead of being killed.
             for hung in hung_reads:
                 with pytest.raises(ConnectionError) as raised:
                     await asyncio.wait_for(hung, SETTLE_TIMEOUT_S)
                 message = str(raised.value)
-                assert "target switch" in message
+                # The move that ended the read, in the words the supervisor
+                # retires a child with: a reconcile onto the record's target,
+                # which is what a switch through the tool is now made of.
+                assert "control-context record's target" in message
                 assert "drain deadline" in message
         finally:
             for hung in hung_reads:
@@ -1368,14 +1420,16 @@ class TestTheSwitchIsBoundByItsDrainDeadline:
                 with contextlib.suppress(BaseException):
                     await hung
 
-    async def test_an_idle_child_still_drains_cleanly(
-        self, make_manager, served_context, quiet_switch_notifications, endpoints
-    ):
+    async def test_an_idle_child_still_drains_cleanly(self, make_manager, endpoints):
         """The bound is a ceiling, not a floor.
 
         With nothing in flight the switch drains rather than killing, which is
-        what makes ``previous_drained: False`` above evidence of a deadline
-        having actually been met.
+        what makes the hung reads above — every one of them ended by the drain
+        deadline — evidence of a deadline having actually been met.
+
+        Read off the supervisor rather than through the switch tool: the tool
+        no longer performs the swap, so whether the previous child drained or
+        was killed is reported only by the supervisor that did.
         """
         manager = await started_on(
             make_manager,
@@ -1385,12 +1439,11 @@ class TestTheSwitchIsBoundByItsDrainDeadline:
             ),
             drain_timeout_s=None,
         )
-        served_context(manager)
 
-        payload = json.loads(await get_tool_fn(control_target.control_target_set)(target="va"))
+        result = await manager.switch("va")
 
-        assert payload["access_details"]["previous_drained"] is True
-        assert payload["summary"]["target"] == "va"
+        assert result["previous_drained"] is True
+        assert result["target"] == "va"
 
 
 # ---------------------------------------------------------------------------

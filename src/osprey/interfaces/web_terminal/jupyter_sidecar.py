@@ -68,7 +68,7 @@ from typing import IO, Any
 
 import nbformat
 
-from osprey.jupyter_kernel import BINDING_RELPATH
+from osprey.jupyter_kernel import JUPYTER_SHARED_SUBTREE
 from osprey.mcp_server.python_executor.executor import resolve_agent_interpreter
 from osprey.mcp_server.sandbox_env import scrub_sandbox_child_env
 
@@ -84,9 +84,9 @@ _PANEL_PATH = "panel/jupyter"
 #: interpreter's own ``python3`` spec never appears.
 KERNELSPEC_NAME = "osprey"
 
-#: The shared-root subtree that holds sidecar state. Derived from the session
-#: binding's path so the sidecar and the kernel launcher agree on one subtree.
-_SHARED_SUBTREE = Path(BINDING_RELPATH).parent
+#: The shared-root subtree that holds sidecar state. Taken from the kernel
+#: launcher so the sidecar and the launcher agree on one subtree.
+_SHARED_SUBTREE = Path(JUPYTER_SHARED_SUBTREE)
 
 #: The settings plugin JupyterLab reads its theme from, and the two theme
 #: names it ships. A pinned web theme is written as an override for this key.
@@ -106,13 +106,20 @@ _NEVER_CHECK_FOR_UPDATE = "jupyterlab.handlers.announcements.NeverCheckForUpdate
 
 #: The notebook written into an empty ``notebooks/``, and its two cells.
 STARTER_NOTEBOOK_NAME = "getting-started.ipynb"
-_STARTER_MARKDOWN = "This kernel follows your terminal session. Open a chat session before writing."
+_STARTER_MARKDOWN = (
+    "Cells read and write through the deployment's current control target and write posture."
+)
 _STARTER_CODE = "from osprey.runtime import read_channel, write_channel"
 
 #: The health check that names a channel the facility declares is still
 #: moving. Its whole purpose is to tell a live archive from a wedged one, so
 #: the channel it watches is the one a demo read can count on to show a value.
 _FRESHNESS_CHECK = "archiver_freshness"
+
+#: How long the notebook lookup waits on a running sidecar. It runs inside an
+#: operator's switch, which refuses either way: a name is worth a moment, and
+#: nothing here is worth making the refusal late.
+_SESSIONS_TIMEOUT = 2.0
 
 #: The probe channel the generic project template ships unfilled. The build
 #: refuses to write a real-looking one because a placeholder makes a target
@@ -260,6 +267,54 @@ def seed_starter_notebook(notebooks_dir: Path, example_channel: str | None = Non
     with path.open("w", encoding="utf-8") as handle:
         nbformat.write(notebook, handle)
     return path
+
+
+def kernel_notebook_path(server_url: str, headers: Mapping[str, str], kernel_id: str) -> str | None:
+    """The notebook a running kernel belongs to, per the sidecar's own sessions.
+
+    A control-target switch refused by a notebook cell names the busy client,
+    and the kernel id in that cell's marker is not something an operator can
+    find a window from. The sidecar knows: every kernel it started has a
+    session row carrying the notebook path it was opened for.
+
+    It answers ``None`` for every way the question can fail to have an answer —
+    no sidecar, no such kernel, a body in an unexpected shape — because the
+    refusal it names a client for stands either way, and a lookup that raised
+    would replace an operator's answer with a stack trace.
+
+    Args:
+        server_url: The sidecar's backend URL, no trailing slash
+            (:attr:`JupyterSidecar.url`, published as
+            ``app.state.<panel_id>_server_url``).
+        headers: The credential the sidecar requires
+            (:attr:`JupyterSidecar.auth_headers`, published as
+            ``app.state.panel_auth_headers[<panel_id>]``).
+        kernel_id: The kernel whose notebook is wanted.
+
+    Returns:
+        The notebook path, relative to the notebooks root, or ``None``.
+    """
+    request = urllib.request.Request(
+        f"{server_url.rstrip('/')}/api/sessions", headers=dict(headers), method="GET"
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=_SESSIONS_TIMEOUT) as response:
+            sessions = json.loads(response.read())
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        logger.debug("%s did not answer api/sessions: %s", _NAME, exc)
+        return None
+    if not isinstance(sessions, list):
+        return None
+    for session in sessions:
+        if not isinstance(session, Mapping):
+            continue
+        kernel = session.get("kernel")
+        if not isinstance(kernel, Mapping) or kernel.get("id") != kernel_id:
+            continue
+        path = session.get("path")
+        if isinstance(path, str) and path.strip():
+            return path.strip()
+    return None
 
 
 class _StderrTail(threading.Thread):

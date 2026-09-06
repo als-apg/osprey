@@ -66,7 +66,7 @@ a bare name with some write tool — under the sandbox posture, in a state this
 module already calls a framework bug.
 
 **The innermost recorder owns the decision.** A tool's own gates run inside
-this layer, and one of them — the executor's session-posture clamp — files its
+this layer, and one of them — the executor's posture clamp — files its
 own record on the ``executor`` surface. When it does, it leaves a marker
 (:mod:`osprey.audit.dedup`) and this layer defers: no second record, and in
 particular no ``allowed`` stamped on a call an inner guard refused while still
@@ -148,7 +148,7 @@ HOOK_CONFIG_RELPATH: str = ".claude/hooks/hook_config.json"
 #: the same way the registry pins the audit-writer marker it cannot import.
 TOOL_PREFIX_ENV: str = "OSPREY_MCP_TOOL_PREFIX"
 
-#: The session posture, its provenance and its posture-store key, and the two
+#: The posture, its provenance and its audit session id, and the two
 #: ledger spellings — :mod:`osprey.audit.posture`'s, re-exported under this
 #: module's names so the wiring and the tests keep addressing them here.
 POSTURE_ENV: str = posture.POSTURE_ENV_VAR
@@ -214,7 +214,7 @@ SURFACE_UNPREFIXED: str = "mcp"
 #: :data:`REASON_POSTURE` is the one word three layers spell for the same
 #: refusal — this middleware, the executor's in-tool session clamp
 #: (``_execution_gates``), and the client-side ``osprey_writes_check.py`` hook.
-#: A sandboxed session's refusals must join on one spelling, or
+#: Refusals under the sandbox posture must join on one spelling, or
 #: ``grep '"reason": "posture"'`` over an identity's ledgers answers "what did
 #: the sandbox posture refuse?" with only the layer that happened to be asked.
 #: A cross-layer test pins all three (the hook by AST, since it ships as a
@@ -566,22 +566,25 @@ def _posture_refusal_wording() -> tuple[str, list[str]]:
 
     * the **deployment** is running in readonly execution mode. ``posture()``
       short-circuits to that ENVIRONMENT answer before the store is read, so
-      this is the deployment's own switch, not this session's — and the
-      control-target chip cannot lift it. Named all the same, because it is the
-      first place an operator looks.
-    * this **session's posture for ONE control target** is read-only. The
+      this is the deployment's own switch, not the operator's chip narrowing —
+      and the control-target chip cannot lift it. Named all the same, because it
+      is the first place an operator looks.
+    * the **recorded posture for ONE control target** is read-only. The
       operator's own narrowing, made from the chip, so the chip is where it
       lifts — and the target is named, because narrowing one machine leaves the
-      session working normally on every other one.
+      deployment working normally on every other one.
     * the same, but the **target cannot be named**. The store's rule with no
       resolvable target is that the most restrictive entry decides, and which
       one that was is not knowable here, so nothing is invented.
 
-    The wordings are the executor clamp's, deliberately: an operator who meets
-    both gates in one session should not have to work out that they are the
-    same refusal.
+    Which cell applies is not decided here: it is
+    :func:`~osprey.audit.posture.sandbox_cause`, shared with the executor clamp,
+    so two refusals for one posture cannot send an operator to two places. What
+    is this surface's own is the wording — a tool call has no ``execution_mode``
+    to re-run with, so the clamp's first suggestion has nothing to say here.
     """
-    if os.environ.get(posture.POSTURE_ENV_VAR) == posture.SANDBOX_MODE:
+    cause, target = posture.sandbox_cause()
+    if cause == posture.CAUSE_DEPLOYMENT_READONLY:
         return (
             "this deployment is running in readonly execution mode, which refuses "
             "control-system writes for every session.",
@@ -592,24 +595,11 @@ def _posture_refusal_wording() -> tuple[str, list[str]]:
             ],
         )
 
-    # Degrades to the target-less wording rather than to a crash: this runs on
-    # the refusal path of every clamped tool call, and a surprise here would
-    # turn a refusal into an internal error — the one outcome this middleware
-    # is built to never produce.
-    try:
-        target = posture.session_control_target()
-    except Exception:  # noqa: BLE001 - the name degrades; the refusal does not
-        logger.warning(
-            "Could not name the session's control target for the posture refusal",
-            exc_info=True,
-        )
-        target = None
-
     if target is None:
         return (
-            "writes are off for at least one control target in this session (this "
-            "call's target could not be identified, so the most restrictive "
-            "decides) — turned off from the control-target chip in the header.",
+            "writes are off for at least one control target (this call's target "
+            "could not be identified, so the most restrictive decides) — turned "
+            "off from the control-target chip in the header.",
             [
                 "Turn writes back on from the control-target chip in the header if "
                 "the write is intended; the deployment config is not the gate here.",
@@ -617,9 +607,8 @@ def _posture_refusal_wording() -> tuple[str, list[str]]:
         )
 
     return (
-        f"writes are off for the '{target}' control target in this session — "
-        "turned off from the control-target chip in the header, and in force "
-        "for this session only.",
+        f"writes are off for the '{target}' control target — turned off from the "
+        "control-target chip in the header; applies deployment-wide.",
         [
             f"Turn writes back on for '{target}' from the control-target chip in "
             "the header if the write is intended; the deployment config is not "

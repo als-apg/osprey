@@ -67,11 +67,12 @@ from osprey.mcp_server.control_system.target_eligibility import (
     Endpoint,
     TargetDerivation,
 )
-from osprey_connectors import session_store
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
+from tests._control_context_fixtures import write_control_context
 from tests.fixtures.control_context import context_for
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -103,7 +104,7 @@ DEAD_WRITE_PORT = 5555
 VA_READ_GATEWAY_PORT = 5065
 VA_WRITE_GATEWAY_PORT = 5066
 
-#: The posture-store key the narrowing tests stamp this process with.
+#: The audit session id the narrowing tests stamp this process with.
 POSTURE_SESSION = "switch-lifecycle-session"
 
 FIXTURE_MODULE = '''\
@@ -300,9 +301,19 @@ def child_environment(fixture_dir, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def state_root(tmp_path, monkeypatch):
-    """Anchor the state file in tmp_path instead of a real deployment."""
+    """Anchor the deployment's agent data in tmp_path instead of a real one.
+
+    Both anchors are set. The per-server reports resolve through
+    ``target_state``'s own root helper; the control-context record a served
+    context claims resolves through the ``OSPREY_AGENT_DATA_ROOT`` stamp.
+    Anchoring only one of them writes the record into whatever checkout the
+    tests are running from.
+    """
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
-    return tmp_path
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    control_context.invalidate_cache()
+    yield tmp_path
+    control_context.invalidate_cache()
 
 
 @pytest.fixture
@@ -411,7 +422,7 @@ async def wait_for(predicate, timeout=SETTLE_TIMEOUT_S):
 
 
 class TestSuccessfulSwitch:
-    async def test_switching_targets_bumps_the_generation_exactly_once(self, make_manager):
+    async def test_switching_targets_moves_the_target_of_record(self, make_manager):
         manager = await started_on(make_manager, "live")
         assert manager.active_generation() == 0
 
@@ -420,9 +431,22 @@ class TestSuccessfulSwitch:
         assert result["target"] == "va"
         assert result["previous_target"] == "live"
         assert result["target_changed"] is True
-        assert result["generation"] == 1
         assert manager.active_target() == "va"
-        assert manager.active_generation() == 1
+
+    async def test_a_switch_outside_a_reconcile_never_mints_a_generation(self, make_manager):
+        """The record's owner is the only process that may advance it.
+
+        A server that counted its own switches would give one deployment two
+        different generation 1s — this one's and the owner's — and a write or a
+        sandbox pinned to either could not say which it had been promised.
+        """
+        manager = await started_on(make_manager, "live")
+
+        result = await manager.switch("va")
+
+        assert result["generation"] == 0
+        assert manager.active_generation() == 0
+        assert target_state.read()["applied_generation"] == 0
 
     async def test_the_switch_publishes_the_new_target_and_child_to_the_state_file(
         self, make_manager
@@ -432,8 +456,8 @@ class TestSuccessfulSwitch:
         result = await manager.switch("va")
 
         record = target_state.read()
-        assert record["target"] == "va"
-        assert record["generation"] == 1
+        assert record["applied_target"] == "va"
+        assert record["applied_generation"] == 0
         assert record["children"] == [result["child_pid"]]
         # The display block is republished by the switch rather than merely
         # surviving it, and it still describes every target. Neither connector
@@ -495,22 +519,22 @@ class TestSuccessfulSwitch:
         result = await manager.switch("va")
 
         assert result["target"] == "va"
-        assert result["generation"] == 1
         assert manager.active_target() == "va"
-        assert manager.active_generation() == 1
         assert isinstance(
             await manager.active_proxy().read_channel(VA_PROBE, timeout=10.0), ChannelValue
         )
 
-    async def test_a_round_trip_bumps_the_generation_each_way(self, make_manager):
+    async def test_a_round_trip_reports_the_generation_it_was_given_each_way(self, make_manager):
         manager = await started_on(make_manager, "live")
 
-        await manager.switch("va")
-        result = await manager.switch("live")
+        await manager.reconcile("va", 1)
+        result = await manager.reconcile("live", 2)
 
         assert result["generation"] == 2
         assert manager.active_target() == "live"
-        assert target_state.read()["generation"] == 2
+        record = target_state.read()
+        assert record["applied_target"] == "live"
+        assert record["applied_generation"] == 2
 
 
 # ------------------------------------------------------------ failed switches
@@ -944,32 +968,26 @@ class TestPerTargetPosture:
 
 
 @pytest.fixture
-def posture_store(tmp_path, monkeypatch):
-    """A scratch posture store this process and its children are stamped for.
+def posture_root(tmp_path, monkeypatch):
+    """A scratch agent-data root this process and its children are stamped for.
 
-    Both stamps together, never one without the other: a process that knows
-    the session key and not the agent-data root reads a store nobody writes.
-    They go into the real environment rather than a patched lookup because the
-    connector-host children have to read the same store the parent does.
+    The stamp goes into the real environment rather than a patched lookup
+    because the connector-host children have to read the same record the
+    parent does.
     """
     root = tmp_path / "agent_data"
-    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", POSTURE_SESSION)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
     yield root
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
 
 
-def narrow(root, *targets, session=POSTURE_SESSION):
-    """Record the operator's narrowing of *targets* for *session*."""
-    path = root / session_store.STATE_DIR_NAME / session_store.STORE_FILENAME
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps({session: dict.fromkeys(targets, session_store.POSTURE_SANDBOX)}),
-        encoding="utf-8",
-    )
-    session_store.invalidate_cache()
+def narrow(root, *targets):
+    """Record the operator's narrowing of *targets* on this deployment."""
+    write_control_context(root, posture=dict.fromkeys(targets, posture_store.POSTURE_SANDBOX))
+    posture_store.invalidate_cache()
 
 
 class TestRepublishedDisplayMetadata:
@@ -1002,7 +1020,7 @@ class TestRepublishedDisplayMetadata:
         assert targets["live"]["endpoint"] == f"{GATEWAY_HOST}:{READ_GATEWAY_PORT}"
 
     async def test_a_narrowed_session_is_published_through_its_read_gateway(
-        self, make_manager, write_armed_project, posture_store
+        self, make_manager, write_armed_project, posture_root
     ):
         """The operator narrows the session; the published identity follows.
 
@@ -1019,7 +1037,7 @@ class TestRepublishedDisplayMetadata:
         assert armed["selected_role"] == "write_access"
         assert armed["endpoint"] == f"{GATEWAY_HOST}:{DEAD_WRITE_PORT}"
 
-        narrow(posture_store, "live")
+        narrow(posture_root, "live")
         await manager.respawn_same_target()
 
         narrowed = target_state.read()["targets"]["live"]
@@ -1045,10 +1063,9 @@ class TestRepublishedDisplayMetadata:
         result = await manager.switch("va")
 
         assert result["target"] == "va"
-        assert result["generation"] == 1
         assert manager.active_target() == "va"
         record = target_state.read()
-        assert record["target"] == "va"
+        assert record["applied_target"] == "va"
         assert record["targets"]["va"]["label"] == "virtual accelerator (simulation)"
 
     async def test_the_metadata_names_a_target_before_any_child_exists(self, make_manager):
@@ -1088,7 +1105,7 @@ class TestDraining:
 
         assert result["previous_drained"] is False
         assert result["target"] == "live"
-        assert manager.active_generation() == 2  # start on 'va' moved it once
+        assert manager.active_generation() == 0  # nothing here mints one
         assert elapsed < 30.0, "the switch waited for the hung read instead of killing it"
         assert previous.returncode is not None
 
@@ -1294,6 +1311,298 @@ class TestTheDestinationAlreadyAnswers:
         assert manager.active_target() == "va"
 
 
+# ------------------------------------------------- reconciling to the record
+
+
+class TestReconcileToTheRecord:
+    """What a server does when the deployment has moved and it has not.
+
+    One deployment runs one target on one generation, and the process that owns
+    the control-context record is the only one that mints either. Every server
+    then reconciles what it is running to what the record says, which is three
+    different moves depending on what it is running — and none of them is
+    "count my own switches".
+    """
+
+    async def test_reconcile_with_no_child_adopts_both_values_and_publishes_nothing(
+        self, make_manager
+    ):
+        """A server with nothing running cannot be bound to the wrong thing.
+
+        It also must not say it is bound to the right one: an ``applied``
+        binding from a server that has launched no child is what would let the
+        fleet read as converged with nobody serving.
+        """
+        manager = make_manager()
+
+        result = await manager.reconcile("va", 7)
+
+        assert manager.active_target() == "va"
+        assert manager.active_generation() == 7
+        assert result["target_changed"] is True
+        assert result["generation_changed"] is True
+        assert result["respawned"] is False
+        assert result["published"] is False
+        record = target_state.read()
+        assert record["applied_target"] is None
+        assert record["applied_generation"] is None
+        assert record["last_switch"] is None
+
+    async def test_the_first_launch_after_a_reconcile_reports_the_adopted_generation(
+        self, make_manager
+    ):
+        """PROPOSAL's unit case: record on 'va'/7, fresh server, no mint.
+
+        The adopted values are what ``ensure_started`` comes up on and what the
+        report names, so a server joining a deployment already seven switches
+        deep reports 7 rather than a 0 that would read as bound off the record.
+        """
+        manager = make_manager()
+        await manager.reconcile("va", 7)
+
+        assert await manager.ensure_started() is True
+
+        assert manager.active_target() == "va"
+        assert manager.active_generation() == 7
+        record = target_state.read()
+        assert record["applied_target"] == "va"
+        assert record["applied_generation"] == 7
+        assert record["last_switch"]["status"] == target_state.SWITCH_APPLIED
+        assert record["last_switch"]["generation"] == 7
+
+    async def test_reconcile_on_the_same_target_adopts_the_generation_without_respawning(
+        self, make_manager
+    ):
+        """The child serving this target is not wrong about anything.
+
+        Replacing it would cost the session every connection it holds to change
+        a number, and the pending posture realignment the reconcile loop is
+        holding still has the same child to rebuild afterwards.
+        """
+        manager = await started_on(make_manager, "va")
+        spawns = len(manager.spawned)
+        child_pid = manager.status()["child_pid"]
+
+        result = await manager.reconcile("va", 3)
+
+        assert len(manager.spawned) == spawns
+        assert manager.status()["child_pid"] == child_pid
+        assert manager.active_generation() == 3
+        assert result["target_changed"] is False
+        assert result["generation_changed"] is True
+        assert result["respawned"] is False
+        assert result["child_pid"] == child_pid
+        assert isinstance(
+            await manager.active_proxy().read_channel(VA_PROBE, timeout=10.0), ChannelValue
+        )
+
+    async def test_a_same_target_reconcile_republishes_the_binding_and_the_terminus(
+        self, make_manager
+    ):
+        """Both halves, or the fleet stalls on one of them.
+
+        The binding is what says this server has reached the generation; the
+        ``applied`` terminus is what releases the ``applying`` block the
+        reconcile loop published before it, which otherwise goes on blocking
+        every other session until its deadline expires.
+        """
+        manager = await started_on(make_manager, "va")
+
+        result = await manager.reconcile("va", 3)
+
+        assert result["published"] is True
+        record = target_state.read()
+        assert record["applied_target"] == "va"
+        assert record["applied_generation"] == 3
+        assert record["last_switch"]["status"] == target_state.SWITCH_APPLIED
+        assert record["last_switch"]["generation"] == 3
+        assert record["children"] == [manager.status()["child_pid"]]
+
+    async def test_a_realign_after_a_same_target_reconcile_keeps_the_adopted_generation(
+        self, make_manager
+    ):
+        """The realignment the loop held through the adoption still runs.
+
+        A change of generation is not a change of posture, so the pending
+        rebuild is still owed — and the respawn that serves it must land on the
+        generation the adoption took, not on the one the child was born under.
+        """
+        manager = await started_on(make_manager, "va")
+        await manager.reconcile("va", 3)
+        child_pid = manager.status()["child_pid"]
+
+        await manager.respawn_same_target()
+
+        assert manager.status()["child_pid"] != child_pid
+        assert manager.active_generation() == 3
+        record = target_state.read()
+        assert record["applied_generation"] == 3
+        assert record["applied_target"] == "va"
+
+    async def test_reconcile_to_another_target_swaps_and_assigns_the_minted_generation(
+        self, make_manager
+    ):
+        manager = await started_on(make_manager, "live")
+        child_pid = manager.status()["child_pid"]
+
+        result = await manager.reconcile("va", 4)
+
+        assert manager.active_target() == "va"
+        assert manager.active_generation() == 4
+        assert result["previous_target"] == "live"
+        assert result["previous_generation"] == 0
+        assert result["target_changed"] is True
+        assert result["respawned"] is True
+        assert result["child_pid"] != child_pid
+        record = target_state.read()
+        assert record["applied_target"] == "va"
+        assert record["applied_generation"] == 4
+        assert record["last_switch"]["status"] == target_state.SWITCH_APPLIED
+
+    async def test_reconcile_to_another_target_replaces_the_child_that_read_the_store(
+        self, make_manager
+    ):
+        """Why the loop drops its pending realignment on this branch only.
+
+        The new child read the posture store on its way up, so whatever the
+        realignment was going to rebuild has just been rebuilt — and the child
+        that would have been rebuilt is gone.
+        """
+        manager = await started_on(make_manager, "live")
+        previous = manager.spawned[0]
+
+        await manager.reconcile("va", 4)
+
+        assert await wait_for(lambda: previous.returncode is not None), (
+            "the child for the previous target was still running after the reconcile"
+        )
+        assert isinstance(
+            await manager.active_proxy().read_channel(VA_PROBE, timeout=10.0), ChannelValue
+        )
+
+    async def test_reconcile_to_the_same_target_and_generation_publishes_nothing_new(
+        self, make_manager
+    ):
+        """The loop runs every second; agreeing costs one read and no write.
+
+        A report rewritten on every tick would move ``updated_at`` a thousand
+        times an hour to say the same thing, and readers age exactly that stamp
+        to decide whether a server is still answering.
+        """
+        manager = await started_on(make_manager, "live")
+        await manager.reconcile("live", 2)
+        stamped = target_state.read()["updated_at"]
+
+        result = await manager.reconcile("live", 2)
+
+        assert result["generation_changed"] is False
+        assert result["published"] is False
+        assert target_state.read()["updated_at"] == stamped
+
+    async def test_a_failed_reconcile_swap_reports_failed_at_the_generation_it_kept(
+        self, make_manager, monkeypatch
+    ):
+        """The failure is filed against the generation readers are waiting on.
+
+        A server that gave up and refiled under its old generation would refuse
+        nothing: the sessions blocked on this swap are watching for a terminus
+        at the new one, and the write and launch gates that must now refuse
+        this session match on it too.
+        """
+        manager = await started_on(make_manager, "live")
+
+        def unprobeable(*args, **kwargs):
+            raise connector_host_manager.SwitchError(
+                "va",
+                connector_host_manager.STAGE_PROBE,
+                connector_host_manager.REASON_PROBE_FAILED,
+                "the probe channel never answered",
+            )
+
+        monkeypatch.setattr(manager, "_launch", unprobeable)
+
+        with pytest.raises(SwitchError):
+            await manager.reconcile("va", 5)
+
+        assert manager.active_generation() == 5
+        # The child that was serving 'live' never had to be given up for a
+        # candidate that would not come up, so it is still what answers.
+        assert manager.active_target() == "live"
+        assert manager.has_child() is True
+        record = target_state.read()
+        assert record["last_switch"]["status"] == target_state.SWITCH_FAILED
+        assert record["last_switch"]["generation"] == 5
+        assert record["last_switch"]["reason"] == connector_host_manager.REASON_PROBE_FAILED
+        # The binding still describes what is actually being served.
+        assert record["applied_target"] == "live"
+        assert record["applied_generation"] == 0
+
+    async def test_a_failed_first_launch_reports_failed_at_the_adopted_generation(
+        self, make_manager
+    ):
+        """Nothing is serving, and the fleet has to be told by this server.
+
+        The first launch is the one failure that leaves the session with no
+        connector host at all; the report is what refuses its writes and its
+        launches until it lands somewhere.
+        """
+        manager = make_manager()
+        await manager.reconcile("nowhere", 6)
+
+        with pytest.raises(SwitchError):
+            await manager.ensure_started()
+
+        assert manager.has_child() is False
+        record = target_state.read()
+        assert record["last_switch"]["status"] == target_state.SWITCH_FAILED
+        assert record["last_switch"]["generation"] == 6
+        assert record["last_switch"]["reason"] == REASON_TARGET_UNRESOLVABLE
+        assert record["applied_target"] is None
+
+    async def test_a_failed_respawn_reports_nothing_the_reconcile_loop_would_read(
+        self, make_manager, monkeypatch
+    ):
+        """A respawn that fails costs the session nothing, and says nothing.
+
+        Spawn-then-swap never tears the working child down for a candidate that
+        will not come up, so the session's connector is exactly as good as it
+        was — and a ``failed`` block would refuse writes on a server that is
+        still serving them.
+        """
+        manager = await started_on(make_manager, "va")
+
+        def unspawnable(*args, **kwargs):
+            raise connector_host_manager.SwitchError(
+                "va",
+                connector_host_manager.STAGE_SPAWN,
+                connector_host_manager.REASON_SPAWN_FAILED,
+                "the child never answered its init frame",
+            )
+
+        monkeypatch.setattr(manager, "_launch", unspawnable)
+
+        with pytest.raises(SwitchError):
+            await manager.respawn_same_target()
+
+        assert manager.has_child() is True
+        assert target_state.read()["last_switch"]["status"] == target_state.SWITCH_APPLIED
+
+    async def test_the_applying_bound_a_reconcile_publishes_comes_from_this_deployment(
+        self, make_manager
+    ):
+        """The deadline a reader needs and cannot compute for itself.
+
+        Every other process sees only the report, so the server running the
+        swap is the one that has to turn its own timeouts into a wall-clock
+        deadline — including the retry through the read-only gateway, which is
+        why the spawn-and-probe pair counts twice.
+        """
+        manager = make_manager(drain_timeout_s=2.0, probe_timeout_s=3.0, spawn_timeout_s=4.0)
+
+        assert manager.applying_bound_s() == 2.0 + 2 * (4.0 + 3.0)
+        assert manager.applying_bound_s(fallback_retry=False) == 2.0 + 4.0 + 3.0
+
+
 # ------------------------------------------------------------ startup sweep
 
 
@@ -1339,14 +1648,14 @@ class TestStartupSweep:
         dead_server = self._dead_pid()
         stale = state_root / target_state.STATE_DIR_NAME
         stale.mkdir(parents=True, exist_ok=True)
-        stale_file = stale / f"target_state_{dead_server}.json"
+        stale_file = stale / f"{target_state.REPORT_FILE_PREFIX}{dead_server}.json"
         stale_file.write_text(
             json.dumps(
                 {
-                    "target": "va",
-                    "generation": 4,
                     "server_pid": dead_server,
-                    "owner_ppid": 1,
+                    "session": "a-dead-server",
+                    "applied_target": "va",
+                    "applied_generation": 4,
                     "targets": {},
                     "children": [orphan.pid],
                 }
@@ -1360,8 +1669,13 @@ class TestStartupSweep:
             assert orphan.wait(timeout=SETTLE_TIMEOUT_S) is not None
             assert not stale_file.exists()
             record = target_state.read()
-            assert record["target"] == manager.baseline == "live"
-            assert record["generation"] == 0
+            # The report this server writes at start publishes no target at
+            # all: the deployment's is the control-context record's to state,
+            # and a baseline written here would say a child had landed on a
+            # target this process has not launched one for.
+            assert manager.baseline == "live"
+            assert record["applied_target"] is None
+            assert record["applied_generation"] is None
             assert record["children"] == []
         finally:
             if orphan.poll() is None:  # pragma: no cover - teardown safety net
@@ -1416,7 +1730,7 @@ class TestNoChildState:
         # The session is still pointed where it was: a dead child is not a
         # switch, and claiming otherwise would invent one.
         assert manager.active_target() == "va"
-        assert manager.active_generation() == 1
+        assert manager.active_generation() == 0
 
     async def test_a_failed_switch_never_produces_the_no_child_state(self, make_manager):
         manager = await started_on(make_manager, "live", raw=raw_config(va_probe=REFUSE_CHANNEL))
@@ -1436,12 +1750,17 @@ class TestConcurrentSwitches:
 
         first, second = await asyncio.gather(manager.switch("va"), manager.switch("live"))
 
-        # Whichever ran first, the other started from its outcome.
-        ordered = sorted([first, second], key=lambda result: result["generation"])
-        assert [result["generation"] for result in ordered] == [1, 2]
-        assert ordered[1]["previous_target"] == ordered[0]["target"]
-        assert manager.active_target() == ordered[1]["target"]
-        assert manager.active_generation() == 2
+        # Whichever ran first, the other started from its outcome. Only the
+        # call to 'va' can have started from 'live'; the call to 'live' either
+        # found the session still there and did nothing, or came back from the
+        # target the other one had already reached.
+        to_va, to_live = (first, second) if first["target"] == "va" else (second, first)
+        assert to_va["previous_target"] == "live"
+        assert to_live["previous_target"] in {"live", "va"}
+        assert manager.active_target() == ("live" if to_live["previous_target"] == "va" else "va")
+        # Neither of them minted anything: two servers racing on their own
+        # counters is exactly what the record's owner exists to prevent.
+        assert manager.active_generation() == 0
 
         def alive():
             return [process for process in manager.spawned if process.returncode is None]
@@ -1463,10 +1782,9 @@ class TestConcurrentSwitches:
 
         assert len(manager.spawned) == spawns + 1
         assert manager.active_target() == "va"
-        assert manager.active_generation() == 1
         # One of the two did the work; the other found it already done.
         assert sorted([first["target_changed"], second["target_changed"]]) == [False, True]
-        assert first["generation"] == second["generation"] == 1
+        assert first["generation"] == second["generation"] == 0
         assert first["child_pid"] == second["child_pid"] == manager.status()["child_pid"]
 
         def alive():

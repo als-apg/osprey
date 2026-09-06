@@ -17,6 +17,7 @@ way would be misreporting the only thing it is for.
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -36,8 +37,9 @@ from osprey.mcp_server.control_system.target_eligibility import (
     target_availability,
 )
 from osprey.mcp_server.control_system.tools import control_target
-from osprey_connectors import session_store
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.standin import ARCHIVER_RECORDER_SERVICE
+from tests._control_context_fixtures import owner, write_control_context
 from tests.mcp_server import test_switch_lifecycle as switch_suite
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 from tests.mcp_server.test_control_target_set import config_with_gateways, install_context
@@ -53,10 +55,31 @@ child_environment = switch_suite.child_environment
 fixture_dir = switch_suite.fixture_dir
 make_manager = switch_suite.make_manager
 state_root = switch_suite.state_root
-# The posture store the endpoint cases narrow, stamped and cleared the same way
+# The agent-data root the endpoint cases narrow under, stamped and cleared the way
 # the lifecycle suite's republication cases need it.
-posture_store = switch_suite.posture_store
+posture_root = switch_suite.posture_root
 narrow = switch_suite.narrow
+
+
+def deployment_record(root, monkeypatch, target: str):
+    """A control-context record this process owns, under a stamped scratch root.
+
+    The roster reads no record — it reports what this server knows. The SWITCH
+    does, and answers a deployment with none "there is no target of record", so
+    the two cases here that reach through the roster to the switch have to lay
+    one down. Stamped rather than resolved, or the record library would write
+    into ``<repo>/var/agent_data`` and the session guard would fail a later,
+    unrelated test.
+    """
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    control_context.invalidate_cache()
+    return write_control_context(
+        root,
+        target=target,
+        generation=0,
+        owned_by=owner(control_context.OWNER_CONTROLS_SERVER, pid=os.getpid()),
+    )
+
 
 ROSTER = get_tool_fn(control_target.control_target)
 
@@ -259,7 +282,7 @@ class TestCorrectBeforeAnySwitch:
         assert payload["summary"]["target"] == "live"
         assert payload["summary"]["generation"] == 0
         assert payload["summary"]["connector_host_alive"] is False
-        # The session is on live, so live is unavailable *because it is active*
+        # The deployment is on live, so live is unavailable *because it is active*
         # and va is available on the strength of config alone.
         assert rows["live"]["active"] is True
         assert rows["live"]["available_now"] is False
@@ -269,12 +292,13 @@ class TestCorrectBeforeAnySwitch:
         assert payload["summary"]["switchable_targets"] == ["va"]
 
     async def test_an_unconfigured_target_reports_the_switchs_own_reason(
-        self, make_manager, monkeypatch, no_prober
+        self, make_manager, monkeypatch, no_prober, state_root
     ):
         """The roster and the refusal are one function, not two agreeing ones."""
         raw = config_with_gateways(va_probe=None)
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
+        deployment_record(state_root, monkeypatch, manager.baseline)
 
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
 
@@ -467,7 +491,11 @@ class TestAfterASwitch:
     ):
         manager = await started_on(make_manager, "live")
         install_context(manager, monkeypatch)
-        await manager.switch("va")
+        # Through ``reconcile``, which is how a target actually moves now: the
+        # record's owner mints the generation and this server is assigned it.
+        # ``switch()`` no longer counts anything, so a roster driven through it
+        # would report generation 0 for a deployment that had moved.
+        await manager.reconcile("va", 1)
 
         payload = extract_response_dict(await ROSTER())
         rows = payload["access_details"]["targets"]
@@ -545,7 +573,7 @@ class TestDegradation:
         assert ctx["envelope"]["details"]["reason"] == control_target.REASON_CONTEXT_UNAVAILABLE
 
     async def test_an_underivable_target_gets_no_row_and_is_still_refused(
-        self, make_manager, monkeypatch, no_prober
+        self, make_manager, monkeypatch, no_prober, state_root
     ):
         """A deployment that never named its real machine has no 'live' row.
 
@@ -571,6 +599,7 @@ class TestDegradation:
         raw["control_system"]["connector"] = {"virtual_accelerator": va_block}
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
+        deployment_record(state_root, monkeypatch, manager.baseline)
 
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
 
@@ -1063,17 +1092,17 @@ class TestEndpointFollowsThePosture:
     where the two halves are told apart by the port in the string.
     """
 
-    def test_a_narrowed_session_is_named_through_the_read_gateway(self, posture_store):
-        narrow(posture_store, "standin")
+    def test_a_narrowed_session_is_named_through_the_read_gateway(self, posture_root):
+        narrow(posture_root, "standin")
 
         metadata = target_display_metadata(split_gateway_config())
 
         assert metadata["standin"]["endpoint"] == f"localhost:{STANDIN_PORT}"
         assert metadata["standin"]["selected_role"] == "read_only"
 
-    def test_a_narrowing_never_renames_the_machine(self, posture_store):
+    def test_a_narrowing_never_renames_the_machine(self, posture_root):
         """The parenthesis is read from the ceiling, so it cannot follow a port."""
-        narrow(posture_store, "standin")
+        narrow(posture_root, "standin")
 
         metadata = target_display_metadata(split_gateway_config())
 
@@ -1082,61 +1111,61 @@ class TestEndpointFollowsThePosture:
         assert metadata["standin"]["real_machine"] is True
         assert metadata["standin"]["probe_channel"] == STANDIN_PROBE
 
-    def test_a_narrowing_reaches_only_the_target_it_names(self, posture_store):
+    def test_a_narrowing_reaches_only_the_target_it_names(self, posture_root):
         """Per-target, the way the store is keyed: ``live`` keeps its own answer."""
-        narrow(posture_store, "standin")
+        narrow(posture_root, "standin")
 
         metadata = target_display_metadata(split_gateway_config())
 
         assert metadata["standin"]["selected_role"] == "read_only"
         assert metadata["live"]["selected_role"] == "write_access"
 
-    def test_an_unnarrowed_session_still_names_the_write_gateway(self, posture_store):
+    def test_an_unnarrowed_session_still_names_the_write_gateway(self, posture_root):
         """Stamped, with nothing in the store: the ceiling answers unchanged."""
         metadata = target_display_metadata(split_gateway_config())
 
         assert metadata["standin"]["endpoint"] == f"localhost:{STANDIN_WRITE_PORT}"
         assert metadata["standin"]["selected_role"] == "write_access"
 
-    def test_the_store_never_widens_a_deployment_that_arms_nothing(self, posture_store):
+    def test_the_store_never_widens_a_deployment_that_arms_nothing(self, posture_root):
         """Nothing a session holds can arm a target the deployment left unarmed."""
         metadata = target_display_metadata(split_gateway_config(writes_enabled=False))
 
         assert metadata["standin"]["endpoint"] == f"localhost:{STANDIN_PORT}"
         assert metadata["standin"]["selected_role"] == "read_only"
 
-    def test_an_injected_mapping_overrides_the_session(self, posture_store):
+    def test_an_injected_mapping_overrides_the_session(self, posture_root):
         """The caller that already resolved the posture is answered verbatim.
 
         Both directions, because a mapping that only ever agreed with the
         store would not prove it was consulted: it widens a narrowed session
         back to the ceiling, and narrows an unnarrowed one.
         """
-        narrow(posture_store, "standin")
+        narrow(posture_root, "standin")
         config = split_gateway_config()
 
         widened = target_display_metadata(config, effective_writes={"standin": True})
         assert widened["standin"]["endpoint"] == f"localhost:{STANDIN_WRITE_PORT}"
         assert widened["standin"]["selected_role"] == "write_access"
 
-        session_store.invalidate_cache()
+        posture_store.invalidate_cache()
         narrowed = target_display_metadata(config, effective_writes={"standin": False})
         assert narrowed["standin"]["endpoint"] == f"localhost:{STANDIN_PORT}"
         assert narrowed["standin"]["selected_role"] == "read_only"
 
-    def test_a_target_the_mapping_skips_falls_back_to_the_session(self, posture_store):
+    def test_a_target_the_mapping_skips_falls_back_to_the_session(self, posture_root):
         """A miss is not an answer of ``False``: the store still decides."""
-        narrow(posture_store, "standin")
+        narrow(posture_root, "standin")
 
         metadata = target_display_metadata(split_gateway_config(), effective_writes={"live": True})
 
         assert metadata["standin"]["selected_role"] == "read_only"
         assert metadata["live"]["selected_role"] == "write_access"
 
-    def test_the_label_is_unchanged_by_either_route(self, posture_store):
+    def test_the_label_is_unchanged_by_either_route(self, posture_root):
         """One identity, whichever posture the endpoint was rendered under."""
         config = split_gateway_config()
-        narrow(posture_store, "standin")
+        narrow(posture_root, "standin")
 
         from_store = target_display_metadata(config)
         injected = target_display_metadata(config, effective_writes={"standin": True})
@@ -1145,7 +1174,7 @@ class TestEndpointFollowsThePosture:
         assert injected["standin"]["label"] == "LIVE MACHINE (stand-in)"
         assert from_store["standin"]["endpoint"] != injected["standin"]["endpoint"]
 
-    def test_every_slot_carries_a_selected_role(self, posture_store):
+    def test_every_slot_carries_a_selected_role(self, posture_root):
         """In-memory slots always carry the key, ``""`` where it is underivable."""
         metadata = target_display_metadata(split_gateway_config())
 
@@ -1239,7 +1268,7 @@ class TestLimitsPostureRows:
             "archiver": {"type": REAL_ARCHIVER},
         }
 
-        rows = control_target.target_rows(raw, session_target="live", baseline="live")
+        rows = control_target.target_rows(raw, control_target="live", baseline="live")
 
         assert rows["live"]["endpoints"] == {}
         assert rows["live"]["limits_strict"] is True

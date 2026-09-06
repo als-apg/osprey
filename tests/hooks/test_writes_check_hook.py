@@ -2,17 +2,40 @@
 
 The hook refuses a write for either of two independent reasons, in order: the
 session's own sandbox posture (``OSPREY_EXECUTION_MODE``), and the deployment's
-write posture for the control-system target the session is pointed at. Read-only
-tools and readonly python always pass through, and so do Bluesky queue tools at
-the second stage, which a lane addresses rather than the session target.
+write posture for the control-system target the deployment is pointed at, read
+from the control-context record. Read-only tools and readonly python always pass
+through, and so do Bluesky queue tools at the second stage, which a lane
+addresses rather than the recorded target.
 """
 
 import json
-import os
 
 import pytest
 
 from osprey_connectors.types import session_posture, target_writes_enabled
+from tests._control_context_fixtures import write_control_context
+
+
+@pytest.fixture(autouse=True)
+def stamped_root(tmp_path, monkeypatch):
+    """Stamp the agent-data root for every test in this module.
+
+    ``osprey_target_state.posture_unknown`` refuses an UNSTAMPED process whose
+    derived directory holds no control-context record: an empty answer read from
+    a directory nobody handed over is not evidence that nothing was narrowed.
+    That refusal has its own suite (``test_writes_check_per_target``), and it
+    would otherwise answer every case here before the config was consulted at
+    all — turning tests about stage 1 and the deployment's own write posture
+    green for a reason their names do not claim.
+
+    A stamp is what a session the web terminal spawned actually carries, and
+    under it an absent record means exactly what it says. The record the posture
+    tests write lands under this same root.
+    """
+    root = tmp_path / "var" / "agent_data"
+    root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
+    return root
 
 
 @pytest.mark.unit
@@ -356,10 +379,10 @@ def test_posture_message_names_the_posture_not_writes_enabled(
     Mirror of ``test_readonly_refusal_message_does_not_blame_deployment`` on the
     connector side. A posture refusal that mentions ``writes_enabled`` sends the
     operator off to flip a config key that will not lift the refusal — the
-    session's own posture is the gate, and the control-target chip in the header
+    recorded posture is the gate, and the control-target chip in the header
     is where it moves.
 
-    Stage 1 names no target: the session-wide posture is answered from the
+    Stage 1 names no target: the deployment-wide posture is answered from the
     environment ahead of any config I/O, so the scope half of the message is
     empty here and pinned with a target by
     ``test_writes_check_per_target.py``.
@@ -382,7 +405,7 @@ def test_posture_message_names_the_posture_not_writes_enabled(
     assert "control-target chip in the header" in reason
     assert "terminal card" not in reason
     # The two sentences the operator needs, verbatim.
-    assert "this session refuses control-system writes." in reason
+    assert "this deployment refuses control-system writes." in reason
     assert (
         "Turn writes back on from the control-target chip in the header; "
         "config.yml is not the gate here." in reason
@@ -531,51 +554,31 @@ def test_posture_deny_survives_an_absent_config(tmp_path, hook_runner, monkeypat
 #
 # Write posture is a property of the machine a call would reach, not of the
 # deployment as a whole, so stage 2 asks `osprey_target_state` for the posture
-# of the target THIS session is pointed at. The rules it applies are the same
+# of the target THIS deployment is pointed at. The rules it applies are the same
 # ones `osprey_connectors.types.target_writes_enabled` applies on the framework
 # side, which is what the parity table below states literally: for every config
 # shape, the hook's decision is the resolver's answer for the same section and
 # the same target.
 
 
-def _state_dir(repo_root):
-    """The state directory the reader derives from a repo root."""
-    directory = repo_root / "var" / "agent_data" / "control_target"
-    directory.mkdir(parents=True, exist_ok=True)
-    return directory
+def _agent_data_root(repo_root):
+    """The agent-data root the hook DERIVES from *repo_root* when unstamped."""
+    return repo_root / "var" / "agent_data"
 
 
 def _write_session_state(repo_root, target):
-    """Write a state file this pytest process genuinely owns.
+    """Write the deployment's record where the hook will look for it.
 
-    ``owner_ppid`` is this process, which IS on the ancestor chain of the hook
-    subprocess ``hook_runner`` spawns, and ``server_pid`` is this process, which
-    is alive by definition — so the reader's real parentage and liveness rules
-    select this record without any seam being replaced.
+    The reader takes ``<repo_root>/var/agent_data`` when nothing stamps
+    ``OSPREY_AGENT_DATA_ROOT``, and the hook subprocess runs with *repo_root* as
+    its ``cwd`` — so the record lands exactly where the hook derives, and the
+    root anchor and the read are both exercised for real.
+
+    A record is also what lifts ``posture_unknown`` on an unstamped process, so
+    every posture test below that writes one is answering the deployment's
+    config rather than the fail-closed refusal.
     """
-    record = {
-        "target": target,
-        "generation": 3,
-        "server_pid": os.getpid(),
-        "owner_ppid": os.getpid(),
-        "targets": {
-            "live": {
-                "label": "Storage ring",
-                "endpoint": "pva://live-gw.example.org:5075",
-                "real_machine": True,
-                "probe_channel": "RING:BEAM:CURRENT",
-            },
-            "va": {
-                "label": "Virtual accelerator",
-                "endpoint": "pva://127.0.0.1:5074",
-                "real_machine": False,
-                "probe_channel": "VA:BEAM:CURRENT",
-            },
-        },
-        "children": [],
-    }
-    path = _state_dir(repo_root) / f"target_state_{os.getpid()}.json"
-    path.write_text(json.dumps(record), encoding="utf-8")
+    write_control_context(_agent_data_root(repo_root), target=target, generation=3)
 
 
 def _channel_write(tmp_path, hook_runner, config, **kwargs):
@@ -598,7 +601,7 @@ DISARMED_LIVE = {
     "connector": {"epics": {"writes_enabled": False}},
 }
 
-#: ``(section, session_target)`` for every config shape stage 2 must answer.
+#: ``(section, control_target)`` for every config shape stage 2 must answer.
 #: ``None`` as the target means no state file is written at all, so the session
 #: target is unidentifiable and the posture both targets agree on is the answer.
 POSTURE_SHAPES = [
@@ -814,7 +817,7 @@ def test_sandbox_posture_denies_a_queue_tool_on_an_armed_deployment(
     """Stage 1 covers every write call, arming tools included.
 
     Queue tools skip the per-target check because a lane addresses them, not the
-    session target — but that skip sits BEHIND the posture branch. A sandboxed
+    control target — but that skip sits BEHIND the posture branch. A sandboxed
     session that could still arm a Bluesky lane would be a sandbox in name only.
     """
     # Arrange
@@ -849,7 +852,7 @@ def test_queue_tools_skip_the_target_posture_check(tmp_path, hook_runner, make_c
 
     `channel_write` on this same config and this same session is denied (see the
     parity table); the queue tool is not, because the lane it binds to — and the
-    bridge that refuses for it — is not the session's target.
+    bridge that refuses for it — is not the recorded control target.
     """
     # Arrange
     config = make_config({"control_system": DISARMED_LIVE})

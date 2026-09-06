@@ -10,7 +10,7 @@ JSON-lines file per surface inside it. This page is the shape of that trail ---
 which file a decision lands in, what each field holds, who can read the files,
 and what the trail does not promise. For the policy that produces most of the
 refusals see :ref:`the protected set <config-protected-set>`; for the
-per-session, per-target posture that refuses control-system writes see
+per-target write posture that refuses control-system writes see
 :ref:`web-terminal-session-posture`.
 
 The zone is durable by construction: ``osprey build`` re-renders ``build/``
@@ -62,6 +62,14 @@ decided, so a gallery refusal and a config refusal never share a file.
    * - ``http_mutation.jsonl``, ``web_auth.jsonl``
      - Requests that changed something through a web API, and the 401s and 403s
        the login check itself refused
+   * - ``jupyter_lab.jsonl``
+     - Control-target and write-posture gestures made from the bar on the
+       JupyterLab page, which names no session --- the control context belongs
+       to the deployment, so the line joins on the deployment and the moment
+       rather than on an actor
+   * - ``notebook_kernel.jsonl``
+     - Control-system writes a notebook cell was refused --- a write posture, a
+       limit, a target that moved while the cell ran
    * - ``auth_sidecar.jsonl`` (under ``var/audit/sidecar/``)
      - Logins and login refusals, where a deployment has a login wall
 
@@ -99,16 +107,20 @@ and a refused control-system write alike. One JSON object per line:
    * - ``actor``
      - Who was acting, from the terminal login where there is one
    * - ``posture``
-     - The session's posture at the time, ``sandbox`` or ``writes``. The
+     - The write posture in force at the time, ``sandbox`` or ``writes``. The
        protected set is closed in both; this says what else was in force
    * - ``posture_source``
-     - How that posture was established --- ``spawn`` (fixed when the session
-       started), ``live`` (read from the session's setting at the time),
-       ``app`` (a web request, which belongs to no session), ``process`` (no
-       session posture at all, as in a CLI run). Never guessed from the
-       posture value
+     - Which surface stamped the record --- ``spawn`` (the operator websocket,
+       whose id is minted per connection), ``live`` (a session the posture
+       surface can address: a terminal's PTY pool key, or a chat id in the
+       bare-UUID grammar), ``app`` (a web request, which belongs to no
+       session), ``process`` (no marker at all, as in a CLI run). Never guessed
+       from the posture value
    * - ``session``
-     - The terminal session the posture belonged to, or ``null`` outside one
+     - The session the record is filed under --- a terminal or chat session,
+       ``kernel:<id>`` for a notebook kernel, or ``null`` where the emitter
+       names none. An identifier the trail joins on, and nothing more: the
+       write posture it describes belongs to the deployment
    * - ``subject``
      - What the decision was about: a dotted config key, a tool name, or the
        project-relative path when a whole file is the target
@@ -117,7 +129,7 @@ and a refused control-system write alike. One JSON object per line:
    * - ``reason``
      - Short machine-readable reason --- ``protected_key``, ``reserved path``,
        ``reserved path in ownership store``; a control-system write the
-       session posture refused reads ``posture`` on every surface (the hook,
+       write posture refused reads ``posture`` on every surface (the hook,
        the MCP server and the Python executor all spell it the same way). The
        login service has a vocabulary of its own --- see
        :ref:`audit-trail-login-refusals`

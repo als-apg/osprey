@@ -3,7 +3,7 @@
 Covers: summary mode, exact lookup (found/not-found/mixed), regex search,
 property filters, combined search+filter, parameter validation, limits-disabled,
 and the reported limits posture (tri-state allow_unlisted_channels plus the
-config key that answered, resolved for the session's control target).
+config key that answered, resolved for the deployment's control target).
 """
 
 from dataclasses import dataclass
@@ -108,17 +108,11 @@ def _make_validator(
     return validator
 
 
-def _patch_target(target: str | None = None, raises: bool = False):
-    """Patch the session control target the tool reads before building a validator."""
-    if raises:
-        return patch(
-            "osprey.mcp_server.control_system.tools.channel_limits.target_state.read",
-            side_effect=OSError("no shared data root"),
-        )
-    record = None if target is None else {"target": target, "generation": 3}
+def _unreadable_record():
+    """Make the record read raise, the way an unresolvable data root does."""
     return patch(
-        "osprey.mcp_server.control_system.tools.channel_limits.target_state.read",
-        return_value=record,
+        "osprey.mcp_server.control_system.tools.channel_limits.control_context.read_record",
+        side_effect=OSError("no shared data root"),
     )
 
 
@@ -247,14 +241,11 @@ async def test_lookup_not_found_allowed():
 
 
 @pytest.mark.unit
-async def test_summary_unset_reports_null_and_deployment_wide_key():
+async def test_summary_unset_reports_null_and_deployment_wide_key(control_context_root):
     """Deployment-wide key unset → the summary reports null, not a permissive default."""
-    with (
-        _patch_target(),
-        patch(
-            "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
-            return_value=_make_validator(allow_unlisted=None),
-        ),
+    with patch(
+        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        return_value=_make_validator(allow_unlisted=None),
     ):
         fn = _get_channel_limits()
         result = await fn()
@@ -266,14 +257,11 @@ async def test_summary_unset_reports_null_and_deployment_wide_key():
 
 
 @pytest.mark.unit
-async def test_lookup_unset_is_refused_naming_the_deployment_wide_key():
+async def test_lookup_unset_is_refused_naming_the_deployment_wide_key(control_context_root):
     """Unset is nobody's permission: the unlisted channel is refused, key named."""
-    with (
-        _patch_target(),
-        patch(
-            "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
-            return_value=_make_validator(allow_unlisted=None),
-        ),
+    with patch(
+        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        return_value=_make_validator(allow_unlisted=None),
     ):
         fn = _get_channel_limits()
         result = await fn(channels=["UNKNOWN:PV"])
@@ -288,15 +276,15 @@ async def test_lookup_unset_is_refused_naming_the_deployment_wide_key():
 
 
 @pytest.mark.unit
-async def test_posture_is_resolved_for_the_session_target():
-    """The tool asks for the posture of the target this server is on."""
-    with (
-        _patch_target("va"),
-        patch(
-            "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
-            return_value=_make_validator(allow_unlisted=True, allow_unlisted_key=VA_KEY),
-        ) as from_config,
-    ):
+async def test_posture_is_resolved_for_the_record_target(
+    control_context_root, write_control_context
+):
+    """The tool asks for the posture of the target the deployment's record names."""
+    write_control_context(control_context_root, target="va")
+    with patch(
+        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        return_value=_make_validator(allow_unlisted=True, allow_unlisted_key=VA_KEY),
+    ) as from_config:
         fn = _get_channel_limits()
         result = await fn(channels=["UNKNOWN:PV"])
 
@@ -309,14 +297,12 @@ async def test_posture_is_resolved_for_the_session_target():
 
 
 @pytest.mark.unit
-async def test_summary_reports_the_per_target_key():
+async def test_summary_reports_the_per_target_key(control_context_root, write_control_context):
     """A per-type block answers: the summary names that key, not the deployment-wide one."""
-    with (
-        _patch_target("va"),
-        patch(
-            "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
-            return_value=_make_validator(allow_unlisted=True, allow_unlisted_key=VA_KEY),
-        ),
+    write_control_context(control_context_root, target="va")
+    with patch(
+        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        return_value=_make_validator(allow_unlisted=True, allow_unlisted_key=VA_KEY),
     ):
         fn = _get_channel_limits()
         result = await fn()
@@ -326,10 +312,39 @@ async def test_summary_reports_the_per_target_key():
 
 
 @pytest.mark.unit
-async def test_unreadable_target_state_falls_back_to_the_deployment_wide_block():
-    """An unreadable state directory is not fatal: no target → deployment-wide posture."""
+async def test_a_record_on_va_answers_the_va_block_not_the_deployment_wide_one(
+    control_context_root, write_control_context
+):
+    """A deployment switched to ``va`` gets the ``va`` limits block.
+
+    The tool used to read a controls-server report, which carries no target at
+    all, so every deployment answered deployment-wide no matter what it was
+    pointed at. Reading the record is what makes the two answers different.
+    """
+
+    def _block_for(*, target=None):
+        return _make_validator(
+            allow_unlisted=True,
+            allow_unlisted_key=VA_KEY if target == "va" else DEPLOYMENT_WIDE_KEY,
+        )
+
+    write_control_context(control_context_root, target="va")
+    with patch(
+        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        side_effect=_block_for,
+    ):
+        fn = _get_channel_limits()
+        result = await fn()
+
+    policy = extract_response_dict(result)["access_details"]["policy"]
+    assert policy["allow_unlisted_key"] == VA_KEY
+
+
+@pytest.mark.unit
+async def test_an_unreadable_record_falls_back_to_the_deployment_wide_block():
+    """An unreadable record is not fatal: no target → deployment-wide posture."""
     with (
-        _patch_target(raises=True),
+        _unreadable_record(),
         patch(
             "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
             return_value=_make_validator(),
@@ -343,16 +358,16 @@ async def test_unreadable_target_state_falls_back_to_the_deployment_wide_block()
 
 
 @pytest.mark.unit
-async def test_hand_built_policy_without_a_key_names_the_deployment_wide_one():
+async def test_hand_built_policy_without_a_key_names_the_deployment_wide_one(
+    control_context_root, write_control_context
+):
     """A validator built from a bare policy dict carries no key; report the honest default."""
     validator = _make_validator(allow_unlisted=False)
     del validator.policy["allow_unlisted_key"]
-    with (
-        _patch_target("live"),
-        patch(
-            "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
-            return_value=validator,
-        ),
+    write_control_context(control_context_root, target="live")
+    with patch(
+        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        return_value=validator,
     ):
         fn = _get_channel_limits()
         result = await fn(channels=["UNKNOWN:PV"])

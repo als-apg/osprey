@@ -13,7 +13,7 @@ the answer, and the disagreement is a bypass rather than a discrepancy — see
 
 :func:`resolve_target` extends that to the run-time question "which machine is
 this session pointed at". It is the same shape of answer for the same reason:
-several holders follow a session target — the connector-host process, its child,
+several holders follow a control target — the connector-host process, its child,
 an executor sandbox — and a holder that translates ``live`` into a connector type
 privately can route a tool call somewhere the roster never claimed. A target
 names a *machine*, and there are three of them: the facility's own control
@@ -83,8 +83,8 @@ CLI_ARCHIVER_TYPES = [MOCK_ARCHIVER, EPICS_ARCHIVER, MONGODB_ARCHIVER, DOOCS_ARC
 #: accepts and another, narrower one for what ``init`` will materialize.
 SET_CONTROL_SYSTEM_TYPES = [*CLI_CONTROL_SYSTEM_TYPES, LIVE_STANDIN]
 
-# -- Session targets --
-# What a *session* can be pointed at, as opposed to what a *config* selects.
+# -- Control targets --
+# What a *deployment* can be pointed at, as opposed to what a *config* selects.
 # Deliberately three names and not one per connector type: a target names a
 # machine (the facility's own, the virtual accelerator, the stand-in soft IOC),
 # and which connector type reaches that machine is this module's job to answer,
@@ -198,7 +198,7 @@ def resolve_target(section: Any, target: Any) -> str:
     Args:
         section: The ``control_system:`` config section, in the same shape
             :func:`resolve_control_system_type` takes.
-        target: The session target, one of :data:`CONTROL_TARGETS`. An argument,
+        target: The control target, one of :data:`CONTROL_TARGETS`. An argument,
             never read from the environment, and never defaulted.
 
     Returns:
@@ -218,7 +218,7 @@ def resolve_target(section: Any, target: Any) -> str:
     raise ValueError(
         f"Unknown control target {target!r}. Valid targets are "
         f"{TARGET_LIVE!r}, {TARGET_VA!r} and {TARGET_STANDIN!r}, spelled "
-        "exactly. A session target is always stated, never defaulted — there is "
+        "exactly. A control target is always stated, never defaulted — there is "
         "no target a caller gets by saying nothing, because the one it would "
         "get could be the real machine."
     )
@@ -318,7 +318,7 @@ def target_configured(section: Any, target: Any) -> bool:
     Args:
         section: The ``control_system:`` config section, in the same shape
             :func:`resolve_control_system_type` takes.
-        target: The session target being asked about.
+        target: The control target being asked about.
 
     Returns:
         Whether the target resolves and its block is a non-empty mapping. Never
@@ -399,7 +399,7 @@ def type_writes_enabled(section: Any, connector_type: str) -> bool:
       ``writes_enabled:``, the quoted string ``'true'``, ``1``. Unarmed is the
       reading that costs an operator a config edit rather than a machine.
 
-    Keyed by type rather than by session target because that is the identity
+    Keyed by type rather than by control target because that is the identity
     most holders have: a connector, the factory that builds it, an IPC child, a
     queueserver stamp all know which connector type they are and never which
     target selected it. :func:`target_writes_enabled` is this same answer for
@@ -434,7 +434,7 @@ def target_writes_enabled(section: Any, target: Any) -> bool:
     """Whether a deployment arms writes for one session *target*.
 
     :func:`type_writes_enabled` for the type that target resolves to, so a
-    holder following the session target and a connector that knows only its own
+    holder following the control target and a connector that knows only its own
     type read one posture and not two.
 
     A target that does not resolve answers :data:`WRITES_ENABLED_KEY` instead.
@@ -448,7 +448,7 @@ def target_writes_enabled(section: Any, target: Any) -> bool:
 
     Args:
         section: The ``control_system:`` config section.
-        target: The session target, one of :data:`CONTROL_TARGETS`.
+        target: The control target, one of :data:`CONTROL_TARGETS`.
 
     Returns:
         ``True`` only when writes are armed for that target. Never raises.
@@ -708,7 +708,7 @@ def type_limits_posture(section: Any, connector_type: str | None) -> LimitsPostu
     the build refusal's too (:func:`incomplete_limits_blocks`), so a config the
     build accepts and one the runtime enforces cannot come apart.
 
-    Keyed by type rather than by session target for the reason
+    Keyed by type rather than by control target for the reason
     :func:`type_writes_enabled` is: a connector, the factory that builds it, an
     IPC child all know which connector type they are and never which target
     selected it. :func:`target_limits_posture` is this same answer for the
@@ -747,7 +747,7 @@ def target_limits_posture(section: Any, target: Any) -> LimitsPosture:
     """The limits posture one session *target* runs under.
 
     :func:`type_limits_posture` for the type that target resolves to, so a
-    holder following the session target and the connector that knows only its
+    holder following the control target and the connector that knows only its
     own type read one posture and not two. The roster row, the stdlib hook, the
     executor and the tool layer all arrive here; the connector, the factory and
     the IPC child arrive at :func:`type_limits_posture` — and a deployment that
@@ -768,7 +768,7 @@ def target_limits_posture(section: Any, target: Any) -> LimitsPosture:
     Args:
         section: The ``control_system:`` config section, in the same shape
             :func:`resolve_control_system_type` takes.
-        target: The session target, one of :data:`CONTROL_TARGETS`.
+        target: The control target, one of :data:`CONTROL_TARGETS`.
 
     Returns:
         The resolved :class:`LimitsPosture` for that target, carrying the type
@@ -787,7 +787,7 @@ def most_restrictive_limits_posture(section: Any) -> LimitsPosture:
     """The limits posture that holds across every target a session here can select.
 
     What a caller with no target of its own has to assume. The stdlib hook is
-    the one that needs it: when the session's control target cannot be read —
+    the one that needs it: when the deployment's control target cannot be read —
     no state written yet, an unreadable state directory, a target that resolves
     to nothing — it still has to decide about a write, and the machine it is
     deciding about is any of the reachable ones.

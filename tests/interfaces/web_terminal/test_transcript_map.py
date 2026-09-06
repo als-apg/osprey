@@ -9,8 +9,8 @@ properties are pinned here:
 * **A move survives a restart.** The point of persisting at all: a recreated
   container that answered the key would silently resume the wrong (empty)
   conversation and read as a session that lost its history.
-* **The file sits beside the posture store**, under the same one path rule, so
-  a deployment that resolves one of the two resolves both.
+* **The file sits beside the control-context record**, under the same one path
+  rule, so a deployment that resolves one of the two resolves both.
 * **A map with no location still answers.** An unresolvable agent-data root
   costs durability, never a working view flip.
 """
@@ -24,7 +24,7 @@ from types import SimpleNamespace
 import pytest
 
 from osprey.interfaces.web_terminal import transcript_map
-from osprey_connectors import session_store
+from osprey_connectors import control_context, posture_store
 
 # A session key: the bare UUID one browser tab keeps for its whole life.
 KEY = "aaaaaaaa-1111-2222-3333-444444444444"
@@ -49,20 +49,20 @@ def shared_root(tmp_path, monkeypatch):
     """
     root = tmp_path / "shared_agent_data"
     root.mkdir()
-    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    session_store.invalidate_cache()
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    posture_store.invalidate_cache()
     yield root
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
 
 
 @pytest.fixture
 def unresolvable_root(monkeypatch):
     """No stamp and no config derivation: a map with nowhere to write."""
-    monkeypatch.delenv(session_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
-    monkeypatch.setattr(session_store, "resolve_shared_data_root", _raise_no_root)
-    session_store.invalidate_cache()
+    monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.setattr(posture_store, "resolve_shared_data_root", _raise_no_root)
+    posture_store.invalidate_cache()
     yield
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
 
 
 def _raise_no_root() -> Path:
@@ -139,11 +139,18 @@ class TestAMoveSurvivesARestart:
         assert transcript_map.get(restarted, KEY) == second
 
 
-class TestTheFileSitsBesideThePostureStore:
-    def test_the_path_is_the_posture_store_s_directory(self, shared_root):
-        posture_store = session_store.store_path()
+class TestTheFileSitsBesideTheRecord:
+    def test_the_path_is_the_records_directory(self, shared_root):
+        """One ``control_target/`` directory holds both files.
 
-        assert transcript_map.store_path() == posture_store.parent / "session-transcripts.json"
+        The map resolves through ``posture_store.state_dir`` and the record
+        through ``control_context.record_path``; pinning them equal is what
+        keeps the two derivations from parting company on a deployment that
+        moves ``agent_data.base_dir``.
+        """
+        record = control_context.record_path()
+
+        assert transcript_map.store_path() == record.parent / "session-transcripts.json"
 
     def test_the_document_is_key_to_transcript_id(self, shared_root):
         transcript_map.set(_app(), KEY, TRANSCRIPT)
@@ -190,7 +197,7 @@ class TestAMapWithNoLocationStillAnswers:
 
         root = tmp_path / "recovered"
         root.mkdir()
-        monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-        session_store.invalidate_cache()
+        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+        posture_store.invalidate_cache()
 
         assert transcript_map.get(app, KEY) == TRANSCRIPT

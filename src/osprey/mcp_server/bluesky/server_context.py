@@ -16,7 +16,7 @@ alongside the ``UNKNOWN_RUN_HINTS`` helper.
 
 A deployment with two PLAN LANES has two bridges, and every primitive here
 takes an optional ``lane`` naming which one a request is addressed to. Omitted,
-it means the lane serving the target this SESSION is on — so a read, a draft
+it means the lane serving the target this DEPLOYMENT is on — so a read, a draft
 edit or a halt follows a session switch without each tool restating the rule,
 while the two operations that put hardware in motion (``queue_add``,
 ``queue_start``) name their lane explicitly and bind the queue item to it. On a
@@ -100,8 +100,8 @@ class BridgeContext:
     did — and any further lane is resolved on first use and cached beside them.
     Caching is correct because both halves are render-time facts: which bridge a
     lane is and which token arms it are fixed when the deployment was built. The
-    SESSION's target is not cached anywhere, because that is the one thing that
-    moves at run time.
+    DEPLOYMENT's target is not cached anywhere, because that is the one thing
+    that moves at run time.
     """
 
     def __init__(self) -> None:
@@ -151,8 +151,8 @@ class BridgeContext:
         what it was before lanes existed.
 
         ``None`` in, on a two-lane deployment, resolves the lane serving the
-        SESSION's target, so every tool that names no lane follows the session
-        rather than pinning itself to lane 1. When no single lane serves it (a
+        DEPLOYMENT's target, so every tool that names no lane follows the
+        record rather than pinning itself to lane 1. When no single lane serves it (a
         misrendered pair), reads still have to answer something, and lane 1 —
         the deployment baseline's lane — is that answer; it is logged at WARNING
         rather than taken silently, because a read answered from a lane nobody
@@ -168,7 +168,7 @@ class BridgeContext:
         active = resolve_lane_situation().active
         if active is None:
             logger.warning(
-                "No Bluesky plan lane serves this session's control target; answering "
+                "No Bluesky plan lane serves the deployment's control target; answering "
                 "reads from lane %r. The rendered lanes (%s) do not cover it — that is a "
                 "deployment misrender, not a session problem.",
                 LANE_ONE,
@@ -280,8 +280,8 @@ def _request_json(
     ``lane`` names which PLAN LANE the request is addressed to. Omitted — which
     is every call site that has no lane of its own — it means the ACTIVE lane:
     on a single-lane deployment the only bridge there is, and on a two-lane one
-    the bridge serving the target this session is pointed at. That default is
-    what makes every read, draft edit and halt follow a session switch without
+    the bridge serving the target this deployment is pointed at. That default is
+    what makes every read, draft edit and halt follow a target switch without
     each tool restating the rule.
 
     ``timeout`` overrides :data:`_TIMEOUT` for one call. It exists for the

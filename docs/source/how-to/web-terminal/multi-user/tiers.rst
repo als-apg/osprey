@@ -187,8 +187,8 @@ read-only tier.
         - ask
       * - ``mcp__python__execute``
         - read-only kernel only
-        - both kernels, but a read-write run is refused while the session is
-          on the live machine
+        - both kernels, but a read-write run is refused while the deployment
+          is on the live machine
         - both kernels
         - both kernels
         - both kernels

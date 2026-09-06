@@ -34,7 +34,7 @@ whose kwargs are::
 
     {
       "control_system": {...},          # the full control_system config section
-      "target": "live" | "va",          # the session target, never defaulted
+      "target": "live" | "va",          # the control target, never defaulted
       "config_file": "/abs/config.yml", # optional: what CONFIG_FILE to read
       "execution_mode": "readonly"      # optional: restrict this child to reads
     }
@@ -332,7 +332,7 @@ def _writes_enabled_input(connector_type: str) -> bool:
     report no longer treats it as such. The connector's own
     ``_writes_enabled`` ANDs two live terms with this one — the run mode, and
     the operator's narrowing for the control target this child was stamped
-    with, read from the per-(session, target) posture store — and that property
+    with, read from the deployment's control-context record — and that property
     is the value the selection was made with, so that property is what
     :func:`_selection_writes_enabled` reads for the report. Re-deriving the
     deployment half here and reporting it as the selection input is exactly the
@@ -521,7 +521,7 @@ async def _build_connector(payload: dict[str, Any]) -> tuple[Any, dict[str, Any]
     config = {**section, "type": connector_type}
     # The target the parent pointed this child at — already validated by
     # resolve_target above, which refuses anything that is not one of the three
-    # literals — is what indexes the session posture store the reference monitor
+    # literals — is what indexes the per-target narrowing the reference monitor
     # reads. This child serves exactly one target, so the stamp is the payload's.
     connector = await ConnectorFactory.create_control_system_connector(
         config, control_target=target

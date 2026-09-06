@@ -1,6 +1,6 @@
 """Real-container lifecycle of the JUPYTER panel: a kernel that follows the terminal.
 
-The unit tests pin the kernel launcher's stamps against a synthetic binding,
+The unit tests pin the kernel's per-cell stamps against a synthetic record,
 and the proxy integration test pins the panel's HTTP and websocket legs against
 a sidecar started by hand. Neither can answer the question this file exists
 for: inside a deployed persona container, with a real terminal session, a real
@@ -15,8 +15,8 @@ and inherits the preset's panel set — which is what selects the JUPYTER
 panel. The control system is the virtual accelerator, baselined as the ``va``
 target, with the live stand-in deployed beside it as the ``standin`` target: a
 switch needs two targets, and the mock connector cannot be one — its baseline
-is ``live``, which a mock deployment cannot resolve, so a kernel bound to a
-mock session would always run fail-closed and never carry a target stamp.
+is ``live``, which a mock deployment cannot resolve, so a kernel on a
+mock deployment would always run fail-closed and never carry a target stamp.
 
 Everything is reached at the per-user web port directly, carrying the operator
 secret as the header nginx injects in the container shape (``token`` posture
@@ -27,25 +27,31 @@ the proxy that re-issues the sidecar's credential.
 
 WHAT IS ASSERTED, IN ORDER
 --------------------------
-The order is load-bearing: the first kernel must start before any terminal
-session exists, and the restart must come last.
+The order is load-bearing: the narrowing in 3 has to be in place before the
+switch in 4 moves off the target it narrowed, and the down/up must come last.
 
 1. The starter notebook is listed on first open, and only the ``osprey``
    kernelspec exists.
-2. A kernel started with NO chat session reads a channel, and refuses a write
-   with the open-a-session line and one audit record.
-3. Attaching a terminal binds the session, and the controls server publishes
-   the session's target.
-4. A kernel started while the session's writes were off reads, and refuses a
-   write with the executor's text plus the turn-writes-on line and exactly one
-   audit record on the ``notebook_kernel`` surface.
-5. After a chip target switch the same kernel's next write raises
-   ``ControlTargetChangedError`` with the restart line; a restarted kernel
-   follows the new target.
-6. ``NotebookEdit`` under ``notebooks/`` is allowed by the rendered settings and
+2. Attaching a terminal yields a session id, and the deployment's
+   control-context record — owned by the web terminal — names the target the
+   posture route reports.
+3. A cell run while writes are off for that target reads, and refuses a write
+   with the connector's text plus the turn-writes-on line and exactly one audit
+   record on the ``notebook_kernel`` surface, filed under the KERNEL's own
+   audit session.
+4. After a chip target switch the SAME kernel's next cell comes up on the new
+   target and writes there. Nothing is restarted: a kernel re-routes itself
+   from the record before every cell, which is the one thing that separates it
+   from an executor sandbox.
+5. ``NotebookEdit`` under ``notebooks/`` is allowed by the rendered settings and
    the guard hook and badges the panel; outside it is denied.
-7. The sidecar's runtime directory is not under the agent-data root.
-8. Notebooks survive ``osprey down && osprey up``; kernels do not.
+6. The sidecar's runtime directory is not under the agent-data root.
+7. Notebooks survive ``osprey down && osprey up``; kernels do not.
+
+The refusal a switch DOES produce in a notebook — ``ControlTargetChangedError``
+and its re-run-the-cell line, for a switch that lands while a cell is already
+running — is not reachable from here without racing the switch against a cell,
+so it stays pinned in ``tests/runtime/test_jupyter_kernel.py``.
 
 CONTAINER-OPS SAFETY: every runtime-mutating call below names an EXACT resource
 this test created — the ``<prefix>-*`` containers, this project's volumes and
@@ -122,14 +128,15 @@ SURVIVOR_NOTEBOOK = "e2e-survives.ipynb"
 #: A readback the virtual accelerator always serves.
 CHANNEL = "SR:DIAG:DCCT:01:CURRENT:RB"
 
-#: The three hint lines the kernel prints before a refusal's traceback.
-HINT_NO_SESSION = (
-    "No chat session was open when this kernel started. Open one, then restart the kernel."
-)
+#: The hint line the kernel prints before a writes-off refusal's traceback. It
+#: is about the CELL rather than the kernel: a kernel re-routes itself from the
+#: deployment's control-context record before every cell, so the way out is to
+#: run the cell again, never to restart the process. Re-spelled here rather
+#: than imported, because the wording IS the contract — it is the line an
+#: operator reads and acts on.
 HINT_WRITES_OFF = (
-    "This kernel started with writes off. Turn writes on from the chip, then restart the kernel."
+    "Writes are off for this cell. Turn writes on from the chip, then re-run the cell."
 )
-HINT_TARGET_CHANGED = "The session's control target changed. Restart the kernel to follow it."
 
 #: The audit surface a cell's refusals file under, and the ledger it lands in.
 SURFACE = "notebook_kernel"
@@ -143,7 +150,7 @@ READY_TIMEOUT_SEC = 300.0
 #: framework runtime, which is the slow one.
 CELL_TIMEOUT_SEC = 240.0
 #: How long the controls server inside a fresh ``claude`` gets to publish.
-SESSION_TARGET_TIMEOUT_SEC = 240.0
+CONTROL_TARGET_TIMEOUT_SEC = 240.0
 SWITCH_TIMEOUT_SEC = 120.0
 
 _ENV_APPEND = "ANTHROPIC_API_KEY=fake-llm-key-value\nZO_INGEST_SA_TOKEN=fake-telemetry-token\n"
@@ -224,19 +231,40 @@ def _process_env(pid: int) -> dict[str, str]:
     return dict(item.split("=", 1) for item in result.stdout.decode().split("\0") if "=" in item)
 
 
-def _state_records(agent_data_root: str) -> list[dict[str, Any]]:
-    """Every control-target state record under the container's agent-data root."""
-    listing = _exec("sh", "-c", f"cat {agent_data_root}/control_target/target_state_*.json")
+def _agent_pid() -> int:
+    """The PID of the ``claude`` process the terminal launched, inside the container.
+
+    There is no per-session binding file naming it any more, so it is found the
+    way the sidecar's PID is: by looking. The environment is the discriminator
+    rather than the command name — ``OSPREY_PANEL_TOKEN`` is stamped onto the
+    agent the terminal spawns and onto nothing else in this container — so a
+    wrapper script or a renamed binary does not break the lookup.
+    """
+    script = (
+        "for d in /proc/[0-9]*; do "
+        "if grep -qz '^OSPREY_PANEL_TOKEN=' $d/environ 2>/dev/null; then "
+        "basename $d; fi; done"
+    )
+    pids = _exec_text("sh", "-c", script).split()
+    assert pids, "no process in the container carries OSPREY_PANEL_TOKEN"
+    return int(pids[0])
+
+
+def _control_context(agent_data_root: str) -> dict[str, Any] | None:
+    """The deployment's control-context record, or ``None`` if there is none yet.
+
+    One record per deployment, so there is nothing to match and nothing to
+    choose between: this is the file the kernel, the chip, the hooks and the
+    controls servers all read to learn which machine the deployment is on.
+    """
+    listing = _exec("sh", "-c", f"cat {agent_data_root}/control_target/control_context.json")
     if listing.returncode != 0:
-        return []
-    decoder = json.JSONDecoder()
-    records: list[dict[str, Any]] = []
-    text = listing.stdout.strip()
-    while text:
-        record, end = decoder.raw_decode(text)
-        records.append(record)
-        text = text[end:].strip()
-    return records
+        return None
+    try:
+        record = json.loads(listing.stdout)
+    except json.JSONDecodeError:
+        return None
+    return record if isinstance(record, dict) else None
 
 
 # ---------------------------------------------------------------------------
@@ -690,47 +718,12 @@ def test_the_starter_notebook_is_present_on_first_open(terminal: Terminal) -> No
 
 
 # ---------------------------------------------------------------------------
-# 2. No chat session
+# 2. A terminal session, and the record the deployment is pointed at
 # ---------------------------------------------------------------------------
 
 
-def test_a_kernel_with_no_chat_session_reads_and_refuses_writes(terminal: Terminal) -> None:
-    """Started before any terminal attached: no binding, fail-closed pin, reads route to the baseline."""
-    assert terminal.get(f"{PANEL}/api/kernels").json() == []
-    session = terminal.start_notebook_session(STARTER_NOTEBOOK)
-    kernel_id = session["kernel"]["id"]
-    channel_session = uuid.uuid4().hex
-    records_before = len(terminal.ledger())
-    try:
-        with terminal.kernel_channels(kernel_id, channel_session) as socket:
-            stamps = _stamps(socket, channel_session)
-            assert "JUPYTER_TOKEN" not in stamps
-            assert stamps.get("OSPREY_LAUNCH_POSTURE") == "*=sandbox", stamps
-            assert "OSPREY_CONTROL_TARGET" not in stamps, stamps
-
-            assert _read_value(socket, channel_session) == pytest.approx(500.0, abs=50.0)
-
-            refused = _run_cell(socket, WRITE_CELL, channel_session)
-            assert refused.error_name == "ChannelWriteBlockedError", refused
-            assert f"Write to '{CHANNEL}' blocked" in refused.error_value, refused.error_value
-            assert HINT_NO_SESSION in refused.stdout, refused.stdout
-    finally:
-        terminal.delete(f"{PANEL}/api/sessions/{session['id']}")
-
-    new_records = terminal.ledger()[records_before:]
-    assert len(new_records) == 1, new_records
-    assert new_records[0]["surface"] == SURFACE
-    assert new_records[0]["decision"] == "refused"
-    assert new_records[0]["reason"] == "channel_write_blocked"
-
-
-# ---------------------------------------------------------------------------
-# 3. A terminal session binds the kernel launcher
-# ---------------------------------------------------------------------------
-
-
-def test_attaching_a_terminal_binds_the_session(terminal: Terminal) -> None:
-    """The attach writes the binding; the controls server inside the session publishes its target."""
+def test_attaching_a_terminal_finds_the_deployments_target(terminal: Terminal) -> None:
+    """The attach yields a session id; the deployment's record names its target."""
     with ws_connect(
         f"{WS_URL}/ws/terminal?mode=new",
         additional_headers=terminal.headers,
@@ -747,43 +740,46 @@ def test_attaching_a_terminal_binds_the_session(terminal: Terminal) -> None:
     assert terminal.session_id, "the terminal never sent session_info"
 
     assert terminal.agent_data_root
-    binding = json.loads(
-        _exec_text("cat", f"{terminal.agent_data_root}/jupyter/session-binding.json")
-    )
-    assert binding["session_id"] == terminal.session_id, binding
-    assert binding["agent_data_root"] == terminal.agent_data_root, binding
-    assert isinstance(binding["pty_pid"], int) and binding["pty_pid"] > 0, binding
-    terminal.pty_pid = binding["pty_pid"]
-
-    # The published record is the evidence: ``session_target`` on the posture
-    # route answers the deployment baseline until the controls server inside
-    # the fresh ``claude`` has written its state file, so a target read off the
-    # route says nothing about whether a switch could be asked for yet.
-    deadline = time.monotonic() + SESSION_TARGET_TIMEOUT_SEC
+    # There is no per-session binding to read any more, and nothing to match on:
+    # one record describes the whole deployment, the web terminal owns it while
+    # it is running, and every surface below reads that one file. The wait is
+    # for the record to EXIST — the terminal claims it on startup — not for a
+    # particular process to have published anything about itself.
+    deadline = time.monotonic() + CONTROL_TARGET_TIMEOUT_SEC
     record: dict[str, Any] | None = None
     while record is None and time.monotonic() < deadline:
-        for entry in _state_records(terminal.agent_data_root):
-            if entry.get("owner_ppid") == terminal.pty_pid:
-                record = entry
+        record = _control_context(terminal.agent_data_root)
         if record is None:
             time.sleep(2.0)
     assert record is not None, (
-        f"no controls server published a state record for pid {terminal.pty_pid} within "
-        f"{SESSION_TARGET_TIMEOUT_SEC:.0f}s\n{_logs(_web_container())}"
+        f"no control-context record appeared under {terminal.agent_data_root} within "
+        f"{CONTROL_TARGET_TIMEOUT_SEC:.0f}s\n{_logs(_web_container())}"
     )
+    owner = record.get("owner") or {}
+    assert owner.get("kind") == "web_terminal", record
+    # Kept for the hook scenario below, which reads the agent's own environment.
+    terminal.pty_pid = _agent_pid()
     terminal.first_target = record["target"]
     assert terminal.first_target in ("va", "standin"), record
-    assert terminal.posture()["session_target"] == terminal.first_target
+    assert terminal.posture()["control_target"] == terminal.first_target
 
 
 # ---------------------------------------------------------------------------
-# 4. Writes off at launch
+# 3. Writes off for the target the deployment is on
 # ---------------------------------------------------------------------------
 
 
-def test_a_sandbox_pinned_kernel_refuses_writes_with_the_turn_writes_on_line(
+def test_a_sandboxed_cell_refuses_writes_with_the_turn_writes_on_line(
     terminal: Terminal,
 ) -> None:
+    """The narrowing is per target and the pin is per cell.
+
+    The chip narrows the target the deployment is on; the kernel re-reads the
+    record before this cell and stamps the launch pin from it, so the refusal
+    is the cell's rather than the kernel process's. The audit session is the
+    kernel's own — a notebook cell files under the kernel that ran it, which is
+    what makes a cell's refusal attributable when several kernels are open.
+    """
     assert terminal.session_id and terminal.first_target
     target = terminal.first_target
     narrowed = terminal.post(
@@ -800,7 +796,7 @@ def test_a_sandbox_pinned_kernel_refuses_writes_with_the_turn_writes_on_line(
     records_before = len(terminal.ledger())
     with terminal.kernel_channels(terminal.kernel_id, channel_session) as socket:
         stamps = _stamps(socket, channel_session)
-        assert stamps.get("OSPREY_POSTURE_SESSION") == terminal.session_id, stamps
+        assert stamps.get("OSPREY_POSTURE_SESSION") == f"kernel:{terminal.kernel_id}", stamps
         assert stamps.get("OSPREY_CONTROL_TARGET") == target, stamps
         assert stamps.get("OSPREY_LAUNCH_POSTURE") == f"{target}=sandbox", stamps
 
@@ -810,7 +806,7 @@ def test_a_sandbox_pinned_kernel_refuses_writes_with_the_turn_writes_on_line(
         assert refused.error_name == "ChannelWriteBlockedError", refused
         assert (
             f"Write to '{CHANNEL}' blocked: this run launched while writes were off for "
-            f"'{target}' in this session" in refused.error_value
+            f"'{target}'; a write state set since applies to the next run" in refused.error_value
         ), refused.error_value
         assert HINT_WRITES_OFF in refused.stdout, refused.stdout
 
@@ -820,17 +816,30 @@ def test_a_sandbox_pinned_kernel_refuses_writes_with_the_turn_writes_on_line(
     assert record["surface"] == SURFACE
     assert record["decision"] == "refused"
     assert record["reason"] == "channel_write_blocked"
-    assert record["session"] == terminal.session_id
+    assert record["session"] == f"kernel:{terminal.kernel_id}"
     assert record["subject"] == "notebook_cell"
     assert record["detail"] == f"channel={CHANNEL}"
 
 
 # ---------------------------------------------------------------------------
-# 5. A chip target switch
+# 4. A chip target switch
 # ---------------------------------------------------------------------------
 
 
-def test_a_target_switch_is_refused_until_the_kernel_restarts(terminal: Terminal) -> None:
+def test_the_next_cell_follows_a_chip_target_switch(terminal: Terminal) -> None:
+    """No restart: the kernel re-routes itself from the record before each cell.
+
+    A sandbox process is stamped once and never re-pointed, so a switch under
+    it costs the run its writes. A notebook kernel is the one process that
+    outlives a switch, and it is the one exception: ``pre_run_cell`` rewrites
+    every routing name from the deployment's control-context record, so the
+    very next cell comes up on the new machine with the new generation and the
+    write posture recorded for it.
+
+    Both halves are asserted, because only together do they say the kernel
+    FOLLOWED rather than merely survived: the stamp the cell carries names the
+    new target, and a write through it is no longer refused for the old one.
+    """
     assert terminal.session_id and terminal.first_target and terminal.kernel_id
     other = "standin" if terminal.first_target == "va" else "va"
     switched = terminal.post(
@@ -840,59 +849,35 @@ def test_a_target_switch_is_refused_until_the_kernel_restarts(terminal: Terminal
 
     deadline = time.monotonic() + SWITCH_TIMEOUT_SEC
     posture = terminal.posture()
-    while posture.get("session_target") != other and time.monotonic() < deadline:
+    while posture.get("control_target") != other and time.monotonic() < deadline:
         time.sleep(1.0)
         posture = terminal.posture()
-    assert posture.get("session_target") == other, (
+    assert posture.get("control_target") == other, (
         f"the session never moved to {other!r}: {posture.get('last_switch')}"
     )
 
-    records_before = len(terminal.ledger())
     channel_session = uuid.uuid4().hex
     try:
         with terminal.kernel_channels(terminal.kernel_id, channel_session) as socket:
-            refused = _run_cell(socket, WRITE_CELL, channel_session)
-            assert refused.error_name == "ControlTargetChangedError", refused
-            assert "Refusing to write: this execution was started against control target" in (
-                refused.error_value
-            ), refused.error_value
-            assert HINT_TARGET_CHANGED in refused.stdout, refused.stdout
+            followed = _run_ok(
+                socket,
+                'import os\nprint(os.environ["OSPREY_CONTROL_TARGET"])\n',
+                channel_session,
+            )
+            assert followed.strip() == other, followed
 
-        new_records = terminal.ledger()[records_before:]
-        assert len(new_records) == 1, new_records
-        assert new_records[0]["reason"] == "control_target_changed"
-        assert new_records[0]["surface"] == SURFACE
-
-        restarted = terminal.post(f"{PANEL}/api/kernels/{terminal.kernel_id}/restart")
-        # A 200 here means a process was spawned, not that it came up: the
-        # handler writes the model without awaiting the future that resolves on
-        # the restarted kernel's ``kernel_info_reply``. Nor does the websocket
-        # handshake below settle it — the server caches the kernel-info future
-        # on the kernel manager and never invalidates it on restart, so a
-        # reconnect resolves instantly against the kernel that just went away.
-        # The REST model is the one reading of kernel liveness that no proxy
-        # and no cache sits in front of, so it is what the failure quotes.
-        assert restarted.status_code == 200, restarted.text
-        channel_session = uuid.uuid4().hex
-        try:
-            with terminal.kernel_channels(terminal.kernel_id, channel_session) as socket:
-                followed = _run_ok(
-                    socket,
-                    'import os\nprint(os.environ["OSPREY_CONTROL_TARGET"])\n',
-                    channel_session,
-                )
-                assert followed.strip() == other, followed
-        except AssertionError as exc:
-            model = terminal.get(f"{PANEL}/api/kernels/{terminal.kernel_id}")
-            raise AssertionError(
-                f"{exc}\nkernel model after the restart: {model.status_code} {model.text.strip()}"
-            ) from exc
+            # The narrowing in scenario 3 was recorded against the OLD target,
+            # so the new one carries the deployment's own posture and the write
+            # is admitted. What is being ruled out is a cell still pinned to a
+            # machine the deployment has left.
+            reading = _read_value(socket, channel_session)
+            assert isinstance(reading, float), reading
     finally:
         terminal.delete(f"{PANEL}/api/sessions/{terminal.notebook_session_id}")
 
 
 # ---------------------------------------------------------------------------
-# 6. NotebookEdit: settings, guard, badge
+# 5. NotebookEdit: settings, guard, badge
 # ---------------------------------------------------------------------------
 
 
@@ -977,7 +962,7 @@ def test_notebook_edit_is_allowed_under_notebooks_and_badges_the_panel(terminal:
 
 
 # ---------------------------------------------------------------------------
-# 7. The runtime directory
+# 6. The runtime directory
 # ---------------------------------------------------------------------------
 
 
@@ -995,7 +980,7 @@ def test_the_runtime_dir_is_not_under_the_agent_data_root(terminal: Terminal) ->
 
 
 # ---------------------------------------------------------------------------
-# 8. down && up
+# 7. down && up
 # ---------------------------------------------------------------------------
 
 

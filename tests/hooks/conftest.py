@@ -74,11 +74,11 @@ _HOOK_VARS = (
     # reason. Blanked by default in :func:`_no_session_posture` so the value
     # can only ever arrive from the test that asked for it.
     "OSPREY_EXECUTION_MODE",
-    # The per-(session, target) posture store's two anchors, always stamped as a
-    # pair by the web server. Forwarded for the same reason and blanked in the
-    # same fixture: a developer running the suite from inside a web-terminal
-    # session would otherwise hand every hook subprocess a session key and an
-    # agent-data root no test asked for.
+    # The two anchors ``OSPREY_POSTURE_SESSION`` and ``OSPREY_AGENT_DATA_ROOT``,
+    # always stamped as a pair by the web server. Forwarded for the same reason
+    # and blanked in the same fixture: a developer running the suite from inside
+    # a web-terminal session would otherwise hand every hook subprocess a session
+    # id and an agent-data root no test asked for.
     "OSPREY_POSTURE_SESSION",
     "OSPREY_AGENT_DATA_ROOT",
     "OSPREY_WEB_PORT",

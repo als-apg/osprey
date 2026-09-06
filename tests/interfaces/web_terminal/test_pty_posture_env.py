@@ -360,50 +360,11 @@ class TestWarmReuse:
 
 
 # --------------------------------------------------------------------------- #
-# Bookkeeping: rekey, terminate, and unrecorded entries
+# Bookkeeping: terminate, and unrecorded entries
 # --------------------------------------------------------------------------- #
 
 
 class TestFingerprintBookkeeping:
-    def test_rekey_carries_the_fingerprint(self, registry, report):
-        """A renamed session keeps its posture and stays reusable under the new key."""
-        command = _reporting_command(report)
-        env = _connection_env(execution_mode="readonly", telemetry_id="temp-key")
-        session, _ = registry.get_or_create_session("temp-key", command, 24, 80, extra_env=env)
-        assert _child_env_lines(report, 1) == ["readonly"]
-
-        registry.rekey_session("temp-key", "real-uuid")
-
-        assert registry._env_fingerprints.get("real-uuid") == env_fingerprint(env)
-        assert "temp-key" not in registry._env_fingerprints
-
-        reattached, reused = registry.get_or_create_session(
-            "real-uuid",
-            command,
-            24,
-            80,
-            extra_env=_connection_env(execution_mode="readonly", session_id="real-uuid"),
-        )
-        assert reused is True
-        assert reattached is session
-        assert report.read_text().split() == ["readonly"]
-
-    def test_rekeyed_session_still_respawns_on_a_posture_change(self, registry, report):
-        """The carried fingerprint is a real comparison, not a rubber stamp."""
-        command = _reporting_command(report)
-        registry.get_or_create_session(
-            "temp-key", command, 24, 80, extra_env=_connection_env(execution_mode="readonly")
-        )
-        _child_env_lines(report, 1)
-        registry.rekey_session("temp-key", "real-uuid")
-
-        _, reused = registry.get_or_create_session(
-            "real-uuid", command, 24, 80, extra_env=_connection_env()
-        )
-
-        assert reused is False
-        assert _child_env_lines(report, 2) == ["readonly", "<unset>"]
-
     def test_terminate_forgets_the_fingerprint(self, registry, report):
         """Terminate, then respawn under a new overlay: no stale comparison."""
         command = _reporting_command(report)

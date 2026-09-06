@@ -200,7 +200,7 @@ class EndpointProber:
             config: The full rendered config mapping, as
                 :func:`~osprey.mcp_server.control_system.target_eligibility.derive_endpoints`
                 takes it.
-            targets: The session targets to probe. Defaults to the targets this
+            targets: The control targets to probe. Defaults to the targets this
                 deployment configures
                 (:func:`~osprey_connectors.types.configured_targets`) — never
                 every target the connectors package names, which would sweep a
@@ -234,7 +234,7 @@ class EndpointProber:
 
     @property
     def targets(self) -> tuple[str, ...]:
-        """The session targets this prober sweeps, after defaulting.
+        """The control targets this prober sweeps, after defaulting.
 
         Worth reading back: the default is derived from the config rather than
         fixed, so "which machines is this deployment measuring" is a question

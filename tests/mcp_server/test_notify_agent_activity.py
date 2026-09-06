@@ -74,6 +74,20 @@ def capture_server():
 
 
 class TestPayloadShape:
+    """The frame's shape, with no control-context record in play.
+
+    ``notify_agent_activity`` prefixes ``detail`` with the deployment's control
+    target when the record names one, which these cases are not about. They
+    take ``control_context_root`` so the reader is pointed at an empty scratch
+    root rather than at whatever record the machine running the suite happens
+    to have under ``var/agent_data`` — the stamp has its own suite in
+    ``test_activity_target_events``.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_record(self, control_context_root):
+        """Stamp an empty agent-data root for every case in this class."""
+
     def test_full_payload(self, capture_server):
         port = capture_server.server_address[1]
         with patch(f"{_MODULE}.web_terminal_url", return_value=f"http://127.0.0.1:{port}"):

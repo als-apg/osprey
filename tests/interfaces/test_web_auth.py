@@ -1268,6 +1268,13 @@ _EXPECTED_OPERATOR_ROUTES = [
     ("GET", "/api/mcp-servers"),
     ("GET", "/panel/events/"),
     ("POST", "/panel/events/api/thing"),
+    # The two panel-scoped static routes in ``routes/proxy.py``. Nothing under
+    # ``/panel/`` is exempt from the gate, so both sit at the same tier as every
+    # other panel path — the page importing them is one the operator is already
+    # logged in to. Pinned here so a later "make the Lab bar load without a
+    # session" cannot quietly move them into the panel tier.
+    ("GET", "/panel/jupyter/design-system/css/tokens.css"),
+    ("GET", "/panel/jupyter/terminal-static/js/control-target-chip.js"),
     ("GET", "/ws/terminal"),
     ("GET", "/ws/operator"),
     ("DELETE", "/api/artifacts/abc"),

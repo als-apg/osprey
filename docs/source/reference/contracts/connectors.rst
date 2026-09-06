@@ -187,12 +187,12 @@ affect a running process. The enforced kill-switch lives at the harness layer
 (a renderer ``permissions.deny`` on the write tool, then regenerate and
 relaunch); in-flight control of an active plan is the RunEngine's own
 ``abort`` / ``pause``. One live control does exist alongside it, and it only
-ever narrows: an operator can take one control target away from one session from
-:ref:`the control-target chip <web-terminal-session-posture>`, and the
-connector re-reads that on every put.
+ever narrows: an operator can take one control target away from the whole
+deployment from :ref:`the control-target chip <web-terminal-session-posture>`,
+and the connector re-reads that on every put.
 
-That rendered deny list is written once, before any session has chosen a
-target, so it exists only where **no** target may write. A deployment armed on
+That rendered deny list is written once, before any target has been chosen,
+so it exists only where **no** target may write. A deployment armed on
 one target and not another renders no deny at all, and the refusal arrives per
 call instead, from the safety hook and from the connector, naming the target
 that refused it. Tools a project lists under ``control_system.write_tools``
@@ -254,7 +254,7 @@ A refusal about an unlisted channel — and the target switch's
 ``limits_posture`` refusal — names the key that answered, the per-type one where
 a block spoke and the deployment-wide one where none did, so an operator edits
 the line that decides rather than one it overrides. The ``channel_limits`` tool
-reports the same pair for the target the session is on, including ``null`` where
+reports the same pair for the target the deployment is on, including ``null`` where
 nothing states an answer, alongside ``allow_unlisted_key`` naming the key it
 read.
 

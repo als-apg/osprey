@@ -32,7 +32,7 @@ from osprey.interfaces.web_auth import WebCredentials, reset_web_credentials
 from osprey.interfaces.web_terminal import transcript_map
 from osprey.interfaces.web_terminal.routes.agent_turn import router
 from osprey.interfaces.web_terminal.turn_state import get_turn_state, reset_turn_state
-from osprey_connectors import session_store
+from osprey_connectors import posture_store
 
 #: The session key: the PTY pool key, the posture key, the audit key.
 KEY = "aaaaaaaa-1111-2222-3333-444444444444"
@@ -54,10 +54,10 @@ def shared_root(tmp_path, monkeypatch):
     """
     root = tmp_path / "shared_agent_data"
     root.mkdir()
-    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    session_store.invalidate_cache()
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    posture_store.invalidate_cache()
     yield root
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
 
 
 def _make_client() -> TestClient:

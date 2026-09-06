@@ -695,8 +695,8 @@ def test_hook_config_lane_addressed_tools_come_from_the_registry(tmp_path):
     """The kill switch's lane carve-out is rendered data, not a name in the hook.
 
     ``osprey_writes_check.py`` skips its per-target stage for a tool addressed by
-    a plan lane rather than by the session target, and reads which tools those
-    are from this file. Spelling them in that standalone hook source instead
+    a plan lane rather than by the recorded control target, and reads which tools
+    those are from this file. Spelling them in that standalone hook source instead
     would detach the carve-out from the tool the day it is renamed, so the list
     is pinned to the registry's own queue-control group here — SHORT names,
     because an ``extends`` clone of the server renames only the prefix and the
@@ -1130,7 +1130,7 @@ def test_killswitch_dedupe_when_profile_also_denies(tmp_path):
 # Per-target write posture: the third render shape
 # ---------------------------------------------------------------------------
 
-#: The connector blocks backing the two session targets, and the key that makes
+#: The connector blocks backing the two control targets, and the key that makes
 #: both selectable. The render counts only targets a session here can be pointed
 #: at, and a deployment has two of those only when it renders the switch — its
 #: own type is one of the targets and both have a configured block. The

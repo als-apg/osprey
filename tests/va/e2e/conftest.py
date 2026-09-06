@@ -489,3 +489,33 @@ def va_container(va_project: VaProject) -> Iterator[VaProject]:
         yield va_project
     finally:
         _docker_rm(CONTAINER_NAME)
+
+
+#: Fast enough that a switch tool's wait is never the reconciler's clock.
+RECONCILE_INTERVAL_S = 0.05
+
+
+@pytest.fixture
+async def reconciling():
+    """``await reconciling()`` runs this server's reconcile loop, as its lifespan does.
+
+    ``control_target_set`` writes the control-context record and then waits for
+    THIS server's connector host to reach the generation it minted; the loop is
+    what moves it. Started on the call rather than on the fixture, because a
+    pass that ran before the server context was installed would claim the
+    record at the deployment baseline rather than at the target the suite
+    started its manager on.
+    """
+    from osprey.mcp_server.control_system.session_control import SessionControlReconciler
+
+    started: list[Any] = []
+
+    async def start() -> Any:
+        loop = SessionControlReconciler(interval_s=RECONCILE_INTERVAL_S)
+        await loop.start()
+        started.append(loop)
+        return loop
+
+    yield start
+    for loop in started:
+        await loop.stop()

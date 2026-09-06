@@ -192,20 +192,24 @@ async def test_python_write_denied_when_writes_disabled(safety_project_writes_of
 # ---------------------------------------------------------------------------
 
 
-def _published_session_targets(repo) -> list[str]:
-    """Targets the controls MCP server published for *repo*, one per state file.
+def _record_target(repo) -> str | None:
+    """The control target *repo*'s control-context record names, or ``None``.
 
-    The server writes ``var/agent_data/control_target/target_state_<pid>.json``
-    at startup and the hooks resolve the session target from it. Read here
-    after the session so the test can prove the hooks had a real target to
-    answer for, rather than the fail-closed fallback they use when no file
-    exists — the file outlives its server; only the next server sweeps it.
+    One record per deployment, at
+    ``var/agent_data/control_target/control_context.json``, and it is what the
+    hooks resolve the target from. Read here after the session so the test can
+    prove the hooks had a real target to answer for, rather than the
+    fail-closed fallback they use when no record exists.
+
+    The controls servers' own reports (``server_<pid>.json`` beside it) are not
+    read: their ``applied_target`` says which target a server has launched a
+    connector for, which stays ``None`` on a session whose only write was
+    denied.
     """
-    state_dir = agent_data_dir(repo) / "control_target"
-    return [
-        json.loads(path.read_text(encoding="utf-8")).get("target")
-        for path in sorted(state_dir.glob("target_state_*.json"))
-    ]
+    record = agent_data_dir(repo) / "control_target" / "control_context.json"
+    if not record.exists():
+        return None
+    return json.loads(record.read_text(encoding="utf-8")).get("target")
 
 
 @pytest.mark.requires_api
@@ -228,7 +232,7 @@ async def test_channel_write_denied_on_live_when_only_va_armed(safety_project_mi
         a MIXED render the renderer cannot do that — the same tool is legal on
         ``va`` — so it only pulls ``channel_write`` out of ``permissions.ask``,
         and the boundary rests entirely on the PreToolUse hook chain:
-        ``osprey_writes_check`` denies for the session's target and
+        ``osprey_writes_check`` denies for the recorded control target and
         ``osprey_approval`` defers. The SDK aggregates any-ask-wins, so this
         test is the recorded negative for that chain: zero successful writes
         AND zero ``can_use_tool`` callbacks for ``channel_write``. A surfaced
@@ -237,8 +241,8 @@ async def test_channel_write_denied_on_live_when_only_va_armed(safety_project_mi
 
         Which path is exercised: the REAL live-target path. The controls MCP
         server publishes ``target: live`` in its state file at startup and the
-        hooks resolve the session target from it (asserted below after the
-        run). Without a state file the hooks would fall back to the most
+        hooks resolve the recorded control target from it (asserted below after
+        the run). Without a state file the hooks would fall back to the most
         restrictive posture over both targets, which also denies — the
         assertion on the published target is what rules out passing for that
         reason.
@@ -269,18 +273,17 @@ async def test_channel_write_denied_on_live_when_only_va_armed(safety_project_mi
         print(f"    is_error: {trace.is_error}")
         result_preview = (trace.result or "")[:300]
         print(f"    result preview: {result_preview}")
-    published_targets = _published_session_targets(safety_project_mixed_render)
-    print(f"  published session targets: {published_targets}")
+    record_target = _record_target(safety_project_mixed_render)
+    print(f"  control-context record target: {record_target}")
 
     # -- Assertions --
     assert result.result is not None, "No ResultMessage received from SDK"
 
-    # The hooks answered for a published live target, not for a missing state
-    # file: the server wrote its baseline at startup and the session never
-    # switched. Exactly one file, because one server ran for this session.
-    assert published_targets == ["live"], (
-        f"Expected the controls server to publish the baseline target 'live' "
-        f"but found {published_targets}; without it the hooks deny on the "
+    # The hooks answered for a recorded live target, not for a missing record:
+    # the deployment's record was written at its baseline and never switched.
+    assert record_target == "live", (
+        f"Expected the control-context record to name the baseline target 'live' "
+        f"but found {record_target!r}; without it the hooks deny on the "
         f"most-restrictive fallback and this test would pass for the wrong reason"
     )
 

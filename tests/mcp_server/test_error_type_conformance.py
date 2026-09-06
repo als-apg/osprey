@@ -146,7 +146,7 @@ def test_scan_finds_the_known_emitters(emitted):
     assert emitted["unknown_bluesky_lane"]  # REASON_UNKNOWN_LANE, imported from lanes.py
     assert emitted["not_configured"]  # GraphNotConfigured.error_type, a class attribute
     assert emitted["interrupted_item_in_queue"]  # a bridge code, via _REFUSAL_HINTS
-    assert emitted["session_target_mismatch"]  # a constant used as a _REFUSAL_HINTS key
+    assert emitted["control_target_mismatch"]  # a constant used as a _REFUSAL_HINTS key
 
 
 @pytest.mark.unit

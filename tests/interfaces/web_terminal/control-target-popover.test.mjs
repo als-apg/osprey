@@ -30,13 +30,14 @@
  *   the expiry a dead controls server never answers;
  * - a refusal code renders as its operator phrase, never raw; a code the map
  *   does not know renders verbatim;
- * - a chat session's rows offer no Switch and live write switches;
+ * - rows the route refuses offer no Switch and say why in its place, while
+ *   their write switches stay live — writing is a separate question;
  * - `Turn all writes off` POSTs `all` and renders every target the store
  *   `skipped`;
  * - ONE DOM for both `ui_mode`s: the same markup under `simple` and `expert`.
  *
- * Seams: terminal.js is mocked (it owns the session id); `fetch` is stubbed
- * the way the other suites here stub it; the chip's SSE factory is injected,
+ * Seams: `fetch` is stubbed the way the other suites here stub it, and the
+ * chip's SSE factory is injected,
  * since happy-dom has no EventSource. Both modules hold module-private state
  * with no reset API beyond their teardowns, so each test gets fresh instances
  * via vi.resetModules() + dynamic import — same pattern as
@@ -48,20 +49,6 @@ import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 const SESSION = 'aaaaaaaa-1111-2222-3333-444444444444';
 const CHIP = '../../../src/osprey/interfaces/web_terminal/static/js/control-target-chip.js';
 const POPOVER = '../../../src/osprey/interfaces/web_terminal/static/js/control-target-popover.js';
-
-/** Mutable stand-in for terminal.js, reachable from the hoisted vi.mock factory. */
-const term = vi.hoisted(() => ({
-  /** @type {string|null} */
-  sessionId: /** @type {string|null} */ (null),
-  /** @type {(() => void)[]} */
-  listeners: [],
-}));
-
-vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () => ({
-  getCurrentSessionId: () => term.sessionId,
-  /** @param {() => void} fn */
-  onSessionChange: (fn) => term.listeners.push(fn),
-}));
 
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/control-target-chip.js')} */
 let chipModule;
@@ -134,13 +121,17 @@ const rowOf = (kind, o = {}) => ({
 
 /** The roster a plain switch-capable deployment answers with. */
 const viewOf = (o = {}) => ({
-  session_id: SESSION,
-  session_target: 'standin',
+  // The chip's read carries no session id, so the route echoes none back.
+  session_id: null,
+  control_target: 'standin',
+  generation: 3,
+  // This terminal owns the control context, which is what makes its gestures
+  // writable at all; `self: false` is a terminal that FOLLOWS another.
+  owner: { kind: 'web_terminal', pid: 1000, port: 8080, self: true },
+  servers: [],
   store_available: true,
   readonly_run: false,
-  enforceable: true,
-  enforceable_reason: null,
-  execution_in_flight: false,
+  execution_in_flight: [],
   last_switch: null,
   last_posture_realign: null,
   targets: [
@@ -218,7 +209,6 @@ async function flush() {
  */
 async function boot(payload) {
   served = payload ?? viewOf();
-  term.sessionId = SESSION;
   chipModule.initControlTargetChip({ eventSourceFactory: fakeEventSourceFactory() });
   popoverModule.initControlTargetPopover();
   await flush();
@@ -257,6 +247,9 @@ const switchWord = (target) =>
 /** @param {string} target */
 const switchEl = (target) =>
   /** @type {HTMLButtonElement|null} */ (rowEl(target)?.querySelector('.ctc-switch') ?? null);
+/** The refusal word standing where a row's Switch would be. @param {string} target */
+const reasonEl = (target) =>
+  /** @type {HTMLElement|null} */ (rowEl(target)?.querySelector('.ctc-reason') ?? null);
 /** @param {string} target */
 const outcomes = (target) =>
   [...(surfaceEl(target)?.querySelectorAll('.ctc-outcome') ?? [])].map((n) => n.textContent);
@@ -282,8 +275,6 @@ const pressEscape = () =>
 
 beforeEach(async () => {
   vi.resetModules();
-  term.sessionId = SESSION;
-  term.listeners = [];
   served = viewOf();
   stubFetch();
   mountFixture();
@@ -524,15 +515,30 @@ describe('the banner', () => {
   });
 
   test('an unavailable store speaks first, in the error tone', async () => {
-    await bootOpen(viewOf({ store_available: false, enforceable: false }));
+    await bootOpen(viewOf({ store_available: false }));
     expect(bannerEl()?.textContent).toContain('cannot be recorded');
     expect(bannerEl()?.dataset.tone).toBe('error');
   });
 
-  test('a session nothing enforces warns that changes will not reach the agent', async () => {
-    await bootOpen(viewOf({ enforceable: false, enforceable_reason: 'no_session_record' }));
-    expect(bannerEl()?.textContent).toBe('Changes here will not reach the agent yet.');
+  test('a context another terminal holds names the port to go to', async () => {
+    // The write routes answer 409 here, so the banner says so before a click
+    // does — and names where the change can actually be made.
+    await bootOpen(viewOf({ owner: { kind: 'web_terminal', pid: 77, port: 8123, self: false } }));
+    expect(bannerEl()?.textContent).toBe('Another terminal on port 8123 holds the control context.');
     expect(bannerEl()?.dataset.tone).toBe('warn');
+  });
+
+  test('an owner with no port still says who holds it', async () => {
+    await bootOpen(viewOf({ owner: { kind: 'web_terminal', pid: 77, port: null, self: false } }));
+    expect(bannerEl()?.textContent).toBe('Another terminal holds the control context.');
+  });
+
+  test('nothing owning the context reads as unrecordable', async () => {
+    // `owner: null` is "nothing owns it anywhere", which the write routes
+    // answer 503 for — the same refusal an absent store gets.
+    await bootOpen(viewOf({ owner: null }));
+    expect(bannerEl()?.textContent).toContain('cannot be recorded');
+    expect(bannerEl()?.dataset.tone).toBe('error');
   });
 
   test('a readonly run is named deployment-wide', async () => {
@@ -603,19 +609,24 @@ describe('the verb locks, one reason at a time', () => {
 
   test('an unrecordable store outranks everything else', async () => {
     const { toggle, reason } = await lockOn(
-      viewOf({ store_available: false, enforceable: false }),
+      viewOf({ store_available: false }),
       'va'
     );
     expect(toggle?.disabled).toBe(true);
     expect(reason).toBe('changes cannot be recorded right now');
   });
 
-  test('not enforceable, when the store is there but nothing reads it', async () => {
-    const { reason } = await lockOn(
-      viewOf({ enforceable: false, enforceable_reason: 'no_session_record' }),
+  test('a context another terminal holds locks every row', async () => {
+    const { toggle, reason } = await lockOn(
+      viewOf({ owner: { kind: 'web_terminal', pid: 77, port: 8123, self: false } }),
       'va'
     );
-    expect(reason).toBe('changes here would not reach the agent');
+    expect(toggle?.disabled).toBe(true);
+    expect(reason).toBe('held by another terminal');
+    // And no row offers a Switch it knows would be refused; the reason word
+    // stands where the button was.
+    expect(document.querySelectorAll('.ctc-switch')).toHaveLength(0);
+    expect(reasonEl('va')?.textContent).toBe('another terminal');
   });
 
   test('a readonly run: the route says so, and every armed row is locked on it', async () => {
@@ -682,7 +693,7 @@ describe('turning writes off and on', () => {
     expect(confirmEl()).toBeNull();
     expect(posts()).toHaveLength(1);
     expect(posts()[0].url).toContain('/api/terminal/posture');
-    expect(posts()[0].body).toEqual({ session_id: SESSION, target: 'va', posture: 'sandbox' });
+    expect(posts()[0].body).toEqual({ session_id: null, target: 'va', posture: 'sandbox' });
   });
 
   test('turning writes on raises a confirm and POSTs nothing until it is confirmed', async () => {
@@ -710,7 +721,7 @@ describe('turning writes off and on', () => {
     await flush();
 
     const body = inConfirm('.posture-modal-body').textContent ?? '';
-    expect(body).toContain('For your session.');
+    expect(body).toContain('For every session on this deployment.');
     expect(body).toContain('Takes effect at the next write — nothing restarts.');
     expect(body).not.toMatch(/approval|asks you|limits/i);
     expect(body).not.toMatch(/[\w.-]+:\d+/);
@@ -776,7 +787,7 @@ describe('turning writes off and on', () => {
     confirmBtn()?.click();
     await flush();
 
-    expect(posts()[0].body).toEqual({ session_id: SESSION, target: 'live', posture: 'writes' });
+    expect(posts()[0].body).toEqual({ session_id: null, target: 'live', posture: 'writes' });
     expect(confirmEl()).toBeNull();
     expect(isOpen()).toBe(true);
     expect(rowEl('live')?.dataset.state).toBe('writes');
@@ -828,7 +839,7 @@ describe('Turn all writes off', () => {
     /** @type {HTMLButtonElement} */ (document.querySelector('.ctc-all-off')).click();
     await flush();
 
-    expect(posts()[0].body).toEqual({ session_id: SESSION, target: 'all', posture: 'sandbox' });
+    expect(posts()[0].body).toEqual({ session_id: null, target: 'all', posture: 'sandbox' });
     // The skip reason is the store's machine code, rendered as its phrase.
     expect(outcomes('va')).toContain('✗ no endpoint for role');
   });
@@ -844,10 +855,12 @@ describe('Turn all writes off', () => {
     ).toBe(true);
   });
 
-  test('the foot bounds the popover to the session, once', async () => {
+  test('the foot states the popover’s scope, once', async () => {
+    // One control context per deployment, so a narrowing recorded here reaches
+    // every session, notebook kernel and hook — not the page it was made on.
     await bootOpen();
     expect(document.querySelector('.ctc-all-off')?.textContent).toBe('Turn all writes off');
-    expect(document.querySelector('.ctc-foot-note')?.textContent).toBe('Your session only');
+    expect(document.querySelector('.ctc-foot-note')?.textContent).toBe('Applies deployment-wide');
   });
 });
 
@@ -866,7 +879,7 @@ describe('switching', () => {
     // the session ARRIVES in — it is per machine and does not travel.
     const body = inConfirm('.posture-modal-body').textContent ?? '';
     expect(body).toContain('All control reads and writes go to 127.0.0.1:10064.');
-    expect(body).toContain('Writes are on there for your session.');
+    expect(body).toContain('Writes are on there.');
     expect(body).not.toMatch(/approval|asks you/i);
 
     postAnswers.push({ ok: true, body: { request_id: 'req-1', target: 'va' } });
@@ -874,12 +887,42 @@ describe('switching', () => {
     await flush();
 
     expect(posts()[0].url).toContain('/api/terminal/target');
-    expect(posts()[0].body).toEqual({ session_id: SESSION, target: 'va' });
+    expect(posts()[0].body).toEqual({ session_id: null, target: 'va' });
     expect(chipModule.isPending()).toBe(true);
     expect(outcomes('va')).toContain('switching…');
     // One outstanding gesture at a time: no row offers a second Switch.
     expect(document.querySelectorAll('.ctc-switch')).toHaveLength(0);
     expect(isOpen()).toBe(true);
+  });
+
+  test('the generation the 202 answers with is handed to the chip', async () => {
+    // It is what ends the wait honestly: the record's terminus only says the
+    // switch was accepted, and the chip waits until every live controls server
+    // reports this number.
+    await bootOpen(viewOf({ generation: 3 }));
+    switchEl('va')?.click();
+    await flush();
+    postAnswers.push({ ok: true, body: { request_id: 'req-1', target: 'va', generation: 4 } });
+    confirmBtn()?.click();
+    await flush();
+    expect(chipModule.isPending()).toBe(true);
+    expect(outcomes('va')).toContain('switching…');
+  });
+
+  test('a request for the target already held arms no wait at all', async () => {
+    // Same target, so the route accepts at the CURRENT generation and writes
+    // no terminus: nothing moved. Arming a wait on that would sit in
+    // `switching…` until the TTL and then report `request_expired` for a
+    // request that succeeded.
+    await bootOpen(viewOf({ generation: 3, control_target: 'va' }));
+    switchEl('va')?.click();
+    await flush();
+    postAnswers.push({ ok: true, body: { request_id: 'req-1', target: 'va', generation: 3 } });
+    confirmBtn()?.click();
+    await flush();
+    expect(posts()[0].url).toContain('/api/terminal/target');
+    expect(chipModule.isPending()).toBe(false);
+    expect(outcomes('va')).not.toContain('switching…');
   });
 
   test('arriving with writes off is said as the nothing-moves sentence', async () => {
@@ -888,7 +931,7 @@ describe('switching', () => {
     await flush();
     const body = inConfirm('.posture-modal-body').textContent ?? '';
     expect(body).toContain(
-      'Writes are off there for your session — nothing moves until you turn them on.'
+      'Writes are off there — nothing moves until you turn them on.'
     );
     // Off means off: no hardware notice until writes are actually on there.
     expect(confirmEl()?.querySelector('.posture-modal-live')).toBeNull();
@@ -930,11 +973,11 @@ describe('switching', () => {
     await flush();
 
     served = viewOf({
-      session_target: 'va',
+      control_target: 'va',
       last_switch: {
         request_id: 'req-1',
         target: 'va',
-        status: 'success',
+        status: 'applied',
         reason: null,
         age_s: 4,
       },
@@ -952,6 +995,29 @@ describe('switching', () => {
     // never what it says.
     expect(outcomes('va')).toContain('✓ switched');
     expect(outcomes('va').join(' ')).not.toMatch(/s ago/);
+  });
+
+  test('the record’s word for an accepted switch is applied, and it reads ✓ switched', async () => {
+    // The record writes `applied` (control_context.SWITCH_APPLIED); nothing on
+    // this path has ever published `success`. Matching the wrong word sent
+    // every landed switch to the refusal branch, where it read `✗ applied`.
+    await bootOpen(
+      viewOf({
+        last_switch: {
+          request_id: 'req-9',
+          target: 'va',
+          status: 'applied',
+          generation: 4,
+          reason: null,
+          age_s: 2,
+        },
+      })
+    );
+    expect(outcomes('va')).toContain('✓ switched');
+    // `data-status` is the stylesheet's vocabulary, not the record's — the same
+    // split kindAttr makes between the route's words and the CSS values.
+    const line = /** @type {HTMLElement} */ (rowEl('va')?.querySelector('.ctc-outcome'));
+    expect(line.dataset.status).toBe('success');
   });
 
   test('a refusal renders the gate word, not the status', async () => {
@@ -977,7 +1043,7 @@ describe('switching', () => {
     // the roster as a guess about which machine it meant.
     await bootOpen(
       viewOf({
-        last_switch: { request_id: 'req-9', status: 'success', reason: null, age_s: 1 },
+        last_switch: { request_id: 'req-9', status: 'applied', reason: null, age_s: 1 },
       })
     );
     expect(outcomes('live')).toHaveLength(0);
@@ -1009,7 +1075,7 @@ describe('switching', () => {
         last_switch: {
           request_id: 'req-9',
           target: 'va',
-          status: 'success',
+          status: 'applied',
           reason: null,
           age_s: popoverModule.OUTCOME_MAX_AGE_S + 1,
         },
@@ -1152,7 +1218,7 @@ describe("don't ask again", () => {
     // The outcome lands (clearing the pending request), the session comes
     // back; then switch to va again: no dialog, straight to the POST.
     served = viewOf({
-      last_switch: { request_id: 'req-1', target: 'va', status: 'success', reason: null, age_s: 2 },
+      last_switch: { request_id: 'req-1', target: 'va', status: 'applied', reason: null, age_s: 2 },
     });
     await chipModule.refetch();
     await flush();
@@ -1162,7 +1228,7 @@ describe("don't ask again", () => {
 
     expect(confirmEl()).toBeNull();
     expect(posts()).toHaveLength(2);
-    expect(posts()[1].body).toEqual({ session_id: SESSION, target: 'va' });
+    expect(posts()[1].body).toEqual({ session_id: null, target: 'va' });
     expect(outcomes('va')).toContain('switching…');
   });
 
@@ -1212,7 +1278,7 @@ describe("don't ask again", () => {
     await flush();
 
     expect(confirmEl()).toBeNull();
-    expect(posts()[0].body).toEqual({ session_id: SESSION, target: 'va', posture: 'writes' });
+    expect(posts()[0].body).toEqual({ session_id: null, target: 'va', posture: 'writes' });
   });
 
   test('turning writes on for the live machine offers no waiver and ignores a stale one', async () => {
@@ -1284,32 +1350,33 @@ describe('a confirm and the popover beneath it', () => {
   });
 });
 
-/* ---- chat sessions ------------------------------------------------------- */
+/* ---- a roster no row can be switched from -------------------------------- */
 
-describe('a chat session', () => {
-  const chatView = () =>
+describe('rows the route refuses', () => {
+  const refusedView = () =>
     viewOf({
       targets: [
-        rowOf(KINDS.live, { available_now: false, reason: 'chat_session' }),
-        rowOf(KINDS.va, { available_now: false, reason: 'chat_session', active: true }),
+        rowOf(KINDS.live, { available_now: false, reason: 'gateways_missing' }),
+        rowOf(KINDS.va, { available_now: false, reason: 'gateways_missing', active: true }),
       ],
     });
 
-  test('offers no Switch and no refusal word in its place', async () => {
-    await bootOpen(chatView());
+  test('offers no Switch, and says why in its place', async () => {
+    await bootOpen(refusedView());
     expect(document.querySelectorAll('.ctc-switch')).toHaveLength(0);
-    expect(document.querySelectorAll('.ctc-reason')).toHaveLength(0);
+    expect(reasonEl('live')?.textContent).toBe('not set up');
+    // The rows are refused, not the context: nothing is wrong deployment-wide.
     expect(bannerEl()).toBeNull();
   });
 
-  test('keeps its switches live — the write state is keyed on the session, not the topology', async () => {
-    await bootOpen(chatView());
+  test('keeps their switches live — writes are a separate question from switching', async () => {
+    await bootOpen(refusedView());
     expect(toggleEl('live')?.disabled).toBe(false);
 
     postAnswers.push({ ok: true, body: { entry: { live: 'sandbox' }, skipped: [] } });
     toggleEl('live')?.click();
     await flush();
-    expect(posts()[0].body).toEqual({ session_id: SESSION, target: 'live', posture: 'sandbox' });
+    expect(posts()[0].body).toEqual({ session_id: null, target: 'live', posture: 'sandbox' });
   });
 });
 
@@ -1318,7 +1385,20 @@ describe('a chat session', () => {
 describe('a narrowing that has not reached the agent yet', () => {
   test('the card says it takes effect after the run', async () => {
     await bootOpen(
-      viewOf({ execution_in_flight: true, last_posture_realign: { state: 'pending' } })
+      viewOf({
+        execution_in_flight: [
+          {
+            pid: 4242,
+            target: 'standin',
+            session: SESSION,
+            surface: 'notebook_kernel',
+            kernel_id: 'k-1',
+            started_at: '2026-08-30T12:00:00+00:00',
+            age_s: 4,
+          },
+        ],
+        last_posture_realign: { state: 'pending' },
+      })
     );
     expect(outcomes('standin')).toContain('takes effect when the running execution finishes');
     expect(outcomes('va')).toHaveLength(0);
@@ -1369,11 +1449,14 @@ describe('simple and expert are one DOM', () => {
     expect(simple).toBe(expert);
   });
 
-  test('a locked, unreachable, not-enforceable roster is identical too', async () => {
+  test('a locked, unreachable, followed roster is identical too', async () => {
+    // The lock here is a context this terminal follows rather than owns: every
+    // row is read-only and the banner names the holder. That is the widest
+    // difference the two modes could have rendered differently, and they must
+    // not — the modes differ in defaults, never in markup.
     const view = () =>
       viewOf({
-        enforceable: false,
-        enforceable_reason: 'no_session_record',
+        owner: { kind: 'web_terminal', pid: 77, port: 8123, self: false },
         targets: [
           rowOf(KINDS.live, {
             ...STATES.sandbox,
@@ -1385,6 +1468,9 @@ describe('simple and expert are one DOM', () => {
     const simple = await markupUnder('simple', view());
     const expert = await markupUnder('expert', view());
     expect(simple).toBe(expert);
+    // And the lock is really in the markup being compared — a seed that stopped
+    // biting would leave two plain rosters agreeing about nothing.
+    expect(simple).toContain('holds the control context');
   });
 });
 

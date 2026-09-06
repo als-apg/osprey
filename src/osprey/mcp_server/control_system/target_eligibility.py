@@ -64,7 +64,7 @@ safe outcome, so coming home is never gated, and the baseline a deployment comes
 home to may be ``standin`` as readily as ``live``.
 :func:`target_availability` therefore reports two answers:
 
-* ``available_now`` — the predicate for the switch this session would make,
+* ``available_now`` — the predicate for the switch this deployment would make,
   including the return exemption when it applies;
 * ``eligible_from_baseline`` — the same predicate evaluated as if the session
   sat on the deployment baseline, which is the static, session-independent view
@@ -79,22 +79,22 @@ real-hostname-shaped example value, so no string comparison against any known
 default could distinguish an operator's answer from the shipped one; testing the
 value would invent a distinction the config cannot carry.
 
-The write posture a live session actually has
----------------------------------------------
+The write posture a deployment actually has
+-------------------------------------------
 Config is not the last word on whether writes are armed for a target. An
-operator narrows one target for one session from the header chip, and that
-narrowing lives in the per-(session, target) posture store
-(:mod:`osprey_connectors.session_store`), not in ``config.yml``. The connector
+operator narrows one target from the header chip, and that narrowing lives in
+the deployment's control-context record (read through
+:mod:`osprey_connectors.posture_store`), not in ``config.yml``. The connector
 child reads it on every write and on its own gateway selection, so a parent
 that derived the *configured* posture would derive ``write_access`` for a
 target the child has just connected to on ``read_only`` — and
 :func:`verify_child_report`, doing its job, would abort the switch on a
 disagreement that is nobody's misconfiguration.
 
-:func:`effective_writes_for_target` is therefore what every live-session caller
-in this stack passes as ``writes_enabled``: the deployment ceiling, this run's
+:func:`effective_writes_for_target` is therefore what every caller in this
+stack passes as ``writes_enabled``: the deployment ceiling, this run's
 mode and the operator's narrowing, combined once by
-:func:`~osprey_connectors.session_store.effective_writes` and never restated
+:func:`~osprey_connectors.posture_store.effective_writes` and never restated
 here. :func:`derive_endpoints` itself keeps its config-only default, because it
 is also asked hypothetical questions — what would this target select under
 *that* posture — and a pure derivation is what makes those answerable.
@@ -102,11 +102,13 @@ is also asked hypothetical questions — what would this target select under
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from osprey.audit.posture import posture_session
-from osprey_connectors import session_store
+from osprey_connectors import posture_store
 from osprey_connectors.control_system.base import is_readonly_run
 from osprey_connectors.control_system.va_connector import fill_gateway_ports
 from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_for_target
@@ -180,6 +182,19 @@ REASON_LIMITS_POSTURE = "limits_posture"
 REASON_OPERATOR_ACK_MISSING = "operator_ack_missing"
 REASON_ARCHIVE_BELONGS_TO_STANDIN = "archive_belongs_to_standin"
 
+#: Not an eligibility reason: a run holding the target down is a refusal the
+#: switch earns from the deployment's own traffic rather than from its config.
+#: It is spelled here because the client naming lives here (see
+#: :func:`in_flight_detail`) and the tool and the terminal route both quote it.
+REASON_EXECUTION_IN_FLIGHT = "execution_in_flight"
+
+# -- Surfaces that hold an in-flight marker ---------------------------------
+
+#: A sandboxed ``python_execute`` run.
+SURFACE_PYTHON_EXECUTOR = "python_executor"
+#: A notebook cell, between its first control-system call and the end of the cell.
+SURFACE_NOTEBOOK_KERNEL = "notebook_kernel"
+
 
 @dataclass(frozen=True)
 class Endpoint:
@@ -238,7 +253,7 @@ class Eligibility:
 
 @dataclass(frozen=True)
 class TargetAvailability:
-    """The roster's answer for one target, from where the session is standing."""
+    """The roster's answer for one target, from where the deployment is standing."""
 
     target: str
     eligible: bool
@@ -316,18 +331,16 @@ def _config_writes_enabled(config: Any, target: str) -> bool:
 
 
 def effective_writes_for_target(section: Any, target: str) -> bool:
-    """Whether writes are armed for *target* on THIS session, right now.
+    """Whether writes are armed for *target* on this deployment, right now.
 
     The deployment ceiling for the target, ANDed with this run's mode and with
     the operator's own narrowing from the header chip — the whole of rule 3 of
-    the posture-store contract, delegated to
-    :func:`~osprey_connectors.session_store.effective_writes` rather than
-    restated. What is added here is the session key: this process's
-    ``OSPREY_POSTURE_SESSION`` stamp is the store's index, and reading it in one
-    place is what stops the roster, the switch and the connector child from
-    each deciding for themselves whose narrowing they are answering.
+    the posture contract, delegated to
+    :func:`~osprey_connectors.posture_store.effective_writes` rather than
+    restated. Asking it in one place is what stops the roster, the switch and
+    the connector child from each deciding for themselves what is armed.
 
-    Every live-session caller of :func:`derive_endpoints` in this stack passes
+    Every caller of :func:`derive_endpoints` in this stack passes
     the result as ``writes_enabled``. That is not a convenience: the child
     selects its gateway from exactly this value (through the same store), so a
     parent deriving anything else would hand :func:`verify_child_report` a
@@ -338,18 +351,18 @@ def effective_writes_for_target(section: Any, target: str) -> bool:
         section: The ``control_system:`` config section — the same unit
             :func:`~osprey_connectors.types.target_writes_enabled` takes, so a
             caller that already resolved it does not re-resolve it here.
-        target: The session control target the writes would land on.
+        target: The control target the writes would land on.
 
     Returns:
         ``True`` only when the deployment arms this target, this is not a
-        read-only run, and the operator has not narrowed the target for this
-        session. The store can only narrow: nothing it holds widens *section*.
+        read-only run, and the operator has not narrowed the target. The
+        record can only narrow: nothing it holds widens *section*.
     """
-    return session_store.effective_writes(section, posture_session(), target)
+    return posture_store.effective_writes(section, target)
 
 
 def _resolved_writes(config: Any, target: str, writes_enabled: bool | None) -> bool:
-    """An explicit ``writes_enabled`` override, or this session's real posture.
+    """An explicit ``writes_enabled`` override, or the deployment's real posture.
 
     ``None`` means "the caller did not say", and for a question asked *about a
     live session* the truthful default is the session's own effective posture,
@@ -429,7 +442,7 @@ def derive_endpoints(
 
     Args:
         config: The full rendered config mapping (``config.yml`` as loaded).
-        target: The session target, ``'live'`` or ``'va'``.
+        target: The control target, ``'live'`` or ``'va'``.
         writes_enabled: Whether writes are armed for *target*. Defaults to
             this target's own posture —
             ``control_system.connector.<type>.writes_enabled`` where the
@@ -593,7 +606,7 @@ def _selected_role_missing(
 
 
 def narrowing_refusal(config: Any, target: str) -> Eligibility | None:
-    """What narrowing *target* to read-only would cost this session, if anything.
+    """What narrowing *target* to read-only would cost the deployment, if anything.
 
     A narrowing moves the selected gateway role, and a deployment whose block
     configures ``write_access`` alone has nothing to move *to*: the session
@@ -604,7 +617,7 @@ def narrowing_refusal(config: Any, target: str) -> Eligibility | None:
     narrowing owes the operator that sentence *before* they take it.
 
     Read-only and hypothetical: it asks what the target would derive under the
-    narrowed posture, whatever this session's posture actually is. It reads no
+    narrowed posture, whatever the deployment's posture actually is. It reads no
     store and changes nothing.
 
     Args:
@@ -680,7 +693,7 @@ def evaluate_eligibility(
 
     Args:
         config: The full rendered config mapping.
-        target: The session target being judged.
+        target: The control target being judged.
         direction: :data:`DIRECTION_AWAY` for a switch toward a target that is
             not the deployment baseline, :data:`DIRECTION_BACK` for a return to
             the baseline. Only the FR-8 gates (checks 7 and 8) read it, and the
@@ -693,7 +706,7 @@ def evaluate_eligibility(
             session asking actually has, operator narrowing included. This is
             the answer a live session gets, so it has to be the answer the
             child will select its gateway on. Pass the value to ask about a
-            posture other than this session's.
+            posture other than the deployment's.
         readonly_run: See :func:`derive_endpoints`. It moves the *selected role*,
             which is what check 3 is asked about; it never makes a target
             eligible or ineligible on its own. The effective *writes_enabled*
@@ -848,15 +861,15 @@ def evaluate_eligibility(
     )
 
 
-def switch_direction(target: str, session_target: str, baseline_target: str) -> str:
-    """Which way a switch to *target* runs, from where the session is standing.
+def switch_direction(target: str, control_target: str, baseline_target: str) -> str:
+    """Which way a switch to *target* runs, from where the deployment is standing.
 
     A switch is a *return* only when the target is this deployment's own baseline
     and the session is somewhere else. Everything else — including a target that
     happens to be the baseline while the session already sits on it — is a switch
     away, because there is no return in progress to exempt.
     """
-    if target == baseline_target and session_target != baseline_target:
+    if target == baseline_target and control_target != baseline_target:
         return DIRECTION_BACK
     return DIRECTION_AWAY
 
@@ -864,7 +877,7 @@ def switch_direction(target: str, session_target: str, baseline_target: str) -> 
 def target_availability(
     config: Any,
     target: str,
-    session_target: str,
+    control_target: str,
     baseline_target: str,
     *,
     writes_enabled: bool | None = None,
@@ -872,12 +885,12 @@ def target_availability(
 ) -> TargetAvailability:
     """The roster's session-relative answer for one target.
 
-    ``available_now`` answers the switch this session would make right now;
+    ``available_now`` answers the switch this deployment would make right now;
     ``eligible_from_baseline`` answers the same question as if the session sat on
     the deployment baseline, which is the static view (see the module docstring
     for why the two legitimately differ on a live-baseline deployment).
 
-    A target the session is already on reports ``available_now`` false with
+    A target the deployment is already on reports ``available_now`` false with
     :data:`REASON_ALREADY_ACTIVE`: switching to the active target is a no-op, and
     that is the truthful reason it is unavailable regardless of what the config
     says about it. The config verdict is still reported, unshadowed, in
@@ -887,7 +900,7 @@ def target_availability(
     Args:
         config: The full rendered config mapping.
         target: The prospective target being judged.
-        session_target: The target this session is on right now.
+        control_target: The target the deployment is on right now.
         baseline_target: The target the deployment's own config selects.
         writes_enabled: See :func:`evaluate_eligibility`. Resolved once here and
             handed to both verdicts below: the two differ only in direction, and
@@ -896,7 +909,7 @@ def target_availability(
         readonly_run: See :func:`derive_endpoints`.
     """
     resolved_writes = _resolved_writes(config, target, writes_enabled)
-    direction = switch_direction(target, session_target, baseline_target)
+    direction = switch_direction(target, control_target, baseline_target)
     verdict = evaluate_eligibility(
         config,
         target,
@@ -912,13 +925,13 @@ def target_availability(
         readonly_run=readonly_run,
     )
 
-    if target == session_target:
+    if target == control_target:
         return TargetAvailability(
             target=target,
             eligible=verdict.eligible,
             available_now=False,
             reason=REASON_ALREADY_ACTIVE,
-            detail=f"Target {target!r} is already the session's active target.",
+            detail=f"Target {target!r} is already the active control target.",
             eligible_from_baseline=from_baseline.eligible,
         )
 
@@ -1057,4 +1070,586 @@ def verify_child_report(derivation: TargetDerivation, report: Any) -> Verificati
             f"The child is on target {derivation.target!r} via its {expected_role!r} "
             f"gateway at {endpoint.host}:{endpoint.port} ({endpoint.mode})."
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# In-flight execution markers: naming the client that is busy
+# ---------------------------------------------------------------------------
+#
+# A marker is one file per running client — a sandboxed execution or a notebook
+# cell that has touched the control system — written by that client and read by
+# whoever is about to move the target under it. The reader lives here, beside
+# the eligibility verdicts, because a refusal is a refusal whichever surface
+# asks: the switch tool and the terminal's switch route quote these words
+# character for character, and a second spelling would let the two disagree
+# about what an operator was told.
+#
+# Attribution is by SESSION, never by process ancestry. A marker names the
+# session its client belongs to, the reader names its own, and two equal
+# non-empty keys are one session. A pid walk answered the same question only
+# for clients that happened to descend from the reader, which a notebook kernel
+# and a popped-out window never do.
+
+
+#: How much of a session key a refusal prints. Long enough to tell two live
+#: sessions apart in a message, short enough to read in one.
+SESSION_SHORT_KEY_LENGTH = 8
+
+#: What a marker's target reads as when it carries none. Spelled rather than
+#: omitted: the operator's line still has to say something.
+UNKNOWN_MARKER_TARGET = "unknown"
+
+#: Resolves a notebook kernel's id to the notebook it is running, or ``None``
+#: when it cannot be resolved. Only a caller that can reach the sidecar holds
+#: one: the naming asks its question through this seam so the refusal itself
+#: opens no socket. See
+#: :func:`~osprey.interfaces.web_terminal.jupyter_sidecar.kernel_notebook_path`.
+KernelNameResolver = Callable[[str], str | None]
+
+#: What the operator has to do about the busy client, per surface. A sandboxed
+#: run ends on its own; a cell holds the target until somebody interrupts it.
+_REMEDY_WAIT_OR_STOP = "Wait for it to finish, or stop it, then switch again."
+_REMEDY_INTERRUPT_KERNEL = "Interrupt that kernel to proceed."
+
+
+def session_short_key(session: str) -> str:
+    """The part of a session key a refusal prints."""
+    return session[:SESSION_SHORT_KEY_LENGTH]
+
+
+def _marker_session(marker: Mapping[str, Any]) -> str | None:
+    """The session a marker belongs to, or ``None`` when it names none."""
+    value = marker.get("session")
+    if not isinstance(value, str):
+        return None
+    return value.strip() or None
+
+
+def _notebook_kernel_id(marker: Mapping[str, Any]) -> str | None:
+    """The kernel a marker belongs to, or ``None`` when it is not a kernel's.
+
+    A marker naming the notebook surface without a kernel id names nothing an
+    operator could act on, so it is not a kernel marker for naming purposes and
+    falls back to the session answers.
+    """
+    if marker.get("surface") != SURFACE_NOTEBOOK_KERNEL:
+        return None
+    value = marker.get("kernel_id")
+    if not isinstance(value, str):
+        return None
+    return value.strip() or None
+
+
+def _notebook_client(kernel_id: str, kernel_name: KernelNameResolver | None) -> str:
+    """How a refusal names a notebook kernel: its notebook, else its id.
+
+    The resolver reaches a running sidecar over the network, so it is asked
+    defensively. No resolver, no answer, and an answer that failed all leave
+    the operator with the kernel id, which JupyterLab shows beside the running
+    kernel — and the remedy is the same either way.
+    """
+    if kernel_name is not None:
+        try:
+            notebook = kernel_name(kernel_id)
+        except Exception:  # noqa: BLE001 — naming a client never fails a refusal
+            notebook = None
+        if isinstance(notebook, str) and notebook.strip():
+            return f"notebook {notebook.strip()}"
+    return f"notebook kernel {kernel_id[:SESSION_SHORT_KEY_LENGTH]}"
+
+
+def busy_client(marker: Mapping[str, Any], *, kernel_name: KernelNameResolver | None = None) -> str:
+    """How a refusal names the client whose run is holding the target down.
+
+    Four answers, and the last is the interesting one:
+
+    * a notebook kernel, named by the notebook it is running when *kernel_name*
+      resolves one and by its kernel id when it does not. A kernel is named by
+      its surface before its session because ``kernel:<id>`` is a session key
+      no operator can find a window from;
+    * this session, when the marker's session key equals this process's;
+    * another session, named by its short key and the time its run started —
+      enough for an operator to find the window and decide whether to wait;
+    * a client with no session key at all, which is named as unattributable
+      rather than guessed at. A process outside any session — a bare ``claude``
+      in the deployment directory, a dispatch worker — stamps no session, so
+      the marker and the reader both carry ``None``. Reading those equal would
+      claim this session owns a run it may have nothing to do with, so they are
+      never equal: attribution is impossible here, and saying so is the honest
+      answer.
+
+    Args:
+        marker: One in-flight marker, as the writers spell it.
+        kernel_name: Resolves a kernel id to its notebook. Absent for a caller
+            with no sidecar to ask, which is every caller but the terminal.
+
+    Returns:
+        A noun phrase that fits after "belongs to".
+    """
+    kernel_id = _notebook_kernel_id(marker)
+    if kernel_id is not None:
+        return _notebook_client(kernel_id, kernel_name)
+
+    session = _marker_session(marker)
+    if session is None:
+        return "another client sharing this deployment"
+    if session == posture_session():
+        return "this session"
+
+    started_at = marker.get("started_at")
+    named = f"session {session_short_key(session)}"
+    if isinstance(started_at, str) and started_at.strip():
+        return f"{named}, running since {started_at.strip()}"
+    return named
+
+
+def in_flight_detail(
+    marker: Mapping[str, Any],
+    target: str,
+    *,
+    kernel_name: KernelNameResolver | None = None,
+) -> tuple[str, list[str], dict[str, Any]]:
+    """The refusal a running execution earns: message, suggestions, details.
+
+    The refusal exists because the sandbox or the cell was stamped with a target
+    and a generation when it started, so retiring the connector host under it
+    would move the machine beneath something that is still talking to it. It is
+    a question asked *before* the switch rather than an error discovered after
+    it — the guarantee itself is the generation pin.
+
+    Args:
+        marker: The live marker that blocks the switch.
+        target: The target being switched TO, which is not the one the marker's
+            client is running on.
+        kernel_name: Resolves a notebook kernel's id to its notebook, for the
+            one caller that can reach the sidecar. Both callers render the same
+            sentence for the same marker; only the name of a kernel is sharper
+            where the lookup is available.
+
+    Returns:
+        ``(message, suggestions, details)``, ready for the caller's error
+        envelope. ``details`` carries the marker's own fields so a surface that
+        renders the busy client itself does not have to re-read the file.
+    """
+    running_on = str(marker.get("target") or UNKNOWN_MARKER_TARGET)
+    whose = busy_client(marker, kernel_name=kernel_name)
+    remedy = (
+        _REMEDY_INTERRUPT_KERNEL
+        if _notebook_kernel_id(marker) is not None
+        else _REMEDY_WAIT_OR_STOP
+    )
+    return (
+        f"execution in flight on target {running_on!r}; wait or stop it.",
+        [
+            f"The running execution belongs to {whose} and was launched against target "
+            f"{running_on!r}.",
+            remedy,
+        ],
+        {
+            "target": target,
+            "reason": REASON_EXECUTION_IN_FLIGHT,
+            "executing_target": running_on,
+            "executor_pid": marker.get("pid"),
+            "started_at": marker.get("started_at"),
+            "session": _marker_session(marker),
+            "surface": marker.get("surface"),
+            "kernel_id": marker.get("kernel_id"),
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# (d) THE SWITCH GATE
+# ---------------------------------------------------------------------------
+#
+# One function answers "may this deployment move to that target right now", and
+# both surfaces that can ask it — the operator's Switch on the terminal route,
+# and the agent's tool inside the owning controls server — call exactly this
+# one. Neither may keep a private rung: a deployment whose two windows refuse
+# for different reasons, or tell the operator different sentences for the same
+# reason, has two opinions about one fact.
+#
+# So the gate takes no context. It resolves no pid, opens no file and asks no
+# connector-host manager where it is: the current target, the deployment
+# baseline, the live in-flight markers and the live servers' reports all arrive
+# as arguments, gathered by whoever is asking in whatever hop that surface has
+# for blocking work — the terminal route inside its single worker-thread hop,
+# the tool from the manager it already owns. That is also what makes the two
+# callers testable against each other at all: a gate that read its own facts
+# could only ever be tested in one process at a time.
+
+#: A run started read-only mutates nothing, the target included.
+REASON_READONLY_RUN = "readonly_run"
+#: The live fleet measured the wanted target's gateway and it did not answer.
+REASON_TARGET_UNREACHABLE = "target_unreachable"
+#: A controls server is live but has published no reachability for the wanted
+#: target yet. Deliberately distinct from :data:`REASON_TARGET_UNREACHABLE`:
+#: "nobody has looked yet" and "we looked and it is down" call for different
+#: things from the operator — wait one sweep, or go and fix a gateway — and a
+#: single reason for both would tell them to do the wrong one half the time.
+REASON_REACHABILITY_UNKNOWN = "reachability_unknown"
+
+#: How every suggestion that sends the reader to the target roster opens. The
+#: three below are written for the AGENT, which has a roster tool to reach for.
+#: A surface that is itself the roster — the web terminal's popover — drops
+#: them from what it shows an operator, and it recognises them by this string,
+#: so the opening is spelled once here rather than re-typed at the reader. A
+#: second copy over there would go stale the first time one of these sentences
+#: is re-worded, and the refusal would quietly start carrying the sentence
+#: again.
+ROSTER_SUGGESTION_OPENING = "Ask for the target roster"
+
+# -- The reachability vocabulary a report publishes -------------------------
+#
+# Replicated rather than imported: :mod:`endpoint_prober` imports THIS module
+# for its endpoint derivation, so importing it back would be a cycle. The
+# equality is pinned by a test, the same drift-guard the in-flight surface
+# strings use.
+
+#: A gateway answered.
+REACHABILITY_REACHED = "reached"
+#: A gateway did not answer.
+REACHABILITY_DOWN = "down"
+#: The prober declined to claim anything: address-list CA search runs over UDP,
+#: so a TCP connect would prove a socket is listening, not that search resolves.
+REACHABILITY_NOT_APPLICABLE = "not_applicable"
+#: No live server has measured this target. The words every surface labels it
+#: with, spelled here once so the gate, the roster and the chip agree.
+REACHABILITY_NOT_PROBED = "not probed yet"
+
+#: The two states that are measurements. Anything else a row carries is the
+#: prober declining to claim, or a field a reader cannot make sense of; neither
+#: is evidence a gateway answered, and neither is evidence that it did not.
+REACHABILITY_MEASURED = (REACHABILITY_REACHED, REACHABILITY_DOWN)
+
+
+@dataclass(frozen=True)
+class GateVerdict:
+    """The gate's whole answer: whether the switch may proceed, and why not.
+
+    A verdict is returned for an allowed switch as well as a refused one,
+    because "allowed" is not the absence of information here: with no live
+    controls server the switch proceeds *and* the target's reachability is
+    unknown, and a surface that showed a green row for it would be claiming a
+    probe that never ran. So ``allowed`` is a field, and ``reachability`` is
+    carried beside it.
+
+    Attributes:
+        allowed: Whether the caller may proceed with the switch.
+        reason: The machine-readable refusal reason, empty when allowed.
+        detail: The refusal in the operator's words, or, for an allowed
+            verdict, what the gate found about the target's reachability.
+        suggestions: What the operator can do about a refusal.
+        details: The structured payload for the caller's error envelope. Its
+            ``reason`` key is the same string as :attr:`reason`.
+        reachability: The live fleet's newest word on the wanted target —
+            :data:`REACHABILITY_REACHED`, :data:`REACHABILITY_DOWN`,
+            :data:`REACHABILITY_NOT_APPLICABLE` or
+            :data:`REACHABILITY_NOT_PROBED`. Empty when the ladder refused
+            before reachability was consulted, which is "not asked" and is not
+            the same thing as "not probed".
+    """
+
+    allowed: bool
+    reason: str = ""
+    detail: str = ""
+    suggestions: list[str] = field(default_factory=list)
+    details: dict[str, Any] = field(default_factory=dict)
+    reachability: str = ""
+
+
+def _probed_at(row: Mapping[str, Any]) -> datetime | None:
+    """When a reachability row was measured, or ``None`` when it does not say.
+
+    A naive stamp is read as UTC: every publisher writes one in UTC, and a
+    reader that refused to order a stamp over a missing offset would drop a
+    real measurement.
+    """
+    value = row.get("probed_at")
+    if not isinstance(value, str):
+        return None
+    try:
+        stamp = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return stamp if stamp.tzinfo is not None else stamp.replace(tzinfo=UTC)
+
+
+def _reachability_rows(reports: Iterable[Any], target: str) -> list[tuple[str, dict[str, Any]]]:
+    """Every ``(role, row)`` the live fleet has published about *target*.
+
+    Every shape a degraded report can take — no block, a block that is not a
+    mapping, a ``targets`` table that is not one, a per-role entry that is a
+    string — reads as "this report says nothing about this target", never as an
+    error. A reader of another process's files is in no position to insist.
+    """
+    rows: list[tuple[str, dict[str, Any]]] = []
+    for report in reports:
+        block = getattr(report, "reachability", None)
+        if not isinstance(block, Mapping):
+            continue
+        targets = block.get("targets")
+        if not isinstance(targets, Mapping):
+            continue
+        per_role = targets.get(target)
+        if not isinstance(per_role, Mapping):
+            continue
+        for role, row in per_role.items():
+            if isinstance(row, Mapping):
+                rows.append((str(role), dict(row)))
+    return rows
+
+
+def target_reachability(reports: Iterable[Any], target: str) -> tuple[str, str, dict[str, Any]]:
+    """The live fleet's newest word on *target*: ``(state, role, row)``.
+
+    The newest measurement wins, across every live server and every gateway
+    role. Two servers probing one deployment are two observers of one machine,
+    not two machines, and the older of two disagreeing observations is simply
+    out of date — so a target that has come back up is reported up as soon as
+    any server has seen it, rather than staying down until the slowest sweep
+    catches up.
+
+    A row that is neither ``reached`` nor ``down`` is not a measurement. A
+    ``not_applicable`` row is the prober declining to claim, which is an answer
+    and reports as one; anything else a row might carry is unreadable and
+    reports as :data:`REACHABILITY_NOT_PROBED`, so nonsense in a file can only
+    ever make this stricter, never more permissive.
+
+    Args:
+        reports: The LIVE server reports. Liveness is the caller's to
+            establish — it is a question about processes, and this module
+            resolves no pids.
+        target: The target being asked about.
+
+    Returns:
+        The state, the gateway role the deciding row describes, and that row.
+        The role is empty and the row is ``{}`` when no row decided.
+    """
+    rows = _reachability_rows(reports, target)
+    measured = [(role, row) for role, row in rows if row.get("state") in REACHABILITY_MEASURED]
+
+    best_role, best_row, best_at = "", None, None
+    for role, row in measured:
+        at = _probed_at(row)
+        if best_row is None or (at is not None and (best_at is None or at > best_at)):
+            best_role, best_row, best_at = role, row, at
+    if best_row is not None:
+        return str(best_row.get("state")), best_role, best_row
+
+    for role, row in rows:
+        if row.get("state") == REACHABILITY_NOT_APPLICABLE:
+            return REACHABILITY_NOT_APPLICABLE, role, row
+    return REACHABILITY_NOT_PROBED, "", {}
+
+
+def _gateway_of(row: Mapping[str, Any]) -> str:
+    """How a refusal names the gateway a row describes, or a plain fallback."""
+    gateway = row.get("gateway")
+    return gateway if isinstance(gateway, str) and gateway.strip() else "its gateway"
+
+
+def _server_pids(reports: Iterable[Any]) -> str:
+    """The live servers, named so an operator can find the process to wait on."""
+    pids = [str(getattr(report, "server_pid", "")) for report in reports]
+    return ", ".join(pid for pid in pids if pid) or "unknown"
+
+
+def evaluate_switch(
+    config: Any,
+    wanted: str,
+    *,
+    current_target: str,
+    baseline: str,
+    in_flight: Sequence[Any] = (),
+    reports: Sequence[Any] = (),
+    writes_enabled: bool | None = None,
+    kernel_name: KernelNameResolver | None = None,
+) -> GateVerdict:
+    """Whether this deployment may switch to *wanted* right now.
+
+    The ladder, in order, and the order is the point:
+
+    1. **A read-only run** refuses whatever else is true. The switch mutates
+       session state, and a run that mutates nothing cannot make an exception
+       for the one piece of state it would like to change.
+    2. **An execution in flight**, on any session and any surface — a sandboxed
+       run, or a notebook cell that has touched the control system. The refusal
+       names the busy client through :func:`in_flight_detail`, so the operator
+       is told which window to wait for rather than merely that somebody is
+       busy. Markers are never filtered by session: a cell in another window
+       holds the target down exactly as this session's own sandbox does.
+    3. **Eligibility**, deployment-relative, in :func:`target_availability`'s own
+       words — which is where ``already_active`` and the FR-8 posture gates
+       arrive. It comes before reachability because a target this config could
+       never reach is not a target whose probe row is interesting: "no probe
+       channel is configured" is a truer answer than "it did not answer".
+    4. **Reachability**, off the live fleet's published rows. Three outcomes
+       from one absence of data: a measured ``down`` refuses
+       (:data:`REASON_TARGET_UNREACHABLE`); a live server that has published
+       nothing about this target yet refuses on its own reason
+       (:data:`REASON_REACHABILITY_UNKNOWN`), because something IS there to ask
+       and it has not answered; and **zero live servers allows the switch**,
+       labelled :data:`REACHABILITY_NOT_PROBED`, because nothing was ever going
+       to answer, nothing holds a connector that could be stranded, and
+       claiming a probe that never ran would be the dishonest half of that.
+
+    It opens no file and resolves no pid. ``current_target`` is the
+    deployment's target of record, ``baseline`` what its config selects,
+    ``in_flight`` the live markers and ``reports`` the LIVE server reports —
+    each gathered by the caller, in the hop that caller has for blocking work.
+
+    Args:
+        config: The full rendered config mapping.
+        wanted: The target the deployment is being asked to move to.
+        current_target: The target it is on right now.
+        baseline: The target this deployment's own config selects.
+        in_flight: The live in-flight markers, oldest first. Entries that are
+            not mappings are residue and are ignored.
+        reports: The live controls servers' reports. Liveness is established by
+            the caller; an empty sequence means no controls server is running.
+        writes_enabled: The deployment's effective write posture for *wanted*,
+            when the caller knows it. ``None`` falls back to the CONFIGURED
+            posture rather than to the store: reading the store would be a file
+            read, and this function performs none. A caller that holds the
+            session's real posture — both of today's do — passes it.
+        kernel_name: Resolves a notebook kernel's id to its notebook, for the
+            busy-client refusal. The gate calls it and opens nothing itself:
+            the sidecar the answer comes from is the terminal's, and the tool
+            inside a controls server has none to ask.
+
+    Returns:
+        The verdict. ``allowed`` is the flag to branch on; ``reachability``
+        carries what the gate found even when nothing refused.
+    """
+    # (1) A read-only run mutates nothing, whatever the destination.
+    if is_readonly_run():
+        return GateVerdict(
+            allowed=False,
+            reason=REASON_READONLY_RUN,
+            detail=(
+                "a switch mutates session state; read-only sessions stay on the "
+                "deployment baseline."
+            ),
+            suggestions=[
+                "Re-run this without the read-only execution mode to change the "
+                "control-system target."
+            ],
+            details={"target": wanted, "reason": REASON_READONLY_RUN},
+        )
+
+    # (2) A run in flight was stamped with the target it started on. This reads
+    # another process's files, so there is a window: an execution that starts
+    # between this check and the swap is not seen here. That window is closed
+    # elsewhere and not by widening this check — the sandbox and the cell are
+    # pinned to the generation they launched under, and their writes refuse once
+    # the deployment moves past it. What the check buys is the refusal arriving
+    # as an answer to the switch rather than as a failure inside a running run.
+    for marker in in_flight:
+        if not isinstance(marker, Mapping):
+            continue
+        message, suggestions, details = in_flight_detail(marker, wanted, kernel_name=kernel_name)
+        return GateVerdict(
+            allowed=False,
+            reason=REASON_EXECUTION_IN_FLIGHT,
+            detail=message,
+            suggestions=suggestions,
+            details=details,
+        )
+
+    # (3) Eligibility, session-relative, in the eligibility module's own words.
+    # ``readonly_run`` is pinned false rather than read again: rung 1 already
+    # answered that question, and a second read could disagree with the first.
+    resolved_writes = (
+        _config_writes_enabled(config, wanted) if writes_enabled is None else bool(writes_enabled)
+    )
+    availability = target_availability(
+        config,
+        wanted,
+        current_target,
+        baseline,
+        writes_enabled=resolved_writes,
+        readonly_run=False,
+    )
+    if not availability.available_now:
+        return GateVerdict(
+            allowed=False,
+            reason=str(availability.reason or ""),
+            detail=availability.detail,
+            suggestions=[
+                f"{ROSTER_SUGGESTION_OPENING} to see what each target would need to become usable."
+            ],
+            details=availability.as_dict(),
+        )
+
+    # (4) Reachability, as the live fleet last measured it.
+    state, role, row = target_reachability(reports, wanted)
+
+    if state == REACHABILITY_DOWN:
+        gateway = _gateway_of(row)
+        return GateVerdict(
+            allowed=False,
+            reason=REASON_TARGET_UNREACHABLE,
+            detail=(
+                f"target {wanted!r} did not answer its last reachability probe: its "
+                f"{role or 'configured'} gateway {gateway} is down."
+            ),
+            suggestions=[
+                f"Bring {gateway} back up, or switch to a target that answers.",
+                f"{ROSTER_SUGGESTION_OPENING} to see the reachability of every target.",
+            ],
+            details={
+                "target": wanted,
+                "reason": REASON_TARGET_UNREACHABLE,
+                "reachability": REACHABILITY_DOWN,
+                "role": role,
+                "gateway": row.get("gateway"),
+                "probed_at": row.get("probed_at"),
+                "probe_detail": row.get("detail"),
+            },
+            reachability=REACHABILITY_DOWN,
+        )
+
+    live = list(reports)
+    if state == REACHABILITY_NOT_PROBED and live:
+        return GateVerdict(
+            allowed=False,
+            reason=REASON_REACHABILITY_UNKNOWN,
+            detail=(
+                f"target {wanted!r} is {REACHABILITY_NOT_PROBED}: the controls server on "
+                f"pid {_server_pids(live)} is running but has published no reachability "
+                "for it."
+            ),
+            suggestions=[
+                "Wait for the next reachability sweep, then switch again.",
+                f"{ROSTER_SUGGESTION_OPENING} to see which targets have been probed.",
+            ],
+            details={
+                "target": wanted,
+                "reason": REASON_REACHABILITY_UNKNOWN,
+                "reachability": REACHABILITY_NOT_PROBED,
+                "server_pids": [getattr(report, "server_pid", None) for report in live],
+            },
+            reachability=REACHABILITY_NOT_PROBED,
+        )
+
+    if state == REACHABILITY_NOT_PROBED:
+        detail = (
+            f"no controls server is live, so target {wanted!r} is {REACHABILITY_NOT_PROBED}; "
+            "nothing holds a connector, so the switch proceeds and no surface claims a probe."
+        )
+    elif state == REACHABILITY_NOT_APPLICABLE:
+        detail = (
+            f"target {wanted!r} publishes no measurable reachability: its "
+            f"{role or 'configured'} gateway is reached by CA search, which TCP cannot prove."
+        )
+    else:
+        detail = f"target {wanted!r} answered its last reachability probe."
+
+    return GateVerdict(
+        allowed=True,
+        detail=detail,
+        details={"target": wanted, "reachability": state},
+        reachability=state,
     )

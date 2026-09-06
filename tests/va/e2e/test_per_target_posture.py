@@ -29,13 +29,15 @@ Five claims, and this module is the acceptance gate for all five:
    note becomes ``done``, and both the child's own post-connect report and the
    ``control_target`` roster say ``selected_role: read_only`` for the stand-in
    — and a subsequent switch to it still verifies rather than raising.
-3. **A switch asked for by the operator is a file, a poll and an outcome.**
-   ``POST /api/terminal/target`` writes a request addressed to this server's
-   pid; the reconciler consumes it, switches, and publishes ``last_switch``
-   with the request's own id. A second request for the target the session is
-   already on comes back ``already_active`` with no child respawned.
+3. **A switch asked for by the operator is a record write and a reconcile.**
+   ``POST /api/terminal/target`` gates the gesture against the deployment's
+   control-context record and writes the answer into it under the request's own
+   id; this server's reconciler then carries the connector host onto the
+   generation that answer minted. A second request for the target the
+   deployment is already on succeeds without minting one, writes no answer at
+   all, and respawns no child.
 4. **A write follows the session, not the conversation.** An agent whose
-   session is on the virtual accelerator writes; the operator moves it to the
+   deployment is on the virtual accelerator writes; the operator moves it to the
    stand-in from the web surface; the agent's next ``channel_write`` is judged
    against the stand-in and refused, with nothing on either machine having
    moved.
@@ -112,7 +114,6 @@ from fastapi.testclient import TestClient
 from osprey.audit import posture as audit_posture
 from osprey.audit import writer as audit_writer
 from osprey.interfaces.web_terminal.app import create_app
-from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.mcp_server.control_system import server_context as server_context_mod
 from osprey.mcp_server.control_system import session_control, target_state
 from osprey.mcp_server.control_system.connector_host_manager import ConnectorHostManager
@@ -122,10 +123,10 @@ from osprey.mcp_server.control_system.tools import control_target as control_tar
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey.mcp_server.python_executor.tools import _execution_gates as execution_gates
 from osprey.mcp_server.python_executor.tools import python_execute as python_execute_module
-from osprey_connectors import session_store
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.types import TARGET_LIVE, TARGET_STANDIN, TARGET_VA
-from tests.fixtures.control_context import context_for
+from tests.fixtures.control_context import context_for, publish_reachability
 from tests.mcp_server.conftest import get_tool_fn
 from tests.va.e2e import conftest as e2e_conftest
 
@@ -180,7 +181,7 @@ REST_VALUE = 0.0
 
 # -- the session the operator is acting on ----------------------------------
 
-#: The posture-store key. A bare lowercase UUID, which is the closed grammar
+#: The audit session id. A bare lowercase UUID, which is the closed grammar
 #: both posture routes accept and the shape a PTY pool key really has.
 SESSION_ID = "5a17e600-1111-4222-8333-444444444444"
 
@@ -504,22 +505,18 @@ def module_environment(tmp_path_factory, endpoints):
     records: list[dict] = []
 
     with pytest.MonkeyPatch.context() as patch_env:
-        patch_env.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+        patch_env.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
         patch_env.setenv(audit_posture.POSTURE_SESSION_ENV_VAR, SESSION_ID)
         patch_env.setenv("PYTHONPATH", os.pathsep.join(REPO_PATHS))
         patch_env.setenv("CONFIG_FILE", str(written))
         patch_env.setenv("OSPREY_CONFIG", str(written))
         patch_env.delenv("OSPREY_EXECUTION_MODE", raising=False)
-        patch_env.delenv(session_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+        patch_env.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
         patch_env.setattr(target_state, "resolve_shared_data_root", lambda: root)
-        session_store.invalidate_cache()
-        audit_posture.invalidate_session_target_cache()
-        websocket_routes._reset_session_record_memo()
+        posture_store.invalidate_cache()
         with patch.object(audit_writer, "record", side_effect=lambda **f: records.append(f)):
             yield SimpleNamespace(root=root, config_path=written)
-    session_store.invalidate_cache()
-    audit_posture.invalidate_session_target_cache()
-    websocket_routes._reset_session_record_memo()
+    posture_store.invalidate_cache()
 
 
 @pytest.fixture(scope="module")
@@ -538,14 +535,15 @@ def config_path(module_environment) -> Path:
 def web(tmp_path_factory, config_path, module_environment):
     """The real web server, over the same stamped root, for the whole module.
 
-    Two seams are patched and nothing else. The PTY registry is made to report
-    this process's parent as the session's terminal, which is what lets the
-    routes resolve the state record this process really publishes: the record's
-    ``owner_ppid`` is ``os.getppid()``, and the resolver walks a record's
-    ancestors — itself included — looking for the PTY pid. Session discovery is
-    made to report the session as started, which on a real deployment is what
-    having sent one prompt means. Everything past those two seams — the refusal
-    ladder, the store write, the request file — is the shipped code.
+    Two seams are patched and nothing else, and both say the same thing: the
+    session id these tests post with names a terminal that exists and has been
+    prompted. The PTY registry answers to it, and session discovery reports it
+    as started — which on a real deployment is what having sent one prompt
+    means. Nothing about WHICH machine the deployment is on travels through
+    either: that is the control-context record the app claims on startup, over
+    the root ``module_environment`` stamped, and every route below reads it.
+    Everything past those two seams — the refusal ladder, the record mutation,
+    the switch request — is the shipped code.
     """
     watch_dir = tmp_path_factory.mktemp("per-target-posture-watch")
     with patch(
@@ -667,7 +665,7 @@ def gates_are_silent() -> bool:
     """Whether the two write gates ``execute`` runs would let a readwrite run by.
 
     The anti-vacuous control for the ``execute`` leg, asked of the very
-    functions the tool calls — the session-posture clamp and the per-target
+    functions the tool calls — the posture clamp and the per-target
     writes gate — rather than by launching a sandbox. Running the tool for real
     on the permitted target would spawn the executor subprocess, and a failure
     in *that* (a workspace, a virtualenv, a timeout) would be reported here as a
@@ -678,7 +676,7 @@ def gates_are_silent() -> bool:
     try:
         execution_gates.enforce_posture_clamp("readwrite", tool="execute")
         execution_gates.enforce_deployment_writes_gate(
-            "readwrite", execution_gates.session_control_target()
+            "readwrite", execution_gates.recorded_control_target()
         )
     except ToolError:
         return False
@@ -809,14 +807,16 @@ def quiet_notifications():
 
 
 def last_switch():
-    """This server's published switch outcome, straight off the state file.
+    """The terminus of the last switch gesture, off the deployment's record.
 
-    Read from the record rather than through the per-target GET: the GET renders
-    exactly this block (with an ``age_s`` it computes on the way out), and the
-    state file is the contract the reconciler actually writes.
+    The record is where every answer to a switch gesture lands, whoever wrote
+    it, and a requester polls it for its own ``request_id``. Read from there
+    rather than through the per-target GET (which renders exactly this block
+    with an ``age_s`` it computes on the way out) and rather than from this
+    server's report, which carries only its own progress through the swap.
     """
-    record = target_state.read() or {}
-    return record.get("last_switch")
+    record = control_context.read_record()
+    return None if record is None else record.last_switch
 
 
 def realign_note():
@@ -897,6 +897,25 @@ async def session(config_path, web, module_environment):
             server_context_mod._registry = context_for(manager)
             context = server_context_mod._registry
             reconciler = session_control.SessionControlReconciler()
+            # The switch gate refuses a destination no live server has measured,
+            # and the prober that measures it runs in the controls server's
+            # lifespan rather than here.
+            await publish_reachability(raw)
+
+            async def move_session(target: str) -> dict:
+                """Move the deployment through the operator's own surface, and land it.
+
+                The web terminal owns the control-context record and mints the
+                generation; this server's reconciler is what carries the
+                connector host onto it. A bare ``manager.switch`` would move the
+                child out from under a record nobody moved, and every gate that
+                compares the two refuses a session in that state.
+                """
+                response = post_target(web, target)
+                assert response.status_code == 202, (response.status_code, response.json())
+                await reconciler.poll_once()
+                assert manager.active_target() == target
+                return manager.status()
 
             # -- 1. A narrowing lands on a live child -----------------------
             #
@@ -904,8 +923,8 @@ async def session(config_path, web, module_environment):
             # narrowed, so the child comes up on the write_access gateway and
             # every refusal after the toggle is the reference monitor's rather
             # than a gateway the operator never had.
-            outbound = await manager.switch(TARGET_STANDIN)
-            journal["standin_role_before"] = outbound["selected_role"]
+            landed = await move_session(TARGET_STANDIN)
+            journal["standin_role_before"] = landed["selected_role"]
 
             journal["armed_write"] = await write_via_tool(CORRECTOR_SP, ARMED_VALUE)
             journal["armed_readback"] = await reading(manager, CORRECTOR_SP)
@@ -930,33 +949,22 @@ async def session(config_path, web, module_environment):
             journal["child_after_refusal"] = manager.status()["child_pid"]
             journal["standin_at_rest"] = await reading(manager, CORRECTOR_SP)
 
-            # ... while the other target still writes. The switch is real, so
-            # this write lands on the other container.
-            await manager.switch(TARGET_VA)
-            journal["va_write_while_narrowed"] = await write_via_tool(CORRECTOR_SP, ARMED_VALUE)
-            journal["va_readback_while_narrowed"] = await reading(manager, CORRECTOR_SP)
-            journal["va_session_target"] = execution_gates.session_control_target()
-            journal["va_gates_silent"] = gates_are_silent()
-            await restore_machine()
-
             # -- 2. The realignment waits for a run, then moves the gateway --
             #
-            # Back on the narrowed target, on a child that already read the
-            # moved store and so came up on the read gateway, while the
-            # reconciler — which has not yet observed the move — still owes a
-            # rebuild.
-            await manager.switch(TARGET_STANDIN)
+            # Still on the narrowed target, on the child that connected before
+            # the toggle: a change of TARGET is deliberately not a change of
+            # posture (the child a switch builds reads the record on its way
+            # up), so the flip the reconciler owes a rebuild for is the one it
+            # meets while the deployment stays where it is. That is this one,
+            # and the marker is held across the pass that first sees it.
             journal["child_before_realign"] = manager.status()["child_pid"]
             with host_executor._in_flight_marker(TARGET_STANDIN):
                 await reconciler.poll_once()
                 journal["realign_while_running"] = realign_note()
                 journal["child_while_running"] = manager.status()["child_pid"]
-                # Taken INSIDE the in-flight window, together with the role
-                # the child serving the session actually holds. The switch back
-                # to the narrowed target already derived its gateway from the
-                # moved store, so what is pending here is a rebuild rather than
-                # a change of role -- and the block is expected to be carrying
-                # the read role already, before the reconciler reports "done".
+                # Taken INSIDE the in-flight window, together with the role the
+                # child serving the session actually holds -- which is still the
+                # write one, because the rebuild is what moves it.
                 journal["role_while_running"] = manager.status()["selected_role"]
                 journal["targets_while_running"] = published_targets()
             await reconciler.poll_once()
@@ -973,18 +981,27 @@ async def session(config_path, web, module_environment):
             ).json()
             journal["rows_narrowed"] = control_target_module.target_rows(
                 context.config.raw,
-                session_target=manager.active_target(),
+                control_target=manager.active_target(),
                 baseline=manager.baseline,
             )
 
+            # ... while the other target still writes. The switch is real, so
+            # this write lands on the other container.
+            await move_session(TARGET_VA)
+            journal["va_write_while_narrowed"] = await write_via_tool(CORRECTOR_SP, ARMED_VALUE)
+            journal["va_readback_while_narrowed"] = await reading(manager, CORRECTOR_SP)
+            journal["va_control_target"] = execution_gates.recorded_control_target()
+            journal["va_gates_silent"] = gates_are_silent()
+            await restore_machine()
+
             # A switch to the narrowed target still verifies: read-only is a
             # usable posture, not an unreachable machine.
-            await manager.switch(TARGET_VA)
-            journal["reswitch"] = await manager.switch(TARGET_STANDIN)
+            journal["reswitch"] = await move_session(TARGET_STANDIN)
 
             # -- 3. An operator-requested switch, end to end ----------------
             request = post_target(web, TARGET_VA)
             journal["request_status"] = request.status_code
+            journal["request_body"] = request.json()
             journal["request_id"] = request.json()["request_id"]
             await reconciler.poll_once()
             journal["request_outcome"] = last_switch()
@@ -993,6 +1010,7 @@ async def session(config_path, web, module_environment):
 
             same = post_target(web, TARGET_VA)
             journal["same_status"] = same.status_code
+            journal["same_body"] = same.json()
             journal["same_request_id"] = same.json()["request_id"]
             await reconciler.poll_once()
             journal["same_outcome"] = last_switch()
@@ -1020,7 +1038,7 @@ async def session(config_path, web, module_environment):
             # Narrow` for why the pin is measured on that target. The session
             # moves there, the target is narrowed, the stamp is taken from the
             # production stamper, and only then is the store widened.
-            await manager.switch(TARGET_VA)
+            await move_session(TARGET_VA)
             journal["pin_narrow_status"] = post_posture(web, TARGET_VA, "sandbox").status_code
             journal["narrow_stamps"] = launch_stamps()
             widen = post_posture(web, TARGET_VA, "writes")
@@ -1162,7 +1180,7 @@ class TestTheNarrowingLandsWithoutARespawn:
         unnarrowed target: silent. Without this, "the tool refused" would be
         equally consistent with a gate that refuses everything.
         """
-        assert session["va_session_target"] == TARGET_VA
+        assert session["va_control_target"] == TARGET_VA
         assert session["va_gates_silent"] is True
 
 
@@ -1279,18 +1297,17 @@ class TestThePublishedIdentityFollowsTheGateway:
         assert after["selected_role"] == "read_only"
         assert after["endpoint"] == configured_endpoint(config_path, "live_standin", "read_only")
 
-    def test_the_block_carries_the_read_role_before_the_realignment_reports_done(
+    def test_the_block_names_the_gateway_the_child_holds_while_the_realignment_waits(
         self, session, config_path
     ) -> None:
-        """Republished at the switch, not held back until the reconciler finishes.
+        """What a reader is told during the wait: the connection that exists.
 
-        The switch that put the session back on the narrowed target derived its
-        gateway from the store the toggle had already moved, so the child
-        holding the session through the in-flight window was itself on the read
-        gateway: what the reconciler still owed was a rebuild, not a change of
-        role. The claim pinned here is about WHEN the file moves — the block
-        already names the read role while ``last_posture_realign`` is still
-        ``pending``, so a reader is never told the write gateway during the wait.
+        The toggle has moved the store and the realignment is pending behind a
+        run, so the child serving the session is still on the write gateway it
+        connected with. The block says so. A block that named the read role
+        here would be telling an operator their toggle had reached a connection
+        it has not reached yet — the note beside it, ``pending``, is what says
+        the rebuild is still owed.
 
         It does not pin WHERE the rendered role came from. The fallback
         derivation and the serving child's report agree at this moment, so this
@@ -1299,6 +1316,7 @@ class TestThePublishedIdentityFollowsTheGateway:
         """
         slot = session["targets_while_running"][TARGET_STANDIN]
 
+        assert session["role_while_running"] == "write_access"
         assert slot["selected_role"] == session["role_while_running"]
         assert slot["endpoint"] == configured_endpoint(
             config_path, "live_standin", slot["selected_role"]
@@ -1340,13 +1358,13 @@ class TestThePublishedIdentityFollowsTheGateway:
 
 
 class TestTheOperatorsSwitchRequest:
-    """The web server writes desired state; the controls server decides.
+    """The web server answers the gesture; the controls server follows it.
 
     The route never touches the connector — it cannot; the connector lives in
     another process with no inbound channel — so what is asserted here is the
-    whole loop: a request file addressed by pid, a reconcile pass, a real switch
-    between two containers, and an outcome published back under the request's
-    own id.
+    whole loop: a verdict written into the deployment's record under the
+    request's own id, a reconcile pass, and a real switch between two
+    containers.
     """
 
     def test_the_request_was_accepted_without_a_verdict(self, session) -> None:
@@ -1358,29 +1376,27 @@ class TestTheOperatorsSwitchRequest:
 
         assert outcome["request_id"] == session["request_id"]
         assert outcome["target"] == TARGET_VA
-        assert outcome["status"] == session_control.STATUS_SUCCESS
+        assert outcome["status"] == session_control.STATUS_APPLIED
         assert outcome["reason"] is None
         assert session["target_after_request"] == TARGET_VA
 
-    def test_a_request_for_the_target_the_session_is_on_is_refused(self, session) -> None:
-        """``already_active`` is the roster's own word, arriving through the gate.
+    def test_a_request_for_the_target_the_session_is_on_mints_nothing(self, session) -> None:
+        """The deployment is already there, so the answer moves nothing.
 
-        Matched by ``request_id`` so the chip can tell this answer from the
-        successful one it was shown a moment earlier.
+        A generation minted for a switch that did not happen would refuse every
+        write pinned to the old one, for nothing — so this succeeds on the
+        generation the fleet is already on, and writes no terminus at all. The
+        record still carrying the *previous* request's block is what says so.
         """
         outcome = session["same_outcome"]
 
         assert session["same_status"] == 202
-        assert outcome["request_id"] == session["same_request_id"]
-        assert outcome["request_id"] != session["request_id"]
-        # A refusal names the target it was aimed at too: the popover renders
-        # the word on that machine's row, refusals included.
-        assert outcome["target"] == TARGET_VA
-        assert outcome["status"] == session_control.STATUS_REFUSED
-        assert outcome["reason"] == "already_active"
+        assert session["same_body"]["generation"] == session["request_body"]["generation"]
+        assert session["same_request_id"] != session["request_id"]
+        assert outcome["request_id"] == session["request_id"]
 
-    def test_a_refused_request_respawns_no_child(self, session) -> None:
-        """The gate is asked before ``switch()``, so nothing is torn down."""
+    def test_a_request_that_mints_nothing_respawns_no_child(self, session) -> None:
+        """The verdict is taken before any swap, so nothing is torn down."""
         assert session["child_after_same"] == session["child_after_request"]
 
 
@@ -1408,7 +1424,7 @@ class TestTheAgentsNextWriteIsJudgedWhereTheSessionNowIs:
 
         assert outcome["request_id"] == session["moved_request_id"]
         assert outcome["target"] == TARGET_STANDIN
-        assert outcome["status"] == session_control.STATUS_SUCCESS
+        assert outcome["status"] == session_control.STATUS_APPLIED
         assert session["target_after_move"] == TARGET_STANDIN
 
     def test_the_next_write_is_evaluated_against_the_new_target(self, session) -> None:

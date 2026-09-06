@@ -223,7 +223,7 @@ def test_bluesky_stop_run_never_denied_regardless_of_writes_enabled(tmp_path):
 # Mixed posture: the two targets disagree, so nothing is denied and nothing asks
 # ---------------------------------------------------------------------------
 
-#: The connector block backing each session target once the deployment renders
+#: The connector block backing each control target once the deployment renders
 #: the switch. Named rather than resolved so a preset that stopped configuring
 #: both targets fails these tests instead of quietly turning them into a second
 #: copy of the all-off case.

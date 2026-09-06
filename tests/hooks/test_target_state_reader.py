@@ -1,21 +1,19 @@
-"""Tests for the stdlib-only target-state reader ``osprey_target_state``.
+"""Tests for the stdlib-only control-context reader ``osprey_target_state``.
 
-This module is imported by hooks and the status line rather than invoked as a
-script, so it is tested by direct import — the ``osprey_hook_log`` precedent.
+This module is imported by the hooks rather than invoked as a script, so it is
+tested by direct import — the ``osprey_hook_log`` precedent.
 
 The whole contract under test is "never surprise the caller": every failure mode
-must arrive as the same baseline-fallback marker, and nothing must ever raise.
-The tests therefore lean on two seams instead of on real process trees:
-``ancestor_pids`` (monkeypatched to a synthesized chain) and ``resolve_state_dir``
-(pointed at ``tmp_path``). The ancestor walker itself is unit-tested separately
-against monkeypatched ``/proc`` and ``ps`` shapes.
+must arrive as the same baseline-fallback marker, nothing must ever raise, and a
+record this reader accepts must be one ``osprey_connectors.control_context``
+would accept too. The tests lean on two seams instead of on a real deployment:
+``resolve_state_dir`` (pointed at ``tmp_path``) and ``_is_process_alive`` (so a
+server report can be made live or dead without spawning anything).
 """
 
 from __future__ import annotations
 
 import json
-import os
-import subprocess
 
 import pytest
 
@@ -24,12 +22,6 @@ import osprey.templates.claude_code.claude.hooks.osprey_target_state as reader
 # ---------------------------------------------------------------------------
 # fixtures / helpers
 # ---------------------------------------------------------------------------
-
-#: A PID that is on the synthesized ancestor chain but is not this process.
-OWNER_PPID = 424242
-
-#: A PID that is on no chain at all.
-STRANGER_PPID = 999001
 
 
 @pytest.fixture
@@ -42,11 +34,9 @@ def state_dir(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def synthetic_chain(monkeypatch):
-    """Replace the ancestor walk with a fixed chain containing OWNER_PPID."""
-    chain = [os.getpid(), OWNER_PPID, 300]
-    monkeypatch.setattr(reader, "ancestor_pids", lambda *a, **k: list(chain))
-    return chain
+def unstamped(monkeypatch):
+    """A process the web terminal did not stamp with an agent-data root."""
+    monkeypatch.delenv(reader.AGENT_DATA_ROOT_ENV_VAR, raising=False)
 
 
 @pytest.fixture
@@ -55,13 +45,29 @@ def alive_everything(monkeypatch):
     monkeypatch.setattr(reader, "_is_process_alive", lambda pid: True)
 
 
-def write_state(directory, server_pid, **overrides):
-    """Write a well-formed state file for *server_pid*, with overrides applied."""
+def write_record(directory, **overrides):
+    """Write a well-formed control-context record, with overrides applied."""
     record = {
+        "schema": 1,
+        "owner": {"kind": "web_terminal", "pid": 4242, "port": 8080},
         "target": "va",
         "generation": 3,
+        "posture": {},
+        "last_switch": None,
+    }
+    record.update(overrides)
+    path = directory / reader.RECORD_FILENAME
+    path.write_text(json.dumps(record), encoding="utf-8")
+    return path
+
+
+def write_report(directory, server_pid, **overrides):
+    """Write one controls server's report, with overrides applied."""
+    report = {
         "server_pid": server_pid,
-        "owner_ppid": OWNER_PPID,
+        "session": None,
+        "applied_target": "va",
+        "applied_generation": 3,
         "targets": {
             "live": {"label": "ALS storage ring", "endpoint": "epics://", "real_machine": True},
             "va": {
@@ -70,11 +76,10 @@ def write_state(directory, server_pid, **overrides):
                 "real_machine": False,
             },
         },
-        "children": [],
     }
-    record.update(overrides)
-    path = directory / f"target_state_{server_pid}.json"
-    path.write_text(json.dumps(record), encoding="utf-8")
+    report.update(overrides)
+    path = directory / f"server_{server_pid}.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
     return path
 
 
@@ -83,439 +88,401 @@ def write_state(directory, server_pid, **overrides):
 # ---------------------------------------------------------------------------
 
 
-def test_happy_path_returns_target_generation_and_display(
-    state_dir, synthetic_chain, alive_everything
-):
-    write_state(state_dir, 5150)
+def test_happy_path_returns_the_records_target_and_generation(state_dir):
+    write_record(state_dir)
 
-    result = reader.read_session_target()
+    result = reader.read_target()
 
     assert not reader.is_baseline(result)
     assert result["fallback"] is None
     assert result["reason"] is None
     assert result["target"] == "va"
     assert result["generation"] == 3
-    assert result["display"] == {
+
+
+def test_result_always_carries_all_four_contract_keys(state_dir):
+    write_record(state_dir)
+    resolved = reader.read_target()
+
+    for result in (resolved, reader.baseline_result()):
+        assert set(result) == {"target", "generation", "fallback", "reason"}
+
+
+def test_one_record_answers_every_reader_in_the_deployment(state_dir):
+    """No pid ancestry, no per-session selection: one file, one answer."""
+    write_record(state_dir, target="live", generation=9)
+
+    assert reader.read_target()["target"] == "live"
+    assert reader.read_record()["generation"] == 9
+
+
+def test_read_record_carries_only_what_a_hook_answers_from(state_dir):
+    """Ownership is the owner's business and convergence is nobody's here."""
+    write_record(state_dir, posture={"live": "sandbox"})
+
+    record = reader.read_record()
+
+    assert set(record) == {"target", "generation", "posture"}
+
+
+def test_generation_zero_is_a_real_generation(state_dir):
+    write_record(state_dir, generation=0)
+
+    assert reader.read_target()["generation"] == 0
+
+
+# ---------------------------------------------------------------------------
+# degraded records
+# ---------------------------------------------------------------------------
+
+
+def test_absent_record_yields_baseline_marker(state_dir):
+    result = reader.read_target()
+
+    assert reader.is_baseline(result)
+    assert result["reason"] == reader.REASON_NO_STATE
+    assert result["target"] is None
+    assert result["generation"] is None
+
+
+def test_missing_state_directory_yields_baseline_marker(tmp_path, monkeypatch):
+    missing = tmp_path / "nowhere" / "control_target"
+    monkeypatch.setattr(reader, "resolve_state_dir", lambda hook_input=None: str(missing))
+
+    assert reader.read_target()["reason"] == reader.REASON_NO_STATE
+
+
+def test_unresolvable_repo_root_yields_baseline_marker(monkeypatch):
+    monkeypatch.setattr(reader, "resolve_state_dir", lambda hook_input=None: None)
+
+    assert reader.is_baseline(reader.read_target())
+    assert reader.read_record() is None
+
+
+def test_corrupt_json_is_unreadable(state_dir):
+    (state_dir / reader.RECORD_FILENAME).write_text("{not json", encoding="utf-8")
+
+    assert reader.read_target()["reason"] == reader.REASON_UNREADABLE
+    assert reader.read_record() is None
+
+
+def test_non_dict_payload_is_unreadable(state_dir):
+    (state_dir / reader.RECORD_FILENAME).write_text("[1, 2, 3]", encoding="utf-8")
+
+    assert reader.read_target()["reason"] == reader.REASON_UNREADABLE
+
+
+@pytest.mark.parametrize("schema", [2, 0, "1", None, True])
+def test_a_schema_this_reader_does_not_know_is_no_record(state_dir, schema):
+    """Hooks and record are regenerated together; there is no migration path."""
+    write_record(state_dir, schema=schema)
+
+    assert reader.read_record() is None
+    assert reader.read_target()["reason"] == reader.REASON_UNREADABLE
+
+
+def test_a_record_without_a_schema_is_no_record(state_dir):
+    (state_dir / reader.RECORD_FILENAME).write_text(
+        json.dumps({"target": "va", "generation": 1}), encoding="utf-8"
+    )
+
+    assert reader.read_record() is None
+
+
+@pytest.mark.parametrize("target", ["ring", "", None, "VA", 7])
+def test_a_target_outside_the_vocabulary_is_no_record(state_dir, target):
+    write_record(state_dir, target=target)
+
+    assert reader.read_record() is None
+    assert reader.read_target()["reason"] == reader.REASON_UNREADABLE
+
+
+@pytest.mark.parametrize("generation", [-1, "3", None, True, 1.5])
+def test_an_unusable_generation_is_no_record(state_dir, generation):
+    """The identity trio is all-or-nothing: a pinned write needs the number."""
+    write_record(state_dir, generation=generation)
+
+    assert reader.read_record() is None
+
+
+def test_unknown_extra_fields_are_tolerated(state_dir):
+    write_record(state_dir, unexpected={"from": "a later version"})
+
+    assert reader.read_target()["target"] == "va"
+
+
+def test_parse_record_accepts_text_and_bytes():
+    payload = {"schema": 1, "target": "live", "generation": 2}
+
+    assert reader.parse_record(json.dumps(payload))["target"] == "live"
+    assert reader.parse_record(json.dumps(payload).encode())["target"] == "live"
+    assert reader.parse_record(b"\xff\xfe not utf-8") is None
+
+
+def test_an_exploding_state_dir_still_returns_the_marker(monkeypatch):
+    def boom(hook_input=None):
+        raise RuntimeError("state dir resolution blew up")
+
+    monkeypatch.setattr(reader, "resolve_state_dir", boom)
+
+    assert reader.is_baseline(reader.read_target())
+    assert reader.read_record() is None
+    assert reader.read_target_view() is None
+    assert reader.recorded_posture() == {}
+
+
+def test_is_baseline_tolerates_non_dict_input():
+    for value in (None, "baseline", 0, []):
+        assert reader.is_baseline(value) is True
+
+
+def test_selected_target_tolerates_any_shape():
+    assert reader.selected_target({"target": " va "}) == "va"
+    assert reader.selected_target({"target": ""}) is None
+    assert reader.selected_target({}) is None
+    assert reader.selected_target(None) is None
+
+
+# ---------------------------------------------------------------------------
+# how a target is spoken of
+# ---------------------------------------------------------------------------
+
+
+def test_view_folds_the_live_servers_metadata_onto_the_record(state_dir, alive_everything):
+    write_record(state_dir)
+    write_report(state_dir, 5150)
+
+    view = reader.read_target_view()
+
+    assert view["target"] == "va"
+    assert reader.target_metadata(view, "va") == {
         "label": "Virtual accelerator",
         "endpoint": "pva://vasrv",
         "real_machine": False,
     }
+    assert reader.target_metadata(view, "live")["real_machine"] is True
 
 
-def test_display_comes_from_the_selected_target_not_the_other_one(
-    state_dir, synthetic_chain, alive_everything
-):
-    """Switching ``target`` must switch which ``targets`` entry is rendered."""
-    write_state(state_dir, 5151, target="live")
+def test_view_without_a_record_is_no_view(state_dir, alive_everything):
+    write_report(state_dir, 5150)
 
-    result = reader.read_session_target()
-
-    assert result["target"] == "live"
-    assert result["display"]["label"] == "ALS storage ring"
-    assert result["display"]["real_machine"] is True
+    assert reader.read_target_view() is None
 
 
-def test_result_always_carries_all_five_contract_keys(state_dir, synthetic_chain, alive_everything):
-    write_state(state_dir, 5152)
-    resolved = reader.read_session_target()
-
-    expected = {"target", "generation", "display", "fallback", "reason"}
-    assert set(resolved) == expected
-    assert set(reader.baseline_result()) == expected
-
-
-# ---------------------------------------------------------------------------
-# liveness
-# ---------------------------------------------------------------------------
-
-
-def test_dead_server_pid_is_ignored(state_dir, synthetic_chain, monkeypatch):
-    """A file whose owning server is gone must not answer for this session."""
-    write_state(state_dir, 5153)
+def test_a_dead_servers_report_does_not_speak(state_dir, monkeypatch):
+    write_record(state_dir)
+    write_report(state_dir, 5151)
     monkeypatch.setattr(reader, "_is_process_alive", lambda pid: False)
 
-    result = reader.read_session_target()
+    view = reader.read_target_view()
 
-    assert reader.is_baseline(result)
-    assert result["reason"] == reader.REASON_NO_STATE
+    assert view["targets"] == {}
+    assert reader.target_metadata(view, "va") is None
 
 
-def test_dead_server_file_is_never_deleted(state_dir, synthetic_chain, monkeypatch):
-    """The reader is read-only: sweeping stale files is the writer's job."""
-    path = write_state(state_dir, 5154)
+def test_a_dead_servers_report_is_never_deleted(state_dir, monkeypatch):
+    write_record(state_dir)
+    path = write_report(state_dir, 5152)
     monkeypatch.setattr(reader, "_is_process_alive", lambda pid: False)
 
-    reader.read_session_target()
+    reader.read_target_view()
 
     assert path.exists()
 
 
-def test_live_file_wins_over_a_dead_sibling(state_dir, synthetic_chain, monkeypatch):
-    write_state(state_dir, 5155, target="live")
-    write_state(state_dir, 5156, target="va")
-    monkeypatch.setattr(reader, "_is_process_alive", lambda pid: int(pid) == 5156)
+def test_a_live_report_answers_past_a_dead_one(state_dir, monkeypatch):
+    write_record(state_dir)
+    write_report(state_dir, 100, targets={"va": {"label": "dead", "real_machine": False}})
+    write_report(state_dir, 200, targets={"va": {"label": "live", "real_machine": False}})
+    monkeypatch.setattr(reader, "_is_process_alive", lambda pid: int(pid) == 200)
 
-    result = reader.read_session_target()
+    view = reader.read_target_view()
 
-    assert result["target"] == "va"
-
-
-def test_is_process_alive_treats_permission_error_as_alive(monkeypatch):
-    """Another user's server is unreachable, not dead — discarding it loses state."""
-
-    def _boom(pid, sig):
-        raise PermissionError
-
-    monkeypatch.setattr(reader.os, "kill", _boom)
-    assert reader._is_process_alive(4321) is True
+    assert reader.target_metadata(view, "va")["label"] == "live"
 
 
-def test_is_process_alive_rejects_non_positive_and_garbage_pids():
-    assert reader._is_process_alive(0) is False
-    assert reader._is_process_alive(-1) is False
-    assert reader._is_process_alive(None) is False
-    assert reader._is_process_alive("not-a-pid") is False
+def test_a_corrupt_report_does_not_hide_a_good_sibling(state_dir, alive_everything):
+    write_record(state_dir)
+    (state_dir / "server_100.json").write_text("{not json", encoding="utf-8")
+    write_report(state_dir, 200)
+
+    assert reader.target_metadata(reader.read_target_view(), "va")["endpoint"] == "pva://vasrv"
 
 
-# ---------------------------------------------------------------------------
-# fail-closed fallbacks
-# ---------------------------------------------------------------------------
+def test_a_report_with_no_metadata_yet_is_passed_over(state_dir, alive_everything):
+    write_record(state_dir)
+    write_report(state_dir, 100, targets={})
+    write_report(state_dir, 200)
+
+    assert reader.target_metadata(reader.read_target_view(), "va") is not None
 
 
-def test_zero_files_yields_baseline_marker(state_dir, synthetic_chain, alive_everything):
-    result = reader.read_session_target()
+def test_unrelated_files_in_the_directory_are_ignored(state_dir, alive_everything):
+    write_record(state_dir)
+    (state_dir / "server_notapid.json").write_text("{}", encoding="utf-8")
+    (state_dir / "write_approval_abc.json").write_text("{}", encoding="utf-8")
+    (state_dir / "notes.txt").write_text("hello", encoding="utf-8")
 
-    assert result == {
-        "target": None,
-        "generation": None,
-        "display": None,
-        "fallback": reader.FALLBACK_BASELINE,
-        "reason": reader.REASON_NO_STATE,
-    }
+    view = reader.read_target_view()
 
-
-def test_missing_state_directory_yields_baseline_marker(tmp_path, monkeypatch, synthetic_chain):
-    absent = tmp_path / "never-created"
-    monkeypatch.setattr(reader, "resolve_state_dir", lambda hook_input=None: str(absent))
-
-    result = reader.read_session_target()
-
-    assert reader.is_baseline(result)
-    assert result["reason"] == reader.REASON_NO_STATE
+    assert view["targets"] == {}
 
 
-def test_unresolvable_repo_root_yields_baseline_marker(monkeypatch, synthetic_chain):
-    monkeypatch.setattr(reader, "resolve_state_dir", lambda hook_input=None: None)
-
-    assert reader.is_baseline(reader.read_session_target())
-
-
-def test_two_live_matching_files_are_ambiguous(state_dir, synthetic_chain, alive_everything):
-    """Two sessions sharing a checkout must not be guessed between (CC-3)."""
-    write_state(state_dir, 5157, target="va")
-    write_state(state_dir, 5158, target="live")
-
-    result = reader.read_session_target()
-
-    assert reader.is_baseline(result)
-    assert result["reason"] == reader.REASON_AMBIGUOUS
-    assert result["target"] is None
-
-
-def test_other_sessions_file_is_not_mine(state_dir, synthetic_chain, alive_everything):
-    """A live file owned by a PID off our chain belongs to another session."""
-    write_state(state_dir, 5159, owner_ppid=STRANGER_PPID)
-
-    result = reader.read_session_target()
-
-    assert reader.is_baseline(result)
-    assert result["reason"] == reader.REASON_NO_STATE
-
-
-def test_only_the_matching_file_is_selected_among_several(
-    state_dir, synthetic_chain, alive_everything
-):
-    write_state(state_dir, 5160, owner_ppid=STRANGER_PPID, target="live")
-    write_state(state_dir, 5161, owner_ppid=OWNER_PPID, target="va", generation=7)
-
-    result = reader.read_session_target()
-
-    assert result["target"] == "va"
-    assert result["generation"] == 7
-
-
-def test_corrupt_json_yields_baseline_marker(state_dir, synthetic_chain, alive_everything):
-    (state_dir / "target_state_5162.json").write_text("{not json", encoding="utf-8")
-
-    result = reader.read_session_target()
-
-    assert reader.is_baseline(result)
-    assert result["reason"] == reader.REASON_UNREADABLE
-
-
-def test_non_dict_payload_is_corruption(state_dir, synthetic_chain, alive_everything):
-    (state_dir / "target_state_5163.json").write_text("[1, 2, 3]", encoding="utf-8")
-
-    result = reader.read_session_target()
-
-    assert reader.is_baseline(result)
-    assert result["reason"] == reader.REASON_UNREADABLE
-
-
-def test_corrupt_file_does_not_hide_a_good_sibling(state_dir, synthetic_chain, alive_everything):
-    (state_dir / "target_state_5164.json").write_text("", encoding="utf-8")
-    write_state(state_dir, 5165, target="live")
-
-    result = reader.read_session_target()
-
-    assert result["target"] == "live"
-
-
-def test_missing_target_field_is_unreadable(state_dir, synthetic_chain, alive_everything):
-    """There is no safe guess between live and va, so an absent target fails closed."""
-    write_state(state_dir, 5166, target="")
-
-    result = reader.read_session_target()
-
-    assert reader.is_baseline(result)
-    assert result["reason"] == reader.REASON_UNREADABLE
-
-
-def test_unparseable_owner_ppid_is_skipped(state_dir, synthetic_chain, alive_everything):
-    write_state(state_dir, 5167, owner_ppid="not-a-pid")
-
-    assert reader.is_baseline(reader.read_session_target())
-
-
-def test_unrelated_files_in_the_directory_are_ignored(state_dir, synthetic_chain, alive_everything):
-    (state_dir / "README.md").write_text("not state", encoding="utf-8")
-    (state_dir / "target_state_notanumber.json").write_text("{}", encoding="utf-8")
-    write_state(state_dir, 5168)
-
-    result = reader.read_session_target()
-
-    assert result["target"] == "va"
+def test_target_metadata_degrades_rather_than_raising():
+    assert reader.target_metadata(None, "va") is None
+    assert reader.target_metadata({"targets": "nope"}, "va") is None
+    assert reader.target_metadata({"targets": {"va": "nope"}}, "va") is None
+    assert reader.target_metadata({"target": "va"}, "va") is None
 
 
 # ---------------------------------------------------------------------------
-# schema tolerance
+# recorded posture
 # ---------------------------------------------------------------------------
 
 
-def test_missing_targets_metadata_degrades_without_raising(
-    state_dir, synthetic_chain, alive_everything
-):
-    write_state(state_dir, 5169, targets={})
+def test_recorded_posture_is_the_records_narrowings(state_dir):
+    write_record(state_dir, posture={"live": "sandbox"})
 
-    result = reader.read_session_target()
-
-    assert not reader.is_baseline(result)
-    assert result["target"] == "va"
-    # Label degrades to the target name rather than to a blank identity.
-    assert result["display"] == {"label": "va", "endpoint": "", "real_machine": False}
+    assert reader.recorded_posture() == {"live": "sandbox"}
+    assert reader.target_posture("live") == reader.POSTURE_SANDBOX
+    assert reader.target_posture("va") is None
 
 
-def test_targets_of_the_wrong_type_degrades_without_raising(
-    state_dir, synthetic_chain, alive_everything
-):
-    write_state(state_dir, 5170, targets="not-a-mapping")
+def test_the_narrowing_is_not_addressed_to_one_session(state_dir, monkeypatch):
+    """It is the deployment's: no session key selects it and none can miss it."""
+    monkeypatch.setenv(reader.POSTURE_SESSION_ENV_VAR, "someone-else")
+    write_record(state_dir, posture={"va": "sandbox"})
 
-    result = reader.read_session_target()
-
-    assert result["display"]["label"] == "va"
+    assert reader.target_sandboxed(None, "va") is True
 
 
-def test_partial_target_metadata_fills_the_missing_keys(
-    state_dir, synthetic_chain, alive_everything
-):
-    write_state(state_dir, 5171, targets={"va": {"label": "VA only"}})
+def test_a_bare_sandbox_string_narrows_every_target(state_dir):
+    write_record(state_dir, posture="sandbox")
 
-    result = reader.read_session_target()
-
-    assert result["display"] == {"label": "VA only", "endpoint": "", "real_machine": False}
+    assert reader.recorded_posture() == dict.fromkeys(reader.CONTROL_TARGETS, "sandbox")
 
 
-def test_missing_generation_degrades_to_zero(state_dir, synthetic_chain, alive_everything):
-    """Generation is softer than target: a bad one must not discard a good target."""
-    write_state(state_dir, 5172, generation="seven")
+@pytest.mark.parametrize("value", ["writes", "", "off", 1, None, [], {"va": "writes"}])
+def test_nothing_but_sandbox_survives_the_posture_filter(state_dir, value):
+    """The writes posture is the absence of an entry; nothing here can widen."""
+    write_record(state_dir, posture=value)
 
-    result = reader.read_session_target()
-
-    assert result["target"] == "va"
-    assert result["generation"] == 0
+    assert reader.recorded_posture() == {}
 
 
-def test_unknown_extra_fields_are_tolerated(state_dir, synthetic_chain, alive_everything):
-    write_state(state_dir, 5173, future_field={"written": "by a newer server"})
+def test_a_non_string_posture_key_is_dropped(state_dir):
+    (state_dir / reader.RECORD_FILENAME).write_text(
+        '{"schema": 1, "target": "va", "generation": 1, "posture": {"7": "sandbox"}}',
+        encoding="utf-8",
+    )
 
-    assert reader.read_session_target()["target"] == "va"
-
-
-# ---------------------------------------------------------------------------
-# never raises
-# ---------------------------------------------------------------------------
+    assert reader.recorded_posture() == {"7": "sandbox"}
 
 
-def test_an_exploding_state_dir_still_returns_the_marker(monkeypatch):
-    def _boom(hook_input=None):
-        raise RuntimeError("filesystem on fire")
-
-    monkeypatch.setattr(reader, "resolve_state_dir", _boom)
-
-    result = reader.read_session_target()
-
-    assert reader.is_baseline(result)
-    assert result["reason"] == reader.REASON_UNREADABLE
+def test_no_record_reads_as_no_narrowing(state_dir):
+    assert reader.recorded_posture() == {}
+    assert reader.target_posture("live") is None
 
 
-def test_is_baseline_tolerates_non_dict_input():
-    assert reader.is_baseline(None) is True
-    assert reader.is_baseline("nonsense") is True
+def test_a_targetless_lookup_takes_the_most_restrictive_entry(state_dir):
+    write_record(state_dir, posture={"live": "sandbox"})
+
+    assert reader.target_posture(None) == reader.POSTURE_SANDBOX
+    assert reader.target_sandboxed(None, None) is True
+
+
+def test_a_targetless_lookup_on_an_unnarrowed_record_is_permissive(state_dir):
+    write_record(state_dir)
+
+    assert reader.target_posture(None) is None
+    assert reader.target_sandboxed(None, None) is False
 
 
 # ---------------------------------------------------------------------------
-# ancestor pid chain
+# posture_unknown: fail-closed before the record exists
 # ---------------------------------------------------------------------------
 
 
-def test_ancestor_pids_includes_self_and_walks_parents(monkeypatch):
-    parents = {10: 9, 9: 8, 8: 1}
-    monkeypatch.setattr(reader, "parent_pid", lambda pid: parents.get(pid))
-
-    assert reader.ancestor_pids(10) == [10, 9, 8]
+def test_posture_unknown_when_unstamped_and_no_record(state_dir, unstamped):
+    """A bare ``claude`` on a deployment nobody has started yet is refused."""
+    assert reader.posture_unknown() is True
 
 
-def test_ancestor_pids_stops_when_a_parent_is_unknown(monkeypatch):
-    monkeypatch.setattr(reader, "parent_pid", lambda pid: None)
+def test_posture_known_once_the_record_exists(state_dir, unstamped):
+    write_record(state_dir)
 
-    assert reader.ancestor_pids(77) == [77]
-
-
-def test_ancestor_pids_breaks_a_cycle(monkeypatch):
-    parents = {5: 6, 6: 5}
-    monkeypatch.setattr(reader, "parent_pid", lambda pid: parents.get(pid))
-
-    assert reader.ancestor_pids(5) == [5, 6]
+    assert reader.posture_unknown() is False
 
 
-def test_ancestor_pids_is_bounded(monkeypatch):
-    """A pathological tree must not spin: the hop bound is a hard stop."""
-    monkeypatch.setattr(reader, "parent_pid", lambda pid: pid + 1)
+def test_posture_unknown_when_the_record_cannot_be_read(state_dir, unstamped):
+    (state_dir / reader.RECORD_FILENAME).write_text("{not json", encoding="utf-8")
 
-    assert len(reader.ancestor_pids(1000, max_hops=8)) == 8
-
-
-def test_ancestor_pids_rejects_garbage_start():
-    assert reader.ancestor_pids("not-a-pid") == []
-    assert reader.ancestor_pids(1) == []
+    assert reader.posture_unknown() is True
 
 
-def test_ancestor_pids_real_tree_contains_this_process_and_its_parent():
-    """Sanity check against the actual process tree, on whichever platform."""
-    chain = reader.ancestor_pids()
+def test_a_stamped_root_is_never_unknown(state_dir, monkeypatch, tmp_path):
+    """The stamp IS the evidence that this reader is looking where writes land."""
+    monkeypatch.setenv(reader.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
 
-    assert chain[0] == os.getpid()
-    assert os.getppid() in chain
-
-
-# -- the ps fallback shape --------------------------------------------------
+    assert reader.posture_unknown() is False
 
 
-class _Completed:
-    def __init__(self, stdout="", returncode=0):
-        self.stdout = stdout
-        self.returncode = returncode
+def test_posture_unknown_does_not_ask_for_a_session_key(state_dir, unstamped, monkeypatch):
+    """The session key indexes nothing; it cannot make a refusal appear."""
+    monkeypatch.delenv(reader.POSTURE_SESSION_ENV_VAR, raising=False)
+    assert reader.posture_unknown() is True
+
+    monkeypatch.setenv(reader.POSTURE_SESSION_ENV_VAR, "web-1")
+    assert reader.posture_unknown() is True
 
 
-def test_ppid_from_ps_parses_padded_output(monkeypatch):
-    """``ps -o ppid=`` right-pads its column; the parse must survive that."""
-    seen = {}
+def test_session_key_is_the_audit_id(monkeypatch):
+    monkeypatch.setenv(reader.POSTURE_SESSION_ENV_VAR, "  web-1  ")
+    assert reader.session_key() == "web-1"
 
-    def _run(cmd, **kwargs):
-        seen["cmd"] = cmd
-        return _Completed(stdout="  4200\n")
-
-    monkeypatch.setattr(reader.subprocess, "run", _run)
-
-    assert reader._ppid_from_ps(4321) == 4200
-    assert seen["cmd"] == ["ps", "-o", "ppid=", "-p", "4321"]
+    monkeypatch.setenv(reader.POSTURE_SESSION_ENV_VAR, "   ")
+    assert reader.session_key() is None
 
 
-def test_ppid_from_ps_returns_none_on_nonzero_exit(monkeypatch):
-    monkeypatch.setattr(reader.subprocess, "run", lambda cmd, **kw: _Completed("", 1))
-    assert reader._ppid_from_ps(4321) is None
+# ---------------------------------------------------------------------------
+# effective_writes_for
+# ---------------------------------------------------------------------------
+
+#: A deployment that arms writes on both machines it can reach.
+_ARMED = {
+    "type": "virtual_accelerator",
+    "writes_enabled": True,
+    "connector": {"virtual_accelerator": {"address": "x"}, "epics": {"address": "y"}},
+}
 
 
-def test_ppid_from_ps_returns_none_on_unparseable_output(monkeypatch):
-    monkeypatch.setattr(reader.subprocess, "run", lambda cmd, **kw: _Completed("PPID\n"))
-    assert reader._ppid_from_ps(4321) is None
+def test_effective_writes_needs_the_deployment_ceiling(state_dir):
+    write_record(state_dir)
+
+    assert reader.effective_writes_for(None, _ARMED, "va") is True
+    assert reader.effective_writes_for(None, {"type": "mock"}, "va") is False
 
 
-def test_ppid_from_ps_returns_none_when_ps_is_missing(monkeypatch):
-    def _missing(cmd, **kwargs):
-        raise FileNotFoundError("ps")
+def test_a_narrowing_refuses_an_armed_target(state_dir):
+    write_record(state_dir, posture={"va": "sandbox"})
 
-    monkeypatch.setattr(reader.subprocess, "run", _missing)
-    assert reader._ppid_from_ps(4321) is None
-
-
-def test_ppid_from_ps_returns_none_on_timeout(monkeypatch):
-    def _slow(cmd, **kwargs):
-        raise subprocess.TimeoutExpired(cmd, reader.PS_TIMEOUT_S)
-
-    monkeypatch.setattr(reader.subprocess, "run", _slow)
-    assert reader._ppid_from_ps(4321) is None
+    assert reader.effective_writes_for(None, _ARMED, "va") is False
+    assert reader.effective_writes_for(None, _ARMED, "live") is True
 
 
-def test_ppid_from_proc_parses_a_comm_containing_spaces_and_parens(tmp_path, monkeypatch):
-    """The ``comm`` field is untrusted text; fields are taken after the LAST ')'."""
-    proc = tmp_path / "proc" / "4321"
-    proc.mkdir(parents=True)
-    (proc / "stat").write_text("4321 (weird ) name) S 4200 4321 4321 0 -1 4194304\n")
+def test_a_readonly_run_refuses_an_armed_unnarrowed_target(state_dir, monkeypatch):
+    write_record(state_dir)
+    monkeypatch.setenv(reader.EXECUTION_MODE_ENV_VAR, reader.SANDBOX_MODE)
 
-    real_open = open
-
-    def _fake_open(path, *args, **kwargs):
-        if str(path) == "/proc/4321/stat":
-            return real_open(proc / "stat", *args, **kwargs)
-        raise FileNotFoundError(path)
-
-    monkeypatch.setattr("builtins.open", _fake_open)
-    result = reader._ppid_from_proc(4321)
-    # Restore before asserting: pytest's own failure reporting opens files.
-    monkeypatch.undo()
-
-    assert result == 4200
+    assert reader.is_readonly_run() is True
+    assert reader.effective_writes_for(None, _ARMED, "va") is False
 
 
-def test_ppid_from_proc_returns_none_without_proc(monkeypatch):
-    """macOS has no ``/proc``; the read must fail quietly, not raise."""
+def test_an_unidentified_target_is_answered_by_every_reachable_one(state_dir):
+    """Stricter than the roster's union on purpose: a gate cannot guess."""
+    write_record(state_dir, posture={"live": "sandbox"})
 
-    def _missing(path, *args, **kwargs):
-        raise FileNotFoundError(path)
-
-    monkeypatch.setattr("builtins.open", _missing)
-    result = reader._ppid_from_proc(4321)
-    monkeypatch.undo()
-
-    assert result is None
-
-
-def test_parent_pid_falls_back_to_ps_when_proc_is_absent(monkeypatch):
-    monkeypatch.setattr(reader, "_ppid_from_proc", lambda pid: None)
-    monkeypatch.setattr(reader, "_ppid_from_ps", lambda pid: 4200)
-
-    assert reader.parent_pid(4321) == 4200
-
-
-def test_parent_pid_prefers_proc_and_skips_the_subprocess(monkeypatch):
-    def _never(pid):
-        raise AssertionError("ps must not be spawned when /proc answered")
-
-    monkeypatch.setattr(reader, "_ppid_from_proc", lambda pid: 4200)
-    monkeypatch.setattr(reader, "_ppid_from_ps", _never)
-
-    assert reader.parent_pid(4321) == 4200
+    assert reader.effective_writes_for(None, _ARMED, None) is False
 
 
 # ---------------------------------------------------------------------------
@@ -523,20 +490,31 @@ def test_parent_pid_prefers_proc_and_skips_the_subprocess(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_state_dir_anchors_on_repo_root_and_agent_data(monkeypatch, tmp_path):
+def test_paths_anchor_on_repo_root_and_agent_data(monkeypatch, tmp_path):
+    monkeypatch.delenv(reader.AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.setattr(reader, "get_repo_root", lambda hook_input=None: str(tmp_path))
 
-    resolved = reader.resolve_state_dir()
-
-    assert resolved == os.path.join(str(tmp_path), reader._AGENT_DATA_BASE_DIR, "control_target")
+    expected = tmp_path / reader._AGENT_DATA_BASE_DIR / "control_target"
+    assert reader.resolve_state_dir() == str(expected)
+    assert reader.record_path() == str(expected / "control_context.json")
     assert reader.STATE_DIR_NAME == "control_target"
-    assert reader.STATE_FILE_GLOB == "target_state_*.json"
+    assert reader.RECORD_FILENAME == "control_context.json"
+    assert reader.REPORT_FILE_GLOB == "server_*.json"
+
+
+def test_the_stamped_root_wins_over_the_derivation(monkeypatch, tmp_path):
+    monkeypatch.setenv(reader.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path / "stamped"))
+    monkeypatch.setattr(reader, "get_repo_root", lambda hook_input=None: str(tmp_path))
+
+    assert reader.agent_data_root() == str(tmp_path / "stamped")
 
 
 def test_resolve_state_dir_returns_none_when_repo_root_is_empty(monkeypatch):
+    monkeypatch.delenv(reader.AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.setattr(reader, "get_repo_root", lambda hook_input=None: "")
 
     assert reader.resolve_state_dir() is None
+    assert reader.record_path() is None
 
 
 def test_module_imports_no_third_party_dependencies():
@@ -561,7 +539,6 @@ def test_module_imports_no_third_party_dependencies():
         "__future__",
         "json",
         "os",
-        "subprocess",
         "sys",
         "osprey_hook_log",
     }, top_level_roots

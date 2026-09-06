@@ -425,7 +425,7 @@ export function buildDraftReplaceBody({ planName, planArgs, draftArgKeys, client
  * half (`manager_not_configured`, `manager_unreachable`) is a 503: genuinely
  * retryable, so it is classified separately below.
  *
- * `session_target_mismatch` belongs to this half for the same reason, even
+ * `control_target_mismatch` belongs to this half for the same reason, even
  * though it is about the session rather than the build: a deployment renders
  * one plan lane bound to one control target, and while the agent session is
  * switched to the other one the lane cannot run the session's plans. Retrying
@@ -438,7 +438,7 @@ const DEPLOYMENT_CAPABILITY_CODES = new Set([
   'browse_only_connector',
   'unsupported_connector',
   'config_unreadable',
-  'session_target_mismatch',
+  'control_target_mismatch',
 ]);
 
 /** @type {ReadonlySet<string>} */

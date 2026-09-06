@@ -473,7 +473,7 @@ def _record(
             actor=acting_identity(),
             posture=SIDECAR_POSTURE,
             posture_source=POSTURE_SOURCE_APP,
-            # No posture-store key exists: the browser being decided about has
+            # No audit session id exists: the browser being decided about has
             # no spawned session, and inventing one would join this record to a
             # session that never existed.
             session=None,

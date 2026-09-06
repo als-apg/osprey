@@ -29,15 +29,16 @@ everywhere:
 
 1. A write-posture re-read for the control target the BOUND LANE serves, made
    through the one rule every OSPREY write path shares
-   (``osprey_connectors.session_store.effective_writes``): the deployment
+   (``osprey_connectors.posture_store.effective_writes``): the deployment
    ceiling ``control_system.connector.<type>.writes_enabled`` — inheriting the
    deployment-wide ``control_system.writes_enabled`` where that type has no
    block of its own — ANDed with ``is_readonly_run()`` and with the operator's
-   per-(session, target) narrowing from the header chip. The ceiling half is
+   per-target narrowing from the header chip, read from the deployment's
+   control-context record. The ceiling half is
    the same resolver ``ControlSystemConnector._writes_enabled`` reads, so the
    queue agrees with every other write path about which targets a deployment
-   arms; the store half can only narrow that, never widen it, and it is what
-   lets an operator take one machine out of a session's reach without
+   arms; the recorded half can only narrow that, never widen it, and it is what
+   lets an operator take one machine out of the agent's reach without
    respawning the session. Re-read fresh on every call, never cached, so a
    hook-bypassed invocation carrying a valid launch token is still refused.
    Per target is the point of it: a deployment whose live machine is
@@ -46,14 +47,14 @@ everywhere:
 2. A client-side launch-token presence check, so an unarmed server refuses
    locally with no network call.
 
-3. A session-target check, on ``queue_add`` and ``queue_start`` only. A
+3. A control-target check, on ``queue_add`` and ``queue_start`` only. A
    deployment's plan lane is wired at build time to one control target, while
-   an agent session can be switched to the other one at run time
+   the deployment can be switched to the other one at run time
    (``control_target_set``). Queuing or starting a Bluesky PLAN while the two
-   disagree would run it against a machine the session is not pointed at. This
-   layer is enforced HERE rather than at the bridge because the session target
+   disagree would run it against a machine the deployment is not pointed at. This
+   layer is enforced HERE rather than at the bridge because the deployment's target
    is host state: a bridge serves its lane's target and never learns which
-   target the session is on. Halting is never gated by it, for the same reason
+   target the deployment is on. Halting is never gated by it, for the same reason
    it is never gated by the kill switch.
 
    What that check DOES depends on how many lanes the deployment renders, and
@@ -64,7 +65,7 @@ everywhere:
      outright: the blanket refusal this module has always carried, unchanged.
    * **Two lanes** — one per control target. The switch stops being a refusal
      and becomes an ADDRESS: the operation is routed to the lane serving the
-     session's target, ``queue_add`` returns the lane it bound the item to, and
+     deployment's target, ``queue_add`` returns the lane it bound the item to, and
      ``queue_start`` must name that lane and is refused when it no longer
      matches the active one (a session that switched between the add and the
      start). It still refuses when NO single rendered lane serves the session's
@@ -114,7 +115,7 @@ an HTTP 4xx/5xx whose ``detail`` is ``{"code", "detail", ...extras}``, where
 tool that renamed a refusal would put the agent and the panel on different
 vocabularies for the same event. The only envelopes minted here are the three
 local refusals (``writes_disabled``, ``launch_token_required``,
-``session_target_mismatch``) and a last-resort ``bluesky_bridge_error`` for a
+``control_target_mismatch``) and a last-resort ``bluesky_bridge_error`` for a
 bridge response that carried no structured detail at all.
 
 **No reason-code constants are imported here, and exactly one is spelled out.**
@@ -125,8 +126,8 @@ server's standing invariant of making no bluesky/ophyd/tiled imports (see
 ``bluesky/server.py``). For every code the bridge mints, these tools never
 branch on it — they pass the whole capability record through — so they need no
 copy of the vocabulary and cannot drift from it. The one exception is
-:data:`REASON_SESSION_TARGET_MISMATCH`, which no bridge can mint because the
-session target is host state; its string is spelled here and pinned equal to
+:data:`REASON_CONTROL_TARGET_MISMATCH`, which no bridge can mint because the
+deployment's target is host state; its string is spelled here and pinned equal to
 ``queue_backend``'s constant by a test, so the vocabulary stays single even
 though the two layers cannot import each other. The docstrings below name the
 codes as prose, for the agent reading them.
@@ -140,7 +141,6 @@ from typing import NoReturn
 import anyio
 from fastmcp.exceptions import ToolError
 
-from osprey.audit.posture import posture_session
 from osprey.bluesky_bridge_connection import unwrap_bridge_conflict_detail
 from osprey.mcp_server.bluesky.lanes import (
     LANE_ONE,
@@ -168,7 +168,7 @@ from osprey.mcp_server.control_system.target_banner import (
 )
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
-from osprey_connectors import session_store
+from osprey_connectors import posture_store
 from osprey_connectors.control_system.base import is_readonly_run
 from osprey_connectors.types import (
     WRITES_ENABLED_KEY,
@@ -176,8 +176,8 @@ from osprey_connectors.types import (
     target_writes_enabled_key,
 )
 
-# The capability reason code for "the session is pointed at a control target
-# this deployment's single plan lane does not serve". Defined as a constant in
+# The capability reason code for "the deployment is on a control target
+# its single plan lane does not serve". Defined as a constant in
 # `osprey.services.bluesky_bridge.queue_backend` beside the codes the bridge
 # mints; spelled again here because this module may not import that one (see
 # the module docstring), and pinned equal to it by
@@ -191,7 +191,7 @@ from osprey_connectors.types import (
 # vocabulary would fall through every consumer's capability branch. The wording
 # is shared with the phoebus refusal all the same, because a user meets the same
 # fact in both places.
-REASON_SESSION_TARGET_MISMATCH = "session_target_mismatch"
+REASON_CONTROL_TARGET_MISMATCH = "control_target_mismatch"
 
 # Who is speaking in the refusal. A deployment renders exactly one plan lane,
 # bound at build time to one control target; serving both takes a second lane,
@@ -253,14 +253,14 @@ _REFUSAL_HINTS: dict[str, list[str]] = {
         "The bridge could not read the project config to determine what it may execute; "
         "this needs an operator, not a retry.",
     ],
-    # Minted locally by `_refuse_session_target_mismatch`, which names both
+    # Minted locally by `_check_control_target`, which names both
     # targets. This static entry is the fallback for the same code arriving
     # from a lane-aware bridge, so the two answers stay the same shape.
-    REASON_SESSION_TARGET_MISMATCH: [
-        "The session is pointed at a control target this deployment's plan lane does not "
-        "serve, so a Bluesky PLAN queued here would run somewhere else.",
-        "Switch the session back to the deployment baseline with control_target_set, or do "
-        "this work with the control-system tools, which follow the session target.",
+    REASON_CONTROL_TARGET_MISMATCH: [
+        "The deployment is on a control target its plan lane does not serve, so a "
+        "Bluesky PLAN queued here would run somewhere else.",
+        "Switch the deployment back to its baseline target with control_target_set, or do "
+        "this work with the control-system tools, which follow the deployment's target.",
     ],
     "manager_not_configured": [
         "No queue manager is deployed for this bridge; this needs an operator.",
@@ -335,22 +335,21 @@ def _writes_enabled(lane_target: str | None) -> bool:
     baseline's posture rather than a fail-open read of nothing.
 
     Asks the ONE rule every OSPREY write path shares,
-    :func:`osprey_connectors.session_store.effective_writes`, so the queue's
+    :func:`osprey_connectors.posture_store.effective_writes`, so the queue's
     arming gate cannot answer differently from the connector's reference
     monitor, the executor's gate or the PreToolUse hook:
 
-        ceiling ∧ not is_readonly_run() ∧ (store entry ≠ sandbox)
+        ceiling ∧ not is_readonly_run() ∧ (recorded narrowing ≠ sandbox)
 
     The ceiling is the deployment's own posture, unchanged — the per-type key
     ``control_system.connector.<type>.writes_enabled``, inheriting the
     deployment-wide ``control_system.writes_enabled`` where a type has no block.
     The read-only run is ANDed in because a sandbox session must be refused here
     as it is at the connector rather than only by the hook chain. The third term
-    is the operator's per-(session, target) narrowing from the header chip,
-    keyed on ``OSPREY_POSTURE_SESSION`` and indexed by THIS LANE's target: it
-    can only narrow the ceiling, and a process nobody stamped a session key into
-    does not consult it at all. Enforcing it here rather than at spawn is what
-    lets an operator take one machine out of a live session's reach without
+    is the operator's per-target narrowing from the header chip, read from the
+    deployment's control-context record and indexed by THIS LANE's target: it
+    can only narrow the ceiling. Enforcing it here rather than at spawn is what
+    lets an operator take one machine out of the agent's reach without
     respawning the session mid-conversation.
 
     Deliberately NOT cached on the BridgeContext singleton — the whole point is
@@ -367,7 +366,7 @@ def _writes_enabled(lane_target: str | None) -> bool:
 
         section = get_config_value("control_system", {})
         target = lane_target or baseline_target(section)
-        return session_store.effective_writes(section, posture_session(), target)
+        return posture_store.effective_writes(section, target)
     except Exception:
         return False
 
@@ -389,11 +388,11 @@ def _any_lane_writes_enabled() -> bool:
     would let a target the config never described — ``live`` on a
     virtual-accelerator deployment — inherit the deployment-wide key and arm a
     withdrawal on the only lane there is, the one the operator had explicitly
-    unarmed with its own block. Unioning over the targets a *session* could be
-    switched to would be a different question again: a halt is addressed to the
+    unarmed with its own block. Unioning over the targets the *deployment* could
+    be switched to would be a different question again: a halt is addressed to the
     lane whose queue is draining, which is where the hardware is moving rather
-    than where the session is pointed, so the session's reach has no bearing on
-    it. The lanes are what a withdrawal can possibly land on, so they are what
+    than where the deployment is pointed, so the deployment's reach has no bearing
+    on it. The lanes are what a withdrawal can possibly land on, so they are what
     this gate asks about. Nothing downstream re-checks: the bridge's stop
     endpoint carries no posture check of its own, so this gate is the whole
     defense.
@@ -414,10 +413,7 @@ def _any_lane_writes_enabled() -> bool:
         # all this needs, and reading session state to answer a question about
         # halting would tie the two together for no reason.
         targets = {lane.target for lane in discover_lanes(baseline_target(section))}
-        session_key = posture_session()
-        return any(
-            session_store.effective_writes(section, session_key, target) for target in targets
-        )
+        return any(posture_store.effective_writes(section, target) for target in targets)
     except Exception:
         return False
 
@@ -448,7 +444,6 @@ def _session_narrowed(lane_target: str | None) -> bool:
     is true of every refusal here.
     """
     try:
-        session_key = posture_session()
         if lane_target is not None:
             targets: list[str] = [lane_target]
         else:
@@ -457,7 +452,7 @@ def _session_narrowed(lane_target: str | None) -> bool:
             section = get_config_value("control_system", {})
             targets = [lane.target for lane in discover_lanes(baseline_target(section))]
         return bool(targets) and all(
-            session_store.target_posture(session_key, target) == session_store.POSTURE_SANDBOX
+            posture_store.target_posture(target) == posture_store.POSTURE_SANDBOX
             for target in targets
         )
     except Exception:
@@ -497,9 +492,9 @@ def _refuse_writes_disabled(
     the one lane whose plans they wanted to run.
 
     Three refusals share this code, and they differ only in the sentence,
-    because the thing to do about each is different. A read-only session and a
-    session narrowed for this target from the header chip are both postures the
-    config cannot speak for: telling an operator to edit a key that may already
+    because the thing to do about each is different. A read-only run and a
+    deployment narrowed for this target from the header chip are both postures
+    the config cannot speak for: telling an operator to edit a key that may already
     say ``true`` would send them to change something that is not what stopped
     this. Only the third — the deployment never armed this target — is answered
     by a config key.
@@ -522,14 +517,14 @@ def _refuse_writes_disabled(
         if target:
             served = f", which this deployment's {lane!r} plan lane serves" if lane else ""
             subject = (
-                f"This session's posture (header chip) is read-only for the "
+                f"The deployment's posture (header chip) is read-only for the "
                 f"{target!r} control target{served}"
             )
             machine = f"{target!r}"
         else:
             subject = (
-                "This session's posture (header chip) is read-only for every control "
-                "target this deployment's plan lanes serve"
+                "The deployment's posture (header chip) is read-only for every control "
+                "target its plan lanes serve"
             )
             machine = "those targets"
         return make_error(
@@ -537,7 +532,7 @@ def _refuse_writes_disabled(
             f"{subject}, so {refused} is refused.",
             [
                 "The deployment config is not the gate here: what refused is the "
-                "narrowing an operator set for THIS session, so no config edit, "
+                "narrowing an operator set for THIS target, so no config edit, "
                 "rebuild or redeploy lifts it.",
                 f"An operator turning writes back on for {machine} on the header chip "
                 f"does lift it, and it reaches this session immediately — the session "
@@ -612,8 +607,8 @@ def _refuse_unarmed(tool: str) -> NoReturn:
     )
 
 
-def _check_session_target(action: str, situation: TargetSituation) -> None:
-    """Refuse *action* unless the session is on the target this lane serves.
+def _check_control_target(action: str, situation: TargetSituation) -> None:
+    """Refuse *action* unless the deployment is on the target this lane serves.
 
     The SINGLE-LANE branch, and only that one — a deployment with two lanes
     routes instead of refusing (see :func:`_bind_lane`).
@@ -626,17 +621,17 @@ def _check_session_target(action: str, situation: TargetSituation) -> None:
     for the agent to fix.
 
     ``details`` carries the capability record this server composes from the
-    state file — the bridge cannot compose it, since it never learns the session
+    state file — the bridge cannot compose it, since it never learns the control
     target — in the same ``{"code", "detail", "capability"}`` shape every other
     queue refusal arrives in, so a consumer branching on ``details.code``
     handles this one without a special case.
 
-    Returns normally — permitting the operation — whenever the session is on the
-    deployment baseline, INCLUDING every way the session target can fail to be
+    Returns normally — permitting the operation — whenever the deployment is on the
+    deployment baseline, INCLUDING every way the deployment's target can fail to be
     readable (no state file, a corrupt one, one owned by another session).
     ``target_banner`` collapses all of those to "on the baseline", which is the
     right direction here: no switch has happened, so the lane's target IS the
-    session's target, and refusing on unreadable state would break every
+    deployment's target, and refusing on unreadable state would break every
     deployment that never switches at all — which today is all of them.
 
     Args:
@@ -651,7 +646,7 @@ def _check_session_target(action: str, situation: TargetSituation) -> None:
 
     message, suggestions = refusal
     make_error(
-        REASON_SESSION_TARGET_MISMATCH,
+        REASON_CONTROL_TARGET_MISMATCH,
         message,
         [
             *suggestions,
@@ -660,13 +655,13 @@ def _check_session_target(action: str, situation: TargetSituation) -> None:
             "deployment.",
         ],
         details={
-            "code": REASON_SESSION_TARGET_MISMATCH,
+            "code": REASON_CONTROL_TARGET_MISMATCH,
             "detail": message,
-            "session_target": situation.session_target,
+            "control_target": situation.control_target,
             "baseline_target": situation.baseline_target,
             "capability": {
                 "can_execute": False,
-                "reason": REASON_SESSION_TARGET_MISMATCH,
+                "reason": REASON_CONTROL_TARGET_MISMATCH,
                 "detail": message,
             },
         },
@@ -686,7 +681,7 @@ def _lane_details(code: str, message: str, situation: LaneSituation) -> dict:
     return {
         "code": code,
         "detail": message,
-        "session_target": situation.session_target,
+        "control_target": situation.control_target,
         "baseline_target": situation.baseline_target,
         "lanes": lane_roster(situation),
         "active_lane": situation.active.key if situation.active else None,
@@ -729,7 +724,7 @@ def _refuse_lane_required(action: str, situation: LaneSituation) -> NoReturn:
     message = (
         f"This deployment renders {len(situation.lanes)} Bluesky plan lanes, so "
         f"{action.lower()} has to name which one. The lane the item was queued on is "
-        f"in the queue_add result; the lane the session is on right now is "
+        f"in the queue_add result; the lane the deployment is on right now is "
         f"{active!r}."
     )
     make_error(
@@ -739,14 +734,14 @@ def _refuse_lane_required(action: str, situation: LaneSituation) -> NoReturn:
             "Pass lane=<the lane id queue_add returned> so the start applies to the "
             "queue that item was added to.",
             "queue_status lists every lane, the control target each drives, and which "
-            "one the session is currently on.",
+            "one the deployment is currently on.",
         ],
         details=_lane_details(REASON_LANE_REQUIRED, message, situation),
     )
 
 
 def _refuse_lane_mismatch(requested: str, action: str, situation: LaneSituation) -> NoReturn:
-    """The named lane is real, but it is not the one the session is on now.
+    """The named lane is real, but it is not the one the deployment is on now.
 
     The case this exists for is a session that switched between the add and the
     start: the item is bound to the lane it was queued on, and starting it now
@@ -757,7 +752,7 @@ def _refuse_lane_mismatch(requested: str, action: str, situation: LaneSituation)
     active = situation.active
     message = (
         f"{action} on the {requested!r} lane would act on the '{lane_target}' target, "
-        f"while this session is on the '{situation.session_target}' target"
+        f"while the deployment is on the '{situation.control_target}' target"
     )
     message += f", which the {active.key!r} lane serves." if active else ", which no lane serves."
     make_error(
@@ -771,7 +766,7 @@ def _refuse_lane_mismatch(requested: str, action: str, situation: LaneSituation)
             *(
                 [
                     f"Or start the {active.key!r} lane instead, which serves the "
-                    f"target this session is on — but only if its queue is what "
+                    f"target the deployment is on — but only if its queue is what "
                     f"should run."
                 ]
                 if active
@@ -783,31 +778,31 @@ def _refuse_lane_mismatch(requested: str, action: str, situation: LaneSituation)
 
 
 def _refuse_no_active_lane(action: str, situation: LaneSituation) -> NoReturn:
-    """No single rendered lane serves the target this session is on.
+    """No single rendered lane serves the target this deployment is on.
 
     Unreachable in a correctly rendered two-lane deployment, whose lanes cover
     both targets by construction — this is the misrender (two lanes for one
     target, or a lane whose declared target is neither). It fails closed, under
-    the session-target vocabulary every consumer already branches on, because
+    the control-target vocabulary every consumer already branches on, because
     the alternative is choosing a machine on the agent's behalf.
     """
     rendered = ", ".join(f"{lane.key!r} ({lane.target})" for lane in situation.lanes)
     message = (
-        f"{action} is refused: this session is on the '{situation.session_target}' "
+        f"{action} is refused: the deployment is on the '{situation.control_target}' "
         f"target, and no single Bluesky plan lane in this deployment serves it "
         f"(rendered lanes: {rendered})."
     )
     make_error(
-        REASON_SESSION_TARGET_MISMATCH,
+        REASON_CONTROL_TARGET_MISMATCH,
         message,
         [
-            f"Switch the session to a target one of the rendered lanes serves, e.g. "
+            f"Switch the deployment to a target one of the rendered lanes serves, e.g. "
             f"control_target_set(target='{situation.lanes[0].target}').",
-            "Or do this work with the control-system tools, which follow the session target.",
-            "A lane pair that does not cover the session's target is a deployment "
+            "Or do this work with the control-system tools, which follow the deployment's target.",
+            "A lane pair that does not cover the deployment's target is a deployment "
             "problem, not something to retry: only an operator can re-render it.",
         ],
-        details=_lane_details(REASON_SESSION_TARGET_MISMATCH, message, situation),
+        details=_lane_details(REASON_CONTROL_TARGET_MISMATCH, message, situation),
     )
 
 
@@ -816,13 +811,13 @@ def _bind_lane(action: str, *, requested: str | None = None, require: bool = Fal
 
     ONE code path, branching on the lane count and nothing else:
 
-    * **Single lane.** ``_check_session_target`` decides, exactly as it has
+    * **Single lane.** ``_check_control_target`` decides, exactly as it has
       since the plan stack shipped: a session on the baseline proceeds, a
       switched session is refused. The returned lane is then the only lane there
       is, and ``require`` is ignored — a lane parameter is not something a
       single-lane deployment can ask an agent for, and demanding one would
       change behavior no second lane exists to justify.
-    * **Two lanes.** The active lane — the one serving the session's target — is
+    * **Two lanes.** The active lane — the one serving the deployment's target — is
       the address. ``require`` (``queue_start``) makes naming it mandatory, and a
       named lane must be both rendered and currently active.
 
@@ -838,7 +833,7 @@ def _bind_lane(action: str, *, requested: str | None = None, require: bool = Fal
     situation = resolve_lane_situation()
 
     if not situation.multi_lane:
-        _check_session_target(action, situation.target_situation)
+        _check_control_target(action, situation.target_situation)
         only = situation.lanes[0]
         if requested is not None and requested != only.key:
             _refuse_unknown_lane(requested, situation)
@@ -928,7 +923,7 @@ async def resolve_halt_lane() -> str | None:
     """Which lane a HALT is addressed to: the one with a plan actually in motion.
 
     Halting deliberately does NOT follow the session. Every other lane decision
-    here asks "where is this session pointed"; a halt asks "where is the
+    here asks "where is this deployment pointed"; a halt asks "where is the
     hardware moving", and those are different questions the moment an operator
     switches targets while a plan runs. Gating a halt behind the session's
     position would mean an agent that switched away could no longer stop the
@@ -938,7 +933,7 @@ async def resolve_halt_lane() -> str | None:
 
     Never raises and never refuses: a lane that cannot be read is skipped, and
     when no lane reports motion (nothing is running anywhere, or every bridge is
-    unreachable) the answer falls back to the lane the session is on, whose
+    unreachable) the answer falls back to the lane the deployment is on, whose
     bridge then gives the honest ``nothing_running``. ``None`` means "the only
     lane there is" — the single-lane deployment, which resolves nothing and
     probes nothing, and equally a process with no resolved context at all: a
@@ -986,8 +981,8 @@ async def _lane_status_view(situation: LaneSituation) -> dict:
     """Every lane's capability, with the host's active/inactive view composed on.
 
     The producer split made concrete: each lane's bridge is asked for its own
-    static record, and the ONE field it cannot supply — whether the session is
-    pointed at that lane — is added here. An inactive lane that cannot be read
+    static record, and the ONE field it cannot supply — whether the deployment
+    is pointed at that lane — is added here. An inactive lane that cannot be read
     degrades to an ``error`` on its own entry rather than failing the whole
     answer: a healthy active lane is the thing the caller most needs, and it is
     still there.
@@ -1018,7 +1013,7 @@ async def _lane_status_view(situation: LaneSituation) -> dict:
             active_entry = entry
 
     if active_entry is not None and "error" in active_entry:
-        # The active lane is the deployment this session is on; an unreadable
+        # The active lane is the one the deployment is on; an unreadable
         # capability there is the same refusal a single-lane deployment gives.
         return make_error(
             "bluesky_bridge_error",
@@ -1032,24 +1027,24 @@ async def _lane_status_view(situation: LaneSituation) -> dict:
     view: dict = {
         "lanes": entries,
         "active_lane": situation.active.key if situation.active else None,
-        "session_target": situation.session_target,
+        "control_target": situation.control_target,
         "baseline_target": situation.baseline_target,
     }
     if active_entry is not None:
         view["status"] = active_entry.get("status")
         view["capability"] = active_entry.get("capability")
     else:
-        # No lane serves the session's target, so there is no capability to
-        # report as this session's — say so in the vocabulary every consumer
+        # No lane serves the deployment's target, so there is no capability to
+        # report as the deployment's — say so in the vocabulary every consumer
         # already branches on rather than borrowing another lane's answer.
         detail = (
-            f"This session is on the '{situation.session_target}' target, which no "
+            f"The deployment is on the '{situation.control_target}' target, which no "
             f"Bluesky plan lane in this deployment serves."
         )
         view["status"] = "ok"
         view["capability"] = {
             "can_execute": False,
-            "reason": REASON_SESSION_TARGET_MISMATCH,
+            "reason": REASON_CONTROL_TARGET_MISMATCH,
             "detail": detail,
             "active": False,
         }
@@ -1096,7 +1091,7 @@ async def queue_status() -> str:
         reader that ignores ``lanes`` still sees the deployment the session is
         actually on. The ``lane``/``lane_target`` inside each capability are the
         bridge's own render-time facts; ``active`` is the one field the host
-        adds, because only the host can see the session's target. A lane that
+        adds, because only the host can see the deployment's target. A lane that
         could not be read at all carries ``error`` instead of a capability —
         one lane's bad news never hides the others.
 
@@ -1213,10 +1208,10 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
             each lane's bridge holds its own draft and counts its own
             revisions, so revision 4 exists on both and means two different
             plans. The pin is therefore ``(lane, revision)`` — pass the lane
-            you read the revision from and a session that switched in between
-            is refused (``lane_mismatch``) instead of silently queueing the
-            other machine's draft. Omitted, the add goes to whichever lane the
-            session is on now.
+            you read the revision from and a switch in between is refused
+            (``lane_mismatch``) instead of silently queueing the other
+            machine's draft. Omitted, the add goes to whichever lane the
+            deployment is on now.
 
     Returns:
         JSON ``{"run_id", "revision", "item", "lane", "armed"}`` — ``run_id``
@@ -1265,23 +1260,23 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
         - manager_not_configured / manager_unreachable / environment_unavailable:
           the manager or its worker environment is not available right now.
         - queue_request_rejected: the manager answered and refused the item.
-        - session_target_mismatch: this session is on a control target no plan
+        - control_target_mismatch: this deployment is on a control target no plan
           lane in this deployment serves, so the PLAN would run against another
           machine. On a single-lane deployment that is any switch away from the
           baseline; on a two-lane one it means the rendered pair does not cover
-          the session's target, which is a deployment problem. Refused before
-          the bridge is called. ``details.session_target`` /
+          the deployment's target, which is a deployment problem. Refused before
+          the bridge is called. ``details.control_target`` /
           ``details.baseline_target`` name both targets, and ``details.lanes``
           lists what this deployment renders. Switch back with
           control_target_set, or do the work with the control-system tools,
-          which follow the session target.
+          which follow the deployment's target.
     """
     # Before anything else: bind this add to a lane. On a single-lane
     # deployment that is the switch refusal — a PLAN queued while the session
     # is switched away would run against the lane's target, not the session's,
     # and nothing is composed, sent, or spent, so the pinned revision stays
     # usable. On a two-lane deployment it is the ADDRESS: the lane serving the
-    # session's target, which is the lane this item is then bound to and the
+    # deployment's target, which is the lane this item is then bound to and the
     # lane id the result reports back. A caller that names the lane its
     # revision came from is checked against that address, which is what makes
     # (lane, revision) the pin rather than the revision alone.
@@ -1334,7 +1329,7 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
                 # config.yml. Pointing at a key here would send an operator to
                 # rebuild for a setting that already says what they want.
                 extra_hints = [
-                    f"This server withheld the launch token because this session's "
+                    f"This server withheld the launch token because the deployment's "
                     f"posture (header chip) is read-only for the {bound.target!r} "
                     f"target that this deployment's {bound.key!r} plan lane serves. "
                     f"No config edit and no different token unblocks it; an operator "
@@ -1449,16 +1444,16 @@ async def queue_start(lane: str | None = None) -> str:
           the manager or its worker environment is unavailable.
         - queue_request_rejected: the manager refused the start (e.g. it is
           already running).
-        - session_target_mismatch: this session is on a control target that
+        - control_target_mismatch: this deployment is on a control target that
           this deployment's single plan lane does not serve, so starting would
           run the queue against the other machine. Refused before the bridge is
-          called; nothing started. ``details.session_target`` /
+          called; nothing started. ``details.control_target`` /
           ``details.baseline_target`` name both targets.
         - lane_required (two-lane deployments only): this deployment renders
           two plan lanes and the start named neither. Pass the ``lane`` the
           ``queue_add`` result reported.
         - lane_mismatch (two-lane deployments only): the named lane is not the
-          one this session is on — typically because the session switched
+          one the deployment is on — typically because the deployment switched
           targets after the item was queued. Starting it would drive a machine
           the session has left. ``details.lanes`` shows every lane and which is
           active; switch back with control_target_set, or start the active
@@ -1466,10 +1461,10 @@ async def queue_start(lane: str | None = None) -> str:
         - unknown_bluesky_lane: the named lane is not one this deployment
           renders at all. Never answered from another lane's bridge.
     """
-    # The queue drains against a LANE's target, not the session's. On a
+    # The queue drains against a LANE's target, not the deployment's. On a
     # single-lane deployment a start issued while the two differ is refused
     # outright; on a two-lane one the named lane must still be the lane the
-    # session is on, so an item queued before a switch cannot be started after
+    # deployment is on, so an item queued before a switch cannot be started after
     # it. This runs FIRST because the posture gate below is per target, and
     # there is no target to read a posture for until the lane is bound.
     bound = _bind_lane("Starting the Bluesky plan queue", requested=lane, require=True)
@@ -1645,7 +1640,7 @@ async def queue_remove(uid: str, lane: str | None = None) -> str:
             queue handle, not the OSPREY run id.
         lane: The plan lane holding the item, as ``queue_list``/``queue_add``
             report in their own ``lane`` field. Omitted, the removal goes to
-            the lane the session is on now — each lane's manager holds its own
+            the lane the deployment is on now — each lane's manager holds its own
             queue, so on a two-lane deployment pass the lane the uid came
             from.
 

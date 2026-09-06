@@ -208,7 +208,7 @@ def test_the_live_standin_port_is_projected_ungated():
     """Every render is told the port, because the honesty predicate reads it.
 
     ``osprey_connectors.standin.live_standin_active`` decides from this one key
-    whether the endpoint a session is on is this deployment's own stand-in
+    whether the endpoint the deployment is on is this deployment's own stand-in
     container, and a persona render carries no ``services:`` block of its own.
     A gate here would describe the same machine two different ways depending on
     whether it was seen through a persona.

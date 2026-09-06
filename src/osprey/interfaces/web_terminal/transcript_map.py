@@ -1,8 +1,8 @@
 """Which transcript each session key currently points at.
 
 A session key is the one identity a browser tab keeps for its whole life: the
-same string names the PTY pool entry, the chat pool entry, the posture store
-entry and the audit session. The *transcript* is a different thing — the Claude
+same string names the PTY pool entry, the chat pool entry and the audit
+session. The *transcript* is a different thing — the Claude
 Code session id whose ``.jsonl`` holds the conversation — and the two are equal
 only until the conversation is replaced. A ``/clear`` in the terminal starts a
 fresh transcript under a new id while the key stays exactly where it was, so
@@ -21,8 +21,8 @@ This module holds that divergence, and nothing else:
   rather than storing an identity mapping, so the file grows by one line per
   conversation that actually moved and by nothing per session.
 
-**Where the file lives.** Beside the posture store, under the same one path
-rule (:func:`osprey_connectors.session_store.state_dir`): a deployment that
+**Where the file lives.** Beside the control-context record, under the same one
+path rule (:func:`osprey_connectors.posture_store.state_dir`): a deployment that
 resolves one of these two files resolves both, and an operator looking for
 either finds them in one directory. A root that does not resolve is a map with
 no location — every :func:`get` still answers, the process keeps its in-memory
@@ -32,8 +32,9 @@ of a cleared-and-continued conversation after a container recreation, whereas
 raising here would take down a view flip over a file nobody can repair from the
 browser.
 
-**Durability is best-effort by design.** Unlike the posture store, whose write
-is a commit point (a narrowing that is not on disk is a lie the badge tells),
+**Durability is best-effort by design.** Unlike the control-context record,
+whose write is a commit point (a narrowing that is not on disk is a lie the
+badge tells),
 a lost mapping degrades to resuming the key itself — a conversation that reads
 as fresh, not a session that writes when it promised not to. So the write is
 attempted, its failure is logged, and memory keeps the answer.
@@ -45,27 +46,27 @@ import logging
 from pathlib import Path
 
 from osprey.interfaces.web_terminal._json_store import read_json_object, write_json_atomic
-from osprey_connectors import session_store
+from osprey_connectors import posture_store
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["STORE_FILENAME", "get", "load", "set", "store_path"]
 
-#: The document's name, beside ``session-postures.json`` in the same directory.
+#: The document's name, beside ``control_context.json`` in the same directory.
 STORE_FILENAME = "session-transcripts.json"
 
 
 def store_path() -> Path | None:
     """Where the map lives, or ``None`` when it has no location.
 
-    Delegates to :func:`osprey_connectors.session_store.state_dir` — the same
+    Delegates to :func:`osprey_connectors.posture_store.state_dir` — the same
     resolution the posture store uses (env ``OSPREY_AGENT_DATA_ROOT``, else the
     config derivation), so the two files are co-sited by construction rather
     than by two rules that agree today. That resolution can raise as well as
     answer ``None``; both mean the same thing here, a map that is memory-only.
     """
     try:
-        directory = session_store.state_dir()
+        directory = posture_store.state_dir()
     except Exception:  # noqa: BLE001 — an unresolvable root is "no file", not a crash
         logger.warning("The transcript map's location does not resolve", exc_info=True)
         return None

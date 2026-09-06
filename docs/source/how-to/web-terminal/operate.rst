@@ -66,7 +66,7 @@ The window has three working areas plus a header:
   terminal report a problem without leaving it. See
   :doc:`send-feedback`.
 - **Header** — the :ref:`control-target chip <web-terminal-session-posture>`
-  (which machine this session writes to, and whether it may), the display menu
+  (which machine this deployment writes to, and whether it may), the display menu
   (a small dot holding the light/dark, Expert/Simple, and theme controls — see
   :doc:`theming`), a settings drawer, and an optional name badge to tell one
   deployment from another.
@@ -154,7 +154,7 @@ it?* It reads like this::
 
    ● Rehearsal · writes on ▾
 
-The first part names the machine this session stands on, by what it **is**:
+The first part names the machine this deployment stands on, by what it **is**:
 
 - **Real machine** --- the facility's own. Writes move hardware.
 - **Rehearsal** --- a copy of the real machine's controls, same channel names,
@@ -169,11 +169,12 @@ ring* rather than *Real machine*); what the machine is stays behind the small
 ⓘ beside its name either way, and that tooltip also keeps the controls
 server's own technical label.
 
-The second part is the write state **on that machine**, for **your session**:
+The second part is the write state **on that machine**, for the whole
+deployment:
 
 - **writes on** --- the agent may write there, under whatever write gates the
   deployment configures.
-- **writes off** --- *you* turned writes off for this session. Reads are
+- **writes off** --- somebody turned writes off on that machine. Reads are
   untouched: the agent keeps its full view of the control system and of the
   project, and can still run analysis, plots and read-only Python. One click
   turns writes back on.
@@ -193,10 +194,10 @@ the actions. What writing to a machine means (*Writes move hardware*, or one
 of the *nothing moves* lines) sits with its endpoint and the server's own
 label behind the small ⓘ beside each name, on hover or keyboard focus:
 
-- **The writes switch** --- per machine, for your session. The switch position
-  is the write state and clicking it is the gesture that changes it; where
-  writes are locked the switch is disabled, with the reason on hover.
-- **Switch to** --- moves this session onto that machine. Where a switch is
+- **The writes switch** --- per machine, for the whole deployment. The switch
+  position is the write state and clicking it is the gesture that changes it;
+  where writes are locked the switch is disabled, with the reason on hover.
+- **Switch to** --- moves the deployment onto that machine. Where a switch is
   not available, the button's place is taken by a short phrase for the reason
   --- ``not set up``, ``needs gateway ack`` --- with the server's full
   sentence on the tooltip. On a fresh deployment the real machine reading
@@ -209,16 +210,14 @@ roles and the age of the last probe stay on the tooltips and in the
 confirmation dialogs, where the decision is actually made.
 
 The foot has **Turn all writes off**, which takes writes away from every
-machine it can in one click, and the popover's scope, said once: *your
-session only*.
+machine it can in one click.
 
 Take writes away, or give them back
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The write state is **per machine**. Turn writes off on the real machine and
-the session keeps working on the simulator, which is the point: you put the
-machine you are worried about out of reach without giving up the one you are
-working on.
+work on the simulator carries on, which is the point: you put the machine you
+are worried about out of reach without giving up the one you are working on.
 
 Taking writes away applies as you click --- it needs no ceremony. Turning
 writes back on asks you to confirm first, and the confirmation names the
@@ -227,12 +226,16 @@ machine and the endpoint the agent would then be able to write to. Tick
 (Shift-click brings it back). The real machine always asks.
 
 **Nothing is restarted.** Every gate reads the write state at the moment of
-the write, so the change lands on the conversation that is already running:
-the agent obeys it on its very next write, and the turn in flight is not
-interrupted. One lag is worth knowing about: turn writes off on the machine
-the session is *on* and the change reaches the agent when the connector is
-rebuilt, which waits for a running execution to finish --- and the card says
-so rather than leaving a button that appears to have done nothing.
+the write, so the change lands on every conversation that is already running:
+each agent obeys it on its very next write, and no turn in flight is
+interrupted. Taking writes away reaches a running notebook cell the same way,
+on its very next write; giving them back waits for the next cell, because a
+cell can never write more than it was allowed when it started
+(:doc:`notebooks`). One lag is worth knowing about: turn writes off on the
+machine the deployment is *on* and the change reaches the agent when the
+connector is rebuilt, which waits for a running execution to finish --- and
+the card says so rather than leaving a button that appears to have done
+nothing.
 
 **The chip only takes writes away.** What you set here tightens what the
 deployment permits; it can never hand out writes the deployment did not arm.
@@ -250,16 +253,19 @@ reason is on its tooltip:
        rebuild changes that, not a click.
    * - *the whole deployment is running read-only*
      - ``OSPREY_EXECUTION_MODE=readonly`` is set, which sits above any one
-       session.
-   * - *changes here would not reach the agent*
-     - This page has no way to deliver a change to this session's
-       control-system server, so a state set here would be read by nobody.
-       The roster still renders --- it is worth reading --- but the buttons
-       govern nothing, and a banner across the top of the popover says so.
+       conversation.
+   * - *held by another terminal*, *held by the controls server*
+     - Something else holds the deployment's control context, and only the
+       holder writes to it: another web terminal running against the same
+       deployment data, or --- for the moment before this terminal has claimed
+       it --- the agent's own control-system server. The roster still renders,
+       and it is worth reading, but the buttons here govern nothing. A banner
+       across the top of the popover names the holder, with its port where
+       there is one, so you know where to go instead.
    * - *changes cannot be recorded right now*
-     - The folder where write states are recorded is missing or unreadable,
-       so there is nowhere to keep a setting the agent would read back.
-       Nothing was changed.
+     - The folder where the control context is recorded is missing or
+       unreadable, so there is nowhere to keep a setting the agent would read
+       back. Nothing was changed.
    * - *no read-only endpoint configured*
      - Read-only on this machine would route it through a gateway the
        deployment has not configured, leaving the machine unusable. You are
@@ -269,40 +275,52 @@ One more refusal can meet the click itself: you cannot turn writes back on
 while the agent is still running something. The run keeps the write state it
 started with, so wait for it to finish, or stop it, and try again.
 
-Switch this session to another machine
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Switch the deployment to another machine
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**Switch to** on a row moves the session onto that machine, after a
+**Switch to** on a row moves the whole deployment onto that machine, after a
 confirmation that says where every control read and write goes next and
-whether writes are on or off for you there --- the write state is per
-machine, and it does not travel with you. This dialog too can be skipped
-with *Don't ask again for this machine*. The browser does not perform the
-switch: it records the request, and the part of the deployment that owns the
-connection to the machines picks it up, re-checks at that moment that the
-move is allowed and the machine answers, and reports the outcome back. The
-row then reads ``✓ switched``, or ``✗`` with the phrase for the refusal ---
-the same refusal, for the same reason, the agent is given. While a request is
-out the chip reads ``switching…``, and one request is outstanding at a time.
-If nothing answers within 30 seconds the row reads ``request_expired``:
-nothing that could carry out the switch was alive to pick it up. The outcome
-line leaves the row after about a minute --- an outcome is news for as long as
-someone is watching for it.
+whether writes are on or off there --- the write state is per machine, and it
+does not travel with you. This dialog too can be skipped with *Don't ask again
+for this machine*. The page that holds the control context runs the same
+checks the agent's own switch runs --- that the move is allowed, and that
+nothing is mid-flight on the machine you are leaving --- and records the
+outcome; the deployment's control-system servers then move themselves onto it
+and report when they have arrived. The row reads ``switching…`` until every
+one of them has, and then ``✓ switched``, or ``✗`` with the phrase for the
+refusal --- the same refusal, for the same reason, the agent is given. A
+server that could not make the move says so by name, so you know which one to
+look at. If nothing answers within 30 seconds the row reads
+``request_expired``: nothing that could carry out the switch was alive to pick
+it up. The outcome line leaves the row after about a minute --- an outcome is
+news for as long as someone is watching for it.
+
+Ask for a second switch while one is still landing and it is refused rather
+than queued, naming the servers still working. Wait for the chip to settle and
+ask again.
 
 What the switch itself is gated on --- the approval prompt, the limits
 posture, the archive --- is :doc:`../control-systems/switch-control-target`.
 
-Where the write state lives
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Where the control target and the write state live
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The write state belongs to **one session**, not to the deployment. Nothing is
-written to ``config.yml``. Two people working in two sessions of the same
-deployment hold their own settings, and one of them turning writes off on a
-machine does not touch the other.
+Both belong to **the deployment**, not to any one session, and nothing is
+written to ``config.yml``. Two people working on the same deployment see the
+same machine and the same write states: one of them turning writes off on a
+machine takes them away from everyone, and a switch made in one window applies
+in the other. That is the point --- a write state you can only see from the
+page you happen to be on is not a safety control.
 
-Your settings are recorded in
-``var/agent_data/control_target/session-postures.json``, written as soon as
-you click and read back when the server starts, so restarting the container
-never quietly turns a session's writes back on.
+Both are recorded together in
+``var/agent_data/control_target/control_context.json``, written as soon as you
+click and read back when a server starts, so restarting the container never
+quietly turns writes back on or moves the deployment off the machine somebody
+put it on. Coming back to the deployment baseline is a switch like any other.
+
+On a multi-user deployment every user has their own container and their own
+volumes (:doc:`multi-user/index`), so "the deployment" here means the stack
+that user is working in.
 
 What refuses a write, and how firmly
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -336,18 +354,17 @@ worth knowing, because one of them is best-effort rather than enforced:
 Each layer says which gate refused, in its own words, so the message never
 sends you to the wrong control:
 
-- The hook --- *"WRITES OFF --- this session refuses control-system writes
+- The hook --- *"WRITES OFF --- this deployment refuses control-system writes
   to the <target> target. Turn writes back on from the control-target chip in
   the header; config.yml is not the gate here."*
 - The connector --- *"Write to '<channel>' blocked: writes are off for the
-  '<target>' control target in this session --- turned off from the
-  control-target chip in the header, and in force for this session only. Turn
-  writes back on for '<target>' from the chip if the write is intended;
-  config.yml is not the gate here."*
-- The executor --- *"Writes are off for the '<target>' control target in this
-  session --- turned off from the control-target chip in the header, and in
-  force for this session only."* --- offering a re-run as ``readonly``, and
-  saying to turn writes back on from the chip if the write is intended.
+  '<target>' control target --- turned off from the control-target chip in the
+  header; applies deployment-wide. Turn writes back on for '<target>' from the
+  chip if the write is intended; config.yml is not the gate here."*
+- The executor --- *"Writes are off for the '<target>' control target ---
+  turned off from the control-target chip in the header; applies
+  deployment-wide."* --- offering a re-run as ``readonly``, and saying to turn
+  writes back on from the chip if the write is intended.
 
 Those three are what writes you turned off from the chip sound like, and the
 chip is where you turn them back on. A **deployment-wide read-only run** is a
@@ -374,37 +391,18 @@ says nothing about the chip.
 
 .. note::
 
-   **The other two surfaces.** Simple mode's chat and the operator websocket run
-   their agent through the Agent SDK rather than a terminal. Both read the same
-   record at write time, so a write state you set reaches them exactly as it reaches
-   a terminal session. Where they differ is in what the chip can do for them.
+   **The other surfaces.** Simple mode's chat and the operator websocket run
+   their agent through the Agent SDK rather than a terminal, and notebook
+   kernels run no agent at all. All of them read the deployment's control
+   context at write time, so a write state you set and a switch you make reach
+   every one of them --- and the full chip works in both views, because what it
+   changes is the deployment's own record rather than anything belonging to the
+   window you are looking at.
 
-   A **chat session's write controls work** --- its writes meet the same ceiling
-   and the same locks a terminal's do --- but **Switch to** comes and goes with
-   the view. While the Expert view holds the session there is a terminal with a
-   machine connection to move, and a row you can switch to offers the button;
-   while Simple holds it there is no such connection, so the button's place on
-   every row is empty. Switch back to Expert and it is there again.
-
-   The write state itself does not come and go. Both views are one session
-   (:ref:`web-terminal-one-session`), so a state you set in either is the state
-   the other finds, and it follows the conversation across the switch.
-
-   An **operator websocket session's write controls govern nothing**: the chip
-   has no way to hand a write state to that kind of session, so what you set
-   here never reaches it.
-
-.. dropdown:: Why the websocket session is out of the chip's reach
-   :icon: gear
-
-   The websocket session's identifier is created when the connection is
-   accepted and identifies nothing once the connection ends, so no write state
-   can be recorded against it and there is nothing to restore across a restart.
-   That stays true until an operator client exists to define its reconnect
-   protocol. Every audit record such a session emits is labelled
-   ``posture_source=spawn`` --- the trail's way of saying the write state was
-   fixed when the session started rather than read from a live setting; see the
-   record fields in :ref:`the audit trail contract <audit-trail-record>`.
+   A notebook kernel is the one surface where *when* is worth knowing. It takes
+   a narrowing at once --- turning writes off refuses the running cell's next
+   write --- and takes a widening, or a switch, on the next cell you run. See
+   :doc:`notebooks`.
 
 .. _web-terminal-bars:
 

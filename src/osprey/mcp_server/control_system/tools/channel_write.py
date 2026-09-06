@@ -36,30 +36,58 @@ disappearance of the record counts as a difference: "no record" and "a record"
 are different claims about the session, and a server that started or stopped
 publishing mid-call has changed something the operator was never shown.
 
-The pair is read from the state file
-:mod:`~osprey.mcp_server.control_system.target_state` publishes, and not from
-the manager's in-memory accessors: that file is what the approval hook renders
-its ``Target:`` line from, so binding to it binds to exactly what the operator
-saw. The two are cross-checked rather than ranked — see below.
+The pair is read from the deployment's control-context record
+(:func:`~osprey_connectors.control_context.read_record`), and not from the
+manager's in-memory accessors: that record is what the approval hook renders its
+``Target:`` line from, so binding to it binds to exactly what the operator saw.
+The two are cross-checked rather than ranked — see below.
 
-A server publishes its baseline record unconditionally at start
-(``server._reset_target_state``), so the ordinary in-process deployment reads a
-stable ``(baseline, 0)`` at every observation and never refuses. Reading
-``None`` is the degraded case — an unwritable data root, a state directory that
-cannot be resolved — and it is stable too, so that deployment also proceeds,
-paying one cheap read.
+A deployment holds a record from the moment its first owner starts — the web
+terminal at lifespan, or a controls server claiming at
+:func:`~osprey.mcp_server.control_system.server._start_from_record`, which
+adopts whatever the deployment is already pointed at and starts one at the
+baseline only where none is readable. A deployment that never switched
+therefore reads a stable ``(baseline, 0)``, and refuses nothing. ``None`` — an
+unwritable data root, a state directory that cannot be resolved, a corrupt
+file, a claim that never landed — is just as stable, so that deployment also
+proceeds, paying one cheap read.
 
-Two writers of one truth
-------------------------
-The state file says what the operator was shown; the connector-host manager's
+Where the deployment is, and where this server got to
+-----------------------------------------------------
+The record says where the deployment is pointed. It does not say whether *this*
+server's connector host has arrived there, and between the two there is a window
+in which a value would reach a target nobody agreed to: the switch is being
+applied, or it was applied and this server could not follow it.
+
+That question is :func:`~osprey_connectors.control_context.converged`, asked
+here exactly as the python executor and the notebook kernel ask it, over this
+server's ``OSPREY_POSTURE_SESSION`` and the reports of the servers that are
+still running. It refuses in two shapes, and the difference is deliberate:
+
+* a swap **in flight** anywhere in the fleet refuses every session, because the
+  server holding the connector is between two targets;
+* a swap this session's own server **failed** to follow, or one it is still
+  behind on, refuses this session and nothing else. FR-8: a failed swap strands
+  the one window whose server could not follow it, and leaves every other
+  session, every notebook kernel and every bare ``claude`` writing.
+
+The refusal names the PIDs, because what an operator does about it is to find
+that process and let it finish or restart it. It is checked once, at entry: a
+swap that lands later moves the record, and moving the record is what the
+entry-to-write comparison below already refuses on.
+
+Two answers to one question
+---------------------------
+The record says what the operator was shown; the connector-host manager's
 :meth:`~osprey.mcp_server.control_system.connector_host_manager.ConnectorHostManager.active_binding`
-says what is actually being served. They are the same quantity published by one
-writer, so any disagreement between them means the publish failed or has not
-landed — and a write is exactly the wrong thing to let through while the
-session's identity is in doubt. Once the manager has started a child, the
-pre-write check therefore refuses on ANY disagreement between the two instead of
-choosing a winner. A manager that never started has nothing to say and is not
-consulted.
+says what this server is actually serving. A disagreement between them means
+this server has not landed on the record — and a write is exactly the wrong
+thing to let through while the identity of the session is in doubt. Once the
+manager has started a child, the pre-write check therefore refuses on ANY
+disagreement between the two instead of choosing a winner. It is the in-process
+half of the convergence question, and it holds even when the report the fleet
+reads has not been written yet. A manager that never started has nothing to say
+and is not consulted.
 
 Why no locking is needed for the remaining window
 -------------------------------------------------
@@ -80,14 +108,15 @@ serialise every write behind the supervisor for no additional guarantee.
 import hashlib
 import json
 import logging
-import os
 
+from osprey.audit.posture import posture_session
 from osprey.errors import ChannelWriteBlockedError
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.error_handling import connector_error_handler
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
+from osprey_connectors import control_context
 
 logger = logging.getLogger("osprey.mcp_server.tools.channel_write")
 
@@ -99,6 +128,14 @@ logger = logging.getLogger("osprey.mcp_server.tools.channel_write")
 #: would give an operator the wrong account of the second.
 TARGET_CHANGED_ERROR = "target_changed"
 
+#: Error type of a write refused because the fleet has not settled on the
+#: record: a swap is in flight somewhere, or this session's own server did not
+#: follow the last one. Spelled the way every other surface spells this
+#: condition — the executor's ``ExecutionResult`` failure kind, the switch
+#: tool's 409 and the notebook kernel's refusal marker all carry the same word,
+#: so one token identifies it wherever an operator meets it.
+SWITCH_IN_PROGRESS_ERROR = "switch_in_progress"
+
 #: Which of the three comparisons refused a call, reported in ``details.window``
 #: so an operator (and a test) can tell "the session moved while I was deciding"
 #: from "the session moved while the write was being prepared" from "the two
@@ -107,11 +144,16 @@ WINDOW_APPROVAL = "approval_prompt_to_entry"
 WINDOW_EXECUTION = "entry_to_write"
 WINDOW_SERVING = "published_vs_serving"
 
-#: Name of the stamp the approval hook leaves beside the target state. The
-#: prefix is deliberately not ``target_state_``: a stamp must never be picked up
-#: by the state-file glob, whose files name a server, not an approval.
+#: Name of the stamp the approval hook leaves beside the control context. The
+#: prefix is deliberately not ``server_``: a stamp must never be picked up by
+#: the report glob, whose files name a server, not an approval.
 APPROVAL_STAMP_PREFIX = "write_approval_"
 APPROVAL_STAMP_SUFFIX = ".json"
+
+#: The session component of a stamp's name when the process that rendered it had
+#: no audit session. A word rather than a hash so it cannot collide with one:
+#: every session that exists hashes to sixteen hex digits.
+APPROVAL_STAMP_SESSIONLESS_SLUG = "anon"
 
 #: The key each result carries its outcome word under. The generated safety
 #: rules name this key, so the spelling here and the spelling there have to stay
@@ -158,31 +200,44 @@ def _project_observed_value(value: object) -> object:
         return value
 
 
-def _read_target_binding() -> tuple[str, int] | None:
-    """The ``(target, generation)`` this server publishes, or ``None``.
+def _read_record() -> control_context.ControlContext | None:
+    """The deployment's control-context record, or ``None``.
 
     ``None`` is the single answer for every "there is no usable record" case —
-    no state file, an unreadable one, a half-written one, a record whose target
-    or generation is not what it should be. The state file's readers are
-    fail-closed by contract precisely so that all of those arrive as one value,
-    and collapsing them here is what makes an unpublished deployment stable
-    across the call rather than intermittently "changed".
+    no agent-data root, no file, an unreadable or half-written one, a payload
+    from another schema, a record whose target or generation is not what it
+    should be. The record's reader is fail-closed by contract precisely so that
+    all of those arrive as one value, and collapsing them here is what makes an
+    unswitched deployment stable across the call rather than intermittently
+    "changed".
     """
     try:
-        record = target_state.read()
+        return control_context.read_record()
     except Exception:  # pragma: no cover - defensive: reading must not fail a write
-        logger.debug("Could not read the control-system target state", exc_info=True)
+        logger.debug("Could not read the control-context record", exc_info=True)
         return None
-    return _binding_from_record(record)
+
+
+def _binding_of(record: control_context.ControlContext | None) -> tuple[str, int] | None:
+    """The ``(target, generation)`` *record* names, or ``None`` without one."""
+    return None if record is None else (record.target, record.generation)
+
+
+def _read_target_binding() -> tuple[str, int] | None:
+    """The ``(target, generation)`` the deployment is on, or ``None``."""
+    return _binding_of(_read_record())
 
 
 def _binding_from_record(record: object) -> tuple[str, int] | None:
-    """Normalize one raw record into a binding, or ``None``.
+    """Normalize one raw mapping into a binding, or ``None``.
 
-    The hook side normalizes the same record the same way (``selected_target``
+    Its one caller is :func:`_read_approval_stamp`, and what it is handed is an
+    approval stamp — which carries the record's ``target`` and ``generation``
+    verbatim, because the hook copies them off the record it rendered the
+    prompt from. The hook normalizes them the same way (``selected_target``
     plus an integer generation, whitespace stripped), because the two have to
-    agree on which records count as unpublished. A record that is half-readable
-    is unpublished as a whole here: there is no safe guess at the missing half.
+    agree on which renders count as unpublished. A half-readable pair is
+    unpublished as a whole here: there is no safe guess at the missing half.
     """
     if not isinstance(record, dict):
         return None
@@ -224,24 +279,54 @@ def _approval_stamp_key(operations: list[dict], confirm: bool | None) -> str | N
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
 
 
-def _stamp_is_ours(record: object) -> bool:
-    """Whether *record* is an approval stamp this server's own prompt filed.
+def _approval_stamp_session_slug() -> str:
+    """The file-name component separating this session's stamps from every other's.
 
-    A missing or ``None`` ``server_pid`` counts as ours: a project rendered
-    before a target was published stamps without one, and there is nothing in
-    such a stamp to attribute it elsewhere. Both callers ask this one question,
-    so a stamp the lookup accepts as this server's cannot be invisible to the
-    warning that has to explain a miss — which is exactly the gap that would
-    let a never-published project's stale key go unreported.
+    A hash of :func:`~osprey.audit.posture.posture_session`, because that id is
+    a ``kernel:<uuid>`` or whatever the web terminal minted and has never been
+    constrained to characters a file name may carry. The approval hook restates
+    this derivation in stdlib-only Python — it runs outside this venv and cannot
+    import this module — and a test drives this reader against a file only the
+    hook wrote, so the two spellings cannot drift apart without failing.
+
+    A process with no session gets :data:`APPROVAL_STAMP_SESSIONLESS_SLUG`, so
+    every session-less render of one write lands on ONE file. See
+    :func:`_warn_if_this_server_has_other_stamps` for why that collision is
+    benign rather than a lost cross-check.
+    """
+    session = posture_session()
+    if not session:
+        return APPROVAL_STAMP_SESSIONLESS_SLUG
+    return hashlib.sha256(session.encode("utf-8")).hexdigest()[:16]
+
+
+def _approval_stamp_name(key: str) -> str:
+    """The file name a stamp for *key*, rendered under this session, is filed under."""
+    return f"{APPROVAL_STAMP_PREFIX}{_approval_stamp_session_slug()}_{key}{APPROVAL_STAMP_SUFFIX}"
+
+
+def _stamp_is_ours(record: object) -> bool:
+    """Whether *record* is an approval stamp this session's own prompt filed.
+
+    An equality on the audit session, and nothing looser. The hook writes the
+    ``OSPREY_POSTURE_SESSION`` it rendered under, this process reads its own
+    through :func:`~osprey.audit.posture.posture_session`, and a stamp naming a
+    different one belongs to another window on the same agent-data root. A
+    ``None`` on both sides matches too — two unattributed processes cannot be
+    told apart at all, which is the collision the file name cannot break and the
+    warning below declines to reason about.
+
+    Both callers ask this one question, so a stamp the lookup accepts as this
+    session's cannot be invisible to the warning that has to explain a miss —
+    which is exactly the gap that would let a stale key go unreported.
     """
     if not isinstance(record, dict):
         return False
-    server_pid = record.get("server_pid")
-    return server_pid is None or server_pid == os.getpid()
+    return record.get("session") == posture_session()
 
 
 def _warn_if_this_server_has_other_stamps() -> None:
-    """Warn once per miss when stamps this server rendered exist under other keys.
+    """Warn once per miss when stamps this session rendered exist under other keys.
 
     Both sides of the key derivation have to spell the payload the same way, and
     a project rendered before the hashed arguments last changed files its stamps
@@ -249,14 +334,22 @@ def _warn_if_this_server_has_other_stamps() -> None:
     check goes quiet without a single failure — the one failure mode of a
     two-party hash that nothing else would surface.
 
-    Stamps left by *this* process's prompts are the evidence that separates the
-    two explanations of a miss: if the hook is stamping for this server and none
-    of its stamps is the one this call asked for, the derivations disagree. A
-    stamp from another pid belongs to a second session sharing the state
-    directory and says nothing about this one, so :func:`_stamp_is_ours` filters
-    it out first — without that filter, an ordinary two-session checkout would
-    warn on every unstamped write.
+    Stamps left by *this session's* prompts are the evidence that separates the
+    two explanations of a miss: if the hook is stamping for this session and
+    none of its stamps is the one this call asked for, the derivations disagree.
+    A stamp naming another session belongs to a second window sharing the
+    agent-data root and says nothing about this one, so :func:`_stamp_is_ours`
+    filters it out first — without that filter, an ordinary two-window checkout
+    would warn on every unstamped write.
+
+    With no audit session at all there is nothing to filter BY: every
+    unattributed process on this checkout files under one name, so a stamp found
+    beside a miss is as likely a sibling's as this process's own, and telling an
+    operator to re-run ``osprey build`` on that evidence would be wrong most of
+    the time. Attribution is impossible, so the warning is skipped outright.
     """
+    if posture_session() is None:
+        return
     try:
         stamps = list(
             target_state.state_dir().glob(f"{APPROVAL_STAMP_PREFIX}*{APPROVAL_STAMP_SUFFIX}")
@@ -290,17 +383,22 @@ def _read_approval_stamp(
     """``(found, binding)`` for the prompt that approved this write.
 
     ``found`` is ``False`` for every case in which no comparison may be made:
-    no stamp, an unreadable one, or one another server on this checkout wrote —
-    two sessions sharing a directory would otherwise cross-check each other's
-    approvals, and a stamp whose ``server_pid`` is not this process is somebody
-    else's prompt. ``found`` with a ``None`` binding is a real answer: the
-    prompt was rendered while nothing published a target.
+    no stamp, an unreadable one, or one another session on this checkout wrote —
+    two windows sharing an agent-data root would otherwise cross-check each
+    other's approvals, and a stamp whose ``session`` is not this process's is
+    somebody else's prompt. ``found`` with a ``None`` binding is a real answer:
+    the prompt was rendered while nothing published a target.
+
+    The session is in the file NAME as well as in the payload
+    (:func:`_approval_stamp_name`), so the two windows do not overwrite each
+    other's stamps; the payload check below is what still holds if they ever
+    land on one name anyway.
     """
     key = _approval_stamp_key(operations, confirm)
     if key is None:
         return False, None
     try:
-        path = target_state.state_dir() / f"{APPROVAL_STAMP_PREFIX}{key}{APPROVAL_STAMP_SUFFIX}"
+        path = target_state.state_dir() / _approval_stamp_name(key)
         stamp = target_state.read_file(path)
     except Exception:  # pragma: no cover - defensive: reading must not fail a write
         logger.debug("Could not read the write-approval stamp", exc_info=True)
@@ -310,7 +408,7 @@ def _read_approval_stamp(
         return False, None
     if not _stamp_is_ours(stamp):
         logger.debug(
-            "Ignoring a write-approval stamp written for server pid %s", stamp.get("server_pid")
+            "Ignoring a write-approval stamp rendered under session %s", stamp.get("session")
         )
         return False, None
     return True, _binding_from_record(stamp)
@@ -372,6 +470,67 @@ def _refuse_target_changed(
             "approved_generation": approved[1] if approved else None,
             "current_target": current[0] if current else None,
             "current_generation": current[1] if current else None,
+        },
+    )
+
+
+def _blocking_servers(record: control_context.ControlContext) -> tuple[int, ...]:
+    """The controls servers that stop this session writing on *record*.
+
+    Empty when the fleet has settled, which is the ordinary answer. The walk
+    over the live reports belongs to
+    :func:`~osprey_connectors.control_context.blocking_pids` and is not
+    restated here: the executor's stamp, the notebook kernel's cell gate and
+    this tool have to reach the same verdict from the same evidence, and three
+    spellings of one rule is how they would stop doing so.
+
+    Any failure to ask answers "nothing is in the way", the same fail-open
+    every other read in this module uses: a state directory that cannot be
+    listed says nothing about a swap, and inventing one would refuse writes on
+    a deployment that is perfectly settled.
+    """
+    try:
+        blocked: tuple[int, ...] = control_context.blocking_pids(
+            record, control_context.live_reports(), posture_session()
+        )
+        return blocked
+    except Exception:  # pragma: no cover - defensive: reading must not fail a write
+        logger.debug("Could not judge the control-context convergence", exc_info=True)
+        return ()
+
+
+def _check_convergence(record: control_context.ControlContext | None) -> None:
+    """Refuse while a swap is in flight, or this session's server is behind.
+
+    No record means no generation for a server to be behind, so there is
+    nothing to judge and nothing to refuse — the unswitched deployment every
+    other check in this module also lets through.
+
+    Raises:
+        fastmcp.ToolError: Carrying the standard envelope. Nothing has been
+            sent to the control system at this point.
+    """
+    if record is None:
+        return
+    pids = _blocking_servers(record)
+    if not pids:
+        return
+    named = ",".join(str(pid) for pid in pids)
+    make_error(
+        SWITCH_IN_PROGRESS_ERROR,
+        f"switch_in_progress:{named}. The deployment is on "
+        f"{_describe_binding((record.target, record.generation))}, and the controls server "
+        f"on pid {named} has not got there — so nothing was written.",
+        [
+            "Nothing was written: the refusal happened before the control system was touched.",
+            "Wait for the control-target chip to settle, then re-issue the write.",
+            f"If it does not settle, tell the operator that the server on pid {named} has to "
+            "finish its target switch or be restarted.",
+        ],
+        details={
+            "pids": list(pids),
+            "target": record.target,
+            "generation": record.generation,
         },
     )
 
@@ -475,10 +634,14 @@ async def channel_write(
         instead, exactly as `channel_read` reports one.
     """
     # The first statement of the tool, before anything that can yield: the
-    # earliest instant the server itself exists in. It is compared against what
-    # the approval prompt was rendered on (below) and against the state
-    # immediately before the write (further down).
-    entry_binding = _read_target_binding()
+    # earliest instant the server itself exists in. The binding is compared
+    # against what the approval prompt was rendered on (below) and against the
+    # record immediately before the write (further down); the record itself is
+    # kept because the convergence gate asks about that same instant, and
+    # re-reading it there could only disagree with the binding every other
+    # check in this tool uses.
+    entry_record = _read_record()
+    entry_binding = _binding_of(entry_record)
 
     if not operations:
         return make_error(
@@ -496,6 +659,12 @@ async def channel_write(
     # confirmation setting cannot be vouched for by a prompt that showed another.
     _check_approval_window(operations, confirm, entry_binding)
 
+    # Where the deployment is against where this server got to. Second, because
+    # a stamp that disagrees with entry is the more specific account of the same
+    # instant — it says the value in front of the operator was approved for a
+    # different target, which needs a fresh approval rather than a wait.
+    _check_convergence(entry_record)
+
     # Limits validation (additional safety layer inside the tool)
     try:
         from osprey.connectors.control_system.limits_validator import LimitsValidator
@@ -504,7 +673,7 @@ async def channel_write(
 
     validator = None
     if LimitsValidator is not None:
-        # The posture the session's target runs under, not the deployment's. A
+        # The posture the recorded control target runs under, not the deployment's. A
         # deployment may relax unlisted channels for its simulator alone, and
         # the binding captured at entry is already the answer to "which machine
         # is this write for" — reading the state file a second time here could

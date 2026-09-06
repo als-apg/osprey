@@ -1,26 +1,21 @@
-"""The notebook kernel's side of the session binding, and its launcher.
+"""The notebook kernel's identity, and its launcher.
 
 A notebook kernel runs as its own process, started by the Jupyter server, with
-no handle on the web terminal that the operator is actually working in. The
-session binding is how it finds one: a single JSON document under the shared
-agent-data root naming the PTY session most recently attached in the browser,
-which the kernel reads at start-up to join that session's posture and control
-target instead of guessing at its own.
+no handle on the web terminal the operator is actually working in. It needs
+none: the deployment has one control context, recorded under the shared
+agent-data root, and every client reads that one record. What the kernel
+supplies is its own name — ``kernel:<kernel_id>``, taken from the connection
+file Jupyter wrote for it — so that the records it files are attributable to a
+kernel an operator can find and interrupt.
 
-Both ends of that document live here, and only the path constant and the
-reader are used by the web terminal — :mod:`osprey.interfaces.web_terminal`
-imports :data:`BINDING_RELPATH` so the path has exactly one producer. The
-dependency never runs the other way: a kernel process must not import the web
-terminal (it would pull FastAPI and uvicorn into every notebook), so every
-MODULE-LEVEL import here is standard library, and :func:`read_binding` repeats
-the tolerant-read contract of
-:func:`osprey.interfaces.web_terminal._json_store.read_json_object` rather than
-importing it. :func:`compute_stamps` and :func:`main` do reach into OSPREY —
-they resolve the same records the executor resolves, from the same modules —
-but every one of those imports sits inside the function body, so importing
-this module costs the terminal nothing but the standard library. ``ipykernel``
-is imported the same way, inside :func:`main`, so the binding reader stays
-importable in a process that has no kernel stack at all.
+A kernel process must not import the web terminal (it would pull FastAPI and
+uvicorn into every notebook), so every MODULE-LEVEL import here is standard
+library. :func:`compute_stamps` and :func:`main` do reach into OSPREY — they
+stamp the names the executor stamps, from the same modules — but every one of
+those imports sits inside the function body, so importing this module costs
+the terminal nothing but the standard library. ``ipykernel`` is imported the
+same way, inside :func:`main`, so this module stays importable in a process
+that has no kernel stack at all.
 
 A cell's refusals are the launcher's other job. A write the connector
 refuses raises in the cell rather than in an ``execute()`` call, so nothing on
@@ -31,75 +26,93 @@ process's log records are routed to the terminal log by
 :func:`_route_logs_to_process_stderr` rather than left to resolve stderr while
 ``ipykernel`` is publishing it into the cell.
 
-A missing or damaged binding is a normal state, not an error — the terminal may
-never have attached a session, or the document may be mid-rewrite on a
-filesystem without atomic replace. :func:`read_binding` answers ``None`` for
-every such case, and the launcher treats ``None`` as "join nothing, run
-sandboxed".
+The kernel starts sandboxed: the launcher stamps the literal ``*=sandbox``
+launch pin and no control target at all. What takes it out of that is the cell
+hook — :func:`pre_run_cell` rewrites the target, the generation and the launch
+pin from the deployment's record before every cell, so a kernel follows the
+record for its whole life instead of holding whatever was true when it started.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import sys
-from collections.abc import Mapping, MutableMapping
+from collections.abc import MutableMapping, Sequence
 from pathlib import Path
 from types import TracebackType
 from typing import Any
 
 __all__ = [
-    "BINDING_RELPATH",
-    "binding_path",
+    "ENV_CONTROL_TARGET_REFUSAL",
+    "ENV_IN_CELL",
+    "JUPYTER_SHARED_SUBTREE",
+    "KERNEL_SESSION_PREFIX",
     "compute_stamps",
+    "install_cell_hooks",
     "install_refusal_handler",
+    "kernel_id_from_argv",
     "main",
-    "read_binding",
+    "post_run_cell",
+    "pre_run_cell",
 ]
 
 logger = logging.getLogger(__name__)
 
-#: Location of the session-binding document, relative to the shared
-#: agent-data root. The writer and every reader derive their path from this
-#: one constant.
-BINDING_RELPATH = "jupyter/session-binding.json"
+#: The shared-root subtree holding the notebook sidecar's own state. Named
+#: here so the sidecar and the kernel launcher derive it from one constant.
+JUPYTER_SHARED_SUBTREE = "jupyter"
+
+#: How a kernel spells itself as an audit session. The prefix is what tells a
+#: reader of a record that the session is a notebook kernel and not a terminal.
+KERNEL_SESSION_PREFIX = "kernel:"
+
+#: The kernelspec argument naming the connection file the Jupyter server writes
+#: per kernel: ``-f {connection_file}``. It is the only handle this process has
+#: on its own identity before ``ipykernel`` exists.
+CONNECTION_FILE_FLAG = "-f"
+
+#: Jupyter names a connection file ``kernel-<kernel_id>.json``.
+CONNECTION_FILE_PREFIX = "kernel-"
 
 
-def binding_path(shared_root: str | os.PathLike[str]) -> Path:
-    """Return the session-binding document's path under *shared_root*.
+def _connection_file(argv: Sequence[str] | None) -> str | None:
+    """The path ``-f`` names in *argv*, or ``None`` when it names none.
+
+    Both spellings ``traitlets`` accepts are read. The kernelspec writes the
+    two-token form; nothing stops an operator from starting a kernel with the
+    joined one.
+    """
+    if not argv:
+        return None
+    joined = f"{CONNECTION_FILE_FLAG}="
+    for index, argument in enumerate(argv):
+        if argument == CONNECTION_FILE_FLAG:
+            return (argv[index + 1] if index + 1 < len(argv) else "") or None
+        if argument.startswith(joined):
+            return argument[len(joined) :] or None
+    return None
+
+
+def kernel_id_from_argv(argv: Sequence[str] | None) -> str | None:
+    """This kernel's id, read from the connection file named in *argv*.
+
+    Jupyter writes one connection file per kernel and names it
+    ``kernel-<kernel_id>.json``, so the id is in the file name and reading it
+    costs no kernel stack. A name in another shape is used whole rather than
+    refused: a kernel that cannot say which one it is is worse than one whose
+    id spells something unexpected, and no name is worth failing a start over.
 
     Args:
-        shared_root: The shared agent-data root — the one that spans sessions,
-            never a session-scoped directory.
+        argv: The kernel's arguments, without the program name.
 
     Returns:
-        The absolute path of the binding document. The file itself, and the
-        directory holding it, may not exist yet.
+        The id, or ``None`` when *argv* names no connection file.
     """
-    return Path(shared_root) / BINDING_RELPATH
-
-
-def read_binding(shared_root: str | os.PathLike[str]) -> dict[str, Any] | None:
-    """Return the session binding under *shared_root*, or ``None``.
-
-    ``None`` covers every degraded outcome — no document, an unreadable one,
-    one that is not valid JSON, and one that parses to something other than an
-    object — so a caller has one branch to write and never a ``try``.
-
-    Args:
-        shared_root: The shared agent-data root to read the binding from.
-
-    Returns:
-        The binding as a mapping, or ``None`` when there isn't a readable one.
-    """
-    try:
-        document = json.loads(binding_path(shared_root).read_text())
-    except (OSError, ValueError):
+    connection_file = _connection_file(argv)
+    if connection_file is None:
         return None
-    if not isinstance(document, dict):
-        return None
-    return document
+    return Path(connection_file).stem.removeprefix(CONNECTION_FILE_PREFIX).strip() or None
 
 
 #: The Jupyter server's own token, re-issued per launch by the sidecar. A cell
@@ -122,63 +135,34 @@ OSPREY_CONFIG_ENV_VAR = "OSPREY_CONFIG"
 CONFIG_FILE_ENV_VAR = "CONFIG_FILE"
 
 
-def _bound_identity(binding: Mapping[str, Any] | None) -> tuple[str | None, str | None]:
-    """The session key and agent-data root *binding* names, or ``(None, None)``.
-
-    Both halves or neither: a binding that names a session but no root cannot
-    say which store that session is recorded in, and one that names a root but
-    no session addresses nothing in it. Answering ``(None, None)`` for either
-    puts such a document on the same fail-closed path as no document at all.
-    """
-    if not isinstance(binding, Mapping):
-        return None, None
-    session_id = binding.get("session_id")
-    agent_data_root = binding.get("agent_data_root")
-    if not isinstance(session_id, str) or not session_id.strip():
-        return None, None
-    if not isinstance(agent_data_root, str) or not agent_data_root.strip():
-        return None, None
-    return session_id.strip(), agent_data_root.strip()
-
-
 def compute_stamps(
-    binding: Mapping[str, Any] | None,
+    kernel_id: str | None,
     env: MutableMapping[str, str],
 ) -> dict[str, str]:
-    """Stamp the bound session's identity, posture and target into *env*.
+    """Stamp this kernel's identity into *env* and pin it sandboxed.
 
-    The kernel is joining a session it is not a child of, so it stamps itself
-    with what that session's own children carry. The order is the contract:
-    the agent-data root and the posture session go first because everything
-    resolved afterwards is looked up UNDER them — the control-target state
-    directory follows the root stamp, and so does the posture store — then the
-    store's parsed copy is dropped, and only then is the live record resolved
-    and the target stamped from it.
+    Identity first, because everything resolved afterwards is looked up UNDER
+    it: the audit records this kernel files, and the records it is attributed
+    by. The launch pin follows, and it is the literal ``*=sandbox`` rather
+    than whatever the store would answer — nothing here selects a control
+    target, so reads route to the deployment baseline and every write is
+    refused by the connector's launch pin.
 
-    The three target names are stamped exactly as
-    ``python_executor.executor._apply_target_stamp`` stamps them, by reusing
-    that module's constants and helpers rather than restating them: this is a
-    second producer of one routing contract, and a paraphrase is how two
-    producers come to disagree. The record is the only thing resolved
-    differently — the executor matches on its own parent, and a kernel has no
-    parent in the session at all, so it matches on the bound PTY's pid.
-
-    Fail-closed on one point of substance the executor does not share. Where
-    the executor's unstamped run means "a session whose target could not be
-    named", the kernel's means "no session", so the pin is the literal
-    ``*=sandbox`` rather than whatever the store would answer for a session key
-    that is not there: reads route to the deployment baseline and every write
-    is refused by the connector's launch pin.
+    The three target names are REMOVED rather than left inherited, and they are
+    named by reusing ``python_executor.executor``'s constants rather than by
+    restating them: a stamp passed down from whatever started the sidecar would
+    route cells at a target nobody selected here.
 
     Args:
-        binding: The session binding as :func:`read_binding` returns it, or
-            ``None`` when there is no readable one.
+        kernel_id: This kernel's id, as :func:`kernel_id_from_argv` derives it,
+            or ``None`` when the kernel was started without a connection file.
+            An unnamed kernel is stamped with no session at all and any
+            inherited one is dropped — that name belongs to another process,
+            and wearing it would file this kernel's records under it.
         env: This process's own environment — ``os.environ``, and nothing else.
-            The resolvers called here read the PROCESS environment, so the
-            identity half has to be visible to them by the time the target half
-            is resolved. Stamped in place, and the three target names are
-            REMOVED from it on the fail-closed path, because an inherited stamp
-            passed through would route cells at a target nobody selected.
+            The resolvers a cell calls read the PROCESS environment, so the
+            identity has to be visible to them. Stamped in place, and the three
+            target names are REMOVED from it.
 
     Returns:
         The names this call stamped, mapped to their values. Removals are not
@@ -186,88 +170,247 @@ def compute_stamps(
         "no target".
     """
     from osprey.audit import posture
-    from osprey.mcp_server.control_system import target_banner
     from osprey.mcp_server.python_executor import executor
-    from osprey_connectors import session_store
+    from osprey_connectors import posture_store
 
     stamps: dict[str, str] = {}
-    session_id, agent_data_root = _bound_identity(binding)
-    if session_id is not None and agent_data_root is not None:
-        stamps[session_store.AGENT_DATA_ROOT_ENV_VAR] = agent_data_root
-        stamps[posture.POSTURE_SESSION_ENV_VAR] = session_id
-        env.update(stamps)
-    # The store may already be parsed from whatever root this process inherited.
-    session_store.invalidate_cache()
-
-    record = None
-    if session_id is not None and binding is not None:
-        record = target_banner.session_record_for_pid(binding.get("pty_pid"))
-
-    target = None
-    if record is not None:
-        # A record without an int generation cannot pin a run, which is the
-        # same bar `target_state.session_record(require_generation=True)` sets
-        # for the executor; `session_record_for_pid` does not apply it.
-        generation = record.get("generation")
-        candidate = str(record.get("target"))
-        if (
-            isinstance(generation, int)
-            and not isinstance(generation, bool)
-            and executor._target_is_resolvable(candidate)
-        ):
-            target = candidate
-
-    if record is None or target is None:
-        for name in executor._STAMP_ENV_NAMES:
-            env.pop(name, None)
-        stamps[executor.ENV_LAUNCH_POSTURE] = session_store.launch_posture_stamp(
-            None, session_store.POSTURE_SANDBOX
-        )
+    if kernel_id:
+        stamps[posture.POSTURE_SESSION_ENV_VAR] = f"{KERNEL_SESSION_PREFIX}{kernel_id}"
     else:
-        stamps[executor.ENV_CONTROL_TARGET] = target
-        stamps[executor.ENV_CONTROL_TARGET_GENERATION] = str(int(record["generation"]))
-        # The record's identity, so a cell pins against this server's file and
-        # not against whatever else is in the state directory.
-        stamps[executor.ENV_CONTROL_TARGET_STATE_PID] = str(int(record["server_pid"]))
-        stamps[executor.ENV_LAUNCH_POSTURE] = executor._launch_posture(target)
+        env.pop(posture.POSTURE_SESSION_ENV_VAR, None)
+    for name in executor._STAMP_ENV_NAMES:
+        env.pop(name, None)
+    stamps[executor.ENV_LAUNCH_POSTURE] = posture_store.launch_posture_stamp(
+        None, posture_store.POSTURE_SANDBOX
+    )
 
     env.update(stamps)
     return stamps
 
 
-def _prepare_environment() -> dict[str, str]:
-    """Take the server's token away and join the bound session.
+def _prepare_environment(argv: Sequence[str] | None = None) -> dict[str, str]:
+    """Take the server's token away and stamp this kernel's identity.
 
-    The root the binding lives under is the one
-    :func:`osprey_connectors.session_store.agent_data_root` answers: the
-    ``OSPREY_AGENT_DATA_ROOT`` stamp the kernelspec carries, else the config
-    derivation. That is the same rule the posture store and the control-target
-    state file already read by, so the kernel cannot look for the binding in
-    one directory and its session's records in another.
+    ``OSPREY_AGENT_DATA_ROOT`` is left exactly as the kernelspec carries it:
+    that stamp is the sidecar's shared root, and the control context and the
+    audit trail are both read and written under it.
 
     The config path is published first, under the name the loader reads, so
-    that the target resolution inside :func:`compute_stamps` — and every
-    runtime call a cell makes afterwards — sees the deployment rather than the
+    that every runtime call a cell makes sees the deployment rather than the
     defaults. A ``CONFIG_FILE`` that already names a path is left alone:
     whoever set it chose it on purpose. A blank one is not a choice — the
     loader treats it as unset — so it is filled like an absent name rather
     than preserved, which ``setdefault`` would have done.
 
+    Args:
+        argv: The kernel's arguments, without the program name. The connection
+            file among them is what names this kernel.
+
     Returns:
         The stamps :func:`compute_stamps` applied, for a caller that wants to
-        report them. Nothing here raises on a missing binding: that is the
-        ordinary state of a kernel started before any terminal attached.
+        report them. Nothing here raises on a kernel that could not be named:
+        it runs sandboxed, which is how every kernel starts.
     """
     os.environ.pop(JUPYTER_TOKEN_ENV_VAR, None)
     config_path = os.environ.get(OSPREY_CONFIG_ENV_VAR)
     if config_path and not os.environ.get(CONFIG_FILE_ENV_VAR):
         os.environ[CONFIG_FILE_ENV_VAR] = config_path
 
-    from osprey_connectors import session_store
+    return compute_stamps(kernel_id_from_argv(argv), os.environ)
 
-    root = session_store.agent_data_root()
-    binding = None if root is None else read_binding(root)
-    return compute_stamps(binding, os.environ)
+
+#: Why this cell may not act on the record, when it may not. Written by
+#: :func:`pre_run_cell` and read by :func:`osprey.runtime._get_connector`, which
+#: raises it on the cell's first control-system call: ``IPython``'s event
+#: trigger swallows a callback's exception, so the hook cannot refuse a cell by
+#: raising and leaves the refusal where the cell will actually meet it.
+#:
+#: The value is ``switch_in_progress:<comma-separated pids>`` — the token
+#: :func:`~osprey.mcp_server.python_executor.executor.switch_in_progress_message`
+#: opens with, so one string identifies the condition on every surface that
+#: refuses for it. Absence is the normal state and means nothing is in the way.
+ENV_CONTROL_TARGET_REFUSAL = "OSPREY_CONTROL_TARGET_REFUSAL"
+
+#: Whether a cell is running in this process right now. It is what makes the
+#: in-flight marker a CELL's claim rather than the kernel's: a background thread
+#: reaching the control system between cells writes no marker, because there is
+#: no cell for a switch to wait on — its writes are held by the generation pin
+#: instead. Set by :func:`pre_run_cell`, removed by :func:`post_run_cell`, and
+#: read by :func:`osprey.runtime._get_connector`, which writes the marker.
+ENV_IN_CELL = "OSPREY_NOTEBOOK_IN_CELL"
+
+#: The one value :data:`ENV_IN_CELL` is ever set to. Readers test for presence.
+IN_CELL = "1"
+
+
+def _sandbox_pin() -> str:
+    """The launch pin for a cell that reached no target: sandboxed everywhere."""
+    from osprey_connectors import posture_store
+
+    return posture_store.launch_posture_stamp(None, posture_store.POSTURE_SANDBOX)
+
+
+def _switch_in_progress_refusal(pids: tuple[int, ...]) -> str:
+    """The :data:`ENV_CONTROL_TARGET_REFUSAL` value naming *pids*.
+
+    The token is the executor's own ``failure_kind`` for the same condition,
+    reused rather than re-spelled: a switch in flight refuses a cell and an
+    ``execute()`` call for one reason, and one string is what lets an operator
+    reading either recognise it as the same wait.
+    """
+    from osprey.mcp_server.python_executor import executor
+
+    return f"{executor.FAILURE_KIND_SWITCH_IN_PROGRESS}:{','.join(str(pid) for pid in pids)}"
+
+
+def _stamp_from_record(env: MutableMapping[str, str]) -> None:
+    """Rewrite every routing name in *env* from the deployment's record.
+
+    A total function of the record: every name this contract occupies is given
+    a value or an absence on every call, so a cell is routed
+    by what the record says now and never by what a previous cell left behind.
+    That is the whole difference between a kernel and an executor sandbox — a
+    sandbox is stamped once because it dies at the end of the run, while a
+    kernel outlives every switch an operator makes under it.
+
+    The order is fail-closed: every name is cleared and the sandbox pin is laid
+    down BEFORE the record is read, and only the branch that reaches a target
+    lifts it. A pin that is merely absent reads as "permitted", so the pin must
+    exist from the first statement rather than be assigned at the end.
+
+    The three outcomes, in the order they are decided:
+
+    * a live controls server is mid-switch — no target, sandboxed, and
+      :data:`ENV_CONTROL_TARGET_REFUSAL` names the servers to wait for;
+    * no readable record, or one naming a target this deployment cannot build —
+      no target, sandboxed, no refusal: the cell reads the deployment baseline,
+      which is the same fail-closed outcome the kernel starts in;
+    * otherwise the record's target, its generation, and the launch pin the
+      record's posture answers for that target.
+
+    The gate and the launch pin are the executor's own, called rather than
+    restated, so the notebook and the ``execute()`` tool cannot disagree about
+    what "settled" means or about which posture a run starts under.
+
+    Args:
+        env: This process's environment — ``os.environ``, and nothing else.
+            The runtime resolves a cell's connector from the PROCESS
+            environment, so that is where the stamp has to land.
+    """
+    from osprey.mcp_server.python_executor import executor
+    from osprey_connectors import posture_store
+
+    for name in (*executor._STAMP_ENV_NAMES, ENV_CONTROL_TARGET_REFUSAL):
+        env.pop(name, None)
+    env[executor.ENV_LAUNCH_POSTURE] = _sandbox_pin()
+
+    record = executor._deployment_record()
+    if record is None:
+        return
+    if blocking := executor._blocking_pids(record):
+        env[ENV_CONTROL_TARGET_REFUSAL] = _switch_in_progress_refusal(blocking)
+        return
+    if not executor._target_is_resolvable(record.target):
+        return
+
+    permitted = record.posture.get(record.target) != posture_store.POSTURE_SANDBOX
+    env[executor.ENV_CONTROL_TARGET] = record.target
+    env[executor.ENV_CONTROL_TARGET_GENERATION] = str(record.generation)
+    env[executor.ENV_LAUNCH_POSTURE] = posture_store.launch_posture_stamp(
+        record.target,
+        posture_store.POSTURE_WRITES if permitted else posture_store.POSTURE_SANDBOX,
+    )
+
+
+def _cell_kernel_id() -> str | None:
+    """This kernel's id, read back off the session stamp it wrote at start.
+
+    The stamp is the one place the id is kept — deriving it here rather than
+    holding a module-level copy is what keeps the records this kernel files and
+    the markers it removes named by the same string.
+
+    Returns:
+        The id, or ``None`` for a kernel that could not name itself and
+        therefore stamped no session.
+    """
+    from osprey.audit import posture
+
+    session = posture.posture_session() or ""
+    if not session.startswith(KERNEL_SESSION_PREFIX):
+        return None
+    return session[len(KERNEL_SESSION_PREFIX) :] or None
+
+
+def _remove_cell_markers() -> None:
+    """Drop every in-flight marker this kernel's cells left behind.
+
+    The marker is written lazily, by the first control-system call in a cell,
+    and there is no handle on it afterwards — so the end of the cell removes
+    them by name instead: every marker carrying THIS kernel's id, and no other
+    process's. Leaving one behind would refuse every later target switch with
+    nothing an operator could stop.
+
+    Never raises: this runs in ``run_cell``'s ``finally``, where an exception
+    would replace whatever the cell was actually doing.
+    """
+    kernel_id = _cell_kernel_id()
+    if kernel_id is None:
+        return
+    try:
+        from osprey.mcp_server.control_system import target_state
+
+        for entry in target_state.state_dir().glob(target_state.INFLIGHT_FILE_GLOB):
+            marker = target_state.read_file(entry)
+            if marker is not None and marker.get("kernel_id") == kernel_id:
+                entry.unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001 - a marker left behind is not worth a cell
+        logger.warning(
+            "Could not remove this kernel's in-flight markers; a target switch may be "
+            "refused until they are swept",
+            exc_info=True,
+        )
+
+
+def pre_run_cell(info: Any = None) -> None:
+    """Route this cell at the deployment's control target, then open the cell.
+
+    Nothing here refuses a cell: ``IPython`` swallows a callback's exception,
+    so a raise would be lost and the cell would run anyway. What a refusal
+    leaves behind is :data:`ENV_CONTROL_TARGET_REFUSAL`, which the cell's first
+    control-system call raises on.
+
+    Args:
+        info: ``IPython``'s ``ExecutionInfo``, unused. The routing is read from
+            the record, not from the code about to run.
+    """
+    _stamp_from_record(os.environ)
+    os.environ[ENV_IN_CELL] = IN_CELL
+
+
+def post_run_cell(result: Any = None) -> None:
+    """Close the cell: no cell is running, and its markers are gone.
+
+    ``IPython`` fires this from ``run_cell``'s ``finally``, so it runs for a
+    cell that raised and for one that was interrupted as well as for one that
+    finished — which is what makes the marker removal reliable enough for a
+    switch to wait on it.
+
+    Args:
+        result: ``IPython``'s ``ExecutionResult``, unused. A cell that failed
+            still held the target while it ran.
+    """
+    os.environ.pop(ENV_IN_CELL, None)
+    _remove_cell_markers()
+
+
+def install_cell_hooks(shell: Any) -> None:
+    """Put the per-cell routing hooks on *shell*.
+
+    Args:
+        shell: The kernel's ``InteractiveShell``.
+    """
+    shell.events.register("pre_run_cell", pre_run_cell)
+    shell.events.register("post_run_cell", post_run_cell)
 
 
 #: The audit surface a notebook cell's refusals file under. Named here rather
@@ -291,44 +434,16 @@ _REFUSAL_REASONS = {
     "ControlTargetChangedError": "control_target_changed",
 }
 
-#: The target moved after this kernel stamped itself. The kernel holds one
-#: stamp for its whole life, so following the new target takes a restart.
-HINT_TARGET_CHANGED = "The session's control target changed. Restart the kernel to follow it."
+#: The target moved while the cell was running. A kernel re-routes itself from
+#: the record before every cell, so the cell is what picks the new target up.
+HINT_TARGET_CHANGED = "The control target changed while this cell ran. Re-run the cell."
 
-#: The launch pin refused, and it was pinned everywhere: no session was bound
-#: when the kernel started, so there is nothing to turn on yet.
-HINT_NO_SESSION = (
-    "No chat session was open when this kernel started. Open one, then restart the kernel."
-)
-
-#: The launch pin refused for a named target: the session had writes off for it
-#: at launch, and the pin does not re-read the store.
+#: The launch pin refused: the cell was opened with writes off, for its target
+#: or for every target. The chip is where that is turned on, and the next cell
+#: is stamped from it.
 HINT_WRITES_OFF = (
-    "This kernel started with writes off. Turn writes on from the chip, then restart the kernel."
+    "Writes are off for this cell. Turn writes on from the chip, then re-run the cell."
 )
-
-#: The session this kernel joined is gone rather than re-pointed — "+ New" in
-#: the session tile ends one session and attaches another. The pin refuses
-#: exactly as it does for a target switch, so without this line the operator is
-#: told the control target changed when it did not.
-HINT_SESSION_ENDED = "The chat session this kernel followed has ended. Restart the kernel."
-
-#: The connector's remedy for a launch-pin refusal, rewritten for this surface.
-#: A script picks up a write state set since it launched by being re-run; a
-#: kernel holds its launch stamp for its whole life, so only a restart does.
-#:
-#: The keys are pinned copies of the sentences ``_writes_disabled_result`` ends
-#: its two launch-pin messages with, in
-#: ``packages/osprey-connectors/src/osprey_connectors/control_system/base.py``.
-#: A wording change there would stop matching here and leave the script advice
-#: in the cell, so the tests assert these two sentences against the connector's
-#: own output rather than against this mapping alone.
-LAUNCH_PIN_REMEDIES = {
-    "Re-run the script to pick it up.": "Restart the kernel to pick it up.",
-    "Re-run the script to pick up the current write state.": (
-        "Restart the kernel to pick up the current write state."
-    ),
-}
 
 
 def _refusal_classes() -> tuple[type[BaseException], ...]:
@@ -344,54 +459,15 @@ def _refusal_classes() -> tuple[type[BaseException], ...]:
     return (ChannelWriteBlockedError, ChannelLimitsViolationError, ControlTargetChangedError)
 
 
-def _stamped_session_ended() -> bool:
-    """Whether the state record this kernel stamped itself from is gone.
-
-    The pin that raises ``ControlTargetChangedError`` cannot tell a switch from
-    an ending: it compares the stamp against what the controls server publishes
-    NOW, and a session that ended publishes nothing, so "the record moved" and
-    "the record is gone" arrive as the same refusal. The record is what
-    separates them, and :func:`osprey.runtime._current_target_record` is the
-    resolver that already reads it — the same one the pin itself consults, off
-    the ``OSPREY_CONTROL_TARGET_STATE_PID`` stamp
-    :func:`compute_stamps` wrote. Asking it a second time here rather than
-    resolving the record another way is what keeps the two answers from
-    disagreeing.
-
-    An unstamped kernel is not pinned and never reaches this, but the stamp is
-    checked anyway: without it, ``None`` would mean "no session was ever
-    joined" and be reported as one that ended.
-
-    Returns:
-        ``True`` only when this kernel joined a session whose record is no
-        longer readable. Every failure answers ``False``, which leaves the
-        target-changed line — both lines ask for the same restart, so the
-        fail-safe direction is the one that claims less.
-    """
-    try:
-        from osprey import runtime
-        from osprey.mcp_server.python_executor import executor
-
-        if not (os.environ.get(executor.ENV_CONTROL_TARGET_STATE_PID) or "").strip():
-            return False
-        return runtime._current_target_record() is None
-    except Exception:  # noqa: BLE001 - a hint is not worth failing a refusal over
-        logger.debug("Could not check the bound session's record", exc_info=True)
-        return False
-
-
 def _hint_for(value: BaseException) -> str | None:
     """The one action line for *value*, or ``None`` when there is no action.
 
-    Every branch is read from the stamp this process already carries, so the
-    hint and the connector's own refusal text answer from one state rather
-    than from a flag the kernel would have to keep in step. A live-store
-    refusal and a limits violation get no line: the connector's message
-    already names what to do, and a second line would either repeat it or send
-    the operator somewhere the message did not.
-
-    The target-changed refusal covers two states and names one, so it forks on
-    :func:`_stamped_session_ended` before it is reported as a switch.
+    Every branch is read from the stamp this cell was given, so the hint and
+    the connector's own refusal text answer from one state rather than from a
+    flag the kernel would have to keep in step. A live-store refusal, a limits
+    violation and a switch in flight get no line: their own message already
+    names what to do, and a second line would either repeat it or send the
+    operator somewhere the message did not.
 
     Args:
         value: The refusal that reached the hook.
@@ -400,19 +476,19 @@ def _hint_for(value: BaseException) -> str | None:
         The line to print before the traceback, or ``None`` to print none.
     """
     from osprey.mcp_server.python_executor import executor
-    from osprey.runtime import ControlTargetChangedError
-    from osprey_connectors import session_store
+    from osprey.runtime import ControlTargetChangedError, SwitchInProgressError
+    from osprey_connectors import posture_store
     from osprey_connectors.errors import ChannelWriteBlockedError
 
+    if isinstance(value, SwitchInProgressError):
+        return None
     if isinstance(value, ControlTargetChangedError):
-        return HINT_SESSION_ENDED if _stamped_session_ended() else HINT_TARGET_CHANGED
+        return HINT_TARGET_CHANGED
     if not isinstance(value, ChannelWriteBlockedError):
         return None
     target = (os.environ.get(executor.ENV_CONTROL_TARGET) or "").strip() or None
-    if session_store.launch_permits(target):
+    if posture_store.launch_permits(target):
         return None
-    if session_store.launch_narrowed_target() == session_store.LAUNCH_POSTURE_ALL_TARGETS:
-        return HINT_NO_SESSION
     return HINT_WRITES_OFF
 
 
@@ -444,33 +520,6 @@ def _record_refusal(value: BaseException) -> None:
         logger.warning("Could not record the notebook refusal for audit", exc_info=True)
 
 
-def _rewrite_launch_pin_remedy(value: BaseException) -> None:
-    """Point a launch-pin refusal's own message at a kernel restart.
-
-    The connector writes one message for every surface, and its remedy —
-    re-run the script — is the wrong one here: a cell re-run reuses the kernel,
-    which still carries the launch stamp that refused. The hint above the
-    traceback says so, but the exception under it contradicts the hint, and the
-    exception is the line an operator acts on.
-
-    Rewritten by rebuilding ``args`` rather than by subclassing the connector's
-    error or patching its message builder: the class stays the connector's, and
-    only the surface that displays it is changed. A message that does not end
-    in a pinned sentence is left exactly as it is.
-
-    Args:
-        value: The refusal, mutated in place when its message matches.
-    """
-    args = getattr(value, "args", ())
-    if not args or not isinstance(args[0], str):
-        return
-    message = args[0]
-    for connector_remedy, kernel_remedy in LAUNCH_PIN_REMEDIES.items():
-        if message.endswith(connector_remedy):
-            value.args = (message[: -len(connector_remedy)] + kernel_remedy, *args[1:])
-            return
-
-
 def _refusal_handler(
     shell: Any,
     etype: type[BaseException],
@@ -482,9 +531,6 @@ def _refusal_handler(
 
     ``IPython`` binds this as a method of the shell, which is why *shell* is
     the first argument rather than a closure.
-
-    The refusal itself is rewritten before it is shown where its remedy names
-    the wrong surface — see :func:`_rewrite_launch_pin_remedy`.
 
     Args:
         shell: The ``InteractiveShell`` the hook was installed on.
@@ -499,11 +545,6 @@ def _refusal_handler(
     """
     _record_refusal(value)
     hint = _hint_for(value)
-    # The two launch-pin hints ARE the launch-pin predicate, already evaluated:
-    # deriving the rewrite from them rather than re-asking the store is what
-    # keeps one refusal from getting a hint and a remedy that disagree.
-    if hint in (HINT_NO_SESSION, HINT_WRITES_OFF):
-        _rewrite_launch_pin_remedy(value)
     if hint is not None:
         print(hint)
     shell.showtraceback((etype, value, tb), tb_offset=tb_offset)
@@ -513,9 +554,9 @@ def install_refusal_handler(shell: Any) -> None:
     """Put the refusal hook on *shell*.
 
     A cell's write goes to the connector directly, so a refusal surfaces as a
-    raised exception and nothing else — no audit record, and a traceback whose
-    remedy is a kernel restart the message has no way to ask for. This hook
-    supplies both, and leaves every other exception alone.
+    raised exception and nothing else — no audit record, and no line saying
+    what the operator does about it. This hook supplies both, and leaves every
+    other exception alone.
 
     Args:
         shell: The kernel's ``InteractiveShell``.
@@ -593,10 +634,10 @@ def _route_logs_to_process_stderr() -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Run a notebook kernel joined to the bound terminal session.
+    """Run a notebook kernel under this deployment's control context.
 
-    ``ipykernel`` is imported here rather than at module scope so that reading
-    the binding costs a process no kernel stack.
+    ``ipykernel`` is imported here rather than at module scope so that
+    importing this module costs a process no kernel stack.
 
     Logging is routed before anything else runs, so that the preparation's and
     the registry's own records go where the rest of this process's records go.
@@ -605,16 +646,18 @@ def main(argv: list[str] | None = None) -> None:
     registry is created from the config path the preparation publishes; and
     both happen before the kernel exists, so no cell can run ahead of them.
 
-    The last three statements are three rather than one chained call because
-    the hook goes between the second and the third: ``initialize`` is what
-    builds the shell, and ``start`` does not return until the kernel stops.
+    The last four statements are four rather than one chained call because the
+    hooks go between the second and the last: ``initialize`` is what builds the
+    shell, and ``start`` does not return until the kernel stops.
 
     Args:
         argv: Kernel arguments. ``None`` takes them from the command line, the
-            way ``ipykernel``'s own entry point does.
+            way ``ipykernel``'s own entry point does — and the preparation is
+            handed the same list, because the connection file among them is
+            what names this kernel.
     """
     _route_logs_to_process_stderr()
-    _prepare_environment()
+    _prepare_environment(argv if argv is not None else sys.argv[1:])
     _initialize_registry()
 
     from ipykernel.kernelapp import IPKernelApp
@@ -622,6 +665,7 @@ def main(argv: list[str] | None = None) -> None:
     app = IPKernelApp.instance()
     app.initialize(argv)
     install_refusal_handler(app.shell)
+    install_cell_hooks(app.shell)
     app.start()
 
 
