@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from tests._control_context_fixtures import write_control_context, write_payload
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 pytestmark = pytest.mark.unit
@@ -291,7 +292,7 @@ def narrowed_session(tmp_path, monkeypatch):
     the sandbox entry the chip wrote for it.
     """
     from osprey.audit import posture as posture_module
-    from osprey_connectors import session_store
+    from osprey_connectors import control_context, session_store
 
     root = tmp_path / "agent_data"
     directory = root / session_store.STATE_DIR_NAME
@@ -301,21 +302,18 @@ def narrowed_session(tmp_path, monkeypatch):
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
 
     pid = os.getpid()
-    (directory / f"target_state_{pid}.json").write_text(
-        json.dumps(
-            {
-                "target": "live",
-                "generation": 0,
-                "server_pid": pid,
-                "owner_ppid": os.getppid(),
-                "targets": {},
-                "children": [],
-            }
-        )
+    write_payload(
+        control_context.report_path_under(root, pid),
+        {
+            "target": "live",
+            "generation": 0,
+            "server_pid": pid,
+            "owner_ppid": os.getppid(),
+            "targets": {},
+            "children": [],
+        },
     )
-    (directory / session_store.STORE_FILENAME).write_text(
-        json.dumps({SESSION_KEY: {"live": "sandbox"}})
-    )
+    write_control_context(root, posture={"live": "sandbox"})
     session_store.invalidate_cache()
     posture_module.invalidate_session_target_cache()
     yield root
@@ -565,11 +563,16 @@ def mixed_posture(monkeypatch):
 
 @pytest.fixture
 def session_target(monkeypatch):
-    """Put the session on a control target, as the controls server's state file does."""
-    import osprey.mcp_server.python_executor.executor as executor
+    """Put the deployment on a control target, as its control-context record does."""
+    from osprey_connectors import control_context
 
-    def _select(record):
-        monkeypatch.setattr(executor, "_session_target_record", lambda: record)
+    def _select(target, generation=1):
+        record = (
+            None
+            if target is None
+            else control_context.ControlContext(target=target, generation=generation)
+        )
+        monkeypatch.setattr(control_context, "read_record", lambda **kwargs: record)
 
     return _select
 
@@ -622,7 +625,7 @@ async def test_readwrite_runs_on_a_target_whose_block_arms_writes(
     tmp_path, monkeypatch, mixed_posture, session_target
 ):
     """A global false does not disarm a VA block that says true."""
-    session_target({"target": "va", "generation": 1, "server_pid": 4242})
+    session_target("va")
 
     data = extract_response_dict(await _run_readwrite(tmp_path, monkeypatch))
 
@@ -634,7 +637,7 @@ async def test_readwrite_is_refused_on_the_live_target(
     tmp_path, monkeypatch, mixed_posture, session_target
 ):
     """The same deployment, the other target: the machine's own block refuses."""
-    session_target({"target": "live", "generation": 1, "server_pid": 4242})
+    session_target("live")
 
     with assert_raises_error(error_type="safety_error") as ctx:
         await _run_readwrite(tmp_path, monkeypatch)
@@ -663,12 +666,12 @@ async def test_a_failing_target_read_answers_the_baseline_rather_than_skipping(
     with no deployment check at all, if it were allowed to join the gate's
     import guard — whose failure path is to return.
     """
-    import osprey.mcp_server.python_executor.executor as executor
+    from osprey_connectors import control_context
 
-    def unreadable():
+    def unreadable(**kwargs):
         raise RuntimeError("state directory unreadable")
 
-    monkeypatch.setattr(executor, "_session_target_record", unreadable)
+    monkeypatch.setattr(control_context, "read_record", unreadable)
 
     with assert_raises_error(error_type="safety_error") as ctx:
         await _run_readwrite(tmp_path, monkeypatch)

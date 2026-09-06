@@ -49,7 +49,6 @@ a write would reach and nothing about which posture answers.
 
 import asyncio
 import json
-import os
 import textwrap
 from pathlib import Path
 
@@ -58,6 +57,7 @@ import yaml
 
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.python_executor import executor as host_executor
+from tests._control_context_fixtures import write_control_context
 
 pytestmark = pytest.mark.unit
 
@@ -194,25 +194,13 @@ def deployment(tmp_path, monkeypatch):
     return root
 
 
-def _publish_target(target: str) -> None:
-    """Write the controls-server record that puts this session on *target*.
+def _publish_target(root: Path, target: str) -> None:
+    """Write the control-context record that puts this deployment on *target*.
 
-    ``server_pid`` is this process, which is alive and whose file the sandbox
-    reads back for its generation pin; ``owner_ppid`` is this process's parent,
-    which is the equality ``_session_target_record`` matches on.
+    The record is what the executor stamps its sandbox from, and the generation
+    it carries is the one the run pins against.
     """
-    record = {
-        "target": target,
-        "generation": 0,
-        "server_pid": os.getpid(),
-        "owner_ppid": os.getppid(),
-        "targets": {
-            name: {"label": "", "endpoint": "", "real_machine": False}
-            for name in target_state.TARGET_NAMES
-        },
-        "children": [],
-    }
-    target_state.state_file_path().write_text(json.dumps(record), encoding="utf-8")
+    write_control_context(root / "var" / "agent_data", target=target, generation=0)
 
 
 def _run_sandbox(root: Path, target: str) -> dict:
@@ -221,7 +209,7 @@ def _run_sandbox(root: Path, target: str) -> dict:
     Drives ``_execute_via_local`` — the real path, including the environment
     stamp, the posture resolution, the generated wrapper and the subprocess.
     """
-    _publish_target(target)
+    _publish_target(root, target)
 
     folder = root / "var" / "agent_data" / "python_executions" / target
     (folder / "figures").mkdir(parents=True)

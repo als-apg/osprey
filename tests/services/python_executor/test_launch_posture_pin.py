@@ -26,14 +26,14 @@ most restrictively, because it cannot say which machine the run is about.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey.mcp_server.python_executor.tools import _execution_gates as gates
-from osprey_connectors import session_store
+from osprey_connectors import control_context, session_store
+from tests._control_context_fixtures import write_control_context
 
 pytestmark = pytest.mark.unit
 
@@ -65,11 +65,9 @@ def data_root(tmp_path, monkeypatch):
     session_store.invalidate_cache()
 
 
-def write_store(root: Path, payload) -> None:
-    """Write the posture store both the gate and the sandbox read."""
-    path = root / session_store.STATE_DIR_NAME / session_store.STORE_FILENAME
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload), encoding="utf-8")
+def write_store(root: Path, posture) -> None:
+    """Write the narrowings both the gate and the sandbox read."""
+    write_control_context(root, posture=posture)
     session_store.invalidate_cache()
 
 
@@ -129,21 +127,21 @@ class TestLaunchPinAnddedWithTheStore:
         monkeypatch.setenv(session_store.LAUNCH_POSTURE_ENV_VAR, "standin=sandbox")
         # ...and the operator has since turned writes back on (an entry that
         # is gone IS the writes posture — nothing is ever stored to widen).
-        write_store(data_root, {SESSION_KEY: {"live": "sandbox"}})
+        write_store(data_root, {"live": "sandbox"})
 
         # Act / Assert
-        assert session_store.store_permits(SESSION_KEY, "standin") is False
-        assert session_store.effective_writes(ARMED, SESSION_KEY, "standin") is False
+        assert session_store.store_permits("standin") is False
+        assert session_store.effective_writes(ARMED, "standin") is False
 
     def test_a_run_launched_writes_refuses_immediately_after_a_narrow(self, data_root, monkeypatch):
         """The other direction lands at once — the store read follows the operator."""
         # Arrange
         monkeypatch.setenv(session_store.LAUNCH_POSTURE_ENV_VAR, "standin=writes")
-        write_store(data_root, {SESSION_KEY: {"standin": "sandbox"}})
+        write_store(data_root, {"standin": "sandbox"})
 
         # Act / Assert
-        assert session_store.store_permits(SESSION_KEY, "standin") is False
-        assert session_store.effective_writes(ARMED, SESSION_KEY, "standin") is False
+        assert session_store.store_permits("standin") is False
+        assert session_store.effective_writes(ARMED, "standin") is False
 
     def test_a_run_launched_writes_still_writes_while_nothing_narrows_it(
         self, data_root, monkeypatch
@@ -151,11 +149,11 @@ class TestLaunchPinAnddedWithTheStore:
         """The pin refuses; it never grants, and it never refuses on its own."""
         # Arrange
         monkeypatch.setenv(session_store.LAUNCH_POSTURE_ENV_VAR, "standin=writes")
-        write_store(data_root, {SESSION_KEY: {"live": "sandbox"}})
+        write_store(data_root, {"live": "sandbox"})
 
         # Act / Assert
-        assert session_store.store_permits(SESSION_KEY, "standin") is True
-        assert session_store.effective_writes(ARMED, SESSION_KEY, "standin") is True
+        assert session_store.store_permits("standin") is True
+        assert session_store.effective_writes(ARMED, "standin") is True
 
     def test_the_pin_names_one_target_and_leaves_the_others_alone(self, data_root, monkeypatch):
         """A narrowed stand-in does not sandbox the virtual accelerator."""
@@ -164,8 +162,8 @@ class TestLaunchPinAnddedWithTheStore:
         write_store(data_root, {})
 
         # Act / Assert
-        assert session_store.store_permits(SESSION_KEY, "va") is True
-        assert session_store.store_permits(SESSION_KEY, "standin") is False
+        assert session_store.store_permits("va") is True
+        assert session_store.store_permits("standin") is False
 
     def test_an_all_targets_pin_covers_every_target(self, data_root, monkeypatch):
         """The unknowable-target launch: most restrictive, on every machine."""
@@ -175,15 +173,15 @@ class TestLaunchPinAnddedWithTheStore:
 
         # Act / Assert
         for target in session_store.CONTROL_TARGETS:
-            assert session_store.store_permits(SESSION_KEY, target) is False
-        assert session_store.store_permits(SESSION_KEY, None) is False
+            assert session_store.store_permits(target) is False
+        assert session_store.store_permits(None) is False
 
     def test_the_pin_holds_without_a_session_key(self, data_root, monkeypatch):
         """It is a fact about the RUN, not about the session.
 
-        The store clause is skipped with no key — nothing addressed the session —
-        but the run still launched narrow, and a session key that vanished from
-        the environment mid-run must not be a way to shed the pin.
+        The record narrows nothing here, so the pin is the only term left — and
+        a session key that vanished from the environment mid-run must not be a
+        way to shed it.
         """
         # Arrange
         monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
@@ -191,18 +189,18 @@ class TestLaunchPinAnddedWithTheStore:
         write_store(data_root, {})
 
         # Act / Assert
-        assert session_store.store_permits(None, "standin") is False
-        assert session_store.store_permits(None, "va") is True
+        assert session_store.store_permits("standin") is False
+        assert session_store.store_permits("va") is True
 
     def test_no_stamp_leaves_the_store_rule_exactly_as_it_was(self, data_root):
         """Every process outside a sandbox: the term is not merely inert, it is absent."""
         # Arrange
-        write_store(data_root, {SESSION_KEY: {"standin": "sandbox"}})
+        write_store(data_root, {"standin": "sandbox"})
 
         # Act / Assert
         assert session_store.launch_permits("standin") is True
-        assert session_store.store_permits(SESSION_KEY, "standin") is False
-        assert session_store.store_permits(SESSION_KEY, "va") is True
+        assert session_store.store_permits("standin") is False
+        assert session_store.store_permits("va") is True
 
     def test_the_pin_refuses_before_the_store_is_read(self, data_root, monkeypatch):
         """A narrow run does not need a readable store to keep refusing.
@@ -220,8 +218,8 @@ class TestLaunchPinAnddedWithTheStore:
         session_store.invalidate_cache()
 
         # Act / Assert
-        assert session_store.store_path() is None
-        assert session_store.store_permits(SESSION_KEY, "standin") is False
+        assert control_context.record_path() is None
+        assert session_store.store_permits("standin") is False
 
 
 # ---------------------------------------------------------------------------
@@ -238,18 +236,18 @@ class TestExecutorStampsThePin:
         assert host_executor._launch_posture("standin") == "standin=writes"
 
     def test_a_narrowed_target_launches_sandboxed(self, data_root):
-        write_store(data_root, {SESSION_KEY: {"standin": "sandbox"}})
+        write_store(data_root, {"standin": "sandbox"})
 
         assert host_executor._launch_posture("standin") == "standin=sandbox"
 
     def test_an_unknowable_target_takes_the_most_restrictive_entry(self, data_root):
-        """One narrowing anywhere in the session pins a run that names no target."""
-        write_store(data_root, {SESSION_KEY: {"live": "sandbox"}})
+        """One narrowing anywhere on the deployment pins a run that names no target."""
+        write_store(data_root, {"live": "sandbox"})
 
         assert host_executor._launch_posture(None) == "*=sandbox"
 
-    def test_an_unknowable_target_on_an_unnarrowed_session_launches_writes(self, data_root):
-        write_store(data_root, {"another-session": {"live": "sandbox"}})
+    def test_an_unknowable_target_on_an_unnarrowed_deployment_launches_writes(self, data_root):
+        write_store(data_root, {})
 
         assert host_executor._launch_posture(None) == "*=writes"
 
@@ -303,17 +301,17 @@ class TestDeploymentGateStoreTerm:
             lambda target=None: None,
         )
 
-    def test_an_unknowable_target_refuses_a_narrowed_session(self, data_root, monkeypatch):
+    def test_an_unknowable_target_refuses_a_narrowed_deployment(self, data_root, monkeypatch):
         """The routed case: ``posture()`` degrades to the env answer, this does not.
 
-        With no controls-server record there is no session target to resolve, so
-        the session clamp sees the environment's writes posture and lets the run
-        through. The store still holds a narrowing for this session, and the most
-        restrictive rule is what refuses it.
+        With no controls-server report there is no target to resolve, so the
+        session clamp sees the environment's writes posture and lets the run
+        through. The record still holds a narrowing, and the most restrictive
+        rule is what refuses it.
         """
         # Arrange
         self._arm_the_deployment(monkeypatch)
-        write_store(data_root, {SESSION_KEY: {"standin": "sandbox"}})
+        write_store(data_root, {"standin": "sandbox"})
 
         # Act / Assert
         with pytest.raises(Exception) as excinfo:
@@ -327,7 +325,7 @@ class TestDeploymentGateStoreTerm:
     def test_a_named_narrowed_target_is_refused_and_names_itself(self, data_root, monkeypatch):
         # Arrange
         self._arm_the_deployment(monkeypatch)
-        write_store(data_root, {SESSION_KEY: {"standin": "sandbox"}})
+        write_store(data_root, {"standin": "sandbox"})
 
         # Act / Assert
         with pytest.raises(Exception) as excinfo:
@@ -340,7 +338,7 @@ class TestDeploymentGateStoreTerm:
     def test_an_unnarrowed_target_is_untouched(self, data_root, monkeypatch):
         # Arrange
         self._arm_the_deployment(monkeypatch)
-        write_store(data_root, {SESSION_KEY: {"standin": "sandbox"}})
+        write_store(data_root, {"standin": "sandbox"})
 
         # Act / Assert — no raise
         gates.enforce_deployment_writes_gate("readwrite", "va")
@@ -348,15 +346,15 @@ class TestDeploymentGateStoreTerm:
     def test_a_readonly_run_is_never_gated_here(self, data_root, monkeypatch):
         # Arrange
         self._arm_the_deployment(monkeypatch)
-        write_store(data_root, {SESSION_KEY: "sandbox"})
+        write_store(data_root, {"standin": "sandbox"})
 
         # Act / Assert — no raise
         gates.enforce_deployment_writes_gate("readonly", None)
 
-    def test_a_session_that_narrowed_nothing_is_untouched(self, data_root, monkeypatch):
+    def test_a_deployment_that_narrowed_nothing_is_untouched(self, data_root, monkeypatch):
         # Arrange
         self._arm_the_deployment(monkeypatch)
-        write_store(data_root, {"another-session": {"standin": "sandbox"}})
+        write_store(data_root, {})
 
         # Act / Assert — no raise
         gates.enforce_deployment_writes_gate("readwrite", None)

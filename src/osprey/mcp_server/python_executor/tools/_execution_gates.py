@@ -120,10 +120,10 @@ def require_known_execution_mode(execution_mode: str) -> None:
 
 
 def session_control_target() -> str | None:
-    """The control target this session is on, or ``None`` when there is none to read.
+    """The control target this deployment is on, or ``None`` when there is none to read.
 
-    ``None`` is not a failure: it is the honest answer for a session that never
-    selected a target, and the posture lookup reads it as the deployment
+    ``None`` is not a failure: it is the honest answer for a deployment that
+    never selected a target, and the posture lookup reads it as the deployment
     baseline — the connector an unstamped run provably builds.
 
     Every way of not knowing lands there too, which is why the read lives here
@@ -133,9 +133,9 @@ def session_control_target() -> str | None:
     write check altogether on a state directory that happened to be unreadable.
     """
     try:
-        from osprey.mcp_server.python_executor.executor import _session_target_record
+        from osprey_connectors import control_context
 
-        record = _session_target_record()
+        record = control_context.read_record()
     except Exception:
         logger.warning(
             "Session control target unavailable — the deployment writes gate "
@@ -144,10 +144,7 @@ def session_control_target() -> str | None:
         )
         return None
 
-    if record is None:
-        return None
-    target = record.get("target")
-    return str(target) if target else None
+    return None if record is None else str(record.target)
 
 
 def enforce_deployment_writes_gate(execution_mode: str, target: str | None) -> None:
@@ -245,7 +242,7 @@ def _enforce_session_store_term(target: str | None) -> None:
     try:
         from osprey_connectors.session_store import store_permits
 
-        permitted = store_permits(posture.posture_session(), target)
+        permitted = store_permits(target)
     except Exception:  # noqa: BLE001 - the store degrades; the run does not fail here
         logger.warning(
             "Session write posture unavailable — skipping the session-level writes check",

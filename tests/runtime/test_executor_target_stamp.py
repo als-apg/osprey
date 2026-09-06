@@ -1,35 +1,37 @@
 """The control-target stamp: host stamps it, sandbox routes and pins on it.
 
-Three processes are involved and none can see the other's state directly. The
-host (``python_executor.executor``) resolves which controls server belongs to
-this session and writes the target into the sandbox environment; the sandbox
-(``osprey.runtime``) builds its connector from that stamp and refuses writes
-once the generation it was stamped at has moved on. The third is the notebook
-kernel launcher (``osprey.jupyter_kernel``), a second producer of the same
-stamp: it resolves the record from a session binding rather than from its own
-parent, and stamps it into its own environment before the kernel starts.
+Two processes are involved and neither can see the other's state directly. The
+host (``python_executor.executor``) reads the deployment's control-context
+record, admits the run only if the fleet has settled on it, and writes the
+target into the sandbox environment; the sandbox (``osprey.runtime``) builds
+its connector from that stamp and refuses writes once the generation it was
+stamped at has moved on.
 
-Every test here drives one of those halves against a real state file in
-``tmp_path``. Nothing touches EPICS: the sandbox half registers a fake connector
-class inside ``isolated_connector_registries`` and asserts on the config that
-class was handed, which is the only evidence that routing actually happened.
+Every test here drives one of those halves against a real record in
+``tmp_path``. Nothing touches EPICS: the sandbox half registers a fake
+connector class inside ``isolated_connector_registries`` and asserts on the
+config that class was handed, which is the only evidence that routing actually
+happened.
+
+The convergence half is the executor's *use* of
+:func:`osprey_connectors.control_context.blocking_pids` — that predicate's own
+rules are exercised exhaustively in ``tests/connectors/test_control_context.py``
+and are not restated here.
 """
 
 import asyncio
 import contextlib
 import json
 import os
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from osprey import jupyter_kernel
-from osprey.audit import posture
-from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey.runtime import ControlTargetChangedError
-from osprey_connectors import session_store
+from osprey_connectors import control_context, session_store
 
 # ---------------------------------------------------------------------------
 # Fixtures and helpers
@@ -38,48 +40,92 @@ from osprey_connectors import session_store
 
 @pytest.fixture
 def state_root(tmp_path, monkeypatch):
-    """Point the target-state module at a throwaway shared-data root.
+    """Point every reader in this process at a throwaway agent-data root.
 
-    ``state_dir()`` resolves through the name ``resolve_shared_data_root`` bound
-    in ``target_state``'s namespace, so patching it there redirects every reader
-    in this process — the host helper and the sandbox helper alike.
+    The record, the server reports and the in-flight markers all resolve
+    through the ``OSPREY_AGENT_DATA_ROOT`` stamp, so one environment variable
+    redirects the host half and the sandbox half together — which is the point
+    of there being one record per deployment rather than one file per process.
     """
     root = tmp_path / "var" / "agent_data"
-    monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
-    (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
-    return root
+    (root / control_context.STATE_DIR_NAME).mkdir(parents=True)
+    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.delenv(session_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+    monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
+    control_context.invalidate_cache()
+    yield root
+    control_context.invalidate_cache()
 
 
 def write_record(
+    root: Path,
     *,
     target: str = "va",
     generation: int = 0,
-    server_pid: int | None = None,
-    owner_ppid: int | None = None,
+    posture: dict[str, str] | None = None,
 ) -> Path:
-    """Write one state record. Defaults describe a live, this-session server."""
-    pid = os.getpid() if server_pid is None else server_pid
-    record = {
-        "target": target,
-        "generation": generation,
-        "server_pid": pid,
-        "owner_ppid": os.getppid() if owner_ppid is None else owner_ppid,
-        "targets": {
-            name: {"label": "", "endpoint": "", "real_machine": False} for name in ("live", "va")
-        },
-        "children": [],
-    }
-    path = target_state.state_file_path(pid)
-    path.write_text(json.dumps(record), encoding="utf-8")
+    """Write the deployment's control-context record. Defaults describe ``va``/0."""
+    path = control_context.record_path_under(root)
+    record = control_context.ControlContext(
+        target=target,
+        generation=generation,
+        posture=dict(posture or {}),
+    )
+    control_context.write_record(record, path=path)
+    control_context.invalidate_cache()
     return path
 
 
-def stamp_env(monkeypatch, *, target: str, generation: str, state_pid: int | None = None) -> None:
+def write_report(
+    root: Path,
+    pid: int,
+    *,
+    session: str | None = None,
+    applied_target: str | None = None,
+    applied_generation: int | None = None,
+    last_switch: dict[str, Any] | None = None,
+) -> Path:
+    """Write one controls server's report file.
+
+    ``pid`` has to name a live process for the fleet readers to keep the
+    report, so the tests use this process and its parent — two PIDs that are
+    certainly alive and certainly different.
+    """
+    payload = {
+        "server_pid": pid,
+        "session": session,
+        "applied_target": applied_target,
+        "applied_generation": applied_generation,
+        "children": [],
+        "reachability": {},
+        "last_switch": last_switch,
+        "targets": {},
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    path = control_context.report_path_under(root, pid)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    control_context.invalidate_cache()
+    return path
+
+
+def applying(generation: int, *, seconds_left: float = 60.0) -> dict[str, Any]:
+    """A switch block saying this server is mid-swap and still within its bound."""
+    return {
+        "status": control_context.REPORT_APPLYING,
+        "generation": generation,
+        "expires_at": (datetime.now(UTC) + timedelta(seconds=seconds_left)).isoformat(),
+    }
+
+
+def failed(generation: int) -> dict[str, Any]:
+    """A switch block saying this server could not follow the fleet."""
+    return {"status": control_context.REPORT_FAILED, "generation": generation}
+
+
+def stamp_env(monkeypatch, *, target: str, generation: str) -> None:
     """Put a stamp in this process's environment, as the host would."""
     monkeypatch.setenv(host_executor.ENV_CONTROL_TARGET, target)
     monkeypatch.setenv(host_executor.ENV_CONTROL_TARGET_GENERATION, generation)
-    pid = os.getpid() if state_pid is None else state_pid
-    monkeypatch.setenv(host_executor.ENV_CONTROL_TARGET_STATE_PID, str(pid))
 
 
 @pytest.fixture
@@ -89,32 +135,13 @@ def clear_stamp(monkeypatch):
         monkeypatch.delenv(name, raising=False)
 
 
-#: The posture-store key the launch-posture tests run under.
-POSTURE_SESSION_KEY = "4f1c2a7e-0000-4000-8000-000000000001"
-
-
-@pytest.fixture
-def posture_store(state_root, monkeypatch):
-    """A writable posture store at the same root the state file uses.
-
-    Both anchors have to agree or the launch pin would be computed from a store
-    nobody wrote: the state file is redirected by patching ``target_state``'s
-    bound resolver, and the store follows the ``OSPREY_AGENT_DATA_ROOT`` stamp,
-    so this points the stamp at the same directory. Returns a writer.
-    """
-    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(state_root))
-    monkeypatch.setenv("OSPREY_POSTURE_SESSION", POSTURE_SESSION_KEY)
-    monkeypatch.delenv(session_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
-    session_store.invalidate_cache()
-
-    def write(payload) -> None:
-        path = state_root / session_store.STATE_DIR_NAME / session_store.STORE_FILENAME
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload), encoding="utf-8")
-        session_store.invalidate_cache()
-
-    yield write
-    session_store.invalidate_cache()
+def markers_in(root: Path) -> list[dict[str, Any]]:
+    """Every in-flight execution marker under *root*, read straight off disk."""
+    directory = root / control_context.STATE_DIR_NAME
+    return [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted(directory.glob(f"{host_executor.INFLIGHT_FILE_PREFIX}*.json"))
+    ]
 
 
 #: A deployment that has both a simulated baseline and one real machine, so
@@ -176,74 +203,96 @@ def test_env_names_agree_across_the_process_boundary():
 
     assert host_executor.ENV_CONTROL_TARGET == runtime.ENV_CONTROL_TARGET
     assert host_executor.ENV_CONTROL_TARGET_GENERATION == runtime.ENV_CONTROL_TARGET_GENERATION
-    assert host_executor.ENV_CONTROL_TARGET_STATE_PID == runtime.ENV_CONTROL_TARGET_STATE_PID
+
+
+def test_the_sandbox_carries_no_state_file_identity():
+    """The record is the deployment's, so there is no per-server file to name.
+
+    The sandbox used to be handed the PID of the controls server its stamp came
+    from, and pinned against that one file. With one record per deployment
+    there is nothing to identify, and the reader must not have kept a way to
+    ask.
+    """
+    import osprey.runtime as runtime
+
+    assert not hasattr(runtime, "ENV_CONTROL_TARGET_STATE_PID")
+    assert not hasattr(runtime, "_stamped_state_pid")
 
 
 # ---------------------------------------------------------------------------
-# Host side: resolving the session record and stamping the sandbox env
+# Host side: reading the record and stamping the sandbox env
 # ---------------------------------------------------------------------------
 
 
-class TestSessionRecordLookup:
-    """Which state file describes *this* session, and when is the answer none."""
+class TestDeploymentRecordLookup:
+    """What the executor reads, and when the honest answer is ``None``."""
 
-    def test_matching_owner_ppid_is_the_session_record(self, state_root):
-        write_record(target="va", generation=3)
+    def test_the_record_is_the_deployments_own(self, state_root):
+        write_record(state_root, target="va", generation=3)
 
-        record = host_executor._session_target_record()
+        record = host_executor._deployment_record()
 
         assert record is not None
-        assert record["target"] == "va"
-        assert record["generation"] == 3
+        assert record.target == "va"
+        assert record.generation == 3
 
-    def test_other_sessions_record_is_not_ours(self, state_root):
-        write_record(target="va", generation=3, owner_ppid=os.getppid() + 100000)
-
-        assert host_executor._session_target_record() is None
-
-    def test_dead_server_record_is_residue(self, state_root, monkeypatch):
-        write_record(target="va", generation=3)
-        monkeypatch.setattr(target_state, "is_process_alive", lambda pid: False)
-
-        assert host_executor._session_target_record() is None
-
-    def test_two_records_sharing_our_ppid_are_ambiguous(self, state_root):
-        write_record(target="va", generation=3, server_pid=os.getpid())
-        write_record(target="live", generation=4, server_pid=os.getppid())
-
-        assert host_executor._session_target_record() is None
-
-    def test_missing_state_directory_is_not_an_error(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(
-            target_state, "resolve_shared_data_root", lambda: tmp_path / "never-created"
-        )
-
-        assert host_executor._session_target_record() is None
+    def test_no_record_is_not_an_error(self, state_root):
+        assert host_executor._deployment_record() is None
 
     def test_corrupt_record_is_ignored(self, state_root):
-        target_state.state_file_path(os.getpid()).write_text("{not json", encoding="utf-8")
+        control_context.record_path_under(state_root).write_text("{not json", encoding="utf-8")
+        control_context.invalidate_cache()
 
-        assert host_executor._session_target_record() is None
+        assert host_executor._deployment_record() is None
 
-    def test_unknown_target_name_is_not_stamped(self, state_root):
-        write_record(target="production", generation=1)
+    def test_a_record_without_a_generation_cannot_pin_a_run(self, state_root):
+        """Generation is half the pin, so a record missing it describes nothing."""
+        control_context.record_path_under(state_root).write_text(
+            json.dumps({"schema": 1, "target": "va"}), encoding="utf-8"
+        )
+        control_context.invalidate_cache()
 
-        assert host_executor._session_target_record() is None
+        assert host_executor._deployment_record() is None
+
+    def test_unknown_target_name_is_not_a_record(self, state_root):
+        control_context.record_path_under(state_root).write_text(
+            json.dumps({"schema": 1, "target": "production", "generation": 1}), encoding="utf-8"
+        )
+        control_context.invalidate_cache()
+
+        assert host_executor._deployment_record() is None
+
+    def test_an_unresolvable_root_is_not_an_error(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path / "never-created"))
+        control_context.invalidate_cache()
+
+        assert host_executor._deployment_record() is None
 
 
 class TestStampApplication:
     """What ``_apply_target_stamp`` puts in — and takes out of — the sandbox env."""
 
-    def test_every_name_is_stamped(self, state_root, deployment_config):
-        write_record(target="va", generation=7)
+    def test_the_target_and_generation_are_stamped(self, state_root, deployment_config):
+        write_record(state_root, target="va", generation=7)
         env: dict[str, str] = {}
 
         assert host_executor._apply_target_stamp(env) == "va"
         assert env[host_executor.ENV_CONTROL_TARGET] == "va"
         assert env[host_executor.ENV_CONTROL_TARGET_GENERATION] == "7"
-        # The record's identity, so the sandbox pins against this file and does
-        # not have to search for one.
-        assert env[host_executor.ENV_CONTROL_TARGET_STATE_PID] == str(os.getpid())
+
+    def test_the_retired_state_pid_stamp_is_cleared_not_written(
+        self, state_root, deployment_config
+    ):
+        """A stamped run carries no state-file identity, and strips an inherited one.
+
+        The sandbox pins against the record now. Leaving a PID from an ancestor
+        in place would hand it an identity that means nothing here.
+        """
+        write_record(state_root, target="va", generation=7)
+        env = {host_executor.ENV_CONTROL_TARGET_STATE_PID: "4321"}
+
+        assert host_executor._apply_target_stamp(env) == "va"
+        assert host_executor.ENV_CONTROL_TARGET_STATE_PID not in env
 
     def test_no_record_omits_every_name(self, state_root, deployment_config):
         env: dict[str, str] = {}
@@ -282,7 +331,7 @@ class TestStampApplication:
         monkeypatch.setattr(
             "osprey_connectors.config.get_config_value", _section_reader(MOCK_ONLY_SECTION)
         )
-        write_record(target="live", generation=1)
+        write_record(state_root, target="live", generation=1)
         env: dict[str, str] = {}
 
         assert host_executor._apply_target_stamp(env) == host_executor.CONTROL_TARGET_BASELINE
@@ -294,7 +343,7 @@ class TestStampApplication:
         monkeypatch.setattr(
             "osprey_connectors.config.get_config_value", _section_reader(MOCK_ONLY_SECTION)
         )
-        write_record(target="va", generation=1)
+        write_record(state_root, target="va", generation=1)
         env: dict[str, str] = {}
 
         assert host_executor._apply_target_stamp(env) == "va"
@@ -305,7 +354,7 @@ class TestLaunchPostureStamp:
     """The second thing a launch pins: the posture, beside the target.
 
     The routing stamp says WHICH machine the sandbox talks to; this one says
-    what the session was allowed to do to it at the moment the run started. It
+    what the deployment allowed doing to it at the moment the run started. It
     is stamped on both paths — including the one that removes every routing
     name — because an unstamped run is the one whose target is unknowable, and
     that is the case the pin must cover most restrictively rather than least.
@@ -314,32 +363,30 @@ class TestLaunchPostureStamp:
     only that the executor stamps it, and stamps it every time.
     """
 
-    def test_the_posture_is_stamped_beside_the_target(
-        self, state_root, deployment_config, posture_store
-    ):
-        write_record(target="va", generation=7)
+    def test_the_posture_is_stamped_beside_the_target(self, state_root, deployment_config):
+        write_record(state_root, target="va", generation=7)
         env: dict[str, str] = {}
 
         assert host_executor._apply_target_stamp(env) == "va"
         assert env[host_executor.ENV_LAUNCH_POSTURE] == "va=writes"
 
-    def test_a_narrowed_target_is_stamped_sandboxed(
-        self, state_root, deployment_config, posture_store
-    ):
-        posture_store({POSTURE_SESSION_KEY: {"va": "sandbox"}})
-        write_record(target="va", generation=7)
+    def test_a_narrowed_target_is_stamped_sandboxed(self, state_root, deployment_config):
+        write_record(state_root, target="va", generation=7, posture={"va": "sandbox"})
         env: dict[str, str] = {}
 
         assert host_executor._apply_target_stamp(env) == "va"
         assert env[host_executor.ENV_LAUNCH_POSTURE] == "va=sandbox"
 
-    def test_an_unstamped_run_is_still_pinned(self, state_root, deployment_config, posture_store):
-        """No record: every routing name goes, the posture pin stays.
+    def test_an_unstamped_run_is_still_pinned(self, state_root, monkeypatch):
+        """A target the run cannot be placed on: routing names go, the pin stays.
 
         It names every target, because a run that cannot say which machine it is
         about must not be the one run a narrowing fails to reach.
         """
-        posture_store({POSTURE_SESSION_KEY: {"live": "sandbox"}})
+        monkeypatch.setattr(
+            "osprey_connectors.config.get_config_value", _section_reader(MOCK_ONLY_SECTION)
+        )
+        write_record(state_root, target="live", generation=1, posture={"live": "sandbox"})
         env: dict[str, str] = {}
 
         assert host_executor._apply_target_stamp(env) == host_executor.CONTROL_TARGET_BASELINE
@@ -348,16 +395,15 @@ class TestLaunchPostureStamp:
         assert env[host_executor.ENV_LAUNCH_POSTURE] == "*=sandbox"
 
     def test_an_inherited_posture_pin_is_overwritten_not_trusted(
-        self, state_root, deployment_config, posture_store
+        self, state_root, deployment_config
     ):
         """A stale value in the parent's environment must not survive the launch.
 
         The routing names are POPPED for the same reason; this one is always
         assigned instead, so a ``writes`` inherited from anywhere cannot outlive
-        the store's actual answer for this run.
+        the record's actual answer for this run.
         """
-        posture_store({POSTURE_SESSION_KEY: {"va": "sandbox"}})
-        write_record(target="va", generation=1)
+        write_record(state_root, target="va", generation=1, posture={"va": "sandbox"})
         env = {host_executor.ENV_LAUNCH_POSTURE: "va=writes"}
 
         host_executor._apply_target_stamp(env)
@@ -365,11 +411,178 @@ class TestLaunchPostureStamp:
         assert env[host_executor.ENV_LAUNCH_POSTURE] == "va=sandbox"
 
 
+class TestConvergenceGate:
+    """A run is admitted only once the fleet has settled on the record.
+
+    The two PIDs are this process and its parent, because a report is kept only
+    while its server is alive and these are the two PIDs a test can be sure
+    of. ``SESSION_A``/``SESSION_B`` are the sessions those two servers belong
+    to; which one this executor is in is set through ``OSPREY_POSTURE_SESSION``,
+    exactly as a real deployment sets it.
+    """
+
+    SESSION_A = "session-a"
+    SESSION_B = "session-b"
+
+    @staticmethod
+    def _pids() -> tuple[int, int]:
+        return os.getpid(), os.getppid()
+
+    def test_a_server_applying_this_generation_refuses_every_session(
+        self, state_root, deployment_config, monkeypatch
+    ):
+        """A swap in flight stops the deployment, not just the session running it."""
+        server_a, _ = self._pids()
+        write_record(state_root, target="va", generation=4)
+        write_report(state_root, server_a, session=self.SESSION_A, last_switch=applying(4))
+        monkeypatch.setenv("OSPREY_POSTURE_SESSION", self.SESSION_B)
+        env: dict[str, str] = {}
+
+        with pytest.raises(host_executor._SwitchInProgress) as excinfo:
+            host_executor._apply_target_stamp(env)
+
+        assert excinfo.value.pids == (server_a,)
+        assert f"switch_in_progress:{server_a}" in str(excinfo.value)
+        # Nothing was stamped: the run is refused, not routed somewhere else.
+        assert host_executor.ENV_CONTROL_TARGET not in env
+
+    def test_the_refusal_names_every_blocking_server(
+        self, state_root, deployment_config, monkeypatch
+    ):
+        """An operator has to be told which processes to wait for, not one of them."""
+        server_a, server_b = self._pids()
+        write_record(state_root, target="va", generation=4)
+        write_report(state_root, server_a, session=self.SESSION_A, last_switch=applying(4))
+        write_report(state_root, server_b, session=self.SESSION_B, last_switch=applying(4))
+        monkeypatch.setenv("OSPREY_POSTURE_SESSION", self.SESSION_B)
+
+        with pytest.raises(host_executor._SwitchInProgress) as excinfo:
+            host_executor._apply_target_stamp({})
+
+        assert excinfo.value.pids == tuple(sorted((server_a, server_b)))
+
+    def test_a_null_bound_fresh_report_does_not_block(
+        self, state_root, deployment_config, monkeypatch
+    ):
+        """A server that has not launched a child yet is not "somewhere else".
+
+        Its binding is null because it has nothing to bind, and a first launch
+        is exactly what it is waiting for. Reading null as "not on the record"
+        would make a fresh server refuse its own session's first run.
+        """
+        server_a, _ = self._pids()
+        write_record(state_root, target="va", generation=4)
+        write_report(state_root, server_a, session=self.SESSION_A)
+        monkeypatch.setenv("OSPREY_POSTURE_SESSION", self.SESSION_A)
+        env: dict[str, str] = {}
+
+        assert host_executor._apply_target_stamp(env) == "va"
+        assert env[host_executor.ENV_CONTROL_TARGET_GENERATION] == "4"
+
+    def test_a_failed_report_refuses_only_its_own_session(
+        self, state_root, deployment_config, monkeypatch
+    ):
+        """SC-81: A failed at this generation, B applied. Only A's runs stop.
+
+        That is the whole cost of a failed swap — the session whose server could
+        not follow is refused, and every other session on the deployment carries
+        on.
+        """
+        server_a, server_b = self._pids()
+        write_record(state_root, target="va", generation=4)
+        write_report(state_root, server_a, session=self.SESSION_A, last_switch=failed(4))
+        write_report(
+            state_root,
+            server_b,
+            session=self.SESSION_B,
+            applied_target="va",
+            applied_generation=4,
+        )
+
+        monkeypatch.setenv("OSPREY_POSTURE_SESSION", self.SESSION_B)
+        assert host_executor._apply_target_stamp({}) == "va"
+
+        monkeypatch.setenv("OSPREY_POSTURE_SESSION", self.SESSION_A)
+        with pytest.raises(host_executor._SwitchInProgress) as excinfo:
+            host_executor._apply_target_stamp({})
+        assert excinfo.value.pids == (server_a,)
+
+    def test_a_session_less_client_is_not_blocked_by_another_sessions_failure(
+        self, state_root, deployment_config, monkeypatch
+    ):
+        """SC-81: a bare ``claude`` owns no report, so only a live swap stops it."""
+        server_a, _ = self._pids()
+        write_record(state_root, target="va", generation=4)
+        write_report(state_root, server_a, session=self.SESSION_A, last_switch=failed(4))
+        monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
+
+        assert host_executor._apply_target_stamp({}) == "va"
+
+    def test_a_session_less_client_is_still_blocked_by_a_live_swap(
+        self, state_root, deployment_config, monkeypatch
+    ):
+        """The other half of the same rule: owning no report is not an exemption."""
+        server_a, _ = self._pids()
+        write_record(state_root, target="va", generation=4)
+        write_report(state_root, server_a, session=self.SESSION_A, last_switch=applying(4))
+        monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
+
+        with pytest.raises(host_executor._SwitchInProgress):
+            host_executor._apply_target_stamp({})
+
+    def test_a_swap_at_another_generation_does_not_block(
+        self, state_root, deployment_config, monkeypatch
+    ):
+        """The generation is the only thing the fleet coordinates on."""
+        server_a, _ = self._pids()
+        write_record(state_root, target="va", generation=4)
+        write_report(
+            state_root,
+            server_a,
+            session=self.SESSION_A,
+            applied_target="va",
+            applied_generation=4,
+            last_switch=applying(3),
+        )
+        monkeypatch.setenv("OSPREY_POSTURE_SESSION", self.SESSION_A)
+
+        assert host_executor._apply_target_stamp({}) == "va"
+
+    def test_no_record_is_not_gated(self, state_root, deployment_config, monkeypatch):
+        """With nothing to converge on there is nothing to wait for.
+
+        A deployment that has never written a record runs unstamped on the
+        baseline, and a report left over from one that has must not turn that
+        into a refusal nobody can clear.
+        """
+        server_a, _ = self._pids()
+        write_report(state_root, server_a, session=self.SESSION_A, last_switch=applying(4))
+        monkeypatch.setenv("OSPREY_POSTURE_SESSION", self.SESSION_A)
+
+        assert host_executor._apply_target_stamp({}) == host_executor.CONTROL_TARGET_BASELINE
+
+    def test_an_unreadable_fleet_admits_the_run(self, state_root, deployment_config, monkeypatch):
+        """Not being able to ask is not the same as being told to stop.
+
+        Refusing here would make one unreadable directory refuse every execution
+        on the deployment, and the guarantee that a run cannot write to a machine
+        nobody selected is the generation pin inside the sandbox, not this gate.
+        """
+
+        def explode(*args, **kwargs):
+            raise OSError("state directory is unreadable")
+
+        write_record(state_root, target="va", generation=4)
+        monkeypatch.setattr(control_context, "live_reports", explode)
+
+        assert host_executor._apply_target_stamp({}) == "va"
+
+
 class TestExecuteViaLocalStamping:
     """End-to-end through ``_execute_via_local``, with the subprocess faked out."""
 
     @staticmethod
-    def _run(tmp_path, monkeypatch) -> tuple[dict[str, str], Any]:
+    def _run(tmp_path, monkeypatch, *, spawn=True) -> tuple[dict[str, str], Any]:
         """Run the adapter against a fake subprocess; return (env, result)."""
         captured: dict[str, dict[str, str]] = {}
 
@@ -383,6 +596,9 @@ class TestExecuteViaLocalStamping:
             captured["env"] = kwargs["env"]
             return _FakeProc()
 
+        async def refuse_exec(*args, **kwargs):
+            raise AssertionError("the sandbox must not be spawned")
+
         folder = tmp_path / "execution"
         (folder / "figures").mkdir(parents=True)
 
@@ -390,7 +606,7 @@ class TestExecuteViaLocalStamping:
         monkeypatch.setattr(
             host_executor, "resolve_agent_interpreter", lambda root=None: "/bin/true"
         )
-        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec if spawn else refuse_exec)
 
         result = asyncio.run(
             host_executor._execute_via_local(
@@ -400,24 +616,24 @@ class TestExecuteViaLocalStamping:
                 folder,
             )
         )
-        return captured["env"], result
+        return captured.get("env", {}), result
 
     def test_sandbox_env_carries_the_stamp(
         self, state_root, deployment_config, tmp_path, monkeypatch
     ):
-        write_record(target="va", generation=5)
+        write_record(state_root, target="va", generation=5)
 
         env, result = self._run(tmp_path, monkeypatch)
 
         assert env[host_executor.ENV_CONTROL_TARGET] == "va"
         assert env[host_executor.ENV_CONTROL_TARGET_GENERATION] == "5"
-        assert env[host_executor.ENV_CONTROL_TARGET_STATE_PID] == str(os.getpid())
+        assert host_executor.ENV_CONTROL_TARGET_STATE_PID not in env
         # The mode injection this stamp sits beside must survive untouched.
         assert env["OSPREY_EXECUTION_MODE"] == "readonly"
         assert result.control_target == "va"
 
     def test_sandbox_env_carries_the_launch_posture(
-        self, state_root, deployment_config, posture_store, tmp_path, monkeypatch
+        self, state_root, deployment_config, tmp_path, monkeypatch
     ):
         """The pin reaches the child, and the marker states the same thing.
 
@@ -426,15 +642,14 @@ class TestExecuteViaLocalStamping:
         the posture route consults before it agrees to widen anything.
         """
         # Arrange
-        posture_store({POSTURE_SESSION_KEY: {"va": "sandbox"}})
-        write_record(target="va", generation=5)
+        write_record(state_root, target="va", generation=5, posture={"va": "sandbox"})
         seen: list[list[dict[str, Any]]] = []
         real_marker = host_executor._in_flight_marker
 
         @contextlib.contextmanager
         def watching_marker(control_target, launch_posture=None):
             with real_marker(control_target, launch_posture):
-                seen.append(target_state.in_flight_executions())
+                seen.append(markers_in(state_root))
                 yield
 
         monkeypatch.setattr(host_executor, "_in_flight_marker", watching_marker)
@@ -444,7 +659,7 @@ class TestExecuteViaLocalStamping:
 
         # Assert
         assert env[host_executor.ENV_LAUNCH_POSTURE] == "va=sandbox"
-        assert [record["launch_posture"] for record in seen[0]] == ["va=sandbox"]
+        assert [marker["launch_posture"] for marker in seen[0]] == ["va=sandbox"]
 
     def test_unstamped_run_records_the_baseline(
         self, state_root, deployment_config, tmp_path, monkeypatch
@@ -454,6 +669,28 @@ class TestExecuteViaLocalStamping:
         for name in host_executor._STAMP_ENV_NAMES:
             assert name not in env
         assert result.control_target == host_executor.CONTROL_TARGET_BASELINE
+
+    def test_a_switch_in_flight_fails_the_run_without_spawning(
+        self, state_root, deployment_config, tmp_path, monkeypatch
+    ):
+        """The refusal is a result, not a traceback, and nothing was executed.
+
+        The submitted code is not at fault and did not run, so the failure is
+        classed on its own kind and names the server to wait for.
+        """
+        write_record(state_root, target="va", generation=4)
+        write_report(state_root, os.getpid(), session="session-a", last_switch=applying(4))
+        monkeypatch.setenv("OSPREY_POSTURE_SESSION", "session-a")
+
+        _, result = self._run(tmp_path, monkeypatch, spawn=False)
+
+        assert result.success is False
+        assert result.failure_kind == host_executor.FAILURE_KIND_SWITCH_IN_PROGRESS
+        assert f"switch_in_progress:{os.getpid()}" in result.stderr
+        assert result.error_message == result.stderr
+        assert result.control_target == host_executor.CONTROL_TARGET_BASELINE
+        # No marker was written, because no run was admitted to write one for.
+        assert markers_in(state_root) == []
 
     def test_result_default_is_the_baseline(self):
         """A result built without a target — a setup failure — claims nothing."""
@@ -564,12 +801,12 @@ class TestSandboxRouting:
 
 
 class TestWritePin:
-    """Writes refuse once the session's target or generation moves."""
+    """Writes refuse once the deployment's target or generation moves."""
 
     def test_matching_generation_lets_the_write_through(
         self, state_root, monkeypatch, clear_runtime_state
     ):
-        write_record(target="va", generation=3)
+        write_record(state_root, target="va", generation=3)
         stamp_env(monkeypatch, target="va", generation="3")
 
         import osprey.runtime as runtime
@@ -579,7 +816,7 @@ class TestWritePin:
     def test_moved_generation_refuses_and_names_both(
         self, state_root, monkeypatch, clear_runtime_state
     ):
-        write_record(target="va", generation=4)
+        write_record(state_root, target="va", generation=4)
         stamp_env(monkeypatch, target="va", generation="3")
 
         import osprey.runtime as runtime
@@ -595,7 +832,7 @@ class TestWritePin:
     def test_moved_target_refuses_at_the_same_generation(
         self, state_root, monkeypatch, clear_runtime_state
     ):
-        write_record(target="live", generation=3)
+        write_record(state_root, target="live", generation=3)
         stamp_env(monkeypatch, target="va", generation="3")
 
         import osprey.runtime as runtime
@@ -606,44 +843,19 @@ class TestWritePin:
         assert "'va'" in str(excinfo.value)
         assert "'live'" in str(excinfo.value)
 
-    def test_stamped_but_state_missing_refuses(self, state_root, monkeypatch, clear_runtime_state):
-        """The stamped server's file is gone: current generation is unknowable."""
+    def test_stamped_but_no_record_refuses(self, state_root, monkeypatch, clear_runtime_state):
+        """No record: the current generation is unknowable, so the write fails closed."""
         stamp_env(monkeypatch, target="va", generation="3")
 
         import osprey.runtime as runtime
 
-        with pytest.raises(ControlTargetChangedError, match="is gone or its state file"):
-            runtime._assert_target_pin()
-
-    def test_stamped_server_no_longer_running_refuses(
-        self, state_root, monkeypatch, clear_runtime_state
-    ):
-        """A record left behind by a dead server is residue, not current state."""
-        write_record(target="va", generation=3)
-        stamp_env(monkeypatch, target="va", generation="3")
-        monkeypatch.setattr(target_state, "is_process_alive", lambda pid: False)
-
-        import osprey.runtime as runtime
-
-        with pytest.raises(ControlTargetChangedError, match="is gone or its state file"):
-            runtime._assert_target_pin()
-
-    def test_stamp_without_a_state_pid_refuses(self, state_root, monkeypatch, clear_runtime_state):
-        """A target claim with no record identity cannot be checked, so it fails closed."""
-        write_record(target="va", generation=3)
-        monkeypatch.setenv("OSPREY_CONTROL_TARGET", "va")
-        monkeypatch.setenv("OSPREY_CONTROL_TARGET_GENERATION", "3")
-        monkeypatch.delenv("OSPREY_CONTROL_TARGET_STATE_PID", raising=False)
-
-        import osprey.runtime as runtime
-
-        with pytest.raises(ControlTargetChangedError, match="no state-file identity"):
+        with pytest.raises(ControlTargetChangedError, match="missing or unreadable"):
             runtime._assert_target_pin()
 
     def test_stamped_but_generation_unparseable_refuses(
         self, state_root, monkeypatch, clear_runtime_state
     ):
-        write_record(target="va", generation=3)
+        write_record(state_root, target="va", generation=3)
         stamp_env(monkeypatch, target="va", generation="not-a-number")
 
         import osprey.runtime as runtime
@@ -651,44 +863,28 @@ class TestWritePin:
         with pytest.raises(ControlTargetChangedError, match="generation unknown"):
             runtime._assert_target_pin()
 
-    def test_two_sessions_pin_against_their_own_record(
+    def test_the_pin_does_not_evaluate_convergence(
         self, state_root, monkeypatch, clear_runtime_state
     ):
-        """Two sessions sharing a checkout is supported, and both must keep writing.
+        """A swap in flight does not retro-refuse a process already holding a connector.
 
-        The stamp carries the identity of the record it was taken from, so this
-        session's pin reads only its own file. Without that identity the
-        neighbour's record would either make every write ambiguous or — worse —
-        answer for a server that is not this session's.
+        Convergence gates ADMISSION — the executor's stamp, the kernel's cell
+        gate — and this process was admitted. Its connector is still bound to
+        the gateways of the target it started on, and the record still names
+        that target at that generation, so the write goes where the stamp says.
         """
-        write_record(target="va", generation=3, server_pid=os.getpid())
-        write_record(target="live", generation=9, server_pid=os.getppid())
-        stamp_env(monkeypatch, target="va", generation="3", state_pid=os.getpid())
+        write_record(state_root, target="va", generation=3)
+        write_report(state_root, os.getpid(), session="session-a", last_switch=applying(3))
+        monkeypatch.setenv("OSPREY_POSTURE_SESSION", "session-a")
+        stamp_env(monkeypatch, target="va", generation="3")
 
         import osprey.runtime as runtime
 
-        runtime._assert_target_pin()  # the neighbour's record is irrelevant
-
-    def test_a_strangers_record_can_never_satisfy_the_pin(
-        self, state_root, monkeypatch, clear_runtime_state
-    ):
-        """This session's server died; only a foreign record is left. Refuse.
-
-        The foreign record says exactly what the stamp says, so a pin that
-        searched the directory for "the live record" would pass here — against a
-        server this execution was never talking to.
-        """
-        write_record(target="va", generation=3, server_pid=os.getppid())
-        stamp_env(monkeypatch, target="va", generation="3", state_pid=os.getpid())
-
-        import osprey.runtime as runtime
-
-        with pytest.raises(ControlTargetChangedError, match="is gone or its state file"):
-            runtime._assert_target_pin()
+        runtime._assert_target_pin()  # does not raise
 
     def test_unstamped_process_is_not_pinned(self, state_root, clear_stamp, clear_runtime_state):
         """Baseline routing claimed no target, so there is nothing to drift from."""
-        write_record(target="va", generation=99)
+        write_record(state_root, target="va", generation=99)
 
         import osprey.runtime as runtime
 
@@ -698,7 +894,7 @@ class TestWritePin:
         self, state_root, monkeypatch, fake_registry, clear_runtime_state
     ):
         """The refusal happens on the write path itself, not only in the helper."""
-        write_record(target="va", generation=4)
+        write_record(state_root, target="va", generation=4)
         stamp_env(monkeypatch, target="va", generation="3")
 
         import osprey.runtime as runtime
@@ -713,7 +909,7 @@ class TestWritePin:
 
     def test_reads_are_not_pinned(self, state_root, monkeypatch, clear_runtime_state):
         """FR-7 pins writes only: a run may keep reading the machine it started on."""
-        write_record(target="va", generation=4)
+        write_record(state_root, target="va", generation=4)
         stamp_env(monkeypatch, target="va", generation="3")
 
         import osprey.runtime as runtime
@@ -728,202 +924,3 @@ class TestWritePin:
         runtime._runtime_connector = _Reader()
 
         assert runtime.read_channel("TEST:PV") == 42.0
-
-
-# ---------------------------------------------------------------------------
-# Third party: the notebook kernel launcher, stamping from a session binding
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def kernel_env(monkeypatch):
-    """This process's environment, restored whole afterwards.
-
-    The launcher stamps ``os.environ`` and nothing else: the resolvers it calls
-    read the process environment, so a dict handed in would be invisible to
-    them. Declared with ``monkeypatch`` so the restore below runs inside the
-    same teardown the other environment fixtures use.
-    """
-    saved = dict(os.environ)
-    yield os.environ
-    os.environ.clear()
-    os.environ.update(saved)
-
-
-def binding_for(root, *, pty_pid, session_id: str = POSTURE_SESSION_KEY) -> dict[str, Any]:
-    """A session binding naming *pty_pid*, in the shape the terminal writes."""
-    return {"session_id": session_id, "pty_pid": pty_pid, "agent_data_root": str(root)}
-
-
-@pytest.fixture
-def unstamped_kernel(kernel_env, posture_store, monkeypatch):
-    """A kernel process that has joined nothing yet.
-
-    The identity the launcher is supposed to stamp is removed first, so a test
-    asserting on it is reading the launcher's work rather than the fixture's.
-    ``posture_store`` is still what anchors the store and the state file to one
-    directory. Returns the store writer.
-    """
-    monkeypatch.delenv(session_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
-    monkeypatch.delenv(posture.POSTURE_SESSION_ENV_VAR, raising=False)
-    session_store.invalidate_cache()
-    return posture_store
-
-
-class TestNotebookLauncherStamps:
-    """What a kernel carries after joining the session its binding names.
-
-    The launcher is the second producer of the routing stamp, so the cases
-    below are the executor's cases asked of a different resolver: the record is
-    found from the bound PTY's pid rather than from this process's parent, and
-    the fail-closed branch has one more way to arrive — a binding that names no
-    live session at all.
-    """
-
-    def test_the_bound_session_is_stamped_whole(
-        self, state_root, deployment_config, unstamped_kernel, kernel_env
-    ):
-        """Identity, target and pin, from one binding and one record."""
-        write_record(target="va", generation=7, owner_ppid=os.getpid())
-
-        jupyter_kernel.compute_stamps(binding_for(state_root, pty_pid=os.getpid()), kernel_env)
-
-        assert kernel_env[session_store.AGENT_DATA_ROOT_ENV_VAR] == str(state_root)
-        assert kernel_env[posture.POSTURE_SESSION_ENV_VAR] == POSTURE_SESSION_KEY
-        assert kernel_env[host_executor.ENV_CONTROL_TARGET] == "va"
-        assert kernel_env[host_executor.ENV_CONTROL_TARGET_GENERATION] == "7"
-        assert kernel_env[host_executor.ENV_CONTROL_TARGET_STATE_PID] == str(os.getpid())
-        assert kernel_env[host_executor.ENV_LAUNCH_POSTURE] == "va=writes"
-
-    def test_the_launcher_stamps_what_the_executor_stamps(
-        self, state_root, deployment_config, unstamped_kernel, kernel_env
-    ):
-        """One record, two producers, the same three routing names.
-
-        The executor matches on ``owner_ppid == os.getppid()`` and the launcher
-        walks the ancestors of the record's owner up to the bound pid, so this
-        record is written to satisfy both at once — which is the arrangement in
-        production, where the controls server runs inside the bound PTY.
-        """
-        write_record(target="va", generation=4, owner_ppid=os.getppid())
-        sandbox_env: dict[str, str] = {}
-        host_executor._apply_target_stamp(sandbox_env)
-
-        stamps = jupyter_kernel.compute_stamps(
-            binding_for(state_root, pty_pid=os.getppid()), kernel_env
-        )
-
-        for name in host_executor._STAMP_ENV_NAMES:
-            assert stamps[name] == sandbox_env[name]
-
-    def test_a_narrowed_target_pins_the_kernel_sandboxed(
-        self, state_root, deployment_config, unstamped_kernel, kernel_env
-    ):
-        unstamped_kernel({POSTURE_SESSION_KEY: {"va": "sandbox"}})
-        write_record(target="va", generation=7, owner_ppid=os.getpid())
-
-        jupyter_kernel.compute_stamps(binding_for(state_root, pty_pid=os.getpid()), kernel_env)
-
-        assert kernel_env[host_executor.ENV_CONTROL_TARGET] == "va"
-        assert kernel_env[host_executor.ENV_LAUNCH_POSTURE] == "va=sandbox"
-
-    def test_a_binding_with_no_pty_yet_stamps_no_target(
-        self, state_root, deployment_config, unstamped_kernel, kernel_env
-    ):
-        """``pty_pid`` is ``None`` between a session being created and started."""
-        write_record(target="va", generation=7, owner_ppid=os.getpid())
-
-        jupyter_kernel.compute_stamps(binding_for(state_root, pty_pid=None), kernel_env)
-
-        for name in host_executor._STAMP_ENV_NAMES:
-            assert name not in kernel_env
-        assert kernel_env[host_executor.ENV_LAUNCH_POSTURE] == "*=sandbox"
-
-    def test_a_binding_naming_a_dead_pty_stamps_no_target(
-        self, state_root, deployment_config, unstamped_kernel, kernel_env
-    ):
-        """A session that ended leaves a binding no live record answers for."""
-        write_record(target="va", generation=7, owner_ppid=os.getpid())
-        stranger = os.getpid() + 1_000_000
-
-        jupyter_kernel.compute_stamps(binding_for(state_root, pty_pid=stranger), kernel_env)
-
-        for name in host_executor._STAMP_ENV_NAMES:
-            assert name not in kernel_env
-        assert kernel_env[host_executor.ENV_LAUNCH_POSTURE] == "*=sandbox"
-
-    def test_no_binding_pins_sandboxed_even_where_the_store_permits(
-        self, state_root, deployment_config, unstamped_kernel, kernel_env
-    ):
-        """The one place the launcher parts company with the executor.
-
-        An executor run that cannot name its target still belongs to a session,
-        so its pin is whatever the store answers for that session. A kernel with
-        no binding belongs to no session, and a pin computed for one it is not
-        in would grant writes nobody asked for — so the pin is the literal
-        ``*=sandbox``, with an unnarrowed store in place.
-        """
-        write_record(target="va", generation=7, owner_ppid=os.getpid())
-
-        jupyter_kernel.compute_stamps(None, kernel_env)
-
-        for name in host_executor._STAMP_ENV_NAMES:
-            assert name not in kernel_env
-        assert kernel_env[host_executor.ENV_LAUNCH_POSTURE] == "*=sandbox"
-
-    def test_an_inherited_target_stamp_is_stripped(
-        self, state_root, deployment_config, unstamped_kernel, kernel_env
-    ):
-        """The sidecar's environment reaches the kernel; its stamp must not.
-
-        The kernel inherits from the Jupyter server, which inherited from the
-        terminal, so a stale routing stamp can be sitting there — pointing at
-        whatever that process was launched under, not at the bound session.
-        """
-        kernel_env[host_executor.ENV_CONTROL_TARGET] = "live"
-        kernel_env[host_executor.ENV_CONTROL_TARGET_GENERATION] = "2"
-        kernel_env[host_executor.ENV_CONTROL_TARGET_STATE_PID] = "4321"
-
-        jupyter_kernel.compute_stamps(binding_for(state_root, pty_pid=None), kernel_env)
-
-        for name in host_executor._STAMP_ENV_NAMES:
-            assert name not in kernel_env
-
-    def test_a_target_this_deployment_cannot_build_is_declined(
-        self, state_root, unstamped_kernel, kernel_env, monkeypatch
-    ):
-        """Same rule as the executor's: an unresolvable target is not stamped.
-
-        Stamping 'live' on a mock-only checkout would turn every cell that
-        touches the control system into a ValueError the operator did not cause.
-        """
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _section_reader(MOCK_ONLY_SECTION)
-        )
-        write_record(target="live", generation=1, owner_ppid=os.getpid())
-
-        jupyter_kernel.compute_stamps(binding_for(state_root, pty_pid=os.getpid()), kernel_env)
-
-        for name in host_executor._STAMP_ENV_NAMES:
-            assert name not in kernel_env
-        assert kernel_env[host_executor.ENV_LAUNCH_POSTURE] == "*=sandbox"
-
-    def test_a_record_without_a_generation_cannot_pin_a_kernel(
-        self, state_root, deployment_config, unstamped_kernel, kernel_env
-    ):
-        """The bar the executor sets with ``require_generation``.
-
-        ``session_record_for_pid`` does not apply it, so the launcher does: a
-        record carrying no int generation cannot say which generation a cell's
-        writes would be refused against.
-        """
-        path = write_record(target="va", generation=0, owner_ppid=os.getpid())
-        record = json.loads(path.read_text())
-        record.pop("generation")
-        path.write_text(json.dumps(record), encoding="utf-8")
-
-        jupyter_kernel.compute_stamps(binding_for(state_root, pty_pid=os.getpid()), kernel_env)
-
-        for name in host_executor._STAMP_ENV_NAMES:
-            assert name not in kernel_env
-        assert kernel_env[host_executor.ENV_LAUNCH_POSTURE] == "*=sandbox"

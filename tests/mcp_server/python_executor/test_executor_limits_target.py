@@ -3,7 +3,7 @@
 The executor used to answer the same question twice. ``execute_code`` built the
 limits validator up front, before anything about the session's control target
 was known, and ``_execute_via_local`` resolved the stamp that routes the sandbox
-later, from its own read of the controls server's target record. That was
+later, from its own read of the deployment's control-context record. That was
 harmless while the limits posture was deployment-wide and the same for every
 machine. Once it is per target it is not: a switch landing between the two reads
 would embed one machine's policy into a sandbox stamped for another, and the run
@@ -17,24 +17,19 @@ instead of quietly passing.
 """
 
 import asyncio
-import os
 
 import pytest
 
 from osprey.mcp_server.python_executor import executor as host_executor
+from osprey_connectors import control_context
 from osprey_connectors.control_system.limits_validator import LimitsValidator
 
 pytestmark = pytest.mark.unit
 
 
-def _record(target: str) -> dict:
-    """A target-state record for this session, naming *target*."""
-    return {
-        "target": target,
-        "generation": 3,
-        "server_pid": os.getpid(),
-        "owner_ppid": os.getppid(),
-    }
+def _record(target: str) -> control_context.ControlContext:
+    """The deployment's control-context record, naming *target*."""
+    return control_context.ControlContext(target=target, generation=3)
 
 
 def _validator_for(target: str | None) -> LimitsValidator:
@@ -75,7 +70,7 @@ def _run_local(tmp_path, monkeypatch) -> _LocalRun:
         captured["env"] = kwargs["env"]
         return _FakeProc()
 
-    def fake_record() -> dict:
+    def fake_record() -> control_context.ControlContext:
         reads["n"] += 1
         return _record("va" if reads["n"] == 1 else "live")
 
@@ -87,7 +82,7 @@ def _run_local(tmp_path, monkeypatch) -> _LocalRun:
     # which resolves through the stamped agent-data root — without this the marker
     # directory lands in the repository and trips the agent-data guard.
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(tmp_path / "agent_data"))
-    monkeypatch.setattr(host_executor, "_session_target_record", fake_record)
+    monkeypatch.setattr(host_executor, "_deployment_record", fake_record)
     # Resolvability is a config question, answered elsewhere and pinned in
     # tests/runtime/test_executor_target_stamp.py; here it only has to not
     # send the run to the baseline.

@@ -24,7 +24,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey.audit import posture
 from osprey.mcp_server.sandbox_env import (
@@ -35,6 +35,9 @@ from osprey.mcp_server.sandbox_env import (
 from osprey.stores.artifact_manifest import collect_artifacts
 from osprey.utils.config import EXECUTION_METHOD_SUBPROCESS
 from osprey_connectors import session_store
+
+if TYPE_CHECKING:
+    from osprey_connectors.control_context import ControlContext
 
 logger = logging.getLogger("osprey.mcp_server.python_executor.executor")
 
@@ -94,23 +97,23 @@ PROFILE_SOURCE_ENTRIES: tuple[str, ...] = (
     "project",
 )
 
-#: The target stamp carried into the sandbox. These three names are the routing
+#: The target stamp carried into the sandbox. These two names are the routing
 #: contract between this module (the only writer of the stamp) and
 #: :mod:`osprey.runtime` (its only reader); the same literals are spelled there
-#: as ``ENV_CONTROL_TARGET`` / ``ENV_CONTROL_TARGET_GENERATION`` /
-#: ``ENV_CONTROL_TARGET_STATE_PID``, and
+#: as ``ENV_CONTROL_TARGET`` / ``ENV_CONTROL_TARGET_GENERATION``, and
 #: ``tests/runtime/test_executor_target_stamp.py`` pins the spellings equal.
 ENV_CONTROL_TARGET = "OSPREY_CONTROL_TARGET"
 ENV_CONTROL_TARGET_GENERATION = "OSPREY_CONTROL_TARGET_GENERATION"
-#: The controls server whose record the stamp was taken from. The sandbox cannot
-#: re-derive it — its parent is this server, not the Claude Code process that
-#: owns the state file — so the *identity* of the record travels with the stamp
-#: rather than being searched for again. Without it the sandbox would have to
-#: guess which of several sessions' records to pin against, and two sessions
-#: sharing one checkout is a supported shape.
+#: The controls server a stamp used to be taken from. There is one control
+#: context per deployment now, so there is no per-server file to name and the
+#: sandbox pins against the record itself; this module never writes the name
+#: again. It stays here because it is still CLEARED — a sandbox that inherited
+#: the old stamp from an ancestor must not carry a stale identity — and because
+#: the notebook launcher still writes it until the kernel moves onto the record.
 ENV_CONTROL_TARGET_STATE_PID = "OSPREY_CONTROL_TARGET_STATE_PID"
 
-#: Every name the stamp occupies. Cleared together when nothing is stamped.
+#: Every name the stamp occupies. Cleared together on every launch, stamped or
+#: not, so no inherited name survives into a sandbox that did not earn it.
 #: :data:`ENV_LAUNCH_POSTURE` is deliberately NOT a member: it is stamped on
 #: every launch, including the unstamped one, so it is never cleared.
 _STAMP_ENV_NAMES = (
@@ -136,6 +139,15 @@ ENV_LAUNCH_POSTURE = session_store.LAUNCH_POSTURE_ENV_VAR
 INFLIGHT_FILE_PREFIX = "exec_inflight_"
 INFLIGHT_FILE_SUFFIX = ".json"
 
+#: Which kind of client this process's markers describe. The reader names the
+#: busy client from it, and the other surfaces that hold a marker — a notebook
+#: cell above all — spell their own. Restated rather than imported for the same
+#: reason as the file names above:
+#: :data:`~osprey.mcp_server.control_system.target_eligibility.SURFACE_PYTHON_EXECUTOR`
+#: is the reader's copy and ``tests/mcp_server/test_target_eligibility.py`` pins
+#: the two equal.
+INFLIGHT_SURFACE = "python_executor"
+
 #: What :attr:`ExecutionResult.control_target` records for a run that carried no
 #: stamp: the sandbox resolved its connector from the deployment config alone.
 CONTROL_TARGET_BASELINE = "baseline"
@@ -148,6 +160,13 @@ FAILURE_KIND_SETUP = "setup"
 #: :attr:`ExecutionResult.failure_kind` for a run the sandbox killed at the
 #: configured timeout.
 FAILURE_KIND_TIMEOUT = "timeout"
+#: :attr:`ExecutionResult.failure_kind` for a run that was never admitted
+#: because the deployment is mid-switch: a controls server is between two
+#: targets, so a sandbox stamped now could reach whichever one that server
+#: happens to be holding. Nothing ran, and the answer is to run it again once
+#: the switch lands — which is what makes it neither a setup failure (the
+#: service is healthy) nor a script error (the code is fine).
+FAILURE_KIND_SWITCH_IN_PROGRESS = "switch_in_progress"
 
 
 @dataclass
@@ -167,7 +186,8 @@ class ExecutionResult:
     #: resolvable and the sandbox fell back to the deployment config.
     control_target: str = CONTROL_TARGET_BASELINE
     #: Why a failed run failed, when the sandbox itself is the reason:
-    #: :data:`FAILURE_KIND_SETUP` or :data:`FAILURE_KIND_TIMEOUT`. ``None`` for
+    #: :data:`FAILURE_KIND_SETUP`, :data:`FAILURE_KIND_TIMEOUT` or
+    #: :data:`FAILURE_KIND_SWITCH_IN_PROGRESS`. ``None`` for
     #: a run that started and whose own code raised — the only failure the
     #: submitted code can be blamed for. The response builder reads this to
     #: class the error envelope: a dead backend is an infrastructure outage,
@@ -395,39 +415,96 @@ def _load_limits_validator(target: str | None):
         return None
 
 
-def _session_target_record() -> dict[str, Any] | None:
-    """The controls server's target record for *this* session, or ``None``.
+class _SwitchInProgress(Exception):
+    """A run that cannot be admitted because the deployment is mid-switch.
 
-    The state file is written by the controls MCP server and named for that
-    server's PID, which this process — a different MCP server — cannot know. It
-    can know its own parent: both servers are spawned by the same Claude Code
-    process, so the record whose ``owner_ppid`` equals ``os.getppid()`` here is
-    the one describing the session the execute call belongs to. That match is
-    :func:`osprey.mcp_server.control_system.target_state.session_record`, the
-    one rule every child of that process reads by; this asks it with
-    ``require_generation`` because a record without an ``int`` generation
-    cannot pin a run.
+    Carries the controls servers responsible so the refusal can name them:
+    an operator reading it has to know which process has to finish, or be
+    killed, before execution resumes. Raised by :func:`_apply_target_stamp`
+    and turned into an :class:`ExecutionResult` by :func:`_execute_via_local`
+    — never seen outside this module.
+    """
 
-    A deployment that interposes a process between Claude Code and this server
-    breaks the equality, and the outcome is an unstamped run on the deployment
-    baseline — the same fail-closed outcome as having no state at all, never a
-    wrong target. Zero matches and an ``owner_ppid`` collision both resolve to
-    ``None`` for the same reason: a run that is honestly unstamped is
-    recoverable, while a run stamped with a guessed target is a tool call
-    arriving somewhere nobody selected.
+    def __init__(self, pids: tuple[int, ...]) -> None:
+        self.pids = pids
+        super().__init__(switch_in_progress_message(pids))
 
-    Never raises — a missing, corrupt, or unreadable state directory is the
-    documented "state unavailable" outcome, not an execution failure.
+
+def switch_in_progress_message(pids: tuple[int, ...]) -> str:
+    """The refusal text for a run declined while a switch is in flight.
+
+    Opens with the machine-readable ``switch_in_progress:<pids>`` token — the
+    same shape the switch tool and the notebook kernel refuse with, so one
+    string identifies the condition wherever it surfaces — and then says what
+    an operator does about it.
+    """
+    named = ",".join(str(pid) for pid in pids) or "an unnamed server"
+    return (
+        f"switch_in_progress:{named}. A control-target switch is in flight on pid {named}, "
+        "so nothing was executed. Re-run the code after the target switch completes."
+    )
+
+
+def _deployment_record() -> "ControlContext | None":
+    """The deployment's control context, or ``None`` when there is none to read.
+
+    One record per deployment instance, written by its owner and read by every
+    client of it — this executor included. There is nothing to resolve and
+    nothing to match: the file either parses or it does not.
+
+    ``None`` (no agent-data root, no record, a record whose identity fields do
+    not parse) means the run is stamped with nothing and reaches the deployment
+    baseline. That is the same fail-closed outcome as having no state at all,
+    and it is never a wrong target.
+
+    Never raises — an unreadable state directory is the documented "state
+    unavailable" outcome, not an execution failure.
     """
     try:
-        from osprey.mcp_server.control_system import target_state
+        from osprey_connectors import control_context
 
-        entries = sorted(target_state.state_dir().glob(target_state.STATE_FILE_GLOB))
+        return control_context.read_record()
     except Exception:
-        logger.debug("Target state unavailable; execution runs unstamped", exc_info=True)
+        logger.debug("Control context unavailable; execution runs unstamped", exc_info=True)
         return None
 
-    return target_state.session_record(entries, os.getppid(), require_generation=True)
+
+def _blocking_pids(record: "ControlContext") -> tuple[int, ...]:
+    """The live controls servers that refuse this session a run on *record*.
+
+    Empty when the fleet has settled, which is the only state a sandbox may be
+    stamped in: while a server is applying a switch it is between two targets,
+    and while THIS session's server has failed or is bound elsewhere, a run
+    launched here would be pinned to a generation its own server never
+    reached. The judgement itself is
+    :func:`osprey_connectors.control_context.blocking_pids` — one
+    implementation for the executor, the kernel's cell gate and the MCP write
+    tools, so the three cannot disagree about what "settled" means.
+
+    The session asked about is this process's own
+    ``OSPREY_POSTURE_SESSION``. ``None`` — a bare ``claude``, a dispatch
+    worker — owns no report, and is therefore held up only by a swap that is
+    actually in flight, never by another session's failure.
+
+    Failing to READ the fleet answers "nothing is blocking". The alternative is
+    a deployment where a transient directory error refuses every execution, and
+    the guarantee that a run cannot write to a machine nobody selected is not
+    this check but the generation pin inside the sandbox, which is unaffected.
+    """
+    try:
+        from osprey_connectors import control_context
+
+        blocking: tuple[int, ...] = control_context.blocking_pids(
+            record, control_context.live_reports(), posture.posture_session()
+        )
+        return blocking
+    except Exception:
+        logger.warning(
+            "Could not check whether a control-target switch is in flight; "
+            "the execution is admitted",
+            exc_info=True,
+        )
+        return ()
 
 
 def _target_is_resolvable(target: str) -> bool:
@@ -486,7 +563,7 @@ def _launch_posture(target: str | None) -> str:
     contract makes.
     """
     try:
-        permitted = session_store.store_permits(posture.posture_session(), target)
+        permitted = session_store.store_permits(target)
     except Exception:  # noqa: BLE001 - an unreadable store must not grant writes
         logger.warning(
             "Could not resolve the session write posture for target %r; "
@@ -506,31 +583,46 @@ def _apply_target_stamp(sandbox_env: dict[str, str]) -> str:
     builds ``control_system.connector.<resolved type>`` from it, and the
     runtime's write path refuses once the generation moves under it.
 
-    With no resolvable session record — or a record naming a target this
-    deployment cannot build — every stamp name is *removed* rather than left
-    alone. This process's own environment can carry a stamp inherited from an
-    ancestor, and passing that through would route agent code off a target this
-    session never selected — the absence of a stamp has to mean "baseline", so
-    it has to be spelled as absence.
+    With no readable record — or a record naming a target this deployment
+    cannot build — every stamp name is *removed* rather than left alone. This
+    process's own environment can carry a stamp inherited from an ancestor, and
+    passing that through would route agent code off a target this session never
+    selected — the absence of a stamp has to mean "baseline", so it has to be
+    spelled as absence.
+
+    A record that IS readable is only stamped once the fleet has settled on it
+    (:func:`_blocking_pids`). The generation the sandbox pins against has to be
+    one the servers have actually reached; stamping mid-swap would hand the run
+    a machine that is in the process of being taken away from it.
 
     :data:`ENV_LAUNCH_POSTURE` is stamped on BOTH paths, and is the one name
     here that is never removed: absence would read as "this run was never
     pinned", and an unstamped run is precisely the one whose target could not be
     named — the case the pin has to cover most restrictively, not least.
+
+    Raises:
+        _SwitchInProgress: When a live controls server refuses this session a
+            run at the record's generation. Nothing is stamped and nothing has
+            been spawned yet, so the caller answers with a failed
+            :class:`ExecutionResult` rather than a half-configured sandbox.
     """
-    record = _session_target_record()
-    if record is None or not _target_is_resolvable(str(record["target"])):
-        for name in _STAMP_ENV_NAMES:
-            sandbox_env.pop(name, None)
+    # Every stamp name goes first, including the retired state-pid one: what
+    # this process inherited is never what this run is entitled to, and the
+    # stamped path below re-adds exactly the names it means.
+    for name in _STAMP_ENV_NAMES:
+        sandbox_env.pop(name, None)
+
+    record = _deployment_record()
+    if record is not None and (blocking := _blocking_pids(record)):
+        raise _SwitchInProgress(blocking)
+
+    if record is None or not _target_is_resolvable(record.target):
         sandbox_env[ENV_LAUNCH_POSTURE] = _launch_posture(None)
         return CONTROL_TARGET_BASELINE
 
-    target = str(record["target"])
+    target: str = record.target
     sandbox_env[ENV_CONTROL_TARGET] = target
-    sandbox_env[ENV_CONTROL_TARGET_GENERATION] = str(int(record["generation"]))
-    # The record's identity, so the sandbox pins against this server's file and
-    # not against whatever else is in the state directory.
-    sandbox_env[ENV_CONTROL_TARGET_STATE_PID] = str(int(record["server_pid"]))
+    sandbox_env[ENV_CONTROL_TARGET_GENERATION] = str(record.generation)
     sandbox_env[ENV_LAUNCH_POSTURE] = _launch_posture(target)
     return target
 
@@ -549,6 +641,16 @@ def _in_flight_marker(control_target: str, launch_posture: str | None = None):
     the ``finally`` below. A marker whose PID names no live process is residue
     from a killed executor and the reader sweeps it — without that, one killed
     executor would make every later switch impossible.
+
+    ``session`` is what the refusal names the busy client by: the reader
+    compares it to its own posture session, so a run is attributed to the
+    session that started it rather than to whatever process tree the reader
+    happens to sit in — a question the reader cannot answer for a client it
+    does not descend from. It is ``None`` for a process outside any session
+    (a bare ``claude``, a dispatch worker), and the reader treats that as
+    unattributable rather than as its own. ``surface`` says which kind of
+    client this is; ``kernel_id`` belongs to the notebook surface and is
+    always ``None`` here, carried so every marker has one shape.
 
     A marker that cannot be written is logged and skipped rather than failing
     the execution: the run is what the operator asked for, and the switch tool
@@ -579,7 +681,9 @@ def _in_flight_marker(control_target: str, launch_posture: str | None = None):
         )
         record = {
             "pid": os.getpid(),
-            "owner_ppid": os.getppid(),
+            "session": posture.posture_session(),
+            "surface": INFLIGHT_SURFACE,
+            "kernel_id": None,
             "target": control_target,
             "launch_posture": launch_posture,
             "started_at": datetime.now().astimezone().isoformat(),
@@ -699,11 +803,27 @@ async def _execute_via_local(
     # has to travel with it rather than being re-derived there.
     #
     # Resolved before the wrapper is built because the limits posture is per
-    # target: one read of the session's target record answers both what the
+    # target: one read of the deployment's control context answers both what the
     # sandbox is stamped with and which posture is compiled into it. Reading it
     # twice would let a switch landing in between hand the sandbox one
     # machine's policy and another machine's stamp.
-    control_target = _apply_target_stamp(sandbox_env)
+    #
+    # A deployment mid-switch declines the run here, before anything is
+    # spawned: the refusal is a fact about the fleet rather than about the
+    # submitted code, so it comes back as a failed result naming the servers
+    # to wait for, not as a traceback out of the sandbox.
+    try:
+        control_target = _apply_target_stamp(sandbox_env)
+    except _SwitchInProgress as refusal:
+        return ExecutionResult(
+            success=False,
+            stdout="",
+            stderr=str(refusal),
+            execution_method_used=EXECUTION_METHOD_SUBPROCESS,
+            execution_time_seconds=0.0,
+            error_message=str(refusal),
+            failure_kind=FAILURE_KIND_SWITCH_IN_PROGRESS,
+        )
     limits_validator = _load_limits_validator(target=control_target)
 
     wrapper = ExecutionWrapper(

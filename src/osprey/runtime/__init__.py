@@ -60,6 +60,7 @@ from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.connectors.control_system.limits_validator import LimitsValidator
+    from osprey_connectors.control_context import ControlContext
 
 logger = get_logger("runtime")
 
@@ -71,16 +72,11 @@ __all__ = [
     "ControlTargetChangedError",
 ]
 
-#: The target stamp this process was launched with. The same three literals are
+#: The target stamp this process was launched with. The same two literals are
 #: spelled in :mod:`osprey.mcp_server.python_executor.executor`, which is their
 #: only writer; ``tests/runtime/test_executor_target_stamp.py`` pins them equal.
 ENV_CONTROL_TARGET = "OSPREY_CONTROL_TARGET"
 ENV_CONTROL_TARGET_GENERATION = "OSPREY_CONTROL_TARGET_GENERATION"
-#: PID of the controls server whose record the stamp was taken from — the
-#: identity of the file the write pin re-reads. Searching the state directory
-#: for it instead would be a guess: two sessions can share a checkout, so
-#: "the only live record" is neither necessarily ours nor necessarily unique.
-ENV_CONTROL_TARGET_STATE_PID = "OSPREY_CONTROL_TARGET_STATE_PID"
 
 
 class ControlTargetChangedError(RuntimeError):
@@ -194,42 +190,24 @@ async def _get_connector():
     return _runtime_connector
 
 
-def _stamped_state_pid() -> int | None:
-    """PID of the controls server the stamp was taken from, or ``None``."""
-    raw = os.environ.get(ENV_CONTROL_TARGET_STATE_PID, "").strip()
-    try:
-        return int(raw)
-    except ValueError:
-        return None
+def _current_target_record() -> "ControlContext | None":
+    """What the deployment's control context says *now*.
 
+    One record per deployment instance, written by its owner: there is no
+    identity for this process to carry and no directory for it to search. The
+    file the stamp was taken from is the file the pin re-reads.
 
-def _current_target_record() -> dict[str, Any] | None:
-    """What the controls server that stamped this run publishes *now*.
-
-    Exactly one file is consulted: the one belonging to the PID carried in the
-    stamp. This process cannot re-derive that identity — its parent is the
-    python-executor server, not the Claude Code process that owns the state
-    file — and it must not search for it either. Two sessions can share a
-    checkout, so "the only live record in the directory" would refuse every
-    write in the two-session case and, worse, could match a stranger's record
-    in the case where this session's own server has died.
-
-    ``None`` is returned when there is no stamped PID, when that process is
-    gone, and when its file is missing, unreadable, or corrupt. All of them mean
+    ``None`` is returned when there is no agent-data root to resolve, when the
+    record is missing, and when it is unreadable or corrupt. All of them mean
     the current generation is unknown, and the pin below treats unknown as a
     refusal: a write is the operation that cannot be taken back.
     """
-    pid = _stamped_state_pid()
-    if pid is None:
-        return None
     try:
-        from osprey.mcp_server.control_system import target_state
+        from osprey_connectors import control_context
 
-        if not target_state.is_process_alive(pid):
-            return None
-        return target_state.read_file(target_state.state_file_path(pid))
+        return control_context.read_record()
     except Exception:
-        logger.debug("Target state unreadable from sandbox", exc_info=True)
+        logger.debug("Control context unreadable from sandbox", exc_info=True)
         return None
 
 
@@ -239,7 +217,13 @@ def _assert_target_pin() -> None:
     An unstamped process is not pinned at all — it never claimed a target, so
     there is nothing for it to have drifted from.
 
-    This is a snapshot of the state file taken just before the write, so a
+    The comparison is ``(target, generation)`` against the record and nothing
+    else. Whether the fleet has finished converging on that generation is a
+    question about admitting a NEW run, answered where runs are admitted (the
+    executor's stamp, the kernel's cell gate); a process already holding a
+    connector is judged only on whether the ground moved under it.
+
+    This is a snapshot of the record taken just before the write, so a
     switch that lands in the window between the check and the write itself is
     not caught. That window is not a routing hole: this process's connector was
     bound to its target's gateways at ``connect()`` time and does not follow a
@@ -250,8 +234,8 @@ def _assert_target_pin() -> None:
 
     Raises:
         ControlTargetChangedError: If the stamped generation or target does not
-            match what the controls server currently publishes, or if the
-            current state cannot be read at all.
+            match what the deployment's record currently says, or if that record
+            cannot be read at all.
     """
     target = _stamped_target()
     if target is None:
@@ -259,13 +243,12 @@ def _assert_target_pin() -> None:
 
     stamped_generation = _stamped_generation()
     record = _current_target_record()
-    current_target = record.get("target") if record is not None else None
-    current_generation = record.get("generation") if record is not None else None
 
     if (
         stamped_generation is not None
-        and current_target == target
-        and current_generation == stamped_generation
+        and record is not None
+        and record.target == target
+        and record.generation == stamped_generation
     ):
         return
 
@@ -273,16 +256,9 @@ def _assert_target_pin() -> None:
         f"{target!r} generation {'unknown' if stamped_generation is None else stamped_generation}"
     )
     if record is not None:
-        current_description = f"{current_target!r} generation {current_generation}"
-    elif (state_pid := _stamped_state_pid()) is None:
-        current_description = (
-            "unknown (this execution carries no state-file identity to check against)"
-        )
+        current_description = f"{record.target!r} generation {record.generation}"
     else:
-        current_description = (
-            f"unknown (the controls server this execution was stamped from, pid "
-            f"{state_pid}, is gone or its state file is unreadable)"
-        )
+        current_description = "unknown (the deployment's control context is missing or unreadable)"
 
     raise ControlTargetChangedError(
         "Refusing to write: this execution was started against control target "

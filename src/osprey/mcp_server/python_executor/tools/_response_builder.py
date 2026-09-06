@@ -9,6 +9,7 @@ from mcp.types import CallToolResult, TextContent
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.python_executor.executor import (
     FAILURE_KIND_SETUP,
+    FAILURE_KIND_SWITCH_IN_PROGRESS,
     FAILURE_KIND_TIMEOUT,
     ExecutionResult,
 )
@@ -39,6 +40,10 @@ _TIMEOUT_SUGGESTIONS = [
 _SCRIPT_ERROR_SUGGESTIONS = [
     "The submitted code raised. Read the traceback in stderr, fix the code, and run it again.",
 ]
+_SWITCH_IN_PROGRESS_SUGGESTIONS = [
+    "The control target is being switched, so the run was declined before it started.",
+    "Re-run the code after the target switch completes.",
+]
 
 
 def _raise_failure(exec_result: ExecutionResult, stderr_text: str, payload: dict) -> None:
@@ -49,7 +54,11 @@ def _raise_failure(exec_result: ExecutionResult, stderr_text: str, payload: dict
     the error-guidance hook classes as *Connection*, whose protocol is "report
     the service as unavailable", not "help the user fix their code". A run
     that started and failed is ``execution_error`` whether its own code raised
-    or the sandbox timed it out; ``details.kind`` tells those two apart.
+    or the sandbox timed it out; ``details.kind`` tells those two apart. A run
+    declined because the control target is mid-switch
+    (:data:`FAILURE_KIND_SWITCH_IN_PROGRESS`) is the third ``kind``: nothing
+    ran, nothing is broken, and the answer is to run it again once the switch
+    lands — which is neither of the other two protocols.
 
     ``details`` carries the response the success path would have returned, so
     a failed run still surfaces its artifacts, plus :data:`SUBSYSTEM` and the
@@ -65,6 +74,8 @@ def _raise_failure(exec_result: ExecutionResult, stderr_text: str, payload: dict
         )
     if exec_result.failure_kind == FAILURE_KIND_TIMEOUT:
         kind, suggestions = "timeout", _TIMEOUT_SUGGESTIONS
+    elif exec_result.failure_kind == FAILURE_KIND_SWITCH_IN_PROGRESS:
+        kind, suggestions = FAILURE_KIND_SWITCH_IN_PROGRESS, _SWITCH_IN_PROGRESS_SUGGESTIONS
     else:
         kind, suggestions = "script_error", _SCRIPT_ERROR_SUGGESTIONS
     make_error(

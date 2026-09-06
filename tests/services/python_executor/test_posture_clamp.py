@@ -22,6 +22,7 @@ from fastmcp.exceptions import ToolError
 
 from osprey.audit import posture as posture_module
 from osprey.mcp_server.python_executor.tools._execution_gates import enforce_posture_clamp
+from tests._control_context_fixtures import write_control_context, write_payload
 
 pytestmark = pytest.mark.unit
 
@@ -165,11 +166,11 @@ def _no_inherited_session(monkeypatch):
 def session(tmp_path, monkeypatch):
     """A session child of a controls server, with a per-target posture store.
 
-    Returns a handle whose ``.on(target)`` publishes the state record naming the
-    session's target and whose ``.narrow(**entries)`` writes the store.
+    Returns a handle whose ``.on(target)`` publishes the report naming the
+    session's target and whose ``.narrow(**entries)`` writes the record.
     """
     from osprey.audit import posture as posture_module
-    from osprey_connectors import session_store
+    from osprey_connectors import control_context, session_store
 
     root = tmp_path / "agent_data"
     directory = root / session_store.STATE_DIR_NAME
@@ -184,26 +185,23 @@ def session(tmp_path, monkeypatch):
         @staticmethod
         def on(target: str) -> None:
             pid = os.getpid()
-            (directory / f"target_state_{pid}.json").write_text(
-                json.dumps(
-                    {
-                        "target": target,
-                        "generation": 0,
-                        "server_pid": pid,
-                        "owner_ppid": os.getppid(),
-                        "targets": {},
-                        "children": [],
-                    }
-                )
+            write_payload(
+                control_context.report_path_under(root, pid),
+                {
+                    "target": target,
+                    "generation": 0,
+                    "server_pid": pid,
+                    "owner_ppid": os.getppid(),
+                    "targets": {},
+                    "children": [],
+                },
             )
             session_store.invalidate_cache()
             posture_module.invalidate_session_target_cache()
 
         @staticmethod
         def narrow(**entries: str) -> None:
-            (directory / session_store.STORE_FILENAME).write_text(
-                json.dumps({SESSION_KEY: entries})
-            )
+            write_control_context(root, posture=entries)
             session_store.invalidate_cache()
             posture_module.invalidate_session_target_cache()
 
