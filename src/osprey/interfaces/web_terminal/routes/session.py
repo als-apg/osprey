@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import asdict
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Request
 
+from osprey.interfaces.web_terminal import transcript_map
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
+
+if TYPE_CHECKING:
+    from osprey.mcp_server.workspace.transcript_reader import TranscriptReader
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +27,7 @@ async def list_sessions(request: Request):
     return {"sessions": [asdict(s) for s in sessions]}
 
 
-def _read_session_events(request: Request, reader) -> list[dict]:
+def _read_session_events(request: Request, reader: TranscriptReader) -> list[dict]:
     """Read session events, scoped to a session_id if provided."""
     session_id = request.query_params.get("session_id")
     if session_id:
@@ -180,16 +185,41 @@ async def session_summary(request: Request):
         }
 
 
+#: Values of the ``full`` flag that lift the per-message cap. The browser sends
+#: ``1``; the other spellings are accepted so an operator calling the endpoint
+#: by hand is not handed a silently shortened conversation.
+_FULL_HISTORY_VALUES = frozenset({"1", "true", "yes", "on"})
+
+
+def _wants_full_messages(request: Request) -> bool:
+    """Whether the caller asked for whole messages via the ``full`` flag."""
+    return request.query_params.get("full", "").strip().lower() in _FULL_HISTORY_VALUES
+
+
 @router.get("/api/session-chat")
 async def session_chat(request: Request):
-    """Return conversation turns from the current session transcript."""
+    """Return conversation turns from a session's transcript.
+
+    ``session_id`` names a session key, and a key stops naming its transcript
+    the moment a ``/clear`` replaces the conversation, so the key is mapped
+    through :mod:`osprey.interfaces.web_terminal.transcript_map` first: a caller
+    that knows only its key still reads the conversation that key is on.
+
+    ``full=1`` leaves each message whole, which is what replaying a conversation
+    onto another surface needs. Without it the reader's own per-message cap
+    stands, which is what the diagnostics view has always read.
+    """
     try:
         from osprey.mcp_server.workspace.transcript_reader import TranscriptReader
 
         reader = TranscriptReader(request.app.state.project_cwd)
         session_id = request.query_params.get("session_id")
         if session_id:
-            turns = reader.read_chat_history_by_id(session_id)
+            transcript_id = transcript_map.get(request.app, session_id)
+            if _wants_full_messages(request):
+                turns = reader.read_chat_history_by_id(transcript_id, max_chars=None)
+            else:
+                turns = reader.read_chat_history_by_id(transcript_id)
         else:
             turns = reader.read_current_chat_history()
         return {"turns": turns, "count": len(turns)}
