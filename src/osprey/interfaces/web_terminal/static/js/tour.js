@@ -180,7 +180,7 @@ const chipFacts = () => {
  * @property {'left'} [place]
  * @property {string} [foot]
  * @property {() => string[]} [chips] resolved at render, not at module load —
- *   the prompts on offer follow the machine this session stands on, and that
+ *   the prompts on offer follow the machine this deployment stands on, and that
  *   can change under a tour that is already open.
  */
 
@@ -236,7 +236,7 @@ const STEPS = [
     title: 'Your control target',
     body: () => {
       const parts = [
-        'A session points at one control target: the ',
+        'The deployment points at one control target: the ',
         strong('real machine'),
         ', a ',
         strong('rehearsal'),
@@ -246,7 +246,7 @@ const STEPS = [
       ];
       const c = chipFacts();
       if (c) {
-        parts.push(' This session is currently on ', strong(c.name), ' — ', strong(c.state), '.');
+        parts.push(' This deployment is currently on ', strong(c.name), ' — ', strong(c.state), '.');
       }
       parts.push(' Click the chip to see the details or switch targets.');
       return parts;
