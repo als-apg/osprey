@@ -12,6 +12,10 @@ on disk. The outcomes covered here:
 - A cold resume of an id with no transcript spawns nothing: the server
   answers ``transcript_missing`` and closes, and the client renders that
   state instead of a dead PTY.
+- A cold resume of an id the chat pool answers to is served: both views are
+  windows onto one session key, so a conversation the operator started in
+  Simple is a session here even before a transcript names it. Serving it is
+  a hand-off — the chat is torn down and the terminal spawned in its place.
 - A ``--resume`` child that the pre-spawn check let through but which still
   reports ``No conversation found with session ID`` and exits gets the same
   ``transcript_missing`` frame in place of a bare ``exit``.
@@ -22,7 +26,6 @@ with ``_spawn_session`` patched to a ``FakePtySession``.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import sys
 import time
@@ -34,66 +37,9 @@ from starlette.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
+from tests.interfaces.web_terminal._fakes import FakePtySession
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
-
-
-class FakePtySession:
-    """Minimal PtySession substitute — alive until told otherwise.
-
-    ``emit`` queues bytes the output loop will forward; ``exit`` ends the
-    child with a code. Queued output is drained before the loop sees the exit,
-    which is what a real PTY does too (:meth:`PtySession.read_output`).
-    """
-
-    def __init__(self):
-        self._alive = True
-        self._exit_code: int | None = None
-        self._chunks: list[bytes] = []
-        self._last_rows = 24
-        self._last_cols = 80
-        self._command_list = ["fake"]
-
-    @property
-    def is_alive(self):
-        return self._alive
-
-    @property
-    def exit_code(self):
-        if self._alive:
-            return None
-        return 0 if self._exit_code is None else self._exit_code
-
-    def start(self, initial_rows=24, initial_cols=80, extra_env=None, cwd=None):
-        self._last_rows = initial_rows
-        self._last_cols = initial_cols
-
-    def resize(self, rows, cols):
-        self._last_rows = rows
-        self._last_cols = cols
-
-    def write_input(self, data):
-        pass
-
-    def terminate(self):
-        self._alive = False
-
-    def emit(self, data: bytes) -> None:
-        self._chunks.append(data)
-
-    def exit(self, code: int) -> None:
-        self._exit_code = code
-        self._alive = False
-
-    async def read_output(self):
-        try:
-            while self._alive or self._chunks:
-                if self._chunks:
-                    yield self._chunks.pop(0)
-                else:
-                    await asyncio.sleep(0.05)
-        except (asyncio.CancelledError, GeneratorExit):
-            return
 
 
 def _recv_json(ws, msg_type: str, max_frames: int = 30):
@@ -174,6 +120,71 @@ def sessions_dir(tmp_path):
     d.mkdir()
     with patch.object(SessionDiscovery, "_resolve_sessions_dir", lambda self: d):
         yield d
+
+
+class _IdleChat:
+    """The slice of ``OperatorSession`` the hand-off door reads for an idle chat."""
+
+    is_busy = False
+
+    def __init__(self):
+        self._active = True
+        self.process_exited: bool | None = None
+        self.teardowns = 0
+
+    @property
+    def is_active(self) -> bool:
+        return self._active
+
+    async def teardown(self) -> None:
+        self.teardowns += 1
+        self._active = False
+        self.process_exited = True
+
+
+class _ChatPool:
+    """``ChatSessionPool`` as the door sees it: ``get``, ``has_key``, ``terminate``."""
+
+    def __init__(self):
+        self.sessions: dict[str, _IdleChat] = {}
+
+    def get(self, chat_id: str) -> _IdleChat | None:
+        return self.sessions.get(chat_id)
+
+    def has_key(self, chat_id: str) -> bool:
+        return chat_id in self.sessions
+
+    async def terminate(self, chat_id: str) -> _IdleChat | None:
+        session = self.sessions.pop(chat_id, None)
+        if session is not None:
+            await session.teardown()
+        return session
+
+    async def reinsert(self, chat_id: str, session: _IdleChat) -> bool:
+        self.sessions[chat_id] = session
+        return True
+
+
+class _ChatHoldingRegistry:
+    """An ``operator_registry`` whose chat pool holds exactly one idle chat.
+
+    The addressability facade the gate asks for
+    (:func:`~osprey.interfaces.web_terminal.routes.websocket._chat_pool_answers_to`
+    reaches ``has_chat_key``) and the ``chats`` pool the hand-off door
+    inspects and tears down; ``cleanup_all`` is the app's own shutdown hook.
+    """
+
+    def __init__(self, key: str):
+        self.key = key
+        self.chats = _ChatPool()
+        self.chat = _IdleChat()
+        self.chats.sessions[key] = self.chat
+
+    def has_chat_key(self, session_id: str) -> bool:
+        return self.chats.has_key(session_id)
+
+    async def cleanup_all(self) -> None:
+        pass
 
 
 def _patch_spawn(app):
@@ -331,3 +342,49 @@ def test_resume_child_exiting_for_another_reason_still_sends_exit(app, sessions_
 
     assert seen[-1] == {"type": "exit", "code": 0}
     assert "transcript_missing" not in [m["type"] for m in seen]
+
+
+# ---------------------------------------------------------------------------
+# A chat-held key is a session
+# ---------------------------------------------------------------------------
+
+
+def test_cold_resume_of_a_chat_held_key_is_not_refused(app, sessions_dir):
+    """An id only the chat pool holds resumes instead of being refused.
+
+    The Simple view keys its pool on the same session key the terminal does,
+    so a conversation started there names a session on this surface too — and
+    it can name one before any ``.jsonl`` exists, because the transcript is
+    written on the first turn. Refusing it would tell the operator the
+    conversation they are looking at is gone. What happens instead is the
+    hand-off: the chat is torn down and the terminal takes the key.
+    """
+    sid = _uuid()
+    with TestClient(app) as client:
+        _, spawned = _patch_spawn(app)
+        holder = _ChatHoldingRegistry(sid)
+        app.state.operator_registry = holder
+
+        with client.websocket_connect(_resume_url(sid)) as ws:
+            _send_resize(ws)
+            assert _recv_json(ws, "session_info")["session_id"] == sid
+
+    assert len(spawned) == 1
+    assert holder.chats.get(sid) is None
+    assert holder.chat.teardowns == 1
+
+
+def test_cold_resume_of_a_key_no_surface_holds_is_refused(app, sessions_dir):
+    """With a chat pool answering to some OTHER key, the refusal still stands."""
+    sid = _uuid()
+    with TestClient(app) as client:
+        reg, spawned = _patch_spawn(app)
+        app.state.operator_registry = _ChatHoldingRegistry(_uuid())
+
+        with client.websocket_connect(_resume_url(sid)) as ws:
+            _send_resize(ws)
+            assert _recv_json(ws, "transcript_missing")["session_id"] == sid
+            assert ws.receive()["type"] == "websocket.close"
+
+        assert spawned == []
+        assert reg.get_session(sid) is None

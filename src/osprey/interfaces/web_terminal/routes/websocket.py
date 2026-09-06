@@ -15,7 +15,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import yaml  # type: ignore[import-untyped]
 from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
@@ -30,6 +30,7 @@ from osprey.interfaces.common_middleware import (
     session_cookie_name,
 )
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
+from osprey.interfaces.web_terminal import session_handoff
 from osprey.interfaces.web_terminal.operator_session import (
     POSTURE_SESSION_ENV,
     POSTURE_SOURCE_ENV,
@@ -40,28 +41,30 @@ from osprey.interfaces.web_terminal.operator_session import (
 )
 from osprey.interfaces.web_terminal.session_binding import write_binding
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
+from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey.profiles.web_panels import JUPYTER_PANEL_ID
 from osprey_connectors import session_store
 from osprey_connectors.control_system.base import is_readonly_run
+
+if TYPE_CHECKING:
+    from osprey.interfaces.web_terminal.pty_manager import PtySession
+    from osprey.interfaces.web_terminal.session_handoff import (
+        AcquireResult,
+        SpawnCallback,
+        SpawnRequest,
+    )
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# The loose shape check the resume path (``switch_session``) applies to ids
+# Claude itself wrote: any 36 characters drawn from ``[a-f0-9-]``, which is
+# fine for "does this look like a session file stem" and much too wide for a
+# key that is written to a store on disk and later decides a child process's
+# execution mode. The posture surface's *closed* key grammar is
+# :func:`~osprey.interfaces.web_terminal.session_key.is_posture_key`.
 _UUID_RE = re.compile(r"^[a-f0-9-]{36}$")
-
-# The posture surface's *closed* key grammar: a canonical lowercase UUID, and
-# nothing else. ``_UUID_RE`` above is the loose shape check the resume path
-# (``switch_session``) applies to ids Claude itself wrote; it admits any 36
-# characters drawn from ``[a-f0-9-]``, which is fine for "does this look like a
-# session file stem" and much too wide for a key that is written to a store on
-# disk and later decides a child process's execution mode. Both identities the
-# posture route can legitimately name — a discovered PTY session (a Claude
-# session-file stem) and a live chat-pool session (``crypto.randomUUID()`` in
-# ``static/js/chat.js``) — are canonical UUIDs, so nothing shipped loses reach
-# by closing the grammar here. The ``/ws/operator`` pool's minted
-# ``operator-<hex8>`` keys stay unaddressable by design.
-_POSTURE_KEY_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 # ── Per-(session, target) runtime posture ────────────────────────────────────
 #
@@ -118,19 +121,6 @@ class TargetRequest(BaseModel):
     target: str
 
 
-def is_posture_key(session_id: str) -> bool:
-    """Whether *session_id* matches the posture surface's closed key grammar.
-
-    The public half of :data:`_POSTURE_KEY_RE`, for the one caller outside this
-    module that has to agree with the posture route on what it can address:
-    ``routes/chat.py`` labels a chat child's ``posture_source`` by it, because
-    a key this answers ``False`` for is a key no posture store will ever answer
-    for. Kept as a function rather than an exported pattern so the grammar
-    itself stays private and there is one place to change it.
-    """
-    return bool(_POSTURE_KEY_RE.match(session_id))
-
-
 def _require_session_uuid(session_id: str) -> None:
     """Refuse *session_id* unless it is a canonical, bare session UUID.
 
@@ -138,12 +128,13 @@ def _require_session_uuid(session_id: str) -> None:
     status, the error slug or the sentence. An arbitrary string can never
     become a store key that is then written to disk.
 
-    The grammar is closed (:data:`_POSTURE_KEY_RE`): eight-four-four-four-twelve
-    lowercase hex, no prefix, no suffix. Every key the posture surface can
-    legitimately name is minted that way — a Claude session-file stem or a chat
-    id from ``crypto.randomUUID()`` — so the closed form costs no reach and
-    keeps decorated keys (``operator-<hex8>``) and near-miss strings out of a
-    store that decides a child's execution mode.
+    The grammar is the closed one in
+    :mod:`osprey.interfaces.web_terminal.session_key`: eight-four-four-four-
+    twelve lowercase hex, no prefix, no suffix. Every key the posture surface
+    can legitimately name is minted that way — a Claude session-file stem or a
+    chat id from ``crypto.randomUUID()`` — so the closed form costs no reach
+    and keeps decorated keys (``operator-<hex8>``) and near-miss strings out of
+    a store that decides a child's execution mode.
 
     Raises:
         HTTPException: 400 ``invalid_session_id`` when the shape does not match.
@@ -1014,18 +1005,25 @@ NO_CONVERSATION_MARKER = b"No conversation found with session ID"
 _NO_CONVERSATION_SCAN_LIMIT = 16 * 1024
 
 
-def _transcript_missing(registry, discovery: SessionDiscovery, session_id: str) -> bool:
+def _transcript_missing(app, registry, discovery: SessionDiscovery, session_id: str) -> bool:
     """Whether resuming *session_id* would spawn a child with nothing to resume.
 
-    A pooled PTY that is still alive IS the session — a terminal that was
-    opened and never prompted has one, and no ``.jsonl`` yet, because Claude
-    Code writes the transcript on the first prompt. Only with no live PTY is
-    the transcript directory the authority: ``--resume`` on an id with no
-    file there prints :data:`NO_CONVERSATION_MARKER` and exits, which is the
-    dead PTY the caller refuses to hand the operator.
+    The question is whether the key names a session at all, and three things
+    can answer yes. A pooled PTY that is still alive IS the session — a
+    terminal that was opened and never prompted has one, and no ``.jsonl``
+    yet, because Claude Code writes the transcript on the first prompt. A key
+    the chat pool answers to (:func:`_chat_pool_answers_to`, so a creation
+    still inside ``start()`` counts) is equally a session: both views are
+    windows onto one key, and the conversation the operator started in Simple
+    is the one they are asking for here. Only with none of those is the
+    transcript directory the authority: ``--resume`` on an id with no file
+    there prints :data:`NO_CONVERSATION_MARKER` and exits, which is the dead
+    PTY the caller refuses to hand the operator.
     """
     existing = registry.get_session(session_id)
     if existing is not None and existing.is_alive:
+        return False
+    if _chat_pool_answers_to(app, session_id):
         return False
     return session_id not in discovery.snapshot_session_ids()
 
@@ -1089,10 +1087,20 @@ def _build_extra_env(
     ``telemetry_session_id`` is the session UUID this terminal's ``claude`` is
     forced onto (via ``--session-id``); it is handed to the workspace
     provenance_locator tool so a filed issue can point back to this session's
-    telemetry. Kept separate from ``claude_session_id`` — which drives
-    ``OSPREY_SESSION_ID`` (session-scoped agent-data relocation and artifact
-    session tagging) and stays unset for new sessions — because the telemetry
-    locator must not carry those side effects.
+    telemetry.
+
+    ``OSPREY_SESSION_ID`` is stamped from the **pool key** — the same
+    ``claude_session_id or telemetry_session_id`` the handler keys the pool on
+    — so it is set on every spawn this function serves, the brand-new session
+    included. It scopes the child's execution root
+    (:func:`osprey_connectors.workspace.resolve_agent_data_root` appends
+    ``sessions/<key>``) and tags the artifacts it files. One key, one root: a
+    conversation is one session whichever view is showing it, so the chat
+    child spawned under that key
+    (:func:`~osprey.interfaces.web_terminal.operator_session.build_operator_child_env`)
+    works out of the same directory as this one. The name is in
+    :data:`~osprey.interfaces.web_terminal.pty_manager.POOL_FINGERPRINT_EXCLUDED_ENV`,
+    so stamping it can never make a reattach respawn a live child.
 
     The result also carries the **panel token**, and that is the one place the
     PTY child gets it. :func:`~osprey.interfaces.web_auth._populate` pops the
@@ -1115,8 +1123,9 @@ def _build_extra_env(
     # "simple" in operator_session.py). The panels-context SessionStart hook
     # reads this to tell the agent which UI the operator is looking at.
     extra_env["OSPREY_WEB_UX"] = "expert"
-    if claude_session_id:
-        extra_env["OSPREY_SESSION_ID"] = claude_session_id
+    session_key = claude_session_id or telemetry_session_id
+    if session_key:
+        extra_env["OSPREY_SESSION_ID"] = session_key
     if telemetry_session_id:
         extra_env["OSPREY_TELEMETRY_SESSION_ID"] = telemetry_session_id
         extra_env["OSPREY_TELEMETRY_SESSION_START"] = datetime.now(UTC).isoformat()
@@ -1158,12 +1167,228 @@ def _build_extra_env(
     # authoritative for all of them; a child that held the key without it would
     # be told whose posture to read and left to guess where. Never one without
     # the other, and a test pins that.
-    posture_key = claude_session_id or telemetry_session_id
-    if posture_key:
+    if session_key:
         extra_env[POSTURE_SOURCE_ENV] = POSTURE_SOURCE_LIVE
-        extra_env[POSTURE_SESSION_ENV] = posture_key
+        extra_env[POSTURE_SESSION_ENV] = session_key
         extra_env[OSPREY_AGENT_DATA_ROOT] = resolve_agent_data_root(websocket.app)
     return extra_env
+
+
+#: Query values read as "yes" on ``/ws/terminal?interrupt=``.
+_TRUTHY_QUERY_VALUES = frozenset({"1", "true", "yes", "on"})
+
+
+def _query_flag(websocket: WebSocket, name: str) -> bool:
+    """Whether query parameter *name* is set to a truthy value."""
+    return websocket.query_params.get(name, "").strip().lower() in _TRUTHY_QUERY_VALUES
+
+
+class _TerminalChannel:
+    """One terminal socket as the hand-off door sees it, and its single reader.
+
+    ``token`` is this handler's identity for everything that identifies a
+    connection: the channel a pending acquire is registered under, the owner
+    token the PTY is attached with, and the key its 4409 closer is filed
+    under in :attr:`~...session_handoff.HandoffState.closers`. One per
+    socket, kept across a ``switch_session``: the registry checks it before
+    letting a detach release a key, so a handler that has been displaced
+    cannot clear the attachment its successor holds.
+
+    ``closed`` is set the moment the socket's ``websocket.disconnect`` is
+    read — by :meth:`receive` in the main loop or by the side reader
+    :meth:`acquire` runs — and by the closer when phase (c) displaces this
+    handler. The token's closed probe reads it, so a wait inside the door
+    ends as :class:`~...session_handoff.ChannelClosed` instead of running on
+    for a client that is gone.
+
+    Only one ``receive`` may be outstanding on a socket. During an acquire
+    the handler is awaiting the door, so the side reader is that one reader:
+    it records resizes — the size a spawn is started at, or a reused PTY is
+    resized to — drops keystrokes, which have no PTY to go to yet, and keeps
+    every other control message for the main loop, which reads
+    :attr:`deferred` before it reads the socket again.
+
+    The socket read itself is one task that outlives whichever reader awaits
+    it. The side reader is cancelled the moment the door returns, and a
+    frame the transport hands over in that same loop turn is consumed by the
+    cancelled task on transports that deliver straight to a waiting receiver
+    (Starlette's test client does; the ASGI contract promises nothing either
+    way). Cancelling the awaiter leaves the read in flight, so the next
+    :meth:`receive` collects that frame instead of losing it.
+    """
+
+    def __init__(self, websocket: WebSocket) -> None:
+        self.websocket = websocket
+        self.closed = asyncio.Event()
+        self.token = session_handoff.ChannelToken(self.closed.is_set)
+        self.rows = 24
+        self.cols = 80
+        self.deferred: list[Mapping[str, Any]] = []
+        self._read: asyncio.Task[Any] | None = None
+
+    async def receive(self) -> Mapping[str, Any]:
+        """The next message for the main loop: a deferred control message first."""
+        if self.deferred:
+            return self.deferred.pop(0)
+        return await self._read_socket()
+
+    async def _read_socket(self) -> Mapping[str, Any]:
+        """The next message off the socket; a disconnect closes the channel."""
+        if self._read is None:
+            self._read = asyncio.ensure_future(self.websocket.receive())
+        try:
+            message: Mapping[str, Any] = await asyncio.shield(self._read)
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            self._read = None
+            raise
+        self._read = None
+        if message.get("type") == "websocket.disconnect":
+            self.closed.set()
+        return message
+
+    def release(self) -> None:
+        """Cancel a read left in flight; the handler is done with the socket."""
+        if self._read is not None:
+            self._read.cancel()
+            self._read = None
+
+    def note_resize(self, msg: Any) -> bool:
+        """Record a ``resize`` control message; False for anything else.
+
+        A malformed resize is recorded as nothing and still answered True:
+        it was a control message, not keystrokes for the PTY.
+        """
+        if not isinstance(msg, dict) or msg.get("type") != "resize":
+            return False
+        try:
+            rows, cols = int(msg["rows"]), int(msg["cols"])
+        except (KeyError, TypeError, ValueError):
+            return True
+        self.rows, self.cols = rows, cols
+        return True
+
+    async def send_text(self, text: str) -> None:
+        """Send a control frame, tolerating a socket that is already gone."""
+        try:
+            await self.websocket.send_text(text)
+        except Exception:
+            pass
+
+    async def send_json(self, frame: dict[str, Any]) -> None:
+        await self.send_text(json.dumps(frame))
+
+    async def close(self, code: int | None = None) -> None:
+        """Close the socket, tolerating one that is already closed."""
+        try:
+            if code is None:
+                await self.websocket.close()
+            else:
+                await self.websocket.close(code=code)
+        except Exception:
+            pass
+
+    async def acquire(
+        self, app: Any, key: str, *, interrupt: bool, spawn: SpawnCallback
+    ) -> AcquireResult:
+        """Take *key* for the Expert surface while reading the socket.
+
+        The acquire runs in the handler's own task — a cancellation delivered
+        while phase (c) runs is then honoured only once the phase is done,
+        which is what lets the handler's teardown detach unconditionally.
+        The side reader is cancelled and reaped before this returns, so the
+        main loop's own ``receive`` never overlaps it.
+        """
+        reader = asyncio.ensure_future(self._read_while_acquiring())
+        try:
+            return await session_handoff.acquire_surface(
+                app,
+                key,
+                session_handoff.SURFACE_EXPERT,
+                self.token,
+                interrupt=interrupt,
+                spawn=spawn,
+            )
+        finally:
+            reader.cancel()
+            with suppress(asyncio.CancelledError):
+                await reader
+
+    async def _read_while_acquiring(self) -> None:
+        while True:
+            try:
+                message = await self._read_socket()
+            except Exception:
+                self.closed.set()
+                return
+            if message.get("type") == "websocket.disconnect":
+                return
+            text = message.get("text")
+            if not text:
+                # Keystrokes are dropped here; the one frame the surviving
+                # socket read holds when the door returns is read by the main
+                # loop instead and reaches the new PTY.
+                continue
+            try:
+                msg = json.loads(text)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(msg, dict) and not self.note_resize(msg):
+                self.deferred.append(message)
+
+
+async def _open_surface(
+    channel: _TerminalChannel,
+    app: Any,
+    key: str,
+    *,
+    interrupt: bool,
+    spawn: SpawnCallback,
+) -> AcquireResult | None:
+    """Take *key* for this terminal, answering the client for every way that can end.
+
+    Returns the result on success. Returns None once the client has been
+    answered — a refusal closes the socket with the refusal's close code
+    (4409 attached elsewhere, 4503 the outgoing process survived its kill,
+    which the client offers a retry for); a hand-off error is an ``error``
+    frame and a close; a channel that closed during the wait gets nothing.
+    The ``handoff_pending`` frame goes out first whenever the chat surface
+    holds the key, which is the one case the door waits on a foreign entry
+    for a terminal; the client shows the transitional state until
+    ``session_info`` (or ``error``) replaces it.
+    """
+    if _chat_pool_answers_to(app, key):
+        await channel.send_json({"type": "handoff_pending"})
+    try:
+        return await channel.acquire(app, key, interrupt=interrupt, spawn=spawn)
+    except session_handoff.HandoffRefused as refused:
+        logger.info("Refusing the terminal session %s: %s", key, refused)
+        await channel.close(refused.ws_close_code or session_handoff.WS_CLOSE_SESSION_ATTACHED)
+        return None
+    except session_handoff.ChannelClosed:
+        logger.info("Terminal connection for session %s closed while waiting", key)
+        return None
+    except session_handoff.HandoffError as error:
+        logger.warning("Hand-off to the terminal for session %s failed: %s", key, error)
+        await channel.send_json({"type": "error", "message": str(error)})
+        await channel.close()
+        return None
+
+
+def _write_to_pty(session: PtySession, data: bytes) -> None:
+    """Forward keystrokes; a PTY whose child has gone swallows them."""
+    try:
+        session.write_input(data)
+    except OSError:
+        logger.debug("Dropped terminal input: the PTY is closed", exc_info=True)
+
+
+def _resize_pty(session: PtySession, rows: int, cols: int) -> None:
+    try:
+        session.resize(rows, cols)
+    except OSError:
+        logger.debug("Could not resize the PTY", exc_info=True)
 
 
 @router.websocket("/ws/terminal")
@@ -1178,11 +1403,27 @@ async def terminal_ws(websocket: WebSocket):
     - Server -> Client JSON: {"type": "exit", "code": N}
     - Server -> Client JSON: {"type": "session_switched", "session_id": UUID}
     - Server -> Client JSON: {"type": "session_info", "session_id": UUID}
+    - Server -> Client JSON: {"type": "handoff_pending"}
     - Server -> Client JSON: {"type": "transcript_missing", "session_id": UUID, "code"?: N}
     - Server -> Client JSON: {"type": "error", "message": str}
 
+    Query: ``session_id`` and ``mode=resume`` name the session key to
+    resume; without them a new key is minted. ``interrupt=1`` on a resume
+    cuts short a turn the chat surface is running on that key instead of
+    waiting for it.
+
+    Every PTY this handler serves comes through
+    :func:`~osprey.interfaces.web_terminal.session_handoff.acquire_surface`:
+    the key is one session whichever view shows it, so taking it here hands
+    the conversation off from a chat that holds it (``handoff_pending``
+    while that finishes), takes it over from an older terminal on the same
+    key (closed with 4409), reuses the pooled PTY, or spawns one resuming
+    the key's current transcript. The spawn callback below is the only
+    place the registry's blocking create path is called from.
+
     ``transcript_missing`` answers a resume — the ``mode=resume`` connect or a
-    ``switch_session`` — of an id with no live PTY and no transcript on disk.
+    ``switch_session`` — of an id no surface holds and no transcript on disk
+    names.
     Nothing is spawned for it: on the connect path the socket is then closed,
     on the switch path the current session stays attached. The same frame,
     with the exit ``code``, replaces ``exit`` when a ``--resume`` child prints
@@ -1190,57 +1431,33 @@ async def terminal_ws(websocket: WebSocket):
     """
     await websocket.accept()
 
-    registry = websocket.app.state.pty_registry
-    base_shell_command = websocket.app.state.shell_command
-    discovery = SessionDiscovery(websocket.app.state.project_cwd)
+    app = websocket.app
+    registry = app.state.pty_registry
+    base_shell_command = app.state.shell_command
+    discovery = SessionDiscovery(app.state.project_cwd)
 
     # Parse session params from query string
     req_session_id = websocket.query_params.get("session_id")
     mode = websocket.query_params.get("mode", "new")
+    interrupt = mode == "resume" and _query_flag(websocket, "interrupt")
 
-    effort = _read_effort_level(websocket.app.state.config_path)
+    effort = _read_effort_level(app.state.config_path)
 
-    # Build the command and determine the initial session key.
-    # base_shell_command is list[str] (set by app.lifespan), so unpack with
-    # [*base, ...] — nesting would break PtySession's exec (issue #218).
+    # Pool key: the requested id for resumes, a forced id for new sessions.
+    # A new session's id is dictated on the command line by the spawn below
+    # (``--session-id``), never guessed, so the pool is keyed by the real
+    # session id from the first moment and needs no later rekey. The forced
+    # id is also what the workspace provenance_locator tool hands back (via
+    # OSPREY_TELEMETRY_SESSION_ID) and what the OTEL emitter tags records
+    # with as session.id, so a filed issue's provenance pointer resolves.
     if mode == "resume" and req_session_id:
-        command: list[str] = [*base_shell_command, "--resume", req_session_id]
-        claude_session_id: str | None = req_session_id
-        telemetry_session_id: str = req_session_id
+        current_key: str = req_session_id
     else:
-        # Force a known session UUID so the workspace provenance_locator tool can
-        # hand it back (via OSPREY_TELEMETRY_SESSION_ID, injected below) and it
-        # matches the value the OTEL emitter tags records with as session.id — a
-        # filed issue's provenance pointer then resolves. (Not claude_session_id,
-        # which would set OSPREY_SESSION_ID and relocate session-scoped agent
-        # data — this is the CLI's session id, not an agent-data scope.)
-        telemetry_session_id = str(uuid.uuid4())
-        command = [*base_shell_command, "--session-id", telemetry_session_id]
-        claude_session_id = None
+        current_key = str(uuid.uuid4())
 
-    if effort:
-        command.extend(["--effort", effort])
-
-    # Pool key: the requested id for resumes, the forced id for new sessions.
-    # A new session's id is dictated on the command line above, never guessed,
-    # so the pool is keyed by the real session id from the first moment and
-    # needs no later rekey.
-    current_key = claude_session_id or telemetry_session_id
-
-    # Wait for the client's initial resize message before spawning the PTY.
-    initial_cols, initial_rows = 80, 24
-    try:
-        first = await asyncio.wait_for(websocket.receive(), timeout=5.0)
-        if "text" in first:
-            try:
-                msg = json.loads(first["text"])
-                if msg.get("type") == "resize":
-                    initial_cols = msg["cols"]
-                    initial_rows = msg["rows"]
-            except (json.JSONDecodeError, KeyError):
-                pass
-    except TimeoutError:
-        logger.warning("No initial resize from client within 5s, using defaults")
+    channel = _TerminalChannel(websocket)
+    token = channel.token
+    state = session_handoff.get_state(app)
 
     # The resume boundary. ``--resume`` on an id with no transcript exits at
     # once with "No conversation found", and a PTY that dies on attach is a
@@ -1252,54 +1469,97 @@ async def terminal_ws(websocket: WebSocket):
     if (
         mode == "resume"
         and req_session_id
-        and _transcript_missing(registry, discovery, req_session_id)
+        and _transcript_missing(app, registry, discovery, req_session_id)
     ):
-        logger.info("Refusing to resume %s: no live PTY and no transcript", req_session_id)
-        try:
-            await websocket.send_text(_transcript_missing_frame(req_session_id))
-            await websocket.close()
-        except Exception:
-            pass
+        logger.info(
+            "Refusing to resume %s: no live PTY, no chat session and no transcript",
+            req_session_id,
+        )
+        await channel.send_text(_transcript_missing_frame(req_session_id))
+        await channel.close()
         return
 
-    extra_env = _build_extra_env(websocket, claude_session_id, telemetry_session_id)
-
-    session, was_reused = registry.get_or_create_session(
-        current_key,
-        command,
-        rows=initial_rows,
-        cols=initial_cols,
-        extra_env=extra_env if extra_env else None,
-        cwd=websocket.app.state.project_cwd,
-    )
-    registry.attach_session(current_key)
-    _bind_notebook_session(websocket.app, registry, session, current_key)
-
-    # Confirm the id immediately, whichever path spawned it. A new session's
-    # id is the one this handler put on the CLI's command line; a resume's is
-    # either a warm PTY (the session itself) or an id whose transcript was on
-    # disk a moment ago — the boundary above refused everything else. There is
-    # nothing to wait for and nothing to race.
-    try:
-        await websocket.send_text(json.dumps({"type": "session_info", "session_id": current_key}))
-    except Exception:
-        pass
-
-    # Start output forwarding. A ``--resume`` child this handler spawned is
-    # watched for the CLI's own "no such conversation" verdict.
-    stop_event = asyncio.Event()
-    output_task = asyncio.create_task(
-        _run_output_loop(
-            session,
-            websocket,
-            stop_event,
-            resume_id=req_session_id if mode == "resume" and not was_reused else None,
+    async def spawn(request: SpawnRequest) -> PtySession:
+        # base_shell_command is list[str] (set by app.lifespan), so unpack
+        # with [*base, ...] — nesting would break PtySession's exec (issue
+        # #218). The door decided what to resume: the key's current
+        # transcript when one is on disk, else a fresh session under the key.
+        if request.resume_id:
+            command: list[str] = [*base_shell_command, "--resume", request.resume_id]
+        else:
+            command = [*base_shell_command, "--session-id", request.key]
+        if effort:
+            command.extend(["--effort", effort])
+        extra_env = _build_extra_env(websocket, request.key, request.key)
+        # A full pool evicts its oldest background session first, and the
+        # registry's own eviction kills it on the calling thread. This runs
+        # on the event loop, under the key's hand-off lock, so the victim is
+        # taken out here and killed off the loop instead.
+        victim = registry.pop_lru_victim()
+        if victim is not None:
+            await asyncio.to_thread(victim.terminate)
+        spawned: PtySession
+        spawned, _ = registry.get_or_create_session(
+            request.key,
+            command,
+            rows=channel.rows,
+            cols=channel.cols,
+            extra_env=extra_env if extra_env else None,
+            cwd=app.state.project_cwd,
         )
-    )
+        return spawned
 
+    async def close_displaced() -> None:
+        # A newer terminal on the same key took the PTY over. This handler's
+        # output loop is stopped first: two readers on one PTY descriptor
+        # split the child's output between them, and the close handshake the
+        # main loop waits for is a round trip away (longer for a client that
+        # is gone). The main loop then stops writing to a PTY that is no
+        # longer this handler's. Reads the loop bindings as they are now.
+        stop_event.set()
+        if output_task is not None:
+            output_task.cancel()
+        channel.closed.set()
+        await channel.close(session_handoff.WS_CLOSE_SESSION_ATTACHED)
+
+    state.closers[token] = close_displaced
+
+    # ``session`` is the PTY this handler holds and ``session_key`` the key it
+    # holds it under; ``current_key`` is the key under acquisition, which
+    # differs from ``session_key`` only while a switch is in flight.
+    session: PtySession | None = None
+    session_key = current_key
+    stop_event = asyncio.Event()
+    output_task: asyncio.Task[None] | None = None
     try:
+        result = await _open_surface(channel, app, current_key, interrupt=interrupt, spawn=spawn)
+        if result is None or channel.closed.is_set():
+            return
+        session = cast("PtySession", result.session)
+        # Sized after the door whichever path filled the key: a resize the
+        # side reader recorded after the spawn read the size is applied here
+        # (an unchanged size is a no-op), and a reused PTY is not resized by
+        # the door at all.
+        _resize_pty(session, channel.rows, channel.cols)
+        _bind_notebook_session(app, registry, session, current_key)
+
+        # Confirm the id, whichever path filled the key. A new session's id
+        # is the one the spawn put on the CLI's command line; a resume's is
+        # either a warm PTY (the session itself) or an id whose transcript
+        # was on disk a moment ago — the boundary above refused everything
+        # else. There is nothing to wait for and nothing to race.
+        await channel.send_json({"type": "session_info", "session_id": current_key})
+
+        # Start output forwarding. A ``--resume`` child spawned for this
+        # handler is watched for the CLI's own "no such conversation" verdict.
+        output_task = asyncio.create_task(
+            _run_output_loop(session, websocket, stop_event, resume_id=result.resume_id)
+        )
+
         while True:
-            message = await websocket.receive()
+            message = await channel.receive()
+            if channel.closed.is_set():
+                break
 
             if "text" in message:
                 text = message["text"]
@@ -1309,14 +1569,12 @@ async def terminal_ws(websocket: WebSocket):
                     msg = None
 
                 if isinstance(msg, dict):
-                    msg_type = msg.get("type")
-
-                    if msg_type == "resize":
-                        logger.debug("PTY resize: %dx%d", msg["cols"], msg["rows"])
-                        session.resize(msg["rows"], msg["cols"])
+                    if channel.note_resize(msg):
+                        logger.debug("PTY resize: %dx%d", channel.cols, channel.rows)
+                        _resize_pty(session, channel.rows, channel.cols)
                         continue
 
-                    if msg_type == "switch_session":
+                    if msg.get("type") == "switch_session":
                         target_id = msg.get("session_id", "")
                         if not _UUID_RE.match(target_id):
                             await websocket.send_text(
@@ -1341,105 +1599,94 @@ async def terminal_ws(websocket: WebSocket):
                             )
                             continue
 
-                        if _transcript_missing(registry, discovery, target_id):
+                        if _transcript_missing(app, registry, discovery, target_id):
                             # Nothing to switch to; the operator stays on the
                             # session they are on. Same frame as the connect
                             # path, so the client renders one state.
                             logger.info(
-                                "Refusing to switch to %s: no live PTY and no transcript",
+                                "Refusing to switch to %s: no live PTY, no chat session "
+                                "and no transcript",
                                 target_id,
                             )
                             await websocket.send_text(_transcript_missing_frame(target_id))
                             continue
 
+                        # 1. Stop the current output loop
+                        stop_event.set()
+                        output_task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await output_task
+
+                        # 2. Detach the current session (stays alive in the pool)
+                        registry.detach_session(current_key, token)
+
+                        # 3. Take the target through the door. From here the
+                        #    handler holds nothing, so anything that stops it
+                        #    short of the target ends the connection: the
+                        #    client reconnects on its stored pointer. The
+                        #    target is the key under acquisition from now on,
+                        #    so the teardown detaches it even when a
+                        #    cancellation lands after phase (c) attached it.
+                        current_key = target_id
                         try:
-                            # 1. Stop current output loop
-                            stop_event.set()
-                            output_task.cancel()
-                            try:
-                                await output_task
-                            except asyncio.CancelledError:
-                                pass
-
-                            # 2. Detach current session (stays alive in pool)
-                            registry.detach_session(current_key)
-
-                            # 3. Build command for target — unpack base_shell_command
-                            #    (list[str]) so a pinned ["npx", "-y", "..."] prefix
-                            #    flattens into target_cmd rather than nesting.
-                            target_cmd: list[str] = [
-                                *base_shell_command,
-                                "--resume",
-                                target_id,
-                            ]
-                            if effort:
-                                target_cmd.extend(["--effort", effort])
-                            target_env = _build_extra_env(websocket, target_id)
-
-                            # 4. Get or create target session
-                            session, was_reused = registry.get_or_create_session(
-                                target_id,
-                                target_cmd,
-                                rows=initial_rows,
-                                cols=initial_cols,
-                                extra_env=target_env if target_env else None,
-                                cwd=websocket.app.state.project_cwd,
-                            )
-                            registry.attach_session(target_id)
-                            _bind_notebook_session(websocket.app, registry, session, target_id)
-
-                            # 5. Notify client
-                            await websocket.send_text(
-                                json.dumps(
-                                    {
-                                        "type": "session_switched",
-                                        "session_id": target_id,
-                                    }
-                                )
-                            )
-
-                            # 6. Start new output loop
-                            stop_event = asyncio.Event()
-                            output_task = asyncio.create_task(
-                                _run_output_loop(
-                                    session,
-                                    websocket,
-                                    stop_event,
-                                    resume_id=None if was_reused else target_id,
-                                )
-                            )
-
-                            # 7. Update tracking
-                            current_key = target_id
-
-                            logger.info(
-                                "Session switched to %s (reused=%s)",
-                                target_id,
-                                was_reused,
+                            result = await _open_surface(
+                                channel, app, target_id, interrupt=False, spawn=spawn
                             )
                         except Exception:
-                            logger.exception("Session switch failed")
-                            await websocket.send_text(
-                                json.dumps(
-                                    {
-                                        "type": "error",
-                                        "message": "Session switch failed",
-                                    }
-                                )
+                            logger.exception("Session switch to %s failed", target_id)
+                            await channel.send_json(
+                                {"type": "error", "message": "Session switch failed"}
                             )
+                            await channel.close()
+                            return
+                        if result is None or channel.closed.is_set():
+                            return
+                        session = cast("PtySession", result.session)
+                        session_key = target_id
+                        _resize_pty(session, channel.rows, channel.cols)
+                        _bind_notebook_session(app, registry, session, current_key)
+
+                        # 4. Notify the client
+                        await websocket.send_text(
+                            json.dumps(
+                                {
+                                    "type": "session_switched",
+                                    "session_id": target_id,
+                                }
+                            )
+                        )
+
+                        # 5. Start the new output loop
+                        stop_event = asyncio.Event()
+                        output_task = asyncio.create_task(
+                            _run_output_loop(
+                                session,
+                                websocket,
+                                stop_event,
+                                resume_id=result.resume_id,
+                            )
+                        )
+                        logger.info(
+                            "Session switched to %s (spawned=%s)",
+                            target_id,
+                            result.spawned,
+                        )
                         continue
 
                 # Not a recognized JSON control message — treat as terminal input
-                session.write_input(text.encode("utf-8"))
+                _write_to_pty(session, text.encode("utf-8"))
 
             elif "bytes" in message:
-                session.write_input(message["bytes"])
+                _write_to_pty(session, message["bytes"])
 
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:
+        state.closers.pop(token, None)
+        channel.release()
         stop_event.set()
-        output_task.cancel()
+        if output_task is not None:
+            output_task.cancel()
         # Detach instead of terminate — keep session alive in the pool.
         # Only terminate if the process has already died.
         #
@@ -1451,11 +1698,24 @@ async def terminal_ws(websocket: WebSocket):
         # dead, and spawn a replacement under the same key. An unguarded
         # teardown would then terminate the live replacement and clear the
         # attachment the newer handler holds, killing a terminal the operator
-        # is looking at.
-        if registry.get_session(current_key) is session:
-            registry.detach_session(current_key)
-        if not session.is_alive:
-            registry.terminate_session_if_owner(current_key, session)
+        # is looking at. The detach carries this handler's attachment token
+        # too, so the registry refuses it from its own side as well — the two
+        # checks cover the same hazard through the two things that can be
+        # compared: which session sits under the key, and who holds it.
+        #
+        # With no session under the key being acquired — the door refused,
+        # or a cancellation landed after phase (c) had already attached this
+        # token — the detach runs unconditionally; it is owner-checked and a
+        # no-op for a token that never attached. A dead PTY is terminated
+        # under the key it was held by.
+        if (
+            session is None
+            or current_key != session_key
+            or registry.get_session(current_key) is session
+        ):
+            registry.detach_session(current_key, token)
+        if session is not None and not session.is_alive:
+            registry.terminate_session_if_owner(session_key, session)
 
 
 # ── Control-target gestures: audit, vocabulary, refusals ─────────────────────
