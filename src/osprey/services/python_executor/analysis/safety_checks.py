@@ -20,11 +20,24 @@ def check_syntax(code: str) -> list[str]:
     return issues
 
 
-# Patterns that indicate security risks in user-submitted code
+# Builtins that run code the caller supplies as data. Matched on the AST, as a
+# CALL of a bare name — never as a substring. ``"eval(" in code`` refuses
+# ``retrieval(...)``, ``df.eval("a + b")`` (a pandas expression) and
+# ``model.eval()`` (put a torch module in inference mode); none of those runs
+# caller-supplied code, and all three are ordinary analysis an operator has
+# every reason to submit. An attribute call such as ``builtins.eval(...)`` is
+# deliberately not matched here either: it is not a bare-name call, and the
+# layer that answers obfuscation is the runtime guard, not this text scan.
+_DANGEROUS_CALLS = {
+    "exec": "Use of exec() function",
+    "eval": "Use of eval() function",
+    "__import__": "Dynamic import usage",
+    "compile": "Dynamic code compilation",
+}
+
+# Substring signals that stay substrings: each names a module or a dotted
+# attribute rather than a call, so there is no bare-name call to key on.
 _DANGEROUS_PATTERNS = [
-    ("exec(", "Use of exec() function"),
-    ("eval(", "Use of eval() function"),
-    ("__import__", "Dynamic import usage"),
     ("open(", "File operations - ensure proper handling"),
     ("subprocess", "Subprocess usage - potential security risk"),
     ("os.system", "System command execution"),
@@ -33,9 +46,29 @@ _DANGEROUS_PATTERNS = [
 _PROHIBITED_IMPORTS = ["subprocess", "os.system", "eval", "exec"]
 
 
+def _dangerous_call_issues(code: str) -> list[str]:
+    """One issue per :data:`_DANGEROUS_CALLS` builtin actually *called*.
+
+    Reported once per builtin, however often it appears. Syntax errors are the
+    business of :func:`check_syntax`; this walker stays quiet on them.
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return []
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        warning = _DANGEROUS_CALLS.get(node.func.id)
+        if warning is not None and warning not in found:
+            found.append(warning)
+    return found
+
+
 def check_security(code: str) -> list[str]:
     """Check for dangerous code patterns. Returns list of issues."""
-    issues = []
+    issues = [f"Security risk: {warning}" for warning in _dangerous_call_issues(code)]
     for pattern, warning in _DANGEROUS_PATTERNS:
         if pattern in code:
             if pattern in ["open(", "subprocess"]:

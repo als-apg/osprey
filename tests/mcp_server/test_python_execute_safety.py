@@ -162,6 +162,57 @@ def test_quick_safety_check_standalone():
 
 
 # ============================================================================
+# eval / exec matching — a CALL of a bare name, not a substring
+# ============================================================================
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param("retrieval(query)", id="name-contains-eval"),
+        pytest.param("df.eval('a + b')", id="pandas-expression"),
+        pytest.param("model.eval()", id="torch-inference-mode"),
+        pytest.param("s = 'eval('", id="inside-a-string"),
+        pytest.param("# eval(x)\nprint(1)", id="inside-a-comment"),
+        pytest.param("executor(job)", id="name-contains-exec"),
+        pytest.param("ctx.exec(stmt)", id="attribute-exec"),
+    ],
+)
+def test_ordinary_code_is_not_flagged_as_dynamic_evaluation(code):
+    """``pattern in code`` refused ordinary analysis for containing ``eval(``.
+
+    None of these runs caller-supplied code, and every one of them is code an
+    operator has a real reason to submit — so refusing them trains people to
+    work around the executor rather than through it.
+    """
+    from osprey.services.python_executor.analysis.safety_checks import quick_safety_check
+
+    passed, issues = quick_safety_check(code)
+    assert passed is True, issues
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param("exec('print(1)')", id="exec"),
+        pytest.param("result = eval('2 + 2')", id="eval"),
+        pytest.param("__import__('os').system('ls')", id="dunder-import"),
+        pytest.param("compile('x = 1', '<s>', 'exec')", id="compile"),
+        pytest.param("def f():\n    return eval(user_input)", id="nested-in-function"),
+    ],
+)
+def test_dynamic_evaluation_calls_are_still_refused(code):
+    """Narrowing the match must not let the real thing through."""
+    from osprey.services.python_executor.analysis.safety_checks import quick_safety_check
+
+    passed, issues = quick_safety_check(code)
+    assert passed is False
+    assert any("Security risk" in i for i in issues), issues
+
+
+# ============================================================================
 # readonly import denylist — control-system client libraries
 # ============================================================================
 
