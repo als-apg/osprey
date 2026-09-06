@@ -116,7 +116,6 @@ claude_code:
     protocol: http/protobuf
 cli:
   theme: default
-container_runtime: docker
 control_system:
   channel_read_artifact_retention: 20
   connector:

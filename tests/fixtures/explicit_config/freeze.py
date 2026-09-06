@@ -57,6 +57,12 @@ listed under ``masked_keys`` in ``meta.json``:
     ``execution.environment.python`` resolves to an interpreter path on a
     machine that has one, so the block cannot be frozen. ``execution_method``
     is kept.
+``container_runtime``
+    Deleted. The presets ship ``auto``, and ``osprey build`` answers ``auto``
+    with the runtime that actually served the build — ``docker`` on a machine
+    that has one, and ``auto`` left standing on a machine that has none. So the
+    rendered value states a fact about the building host, not about the
+    deployment, and cannot be frozen.
 
 The CLI runs with every ``*_API_KEY`` variable removed from the environment, so
 which provider keys happen to be exported on the freezing machine cannot reach
@@ -152,6 +158,10 @@ STRIPPED_KEYS: Mapping[str, str] = {
     "execution.environment": (
         "execution.environment.python resolves to an interpreter path on a machine that has one"
     ),
+    "container_runtime": (
+        "osprey build answers the preset's container_runtime: auto with the runtime that "
+        "served the build, which is a fact about the building host"
+    ),
 }
 
 #: Keys replaced rather than deleted, with what replaces them.
@@ -225,6 +235,7 @@ def mask_document(document: Mapping[str, Any]) -> dict[str, Any]:
     """
     masked = dict(document)
     masked.pop("project_root", None)
+    masked.pop("container_runtime", None)
 
     api = masked.get("api")
     if isinstance(api, Mapping) and isinstance(api.get("providers"), Mapping):
