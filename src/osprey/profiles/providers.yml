@@ -1,0 +1,96 @@
+# ============================================================
+# PROVIDER CATALOG
+# ============================================================
+# Every model provider this deployment can name. `provider:` in profile.yml
+# picks one of these entries by name, and the build renders this whole file
+# into `api.providers` in build/config.yml.
+#
+# Each entry carries:
+#   base_url       required — the OpenAI-compatible endpoint
+#   api_key        optional — usually an ${ENV_VAR} reference, expanded at runtime
+#   models         optional — this provider's own IDs for the haiku/sonnet/opus tiers
+#   api_protocol   optional — set to `anthropic` for an Anthropic-native endpoint
+#
+# Add your own gateway by appending an entry; the keys above are the whole
+# contract. A copy of this file beside profile.yml replaces the packaged
+# catalog outright — it is not merged — so an entry deleted here is gone.
+# `osprey profile expand --providers` refreshes the packaged entries.
+#
+# API keys are read from the project .env at runtime, never stored here.
+
+providers:
+  cborg:
+    api_key: ${CBORG_API_KEY}
+    base_url: https://api.cborg.lbl.gov/v1
+    models:                        # Model IDs as named by this provider
+      haiku: claude-haiku-4-5
+      sonnet: claude-sonnet-4-6
+      opus: claude-opus-4-7
+  amsc-i2:
+    api_key: ${AMSC_I2_API_KEY}
+    base_url: https://api.i2-core.american-science-cloud.org/v1
+    models:                        # Model IDs as named by this provider
+      haiku: claude-haiku
+      sonnet: claude-sonnet
+      opus: claude-opus
+  stanford:
+    api_key: ${STANFORD_API_KEY}
+    base_url: https://aiapi-prod.stanford.edu/v1
+    models:                        # Gateway serves no Opus-class model; o3-mini is the strongest
+      haiku: gpt-4o-mini
+      sonnet: gpt-4o
+      opus: o3-mini
+  openai:
+    api_key: ${OPENAI_API_KEY}
+    base_url: https://api.openai.com/v1
+    models:                        # GPT-5.6 sizes mapped onto the standard tiers
+      haiku: gpt-5.6-luna
+      sonnet: gpt-5.6-terra
+      opus: gpt-5.6-sol
+  anthropic:
+    api_key: ${ANTHROPIC_API_KEY}
+    base_url: https://api.anthropic.com
+    models:
+      haiku: claude-haiku-4-5
+      sonnet: claude-sonnet-5
+      opus: claude-opus-5
+  google:
+    api_key: ${GOOGLE_API_KEY}
+    base_url: https://generativelanguage.googleapis.com/v1beta
+    models:                        # Current stable Gemini sizes on the standard tiers
+      haiku: gemini-3.5-flash-lite
+      sonnet: gemini-3.8-flash
+      opus: gemini-2.5-pro
+  ollama:
+    api_key: ollama
+    base_url: ${OLLAMA_HOST:-http://localhost:11434}
+    models:                        # Local models — `ollama pull` each one before use
+      haiku: mistral:7b
+      sonnet: gpt-oss:20b
+      opus: gpt-oss:120b
+  argo:
+    api_key: ${ARGO_API_KEY}
+    base_url: ${ARGO_BASE_URL:-https://apps.inside.anl.gov/argoapi/v1}
+    models:                        # Argo spells its model IDs without punctuation
+      haiku: claudehaiku45
+      sonnet: claudesonnet45
+      opus: claudeopus41
+  als-apg:
+    api_key: ${ALS_APG_API_KEY}
+    base_url: ${ALS_APG_BASE_URL:-https://llm.gianlucamartino.com/v1}
+    models:
+      haiku: claude-haiku-4-5-20251001
+      sonnet: claude-sonnet-4-6
+      opus: claude-opus-4-6
+  # DwarfStar (ds4) — local DeepSeek V4 server (https://github.com/antirez/ds4)
+  # No API key required. If the server runs on a remote host, forward the port:
+  #   ssh -L 8000:127.0.0.1:8000 <host>
+  ds4:
+    api_key: EMPTY                  # ds4 ignores auth; any non-empty string works
+    base_url: http://127.0.0.1:8000/v1
+    # ds4 serves two model sizes; mapped onto the standard tiers so ds4 is a
+    # drop-in (flash = fast/cheap tier, pro = capable tiers).
+    models:
+      haiku: deepseek-v4-flash
+      sonnet: deepseek-v4-pro
+      opus: deepseek-v4-pro
