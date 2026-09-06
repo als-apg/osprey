@@ -1,37 +1,89 @@
-"""The reconciler that turns desired session control state into what is true.
+"""The reconciler that brings this server into line with the control context.
 
-The web terminal cannot call this server. The controls MCP server speaks
-JSON-RPC over stdio to the Claude Code process that spawned it, has no inbound
-channel of its own, and is the single writer of the control-target state file.
-So the header chip does not ask it for anything: it *writes down what an
-operator wants* under the shared agent-data root — a per-(session, target)
-posture entry in :mod:`osprey_connectors.session_store`, a switch request in
-``request_<server_pid>.json`` — and this task is what makes either of them
-happen to the connector this process owns.
+The control target, its generation and the write posture are one record per
+deployment — ``control_target/control_context.json`` — written only by whichever
+process owns it: the web terminal when there is one, else a controls server.
+This server is one reader of that record among many, and this task is what
+makes the record true of the connector this process holds.
 
-That asymmetry is the design, not a workaround. Desired state and true state
-live in different files with different writers: a request says what somebody
-asked for and can be stale, refused or ignored, while the state file says what
-IS, and only this server writes it. Nothing on the web side can move a session
-by writing a file; it can only ask.
+Three things happen once a second, in this order, and the order is the design.
 
-What the loop does, once a second
----------------------------------
-Both halves are driven by a ``(st_mtime_ns, st_size, st_ino)`` signature — the
-same rule :mod:`osprey_connectors.session_store` and :mod:`osprey.health.signatures`
-follow, with the inode third because both files are replaced atomically and two
-gestures inside one filesystem clock tick would otherwise differ in nothing
-else. A poll whose signatures have not moved costs two ``stat`` calls.
+**Claim or follow.** A controls server is the fallback owner: it claims the
+record when nothing alive owns it and follows on every tick where a live web
+terminal (or another server that got there first) does. The claim itself is
+:func:`~osprey.mcp_server.control_system.server_context.claim_control_context`
+— one implementation, shared with server start — and it is asked for only when
+this tick has already seen that the owner is absent or dead, so a follower
+neither writes nor logs its way through the day.
 
-**The posture store.** A narrowing recorded for the target this session is
-currently ON does not take effect by itself: writes are refused per call from
-the store already, but the connector-host child *connected* on a gateway role
-chosen under the old posture, so a narrowed session keeps a write gateway it
-may no longer use. Realignment is a rebuild of that child through
+**Reconcile to the record.** The record's ``(target, generation)`` is what this
+server's connector host must be on. Before any await, this pass compares them
+with what the supervisor intends; when they differ **and a child is live**, it
+publishes ``last_switch{status: applying}`` into this server's own report
+first, so that no other session's launch is admitted into the window where this
+process is between two targets. The move itself is
+:meth:`~osprey.mcp_server.control_system.connector_host_manager.ConnectorHostManager.reconcile`,
+which adopts silently when no child is running (nothing is bound, so nothing
+can be bound wrongly, and the first launch comes up on the adopted values) and
+otherwise adopts the generation against the running child or spawns the new
+target. It publishes its own ``applied`` terminus, which is what releases the
+``applying`` block written here; a failed swap files ``failed`` at the
+generation it kept. This reconcile runs BEFORE the posture half deliberately: a
+same-target adoption leaves a pending realignment pending, and the rebuild that
+answers it happens in the same pass.
+
+**Consume switch requests.** A surface that cannot call this server writes down
+what it wants: a per-requester ``switch_request_<pid>.json``, consumed by the
+record's owner. There is no addressee — the guard is ownership, and a follower
+leaves every request alone. The owner consumes only while
+:func:`~osprey_connectors.control_context.converged` reports the fleet settled,
+so ``last_switch`` moves at most once per convergence cycle and no terminus is
+clobbered by a swap that is still landing.
+
+Two vocabularies, and they are not the same word twice
+------------------------------------------------------
+A **report** (``server_<pid>.json``) carries this server's PROGRESS:
+``applying`` / ``applied`` / ``failed``, published by
+:func:`~osprey.mcp_server.control_system.target_state.publish_last_switch` and
+read by every other process to decide whether the deployment has settled. The
+**record** carries a REQUEST'S TERMINUS: :data:`STATUS_APPLIED` or
+:data:`STATUS_REFUSED`, and nothing else — a refusal is a record write that
+moves neither target nor generation. Reporting progress is this server's; the
+terminus is the owner's.
+
+How a request is answered, and why in that order
+------------------------------------------------
+1. The record is re-read IMMEDIATELY before acting. A request whose id is
+   already the record's ``last_switch.request_id`` was answered by an earlier
+   pass — or by an earlier process — and the only thing left to do with it is
+   unlink it. That is what makes consumption idempotent: the answer is the
+   record, not the disappearance of a file.
+2. A request naming the target the record is already on is answered
+   :data:`STATUS_APPLIED` at the CURRENT generation. Nothing is minted: the
+   deployment is where it was asked to be, and a generation bumped for a switch
+   that did not happen would refuse every write in flight for nothing.
+3. Otherwise the gate runs — :func:`target_eligibility.evaluate_switch`, the
+   same verdict the terminal route and the agent's tool get — and either the
+   refusal or the move is written into the record atomically: target, ``+1``
+   generation, and the terminus in one replace.
+4. The write is read-verified before the request file is unlinked. Two owners
+   can believe they own one record for as long as it takes the loser to find
+   out; unlinking a request whose answer did not stick would leave the operator
+   with neither an outcome nor a pending gesture.
+5. Only then are the ledger and the operator's activity feed told, ledger
+   first: every await is a place this task can be cancelled, and a shutdown
+   between the two must not lose the record of a switch that happened.
+
+The posture half
+----------------
+A narrowing recorded for the target this deployment is currently ON does not
+take effect by itself: writes are refused per call from the record already, but
+the connector-host child *connected* on a gateway role chosen under the old
+posture. Realignment is a rebuild of that child through
 :meth:`~osprey.mcp_server.control_system.server_context.ControlSystemContext.invalidate_connector`,
 which owns its own lock — this task takes none, deliberately, because a second
 lock around the same operation is how two things that must agree stop agreeing.
-A store that moved also republishes the ``targets`` block through
+A record that moved also republishes the ``targets`` block through
 :meth:`~osprey.mcp_server.control_system.connector_host_manager.ConnectorHostManager.publish_display`:
 display metadata names the gateway a posture chose, and a narrowing that lands
 without a switch to carry it has no other writer to restate that name.
@@ -45,62 +97,11 @@ says ``pending`` while it waits — which is what lets the popover say "read-onl
 applies after the running execution finishes" instead of showing a toggle that
 appears to have done nothing.
 
-A narrowing on a target the session is NOT on realigns nothing: the session's
-connector has nothing to do with that machine, and the store is read again the
+A narrowing on a target this deployment is NOT on realigns nothing: the
+connector has nothing to do with that machine, and the record is read again the
 moment a switch lands there. A switch that happens while a realignment is
 pending clears it for the same reason — the child the switch built read the
-store on the way up.
-
-**The switch request.** Addressed, not broadcast: the file is named for a
-server PID, and its *body* names one too. A body naming another process is
-dropped without acting on it, because a PID can be reused and honouring a
-request written for a server that has since died would move a session on a
-gesture nobody made in it. A request older than
-:data:`~osprey.mcp_server.control_system.target_state.REQUEST_TTL_S` ends as
-``request_expired``: the operator who clicked Switch is no longer watching, and
-a switch that lands minutes after the gesture is a surprise rather than a
-service. A request whose addressee *died* is never answered from here at all —
-there is no process left to answer it — so the chip synthesises
-``request_expired`` locally once the TTL has passed with no outcome, and
-:func:`~osprey.mcp_server.control_system.target_state.sweep_stale` unlinks the
-file when some later server starts.
-
-What a status means to the chip
--------------------------------
-``success`` renders as a tick and nothing else; ``refused`` and ``failed``
-render as a cross beside their ``reason`` — the gate's own word, or the stage
-the switch stopped at — and ``expired`` is the one whose reason is always
-:data:`REASON_REQUEST_EXPIRED`, which is also the word the chip writes for
-itself when nobody ever answered. So a reader has one rule: tick on
-``success``, otherwise show ``reason``.
-
-Everything else is the agent's own path, reached through the same functions:
-:func:`~osprey.mcp_server.control_system.tools.control_target.switch_gate` for
-the three refusals, evaluated IMMEDIATELY before the switch so the world it
-read is the world the switch happens in, and
-:meth:`~osprey.mcp_server.control_system.connector_host_manager.ConnectorHostManager.switch`
-for the move itself — the same lock and the same equality guard the tool goes
-through, so a reconciler and an agent aiming at the same target spawn one child
-between them rather than two.
-
-Every terminus, in one order
-----------------------------
-Success, each refusal, a failed switch and an expiry all end the same way:
-
-1. :func:`~osprey.mcp_server.control_system.target_state.publish_last_switch`
-   records the outcome under the ``request_id`` the chip is holding, and names
-   the ``target`` it was aimed at — the chip matches on the request, but the
-   popover's roster is one row per machine and renders the outcome on the row
-   the request named;
-2. the request file is removed;
-3. the operator's activity feed is told (on everything that was *attempted* —
-   an expired request never became an attempt);
-4. one audit record is filed under the subject the web route and the agent's
-   tool both use, so the ledger shows one kind of event whichever surface asked.
-
-The order matters at step 2: the route reads the request file's presence to
-refuse a second click, so publishing after removing it would leave a window in
-which the chip finds neither a pending request nor an outcome.
+record on the way up.
 """
 
 from __future__ import annotations
@@ -120,36 +121,29 @@ from osprey.mcp_server.http import (
     TARGET_SWITCH_TOOL,
     notify_target_switch_async,
 )
-from osprey_connectors import session_store
+from osprey_connectors import control_context, session_store
 
 logger = logging.getLogger("osprey.mcp_server.control_system.session_control")
 
 #: How often the loop looks. A second is the whole budget an operator will wait
-#: for a button to answer, and two ``stat`` calls a second is what an unchanged
-#: pair of files costs.
+#: for a button to answer, and a settled deployment costs one cached record
+#: read, one ``stat`` and one glob of a small directory.
 POLL_INTERVAL_S = 1.0
 
 # -- terminus statuses ------------------------------------------------------
 #
-# The vocabulary the chip renders: ``success`` is a tick, everything else is
-# the ``reason`` beside a cross. They are spelled here rather than in the state
-# file's module because they are this reconciler's answers — the state file
-# records what it is told and arbitrates none of it.
+# The record's own vocabulary, restated here rather than respelled: a switch
+# request ends ``applied`` or ``refused`` and there is no third answer. A
+# failure to reach the new target is not a terminus of the request — the
+# request landed, the deployment moved, and the server that could not follow
+# says so in its own report.
 
-#: The session moved.
-STATUS_SUCCESS = "success"
-#: A gate said no; nothing was attempted.
-STATUS_REFUSED = "refused"
-#: An attempt was made and did not complete; the session is where it was.
-STATUS_FAILED = "failed"
-#: The request was reached later than its TTL and was never acted on.
-STATUS_EXPIRED = "expired"
+#: The record moved (or was already where the request asked for).
+STATUS_APPLIED = control_context.SWITCH_APPLIED
+#: The gate said no. Neither target nor generation moved.
+STATUS_REFUSED = control_context.SWITCH_REFUSED
 
-#: The reason an expired request carries — the word the chip renders and the
-#: word the route's own refusal vocabulary already contains.
-REASON_REQUEST_EXPIRED = "request_expired"
-
-#: An exception the switch did not classify. Restated from
+#: An exception the consumption did not classify. Restated from
 #: :data:`~osprey.mcp_server.control_system.tools.control_target.REASON_INTERNAL_ERROR`
 #: rather than imported — that module imports the server module this task's
 #: lifespan lives in — and pinned equal to it by a test.
@@ -163,7 +157,7 @@ REALIGN_DONE = "done"
 #: reason instead, so the two surfaces' records can be matched on it.
 REASON_TARGET_SWITCHED = "target_switched"
 
-#: The audit subject for a gesture that moves the session's control target —
+#: The audit subject for a gesture that moves the deployment's control target —
 #: the same word the agent's tool and the web route record under, so an
 #: operator reading the ledger sees one kind of event whichever surface asked.
 AUDIT_SUBJECT_TARGET_SET = TARGET_SWITCH_TOOL
@@ -182,34 +176,28 @@ __all__ = [
     "REALIGN_DONE",
     "REALIGN_PENDING",
     "REASON_INTERNAL_ERROR",
-    "REASON_REQUEST_EXPIRED",
     "REASON_TARGET_SWITCHED",
-    "STATUS_EXPIRED",
-    "STATUS_FAILED",
+    "STATUS_APPLIED",
     "STATUS_REFUSED",
-    "STATUS_SUCCESS",
     "SessionControlReconciler",
 ]
 
 
-def _signature(path: Path | None) -> tuple[int, int, int] | None:
-    """``(mtime_ns, size, inode)`` for *path*, or ``None`` when it is absent.
+def _requester(record: dict[str, Any], pid: int) -> str:
+    """Who to name in the terminus and the ledger for a request from *pid*.
 
-    The inode is the third element on purpose: both files this task watches are
-    replaced atomically, so two gestures inside one filesystem clock tick
-    differ by inode even when mtime and size do not.
+    The requester's audit session when it has one, so a ledger reader can match
+    the gesture to the session that made it, and its PID otherwise — a bare
+    ``claude`` reports no session and still has to be nameable.
     """
-    if path is None:
-        return None
-    try:
-        st = path.stat()
-    except OSError:
-        return None
-    return (st.st_mtime_ns, st.st_size, st.st_ino)
+    session = record.get("session")
+    if isinstance(session, str) and session.strip():
+        return session.strip()
+    return f"pid:{pid}"
 
 
 class SessionControlReconciler:
-    """Reconciles the operator's desired session control state, once a second.
+    """Reconciles this server to the deployment's control context, once a second.
 
     Owned by the controls server's lifespan beside
     :class:`~osprey.mcp_server.control_system.endpoint_prober.EndpointProber`,
@@ -225,12 +213,12 @@ class SessionControlReconciler:
         self._interval_s = float(interval_s)
         self._task: asyncio.Task[None] | None = None
 
-        # What the last pass saw. All four start unset, so the first pass
-        # *baselines* rather than acting: a narrowing already in the store when
-        # this server started was read by the child it started, and replaying
-        # it as a change would rebuild a connector nobody narrowed.
-        self._store_signature: tuple[int, int, int] | None = None
-        self._request_signature: tuple[int, int, int] | None = None
+        # What the last pass saw of the record's posture. All three start
+        # unset, so the first pass *baselines* rather than acting: a narrowing
+        # already recorded when this server started was read by the child it
+        # started, and replaying it as a change would rebuild a connector
+        # nobody narrowed.
+        self._record_signature: tuple[int, int, int] | None = None
         self._active_target: str | None = None
         self._active_posture: str | None = None
         self._realign_pending = False
@@ -277,23 +265,29 @@ class SessionControlReconciler:
     # -- one pass ----------------------------------------------------------
 
     async def poll_once(self) -> None:
-        """One reconcile pass: the posture store, then the switch request.
+        """One pass: claim or follow, reconcile to the record, posture, requests.
 
-        The posture half runs first so that a switch landing in the same pass
-        is judged against a connector that already reflects the store.
+        The reconcile runs before the posture half so that a realignment left
+        pending by a previous pass is answered against the child this pass
+        settled on, and the request half runs last so that a request consumed
+        here is reconciled to on the next tick with the record already written.
         """
         context = self._context()
         if context is None:
             return
+        record = self._own_or_follow(context)
+        if record is not None:
+            await self._reconcile_to_record(context, record)
         await self._reconcile_posture(context)
-        await self._reconcile_request(context)
+        if record is not None:
+            await self._consume_requests(context)
 
     def _context(self) -> Any:
         """The server context, or ``None`` when there is not one yet.
 
         A poll before ``initialize_server_context()`` has run is not an error:
         the lifespan starts this task, and a context that cannot be read has no
-        session to reconcile.
+        connector to reconcile.
         """
         from osprey.mcp_server.control_system.server_context import get_server_context
 
@@ -302,52 +296,162 @@ class SessionControlReconciler:
         except RuntimeError:
             return None
 
-    # -- the posture store -------------------------------------------------
+    # -- ownership ---------------------------------------------------------
+
+    def _own_or_follow(self, context: Any) -> control_context.ControlContext | None:
+        """The record this pass works from, claimed if nothing alive owns it.
+
+        The liveness question is asked here and the claim is made there:
+        :func:`~osprey.mcp_server.control_system.server_context.claim_control_context`
+        is the single claim implementation — merge, read-verify, never raises —
+        but it announces what it found, and a follower that called it once a
+        second would say so once a second. So it is reached only on the tick
+        where this server might actually take the record over.
+
+        Returns:
+            The record to reconcile to — this server's, somebody else's, or the
+            one that beat it to the claim — and ``None`` when there is no
+            readable record and none could be written.
+        """
+        record = control_context.read_record()
+        if control_context.live_owner(record) is not None:
+            return record
+
+        from osprey.mcp_server.control_system.server_context import claim_control_context
+
+        try:
+            baseline = context.baseline
+        except Exception:
+            logger.debug("No deployment baseline to claim the control context with")
+            return record
+        return claim_control_context(baseline=baseline) or record
+
+    # -- the record --------------------------------------------------------
+
+    async def _reconcile_to_record(
+        self, context: Any, record: control_context.ControlContext
+    ) -> None:
+        """Bring the connector host onto the record's ``(target, generation)``.
+
+        The comparison and the ``applying`` block both happen before the first
+        await, so a live server holding a connector is never silent about a
+        generation it has not reached: every other reader learns from the
+        report that this process is between two targets, within one tick of the
+        record moving.
+
+        With no live child nothing is published at all. Nothing is bound, so
+        nothing can be bound to the wrong generation, and an ``applying`` block
+        written here would never be released — the silent adoption publishes no
+        terminus to release it with.
+        """
+        try:
+            hosts = context.connector_hosts
+            on_target = hosts.active_target()
+            on_generation = hosts.active_generation()
+        except Exception:
+            logger.debug("No connector-host supervisor to reconcile to the control context")
+            return
+        if record.target == on_target and record.generation == on_generation:
+            return
+
+        if hosts.has_child():
+            self._publish_applying(hosts, record.generation)
+
+        # Imported inside the call: the manager module imports this server's
+        # context, which imports enough of the server that a module-level
+        # import here would close a cycle.
+        from osprey.mcp_server.control_system.connector_host_manager import SwitchError
+
+        try:
+            result = await hosts.reconcile(record.target, record.generation)
+        except SwitchError as exc:
+            # Already reported ``failed`` at the generation it kept, by the
+            # supervisor itself. Publishing a second verdict here would be this
+            # task's opinion about a swap it did not run; the next pass finds
+            # the record still naming another target and tries again.
+            logger.warning(
+                "Could not reconcile to the control context's target %r at stage %r: %s",
+                record.target,
+                exc.stage,
+                exc.detail,
+            )
+            return
+
+        if result["target_changed"] or result["generation_changed"]:
+            logger.info(
+                "Reconciled to the control context: target %r, generation %s (respawned=%s)",
+                result["target"],
+                result["generation"],
+                result["respawned"],
+            )
+
+    def _publish_applying(self, hosts: Any, generation: int) -> None:
+        """Say this server is mid-swap, with the deadline only it can compute.
+
+        The bound is this process's own spawn, probe and drain timeouts; every
+        other reader sees the report and nothing else, so the publisher writes
+        the deadline it will be judged against. Never costs the reconcile: a
+        block that could not be written leaves readers judging this server by
+        its binding, which is stricter rather than looser.
+        """
+        try:
+            target_state.publish_last_switch(
+                {"generation": generation, "status": target_state.SWITCH_APPLYING},
+                expires_in_s=hosts.applying_bound_s(),
+            )
+        except Exception:
+            logger.warning(
+                "Could not publish the in-progress switch block for generation %s",
+                generation,
+                exc_info=True,
+            )
+
+    # -- the posture -------------------------------------------------------
 
     async def _reconcile_posture(self, context: Any) -> None:
-        """Republish on any move of the store; realign on the ACTIVE target's.
+        """Republish on any move of the record; realign on the ACTIVE target's.
 
         The two halves answer different questions. Display metadata names the
-        gateway a posture chose, so it is stale the moment the store moves for
+        gateway a posture chose, so it is stale the moment the record moves for
         ANY target, and it is republished on every move. The connector is only
-        wrong when the entry for the target the session is ON moved, so that is
-        the only case that rebuilds a child.
+        wrong when the narrowing for the target this deployment is ON moved, so
+        that is the only case that rebuilds a child.
         """
-        signature = _signature(session_store.store_path())
+        signature = control_context.file_signature(control_context.record_path())
         try:
             target = context.connector_hosts.active_target()
         except Exception:
-            logger.debug("No connector-host supervisor to read the session target from")
+            logger.debug("No connector-host supervisor to read the active target from")
             return
 
-        store_moved = signature != self._store_signature
-        if store_moved:
-            # Only on a move of the store. A change of TARGET republished
+        record_moved = signature != self._record_signature
+        if record_moved:
+            # Only on a move of the record. A change of TARGET republished
             # already, inside the switch that made it.
             self._publish_display(context)
-        if store_moved or target != self._active_target:
-            self._store_signature = signature
+        if record_moved or target != self._active_target:
+            self._record_signature = signature
             self._observe(target)
 
         if self._realign_pending:
             await self._realign(context)
 
     def _observe(self, target: str) -> None:
-        """Record what the store now says about *target*, and whether it moved.
+        """Record what the context now says about *target*, and whether it moved.
 
         A change of TARGET is not a change of posture: the child a switch built
-        read the store on the way up, so the session is already aligned and a
-        realignment left pending from the previous target is moot. A change of
-        the entry for the target the session is still on is the one case that
-        owes the operator a rebuild.
+        read the record on the way up, so the deployment is already aligned and
+        a realignment left pending from the previous target is moot. A change
+        of the narrowing for the target this server is still on is the one case
+        that owes the operator a rebuild.
         """
-        entry = session_store.target_posture(posture.posture_session(), target)
+        entry = session_store.target_posture(target)
         if target != self._active_target:
             self._active_target = target
             self._active_posture = entry
             if self._realign_pending:
-                # The session left the target that narrowing was about, on a
-                # child that read the store itself. Nothing is outstanding.
+                # The deployment left the target that narrowing was about, on a
+                # child that read the record itself. Nothing is outstanding.
                 self._realign_pending = False
                 self._publish_realign(REALIGN_DONE)
             return
@@ -378,8 +482,8 @@ class SessionControlReconciler:
 
         Neither wait re-publishes: ``pending`` was written the moment the flip
         was seen and it is still the true answer, so a retry that restamped it
-        would rewrite the state file once a second for the length of a run to
-        say nothing new.
+        would rewrite the report once a second for the length of a run to say
+        nothing new.
         """
         if target_state.in_flight_executions():
             return
@@ -387,14 +491,14 @@ class SessionControlReconciler:
             rebuilt = await context.invalidate_connector("control_system")
         except Exception:
             logger.warning(
-                "Could not realign the control-system connector to the session posture; "
+                "Could not realign the control-system connector to the recorded posture; "
                 "retrying on the next pass",
                 exc_info=True,
             )
             return
         if rebuilt is False:
             logger.warning(
-                "The connector host refused to respawn, so the session posture is not "
+                "The connector host refused to respawn, so the recorded posture is not "
                 "realigned yet; retrying on the next pass"
             )
             return
@@ -406,7 +510,7 @@ class SessionControlReconciler:
 
         The writer renders identity from the posture it is actually in, so a
         narrowing recorded for ANY target moves what the block should say —
-        including one the session is not on, where no switch runs and nothing
+        including one this server is not on, where no switch runs and nothing
         else would republish. A republication that fails is logged and left:
         readers keep rendering the endpoint the last successful one named,
         which is a stale identity line rather than a reconcile pass that
@@ -427,179 +531,258 @@ class SessionControlReconciler:
         except Exception:
             logger.warning("Could not publish the posture realignment note", exc_info=True)
 
-    # -- the switch request ------------------------------------------------
+    # -- switch requests ---------------------------------------------------
 
-    async def _reconcile_request(self, context: Any) -> None:
-        """Consume the switch request addressed to this server, if there is one."""
-        path = target_state.request_file_path()
-        signature = _signature(path)
-        if signature == self._request_signature:
-            return
-        self._request_signature = signature
-        if signature is None:
-            return
+    async def _consume_requests(self, context: Any) -> None:
+        """Answer one switch request, while this process owns the record.
 
-        record = target_state.read_request()
-        if not isinstance(record, dict):
-            # Named for this server and unreadable: this process's residue to
-            # clear, and residue that would otherwise make the route refuse
-            # every later click as ``request_pending``.
-            logger.warning("Unreadable switch request at %s; removing it", path)
-            self._forget_request()
-            return
+        Globbed rather than read from a slot of this server's own: a request is
+        named for the process that ASKED, and any of them is this owner's to
+        answer. The directory is small and the read is one ``os.scandir``, so
+        there is no signature to keep — and keeping one would be a second
+        answer to "has this been dealt with", which the record's
+        ``last_switch.request_id`` already answers correctly.
 
-        if record.get("server_pid") != os.getpid():
-            # Addressed to another process. Dropped without a terminus: the
-            # outcome block belongs to whoever the request was written for, and
-            # answering on their behalf would be this server's second opinion
-            # about a gesture it never received.
-            logger.warning(
-                "Switch request %r names server_pid %r, not this server; dropping it",
-                record.get("request_id"),
-                record.get("server_pid"),
-            )
-            self._forget_request()
-            return
-
-        if not target_state.is_request_fresh(record):
-            await self._finish(
-                record,
-                status=STATUS_EXPIRED,
-                reason=REASON_REQUEST_EXPIRED,
-                detail=(
-                    f"The switch request was written more than {target_state.REQUEST_TTL_S}s "
-                    "ago and was not acted on."
-                ),
-            )
-            return
-
-        # A request this server has decided to act on is a request it owes an
-        # answer to, whatever happens next. The signature above has already
-        # moved, so an exception escaping here would leave the file on disk and
-        # never look at it again: no outcome published, the route refusing
-        # every later click as ``request_pending``, and a chip spinning until
-        # the operator gives up. The loop's own guard is too late to answer a
-        # request it cannot see.
+        At most one request is answered per pass. Consuming a second while the
+        fleet has not yet reported the first would clobber a terminus somebody
+        is still waiting for, which is the same reason the whole half is gated
+        on :func:`~osprey_connectors.control_context.converged`.
+        """
         try:
-            await self._switch(context, record)
-        except Exception as exc:
-            logger.exception("Switch request %r failed unexpectedly", record.get("request_id"))
-            await self._finish(
+            paths = sorted(target_state.state_dir().glob(target_state.REQUEST_FILE_GLOB))
+        except OSError:
+            logger.debug("Could not list the control-context directory", exc_info=True)
+            return
+        if not paths:
+            return
+
+        record = control_context.read_record()
+        if record is None or not control_context.owned_here(record):
+            # A follower answers nothing. It files requests of its own and
+            # waits for the owner exactly as every other surface does.
+            return
+
+        reports = control_context.live_reports()
+        if not control_context.converged(record, reports, None):
+            logger.debug(
+                "Leaving %d switch request(s): the deployment has not settled on generation %s",
+                len(paths),
+                record.generation,
+            )
+            return
+
+        for path in paths:
+            if await self._consume_one(context, path, reports):
+                return
+
+    async def _consume_one(self, context: Any, path: Path, reports: list[Any]) -> bool:
+        """Deal with one request file. ``True`` when it was actually answered.
+
+        A file this owner will never act on — unreadable, nameless, from a
+        process that has gone, or older than the request TTL — is removed
+        without a terminus and reports ``False``, so the pass goes on to look
+        at the next one. It gets no outcome because there is nobody left to
+        read one: the record's ``last_switch`` is how a requester learns what
+        happened, and a requester that is gone or has stopped waiting learns
+        nothing from a block written for it.
+        """
+        body = target_state.read_file(path)
+        if not isinstance(body, dict):
+            logger.warning("Unreadable switch request at %s; removing it", path)
+            self._unlink(path)
+            return False
+
+        pid = target_state.record_pid(body, "requested_by_pid")
+        request_id = str(body.get("request_id") or "")
+        if pid is None or not request_id:
+            logger.warning(
+                "Switch request at %s names no requester or no request id; removing it", path
+            )
+            self._unlink(path)
+            return False
+        if not control_context.is_process_alive(pid):
+            logger.info(
+                "Dropping switch request %r: the process that asked (pid %s) is gone",
+                request_id,
+                pid,
+            )
+            self._unlink(path)
+            return False
+        if not target_state.is_request_fresh(body):
+            logger.info(
+                "Dropping switch request %r from pid %s: written more than %ss ago",
+                request_id,
+                pid,
+                target_state.REQUEST_TTL_S,
+            )
+            self._unlink(path)
+            return False
+
+        # Re-read immediately before acting. Between the glob and here the
+        # record can have been answered by an earlier pass of this same loop, or
+        # taken over by a process that outranks this one.
+        record = control_context.read_record()
+        if record is None or not control_context.owned_here(record):
+            return True
+        if (record.last_switch or {}).get("request_id") == request_id:
+            # Answered already. The unlink is all that was outstanding, and it
+            # is safe precisely because the answer is in the record: reaching
+            # this terminus twice writes nothing twice.
+            logger.debug("Switch request %r was already answered; removing it", request_id)
+            self._unlink(path, pid=pid)
+            return False
+
+        wanted = str(body.get("target") or "").strip()
+        if wanted == record.target:
+            # No mint. The deployment is where the request asked for it to be,
+            # and a generation bumped for a switch that did not happen would
+            # refuse every write bound to the old one for nothing.
+            await self._answer(
                 record,
-                status=STATUS_FAILED,
+                body,
+                path,
+                pid=pid,
+                status=STATUS_APPLIED,
+                reason=None,
+                detail=(
+                    f"The control target is already {wanted!r} (generation {record.generation})."
+                ),
+                generation=record.generation,
+            )
+            return True
+
+        try:
+            verdict = self._gate(context, record, wanted, reports)
+        except Exception as exc:
+            logger.exception("Switch request %r could not be judged", request_id)
+            await self._answer(
+                record,
+                body,
+                path,
+                pid=pid,
+                status=STATUS_REFUSED,
                 reason=REASON_INTERNAL_ERROR,
                 detail=f"{type(exc).__name__}: {exc}",
+                generation=None,
             )
+            return True
 
-    async def _switch(self, context: Any, record: dict[str, Any]) -> None:
-        """Gate, then switch, then report — the agent's path with no agent.
-
-        The gate is asked HERE rather than when the request was written: an
-        execution that started in between, a posture that narrowed, a target
-        that stopped being eligible all have to refuse this switch, and a
-        verdict taken earlier would be a verdict about a different moment.
-        """
-        # Imported inside the call: ``tools.control_target`` imports the server
-        # module this task's own lifespan lives in, so a module-level import
-        # here would close an import cycle.
-        from osprey.mcp_server.control_system.connector_host_manager import SwitchError
-        from osprey.mcp_server.control_system.tools.control_target import switch_gate
-
-        wanted = str(record.get("target") or "").strip()
-        hosts = context.connector_hosts
-        session_target = hosts.active_target()
-
-        verdict = await switch_gate(context, wanted)
-        if verdict is not None:
-            await self._finish(
+        if not verdict.allowed:
+            await self._answer(
                 record,
+                body,
+                path,
+                pid=pid,
                 status=STATUS_REFUSED,
-                reason=verdict.reason,
+                reason=str(verdict.reason or ""),
                 detail=verdict.detail,
-                from_target=session_target,
+                generation=None,
             )
-            return
+            return True
 
-        try:
-            result = await hosts.switch(wanted)
-        except SwitchError as exc:
-            logger.warning(
-                "Operator-requested switch to %r failed at stage %r: %s",
-                wanted,
-                exc.stage,
-                exc.detail,
-            )
-            await self._finish(
-                record,
-                status=STATUS_FAILED,
-                reason=exc.reason,
-                detail=exc.detail,
-                from_target=session_target,
-            )
-            return
-
-        logger.info(
-            "Operator-requested switch: session target is now %r (generation %s)",
-            result["target"],
-            result["generation"],
-        )
-        await self._finish(
+        await self._answer(
             record,
-            status=STATUS_SUCCESS,
+            body,
+            path,
+            pid=pid,
+            status=STATUS_APPLIED,
             reason=None,
-            detail=(
-                f"Control-system target is now {result['target']!r} "
-                f"(generation {result['generation']})."
-            ),
-            from_target=result["previous_target"],
-            to_target=result["target"],
-            generation=result["generation"],
+            detail=(f"The control target is now {wanted!r} (generation {record.generation + 1})."),
+            generation=record.generation + 1,
+        )
+        return True
+
+    def _gate(
+        self,
+        context: Any,
+        record: control_context.ControlContext,
+        wanted: str,
+        reports: list[Any],
+    ) -> Any:
+        """The switch verdict, in the words every other surface would get.
+
+        Asked HERE rather than when the request was written: an execution that
+        started in between, a posture that narrowed, a target that stopped
+        being eligible all have to refuse this switch, and a verdict taken
+        earlier would be a verdict about a different moment.
+
+        The gate opens no file, so its inputs are gathered by its caller — the
+        record's own target rather than the supervisor's, because this pass has
+        already reconciled to the record and it is the record the answer is
+        written into.
+        """
+        from osprey.mcp_server.control_system import target_eligibility
+
+        config = context.config.raw
+        section = config.get("control_system") if isinstance(config, dict) else None
+        return target_eligibility.evaluate_switch(
+            config,
+            wanted,
+            current_target=record.target,
+            baseline=context.baseline,
+            in_flight=target_state.in_flight_executions(),
+            reports=reports,
+            writes_enabled=target_eligibility.effective_writes_for_target(section, wanted),
         )
 
     # -- the terminus ------------------------------------------------------
 
-    async def _finish(
+    async def _answer(
         self,
-        record: dict[str, Any],
+        record: control_context.ControlContext,
+        body: dict[str, Any],
+        path: Path,
         *,
+        pid: int,
         status: str,
         reason: str | None,
         detail: str,
-        from_target: str | None = None,
-        to_target: str | None = None,
-        generation: int | None = None,
+        generation: int | None,
     ) -> None:
-        """End one request: publish, consume, report, record. In that order.
+        """End one request: write the record, verify, consume, report, record.
 
-        Publication comes first because the route reads the request file's
-        presence to refuse a second click — removing it before the outcome
-        existed would leave a window in which the chip finds neither a pending
-        request nor an answer to the one it sent.
+        *generation* is the record's generation AFTER this answer, and ``None``
+        is what makes it a refusal — a refusal moves neither target nor
+        generation, and its terminus carries a null generation because there is
+        no binding to name.
+
+        The record is written before the request file is removed, and only
+        removed once the write has been read back: the requester polls the
+        record for its own id and nothing else, so an unlinked request whose
+        answer did not stick would leave it with neither an outcome nor a
+        pending gesture to wait on.
         """
-        request_id = str(record.get("request_id") or "")
-        wanted = to_target or str(record.get("target") or "")
-        requested_by = str(record.get("requested_by") or "")
+        request_id = str(body.get("request_id") or "")
+        wanted = str(body.get("target") or "").strip()
+        requested_by = _requester(body, pid)
 
-        try:
-            target_state.publish_last_switch(
-                {
-                    "request_id": request_id,
-                    "target": wanted,
-                    "status": status,
-                    "reason": reason,
-                    "detail": detail,
-                }
+        updated = control_context.terminus(
+            record,
+            request_id=request_id,
+            target=wanted,
+            requested_at=body.get("requested_at"),
+            requested_by=requested_by,
+            status=status,
+            reason=reason,
+            detail=detail,
+            generation=generation,
+        )
+
+        if not control_context.write_terminus(updated, request_id):
+            logger.warning(
+                "The answer to switch request %r did not stick; leaving the request for "
+                "whichever process owns the control context now",
+                request_id,
             )
-        except Exception:
-            logger.warning("Could not publish the switch outcome for %r", request_id, exc_info=True)
+            return
 
-        self._forget_request()
+        self._unlink(path, pid=pid)
 
         # The ledger record is filed BEFORE the awaited emit, and not after it:
         # every await is a place this task can be cancelled, and a shutdown
         # landing between the two would leave a switch that happened with no
         # record that it did. The activity emit is a convenience for whoever is
-        # watching the session; the ledger is the trail.
+        # watching; the ledger is the trail.
         self._record_gesture(
             status=status,
             reason=reason,
@@ -607,23 +790,23 @@ class SessionControlReconciler:
             target=wanted,
             requested_by=requested_by,
         )
+        await self._notify(
+            from_target=record.target,
+            to_target=wanted,
+            status=status,
+            reason=reason,
+            generation=generation,
+        )
 
-        # Nothing was attempted for an expired request, so there is no switch
-        # for the operator's activity feed to report. Every other terminus is
-        # an attempt somebody watching the session needs to see the end of.
-        if status != STATUS_EXPIRED:
-            await self._notify(
-                from_target=from_target or "unknown",
-                to_target=wanted,
-                status=status,
-                reason=reason,
-                generation=generation,
-            )
-
-    def _forget_request(self) -> None:
-        """Consume the request file and forget its signature."""
-        target_state.remove_request()
-        self._request_signature = _signature(target_state.request_file_path())
+    def _unlink(self, path: Path, *, pid: int | None = None) -> None:
+        """Consume one request file. A missing file is success, not an error."""
+        if pid is not None:
+            target_state.remove_request(requested_by_pid=pid)
+            return
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:  # pragma: no cover - unwritable state dir
+            logger.warning("Could not remove switch request %s: %s", path, exc)
 
     async def _notify(
         self,
@@ -636,7 +819,7 @@ class SessionControlReconciler:
     ) -> None:
         """Report the attempt on the operator's activity feed. Never raises."""
         try:
-            if status == STATUS_SUCCESS:
+            if status == STATUS_APPLIED:
                 await notify_target_switch_async(
                     from_target=from_target,
                     to_target=to_target,
@@ -677,7 +860,7 @@ class SessionControlReconciler:
             from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED
 
             record_and_mark(
-                decision=DECISION_ALLOWED if status == STATUS_SUCCESS else DECISION_REFUSED,
+                decision=DECISION_ALLOWED if status == STATUS_APPLIED else DECISION_REFUSED,
                 reason=reason or REASON_TARGET_SWITCHED,
                 surface=(os.environ.get(TOOL_PREFIX_ENV) or "").strip() or SURFACE_UNPREFIXED,
                 posture=posture.posture(),

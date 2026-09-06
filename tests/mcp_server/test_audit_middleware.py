@@ -32,6 +32,7 @@ from osprey.audit.envelope import (
 )
 from osprey.mcp_server import audit_middleware as am
 from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from tests._control_context_fixtures import write_control_context, write_payload
 
 pytestmark = pytest.mark.unit
 
@@ -1191,12 +1192,12 @@ def session(project, monkeypatch):
     The operator narrows a target from the header chip; nothing respawns this
     server and nothing sets ``OSPREY_EXECUTION_MODE`` (which would sandbox every
     target at once). The clamp therefore has to see the narrowing through
-    ``posture.posture()``, which reads the store — so the fixture stamps the
+    ``posture.posture()``, which reads the record — so the fixture stamps the
     session key and the agent-data root, publishes the controls server's state
-    record naming the session's target, and writes the store beside it.
+    record naming the session's target, and writes the narrowing beside it.
     """
     from osprey.audit import posture as posture_module
-    from osprey_connectors import session_store
+    from osprey_connectors import control_context, session_store
 
     root = project.root / "agent_data"
     directory = root / session_store.STATE_DIR_NAME
@@ -1215,25 +1216,22 @@ def session(project, monkeypatch):
         @staticmethod
         def on(target: str) -> None:
             pid = os.getpid()
-            (directory / f"target_state_{pid}.json").write_text(
-                json.dumps(
-                    {
-                        "target": target,
-                        "generation": 0,
-                        "server_pid": pid,
-                        "owner_ppid": os.getppid(),
-                        "targets": {},
-                        "children": [],
-                    }
-                )
+            write_payload(
+                control_context.report_path_under(root, pid),
+                {
+                    "target": target,
+                    "generation": 0,
+                    "server_pid": pid,
+                    "owner_ppid": os.getppid(),
+                    "targets": {},
+                    "children": [],
+                },
             )
             _drop_caches()
 
         @staticmethod
         def narrow(**entries: str) -> None:
-            (directory / session_store.STORE_FILENAME).write_text(
-                json.dumps({SESSION_KEY: entries})
-            )
+            write_control_context(root, posture=entries)
             _drop_caches()
 
     _drop_caches()
@@ -1445,14 +1443,17 @@ class TestPerTargetPostureClamp:
 
         assert seen == ["channel_write"]
 
-    async def test_a_narrowed_target_without_a_session_key_is_not_consulted(
+    async def test_a_narrowed_target_reaches_a_server_carrying_no_session(
         self, project, session, monkeypatch
     ):
-        """A server outside any session is answered by the environment alone."""
+        """The narrowing is the deployment's, so nothing has to be addressed.
+
+        A server that was never stamped with a posture session — a CLI run, a
+        dispatch worker, a bare ``claude`` — writes to the same machine an
+        operator took away, and is refused by the same record.
+        """
         session.on("live")
         session.narrow(live="sandbox")
         monkeypatch.delenv(am.POSTURE_SESSION_ENV, raising=False)
 
-        _, seen = await _call(am.AuditMiddleware(), "channel_write")
-
-        assert seen == ["channel_write"]
+        await _refused(am.AuditMiddleware(), "channel_write")

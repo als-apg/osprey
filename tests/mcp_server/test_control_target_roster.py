@@ -17,6 +17,7 @@ way would be misreporting the only thing it is for.
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -36,8 +37,9 @@ from osprey.mcp_server.control_system.target_eligibility import (
     target_availability,
 )
 from osprey.mcp_server.control_system.tools import control_target
-from osprey_connectors import session_store
+from osprey_connectors import control_context, session_store
 from osprey_connectors.standin import ARCHIVER_RECORDER_SERVICE
+from tests._control_context_fixtures import owner, write_control_context
 from tests.mcp_server import test_switch_lifecycle as switch_suite
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 from tests.mcp_server.test_control_target_set import config_with_gateways, install_context
@@ -57,6 +59,27 @@ state_root = switch_suite.state_root
 # the lifecycle suite's republication cases need it.
 posture_store = switch_suite.posture_store
 narrow = switch_suite.narrow
+
+
+def deployment_record(root, monkeypatch, target: str):
+    """A control-context record this process owns, under a stamped scratch root.
+
+    The roster reads no record — it reports what this server knows. The SWITCH
+    does, and answers a deployment with none "there is no target of record", so
+    the two cases here that reach through the roster to the switch have to lay
+    one down. Stamped rather than resolved, or the record library would write
+    into ``<repo>/var/agent_data`` and the session guard would fail a later,
+    unrelated test.
+    """
+    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    control_context.invalidate_cache()
+    return write_control_context(
+        root,
+        target=target,
+        generation=0,
+        owned_by=owner(control_context.OWNER_CONTROLS_SERVER, pid=os.getpid()),
+    )
+
 
 ROSTER = get_tool_fn(control_target.control_target)
 
@@ -269,12 +292,13 @@ class TestCorrectBeforeAnySwitch:
         assert payload["summary"]["switchable_targets"] == ["va"]
 
     async def test_an_unconfigured_target_reports_the_switchs_own_reason(
-        self, make_manager, monkeypatch, no_prober
+        self, make_manager, monkeypatch, no_prober, state_root
     ):
         """The roster and the refusal are one function, not two agreeing ones."""
         raw = config_with_gateways(va_probe=None)
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
+        deployment_record(state_root, monkeypatch, manager.baseline)
 
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
 
@@ -467,7 +491,11 @@ class TestAfterASwitch:
     ):
         manager = await started_on(make_manager, "live")
         install_context(manager, monkeypatch)
-        await manager.switch("va")
+        # Through ``reconcile``, which is how a target actually moves now: the
+        # record's owner mints the generation and this server is assigned it.
+        # ``switch()`` no longer counts anything, so a roster driven through it
+        # would report generation 0 for a deployment that had moved.
+        await manager.reconcile("va", 1)
 
         payload = extract_response_dict(await ROSTER())
         rows = payload["access_details"]["targets"]
@@ -545,7 +573,7 @@ class TestDegradation:
         assert ctx["envelope"]["details"]["reason"] == control_target.REASON_CONTEXT_UNAVAILABLE
 
     async def test_an_underivable_target_gets_no_row_and_is_still_refused(
-        self, make_manager, monkeypatch, no_prober
+        self, make_manager, monkeypatch, no_prober, state_root
     ):
         """A deployment that never named its real machine has no 'live' row.
 
@@ -571,6 +599,7 @@ class TestDegradation:
         raw["control_system"]["connector"] = {"virtual_accelerator": va_block}
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
+        deployment_record(state_root, monkeypatch, manager.baseline)
 
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
 

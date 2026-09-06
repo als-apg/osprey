@@ -20,8 +20,8 @@ A switch never begins by giving up what works. The order is fixed:
    the control system B just connected to;
 5. only then touch child **A**: refuse new work on it, drain it for at most
    ``control_system.target_switch.drain_timeout_s`` (default 5), kill it;
-6. bump the generation **only when the target actually changed**, publish the
-   outcome to the state file, and swap the active references.
+6. take the generation the record's owner minted for this move, publish the
+   outcome to this server's report, and swap the active references.
 
 Every failure in steps 1–4 kills B and returns, leaving A exactly as it was:
 still active, still serving, still on its own generation. The no-child state is
@@ -32,12 +32,46 @@ honestly so the layer above can refuse with a reason rather than pretend.
 Generations
 -----------
 The generation is what pins holders: an executor sandbox or an approved write
-that was granted under generation *n* must refuse once the session has moved
+that was granted under generation *n* must refuse once the deployment has moved
 past it. It therefore counts **target changes**, not process restarts. A
 same-target respawn — :meth:`ConnectorHostManager.respawn_same_target`, which
 is what the old in-process ``ConnectionError`` → invalidate path becomes in
 child mode — replaces the process and leaves the generation alone, because
 nothing a holder was promised has changed.
+
+This manager does not **mint** generations; it is handed them. One deployment
+runs one target and one generation, recorded in the shared control-context
+record, and the process that owns that record is the only writer that may
+advance it. Every server then reconciles what it is running to what the record
+says (:meth:`ConnectorHostManager.reconcile`) and reports how far it has got.
+Two servers incrementing their own counters would give one deployment two
+generation *n+1* s that meant different targets, and a holder pinned to either
+of them could not tell which it had been promised.
+
+Reconciling to the record
+-------------------------
+:meth:`ConnectorHostManager.reconcile` is the one entry point the reconcile
+loop uses, and it has three answers:
+
+* **No live child** — the target and the generation are adopted in memory and
+  nothing is published. There is no child whose binding could be wrong, and the
+  first launch (:meth:`ConnectorHostManager.ensure_started`) then comes up on
+  the adopted values and reports *them*, so a fresh server joining a deployment
+  already on generation 7 reports 7 rather than minting a 0 nobody asked for.
+* **Same target** — the generation is adopted and republished against the child
+  already serving it. Nothing is spawned and nothing is retired: a change of
+  generation on the target this server is already on is a change of what
+  holders are pinned to, not of what is running.
+* **A different target** — the ordinary spawn-then-swap, with the record's
+  generation *assigned* rather than incremented.
+
+A launch that fails and leaves this server unable to serve the record — the
+deployment's first child, or a swap toward a target this session is not on —
+reports :data:`~osprey.mcp_server.control_system.target_state.SWITCH_FAILED` at
+the generation it was reaching for, and keeps that generation. That report is
+what refuses this server's writes and its session's launches until it lands
+somewhere; a server that silently stayed where it was would go on serving a
+target the deployment has moved off.
 
 Why the launch handshake bypasses the proxy
 -------------------------------------------
@@ -745,22 +779,27 @@ def kill_orphans(pids: list[int], *, grace_s: float = TERMINATE_GRACE_S) -> list
 def reset_target_state(
     config: Any,
     *,
-    baseline: str | None = None,
     targets_meta: dict[str, Any] | None = None,
     grace_s: float = TERMINATE_GRACE_S,
 ) -> list[int]:
-    """Reset this server's state file to the baseline and kill any orphans.
+    """Write this server's report at start and kill any inherited orphans.
 
-    Called once at server start, before anything can switch: the state file is
-    reset (no target selection survives the process that made it) and the child
-    PIDs recorded by dead predecessors are killed, because a connector host
-    outliving its server holds a gateway nobody is talking to.
+    Called once at server start, before anything can switch: this server's
+    report is written fresh (nothing a predecessor at this PID published
+    describes this process) and the child PIDs recorded by dead predecessors
+    are killed, because a connector host outliving its server holds a gateway
+    nobody is talking to.
+
+    **No target is published here.** What the deployment is on lives in the
+    control-context record, and a baseline written as this server's
+    ``applied_target`` would tell every reader a child had already landed on a
+    target this process has not launched one for. The report's binding stays
+    null until :meth:`ConnectorHostManager._publish` says a child answered.
 
     Returns:
         The orphan PIDs that were signalled.
     """
-    orphans = target_state.write_on_start(
-        baseline or baseline_target(config),
+    orphans = target_state.write_server_record(
         target_display_metadata(config) if targets_meta is None else targets_meta,
     )
     return kill_orphans(orphans, grace_s=grace_s)
@@ -883,6 +922,29 @@ class ConnectorHostManager:
             "drain_timeout_s": self._drain_timeout(),
         }
 
+    def applying_bound_s(self, *, fallback_retry: bool = True) -> float:
+        """How long a swap this server is running may legitimately take.
+
+        The deadline a reader needs and cannot compute. The spawn, probe and
+        drain timeouts are this process's, read from its own configuration, and
+        every other process — a kernel, a sibling server, the terminal — sees
+        only the report; so the publisher of an ``applying`` block computes the
+        bound and writes it into ``expires_at``, and readers compare their own
+        clock to that. Exposed here because the reconcile loop publishes that
+        block and the timeouts live behind this object.
+
+        Args:
+            fallback_retry: Whether a probe failure can be retried through the
+                read-only gateway. True for a swap, which retries; false for a
+                first launch, which is not probed at all.
+        """
+        return target_state.applying_bound_s(
+            spawn_timeout_s=self._spawn_timeout_s,
+            probe_timeout_s=self._probe_timeout_s,
+            drain_timeout_s=self._drain_timeout(),
+            fallback_retry=fallback_retry,
+        )
+
     def _live_child(self) -> _Child | None:
         child = self._child
         if child is None:
@@ -1002,7 +1064,7 @@ class ConnectorHostManager:
     # -- lifecycle ---------------------------------------------------------
 
     def reset_state(self, *, grace_s: float | None = None) -> list[int]:
-        """Reset the state file to the baseline and kill inherited orphans.
+        """Write this server's report at start and kill inherited orphans.
 
         Synchronous on purpose: it runs during server start, before the event
         loop that will own the children exists.
@@ -1015,7 +1077,6 @@ class ConnectorHostManager:
         """
         return reset_target_state(
             self._config.raw,
-            baseline=self._baseline,
             targets_meta=self.display_metadata(),
             grace_s=self._terminate_grace_s if grace_s is None else grace_s,
         )
@@ -1111,6 +1172,116 @@ class ConnectorHostManager:
                 force=True,
             )
 
+    async def reconcile(self, target: str, generation: int) -> dict[str, Any]:
+        """Bring this server into line with the record, under the lock.
+
+        The reconcile loop's one entry point. *target* and *generation* are the
+        deployment's, read from the control-context record whose owner minted
+        them; this method never decides either, it only makes this server agree
+        with them and says what it did.
+
+        Three answers, and the difference between them is what is running:
+
+        * **No live child.** Both values are adopted in memory and nothing is
+          published. Nothing is bound to a generation, so nothing can be bound
+          to the wrong one, and a report claiming otherwise would let the fleet
+          count a server that has launched nothing as arrived. The first launch
+          then comes up on the adopted target and reports the adopted
+          generation, which is how a server joining a deployment already on
+          generation 7 reports 7 and mints nothing.
+        * **A live child on this target.** The generation is adopted and
+          republished against the child already serving it: nothing is spawned,
+          nothing is retired, and the connections the session holds survive. A
+          posture realignment left pending by the reconcile loop stays pending
+          and runs after this — a change of generation is not a change of
+          posture, and the child that would have to be rebuilt for one is the
+          same child that is still serving here.
+        * **A live child on a different target.** The ordinary spawn-then-swap,
+          with *generation* assigned. The new child reads the posture store on
+          the way up, which is why the loop drops its pending realignment on
+          this answer and not on the one above.
+
+        Returns:
+            ``{target, generation, previous_target, previous_generation,
+            target_changed, generation_changed, respawned, child_pid,
+            published}`` — the same keys whichever answer ran, so a caller
+            reporting the outcome does not have to know which one it got.
+
+        Raises:
+            SwitchError: The swap failed. This server keeps *generation* and
+                has already reported ``failed`` against it; the previous child,
+                if there was one, is still serving its own target.
+        """
+        async with self._lock:
+            previous_target = self._target
+            previous_generation = self._generation
+            child = self._live_child()
+            if child is None:
+                self._target = target
+                self._generation = int(generation)
+                logger.info(
+                    "Adopted target %r (generation %s) from the control-context record with "
+                    "no connector host running; the first launch will come up on it",
+                    target,
+                    generation,
+                )
+                return self._reconciled(previous_target, previous_generation, published=False)
+            if target == self._target:
+                self._generation = int(generation)
+                published = False
+                if self._generation != previous_generation:
+                    logger.info(
+                        "Adopted generation %s on target %r without respawning: pid %s already "
+                        "serves it",
+                        generation,
+                        target,
+                        child.pid,
+                    )
+                    published = self._publish(target, child.pid)
+                return self._reconciled(
+                    previous_target,
+                    previous_generation,
+                    published=published,
+                    child_pid=child.pid,
+                )
+            result = await self._switch_locked(
+                target,
+                cause=(
+                    f"reconciling the connector host from {self._target!r} to the "
+                    f"control-context record's target {target!r} (generation {generation})"
+                ),
+                generation=generation,
+            )
+            return self._reconciled(
+                previous_target,
+                previous_generation,
+                published=bool(result["published"]),
+                child_pid=result["child_pid"],
+                respawned=True,
+            )
+
+    def _reconciled(
+        self,
+        previous_target: str,
+        previous_generation: int,
+        *,
+        published: bool,
+        child_pid: int | None = None,
+        respawned: bool = False,
+    ) -> dict[str, Any]:
+        """The one shape :meth:`reconcile` answers in, whichever branch ran."""
+        return {
+            "target": self._target,
+            "generation": self._generation,
+            "previous_target": previous_target,
+            "previous_generation": previous_generation,
+            "target_changed": self._target != previous_target,
+            "generation_changed": self._generation != previous_generation,
+            "respawned": respawned,
+            "child_pid": child_pid,
+            "published": published,
+        }
+
     async def shutdown(self) -> None:
         """Retire the child and clear the state file's record of it.
 
@@ -1134,7 +1305,90 @@ class ConnectorHostManager:
     # -- the switch --------------------------------------------------------
 
     async def _switch_locked(
-        self, target: str, *, cause: str, probe: bool = True, force: bool = False
+        self,
+        target: str,
+        *,
+        cause: str,
+        probe: bool = True,
+        force: bool = False,
+        generation: int | None = None,
+    ) -> dict[str, Any]:
+        """Spawn-then-swap, and report a launch that leaves nothing serving.
+
+        Args:
+            target: The destination.
+            cause: What to attribute the previous child's retirement to.
+            probe: Whether to prove the candidate with a real read; false only
+                for the deployment's first child.
+            force: Replace the child even when it already serves *target*.
+            generation: The generation the record's owner minted for this move,
+                **assigned** on the way through. ``None`` on a path that is not
+                reconciling to the record — a first launch, a respawn, a direct
+                switch — which lands on whatever generation this server has
+                already adopted rather than inventing the next one.
+        """
+        try:
+            return await self._spawn_then_swap(
+                target, cause=cause, probe=probe, force=force, generation=generation
+            )
+        except SwitchError as error:
+            self._report_failed_launch(generation, error)
+            raise
+
+    def _report_failed_launch(self, generation: int | None, error: SwitchError) -> None:
+        """Publish ``failed`` when the failure left this server serving nothing.
+
+        Two failures are worth the fleet's attention, and they are the two that
+        leave this server unable to answer for the target the deployment is on:
+        the **first launch**, after which nothing is serving at all, and a
+        **swap toward the record**, after which this server is knowingly on the
+        target the deployment has moved off. Both keep the generation they were
+        reaching for, so the block names the generation readers are waiting on
+        rather than the one this server has given up on — the report is what
+        refuses this server's MCP writes and its session's launches (FR-8), and
+        a failure filed against a stale generation would refuse nothing.
+
+        Every other failure is *not* reported, because the session did not lose
+        anything: a deliberate respawn and a direct switch both leave the
+        previous child serving its target (spawn-then-swap never tears the old
+        one down for a candidate that will not come up), and publishing
+        ``failed`` for them would refuse writes on a session whose connector is
+        working.
+
+        Never raises: this runs while a :class:`SwitchError` is propagating, and
+        an unwritable report must not replace the failure the caller has to see.
+        """
+        if generation is not None:
+            self._generation = int(generation)
+        elif self._live_child() is not None:
+            return
+        try:
+            target_state.publish_last_switch(
+                {
+                    "generation": self._generation,
+                    "status": target_state.SWITCH_FAILED,
+                    "reason": error.reason,
+                    "detail": error.detail,
+                }
+            )
+        except OSError as exc:
+            logger.error(
+                "The launch on target %r failed at stage %r, and the failure could not be "
+                "reported to this server's report file: %s. Other sessions will keep "
+                "waiting for a terminus this server can no longer publish",
+                error.target,
+                error.stage,
+                exc,
+            )
+
+    async def _spawn_then_swap(
+        self,
+        target: str,
+        *,
+        cause: str,
+        probe: bool,
+        force: bool,
+        generation: int | None,
     ) -> dict[str, Any]:
         derivation = self._derive(target)
         if not force:
@@ -1207,14 +1461,17 @@ class ConnectorHostManager:
         if previous is not None:
             drained = await self._retire(previous, cause)
 
-        if target != self._target:
-            self._generation += 1
+        # Assigned, never incremented: the record's owner is the only process
+        # that mints a generation, and a server that counted its own switches
+        # would give one deployment two different generation n+1s.
+        if generation is not None:
+            self._generation = int(generation)
         previous_target = self._target
         self._target = target
         self._child = candidate
         self._started = True
 
-        self._publish(target, candidate.pid)
+        published = self._publish(target, candidate.pid)
 
         endpoint = derivation.selected_endpoint()
         logger.info(
@@ -1236,6 +1493,7 @@ class ConnectorHostManager:
             "child_pid": candidate.pid,
             "previous_drained": drained,
             "drain_timeout_s": self._drain_timeout(),
+            "published": published,
         }
         if fallback is not None:
             result["write_gateway_fallback"] = fallback
@@ -1289,6 +1547,9 @@ class ConnectorHostManager:
             "child_pid": child.pid,
             "previous_drained": True,
             "drain_timeout_s": self._drain_timeout(),
+            # Nothing happened, so nothing was published: the binding on file
+            # is the one the running child landed with and still true.
+            "published": False,
         }
 
     def _publish(self, target: str, child_pid: int) -> bool:
@@ -1315,6 +1576,15 @@ class ConnectorHostManager:
         try:
             published = target_state.publish_switch(
                 self._target, self._generation, children=[child_pid]
+            )
+            # The terminus, in the same breath as the binding. A reader deciding
+            # whether the fleet has converged is blocked by an ``applying``
+            # block until somebody says how it ended, and the child answering
+            # its init frame is how it ended — leaving the block to expire would
+            # hold every other session for the length of the bound over a swap
+            # that finished.
+            target_state.publish_last_switch(
+                {"generation": self._generation, "status": target_state.SWITCH_APPLIED}
             )
             if not published:
                 logger.warning(

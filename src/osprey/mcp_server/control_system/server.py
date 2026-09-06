@@ -6,12 +6,15 @@ control-system target switch.
 Startup does two things beyond registering tools, both of them about the target
 this session is pointed at:
 
-* :func:`create_server` **resets** the target state file to the deployment
-  baseline and kills the connector-host children a dead predecessor left
-  behind. It is synchronous and runs before the event loop exists, which is
-  exactly right: no target selection may survive the process that made it, and
-  an orphaned child holding a gateway must not outlive the server that spawned
-  it.
+* :func:`create_server` **starts this server from the deployment's record**: it
+  publishes this process's report, kills the connector-host children a dead
+  predecessor left behind, and claims the control-context record when nothing
+  alive owns it. It is synchronous and runs before the event loop exists, which
+  is exactly right: an orphaned child holding a gateway must not outlive the
+  server that spawned it, and the target the deployment is pointed at has to be
+  known before anything can be served on it. What this step no longer does is
+  publish a baseline — the target belongs to the deployment and survives every
+  process that reads it, so a fresh server adopts it rather than resetting it.
 * the server **lifespan** runs two background tasks, because a task needs a
   running loop and ``create_server()`` is called before ``run()`` starts one:
   the endpoint prober, which produces the roster's reachability rows, and the
@@ -177,13 +180,17 @@ mcp = FastMCP(
 )
 
 
-def _reset_target_state() -> None:
-    """Publish the deployment baseline and kill inherited connector hosts.
+def _start_from_record() -> None:
+    """Publish this server's report, reap inherited children, claim the record.
 
-    Guarded: a state file that cannot be written costs the prompt hook its
-    identity line and the roster its display metadata, both of which degrade to
-    "unknown". Refusing to start the server over it would cost the operator
-    every control-system tool instead.
+    Guarded in two halves that fail apart, because they cost different things.
+    A report that cannot be written costs the roster this server's row and the
+    prompt hook its identity line, both of which degrade to "unknown"; a claim
+    that cannot be made leaves the record owned by whoever holds it, which is
+    the ordinary state of a controls server running beside a web terminal.
+    Refusing to start the server over either would cost the operator every
+    control-system tool instead — and a report this server failed to publish is
+    no reason to leave the deployment's record ownerless.
     """
     try:
         from osprey.mcp_server.control_system.server_context import get_server_context
@@ -191,12 +198,27 @@ def _reset_target_state() -> None:
         orphans = get_server_context().connector_hosts.reset_state()
     except Exception:
         logger.warning(
-            "Could not reset the control-target state file; the session target is unpublished",
+            "Could not write this server's control-target report; the roster and the prompt "
+            "hook will not see this server",
             exc_info=True,
         )
-        return
-    if orphans:
-        logger.warning("Killed %d orphaned connector-host child process(es)", len(orphans))
+    else:
+        if orphans:
+            logger.warning("Killed %d orphaned connector-host child process(es)", len(orphans))
+
+    try:
+        from osprey.mcp_server.control_system.server_context import (
+            claim_control_context,
+            get_server_context,
+        )
+
+        claim_control_context(baseline=get_server_context().baseline)
+    except Exception:
+        logger.warning(
+            "Could not resolve the deployment baseline to claim the control context with; "
+            "this server follows whatever owns the record",
+            exc_info=True,
+        )
 
 
 def create_server() -> FastMCP:
@@ -220,11 +242,11 @@ def create_server() -> FastMCP:
     logger.info("Workspace root: %s", resolve_workspace_root())
     initialize_workspace_singletons()
 
-    # The state file is a reset, not a merge: a fresh server always starts on
-    # the deployment baseline, and any connector host a dead predecessor left
-    # running is killed before this one can spawn its own.
+    # A fresh server adopts the target the deployment is already pointed at
+    # rather than resetting it, publishes its own report, and kills any
+    # connector host a dead predecessor left running before it can spawn one.
     with startup_timer("target_state"):
-        _reset_target_state()
+        _start_from_record()
 
     # Import tool modules (each registers itself via @mcp.tool())
     with startup_timer("tool_imports"):

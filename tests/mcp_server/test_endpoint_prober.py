@@ -416,7 +416,7 @@ def published_state(tmp_path, monkeypatch):
     test that stamps it exercises the path a deployed server actually takes.
     """
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path))
-    target_state.write_on_start(VA, {VA: {"label": "Virtual accelerator"}})
+    target_state.write_server_record({VA: {"label": "Virtual accelerator"}})
     return tmp_path
 
 

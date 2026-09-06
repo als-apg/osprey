@@ -46,7 +46,8 @@ Access context, and keeps serving whatever is happening to the child.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+import os
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +61,7 @@ from osprey.mcp_server.control_system.connector_host_manager import (
     baseline_target,
     switch_capable,
 )
+from osprey_connectors import control_context
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
 from osprey_connectors.types import configured_targets, target_writes_enabled
 
@@ -71,12 +73,118 @@ __all__ = [
     "MCPServerConfig",
     "NoConnectorHostError",
     "SwitchError",
+    "claim_control_context",
     "get_server_context",
     "initialize_server_context",
+    "launch_target_from_record",
     "reset_server_context",
 ]
 
 logger = logging.getLogger("osprey.mcp_server.control_system.server_context")
+
+
+# ---------------------------------------------------------------------------
+# The deployment's control-context record
+# ---------------------------------------------------------------------------
+
+
+def launch_target_from_record() -> str | None:
+    """The target this deployment's first connector host should come up on.
+
+    The target belongs to the deployment, not to whichever server process
+    happens to be serving it: a server that starts while the record says
+    ``va`` brings its first child up on ``va``, publishes ``applied (va, N)``
+    and mints nothing. Starting on the baseline instead would serve the wrong
+    machine until somebody noticed, and then charge the operator a generation
+    to get back to where the deployment already was.
+
+    ``None`` means there is no record to follow — an empty deployment, an
+    unresolvable agent-data root, or a file too degraded to name a target — and
+    is the one case where the supervisor falls back to the deployment baseline,
+    exactly as it did before a record existed.
+    """
+    record = control_context.read_record()
+    return None if record is None else record.target
+
+
+def claim_control_context(
+    *, baseline: str, server_pid: int | None = None
+) -> control_context.ControlContext | None:
+    """Own the control-context record when nothing alive already owns it.
+
+    A controls server is the *fallback* owner. It claims over an owner that is
+    absent, dead, or too degraded to name a process, and it is a follower
+    behind any live one: behind a web terminal, which outranks it and is what
+    an operator is actually looking at, and behind another controls server,
+    which got there first. A follower writes nothing here — it files requests.
+
+    **A claim is a merge.** The target, generation and posture in the record are
+    what this deployment is pointed at, and they outlive every process that
+    reads them; taking the file over changes who may write it, not what it
+    says. Only a record that is absent or too degraded to read at all starts
+    one, at *baseline*, generation 0, narrowing nothing.
+
+    The write is read-verified: two servers starting together can both find the
+    record ownerless, and the one that lost the race has to find that out
+    rather than go on believing it owns a file somebody else is writing.
+
+    Never raises. A server that cannot claim is a server that follows, and
+    refusing to start over it would cost the operator every control-system
+    tool instead.
+
+    Args:
+        baseline: The deployment's own configured target, used only when there
+            is no readable record to merge into.
+        server_pid: The PID to claim as. Defaults to this process, which is the
+            only value production uses.
+
+    Returns:
+        The record this server works from afterwards — the one it claimed, the
+        one a live owner holds, or the one that beat it to the claim — and
+        ``None`` when there is no record and none could be written.
+    """
+    try:
+        record = control_context.read_record()
+        owner = control_context.live_owner(record)
+        if record is not None and owner is not None:
+            logger.info(
+                "Following the control context owned by %s pid %s: target %r, generation %s",
+                owner.kind,
+                owner.pid,
+                record.target,
+                record.generation,
+            )
+            return record
+
+        pid = os.getpid() if server_pid is None else server_pid
+        owner = control_context.Owner(
+            kind=control_context.OWNER_CONTROLS_SERVER, pid=pid, port=None
+        )
+        claimed = (
+            control_context.ControlContext(target=baseline, generation=0, owner=owner)
+            if record is None
+            else replace(record, owner=owner)
+        )
+        control_context.write_record(claimed)
+
+        confirmed = control_context.read_record()
+        if confirmed is None or confirmed.owner is None or confirmed.owner.pid != pid:
+            logger.warning(
+                "The control-context claim did not stick; another process owns the record now"
+            )
+            return confirmed
+        logger.info(
+            "Claimed the control context: target %r, generation %s",
+            confirmed.target,
+            confirmed.generation,
+        )
+        return confirmed
+    except Exception:
+        logger.warning(
+            "Could not claim the control-context record; this server follows whatever owns it",
+            exc_info=True,
+        )
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +334,18 @@ class ControlSystemContext:
         return value
 
     @property
+    def baseline(self) -> str:
+        """The target this deployment's own config selects.
+
+        Derived from the config through
+        :func:`~osprey.mcp_server.control_system.connector_host_manager.baseline_target`
+        rather than asked of the connector-host supervisor: a deployment that
+        serves its tools in-process must never construct one, and the baseline
+        is a property of the file it was built from either way.
+        """
+        return baseline_target(self.config.raw)
+
+    @property
     def switch_capable(self) -> bool:
         """Whether this deployment serves its control system from a child.
 
@@ -282,12 +402,9 @@ class ControlSystemContext:
             # the target it is on is the deployment's own baseline. Naming it
             # rather than leaving the stamp blank is what makes the rebuild after
             # invalidate_connector() carry the same session posture the instance
-            # it replaces was reading. Derived from config through the same
-            # function the supervisor's own `baseline` property uses, rather than
-            # through the supervisor: asking this path for one would construct a
-            # supervisor a non-switch-capable deployment must never have.
+            # it replaces was reading.
             entry.instance = await ConnectorFactory.create_control_system_connector(
-                entry.config, control_target=baseline_target(self.config.raw)
+                entry.config, control_target=self.baseline
             )
         elif name == "archiver":
             entry.instance = await ConnectorFactory.create_archiver_connector(entry.config)
@@ -302,9 +419,15 @@ class ControlSystemContext:
         would load a control-system client into the server that is supposed to
         hold none, and pin it to whatever target the config happened to
         describe at start, which is precisely the bug a switch has to avoid.
+
+        The deployment's very first child comes up on the target the record
+        names (:func:`launch_target_from_record`), not on the baseline. The
+        record is consulted only while no child has ever started: after that the
+        supervisor holds the target of record, ``ensure_started`` is a no-op,
+        and re-reading a file on the way to every tool call would buy nothing.
         """
         manager = self.connector_hosts
-        await manager.ensure_started()
+        await manager.ensure_started(None if manager.is_started() else launch_target_from_record())
         proxy = manager.active_proxy()
         if proxy is None:
             raise NoConnectorHostError(manager.active_target(), manager.active_generation())
