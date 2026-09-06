@@ -19,7 +19,13 @@ from pathlib import Path
 from typing import Any
 
 from osprey.agent_runner.artifact_resolve import deployed_config_path, deployed_render_dir
-from osprey.agent_runner.primitives import await_mcp_ready, expected_mcp_servers
+from osprey.agent_runner.primitives import (
+    MCP_READY_TIMEOUT_S,
+    await_mcp_ready,
+    expected_mcp_servers,
+    mcp_servers_connected,
+    mcp_snapshot_summary,
+)
 from osprey.mcp_server.dispatch_worker import failure_class, run_stats
 
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker.sdk_runner")
@@ -242,31 +248,75 @@ def _assemble_user_content(
     return [*image_blocks, {"type": "text", "text": text}]
 
 
+class McpNotReadyError(RuntimeError):
+    """A server the run's allow-list names was not connected before the first
+    turn, so the run was refused rather than started without its tools."""
+
+
+_MCP_TOOL_PREFIX = "mcp__"
+
+
+def required_mcp_servers(allowed_tools: Iterable[str]) -> set[str]:
+    """The MCP servers a run cannot do without: those its allow-list names.
+
+    Each ``mcp__<server>__<tool>`` entry (or a server-level ``mcp__<server>``)
+    names a server whose tools the trigger was written to use; built-in tools
+    name none. A run whose allow-list names no MCP server needs no server to be
+    up before its first turn.
+    """
+    servers: set[str] = set()
+    for tool in allowed_tools:
+        if not tool.startswith(_MCP_TOOL_PREFIX):
+            continue
+        rest = tool[len(_MCP_TOOL_PREFIX) :]
+        server = rest.split("__", 1)[0]
+        if server:
+            servers.add(server)
+    return servers
+
+
 async def _stream_with_ready_mcp(
     options: Any,
     render_dir: str,
     prompt_stream: Any,
+    *,
+    required_servers: Iterable[str] = (),
+    mcp_snapshot: list[dict[str, Any]] | None = None,
 ) -> Any:
     """Yield the run's messages, holding the first turn until MCP is registered.
 
     The streaming ``ClaudeSDKClient`` rather than the one-shot ``query()``,
     because only the client exposes ``get_mcp_status()``. MCP servers register
-    asynchronously (~1.5s for controls, longer on a loaded host), and a turn
-    that fires before then sees no OSPREY tools: the agent answers "I don't
-    have that tool" and the run is scored as a model give-up when it was a
-    cold start. Polling the status until the project's declared servers report
-    connected gives every dispatch a ready toolset, matching what
+    asynchronously — one after another, CPU-bound, so a full deployment's last
+    server lands seconds after the CLI launches on an idle machine and far
+    later on a loaded one — and the CLI fixes the session's toolset at the
+    first turn: a server that connects after that never contributes its tools
+    to this run. Polling the status until the project's declared servers are
+    terminal gives every dispatch the toolset it can get, matching what
     ``osprey.agent_runner.runner`` already does for interactive runs.
 
-    The barrier is bounded (see ``await_mcp_ready``) and returns the last
-    snapshot on timeout rather than raising, so a server that genuinely never
-    registers still runs — and is logged as such — instead of failing the
-    dispatch outright.
+    The barrier is bounded (see ``await_mcp_ready``). What happens at its exit
+    depends on which servers are still not connected:
+
+    * one the run's allow-list names (``required_servers``) — the run is
+      REFUSED with :class:`McpNotReadyError` before the prompt is sent. Started
+      anyway, the agent would run its whole session without the tool it was
+      dispatched to use, improvise, and report "completed" — a hollow run that
+      nothing downstream can tell from a real one. The refusal is an
+      infrastructure failure (retryable once the host catches up), and it names
+      each server with the status and error the CLI reported;
+    * any other declared server — logged and the run proceeds: the main thread
+      cannot call its tools anyway, so its absence changes nothing the trigger
+      asked for.
+
+    ``mcp_snapshot``, when given, receives the compact snapshot summary (see
+    ``mcp_snapshot_summary``) on both paths so the run record can carry it.
 
     Written as an async generator so the caller keeps driving one object with
     ``__anext__``/``aclose()``: the inactivity watchdog and the cancellation
     path are unchanged, and ``aclose()`` unwinds the client's context manager.
     """
+    required = set(required_servers)
     async with ClaudeSDKClient(options=options) as client:
         # No declared servers — nothing to wait for. Skipped explicitly because
         # ``await_mcp_ready`` polls an empty expectation to its full deadline,
@@ -275,12 +325,34 @@ async def _stream_with_ready_mcp(
         expected = expected_mcp_servers(Path(render_dir))
         if expected:
             servers = await await_mcp_ready(client, expected)
-            connected = {s.get("name") for s in servers if s.get("status") == "connected"}
+            if mcp_snapshot is not None:
+                mcp_snapshot[:] = mcp_snapshot_summary(servers)
+            connected = mcp_servers_connected(servers)
             missing = sorted(expected - connected)
+            missing_required = sorted(required & set(missing))
+            if missing_required:
+                by_name = {s.get("name"): s for s in servers}
+                detail = ", ".join(
+                    f"{name} ({(by_name.get(name) or {}).get('status') or 'not reported'}"
+                    + (
+                        f": {(by_name.get(name) or {}).get('error')}"
+                        if (by_name.get(name) or {}).get("error")
+                        else ""
+                    )
+                    + ")"
+                    for name in missing_required
+                )
+                raise McpNotReadyError(
+                    f"MCP server(s) this trigger's allowed_tools depend on were not "
+                    f"connected within {MCP_READY_TIMEOUT_S:.0f}s of agent start: {detail}. "
+                    "The agent's toolset is fixed at its first turn, so the run was "
+                    "refused rather than started without them."
+                )
             if missing:
                 logger.warning(
                     "MCP servers not connected before first turn: %s (expected %s) — "
-                    "the agent may not see their tools",
+                    "their tools will be absent for this run; none is named by the "
+                    "trigger's allowed_tools",
                     missing,
                     sorted(expected),
                 )
@@ -340,6 +412,12 @@ async def run_dispatch(
                 value the OTEL emitter tags records with as session.id, so a
                 consumer can locate this run's full provenance in the telemetry
                 store (None if the SDK was unavailable and no run started).
+            mcp_servers: the MCP readiness snapshot taken before the first
+                turn — one ``{name, status, tools, error}`` per declared server
+                (``tools`` is a count). Empty when the project declares no
+                servers or the run never reached the barrier. Read it to tell
+                a tool the agent never had (server not ``connected``) from one
+                it had and ignored.
             failure_class: (error results only) the class this failure was
                 stamped with — one of ``failure_class.FAILURE_*``.
             num_tool_calls: (error results only) truthful count of tool calls
@@ -397,6 +475,14 @@ async def run_dispatch(
     # turn, so backgrounding is correct there. Only this single-drain path
     # needs the guard. The cost is that parallel delegations run sequentially.
     sdk_env["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] = "1"
+
+    # The CLI abandons a stdio MCP server that has not finished its handshake
+    # within ``MCP_TIMEOUT`` (30s by default) — shorter than the readiness
+    # barrier below, which would then wait on a server the CLI has already
+    # marked failed. One figure drives both, so a slow-but-healthy server on a
+    # loaded host connects instead of being written off. An operator's own
+    # ``MCP_TIMEOUT`` in the worker environment is respected.
+    sdk_env.setdefault("MCP_TIMEOUT", str(int(MCP_READY_TIMEOUT_S * 1000)))
 
     # Point OSPREY config resolution at the render explicitly. ``build_clean_env``
     # carries the worker's own ``CONFIG_FILE`` through, and
@@ -554,8 +640,18 @@ async def run_dispatch(
     async def _prompt_stream():
         yield {"type": "user", "message": {"role": "user", "content": user_content}}
 
+    # Filled by the readiness barrier before the first turn; persisted with the
+    # run on every outcome (see the ``mcp_servers`` result key).
+    mcp_snapshot: list[dict[str, Any]] = []
+
     t0 = time.monotonic()
-    agen = _stream_with_ready_mcp(options, render_dir, _prompt_stream())
+    agen = _stream_with_ready_mcp(
+        options,
+        render_dir,
+        _prompt_stream(),
+        required_servers=required_mcp_servers(effective_tools),
+        mcp_snapshot=mcp_snapshot,
+    )
     try:
         # Drive the generator manually (rather than ``async for``) so each
         # ``__anext__`` is bounded by the inactivity watchdog. A full-window
@@ -613,6 +709,7 @@ async def run_dispatch(
                             "cost_usd": cost_usd,
                             "num_turns": num_turns,
                             "session_id": telemetry_session_id,
+                            "mcp_servers": mcp_snapshot,
                         }
                     ),
                     failure_class.FAILURE_PROVIDER,
@@ -730,6 +827,7 @@ async def run_dispatch(
                         "duration_sec": round(duration_sec, 2),
                         "cost_usd": cost_usd,
                         "num_turns": num_turns,
+                        "mcp_servers": mcp_snapshot,
                     }
                 ),
                 cls,
@@ -753,6 +851,7 @@ async def run_dispatch(
                 "cost_usd": cost_usd,
                 "num_turns": num_turns,
                 "session_id": telemetry_session_id,
+                "mcp_servers": mcp_snapshot,
             }
         )
 
@@ -765,6 +864,32 @@ async def run_dispatch(
         except Exception:
             logger.debug("agen.aclose() raised during cancellation", exc_info=True)
         raise
+    except McpNotReadyError as exc:
+        # The worker's own machinery — the CLI's MCP servers — was not ready
+        # before the run: a known-cause infrastructure fault (retryable once the
+        # host catches up), stamped here rather than routed through the generic
+        # classifier, which reserves that class for call sites that know it.
+        duration_sec = time.monotonic() - t0
+        logger.error("Dispatch refused after %.1fs: %s", duration_sec, exc)
+        await _push({"type": "error", "message": _scrub(str(exc), secret_values)})
+        return failure_class._stamp(
+            _finalize(
+                {
+                    "status": "error",
+                    "text_output": "",
+                    "tool_calls": [],
+                    "error": str(exc),
+                    "stderr": "\n".join(stderr_lines) if stderr_lines else None,
+                    "duration_sec": round(duration_sec, 2),
+                    "cost_usd": None,
+                    "num_turns": None,
+                    "session_id": telemetry_session_id,
+                    "mcp_servers": mcp_snapshot,
+                }
+            ),
+            failure_class.FAILURE_INFRASTRUCTURE,
+            0,
+        )
     except Exception as exc:
         duration_sec = time.monotonic() - t0
         stderr_output = "\n".join(stderr_lines) if stderr_lines else None
@@ -789,6 +914,7 @@ async def run_dispatch(
                     "cost_usd": cost_usd,
                     "num_turns": num_turns,
                     "session_id": telemetry_session_id,
+                    "mcp_servers": mcp_snapshot,
                 }
             ),
             failure_class.classify_exception(exc),

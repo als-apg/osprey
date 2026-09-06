@@ -545,12 +545,13 @@ def _capture_start_options(captured: dict):
 
 
 class TestOperatorSessionResumeOptions:
-    """The two shapes a chat child can be started in.
+    """The shapes a chat child can be started in.
 
     Either it continues a transcript that already exists (``resume``) or it
     opens one under the session key (``session_id``). Never both: a resume
     names the transcript, and a session id alongside it would ask the SDK to
-    write one conversation under two identities.
+    write one conversation under two identities. A pool key outside the
+    session-key grammar names neither, because the CLI would refuse it.
     """
 
     KEY = "11111111-2222-3333-4444-555555555555"
@@ -579,6 +580,28 @@ class TestOperatorSessionResumeOptions:
 
         assert captured["session_id"] == self.KEY
         assert "resume" not in captured
+
+    @pytest.mark.asyncio
+    async def test_a_pool_key_the_cli_would_reject_names_no_session_id(self):
+        """An embedder's own chat key never reaches the CLI as an identity.
+
+        ``POST /api/chat`` accepts any string as ``chat_id`` and pools the chat
+        under it, so the key can be ``"e2e"`` or ``"user-42-chat-3"``.
+        ``--session-id`` takes a canonical UUID and the CLI exits non-zero on
+        anything else, so naming the key there would fail the child on its
+        first prompt. It mints its own id instead.
+        """
+        session = OperatorSession(cwd="/tmp", env={"PATH": "/usr/bin"}, session_key="e2e")
+        captured: dict = {}
+
+        with _capture_start_options(captured):
+            await session.start()
+
+        # None, not the key: the SDK omits the flag entirely for a falsy id.
+        assert captured["session_id"] is None
+        assert "resume" not in captured
+        # The key still names the session everywhere it is ours to spend.
+        assert captured["env"]["OSPREY_TELEMETRY_SESSION_ID"] == "e2e"
 
     @pytest.mark.asyncio
     async def test_the_telemetry_id_is_the_session_key_in_both_shapes(self):

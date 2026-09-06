@@ -497,9 +497,18 @@ _PROBE_INIT_SCRIPT = """
 """
 
 
+#: Seeded into every page before load: marks the onboarding tour as already
+#: dismissed. Under the default `once` policy the invite card (scrim + modal)
+#: arms itself shortly after boot whenever a tour anchor is on screen by then,
+#: and its veil would intercept the display-menu clicks a flip drives. The tour
+#: has its own dedicated coverage (tour.test.mjs).
+_DISMISS_TOUR = "try { localStorage.setItem('osprey-tour-dismissed-v1', '1') } catch (e) {}"
+
+
 def _open_chat_page(opener, base_url: str, query: str = "") -> Page:
     """Open a fresh page (on a browser or a context) and wait for the console."""
     page: Page = opener.new_page()
+    page.add_init_script(_DISMISS_TOUR)
     page.add_init_script(_PROBE_INIT_SCRIPT)
     page.goto(f"{base_url}{query}", wait_until="domcontentloaded")
     # initChat builds the console on DOMContentLoaded; the input row is the
@@ -511,6 +520,7 @@ def _open_chat_page(opener, base_url: str, query: str = "") -> Page:
 def _open_expert_page(opener, base_url: str, query: str = "") -> Page:
     """Open a fresh page in the Expert view and wait for its terminal to connect."""
     page: Page = opener.new_page()
+    page.add_init_script(_DISMISS_TOUR)
     page.add_init_script(_PROBE_INIT_SCRIPT)
     page.goto(f"{base_url}{query}", wait_until="domcontentloaded")
     expect(page.locator("#terminal-container .xterm")).to_be_visible(timeout=10_000)

@@ -151,3 +151,26 @@ def test_repeated_non_delegation_tool_is_not_a_redelegation_loop() -> None:
     wf.tool_traces = [ToolTrace(name="mcp__controls__channel_read", input={"c": "x"})] * 4
     assert wf.has_redelegation_loop is False
     assert wf.repeated_tool_calls  # still surfaced in the digest
+
+
+def test_await_stops_waiting_once_every_expected_server_is_terminal() -> None:
+    """A server the CLI has marked ``failed`` will never become ``connected``,
+    so once every expected server is either connected or failed there is
+    nothing left to wait for: return immediately rather than polling to the
+    deadline. The failed entry (with its error) stays in the snapshot so the
+    caller can name it."""
+    client = _FakeClient(
+        [
+            [_srv("controls", "pending"), _srv("graph", "pending")],
+            [
+                _srv("controls", "connected", ["channel_read"]),
+                {**_srv("graph", "failed"), "error": "spawn failed"},
+            ],
+        ]
+    )
+    servers = asyncio.run(await_mcp_ready(client, {"controls", "graph"}, timeout_s=5, poll_s=0))
+    assert {s["name"]: s["status"] for s in servers} == {
+        "controls": "connected",
+        "graph": "failed",
+    }
+    assert client.calls == 2  # returned on the first fully-terminal snapshot

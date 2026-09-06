@@ -21,6 +21,7 @@ from osprey.agent_runner.sdk_context import build_system_prompt
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
+from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey.utils.config import get_facility_timezone
 
 logger = logging.getLogger(__name__)
@@ -518,12 +519,13 @@ class OperatorSession:
             resume_id: The transcript to continue. Given, the child resumes
                 that conversation (``resume``) and the SDK keeps writing to it;
                 omitted, the child starts a conversation of its own under the
-                session key (``session_id``). The two are mutually exclusive —
-                a resume names the transcript, and naming a session id
-                alongside it would ask the SDK to write one conversation under
-                two identities. Which of the two applies is the caller's
-                decision, taken from the session's transcript state; this seam
-                only offers both shapes.
+                session key (``session_id``), or under an id it mints itself
+                when the key is not one the CLI would accept. Resume and
+                session id are mutually exclusive — a resume names the
+                transcript, and naming a session id alongside it would ask the
+                SDK to write one conversation under two identities. Which
+                applies is the caller's decision, taken from the session's
+                transcript state; this seam only offers the shapes.
         """
         if not CLAUDE_SDK_AVAILABLE:
             raise RuntimeError("claude-agent-sdk is not installed")
@@ -562,12 +564,22 @@ class OperatorSession:
                 resume=resume_id,
             )
         else:
+            # The key names the conversation only where the CLI would accept it
+            # as one. POST /api/chat takes any string for chat_id — an embedder
+            # keying its chats "user-42-chat-3" is a supported caller, and the
+            # posture surface already treats such a key as unaddressable — but
+            # here the key reaches the CLI as `--session-id`, which takes a
+            # canonical UUID and exits non-zero on anything else. The SDK
+            # imposes no format of its own, so an unchecked key would fail the
+            # child on its first prompt rather than at a seam anyone can see.
+            # None omits the flag and the child mints its own id, which is what
+            # this surface did before it could resume at all.
             options = ClaudeAgentOptions(
                 system_prompt=build_system_prompt(get_facility_timezone()),
                 cwd=self._cwd,
                 env=session_env,
                 setting_sources=["project"],
-                session_id=self._session_key,
+                session_id=(self._session_key if is_posture_key(self._session_key) else None),
             )
         self._client = ClaudeSDKClient(options=options)
         await self._client.__aenter__()
