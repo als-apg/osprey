@@ -25,6 +25,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("osprey.dispatch.sources.epics_ca")
 
+#: The three edges ``_PvWatcher._detect_edge`` implements. An unrecognized
+#: spelling used to fall through to the widest of them, so ``edge: up`` armed a
+#: trigger that fired on both crossings — the opposite of what it asked for, and
+#: silently.
+VALID_EDGES = frozenset({"rising", "falling", "both"})
+
 
 class _PvWatcher:
     """Monitor one PV and fire a callback when its value crosses a threshold.
@@ -67,6 +73,12 @@ class _PvWatcher:
     # ------------------------------------------------------------------
 
     def _detect_edge(self, prev: float, curr: float) -> bool:
+        """Whether the step from *prev* to *curr* is the crossing this edge names.
+
+        Only the three edges in :data:`VALID_EDGES` reach here — ``start``
+        refuses anything else — so the final branch is ``both``, not a
+        catch-all for whatever the config said.
+        """
         if self._edge == "rising":
             return prev < self._threshold <= curr
         if self._edge == "falling":
@@ -160,6 +172,18 @@ class EpicsCaSource:
                 logger.warning(
                     "EPICS CA trigger '%s' has no 'pv' in source_config; skipping",
                     trigger.name,
+                )
+                continue
+            edge = trigger.source_config.get("edge", "rising")
+            if edge not in VALID_EDGES:
+                # Skip this one trigger, arm the rest: one mistyped edge must
+                # not take a dispatcher's whole trigger set down, and it must
+                # not quietly become "both" either.
+                logger.warning(
+                    "EPICS CA trigger '%s' has unknown 'edge' (%r); expected one of %s; skipping",
+                    trigger.name,
+                    edge,
+                    ", ".join(sorted(VALID_EDGES)),
                 )
                 continue
             watcher = _PvWatcher(trigger, fire_callback, loop)

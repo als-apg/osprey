@@ -439,6 +439,76 @@ class TestEpicsCaSourceLifecycle:
         assert len(source._watchers) == 0
 
     @pytest.mark.asyncio
+    async def test_start_skips_trigger_with_unknown_edge(self, caplog) -> None:
+        """`edge: up` used to arm a both-edges monitor; it is now refused."""
+        source = EpicsCaSource()
+        fire_cb = AsyncMock(return_value=None)
+
+        with (
+            caplog.at_level("WARNING", logger="osprey.dispatch.sources.epics_ca"),
+            patch("osprey.dispatch.sources.epics_ca.epics.PV") as mock_pv,
+        ):
+            await source.start([_trigger(name="typo", edge="up")], fire_cb)
+
+        mock_pv.assert_not_called()
+        assert len(source._watchers) == 0
+        assert "typo" in caplog.text
+        assert "'up'" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_sibling_triggers_stay_armed(self) -> None:
+        """One mistyped edge takes down that trigger, not the dispatcher's set."""
+        source = EpicsCaSource()
+        fire_cb = AsyncMock(return_value=None)
+        triggers = [
+            _trigger(name="typo", pv="SIM:PV:1", edge="up"),
+            _trigger(name="good", pv="SIM:PV:2", edge="falling"),
+        ]
+
+        created = []
+
+        def _fake_pv(pvname, callback=None, **kw):
+            pv = _FakePV(pvname, callback)
+            created.append(pv)
+            return pv
+
+        with patch("osprey.dispatch.sources.epics_ca.epics.PV", side_effect=_fake_pv):
+            await source.start(triggers, fire_cb)
+
+        assert len(source._watchers) == 1
+        assert [pv.pvname for pv in created] == ["SIM:PV:2"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("edge", ["rising", "falling", "both"])
+    async def test_every_valid_edge_arms(self, edge) -> None:
+        """The three edges _detect_edge implements are all accepted."""
+        source = EpicsCaSource()
+        fire_cb = AsyncMock(return_value=None)
+
+        with patch("osprey.dispatch.sources.epics_ca.epics.PV", side_effect=_FakePV):
+            await source.start([_trigger(edge=edge)], fire_cb)
+
+        assert len(source._watchers) == 1
+
+    @pytest.mark.asyncio
+    async def test_absent_edge_defaults_to_rising(self) -> None:
+        """A trigger that never mentions `edge` keeps the documented default."""
+        source = EpicsCaSource()
+        fire_cb = AsyncMock(return_value=None)
+        trigger = TriggerConfig(
+            name="no-edge",
+            source="epics_ca",
+            action={"prompt": "test"},
+            source_config={"pv": "SIM:PV"},
+        )
+
+        with patch("osprey.dispatch.sources.epics_ca.epics.PV", side_effect=_FakePV):
+            await source.start([trigger], fire_cb)
+
+        assert len(source._watchers) == 1
+        assert source._watchers[0]._edge == "rising"
+
+    @pytest.mark.asyncio
     async def test_stop_clears_watchers(self) -> None:
         source = EpicsCaSource()
         triggers = [_trigger(name="t1", pv="SIM:PV:1")]
