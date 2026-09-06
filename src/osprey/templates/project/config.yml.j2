@@ -583,14 +583,35 @@ web:
   #   header_visible: true
   #   status_visible: true
 
-  # Where the Feedback dialog's two outbound channels send a user. Nothing is
-  # ever posted for them: the browser opens a prefilled GitHub issue form or a
-  # prefilled mail draft, and the user decides whether to send it. Every
-  # submission is also recorded on this deployment, readable with
-  # `osprey feedback list` / `osprey feedback export`.
+  # Where the Feedback dialog's outbound channels send a user. Nothing is ever
+  # posted for them: the browser opens a prefilled issue form or a prefilled
+  # mail draft, and the user decides whether to send it. Every submission is
+  # also recorded on this deployment, readable with `osprey feedback list` /
+  # `osprey feedback export`.
+  #
+  # Reports go to ONE destination: whoever owns this deployment. A user cannot
+  # be asked whether a bug is OSPREY's code or this facility's configuration —
+  # working that out is usually the point of the report — so the choice is not
+  # put to them. Left unconfigured, the owner is the OSPREY project itself.
+  # A facility that names an `owner:` below becomes the destination, and the
+  # reports it receives carry a one-click link for forwarding a genuine
+  # framework bug upstream.
   feedback:
-    # owner/repo whose new-issue form the GitHub channel prefills. Point it at
-    # the repository your users' reports should land in. Shorthand for one
+    # Who owns this deployment. One block, because the address and the tracker
+    # have to move together — a facility that redirects the mail but leaves the
+    # tracker upstream sends half its reports to strangers.
+    # owner:
+    #   name: ALS Controls
+    #   email: controls@example.org
+    #   tracker:
+    #     kind: gitlab            # gitlab | github
+    #     target: https://git.example.org/controls/osprey
+    #                             # gitlab: the project URL
+    #                             # github: owner/name
+    #     label: Controls GitLab  # optional caption for the radio
+    # owner/repo whose new-issue form the GitHub channel prefills. Predates
+    # `owner:` above and still wins over it wherever it is spelled, so an
+    # existing deployment keeps meaning what it meant. Shorthand for one
     # `github` entry under `trackers`; set it to "" to offer no GitHub channel.
     github_repo: als-apg/osprey
     # Further issue trackers, one channel each, captioned by `label`. A
@@ -600,7 +621,8 @@ web:
     #   - kind: gitlab
     #     url: https://git.example.org/controls/osprey
     #     label: Facility GitLab
-    # Recipient of the prefilled mailto: draft the Email channel opens.
+    # Recipient of the prefilled mailto: draft the Email channel opens. Wins
+    # over `owner.email` above, on the same grounds as `github_repo`.
     email: thellert@lbl.gov
     # Ceiling in bytes on the on-disk feedback store (256 MB). Above it the
     # OLDEST saved session contexts are deleted; the small submission headers

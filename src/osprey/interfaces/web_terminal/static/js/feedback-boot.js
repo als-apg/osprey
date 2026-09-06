@@ -110,6 +110,12 @@ const TRACKER_KINDS = Object.freeze({ github: 'GitHub', gitlab: 'GitLab' });
  * @property {string} email - maintainer address, or "" when this deployment
  *   retired the channel.
  * @property {string} version - `osprey.__version__`, for the metadata block.
+ * @property {Record<string, string>} deployment - the deployment's build facts
+ *   (preset and its hash, channel-finder mode), already rendered as metadata
+ *   lines by the server. Empty when the deployment cannot report them.
+ * @property {string} escalationUrl - prefilled upstream new-issue URL for a
+ *   maintainer forwarding a framework bug, or "" when this deployment's
+ *   reports already reach the OSPREY project.
  */
 
 /**
@@ -133,7 +139,14 @@ const TRACKER_KINDS = Object.freeze({ github: 'GitHub', gitlab: 'GitLab' });
  */
 export function initFeedback(options = {}) {
   /** @type {FeedbackConfig} */
-  const config = { status: 'pending', trackers: [], email: '', version: '' };
+  const config = {
+    status: 'pending',
+    trackers: [],
+    email: '',
+    version: '',
+    deployment: {},
+    escalationUrl: '',
+  };
 
   const modal = createFeedbackModal(config, options);
   onFeedbackClick(() => modal.open());
@@ -154,6 +167,12 @@ export function initFeedback(options = {}) {
     config.status = panels === null ? 'unreadable' : 'ok';
     config.trackers = normalizeTrackers(panels == null ? undefined : panels.feedback_trackers);
     config.email = trimmedString(panels == null ? undefined : panels.feedback_email);
+    // Rendered server-side and echoed verbatim: the browser cannot know which
+    // preset this deployment was built from, and must not guess.
+    config.deployment = normalizeDeployment(panels == null ? undefined : panels.feedback_deployment);
+    config.escalationUrl = trimmedString(
+      panels == null ? undefined : panels.feedback_escalation_url,
+    );
     // Handed to the dialog as well as kept here: the radios are built from
     // the list, and the dialog may already be open when it lands.
     modal.setTrackers(config.trackers);
@@ -401,20 +420,57 @@ function normalizeTrackers(value) {
 /**
  * The deployment metadata block carried by a prefilled issue or mail draft.
  *
- * Only the two facts the *page* is the best source for: the running version
- * (which the browser cannot know) and the browser itself (which the server
- * cannot know). Everything else — identity, timestamps, app name — is stamped
- * server-side onto the record and the composed bundle. Blank values are
- * dropped by `buildPrefillBody`, so a failed `/health` degrades quietly.
+ * What the *page* is the best source for — the running version (which the
+ * browser cannot know until `/health` answers) and the browser itself (which
+ * the server cannot know) — plus two things resolved server-side at startup
+ * and echoed here verbatim: the build facts, and the escalation link.
+ *
+ * Those two are why the deployment's owner can act as the single destination.
+ * A user cannot be asked whether a bug is OSPREY's code or this facility's
+ * configuration, so they are not asked; the maintainer who can tell makes the
+ * call, and this block is what makes forwarding one nearly free. Both are
+ * empty for a deployment the OSPREY project already owns — a link inviting a
+ * maintainer to forward a report to themselves is noise.
+ *
+ * Everything else — identity, timestamps, app name — is stamped server-side
+ * onto the record and the composed bundle. Blank values are dropped by
+ * `buildPrefillBody`, so a failed `/health` degrades quietly.
  *
  * @param {FeedbackConfig} config
  * @returns {Record<string, unknown>}
  */
 function buildMetadata(config) {
+  const escalate = config.escalationUrl
+    ? { 'Escalate to OSPREY': config.escalationUrl }
+    : {};
   return {
     'OSPREY version': config.version,
+    ...config.deployment,
     Browser: typeof navigator === 'undefined' ? '' : navigator.userAgent,
+    ...escalate,
   };
+}
+
+/**
+ * The server's rendered build facts, kept only where they are usable strings.
+ *
+ * The payload is server-authored, but this module treats every field of it as
+ * untrusted shape the way it does the tracker list: a mistyped value would
+ * otherwise reach `String(value)` in the body composer and print `[object
+ * Object]` into a maintainer's issue.
+ *
+ * @param {unknown} value
+ * @returns {Record<string, string>}
+ */
+function normalizeDeployment(value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return {};
+  /** @type {Record<string, string>} */
+  const lines = {};
+  for (const [key, entry] of Object.entries(value)) {
+    const rendered = trimmedString(entry);
+    if (rendered) lines[key] = rendered;
+  }
+  return lines;
 }
 
 /**

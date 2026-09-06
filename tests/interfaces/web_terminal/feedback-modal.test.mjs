@@ -718,12 +718,23 @@ describe('feedback modal state — disclosure popover', () => {
     // false privacy claim, and would contradict the "Always sent" paragraph.
     const metadata = FEEDBACK_DISCLOSURE_PARAGRAPHS[1];
     expect(metadata).toBe(
-      'Deployment metadata (on by default): the OSPREY version, the application ' +
-        'name, and your browser.'
+      'Deployment metadata (on by default): the OSPREY version, which preset this ' +
+        'deployment was built from, its channel-finder mode, the application name, ' +
+        'and your browser.'
     );
     expect(metadata).not.toContain('identity');
     expect(metadata).not.toContain('username');
     expect(metadata).not.toContain('timestamp');
+  });
+
+  test('state: the metadata paragraph names the build facts it now carries', () => {
+    // The block gained the preset (with its content hash) and the
+    // channel-finder mode so a maintainer can forward a framework bug without
+    // anyone re-deriving what was running. Both are deployment facts a user is
+    // entitled to see named before ticking the box.
+    const metadata = FEEDBACK_DISCLOSURE_PARAGRAPHS[1];
+    expect(metadata).toContain('preset');
+    expect(metadata).toContain('channel-finder mode');
   });
 
   test('state: the disclosure covers everything FR6 requires', () => {

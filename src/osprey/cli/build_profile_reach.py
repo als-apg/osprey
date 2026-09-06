@@ -34,6 +34,18 @@ from typing import Any
 
 from osprey.deployment.reach import REACH_CONTRACTS, dotted_get, project_attached_overrides
 
+# The unconfigured deployment's destination — the OSPREY project itself.
+# Imported rather than re-typed, so this advisory cannot outlive a change to
+# the shipped defaults. Cheap: the web_terminal package resolves `run_web`
+# through a module __getattr__ precisely so a sibling import stays a sibling
+# import, and feedback_destination itself imports only the standard library.
+from osprey.interfaces.web_terminal.feedback_destination import (
+    DEFAULT_FEEDBACK_EMAIL as _PROJECT_EMAIL,
+)
+from osprey.interfaces.web_terminal.feedback_destination import (
+    DEFAULT_FEEDBACK_GITHUB_REPO as _PROJECT_REPO,
+)
+
 
 def attached_render_overrides(
     host_config: Mapping[str, Any] | None,
@@ -140,6 +152,77 @@ def pva_address_source_advisories(rendered_config: Mapping[str, Any]) -> list[st
             f"not reach the connector."
         )
     return advisories
+
+
+def feedback_owner_advisories(rendered_config: Mapping[str, Any]) -> list[str]:
+    """Say when a deployment redirected half of where its feedback goes.
+
+    Feedback has one destination — whoever owns the deployment — and it is
+    reached by two independent settings: the mail address and the issue
+    tracker. A facility that moves one and leaves the other pointed upstream
+    sends half its users' reports to the OSPREY maintainers, who cannot answer
+    them and cannot tell that a facility was meant to.
+
+    Nothing here is wrong enough to refuse: a deployment may legitimately want
+    mail locally and issues upstream. But it is almost never what a half-edited
+    config meant, and the symptom (reports arriving in the wrong place) is
+    invisible from the deployment itself.
+
+    Blank is not a half-move. ``email: ""`` or ``github_repo: ""`` retires that
+    channel outright, which is a deliberate posture — an air-gapped control
+    room has no outbound mail. A retired channel sends nothing anywhere, so it
+    cannot be the half that leaks upstream, and it is silent here whatever its
+    neighbour says. The advisory needs one channel aimed at the facility AND
+    the other still aimed at the project.
+
+    Args:
+        rendered_config: A render's config, after its ``config:`` overlay.
+
+    Returns:
+        One message when exactly one of the two was moved off the project
+        default; empty otherwise.
+    """
+    email = dotted_get(rendered_config, "web.feedback.email")
+    repo = dotted_get(rendered_config, "web.feedback.github_repo")
+    owner = dotted_get(rendered_config, "web.feedback.owner")
+    if isinstance(owner, Mapping) and (owner.get("email") or owner.get("tracker")):
+        # An owner block is the coherent way to say this; it moves both at once.
+        return []
+
+    email_aim = _feedback_aim(email, _PROJECT_EMAIL)
+    repo_aim = _feedback_aim(repo, _PROJECT_REPO)
+    if not ({email_aim, repo_aim} == {"moved", "upstream"}):
+        return []
+
+    moved, stale, stale_key = (
+        ("web.feedback.email", "web.feedback.github_repo", _PROJECT_REPO)
+        if email_aim == "moved"
+        else ("web.feedback.github_repo", "web.feedback.email", _PROJECT_EMAIL)
+    )
+    return [
+        f"{moved} points at this facility but {stale} is still the OSPREY "
+        f"project's ({stale_key}), so half of this deployment's feedback goes "
+        f"upstream — move both, or name them together under web.feedback.owner."
+    ]
+
+
+def _feedback_aim(value: Any, project_default: str) -> str:
+    """Where one feedback setting points: ``moved``, ``upstream`` or ``retired``.
+
+    ``retired`` is the explicitly blank posture. It is deliberately NOT a
+    synonym for either of the others: a retired channel delivers nothing, so it
+    neither reaches the facility nor leaks upstream.
+
+    A value the runtime could not use (a mapping from a mis-indented config)
+    reads as ``upstream``, because that is where the runtime's own coercion
+    will send it.
+    """
+    if not isinstance(value, str):
+        return "upstream"
+    stripped = value.strip()
+    if not stripped:
+        return "retired"
+    return "upstream" if stripped == project_default else "moved"
 
 
 def spelled_values(config: Any, dotted_key: str) -> list[tuple[str, Any]]:
