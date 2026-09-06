@@ -204,8 +204,10 @@ program, and the ``exec`` half of every fork-and-exec is already refused.
 
    The consequence of the second group is that a ``readonly`` script cannot
    shell out or load a shared library *at all*, even for something unrelated
-   to the control system. Resubmit such work with
-   ``execution_mode="readwrite"``, which requires human approval.
+   to the control system. ``readwrite`` is not a way around it: ``import
+   subprocess`` is refused before execution in **every** mode, by the
+   prohibited-import check. Work that genuinely needs a child process belongs
+   outside the executor.
 
 .. _python-executor-protected-paths:
 
