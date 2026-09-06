@@ -4,7 +4,7 @@ FastMCP server exposing channel_read, channel_write, archiver_read and the
 control-system target switch.
 
 Startup does two things beyond registering tools, both of them about the target
-this session is pointed at:
+this deployment is pointed at:
 
 * :func:`create_server` **starts this server from the deployment's record**: it
   publishes this process's report, kills the connector-host children a dead

@@ -316,10 +316,10 @@ def is_readonly_run() -> bool:
     the same variable at the same value and only the process tells them apart.
 
     An operator's narrowing of ONE control target is deliberately NOT here: it
-    never lived in the environment, and is read from the per-(session, target)
-    store instead. So outside these two the variable is unset and the answer is
-    still not "writes" by itself — the deployment posture
-    (``control_system.writes_enabled``) and that store both apply, and
+    never lived in the environment, and is read from the deployment's
+    control-context record instead. So outside these two the variable is unset
+    and the answer is still not "writes" by itself — the deployment posture
+    (``control_system.writes_enabled``) and that record both apply, and
     :func:`_writes_disabled_result` asks them in turn.
 
     The comparison is by VALUE, never presence: ``readwrite`` is the writes
@@ -358,9 +358,9 @@ def _in_mcp_server_process() -> bool:
     refusal itself is identical either way — only the sentence telling the
     operator where to go changes.
 
-    Neither story is the per-session narrowing an operator makes from the
+    Neither story is the narrowing an operator makes from the
     control-target chip in the header: that never lived in the environment at
-    all, and is read from the session store further down this function's
+    all, and is read from the posture store further down this function's
     caller.
     """
     argv = getattr(sys, "argv", None)
@@ -374,24 +374,24 @@ def _in_mcp_server_process() -> bool:
     return any(parts[i : i + span] == _MCP_SERVER_PACKAGE_PARTS for i in range(len(parts)))
 
 
-#: The posture-store key a session child is stamped with. Read by NAME rather
+#: The audit session id a session child is stamped with. Read by NAME rather
 #: than imported from ``osprey.audit.posture``, which declares it for the
 #: stamping side: this package is the lean connector chain and must not grow an
 #: ``osprey`` import to learn one string. Same rule, and the same reason, as
-#: :data:`osprey_connectors.session_store.AGENT_DATA_ROOT_ENV_VAR`.
+#: :data:`osprey_connectors.posture_store.AGENT_DATA_ROOT_ENV_VAR`.
 POSTURE_SESSION_ENV_VAR = "OSPREY_POSTURE_SESSION"
 
 
 def _posture_session() -> str | None:
-    """The posture-store key this process's session was stamped with, if any."""
+    """The audit session id this process's session was stamped with, if any."""
     return (os.environ.get(POSTURE_SESSION_ENV_VAR) or "").strip() or None
 
 
-def _session_store_permits(control_target: str | None) -> bool:
-    """Whether the operator has left *control_target* writable for this session.
+def _posture_store_permits(control_target: str | None) -> bool:
+    """Whether the operator has left *control_target* writable on this deployment.
 
     This function is the ENV read and nothing else: the clause itself is
-    :func:`osprey_connectors.session_store.store_permits`, and it is delegated
+    :func:`osprey_connectors.posture_store.store_permits`, and it is delegated
     to rather than restated. The store contract's rule 3 has exactly two
     implementations — that module and the stdlib-only hook — and a connector
     that spelled the combining terms a third time would be a third thing to
@@ -405,12 +405,12 @@ def _session_store_permits(control_target: str | None) -> bool:
     already mid-conversation, which is the whole point of storing it in a file
     instead of delivering it by respawn.
     """
-    # Imported here, not at module scope: ``session_store`` imports this module
+    # Imported here, not at module scope: ``posture_store`` imports this module
     # for :func:`is_readonly_run`, and the two must not import each other while
     # loading.
-    from osprey_connectors import session_store
+    from osprey_connectors import posture_store
 
-    return session_store.store_permits(control_target)
+    return posture_store.store_permits(control_target)
 
 
 def _deployment_writes_enabled(connector_type: str | None) -> bool:
@@ -468,10 +468,10 @@ def _writes_disabled_result(
       the run started" from "nothing could be resolved at launch, so the run
       was pinned everywhere" — the second is nobody's decision and must not be
       reported as one.
-    * this **session has writes off for one control target**. The
+    * the **operator has writes off for one control target**. The
       deployment arms this connector and no readonly run is in force; an
-      operator narrowed this one machine for this one session from the
-      control-target chip in the header, and the chip is where it lifts.
+      operator narrowed this one machine from the control-target chip in the
+      header, and the chip is where it lifts.
     * the **deployment** has writes off for this connector type, which is the
       only one of the four that ``writes_enabled`` governs. Posture is per
       type, so the message names the block an operator actually has to edit:
@@ -510,12 +510,12 @@ def _writes_disabled_result(
         # asked when nobody handed an answer down — a readonly run refuses
         # above without ever reading it.
         if store_permits is None:
-            store_permits = _session_store_permits(control_target)
-        # Imported here for the same reason :func:`_session_store_permits`
-        # imports it here: ``session_store`` imports this module for
+            store_permits = _posture_store_permits(control_target)
+        # Imported here for the same reason :func:`_posture_store_permits`
+        # imports it here: ``posture_store`` imports this module for
         # :func:`is_readonly_run`, so the two must not import each other while
         # loading.
-        from osprey_connectors.session_store import (
+        from osprey_connectors.posture_store import (
             LAUNCH_POSTURE_ALL_TARGETS,
             launch_narrowed_target,
             launch_permits,
@@ -538,7 +538,7 @@ def _writes_disabled_result(
                 message = (
                     f"Write to '{channel_address}' blocked: this run launched under the "
                     "most restrictive write state — at launch neither its control "
-                    "target nor this session's write state for it could be resolved, "
+                    "target nor the recorded write state for it could be resolved, "
                     "so the run was pinned with writes off for every target. A write "
                     "state set since applies to the next run, not to one already in "
                     "flight. Re-run the script to pick up the current write state."
@@ -546,27 +546,27 @@ def _writes_disabled_result(
             else:
                 message = (
                     f"Write to '{channel_address}' blocked: this run launched while "
-                    f"writes were off for '{launched}' in this session; a write state "
-                    "set since applies to the next run, not to one already in flight. "
+                    f"writes were off for '{launched}'; a write state set since "
+                    "applies to the next run, not to one already in flight. "
                     "Re-run the script to pick it up."
                 )
         elif not store_permits and deployment_arms:
             if control_target:
-                where = f"the '{control_target}' control target in this session"
+                where = f"the '{control_target}' control target"
                 remedy = f"Turn writes back on for '{control_target}' from the chip"
             else:
                 # No stamp, so the most restrictive entry decided and this
                 # connector genuinely cannot say which target that was. Naming
                 # one would be a guess an operator then acts on.
                 where = (
-                    "at least one control target in this session (this connector was "
-                    "built without one, so the most restrictive of them decides)"
+                    "at least one control target (this connector was built "
+                    "without one, so the most restrictive of them decides)"
                 )
                 remedy = "Turn writes back on from the chip"
             message = (
                 f"Write to '{channel_address}' blocked: writes are off for {where} — "
-                f"turned off from the control-target chip in the header, and in force "
-                f"for this session only. {remedy} if the write is intended; "
+                f"turned off from the control-target chip in the header; applies "
+                f"deployment-wide. {remedy} if the write is intended; "
                 "config.yml is not the gate here."
             )
         else:
@@ -674,7 +674,7 @@ class ControlSystemConnector(ABC):
     # None on an instance nobody built through the factory: no type, so no
     # per-type block.
     _connector_type: str | None = None
-    # The session target this instance was built for. Stamped by the same
+    # The control target this instance was built for. Stamped by the same
     # factory seam as _connector_type, from the target the *caller* named — the
     # init payload's target, the sandbox's stamp, the deployment baseline, the
     # bridge lane's own target. Stays None on an instance nobody built through
@@ -719,14 +719,14 @@ class ControlSystemConnector(ABC):
         * a readonly sandbox run (see :func:`is_readonly_run`) is refused
           regardless of the deployment posture;
         * the operator's own narrowing for :attr:`_control_target`, read from
-          the per-(session, target) posture store on every write (see
-          :func:`_session_store_permits`). That is the live half the deployment
+          the deployment's control-context record on every write (see
+          :func:`_posture_store_permits`). That is the live half the deployment
           posture deliberately is not: a target flipped to read-only from the
           control-target chip refuses the very next write on a session that is
           already running, with no respawn and no config edit.
 
-        The store can only narrow. Nothing in it widens the deployment's
-        ceiling, and an unresolvable or empty store leaves that ceiling exactly
+        The record can only narrow. Nothing in it widens the deployment's
+        ceiling, and an unreadable or absent record leaves that ceiling exactly
         as it was.
 
         The store answer is memoised on :attr:`_last_store_verdict` for the
@@ -736,7 +736,7 @@ class ControlSystemConnector(ABC):
         """
         if is_readonly_run():
             return False
-        store_permits = _session_store_permits(self._control_target)
+        store_permits = _posture_store_permits(self._control_target)
         self._last_store_verdict = store_permits
         if not store_permits:
             return False

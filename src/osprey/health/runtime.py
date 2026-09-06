@@ -245,9 +245,9 @@ class HealthRuntime:
 
         The health suite reports on the deployment *as configured*: its
         connectors are built from the config section fixed at construction, and
-        a session-level control-system target switch does not move them. That is
+        a control-target switch does not move them. That is
         the never-swap ruling, and this row does not change it — it makes it
-        visible. While a session is switched away, a reader would otherwise take
+        visible. While the deployment is switched away, a reader would otherwise take
         an ``ok`` row about the baseline target as an ``ok`` row about the target
         they are working on.
 
@@ -263,7 +263,7 @@ class HealthRuntime:
         leaves :attr:`~osprey.health.models.CheckReport.exit_code` alone.
 
         Returns:
-            The row while the session is switched, otherwise ``None``. Never
+            The row while the deployment is switched, otherwise ``None``. Never
             raises — a banner that failed to render must not fail a health run.
         """
         try:

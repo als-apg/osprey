@@ -237,7 +237,7 @@ async def create_connector() -> Any:
         # config's type table, not about the lane: rung 3 is reached precisely
         # because the lane declared a target this deployment cannot resolve, so
         # the declared target is still the honest answer to "which machine does
-        # this worker address", and it indexes the session store rather than any
+        # this worker address", and it indexes the posture store rather than any
         # config block.
         connector._connector_type = None
     await connector.connect(type_config)

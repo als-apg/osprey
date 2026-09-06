@@ -158,7 +158,7 @@ ERROR_CLASS_MAP = {
     "launch_token_required": "Safety",
     "path_traversal": "Safety",
     "protected_key": "Safety",
-    "session_target_mismatch": "Safety",
+    "control_target_mismatch": "Safety",
     # A target switch is still in flight: the write was refused before the
     # control system was touched. Wait for it to settle and re-issue; never
     # route around the gate.

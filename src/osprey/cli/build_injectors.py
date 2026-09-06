@@ -1178,7 +1178,7 @@ def _inject_bluesky(
         # Two lanes: lane 1 serves the deployment baseline, lane 2 the target
         # `_SECOND_LANE_TARGET` pairs it with. Both carry `target` — a lane's
         # identity is fixed here, at render time, and the bridge reads it rather
-        # than inferring a session target it is never told about. `target` and
+        # than inferring a control target it is never told about. `target` and
         # the addressing keys are the LANE-SCOPED ones: a single-lane block on
         # any other baseline still carries neither (the stand-in case below is
         # the one exception, and the comment there says why). That is a

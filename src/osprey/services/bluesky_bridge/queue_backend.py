@@ -26,7 +26,7 @@ unconfigured manager, and an unreachable manager all yield
 ``can_execute: False`` with distinct reason codes, so no deployment can ever
 advertise an execution ability it does not have. The reason codes are also the
 vocabulary every consumer branches on, which is why one of them
-(:data:`REASON_SESSION_TARGET_MISMATCH`) is defined here even though only the
+(:data:`REASON_CONTROL_TARGET_MISMATCH`) is defined here even though only the
 host-side MCP server can mint it — see the comment on that constant.
 
 **Emergency abort.** :meth:`QueueBackend.abort` is the one place where this
@@ -188,10 +188,10 @@ REASON_MANAGER_UNREACHABLE = "manager_unreachable"
 # target, and it does not know — must not know — which target the agent session
 # is currently pointed at: that lives in a state file written by the controls
 # MCP server on the host, which a bridge container cannot see. So the host-side
-# bluesky MCP server is what compares the session target against the target this
-# deployment's lane serves, and what refuses `queue_add`/`queue_start` while the
-# two differ on a single-lane deployment (every deployment, until a second lane
-# is opted into).
+# bluesky MCP server is what compares the recorded control target against the
+# target this deployment's lane serves, and what refuses `queue_add` and
+# `queue_start` while the two differ on a single-lane deployment (every
+# deployment, until a second lane is opted into).
 #
 # The code lives here anyway, beside the reasons it stands with, because this
 # module is where the capability vocabulary is defined: panels, the JS queue
@@ -200,7 +200,7 @@ REASON_MANAGER_UNREACHABLE = "manager_unreachable"
 # host-side tool module spells the string again rather than importing it (this
 # module pulls in `bluesky-queueserver-api`, which that server refuses to
 # depend on) and a test pins the two spellings equal.
-REASON_SESSION_TARGET_MISMATCH = "session_target_mismatch"
+REASON_CONTROL_TARGET_MISMATCH = "control_target_mismatch"
 
 # The env var naming which plan LANE this bridge process is — the service key
 # of its own config block (`bluesky`, `bluesky_va`, `bluesky_live`), written
@@ -261,9 +261,9 @@ def _baseline_lane_target() -> str:
     accelerator and whose deployment can never be switched in practice. That is
     not this module's rule to invent: it is exactly what
     ``target_banner.resolve_baseline_target`` answers host-side, and the host is
-    what refuses ``queue_add`` when the session target differs from the lane's.
-    Two rules would let a deployment be refused over a mismatch neither side
-    really has. The host module itself lives in the controls MCP server, which
+    what refuses ``queue_add`` when the recorded control target differs from the
+    lane's. Two rules would let a deployment be refused over a mismatch neither
+    side really has. The host module itself lives in the controls MCP server, which
     the bridge image does not carry, so this reads the one predicate both of
     them share — :func:`osprey_connectors.types.baseline_target` — rather than
     respelling it; a test still pins the two answers equal.
@@ -367,12 +367,12 @@ def resolve_lane_identity() -> tuple[str, str]:
     deployment was rendered — the container's own env var and its own
     ``services.<lane>.target`` block — and NEITHER may come from session state.
     The bridge cannot read that state even if this function wanted to: the
-    session target lives in a state file the controls MCP server writes on the
-    HOST, outside every bridge container's filesystem. Which is the whole
+    deployment's target lives in the control-context record on the HOST,
+    outside every bridge container's filesystem. Which is the whole
     producer split: each lane publishes what it is, and the host composes the
-    active/inactive view by comparing that against the session target it alone
-    can see. A record that moved when a session switched would make the two
-    layers disagree about a fact only one of them is entitled to.
+    active/inactive view by comparing that against the deployment's target,
+    which it alone can see. A lane identity that moved on a switch would make
+    the two layers disagree about a fact only one of them is entitled to.
 
     Never raises: a lane identity is part of a fail-closed record, so an
     unreadable config yields the same answer an unswitchable deployment gets
@@ -492,7 +492,7 @@ class Capability:
             (``bluesky``/``bluesky_va``/``bluesky_live``).
         lane_target: The control target that lane serves, ``live`` or ``va``.
             Fixed at render time; see :func:`resolve_lane_identity` for why it
-            can never be the SESSION's target.
+            can never be the DEPLOYMENT's target.
         lane_degraded: ``None`` on a lane whose declared target resolves to a
             connector type this deployment configured, which is every lane that
             is fully described. Otherwise the sentence naming what the lane

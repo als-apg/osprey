@@ -12,10 +12,10 @@ from osprey.mcp_server.python_executor.tools._execution_gates import (
     enforce_deployment_writes_gate,
     enforce_path_policy,
     enforce_posture_clamp,
+    recorded_control_target,
     refuse_readonly_write,
     report_runtime_refusal,
     require_known_execution_mode,
-    session_control_target,
 )
 from osprey.mcp_server.python_executor.tools._package_inventory import with_live_packages
 
@@ -164,8 +164,8 @@ async def execute(
 
     # Deployment-level kill switch (independent of pattern detection accuracy).
     # Write posture is per control target, so the gate is asked about the target
-    # this session is on — the same one the sandbox will be stamped with.
-    enforce_deployment_writes_gate(execution_mode, session_control_target())
+    # the deployment is on — the same one the sandbox will be stamped with.
+    enforce_deployment_writes_gate(execution_mode, recorded_control_target())
 
     # Per-call execution-mode gate (uses pattern detection — readonly-mode safety).
     if patterns.get("has_writes") and execution_mode == "readonly":

@@ -268,7 +268,7 @@ def get_execution_control_config(target: str | None = None) -> ExecutionControlC
     says nothing.
 
     Args:
-        target: The session's control target. ``None`` — the caller has no
+        target: The control target. ``None`` — the caller has no
             target to name — answers the deployment's *baseline* target. Naming
             a target nobody selected is otherwise not something this codebase
             does; it is sound here because an unstamped run provably builds the

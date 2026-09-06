@@ -2,8 +2,8 @@
 """
 ---
 name: Writes Kill Switch
-description: Blocks ALL write operations under a readonly session posture or an unarmed target
-summary: Blocks write operations when the session is sandboxed or the target is not armed
+description: Blocks ALL write operations under a readonly write posture or an unarmed target
+summary: Blocks write operations when the deployment is sandboxed or the target is not armed
 event: PreToolUse
 tools: channel_write, execute
 safety_layer: 1
@@ -144,10 +144,10 @@ _LANE_ADDRESSED_KEY = "lane_addressed_tools"
 #: The posture refusal, said once: it is lifted by one action, so it teaches the
 #: operator one dialect. ``{scope}`` carries :data:`_POSTURE_DENY_SCOPE` when the
 #: record's target is known and is empty otherwise — a narrowing belongs to
-#: one machine, and a refusal that named none would describe the session-wide
+#: one machine, and a refusal that named none would describe the deployment-wide
 #: sandbox this deployment may not be in.
 _POSTURE_DENY_REASON = (
-    "\U0001f512 WRITES OFF — this session refuses control-system "
+    "\U0001f512 WRITES OFF — this deployment refuses control-system "
     "writes{scope}.\n\n"
     "Turn writes back on from the control-target chip in the header; "
     "config.yml is not the gate here."
@@ -171,8 +171,8 @@ _POSTURE_UNKNOWN_DENY_REASON = (
 
 #: The machine-ish reason the posture refusal records. Deliberately the same
 #: word the MCP audit middleware and the python executor's in-tool session
-#: clamp record for the same refusal, so a sandboxed session's records join
-#: across all three layers on one spelling. A cross-layer test pins them
+#: clamp record for the same refusal, so refusals under the sandbox posture
+#: join across all three layers on one spelling. A cross-layer test pins them
 #: together, reading this literal by AST — the hook imports nothing from
 #: osprey, so it cannot share the constant itself.
 _POSTURE_DENY_AUDIT_REASON = "posture"
@@ -190,7 +190,7 @@ _WRITES_DISABLED_AUDIT_REASON = "writes_disabled"
 
 #: What stage 2 found, when it found a refusal. The DECISION is one boolean; the
 #: kind picks which of the two vocabularies the operator is answered in — the
-#: deployment's config keys, or the session's own posture — because a refusal
+#: deployment's config keys, or the recorded posture — because a refusal
 #: that names the wrong control sends them to one that will not move it.
 _REFUSAL_DEPLOYMENT = "deployment"
 _REFUSAL_POSTURE = "posture"
@@ -222,11 +222,11 @@ def _server_prefixes():
 def _is_lane_addressed(short_name):
     """Whether stage 2 leaves a tool alone because a lane addresses it.
 
-    A queue operation binds to one plan lane, not to the session target: the
-    lane-bound tools name their lane and refuse in-tool, and the one that only
-    stages work composes tokenless by contract, so nothing it stages reaches a
-    machine on its own. Gating them on the session target would refuse a plan
-    queued for the simulator because the session happens to point at the ring.
+    A queue operation binds to one plan lane, not to the deployment's target:
+    the lane-bound tools name their lane and refuse in-tool, and the one that
+    only stages work composes tokenless by contract, so nothing it stages reaches
+    a machine on its own. Gating them on the deployment's target would refuse a
+    plan queued for the simulator because the deployment points at the ring.
 
     The set is data, read from this render's hook_config, never a name spelled
     in this file — a renamed tool would otherwise detach its carve-out here
@@ -268,8 +268,8 @@ def _refusal_keys(section, target):
     by default: a refusal naming the global key on a deployment whose live block
     says `false` would send the operator to flip a key that changes nothing.
 
-    A `None` *target* is the session whose target could not be identified. It is
-    refused unless EVERY target it could reach is armed, so the keys are the
+    A `None` *target* is the deployment whose target could not be identified. It
+    is refused unless EVERY target it could reach is armed, so the keys are the
     unarmed ones among those — naming a target whose key already says `true`
     would be the same wrong instruction reached by a different route.
 
@@ -290,7 +290,7 @@ def _refusal_keys(section, target):
 
 
 def _deployment_posture(hook_input):
-    """Whether writes may proceed for the target this session acts on.
+    """Whether writes may proceed for the target this deployment acts on.
 
     Returns ``(armed, keys, target, refusal)`` — the decision, the config keys a
     refusal should name, the target it was answered for (``None`` when the
@@ -302,7 +302,7 @@ def _deployment_posture(hook_input):
     the operator's per-target narrowing, which moves on the control-target chip
     in the header. ``osprey_target_state.effective_writes_for``
     is the single rule that combines them — the stdlib restatement of
-    ``osprey_connectors.session_store.effective_writes``, so this hook and the
+    ``osprey_connectors.posture_store.effective_writes``, so this hook and the
     connector's reference monitor cannot answer one write differently. The KIND
     is asked separately, and only to choose which control the operator is sent to.
 
@@ -328,7 +328,7 @@ def _deployment_posture(hook_input):
         # A baseline fallback still NAMES the deployment's baseline target, and
         # answering for it would state a posture for a deployment that may have
         # switched away from it. `effective_writes_for` reads `None` as "the
-        # posture every target this session could reach agrees on", which is the
+        # posture every target the deployment could reach agrees on", which is the
         # only answer here that cannot become a guess in favour of hardware.
         target = None if _target_state.is_baseline(result) else result.get("target")
 
@@ -347,13 +347,14 @@ def _deployment_posture(hook_input):
         if _target_state.effective_writes_for(hook_input, section, target):
             return True, _refusal_keys(section, target), target, None
 
-        # Refused. A narrowing and a read-only run are the session's own; every
-        # other refusal is the deployment's config — which includes `None`, a
-        # config that expresses no posture anywhere. This hook has always denied
-        # a config with no `control_system` block, and a deployment that says
-        # nothing must not become one that writes. It is also the one shape
-        # where this hook and `osprey_approval` deliberately disagree: approval
-        # falls through to its normal prompt, this hook still refuses.
+        # Refused. A narrowing and a read-only run are the operator's own (set
+        # from the chip); every other refusal is the deployment's config — which
+        # includes `None`, a config that expresses no posture anywhere. This
+        # hook has always denied a config with no `control_system` block, and a
+        # deployment that says nothing must not become one that writes. It is
+        # also the one shape where this hook and `osprey_approval` deliberately
+        # disagree: approval falls through to its normal prompt, this hook still
+        # refuses.
         if _target_state.target_sandboxed(hook_input, target) or _target_state.is_readonly_run():
             return False, _refusal_keys(section, target), target, _REFUSAL_POSTURE
         return False, _refusal_keys(section, target), target, _REFUSAL_DEPLOYMENT
@@ -387,7 +388,7 @@ def _deny_posture(hook_input, tool_name, target=None):
     """Emit the sandbox-posture deny and exit 0. Does not return.
 
     *target* names the machine the narrowing belongs to when it is known. Stage 1
-    passes none on purpose: the session-wide posture is answered from the
+    passes none on purpose: the deployment-wide posture is answered from the
     environment ahead of any config I/O, and resolving a target there would make
     that answer depend on the very reads it is deliberately placed before.
 
@@ -423,8 +424,8 @@ def _deny_posture(hook_input, tool_name, target=None):
 def _deny_posture_unknown(hook_input, tool_name):
     """Emit the unreadable-posture deny and exit 0. Does not return.
 
-    Records the posture reason with :data:`_POSTURE_UNKNOWN_DETAIL`, so a
-    sandboxed session's records still join across the three layers on one
+    Records the posture reason with :data:`_POSTURE_UNKNOWN_DETAIL`, so
+    refusals under the sandbox posture still join across the three layers on one
     spelling while the ledger keeps "could not be read" apart from "was
     narrowed". Same no-raise rule as :func:`_deny_posture`.
     """
@@ -507,8 +508,8 @@ def main():
         log_hook("writes-check", hook_input, status="allow", detail=f"target={target}")
         sys.exit(0)
 
-    # The session's own refusals answer in the posture vocabulary and never name
-    # a config key: the control that lifts them is the header chip.
+    # The operator's own refusals (set from the chip) answer in the posture
+    # vocabulary and never name a config key: the chip is what lifts them.
     if refusal == _REFUSAL_POSTURE_UNKNOWN:
         _deny_posture_unknown(hook_input, tool_name)
     if refusal == _REFUSAL_POSTURE:
@@ -534,11 +535,11 @@ def main():
         scope = f"Control system writes are not armed for the active target ({target})."
     else:
         # Named as a refusal ABOUT the missing identity, not about one target: the
-        # posture was the intersection over every target this session could reach,
+        # posture was the intersection over every target the deployment could reach,
         # and a line naming one of them would describe a decision nobody made.
         scope = (
-            "This session's control target could not be identified, so writes "
-            "are refused unless every target it could reach is armed."
+            "The active control target could not be identified, so writes are "
+            "refused unless every target this deployment could reach is armed."
         )
     arm = "Arm them in config.yml: " + ", ".join(f"{key}: true" for key in refusal_keys)
     output = {

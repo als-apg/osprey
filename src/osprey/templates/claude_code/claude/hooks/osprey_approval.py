@@ -69,8 +69,8 @@ exits with NO decision at all, so that the layer which refuses it — the
 `osprey_writes_check` deny, or `queue_start`'s own lane gate — is not reopened
 by an approval prompt. Posture is per target, so the same tool on the same
 deployment can defer on one target and prompt on the other; the operator's own
-per-(session, target) narrowing in the posture store counts the same way as a
-config disarm, because `osprey_writes_check` reads the same store. A config
+per-target narrowing in the control-context record counts the same way as a
+config disarm, because `osprey_writes_check` reads the same record. A config
 that states no posture anywhere prompts exactly as it always has.
 
 ## Write-approval stamps
@@ -283,7 +283,7 @@ def _record_reader(hook_input=None):
 
     Threading a reader rather than a record is what lets one prompt describe one
     read without making a prompt that needs no record pay for one. Every ask
-    names the session's target, but a single-lane deployment's queue prompt has
+    names the recorded control target, but a single-lane deployment's queue prompt has
     no lane to resolve and must not read the state directory a second time —
     nor, before the ask is even assembled, a first time.
 
@@ -510,7 +510,7 @@ def _sanitize_label(text) -> str:
 # Identity: which control-system target this approval would act on
 # ---------------------------------------------------------------------------
 # One line, on every prompt, answering the question no tool argument answers:
-# is this session pointed at the real machine or at a simulation? It is read
+# is this deployment pointed at the real machine or at a simulation? It is read
 # EXCLUSIVELY from the control-context record and the metadata the deployment's
 # own controls servers publish beside it. The
 # rendered config.yml is in this hook's hand throughout and is deliberately not
@@ -804,7 +804,7 @@ def _target_identity_phrase(record, target):
         # The endpoint is the role the writer selected under the session's
         # effective posture, republished whenever that posture changes.
         # Rendered verbatim: picking a role here would be a second opinion
-        # about which gateway this session actually holds.
+        # about which gateway this deployment actually holds.
         endpoint = _sanitize_label(meta.get("endpoint") or "endpoint not recorded")
         # The label is the writer's too, for the same reason the destination
         # line below reads it rather than re-deriving one: a deployment may put
@@ -1364,9 +1364,9 @@ def _queue_item_lines(snapshot, base_url: str) -> list[str]:
 #   the `Target:` line does. Reading it from config would produce a confident,
 #   stale answer on the one deployment shape this axis exists for.
 #
-# The active lane is the lane whose target equals the session target — the same
-# exact-match-on-exactly-one rule the host applies, so this prompt and the tool
-# that later refuses agree about which lane is addressed. Zero matches and two
+# The active lane is the lane whose target equals the recorded control target —
+# the same exact-match-on-exactly-one rule the host applies, so this prompt and
+# the tool that later refuses agree about which lane is addressed. Zero matches and two
 # matches are both "no answer", and no answer is rendered as an explicit
 # unresolved line rather than as a guess.
 
@@ -1415,8 +1415,9 @@ def _baseline_target(config: dict) -> str:
     direction a wrong answer must never go.
 
     This is lane TOPOLOGY, not identity: it answers what the deployment is wired
-    to, which is a render-time fact config is the authority on. Where the SESSION
-    is pointed is a different question, and only the record may answer it.
+    to, which is a render-time fact config is the authority on. Where the
+    DEPLOYMENT is pointed is a different question, and only the record may
+    answer it.
     """
     section = config.get("control_system") if isinstance(config, dict) else None
     cs_type = section.get("type") if isinstance(section, dict) else None
@@ -1473,7 +1474,7 @@ def _lane_situation(config: dict, hook_input=None, read_record=None) -> dict:
 
     Keys: ``lanes`` (the rendered map), ``multi`` (whether there is anything to
     address at all), ``record`` (the deployment's control context, or ``None``),
-    ``session_target`` and ``active`` (the lane serving it, or ``None``).
+    ``control_target`` and ``active`` (the lane serving it, or ``None``).
 
     Never raises: an unreadable config is a single-lane deployment and an
     unreadable record is an unknown control target, which are the two
@@ -1495,18 +1496,18 @@ def _lane_situation(config: dict, hook_input=None, read_record=None) -> dict:
         # "simulation".
         lanes = [(_LANE_ONE, _TARGET_LIVE)]
     record = (read_record or _record_reader(hook_input))() if len(lanes) > 1 else None
-    session_target = None
+    control_target = None
     if _target_state is not None and record is not None:
         try:
-            session_target = _target_state.selected_target(record)
+            control_target = _target_state.selected_target(record)
         except Exception:
-            session_target = None
-    matches = [key for key, target in lanes if session_target and target == session_target]
+            control_target = None
+    matches = [key for key, target in lanes if control_target and target == control_target]
     return {
         "lanes": lanes,
         "multi": len(lanes) > 1,
         "record": record,
-        "session_target": session_target,
+        "control_target": control_target,
         "active": matches[0] if len(matches) == 1 else None,
     }
 
@@ -1546,12 +1547,12 @@ def _lane_roster_text(situation: dict) -> str:
     return ", ".join(f"{key!r} ({_sanitize_label(target)})" for key, target in situation["lanes"])
 
 
-def _session_target_phrase(situation: dict) -> str:
-    """How this session's own target is spoken of in a lane line."""
-    session_target = situation["session_target"]
-    if not session_target:
+def _control_target_phrase(situation: dict) -> str:
+    """How the deployment's own target is spoken of in a lane line."""
+    control_target = situation["control_target"]
+    if not control_target:
         return "unavailable (the control target could not be read)"
-    return _lane_target_phrase(situation, session_target)
+    return _lane_target_phrase(situation, control_target)
 
 
 def _unresolved_lane_lines(situation: dict, action: str) -> list[str]:
@@ -1561,7 +1562,7 @@ def _unresolved_lane_lines(situation: dict, action: str) -> list[str]:
     plan operation rather than picking a machine — because an approver reading a
     lane line has to know whether approving would achieve anything.
     """
-    if not situation["session_target"]:
+    if not situation["control_target"]:
         return [
             f"Bluesky PLAN lane: unresolved — the control target could not be "
             f"read, so this prompt cannot name the lane {action} would act on. Approval "
@@ -1569,8 +1570,8 @@ def _unresolved_lane_lines(situation: dict, action: str) -> list[str]:
             f"({_lane_roster_text(situation)})."
         ]
     return [
-        f"⚠️  NO ACTIVE BLUESKY PLAN LANE — this session is on target "
-        f"{_sanitize_label(situation['session_target'])}, which no single rendered lane "
+        f"⚠️  NO ACTIVE BLUESKY PLAN LANE — the deployment is on the "
+        f"{_sanitize_label(situation['control_target'])} target, which no single rendered lane "
         f"serves (rendered lanes: {_lane_roster_text(situation)}). {action} will be "
         f"REFUSED."
     ]
@@ -1645,7 +1646,7 @@ def _describe_queue_add(
     approval prompt must always render, degraded if need be, never blocked.
 
     On a deployment with two plan lanes the first line names the lane the item
-    would BIND to — the active one, the lane serving the session's target — and
+    would BIND to — the active one, the lane serving the recorded control target — and
     everything below it is fetched from THAT lane's bridge: each lane holds its
     own draft and its own queue, so lane 1's answers would describe a different
     machine than the one being approved. A single-lane deployment has no lane to
@@ -1665,7 +1666,7 @@ def _describe_queue_add(
         lines.append(
             f"Bluesky PLAN lane: {lane_key} "
             f"(target: {_lane_target_phrase(situation, _lane_target_of(situation, lane_key))}) "
-            f"— the lane serving this session's target, which is where this plan binds."
+            f"— the lane serving the deployment's target, which is where this plan binds."
         )
 
     base_url = _lane_bridge_url(situation, lane_key, config)
@@ -1741,7 +1742,7 @@ def _lane_start_lines(situation: dict, tool_input: dict) -> tuple[list[str], str
         ]
         if active:
             lines.append(
-                f"The lane serving this session's target is {active!r} "
+                f"The lane serving the deployment's target is {active!r} "
                 f"(target: {_lane_target_phrase(situation, _lane_target_of(situation, active))})."
             )
         return lines, None
@@ -1757,31 +1758,31 @@ def _lane_start_lines(situation: dict, tool_input: dict) -> tuple[list[str], str
     bound_line = f"Bluesky PLAN lane: {shown} (target: {bound_phrase})"
 
     if active == requested:
-        return [f"{bound_line} — the lane this session's target is on."], requested
+        return [f"{bound_line} — the lane the deployment's target is on."], requested
 
-    if situation["session_target"] is None:
+    if situation["control_target"] is None:
         # The lane is real and the queue below is genuinely its own; what cannot
-        # be said is whether it is the lane the session is on. Saying "mismatch"
+        # be said is whether it is the lane the deployment is on. Saying "mismatch"
         # here would be a claim the record never made.
         return [
             bound_line,
             "The control target could not be read, so this prompt cannot say "
-            "whether that is the lane this session is on. Approval is not blocked; a "
-            "start on a lane the session has left is refused by the deployment.",
+            "whether that is the lane the deployment is on. Approval is not blocked; a "
+            "start on a lane the deployment has left is refused by the deployment.",
         ], requested
 
     lines = [
-        f"⚠️  LANE MISMATCH — the {shown!r} lane serves {bound_phrase}; this session's "
-        f"target is {_session_target_phrase(situation)}. Starting will be REFUSED."
+        f"⚠️  LANE MISMATCH — the {shown!r} lane serves {bound_phrase}; the deployment "
+        f"is on the {_control_target_phrase(situation)} target. Starting will be REFUSED."
     ]
     if active:
         lines.append(
-            f"The lane serving this session's target is {active!r} — start that one "
+            f"The lane serving the deployment's target is {active!r} — start that one "
             f"instead, but only if its queue is what should run."
         )
     else:
         lines.append(
-            f"No single rendered lane serves this session's target "
+            f"No single rendered lane serves the deployment's target "
             f"(rendered lanes: {_lane_roster_text(situation)})."
         )
     # Last, directly above the listing it owns: the warning leads, and the label
@@ -2053,17 +2054,18 @@ def _create_pre_execution_notebook(code: str, exec_mode: str, config: dict) -> s
 # Deferring emits no decision, so the call proceeds unless some other layer
 # refuses it. There are exactly two guarantors, and they cover different tools:
 #
-# * `osprey_writes_check` denies the session-targeted write tools. That deny is
-#   the whole reason this short-circuit exists (an "ask" from here reopens
-#   `can_use_tool` over it), and it is what makes a defer safe for them;
+# * `osprey_writes_check` denies the write tools that follow the control target.
+#   That deny is the whole reason this short-circuit exists (an "ask" from here
+#   reopens `can_use_tool` over it), and it is what makes a defer safe for them;
 # * `queue_start` refuses in-tool, before its bridge is called, whenever the
 #   bound lane's target is not armed. `writes_check` deliberately allows every
 #   lane-addressed tool, so for a start THAT gate is the only guarantor — and it
 #   only fires once the lane is placed. A start whose lane cannot be placed
 #   therefore keeps its prompt rather than deferring into a gap.
 
-#: Queue tools are addressed by lane rather than by the session target, and only
-#: a START names one. `queue_add` composes onto an idle queue and starts nothing
+#: Queue tools are addressed by lane rather than by the recorded control target,
+#: and only a START names one. `queue_add` composes onto an idle queue and starts
+#: nothing
 #: (the server withholds the launch token, and the bridge refuses
 #: `launch_token_required` the moment the queue drains), and a plain stop is
 #: ungated everywhere by design. Neither has a target to resolve, and neither is
@@ -2113,7 +2115,7 @@ def _lane_posture(config, section, tool_input):
 
 
 def _session_posture(section, hook_input):
-    """Posture for the target this SESSION is pointed at.
+    """Posture for the target this DEPLOYMENT is pointed at.
 
     Two layers, composed in the narrowing's own direction — it only ever narrows:
 
@@ -2130,7 +2132,7 @@ def _session_posture(section, hook_input):
     if _target_state.is_baseline(result):
         # A baseline fallback still NAMES the deployment's baseline target, and
         # answering for it would state a posture for a deployment that may have
-        # switched away from it. The posture every target this session could
+        # switched away from it. The posture every target this deployment could
         # REACH agrees on is the only one that cannot become a guess in favour
         # of hardware — the same call `osprey_writes_check` makes on the same
         # shape, so the two cannot part company over an unidentified target.
@@ -2309,7 +2311,7 @@ def main():
         f"Approval policy: {policy}",
     ]
     # One reader for this whole prompt: whatever a describer learns about the
-    # session's target, the `Target:` line and the write-approval stamp below are
+    # recorded control target, the `Target:` line and the write-approval stamp below are
     # rendered from the same read. It resolves nothing until something asks, so a
     # prompt with no target-aware describer costs exactly what it always did.
     read_record = _record_reader(hook_input)

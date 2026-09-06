@@ -251,7 +251,7 @@ def _provenance(archiver_section: Any, connector: Any) -> dict[str, str]:
     """
     situation = target_banner.resolve_target_situation()
     return {
-        "target": situation.session_target,
+        "target": situation.control_target,
         "target_source": TARGET_SOURCE_SESSION if situation.switched else TARGET_SOURCE_BASELINE,
         "archiver_type": resolve_archiver_type(archiver_section),
         "archiver_backend": type(connector).__name__,
@@ -383,7 +383,7 @@ async def archiver_read(
         # database, never Channel Access — so this read is NOT routed through
         # the connector-host child that serves the control system, and must
         # never be gated on that child being alive: history stays readable
-        # exactly when a diagnosis needs it most. The only thing the session
+        # exactly when a diagnosis needs it most. The only thing the control
         # target contributes here is provenance, stamped below.
         connector = await registry.archiver()
         provenance = _provenance(registry.config.archiver, connector)

@@ -87,11 +87,12 @@ class ConnectorFactory:
                   config never reaches live hardware.
                 - connector: Dict with connector-specific configs
                 If None, loads from global config
-            control_target: The session target this connector is being built
+            control_target: The control target this connector is being built
                 for — ``live``, ``va`` or ``standin``. Stamped on the instance
-                as ``_control_target`` and used to index the per-(session,
-                target) posture store, and nothing else: the deployment half of
-                the write posture stays keyed on the connector *type*. Callers
+                as ``_control_target`` and used to index the per-target
+                narrowing in the control-context record, and nothing else: the
+                deployment half of the write posture stays keyed on the
+                connector *type*. Callers
                 that have no target to name leave it ``None``, which is the
                 behaviour every caller had before the stamp existed.
 
@@ -188,7 +189,7 @@ class ConnectorFactory:
         Args:
             config: Control system configuration dict, as
                 :meth:`build_control_system_connector` documents it.
-            control_target: The session target this connector is being built
+            control_target: The control target this connector is being built
                 for, stamped on the instance as
                 :meth:`build_control_system_connector` documents it.
 

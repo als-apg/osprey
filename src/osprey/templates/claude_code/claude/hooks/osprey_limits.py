@@ -28,7 +28,7 @@ stdin ──► Parse JSON
              YES                                   │
               │                                    │
               ▼                                    │
-         Session target                            │
+         Control target                            │
          named?                                    │
               │                                    │
         ┌─────┴─────┐                              │
@@ -127,7 +127,7 @@ except Exception:  # pragma: no cover - older render without the reader
     _target_state = None
 
 
-def _session_target(hook_input):
+def _control_target(hook_input):
     """The control target this deployment is pointed at, or ``None``.
 
     ``None`` means unidentifiable rather than absent, and every route to it —
@@ -205,7 +205,7 @@ def main():
         # instead would take limits off a machine that still enforces them.
         validator = LimitsValidator.from_config()
     else:
-        target = _session_target(hook_input)
+        target = _control_target(hook_input)
         if target is None:
             # The posture every target a session here could reach agrees on. A
             # baseline fallback still NAMES the deployment's baseline target,

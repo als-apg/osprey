@@ -20,7 +20,7 @@ from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.utils.identity import AUDIT_IDENTITY_ENV as AUDIT_IDENTITY_ENV  # re-exported
 from osprey.utils.identity import IDENTITY_ENV_LADDER
 from osprey.utils.workspace import RENDERED_CONFIG_RELPATH
-from osprey_connectors.session_store import LAUNCH_POSTURE_ENV_VAR
+from osprey_connectors.posture_store import LAUNCH_POSTURE_ENV_VAR
 
 logger = logging.getLogger(__name__)
 
@@ -878,7 +878,7 @@ POSTURE_SESSION_ENV = "OSPREY_POSTURE_SESSION"
 
 #: The per-target posture a python-executor sandbox was LAUNCHED under.
 #: Imported rather than re-spelled: unlike the names above, its owner
-#: (:mod:`osprey_connectors.session_store`) is a package the registry may
+#: (:mod:`osprey_connectors.posture_store`) is a package the registry may
 #: import without an import cycle, and it is both the stamp's format authority
 #: and its reader.
 LAUNCH_POSTURE_ENV = LAUNCH_POSTURE_ENV_VAR
@@ -904,11 +904,10 @@ AUDIT_WRITER_ENV = "OSPREY_AUDIT_WRITER"
 #: would otherwise be overridden by.
 #: ``OSPREY_AGENT_DATA_ROOT`` is here for the same reason as the posture value:
 #: it is stamped by the spawn sites as the pair-half of ``OSPREY_POSTURE_SESSION``
-#: and it decides which directory the session-posture store and the
-#: control-target state file are read out of. A server spec that could pin it
-#: would point the whole session at a directory of its own choosing — an empty
-#: store reads as "nothing narrowed", so the pin is a way to shed a sandbox
-#: without ever touching the posture value.
+#: and it decides which directory the control-context record is read out of. A
+#: server spec that could pin it would point the whole session at a directory
+#: of its own choosing — a missing record reads as "nothing narrowed", so the
+#: pin is a way to shed a sandbox without ever touching the posture value.
 #: ``OSPREY_LAUNCH_POSTURE`` is the executor's run-level pin: the per-target
 #: posture a sandbox was LAUNCHED under, which is what stops a widen from
 #: reaching a run that started narrow. It is assigned by exactly one site (the

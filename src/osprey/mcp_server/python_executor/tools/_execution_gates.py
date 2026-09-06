@@ -2,14 +2,15 @@
 
 Both tools take an ``execution_mode`` string and guard control-system writes
 with two independent checks: a per-call readonly gate (pattern detection) and a
-deployment-level kill switch (the write posture of the control target this
-session is on). Each gate only recognises one canonical spelling, so any *other*
-string falls through both — not "readonly", so write patterns are not blocked;
-not "readwrite", so the kill switch never fires. Rejecting unknown modes here
-closes that hole for every caller at once, and gives the kill switch a single
-implementation instead of one copy per tool. A third gate clamps a run to the
-*session* posture inherited from the Web Terminal, which is about this session
-rather than this deployment and so refuses in its own vocabulary.
+deployment-level kill switch (the write posture of the control target the
+deployment is on). Each gate only recognises one canonical spelling, so any
+*other* string falls through both — not "readonly", so write patterns are not
+blocked; not "readwrite", so the kill switch never fires. Rejecting unknown
+modes here closes that hole for every caller at once, and gives the kill switch
+a single implementation instead of one copy per tool. A third gate clamps a run
+to the posture :mod:`osprey.audit.posture` answers with — the deployment's own
+read-only mode, or the operator's per-target narrowing in the control-context
+record — and so refuses in its own vocabulary.
 
 This module also owns what happens *around* a refusal, which is three things
 the tools must not each spell for themselves: the durable audit record, the
@@ -50,7 +51,7 @@ logger = logging.getLogger("osprey.mcp_server.tools.execution_gates")
 #: equality against either member only because this set is enforced first.
 VALID_EXECUTION_MODES = frozenset({"readonly", "readwrite"})
 
-#: The session posture, its provenance and its posture-store key —
+#: The posture, its provenance and its audit session id —
 #: :mod:`osprey.audit.posture`'s spellings, re-exported under this module's
 #: names because the tests and the gates' callers address them here.
 POSTURE_ENV_VAR = posture.POSTURE_ENV_VAR
@@ -74,7 +75,7 @@ TOOL_PREFIX_ENV_VAR = "OSPREY_MCP_TOOL_PREFIX"
 POSTURE_SANDBOX = posture.POSTURE_SANDBOX
 POSTURE_WRITES = posture.POSTURE_WRITES
 
-#: The reason a session-posture refusal is filed under. The same spelling the
+#: The reason a posture refusal is filed under. The same spelling the
 #: MCP middleware and the client-side ``osprey_writes_check.py`` hook use for
 #: the same refusal: one refusal, three possible layers, and an operator
 #: querying the ledger for it should not have to know which. A cross-layer test
@@ -119,7 +120,7 @@ def require_known_execution_mode(execution_mode: str) -> None:
     )
 
 
-def session_control_target() -> str | None:
+def recorded_control_target() -> str | None:
     """The control target this deployment is on, or ``None`` when there is none to read.
 
     ``None`` is not a failure: it is the honest answer for a deployment that
@@ -155,35 +156,35 @@ def enforce_deployment_writes_gate(execution_mode: str, target: str | None) -> N
     kill switch must not depend on detection accuracy.
 
     Write posture is per control target, so the question is asked about the one
-    this session is on: a deployment whose baseline is a live machine can have
+    the deployment is on: a deployment whose baseline is a live machine can have
     writes armed on its virtual accelerator and refused on the machine, and a
     single deployment-wide answer would be wrong for one of them. ``None``
     means no target was readable, which the posture lookup answers for the
     baseline rather than by skipping.
 
     Two postures are consulted, because they refuse for different reasons and
-    an operator reading either message must be told the right way forward: this
-    SESSION's per-target entry in the posture store
-    (:func:`_enforce_session_store_term`, changed from the header chip) and the
-    deployment's own key (config, changed by editing the project and
-    rebuilding). The session term goes first because the config read's
+    an operator reading either message must be told the right way forward: the
+    per-target entry in the control-context record
+    (:func:`_enforce_recorded_posture_term`, changed from the header chip) and the
+    deployment's own config key (changed by editing the project and
+    rebuilding). The record term goes first because the config read's
     ``ImportError`` path returns, and an unimportable config module must not
-    take the session posture down with it.
+    take the recorded posture down with it.
 
     Args:
         execution_mode: The run's mode; only ``"readwrite"`` is gated here.
-        target: The session's control target, from
-            :func:`session_control_target`, or ``None`` for the baseline.
+        target: The active control target, from
+            :func:`recorded_control_target`, or ``None`` for the baseline.
     """
     if execution_mode != "readwrite":
         return
 
     # Ahead of the config read, whose ImportError path RETURNS: a config module
-    # that cannot be imported must not take the session's own posture down with
+    # that cannot be imported must not take the recorded posture down with
     # it. The two terms are independent — one reads the project config, the
     # other a JSON file under the agent-data root — so neither may be gated on
     # the other's availability.
-    _enforce_session_store_term(target)
+    _enforce_recorded_posture_term(target)
 
     try:
         from osprey.services.python_executor.execution.control import (
@@ -214,38 +215,88 @@ def enforce_deployment_writes_gate(execution_mode: str, target: str | None) -> N
         )
 
 
-def _enforce_session_store_term(target: str | None) -> None:
-    """Raise ``ToolError`` (safety_error) when the SESSION narrowed this target.
+def _refuse_narrowed_posture(target: str | None, *, details: dict | None = None) -> NoReturn:
+    """Raise the refusal for a control target the operator narrowed to read-only.
 
-    :func:`enforce_posture_clamp` above already refuses a sandboxed session, and
-    for a session whose control target is knowable it is the gate that fires —
+    One builder for the two gates that meet this narrowing —
+    :func:`_enforce_recorded_posture_term`, which reads the record directly,
+    and :func:`enforce_posture_clamp`, which meets the same narrowing one layer
+    down through :func:`osprey.audit.posture.posture`. An operator who trips
+    both in one session must not have to work out that they are the same
+    answer, so the wording lives here rather than once in each gate.
+
+    The message names the target when one is resolvable and does not when
+    *target* is ``None``: the record's rule with no resolvable target is that
+    the most restrictive entry decides, and which entry that was is not
+    something either gate can honestly report.
+
+    Args:
+        target: The narrowed control target, or ``None`` when none could be
+            resolved.
+        details: The structured block to attach, for the caller that carries
+            one. ``None`` omits it entirely, exactly as ``make_error`` does.
+    """
+    readonly_suggestion = (
+        'Re-run with execution_mode="readonly" — reads are unaffected by the posture.'
+    )
+    if target is None:
+        make_error(
+            "safety_error",
+            "Writes are off for at least one control target (the run's target "
+            "could not be identified, so the most restrictive decides) — turned "
+            "off from the control-target chip in the header.",
+            [
+                readonly_suggestion,
+                "Turn writes back on from the control-target chip in the header if "
+                "the write is intended; the deployment config is not the gate here.",
+            ],
+            details=details,
+        )
+    make_error(
+        "safety_error",
+        f"Writes are off for the '{target}' control target — turned off from the "
+        "control-target chip in the header; applies deployment-wide.",
+        [
+            readonly_suggestion,
+            f"Turn writes back on for '{target}' from the control-target chip in "
+            "the header if the write is intended; the deployment config is not "
+            "the gate here.",
+        ],
+        details=details,
+    )
+
+
+def _enforce_recorded_posture_term(target: str | None) -> None:
+    """Raise ``ToolError`` (safety_error) when the RECORD narrowed this target.
+
+    :func:`enforce_posture_clamp` above already refuses a sandboxed run, and
+    where the control target is knowable it is the gate that fires —
     :func:`osprey.audit.posture.posture` resolves that target and reads the same
-    store. This term exists for the case it cannot cover: when nothing can say
-    which target the session is on (no controls-server record — the MCP servers
-    are not installed, or a process sits between them and this one),
-    ``posture()`` degrades to the ENVIRONMENT answer, which for this feature is
-    always the writes posture because no spawn site stamps a per-target
-    narrowing into it. Without this the run would be granted writes that the
-    header chip took away.
+    record. This term exists for the case it cannot cover: when nothing can say
+    which target the deployment is on (no control-context record — the MCP
+    servers are not installed), ``posture()`` degrades to the ENVIRONMENT
+    answer, which for this feature is always the writes posture because no
+    spawn site stamps a per-target narrowing into it. Without this the run
+    would be granted writes that the header chip took away.
 
-    The rule for that case is the store's own: with no resolvable target, the
-    MOST RESTRICTIVE entry recorded for the session decides — which is exactly
-    what :func:`~osprey_connectors.session_store.store_permits` does when it is
+    The rule for that case is the record's own: with no resolvable target, the
+    MOST RESTRICTIVE narrowing it holds decides — which is exactly what
+    :func:`~osprey_connectors.posture_store.store_permits` does when it is
     handed ``None``, so it is asked rather than restated here.
 
-    Degrades like the deployment check above: a store that cannot be read at all
-    is logged and skipped rather than turned into a refusal on every run. The
-    barrier this backs up is not this gate but the connector's own reference
-    monitor inside the sandbox, which asks the same question of the same file at
-    the moment of the write.
+    Degrades like the deployment check above: a record that cannot be read at
+    all is logged and skipped rather than turned into a refusal on every run.
+    The barrier this backs up is not this gate but the connector's own
+    reference monitor inside the sandbox, which asks the same question of the
+    same file at the moment of the write.
     """
     try:
-        from osprey_connectors.session_store import store_permits
+        from osprey_connectors.posture_store import store_permits
 
         permitted = store_permits(target)
     except Exception:  # noqa: BLE001 - the store degrades; the run does not fail here
         logger.warning(
-            "Session write posture unavailable — skipping the session-level writes check",
+            "Recorded write posture unavailable — skipping the record writes check",
             exc_info=True,
         )
         return
@@ -253,35 +304,10 @@ def _enforce_session_store_term(target: str | None) -> None:
     if permitted:
         return
 
-    # The wording is enforce_posture_clamp's, deliberately: this is the same
-    # refusal met one layer down, and an operator who meets both gates in one
-    # session should not have to work out that they are the same answer.
-    if target is None:
-        make_error(
-            "safety_error",
-            "Writes are off for at least one control target in this session (the "
-            "run's target could not be identified, so the most restrictive "
-            "decides) — turned off from the control-target chip in the header.",
-            [
-                'Re-run with execution_mode="readonly" — reads are unaffected by the posture.',
-                "Turn writes back on from the control-target chip in the header if "
-                "the write is intended; the deployment config is not the gate here.",
-            ],
-            details={"active_target": target},
-        )
-    make_error(
-        "safety_error",
-        f"Writes are off for the '{target}' control target in this session — "
-        "turned off from the control-target chip in the header, and in force "
-        "for this session only.",
-        [
-            'Re-run with execution_mode="readonly" — reads are unaffected by the posture.',
-            f"Turn writes back on for '{target}' from the control-target chip in "
-            "the header if the write is intended; the deployment config is not "
-            "the gate here.",
-        ],
-        details={"active_target": target},
-    )
+    # One builder with the clamp one layer down: an operator who meets both
+    # gates in one session should not have to work out that they are the same
+    # answer.
+    _refuse_narrowed_posture(target, details={"active_target": target})
 
 
 def _tool_subject(tool: str) -> str:
@@ -310,7 +336,7 @@ def _refusal_detail(tool: str, execution_mode: str, trigger: Any, description: s
 
 
 def _record_posture_clamp(tool: str) -> None:
-    """File the session-posture refusal, and claim it for this layer.
+    """File the posture refusal, and claim it for this layer.
 
     Goes through :func:`~osprey.audit.dedup.record_and_mark` rather than the
     writer directly: this gate runs *inside* the MCP audit middleware, which
@@ -339,7 +365,7 @@ def _record_posture_clamp(tool: str) -> None:
             detail=f"tool={tool}",
         )
     except Exception:  # noqa: BLE001 - the audit trail degrades; the refusal does not
-        logger.warning("Could not record the session-posture refusal", exc_info=True)
+        logger.warning("Could not record the posture refusal", exc_info=True)
 
 
 def enforce_posture_clamp(execution_mode: str, *, tool: str) -> None:
@@ -351,18 +377,18 @@ def enforce_posture_clamp(execution_mode: str, *, tool: str) -> None:
 
     * the **deployment** is running in readonly execution mode, i.e.
       ``OSPREY_EXECUTION_MODE`` is set to ``readonly`` on this very process.
-      ``posture()`` short-circuits to that ENVIRONMENT answer before the store
-      is ever consulted. Nothing about this session can lift it: the run has to
-      be started without the variable, so the message must not send the
-      operator to the chip, which already reads writes.
-    * this **session's posture for ONE control target** is read-only, resolved
-      from the session store. That is the operator's own narrowing, made from
-      the control-target chip in the header, and the chip is where it lifts. It
-      is per target, so the message names the target — this gate runs before
-      every readwrite tool call, and "this session is sandboxed" would read as
-      a session-wide block on a session that is working normally on every other
-      machine. The target is resolved through
-      :func:`~osprey.audit.posture.session_control_target`, the same resolver
+      ``posture()`` short-circuits to that ENVIRONMENT answer before the record
+      is ever consulted. No chip click can lift it: the run has to be started
+      without the variable, so the message must not send the operator to the
+      chip, which already reads writes.
+    * the **recorded posture for ONE control target** is read-only, resolved
+      from the control-context record. That is the operator's own narrowing,
+      made from the control-target chip in the header, and the chip is where it
+      lifts. It is per target, so the message names the target — this gate runs
+      before every readwrite tool call, and an unqualified "writes are off"
+      would read as a block on every machine while the deployment is working
+      normally on every other one. The target is resolved through
+      :func:`~osprey.audit.posture.recorded_control_target`, the same resolver
       :func:`~osprey.audit.posture.posture` used to decide the clamp fires at
       all, so the name in the refusal is the machine the clamp fired for.
       Where that resolver cannot name a target the refusal says so and names no
@@ -401,7 +427,12 @@ def enforce_posture_clamp(execution_mode: str, *, tool: str) -> None:
 
     _record_posture_clamp(tool)
 
-    if os.environ.get(posture.POSTURE_ENV_VAR) == posture.SANDBOX_MODE:
+    # Which of the two causes, and which machine, is decided once for every
+    # surface that refuses under this posture — see
+    # :func:`~osprey.audit.posture.sandbox_cause`. Only the wording is this
+    # gate's own.
+    cause, target = posture.sandbox_cause()
+    if cause == posture.CAUSE_DEPLOYMENT_READONLY:
         make_error(
             "safety_error",
             "This deployment is running in readonly execution mode, which refuses "
@@ -414,44 +445,7 @@ def enforce_posture_clamp(execution_mode: str, *, tool: str) -> None:
             ],
         )
 
-    # Degrades to the target-less wording rather than to a crash. The resolver
-    # is documented never to raise, but this runs on the refusal path of every
-    # readwrite tool call: a surprise here would turn a refusal into a 500 and
-    # lose the safety answer the clamp already reached.
-    try:
-        target = posture.session_control_target()
-    except Exception:  # noqa: BLE001 - the name degrades; the refusal does not
-        logger.warning(
-            "Could not name the session's control target for the posture refusal",
-            exc_info=True,
-        )
-        target = None
-
-    if target is None:
-        make_error(
-            "safety_error",
-            "Writes are off for at least one control target in this session (the "
-            "run's target could not be identified, so the most restrictive "
-            "decides) — turned off from the control-target chip in the header.",
-            [
-                'Re-run with execution_mode="readonly" — reads are unaffected by the posture.',
-                "Turn writes back on from the control-target chip in the header if "
-                "the write is intended; the deployment config is not the gate here.",
-            ],
-        )
-
-    make_error(
-        "safety_error",
-        f"Writes are off for the '{target}' control target in this session — "
-        "turned off from the control-target chip in the header, and in force "
-        "for this session only.",
-        [
-            'Re-run with execution_mode="readonly" — reads are unaffected by the posture.',
-            f"Turn writes back on for '{target}' from the control-target chip in "
-            "the header if the write is intended; the deployment config is not "
-            "the gate here.",
-        ],
-    )
+    _refuse_narrowed_posture(target)
 
 
 def _record_write_refusal(

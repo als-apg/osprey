@@ -15,7 +15,7 @@ and nothing else has to be read. Otherwise the answer comes from the operator's
 narrowing, which is per CONTROL TARGET — "the live machine is read-only, leave
 the virtual accelerator alone". No environment variable can carry that, because
 setting one would sandbox both targets, so it is a field of the control-context
-record, read through :mod:`osprey_connectors.session_store` and imported lazily
+record, read through :mod:`osprey_connectors.posture_store` and imported lazily
 so that the leaf stays a leaf. That record can only NARROW: an environment that
 already says sandbox is returned unchanged, and no narrowing has ever granted a
 write.
@@ -41,9 +41,6 @@ from __future__ import annotations
 
 import logging
 import os
-import threading
-from pathlib import Path
-from typing import Any
 
 from osprey.audit.envelope import POSTURE_SOURCE_PROCESS, POSTURE_SOURCES
 
@@ -52,17 +49,20 @@ logger = logging.getLogger("osprey.audit.posture")
 __all__ = [
     "CONTROL_TARGET_ENV_VAR",
     "OSPREY_AGENT_DATA_ROOT",
+    "CAUSE_DEPLOYMENT_READONLY",
+    "CAUSE_NARROWED_TARGET",
     "POSTURE_ENV_VAR",
     "POSTURE_SANDBOX",
     "POSTURE_SESSION_ENV_VAR",
     "POSTURE_SOURCE_ENV_VAR",
     "POSTURE_WRITES",
     "SANDBOX_MODE",
-    "invalidate_session_target_cache",
+    "is_readonly_run",
+    "sandbox_cause",
     "posture",
     "posture_session",
     "posture_source",
-    "session_control_target",
+    "recorded_control_target",
 ]
 
 #: The session posture, carried into every child of a Web Terminal session,
@@ -128,7 +128,7 @@ def posture() -> str:
        short-circuits: the record holds narrowings only, so consulting it could
        not change that answer.
     2. **The control-context record's posture**, indexed by the control target
-       this process's writes are about (:func:`session_control_target`); a
+       this process's writes are about (:func:`recorded_control_target`); a
        sandbox narrowing there is a sandbox here. A narrowing on any OTHER
        target says nothing about this process — narrowing the live machine must
        leave a process working on the virtual accelerator alone, which is the
@@ -141,12 +141,67 @@ def posture() -> str:
     Never raises. See :func:`_target_is_sandboxed` for the degradation rule:
     every failure to read the record answers the environment.
     """
-    env_answer = (
-        POSTURE_SANDBOX if os.environ.get(POSTURE_ENV_VAR) == SANDBOX_MODE else POSTURE_WRITES
-    )
+    env_answer = POSTURE_SANDBOX if is_readonly_run() else POSTURE_WRITES
     if env_answer == POSTURE_SANDBOX:
         return env_answer
     return POSTURE_SANDBOX if _target_is_sandboxed() else env_answer
+
+
+#: :func:`sandbox_cause`: the deployment itself was started read-only. No chip
+#: click lifts it — the run has to be started without the environment variable.
+CAUSE_DEPLOYMENT_READONLY = "deployment_readonly"
+
+#: :func:`sandbox_cause`: the operator narrowed a control target from the header
+#: chip. That is where it lifts, and the cause carries which machine it is about
+#: — ``None`` when no target could be resolved, in which case the record's rule
+#: is that the most restrictive narrowing decides and no machine may be named.
+CAUSE_NARROWED_TARGET = "narrowed_target"
+
+
+def is_readonly_run() -> bool:
+    """Whether this process was started as a deployment-wide read-only run.
+
+    Rung 1 of :func:`posture`, spelled once so the refusal surfaces cannot ask
+    it differently from the answer they are explaining. A **value** comparison,
+    never a presence check, deliberately mirroring ``osprey_connectors``'
+    ``is_readonly_run``: the writes posture and a readwrite run set the same
+    variable, so a presence check would claim a read-only run for every process
+    whose environment carries it for any other reason.
+    """
+    return os.environ.get(POSTURE_ENV_VAR) == SANDBOX_MODE
+
+
+def sandbox_cause() -> tuple[str, str | None]:
+    """Why :func:`posture` answered ``sandbox``, and which machine it is about.
+
+    The two causes send an operator to different places — a deployment started
+    read-only cannot be lifted from the header chip, and a narrowed target can
+    — so every surface that refuses under this posture has to decide which one
+    it is looking at. It is decided here rather than once per surface, so two
+    refusals for one posture cannot disagree about where the operator should go.
+
+    Returns:
+        ``(CAUSE_DEPLOYMENT_READONLY, None)`` for the environment answer, which
+        short-circuits exactly as it does in :func:`posture`; otherwise
+        ``(CAUSE_NARROWED_TARGET, target)``, where *target* is the control
+        target this process's writes are about, or ``None`` when none can be
+        resolved.
+
+    Never raises. :func:`recorded_control_target` is documented not to, but this
+    runs on the refusal path of every clamped call, and a surprise here would
+    turn a refusal into an internal error — so a failure degrades to the
+    target-less cause, which names no machine rather than inventing one.
+    """
+    if is_readonly_run():
+        return CAUSE_DEPLOYMENT_READONLY, None
+    try:
+        return CAUSE_NARROWED_TARGET, recorded_control_target()
+    except Exception:  # noqa: BLE001 - the name degrades; the refusal does not
+        logger.warning(
+            "Could not name the active control target for the posture refusal",
+            exc_info=True,
+        )
+        return CAUSE_NARROWED_TARGET, None
 
 
 def posture_source(declared: str | None = None) -> str:
@@ -178,42 +233,10 @@ def posture_session() -> str | None:
     return (os.environ.get(POSTURE_SESSION_ENV_VAR) or "").strip() or None
 
 
-# -- the session's control target ------------------------------------------
-
-#: The resolved session target, cached against the signature of the state
-#: files that produced it. Same shape and same reason as the record's own cache
-#: in :mod:`osprey_connectors.control_context`: :func:`posture` runs on every
-#: tool call, and a glob plus a JSON parse per call is a cost the answer does
-#: not need to pay twice for one unchanged directory.
-_TARGET_CACHE_LOCK = threading.Lock()
-_TARGET_CACHE: tuple[Any, str | None] | None = None
+# -- the deployment's control target ----------------------------------------
 
 
-def invalidate_session_target_cache() -> None:
-    """Forget the resolved session target. For tests and a process that moved roots."""
-    global _TARGET_CACHE
-    with _TARGET_CACHE_LOCK:
-        _TARGET_CACHE = None
-
-
-def _state_signature(path: Path) -> tuple[str, int, int, int] | None:
-    """``(path, mtime_ns, size, inode)`` for one state file, or ``None``.
-
-    The inode is part of it because the state file is replaced atomically
-    (temp file plus ``os.replace``), so two switches inside one filesystem
-    clock tick differ by inode when mtime and size do not — the rule
-    :mod:`osprey_connectors.control_context` and :mod:`osprey.health.signatures`
-    already follow. The path is part of it so that a reader whose agent-data
-    root moved does not answer from the previous root's cache.
-    """
-    try:
-        st = path.stat()
-    except OSError:
-        return None
-    return (str(path), st.st_mtime_ns, st.st_size, st.st_ino)
-
-
-def session_control_target() -> str | None:
+def recorded_control_target() -> str | None:
     """The control target this process's writes are about, or ``None``.
 
     Public because the refusals are per target now: a gate that names the
@@ -227,25 +250,23 @@ def session_control_target() -> str | None:
        Only the executor's sandbox subprocess carries it, and there it is the
        authority: that run is pinned to that target and its writes are refused
        if the session moves off it, so its posture is the posture of the target
-       it was pinned to, not of the one the session has since switched to. The
-       value is checked against ``target_state.TARGET_NAMES`` exactly as a
-       record's is — a stamp naming something no reader knows can only index
-       the posture to a key nothing writes, so it is dropped in favour of the
-       state record rather than answered with.
-    2. Otherwise the controls server's state record for this session, matched
-       by :func:`osprey.mcp_server.control_system.target_state.session_record`
-       — exact parent equality, the one rule every child of the same Claude
-       Code process reads by. This is the reader for the MCP servers, which is
+       it was pinned to, not of the one the deployment has since switched to.
+       The value is checked against
+       :data:`~osprey_connectors.types.CONTROL_TARGETS` exactly as the record's
+       is — a stamp naming something no reader knows can only index the posture
+       to a key nothing writes, so it is dropped in favour of the record rather
+       than answered with.
+    2. Otherwise the deployment's control-context record, through
+       :func:`osprey_connectors.control_context.read_record`. There is one
+       record per deployment and one reader for it, so this answer and the
+       chip's cannot differ. This is the reader for the MCP servers, which is
        where :func:`posture` is called from on every tool call.
 
-    The liveness skip inside that match is evaluated when the state files'
-    *signature* moves, not on every lookup: the answer is cached against the
-    signature, and a server dying does not touch its file. Deliberately so — a
-    ``kill(pid, 0)`` per tool call buys very little, because the record of a
-    server that died is rewritten or swept by the next server to start, which
-    moves the signature and re-runs the match. Nothing rests on the freshness
-    of the answer either: the guarantee that a write cannot land on a machine
-    nobody selected is the runtime's generation pin, not this lookup.
+    That reader re-stats the record on every call and re-parses only when its
+    signature moves, so the per-tool-call cost is a ``stat``. Nothing rests on
+    the freshness of the answer either: the guarantee that a write cannot land
+    on a machine nobody selected is the runtime's generation pin, not this
+    lookup.
 
     ``None`` is an honest "not knowable here", and :func:`posture` answers the
     environment for it rather than clamping: this gate refuses EVERY write tool
@@ -255,52 +276,42 @@ def session_control_target() -> str | None:
     ``effective_writes`` takes the most restrictive entry when it cannot name a
     target.
 
-    Never raises: an unimportable ``target_state`` (a deployment where the MCP
-    servers are not installed) and an unreadable state directory are both "not
-    knowable here" — for the stamp too, which is validated against that module's
-    vocabulary and so cannot be answered without it.
+    Never raises: an unimportable ``osprey_connectors`` (a deployment where the
+    connector package is not installed) and an unreadable record are both "not
+    knowable here" — for the stamp too, which is validated against that
+    package's vocabulary and so cannot be answered without it.
     """
     stamped = (os.environ.get(CONTROL_TARGET_ENV_VAR) or "").strip()
 
-    global _TARGET_CACHE
-    owner_ppid = os.getppid()
     try:
         # Imported inside the function: this module is a leaf, and every MCP
         # server imports it while only a session child ever reaches this line.
-        from osprey.mcp_server.control_system import target_state
+        from osprey_connectors import control_context
+        from osprey_connectors.types import CONTROL_TARGETS
 
         if stamped:
-            if stamped in target_state.TARGET_NAMES:
+            if stamped in CONTROL_TARGETS:
                 return stamped
             logger.debug(
-                "%s names an unknown control target %r; reading the state record instead",
+                "%s names an unknown control target %r; reading the record instead",
                 CONTROL_TARGET_ENV_VAR,
                 stamped,
             )
 
-        entries = sorted(target_state.state_dir().glob(target_state.REPORT_FILE_GLOB))
-        signature: Any = (owner_ppid, tuple(_state_signature(entry) for entry in entries))
-    except Exception:  # noqa: BLE001 — an unreadable state directory is "unknown"
+        record = control_context.read_record()
+    except Exception:  # noqa: BLE001 — an unreadable record is "unknown"
         logger.debug(
-            "Control-target state unavailable; the session target is unknown", exc_info=True
+            "Control-context record unavailable; the control target is unknown", exc_info=True
         )
         return None
 
-    cached = _TARGET_CACHE
-    if cached is not None and cached[0] == signature:
-        return cached[1]
-
-    record = target_state.session_record(entries, owner_ppid)
-    target = None if record is None else str(record["target"])
-    with _TARGET_CACHE_LOCK:
-        _TARGET_CACHE = (signature, target)
-    return target
+    return None if record is None else record.target
 
 
 def _target_is_sandboxed() -> bool:
     """Whether the record narrows this process's control target to the sandbox.
 
-    The one place :mod:`osprey_connectors.session_store` is reached from the
+    The one place :mod:`osprey_connectors.posture_store` is reached from the
     audit package, and the one place the degradation rule lives: ``False`` for
     every way of not knowing — no record, a corrupt or unreadable one, a target
     that cannot be resolved, a connector package that cannot be imported. The
@@ -312,12 +323,12 @@ def _target_is_sandboxed() -> bool:
     including a deployment-wide read-only run, which no reader here can lift.
     """
     try:
-        from osprey_connectors import session_store
+        from osprey_connectors import posture_store
 
-        target = session_control_target()
+        target = recorded_control_target()
         if target is None:
             return False
-        return session_store.target_posture(target) == session_store.POSTURE_SANDBOX
+        return posture_store.target_posture(target) == posture_store.POSTURE_SANDBOX
     except Exception:  # noqa: BLE001 — posture() is called on every tool call
         logger.debug("Control-context record unavailable; answering the environment", exc_info=True)
         return False

@@ -290,7 +290,7 @@ class LimitsValidator:
           they know which connector type they are and never which target
           selected it.
         - **target** is what a tool, hook, roster or the executor asks: they
-          follow the session's control target, which is resolved to its
+          follow the deployment's control target, which is resolved to its
           connector type here so both shapes read one posture.
 
         A present ``control_system.connector.<type>.limits_checking`` block
@@ -345,7 +345,7 @@ class LimitsValidator:
         """Load a validator for the posture that holds across every reachable target.
 
         What a caller with no target of its own has to assume. The stdlib limits
-        hook is the one that needs it: when the session's control target cannot
+        hook is the one that needs it: when the deployment's control target cannot
         be read — none written yet, an unreadable state directory, a target that
         resolves to nothing — it still has to decide about a write, and the
         machine it is deciding about is any of the ones a session here can
@@ -378,7 +378,7 @@ class LimitsValidator:
         """Build a validator for an already-resolved limits posture.
 
         The caller resolves the posture for the thing it is acting on — a
-        connector for its own type, a tool or hook for the session's target —
+        connector for its own type, a tool or hook for the recorded control target —
         and this turns that answer into an enforcing validator. The posture's
         answering key travels into ``policy`` so that a later refusal names the
         config line an operator can edit: on a deployment that relaxed unlisted

@@ -1988,8 +1988,8 @@ def _render_project(
         # One fact, two homes: a profile that also spells a key the live stand-in
         # derives is refused rather than silently overwritten below — the same rule
         # the va_archiver block applies to the archive's coordinates, and here the
-        # duplicate is a real gateway address sitting in the profile while every
-        # session is on the stand-in.
+        # duplicate is a real gateway address sitting in the profile while the
+        # deployment is on the stand-in.
         standin_duplicates = live_standin_duplicate_key_errors(
             build_profile.virtual_accelerator, build_profile.config
         )

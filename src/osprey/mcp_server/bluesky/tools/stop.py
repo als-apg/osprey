@@ -22,11 +22,11 @@ each rendered bridge which one has a plan in motion (``queue.resolve_halt_lane``
 never demanded from the caller. An emergency stop must not require the agent to
 have kept track of which machine it started.
 
-**And it never follows the session.** Every other lane decision on this server
-asks where the session is pointed; a halt asks where the hardware is moving. If
-an operator switched targets while a plan runs, the plan is still running — so
-the abort goes to the lane running it, and a target switch can neither gate nor
-misdirect it.
+**And it never follows the control target.** Every other lane decision on this
+server asks where the deployment is pointed; a halt asks where the hardware is
+moving. If an operator switched targets while a plan runs, the plan is still
+running — so the abort goes to the lane running it, and a target switch can
+neither gate nor misdirect it.
 
 The bridge composes the abort (immediate pause, bounded wait for the paused
 state, then abort) and owns every refusal; see
@@ -96,12 +96,12 @@ async def stop_run() -> str:
     anything to a starting position. Say that when you report the abort, and
     say it when you propose one.
 
-    Nothing gates this call — no writes check, no launch token, no session
+    Nothing gates this call — no writes check, no launch token, no control
     target, at this tool or at the bridge — because a halt that can be refused
     for a policy reason is a halt with a failure mode. It is still
     approval-gated, so a human sees it. On a deployment with two plan lanes the
     abort is sent to the lane that has a plan in motion, found by asking the
-    bridges, so a session that switched targets since the plan started can
+    bridges, so a deployment that switched targets since the plan started can
     still stop it and does not have to switch back first.
 
     Returns:
@@ -126,7 +126,7 @@ async def stop_run() -> str:
         - queue_request_rejected: the manager reached the paused state and then
           refused the abort itself.
     """
-    # Which lane is RUNNING something, not which lane the session is on. On a
+    # Which lane is RUNNING something, not which lane the deployment is on. On a
     # single-lane deployment this resolves nothing and probes nothing.
     lane = await resolve_halt_lane()
 

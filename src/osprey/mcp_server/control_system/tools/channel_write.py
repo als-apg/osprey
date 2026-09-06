@@ -673,7 +673,7 @@ async def channel_write(
 
     validator = None
     if LimitsValidator is not None:
-        # The posture the session's target runs under, not the deployment's. A
+        # The posture the recorded control target runs under, not the deployment's. A
         # deployment may relax unlisted channels for its simulator alone, and
         # the binding captured at entry is already the answer to "which machine
         # is this write for" — reading the state file a second time here could
