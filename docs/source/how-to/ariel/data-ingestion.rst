@@ -89,6 +89,22 @@ If neither is possible, ``verify_ssl: false`` turns verification off for this in
 
 Write it only as a deliberate choice. Nothing about the connection is authenticated afterwards.
 
+The same settings cover the sidecar-metadata fetch described below, so one ingest never reaches the logbook host two different ways.
+
+Sidecar Metadata
+~~~~~~~~~~~~~~~~
+
+An entry can carry its structured metadata in a JSON attachment beside the prose --- session ids, model names, whatever the tooling that wrote the entry recorded. During ingestion that file is fetched and merged into the entry's ``metadata``.
+
+The filename is a facility convention, not a standard, so each adapter declares its own:
+
+.. code-block:: python
+
+   class MyLogbookAdapter(FacilityAdapter):
+       metadata_sidecar_names = ("entry-meta.json",)
+
+The default is ``("metadata.json",)``. Matching is case-insensitive, and a name that never appears is simply a no-op --- there is no switch to turn this off. If an entry has attachments and none of them matched, ingestion says so at debug level rather than staying silent about metadata it did not collect.
+
 
 .. _`Enhancement Pipeline`:
 

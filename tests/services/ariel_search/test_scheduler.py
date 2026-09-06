@@ -764,3 +764,48 @@ class TestIngestionRunTracking:
 
         result = await repository.get_last_successful_run("als_elog")
         assert result is None
+
+
+class TestSidecarMetadataWiring:
+    """The scheduler hands the sidecar step the adapter and the ingestion config."""
+
+    @pytest.mark.asyncio
+    async def test_the_step_receives_the_adapter_and_the_ingestion_config(self) -> None:
+        """Without both, the step matches one hard-coded name over a bare session."""
+        config = _make_config()
+        adapter = _mock_adapter([_make_entry("e1")])
+
+        repository = MagicMock()
+        repository.pool = MagicMock()
+        repository.pool.connection = MagicMock(return_value=AsyncMock())
+        repository.start_ingestion_run = AsyncMock(return_value=1)
+        repository.complete_ingestion_run = AsyncMock()
+        repository.fail_ingestion_run = AsyncMock()
+        repository.get_last_successful_run = AsyncMock(
+            return_value=datetime(2026, 1, 1, tzinfo=UTC)
+        )
+        repository.upsert_entry = AsyncMock()
+
+        extract = AsyncMock()
+        with (
+            patch(
+                "osprey.services.ariel_search.ingestion.get_adapter",
+                return_value=adapter,
+            ),
+            patch(
+                "osprey.services.ariel_search.enhancement.create_enhancers_from_config",
+                return_value=[],
+            ),
+            patch(
+                "osprey.services.ariel_search.ingestion.metadata_attachment."
+                "extract_metadata_from_attachments",
+                extract,
+            ),
+        ):
+            scheduler = IngestionScheduler(config=config, repository=repository)
+            await scheduler.poll_once()
+
+        extract.assert_awaited_once()
+        kwargs = extract.await_args.kwargs
+        assert kwargs["adapter"] is adapter
+        assert kwargs["ingestion"] is config.ingestion
