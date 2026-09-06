@@ -73,6 +73,9 @@ _PERIMETER_OPEN_VALUE = "open"
 PROFILE_SOURCE_ENTRIES: tuple[str, ...] = (
     # Source files at the repo root.
     "profile.yml",
+    # The provider catalog beside the profile. Source zone like the profile
+    # itself: tracked, and the file an operator adds a gateway to.
+    "providers.yml",
     "triggers.yml",
     "ci-extra.yml",
     "osprey.service",
