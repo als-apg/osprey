@@ -24,30 +24,6 @@ from osprey.utils.logger import get_logger
 logger = get_logger("pty_manager")
 
 
-def _clear_notebook_binding(session_id: str) -> None:
-    """Drop the notebook session binding if it still names *session_id*.
-
-    A session that goes away takes its binding with it, so a kernel started
-    afterwards does not join a dead PTY. The check inside ``clear_binding``
-    means a session superseded before it died leaves the live binding alone.
-
-    Imported inside the function: the resolver reads deployment config, and a
-    registry built in a test that never touches notebooks should not pay for
-    it. Failure is swallowed — a leftover binding costs a notebook its
-    session, and must not cost the pool its teardown.
-
-    Args:
-        session_id: The pool key being terminated or evicted.
-    """
-    try:
-        from osprey.interfaces.web_terminal.operator_session import resolve_agent_data_root
-        from osprey.interfaces.web_terminal.session_binding import clear_binding
-
-        clear_binding(resolve_agent_data_root(), session_id)
-    except Exception:  # noqa: BLE001 — teardown must not fail on the binding
-        logger.debug("Could not clear the notebook session binding for %s", session_id)
-
-
 def build_pty_env(extra_env: dict[str, str] | None = None) -> dict[str, str]:
     """Build the environment for the PTY child process.
 
@@ -124,14 +100,12 @@ def build_pty_env(extra_env: dict[str, str] | None = None) -> dict[str, str]:
 #:   it is also the pool key.
 #: * ``OSPREY_TELEMETRY_SESSION_START`` — a wall-clock timestamp, minted anew on
 #:   every connection. Fingerprinting it would respawn every reattach.
-#: * ``OSPREY_POSTURE_SESSION`` — the posture-store key the child's posture was
+#: * ``OSPREY_POSTURE_SESSION`` — the audit session id the child's posture was
 #:   read under, and by construction the pool key itself (``_build_extra_env``
 #:   computes ``claude_session_id or telemetry_session_id``, the same
 #:   expression the handler keys the pool on). Absent-or-equal-to-the-key, the
 #:   same shape as ``OSPREY_SESSION_ID``: it names the session the pool already
-#:   keyed on and carries no privilege the key does not. Fingerprinting it
-#:   would kill a live child on rekey, when a session's key moves from its
-#:   telemetry id to its discovered Claude UUID. Its companion
+#:   keyed on and carries no privilege the key does not. Its companion
 #:   ``OSPREY_POSTURE_SOURCE`` is deliberately *not* excluded — it is constant
 #:   (``live``) on this seam, so it never forces a respawn, and leaving it in
 #:   keeps the deny list to names that provably differ per connection.
@@ -364,8 +338,9 @@ class PtySession:
         """The PTY child's process id, or ``None`` before it is started.
 
         Read-only and public because one thing outside this class legitimately
-        needs it: the control-target chip in the header asks which control-system target the session
-        is on, and the controls MCP server publishes that against the pid chain
+        needs it: the control-target chip in the header asks which
+        control-system target the deployment is on, and the controls MCP
+        server publishes that against the pid chain
         of the Claude Code process running inside this PTY. That pid is the only
         handle the web server has on the session's process tree.
         """
@@ -415,10 +390,6 @@ class PtyRegistry:
         # in lockstep with _sessions. Read by get_or_create_session to decide
         # whether a warm entry may be reattached; see env_fingerprint().
         self._env_fingerprints: dict[str, str] = {}
-        # Current pool key -> the key that child was SPAWNED under, recorded
-        # only where a rekey has moved a live session off its spawn key. An
-        # absent key resolves to itself; see audit_session_key().
-        self._audit_keys: dict[str, str] = {}
         self._max_background = max_background
 
     # ---- Pool methods ---- #
@@ -499,10 +470,6 @@ class PtyRegistry:
         session = self._spawn_session(command, rows, cols, extra_env, cwd)
         self._sessions[session_key] = session
         self._env_fingerprints[session_key] = fingerprint
-        # A fresh child under this key exports this key as its own posture
-        # marker, so any alias inherited from the child it replaces would
-        # misfile every record the new one produces.
-        self._audit_keys.pop(session_key, None)
         return session, False
 
     def attach_session(self, session_key: str, owner: object) -> bool:
@@ -598,96 +565,6 @@ class PtyRegistry:
         """The token currently holding *session_key*, or None if it is free."""
         return self._attached.get(session_key)
 
-    def rekey_session(self, old_key: str, new_key: str) -> None:
-        """Rename a session entry (e.g. after UUID discovery).
-
-        A PTY spawns under the telemetry id and is renamed to the Claude UUID
-        the moment discovery finds it. Two things move with it, in opposite
-        directions:
-
-        * **The env fingerprint.** It describes the child, not the key, and
-          dropping it would leave the renamed session looking unrecorded —
-          which the next :meth:`get_or_create_session` would read as "spawned
-          with no overlay" and could hand back a sandboxed child to a caller
-          asking for a writable one.
-        * **The audit join key**, in the opposite direction. The live child's
-          ``OSPREY_POSTURE_SESSION`` was fixed at ``execvp`` time and still
-          names the spawn key; it is in
-          :data:`POOL_FINGERPRINT_EXCLUDED_ENV` precisely so this rename does
-          not kill the child to update it. An alias is recorded so a
-          server-side emitter holding only the new key can resolve back to the
-          key that child's own records carry — see :meth:`audit_session_key`.
-
-        **The posture store is not touched here, on purpose.** A rekey fires
-        moments after the spawn, before any entry for this session can exist,
-        so there is nothing to move; and every entry the web server writes goes
-        under *both* the current key and the spawn key
-        (``routes.websocket.persist_or_raise``), which is what keeps the
-        running child — reading the telemetry id it was spawned with — and a
-        post-restart reattach under the Claude UUID on one narrowing. Moving an
-        entry here would have to choose which of those two readers to take it
-        away from.
-
-        Args:
-            old_key: The key the session is pooled under now.
-            new_key: The key it moves to.
-        """
-        if old_key not in self._sessions:
-            return
-        session = self._sessions.pop(old_key)
-        self._sessions[new_key] = session
-        fingerprint = self._env_fingerprints.pop(old_key, None)
-        if fingerprint is not None:
-            self._env_fingerprints[new_key] = fingerprint
-        if old_key in self._attached:
-            self._attached[new_key] = self._attached.pop(old_key)
-
-        # Chained renames collapse to the FIRST key — that is the one the
-        # running child exported. An alias that would name the key itself is
-        # dropped rather than stored, so "absent" stays the single spelling of
-        # "this key is its own spawn key" (a rekey back to the original, and a
-        # same-key rekey, both land here).
-        original = self._audit_keys.pop(old_key, old_key)
-        if original == new_key:
-            self._audit_keys.pop(new_key, None)
-        else:
-            self._audit_keys[new_key] = original
-
-    def audit_session_key(self, session_key: str) -> str:
-        """The posture-store key an audit record about *session_key* joins on.
-
-        The seam between a server-side audit emitter — which knows a session
-        only by its current pool key — and the key that session's own child
-        stamps into every record it emits. They differ for exactly as long as
-        one live child outlives a rekey: the child's
-        ``OSPREY_POSTURE_SESSION`` cannot be rewritten without killing it, so
-        the *server* does the resolving instead.
-
-        A toggle event recorded under the current key would split one session
-        into two unrelated actors in the ledger: the toggle under the Claude
-        UUID, every tool call it governs under the telemetry id.
-
-        The posture store reads it for the same reason, one step earlier:
-        ``routes.websocket.persist_or_raise`` records every narrowing under
-        this key as well as the current one, so the running child — which
-        looks its posture up under the key it exported — finds the entry a
-        route wrote under the Claude UUID it knows nothing about.
-
-        Any server-side recorder that names a PTY session must pass the id it
-        was handed through here before putting it in an envelope's ``session``
-        field, or the join it writes will be to a key no child's records carry.
-        ``HttpAuditMiddleware`` is not such a recorder: it files every
-        ``http_mutation`` envelope with ``session: null``, because an HTTP
-        request belongs to no session (it is stamped ``posture_source=app`` for
-        the same reason).
-
-        Returns:
-            The original spawn key when this session has been rekeyed,
-            otherwise *session_key* unchanged — which is the answer for every
-            session that never moved, a resumed one and a chat key included.
-        """
-        return self._audit_keys.get(session_key, session_key)
-
     def pop_lru_victim(self) -> PtySession | None:
         """Remove and return the session a spawn at capacity would evict, unkilled.
 
@@ -759,7 +636,6 @@ class PtyRegistry:
         )
         self._sessions[session_id] = session
         self._env_fingerprints[session_id] = env_fingerprint(extra_env)
-        self._audit_keys.pop(session_id, None)
         return session
 
     def get_session(self, session_id: str) -> PtySession | None:
@@ -772,10 +648,7 @@ class PtyRegistry:
         Everything :meth:`terminate_session` does *except* the kill. The pool
         entry goes, and with it the recorded env fingerprint, the audit alias
         and any attachment, so the key is fully forgotten and a later spawn
-        under it records its own. The notebook session binding goes too,
-        resolved through the audit alias *before* that alias is dropped — the
-        binding names a session by the key its child stamps, which for a
-        rekeyed session is not the pool key being removed here.
+        under it records its own.
 
         The split exists because the two halves belong on different threads.
         The bookkeeping is a handful of dict operations and is safe on an
@@ -786,15 +659,12 @@ class PtyRegistry:
 
         Returns:
             The removed session, or None when *session_id* names no pooled
-            session. The bookkeeping runs either way, which for an unknown key
-            means only clearing a notebook binding that still points at it.
+            session. The bookkeeping runs either way, and for an unknown key
+            is a no-op.
         """
         session = self._sessions.pop(session_id, None)
-        bound_as = self.audit_session_key(session_id)
         self._env_fingerprints.pop(session_id, None)
-        self._audit_keys.pop(session_id, None)
         self._attached.pop(session_id, None)
-        _clear_notebook_binding(bound_as)
         return session
 
     def reinsert(self, session_id: str, session: PtySession) -> bool:
@@ -854,6 +724,5 @@ class PtyRegistry:
         for session_id in list(self._sessions):
             self.terminate_session(session_id)
         self._env_fingerprints.clear()
-        self._audit_keys.clear()
         self._attached.clear()
         self._reserved.clear()

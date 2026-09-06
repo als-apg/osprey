@@ -57,7 +57,7 @@ except ImportError:
 
 
 #: Env marker naming *where* the child's posture decision came from, and the
-#: posture-store key it was made under. The pair is what the audit envelope
+#: audit session id it was made under. The pair is what the audit envelope
 #: records as ``posture_source`` and ``session``; a child that finds neither
 #: was not spawned by a posture-aware surface at all and reports ``process``.
 POSTURE_SOURCE_ENV = "OSPREY_POSTURE_SOURCE"
@@ -84,9 +84,9 @@ def resolve_agent_data_root(app: Any = None) -> str:
     markers they share, and a second copy of the resolution is exactly how two
     sites come to disagree. It answers the SHARED root (never
     ``resolve_agent_data_root`` from the workspace module, which appends
-    ``sessions/<OSPREY_SESSION_ID>``): the control-target state file and the
-    session-posture store both span sessions, and a reader outside the
-    session's environment could not reproduce a session-scoped path.
+    ``sessions/<OSPREY_SESSION_ID>``): the control-context record spans
+    sessions, and a reader outside the session's environment could not
+    reproduce a session-scoped path.
 
     The stamp exists because everything below the spawn re-derives this
     directory today — the controls server through config, the stdlib-only hooks
@@ -157,9 +157,9 @@ def build_operator_child_env(
     having removed it from ``os.environ`` at app construction, not by its
     absence here.
 
-    It does **not** carry the session's write posture into the child: that
-    posture is per control target, lives in the posture store, and is read
-    live at every write-time gate, so a narrowing applies to a chat already
+    It does **not** carry the write posture into the child: that posture is per
+    control target, lives in the control-context record, and is read live at
+    every write-time gate, so a narrowing applies to a chat already
     mid-conversation. A deployment-wide readonly marker still reaches the
     child exactly as it always has, through ``build_clean_env``'s copy of
     ``os.environ``; nothing here sets or removes one.
@@ -224,10 +224,11 @@ def build_operator_child_env(
             outside the bare-UUID grammar, which no store will ever answer
             for); ``/ws/operator``
             passes :data:`POSTURE_SOURCE_SPAWN` (its ``operator-<hex8>`` key is
-            minted per connection and the posture route, which requires a
-            session UUID, can never address it). Defaults to ``live``, the
-            shape of a key the store keeps answering for — but every call site
-            in this tree states its own, and a test pins that.
+            minted per connection and matches no bare-UUID id a caller could
+            send). The value names the stamping surface only — the posture
+            itself is resolved from the control-context record at decision
+            time, whichever value was stamped. Defaults to ``live``, but every
+            call site in this tree states its own, and a test pins that.
 
     Returns:
         A fresh env dict for ``ClaudeAgentOptions.env``.
@@ -248,7 +249,7 @@ def build_operator_child_env(
     # The agent-data root travels WITH the session key, never without it: the
     # key names whose posture applies and the root names the directory the
     # answer is read out of, and a child holding one but not the other would
-    # look for its session's state in a directory it had to guess.
+    # look for that state in a directory it had to guess.
     if session_key:
         env[POSTURE_SOURCE_ENV] = posture_source
         env[POSTURE_SESSION_ENV] = session_key
