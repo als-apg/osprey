@@ -198,6 +198,17 @@ class TestVizSandboxRegression:
         assert ("write_channel", "write_channel()") in _DANGEROUS_PATTERNS
         assert ("ctypes", "ctypes module") in _DANGEROUS_PATTERNS
 
+    def test_dangerous_patterns_name_every_shipped_client(self):
+        """The blocklist names pyepics and Tango; it must name DOOCS too.
+
+        A sandbox that blocks the clients one facility uses and not the ones
+        another facility uses is not a blocklist, it is a coincidence.
+        ``aioca`` is here for a second reason: ophyd-async pulls it into every
+        environment, installed or not.
+        """
+        assert ("doocs4py", "doocs4py module") in _DANGEROUS_PATTERNS
+        assert ("aioca", "aioca module") in _DANGEROUS_PATTERNS
+
     def test_viz_single_arg_call_still_behaves_identically(self):
         """The pre-existing single-positional-arg call (the viz sandbox's own
         caller, `sandbox_executor.py`'s `execute_sandbox_code`) must see the

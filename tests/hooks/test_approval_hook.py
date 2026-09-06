@@ -1001,6 +1001,21 @@ def test_fallback_covers_p4p_write_idioms(hook_module):
 
 
 @pytest.mark.unit
+def test_fallback_covers_the_doocs_write_idiom(hook_module):
+    """The fallback list must carry the DOOCS write spelling.
+
+    ``doocs4py.set`` is what the shipped DOOCS connector writes through, so a
+    deployment on that connector is guaranteed to have the library. Anchored
+    to ``doocs4py`` on purpose: a bare ``.set(`` would flag every set() call in
+    ordinary analysis code.
+    """
+    fallback_patterns = hook_module("osprey_approval")._FALLBACK_WRITE_PATTERNS
+
+    assert r"\bdoocs4py\b[\s\S]*?\.set\s*\(" in fallback_patterns
+    assert r"\.set\s*\(" not in fallback_patterns
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "code",
     [

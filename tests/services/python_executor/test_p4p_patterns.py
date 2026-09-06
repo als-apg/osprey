@@ -288,3 +288,53 @@ def test_requests_post_is_not_a_control_system_write():
     result = detect(code)
 
     assert result["has_writes"] is False
+
+
+# ============================================================================
+# DOOCS - the connector's own client, anchored the way p4p is
+# ============================================================================
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param(
+            "import doocs4py\ndoocs4py.set('FACILITY/MAGNET/H1/CURRENT.SP', 1.5)\n",
+            id="doocs-qualified-set",
+        ),
+        pytest.param(
+            "import doocs4py as d\nd.set('FACILITY/MAGNET/H1/CURRENT.SP', 1.5)\n",
+            id="doocs-aliased-set",
+        ),
+    ],
+)
+def test_doocs_set_is_detected_as_a_write(code):
+    """doocs4py.set is what the shipped DOOCS connector writes through."""
+    result = detect(code)
+
+    assert result["has_writes"] is True
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param("settings = {}\nsettings.set('a', 1)\n", id="unrelated-set"),
+        pytest.param("frozenset().set\n", id="attribute-only"),
+    ],
+)
+def test_bare_set_is_not_a_doocs_write(code):
+    """The DOOCS entry is anchored, so ordinary set() calls stay quiet."""
+    result = detect(code)
+
+    assert result["has_writes"] is False
+
+
+@pytest.mark.unit
+def test_no_bare_set_pattern():
+    """A bare ``.set(`` would flag half of ordinary analysis code."""
+    patterns = get_framework_standard_patterns()
+
+    assert r"\.set\s*\(" not in patterns["write"]
+    assert r"\.set\s*\(" not in patterns["read"]
