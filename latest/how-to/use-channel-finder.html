@@ -534,12 +534,20 @@ pipeline is served to the agent.</p>
 </div>
 <section id="choosing-a-pipeline">
 <h2>Choosing a Pipeline<a class="headerlink" href="#choosing-a-pipeline" title="Link to this heading">#</a></h2>
-<p>Set the active pipeline in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">channel_finder</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">pipeline_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_context</span><span class="w">  </span><span class="c1"># or &quot;hierarchical&quot;, &quot;middle_layer&quot; or &quot;graph&quot;</span>
+<p>Set the active pipeline with the top-level <code class="docutils literal notranslate"><span class="pre">channel_finder_mode:</span></code> field in
+the deployment’s <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">channel_finder_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_context</span><span class="w">  </span><span class="c1"># or &quot;hierarchical&quot;, &quot;middle_layer&quot;, &quot;graph&quot;</span>
 </pre></div>
 </div>
-<p>When <code class="docutils literal notranslate"><span class="pre">pipeline_mode</span></code> is unset, OSPREY auto-detects: it uses the first
+<p>or from the command line, which writes the same line:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">channel_finder_mode</span><span class="o">=</span>in_context
+</pre></div>
+</div>
+<p>The build renders that field into <code class="docutils literal notranslate"><span class="pre">channel_finder.pipeline_mode</span></code> and the
+per-mode <code class="docutils literal notranslate"><span class="pre">channel_finder.pipelines</span></code> block in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. Both are the
+build’s to write: a <code class="docutils literal notranslate"><span class="pre">config:</span></code> line for either is refused, naming the field to
+set instead (<a class="reference internal" href="../reference/configuration/profile.html#profile-derived-keys"><span class="std std-ref">Keys the build renders</span></a>).</p>
+<p>When the field is unset, OSPREY auto-detects: it uses the first
 pipeline that has a database configured, preferring middle layer, then
 hierarchical, then in-context. Auto-detection never lands on <code class="docutils literal notranslate"><span class="pre">graph</span></code> — that
 pipeline reads no database file, so there is nothing to detect and you name it
@@ -715,14 +723,14 @@ from this corpus; <code class="docutils literal notranslate"><span class="pre">g
 property names <em>this</em> graph actually holds; <code class="docutils literal notranslate"><span class="pre">read_cypher</span></code> runs one query and
 returns rows. There is no resolution API behind them — the subagent looks a
 phrase up or adapts an example rather than calling a lookup.</p>
-<p>Configuration is the mode plus the store, and nothing else. There is no graph
-entry under <code class="docutils literal notranslate"><span class="pre">pipelines:</span></code> — that section renders empty in graph mode — and no
-<code class="docutils literal notranslate"><span class="pre">tier</span></code>, because the pipeline has no tiered artifacts:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">channel_finder</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">pipeline_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">graph</span>
-<span class="w">  </span><span class="nt">pipelines</span><span class="p">:</span><span class="w">        </span><span class="c1"># nothing here — graph names no database file</span>
+<p>Configuration is the mode plus the store, and nothing else — no <code class="docutils literal notranslate"><span class="pre">tier</span></code>,
+because the pipeline has no tiered artifacts:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">channel_finder_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">graph</span>
 </pre></div>
 </div>
+<p>The render that field produces has no graph entry under
+<code class="docutils literal notranslate"><span class="pre">channel_finder.pipelines</span></code>: that section comes out empty in graph mode,
+because graph names no database file.</p>
 <p>The store block names one more thing: the search index the finder reads, under
 <code class="docutils literal notranslate"><span class="pre">services.graphdb.index_path</span></code> — <code class="docutils literal notranslate"><span class="pre">./data/channel_databases/graph.duckdb</span></code>
 unless the project says otherwise, which is why the mode and the store are the
@@ -734,8 +742,8 @@ and <code class="docutils literal notranslate"><span class="pre">username</span>
 block itself. A build that enables the channel finder but renders no
 <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block is refused, naming the missing block, rather than
 shipping a pipeline with nothing to read — which is why the
-<code class="docutils literal notranslate"><span class="pre">channel_finder_standalone</span></code> app template, which carries no such block, cannot
-run this mode.</p>
+<code class="docutils literal notranslate"><span class="pre">channel-finder-standalone</span></code> preset, which ships no such block, cannot run
+this mode.</p>
 <p>Load the corpus into the store:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>knowledge<span class="w"> </span>seed-graph<span class="w"> </span>data/demo_machine.ttl
 </pre></div>

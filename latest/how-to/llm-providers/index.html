@@ -522,10 +522,11 @@ own hardware – is a matter of endpoints and API keys. <em>Which model handles
 which task</em> is routing, and OSPREY has two consumers to route for: the OSPREY
 agent speaks the Anthropic Messages API, while the MCP tool servers call the
 same named providers directly through LiteLLM. Both draw endpoints and keys
-from one <code class="docutils literal notranslate"><span class="pre">api.providers</span></code> block, so a key set there serves both – but which
-provider and model tier each one runs on is chosen separately:
-<code class="docutils literal notranslate"><span class="pre">claude_code.provider</span></code> for the agent, and each tool server’s own provider
-setting, some of which default to the agent’s.</p>
+from one catalog – <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> beside the deployment’s <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>,
+rendered into <code class="docutils literal notranslate"><span class="pre">api.providers</span></code> – so a key set there serves both. Which
+provider and model tier each one runs on is chosen separately: the profile’s
+top-level <code class="docutils literal notranslate"><span class="pre">provider:</span></code> field for the agent, and each tool server’s own
+provider setting, some of which default to the agent’s.</p>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
 <div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
 <div class="sd-col sd-d-flex-row docutils">
@@ -533,9 +534,9 @@ setting, some of which default to the agent’s.</p>
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
 Configure LLM Providers</div>
-<p class="sd-card-text">The available providers, the API key each one expects, and the
-<code class="docutils literal notranslate"><span class="pre">api.providers</span></code> and <code class="docutils literal notranslate"><span class="pre">claude_code</span></code> blocks that declare them and point
-the agent at one.</p>
+<p class="sd-card-text">The available providers, the API key each one expects, the
+<code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> catalog that declares them, and the profile fields that
+point the agent at one.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="configure-providers.html"><span class="doc">Configure LLM Providers</span></a></div>
 </div>

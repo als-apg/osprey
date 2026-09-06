@@ -448,7 +448,7 @@ bundle.
       How the on-demand bundle relates to the always-in-context rules.
 
    :doc:`../build-profiles`
-      How to assemble facility-specific OSPREY projects with custom data bundles.
+      How to assemble facility-specific OSPREY projects with their own data trees.
 
    :doc:`/architecture/mcp-servers`
       MCP servers provided by the framework, including ``osprey_facility_knowledge``.

@@ -492,34 +492,30 @@ composition, and troubleshooting — see <a class="reference internal" href="../
 <td><p><em>required</em></p></td>
 <td><p>Human-readable profile name.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">app_template</span></code></p></td>
-<td><p>string</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">control_assistant</span></code></p></td>
-<td><p>App template (data bundle) to render. Valid: <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code>,
-<code class="docutils literal notranslate"><span class="pre">hello_world</span></code>, <code class="docutils literal notranslate"><span class="pre">ariel_standalone</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_finder_standalone</span></code>.</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">data</span></code></p></td>
-<td><p>string</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
-<td><p>Facility data tree, relative to the profile directory (<code class="docutils literal notranslate"><span class="pre">data</span></code> in a
-materialized profile). Replaces the bundled tree wholesale. May resolve
-outside the profile directory; only existence and shape are checked
-(see <a class="reference internal" href="../../how-to/build-profiles.html#profile-self-contained"><span class="std std-ref">A profile is self-contained</span></a>).</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">provider</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">data</span></code></p></td>
 <td><p>string</p></td>
 <td><p><em>required</em></p></td>
-<td><p>LLM provider. Built-ins: <code class="docutils literal notranslate"><span class="pre">anthropic</span></code>, <code class="docutils literal notranslate"><span class="pre">cborg</span></code>, <code class="docutils literal notranslate"><span class="pre">als-apg</span></code>; any
-provider declared under <code class="docutils literal notranslate"><span class="pre">api.providers</span></code> also works. The build aborts
-if none is set.</p></td>
+<td><p>Facility data tree, relative to the profile directory (<code class="docutils literal notranslate"><span class="pre">data</span></code> in a
+materialized profile). It is the only source of the project’s <code class="docutils literal notranslate"><span class="pre">data/</span></code>
+tree, so a profile that names none is refused. May resolve outside the
+profile directory; only existence and shape are checked
+(see <a class="reference internal" href="../../how-to/build-profiles.html#profile-self-contained"><span class="std std-ref">A profile is self-contained</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">model</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">provider</span></code></p></td>
+<td><p>string</p></td>
+<td><p><em>required</em></p></td>
+<td><p>LLM provider. Names an entry in <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code>, the catalog beside
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> (see <a class="reference internal" href="#profile-provider-catalog"><span class="std std-ref">The provider catalog — providers.yml</span></a>). A name that file
+does not declare is refused, and the message lists the names it does.
+The build aborts if none is set.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">model</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
 <td><p>Default model: a tier name (<code class="docutils literal notranslate"><span class="pre">haiku</span></code>, <code class="docutils literal notranslate"><span class="pre">sonnet</span></code>, <code class="docutils literal notranslate"><span class="pre">opus</span></code>) or a full
 provider model ID.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
 <td><p>Channel finder pipeline (<code class="docutils literal notranslate"><span class="pre">hierarchical</span></code>, <code class="docutils literal notranslate"><span class="pre">middle_layer</span></code>,
@@ -527,14 +523,14 @@ provider model ID.</p></td>
 store instead of a channel database, so it needs a <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code>
 block (see <a class="reference internal" href="#profile-graph-mode"><span class="std std-ref">Graph-mode channel finding</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tier</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tier</span></code></p></td>
 <td><p>int</p></td>
 <td><p>derived</p></td>
 <td><p>Channel-database tier (1 or 3). Defaults from the channel finder mode;
 tier 1 is <code class="docutils literal notranslate"><span class="pre">in_context</span></code>-only. <code class="docutils literal notranslate"><span class="pre">graph</span></code> has no tiered artifacts at all —
 leave <code class="docutils literal notranslate"><span class="pre">tier</span></code> unset there.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">connector</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">connector</span></code></p></td>
 <td><p>string</p></td>
 <td><p><em>from preset</em></p></td>
 <td><p>Control-system connector (<code class="docutils literal notranslate"><span class="pre">mock</span></code>, <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>, <code class="docutils literal notranslate"><span class="pre">epics</span></code>,
@@ -544,10 +540,34 @@ spellings on one command line is an error rather than a silent
 last-one-wins; a custom connector is still addressed by its dotted
 module path under <code class="docutils literal notranslate"><span class="pre">config</span></code>.</p></td>
 </tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web_panels</span></code></p></td>
+<td><p>list</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[]</span></code></p></td>
+<td><p>Panel tabs the web workspace offers beside the terminal. A framework
+panel is named by its id; your own is a list entry plus its address
+under <code class="docutils literal notranslate"><span class="pre">config:</span></code> (<code class="docutils literal notranslate"><span class="pre">web.panels.&lt;id&gt;.url</span></code> and its siblings).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">default_panel</span></code></p></td>
+<td><p>string</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
+<td><p>Panel id the web terminal opens on. Must be a built-in, an entry in
+<code class="docutils literal notranslate"><span class="pre">web_panels</span></code>, or a custom panel backed by a <code class="docutils literal notranslate"><span class="pre">web.panels.&lt;id&gt;.url</span></code>
+setting. Renders <code class="docutils literal notranslate"><span class="pre">web.default_panel</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel_presets</span></code></p></td>
+<td><p>mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
+<td><p>Named web-terminal layouts, as label to list of panel ids. Renders
+<code class="docutils literal notranslate"><span class="pre">web.presets</span></code>.</p></td>
+</tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">config</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
-<td><p>Dot-notation overrides for the generated <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p></td>
+<td><p>Dot-notation settings for the generated <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. A materialized
+profile carries the whole block its preset ships, so this is where the
+deployment’s declarative configuration is read and edited. A handful of
+keys are the build’s to write rather than yours; spelling one here is
+refused (see <a class="reference internal" href="#profile-derived-keys"><span class="std std-ref">Keys the build renders</span></a>).</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">exclude</span></code></p></td>
 <td><p>mapping</p></td>
@@ -630,12 +650,14 @@ PEP 508 spec.</p></td>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">provenance</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><em>written</em></p></td>
-<td><p>Which preset this profile was materialized from, and that preset’s hash.
-Written by the materialization; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> compares the profile
-with that preset and refuses unmarked differences (see <code class="docutils literal notranslate"><span class="pre">osprey</span>
-<span class="pre">validate</span></code>). The one key you may add is <code class="docutils literal notranslate"><span class="pre">deviation_marker</span></code>, the tag of
-the <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">&lt;TAG&gt;:</span> <span class="pre">&lt;why&gt;</span></code> comment that marks a difference as deliberate
-(default <code class="docutils literal notranslate"><span class="pre">DEVIATION</span></code>).</p></td>
+<td><p>Which preset this profile was materialized from, that preset’s hash, and
+the hash of the <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> beside it. Written by the
+materialization; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> compares the profile with that
+preset and refuses unmarked <em>structural</em> differences, while a key both
+carry with different values is only reported (see
+<a class="reference internal" href="#profile-preset-drift"><span class="std std-ref">Preset drift, and osprey profile expand</span></a>). The one key you may add is
+<code class="docutils literal notranslate"><span class="pre">deviation_marker</span></code>, the tag of the <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">&lt;TAG&gt;:</span> <span class="pre">&lt;why&gt;</span></code> comment that
+marks a difference as deliberate (default <code class="docutils literal notranslate"><span class="pre">DEVIATION</span></code>).</p></td>
 </tr>
 </tbody>
 </table>
@@ -643,10 +665,12 @@ the <code class="docutils literal notranslate"><span class="pre">#</span> <span 
 </section>
 <section id="configuration-overrides">
 <h2>Configuration overrides<a class="headerlink" href="#configuration-overrides" title="Link to this heading">#</a></h2>
-<p>The <code class="docutils literal notranslate"><span class="pre">config:</span></code> section uses <strong>dot notation</strong> to override any key in the
-generated <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. The base keys are in
-<code class="docutils literal notranslate"><span class="pre">src/osprey/templates/project/config.yml.j2</span></code>; app data bundles add further
-sections in their own <code class="docutils literal notranslate"><span class="pre">config.yml.j2</span></code>.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">config:</span></code> section uses <strong>dot notation</strong> to set any key in the generated
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. Nothing is inherited from underneath it: a profile
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> materialized carries every key its preset configures, each on
+the line that documents it, so reading the block is reading the deployment’s
+configuration. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">config</span> <span class="pre">--defaults</span></code> prints the wider ledger — every key
+the framework reads and what it falls back to when no line spells it.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p>Always write overrides as <strong>dotted keys</strong>, one per line — never as nested
@@ -655,44 +679,51 @@ subtree. <code class="docutils literal notranslate"><span class="pre">config:</s
 under <code class="docutils literal notranslate"><span class="pre">claude_code</span></code> (servers, permissions, …), silently. The dotted form
 <code class="docutils literal notranslate"><span class="pre">claude_code.model:</span> <span class="pre">opus</span></code> changes just that setting.</p>
 </div>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
-<span class="w">  </span><span class="c1"># Control system</span>
-<span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics</span>
-<span class="w">  </span><span class="c1"># The posture every connector type inherits when it says nothing itself.</span>
-<span class="w">  </span><span class="nt">control_system.writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
-<span class="w">  </span><span class="c1"># ... and one type&#39;s own answer, which does not fall back to the key</span>
-<span class="w">  </span><span class="c1"># it inherits from. This pair arms the simulator and leaves the machine</span>
-<span class="w">  </span><span class="c1"># read-only — but only on a deployment that also configures and deploys a</span>
-<span class="w">  </span><span class="c1"># virtual accelerator, since the deployment has to be able to reach that</span>
-<span class="w">  </span><span class="c1"># target for the key to mean anything (see the &quot;Use the Virtual Accelerator&quot;</span>
-<span class="w">  </span><span class="c1"># how-to).</span>
-<span class="w">  </span><span class="nt">control_system.connector.virtual_accelerator.writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">  </span><span class="c1"># Limits checking works the same way. This pair is the deployment&#39;s, and</span>
-<span class="w">  </span><span class="c1"># every type inherits it ...</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># The channel-finder paradigm is a top-level field, not a `config:` key: the</span>
+<span class="c1"># build renders `channel_finder.pipeline_mode` and the per-mode pipelines</span>
+<span class="c1"># from it, and spelling either under `config:` is refused.</span>
+<span class="nt">channel_finder_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">middle_layer</span>
+
+<span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="c1"># Control system: which backend the deployment talks to. Required — see</span>
+<span class="w">  </span><span class="c1"># the posture floor below.</span>
+<span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">live_standin</span>
+<span class="w">  </span><span class="c1"># The write posture every connector type inherits when it says nothing</span>
+<span class="w">  </span><span class="c1"># itself. Only a literal `true` arms writes, at either level.</span>
+<span class="w">  </span><span class="nt">control_system.writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="c1"># Limits checking. This pair is the deployment&#39;s, and every type</span>
+<span class="w">  </span><span class="c1"># inherits it ...</span>
 <span class="w">  </span><span class="nt">control_system.limits_checking.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">control_system.limits_checking.allow_unlisted_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
-<span class="w">  </span><span class="c1"># ... while a per-type block replaces it whole for one type. Both settings</span>
-<span class="w">  </span><span class="c1"># have to be stated: one alone is refused by `osprey build` and</span>
-<span class="w">  </span><span class="c1"># `osprey validate`.</span>
+<span class="w">  </span><span class="c1"># ... while a per-type block replaces it whole for one type, and does not</span>
+<span class="w">  </span><span class="c1"># fall back to the keys above. Both settings have to be stated: one alone</span>
+<span class="w">  </span><span class="c1"># is refused by `osprey build` and `osprey validate`.</span>
 <span class="w">  </span><span class="nt">control_system.connector.virtual_accelerator.limits_checking.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 
-<span class="w">  </span><span class="c1"># Archiver</span>
-<span class="w">  </span><span class="nt">archiver.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics_archiver</span>
-<span class="w">  </span><span class="nt">archiver.epics_archiver.url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://archiver.facility.org</span>
+<span class="w">  </span><span class="c1"># Archiver: where history is read from. Required alongside a control</span>
+<span class="w">  </span><span class="c1"># system.</span>
+<span class="w">  </span><span class="nt">archiver.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mongodb_archiver</span>
 
 <span class="w">  </span><span class="c1"># Set your real facility zone: it governs how the agent reads operator</span>
 <span class="w">  </span><span class="c1"># times (parsed as facility-local) and renders every timestamp — not</span>
 <span class="w">  </span><span class="c1"># just a display label.</span>
 <span class="w">  </span><span class="nt">system.timezone</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">America/Los_Angeles</span>
 
-<span class="w">  </span><span class="c1"># Channel finder</span>
-<span class="w">  </span><span class="nt">channel_finder.pipeline_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">middle_layer</span>
-
 <span class="w">  </span><span class="c1"># Approval policy</span>
+<span class="w">  </span><span class="nt">approval.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">approval.default_policy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">always</span>
 </pre></div>
 </div>
+<p>That is the shape <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--preset</span> <span class="pre">control-assistant</span></code> writes, with the
+timezone changed. Pointing the same deployment at a real machine
+(<code class="docutils literal notranslate"><span class="pre">control_system.type:</span> <span class="pre">epics</span></code>) is a larger edit than the one line, because
+two things the preset ships are scoped to the simulated baseline: the
+<code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block records a machine the deployment would no longer be
+baselined on, and any profile-level <code class="docutils literal notranslate"><span class="pre">control_system.connector.&lt;type&gt;.writes_enabled:</span>
+<span class="pre">true</span></code> has to agree with the read-only personas that inherit it. <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">build</span></code> refuses each in turn rather than rendering it. See
+<a class="reference internal" href="../../how-to/control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p><strong>Connector types whose name contains a dot</strong> are the one place the flat form
@@ -717,8 +748,9 @@ where the connector looks for it:</p>
 is the last key of the dotted prefix, and a leaf is assigned verbatim — so
 the mapping has to carry every connector block the deployment needs, not only
 the custom type’s. Copy the <code class="docutils literal notranslate"><span class="pre">mock</span></code>, <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> and <code class="docutils literal notranslate"><span class="pre">epics</span></code>
-blocks, with their gateways, ports and probe channels, from
-<code class="docutils literal notranslate"><span class="pre">templates/project/config.yml.j2</span></code> or from a prior render’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.
+blocks, with their gateways, ports and probe channels, out of the
+<code class="docutils literal notranslate"><span class="pre">control_system.connector.*</span></code> keys this profile already spells under
+<code class="docutils literal notranslate"><span class="pre">config:</span></code>, or from a prior render’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.
 Nothing outside <code class="docutils literal notranslate"><span class="pre">connector</span></code> is disturbed, and nothing refuses a mapping
 that leaves a block out: the deployment simply comes up without the addresses
 that block held.</p>
@@ -730,6 +762,185 @@ reaches <code class="docutils literal notranslate"><span class="pre">config.yml<
 <span class="pre">validate</span></code> refuse that pair by name too. Built-in types have no dots and take
 the flat form.</p>
 </div>
+</section>
+<section id="keys-the-build-renders">
+<span id="profile-derived-keys"></span><h2>Keys the build renders<a class="headerlink" href="#keys-the-build-renders" title="Link to this heading">#</a></h2>
+<p>A few config keys are not yours to state. The build writes them from the
+project layout, the port layout, <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code>, or a top-level profile
+field — so a <code class="docutils literal notranslate"><span class="pre">config:</span></code> line for one of them is a second home for one fact,
+and the render would silently win. So <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code>
+refuse that line by name and say what supplies the value instead:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>config: channel_finder.pipeline_mode is rendered by the build; the top-level
+`channel_finder_mode:` field sets it. Remove it from profile.yml.
+</pre></div>
+</div>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 46.0%" />
+<col style="width: 54.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Rendered key</p></th>
+<th class="head"><p>Set it here instead</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">claude_code.provider</span></code>, <code class="docutils literal notranslate"><span class="pre">logbook.composition.provider</span></code>,
+<code class="docutils literal notranslate"><span class="pre">ariel.enhancement_modules.semantic_processor.provider</span></code></p></td>
+<td><p>the top-level <code class="docutils literal notranslate"><span class="pre">provider:</span></code> field</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">claude_code.default_model</span></code>,
+<code class="docutils literal notranslate"><span class="pre">ariel.enhancement_modules.semantic_processor.model.model_id</span></code></p></td>
+<td><p>the top-level <code class="docutils literal notranslate"><span class="pre">model:</span></code> field</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_finder.pipeline_mode</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_finder.pipelines</span></code></p></td>
+<td><p>the top-level <code class="docutils literal notranslate"><span class="pre">channel_finder_mode:</span></code> field</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.default_panel</span></code></p></td>
+<td><p>the top-level <code class="docutils literal notranslate"><span class="pre">default_panel:</span></code> field</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.presets</span></code></p></td>
+<td><p>the top-level <code class="docutils literal notranslate"><span class="pre">panel_presets:</span></code> field</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">api.providers</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> beside the profile (<a class="reference internal" href="#profile-provider-catalog"><span class="std std-ref">The provider catalog — providers.yml</span></a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">project_name</span></code>, <code class="docutils literal notranslate"><span class="pre">project_root</span></code>, <code class="docutils literal notranslate"><span class="pre">build_dir</span></code>, <code class="docutils literal notranslate"><span class="pre">file_paths</span></code>,
+<code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code></p></td>
+<td><p>nothing — the build takes them from the repository it renders into</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">execution.environment.python</span></code> / <code class="docutils literal notranslate"><span class="pre">.packages</span></code> / <code class="docutils literal notranslate"><span class="pre">.inherit_exclude</span></code></p></td>
+<td><p>the <code class="docutils literal notranslate"><span class="pre">environment:</span></code> block (<a class="reference internal" href="#profile-environment"><span class="std std-ref">The execution environment</span></a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">artifact_server.port</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">config:</span> <span class="pre">deployment.port_base</span></code>, which moves the whole port block</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Each entry claims every key beneath it, in every spelling: a dotted key, a
+dotted prefix over a mapping, a fully nested block, or any mix reaches the same
+rendered leaf and is refused the same way.</p>
+<p><code class="docutils literal notranslate"><span class="pre">web.panels.&lt;id&gt;.enabled</span></code> is the one exception. It is derived from
+<code class="docutils literal notranslate"><span class="pre">web_panels:</span></code> too, but a <code class="docutils literal notranslate"><span class="pre">config:</span></code> line that <em>agrees</em> with the selection is
+accepted; only one that contradicts it is refused.</p>
+</section>
+<section id="the-provider-catalog-providers-yml">
+<span id="profile-provider-catalog"></span><h2>The provider catalog — providers.yml<a class="headerlink" href="#the-provider-catalog-providers-yml" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> sits beside <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and lists every model provider
+the deployment can name. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes it; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders the
+whole file into <code class="docutils literal notranslate"><span class="pre">api.providers</span></code> in <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>; the profile’s
+top-level <code class="docutils literal notranslate"><span class="pre">provider:</span></code> field picks one entry by name.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">providers</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-gateway</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${MY_GATEWAY_API_KEY}</span>
+<span class="w">    </span><span class="nt">base_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://my-gateway.example.org/v1</span>
+<span class="w">    </span><span class="nt">models</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">haiku</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-haiku-4-5</span>
+<span class="w">      </span><span class="nt">sonnet</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-sonnet-4-6</span>
+<span class="w">      </span><span class="nt">opus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-opus-4-6</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">base_url</span></code> is required. <code class="docutils literal notranslate"><span class="pre">api_key</span></code> is optional and is normally an
+<code class="docutils literal notranslate"><span class="pre">${ENV_VAR}</span></code> reference resolved at run time from the repository’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> —
+keys are never written into this file. <code class="docutils literal notranslate"><span class="pre">models</span></code> maps the <code class="docutils literal notranslate"><span class="pre">haiku</span></code> /
+<code class="docutils literal notranslate"><span class="pre">sonnet</span></code> / <code class="docutils literal notranslate"><span class="pre">opus</span></code> tiers onto the provider’s own model IDs, so <code class="docutils literal notranslate"><span class="pre">model:</span>
+<span class="pre">sonnet</span></code> means something whichever provider is selected. <code class="docutils literal notranslate"><span class="pre">api_protocol:</span>
+<span class="pre">anthropic</span></code> marks an Anthropic-native endpoint rather than an
+OpenAI-compatible one.</p>
+<p>Three rules follow from the catalog being the one home for these facts:</p>
+<ul class="simple">
+<li><p>A <code class="docutils literal notranslate"><span class="pre">config:</span> <span class="pre">api.providers.*</span></code> key is refused, naming <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> as the
+place to declare the provider.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">provider:</span></code> naming an entry the file does not declare is refused, and the
+message lists the names it does declare.</p></li>
+<li><p>A catalog that no longer matches the one OSPREY ships is reported as a note,
+never a refusal — the comparison is with the catalog this OSPREY release
+ships, not with the hash recorded under <code class="docutils literal notranslate"><span class="pre">provenance:</span></code>.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">expand</span> <span class="pre">--providers</span></code> refreshes the entries OSPREY ships and
+keeps the ones you added.</p></li>
+</ul>
+</section>
+<section id="the-posture-floor">
+<span id="profile-posture-floor"></span><h2>The posture floor<a class="headerlink" href="#the-posture-floor" title="Link to this heading">#</a></h2>
+<p>Six config keys have no safe unstated answer, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a
+deployment that leaves one of them silent rather than letting a reader’s
+fallback decide. The refusal names the dotted key and <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. The gate
+reads the <em>rendered</em> config, so a key a preset’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block spelled, an
+injector wrote, or a persona inherited counts as stated.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 40.0%" />
+<col style="width: 60.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Required when</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">control_system.type</span></code></p></td>
+<td><p>the <code class="docutils literal notranslate"><span class="pre">controls</span></code> MCP server resolves enabled — without a type the
+connector factory picks the backend the deployment talks to</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">archiver.type</span></code></p></td>
+<td><p>the <code class="docutils literal notranslate"><span class="pre">controls</span></code> MCP server resolves enabled — without a type the
+archiver factory picks the history the deployment reports</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">approval.enabled</span></code></p></td>
+<td><p>the <code class="docutils literal notranslate"><span class="pre">approval</span></code> hook is in the profile’s <code class="docutils literal notranslate"><span class="pre">hooks:</span></code> list; this key is
+whether it prompts at all</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">approval.default_policy</span></code></p></td>
+<td><p>the <code class="docutils literal notranslate"><span class="pre">approval</span></code> hook is in the profile’s <code class="docutils literal notranslate"><span class="pre">hooks:</span></code> list; this key is
+what it does with a tool nothing named</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.enabled</span></code></p></td>
+<td><p>always</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">hooks.debug</span></code></p></td>
+<td><p>always</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A standalone that switches the controls server off — the ARIEL and
+channel-finder presets do — is asked for neither control-system key: it has no
+control system to state a type for.</p>
+</section>
+<section id="preset-drift-and-osprey-profile-expand">
+<span id="profile-preset-drift"></span><h2>Preset drift, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">expand</span></code><a class="headerlink" href="#preset-drift-and-osprey-profile-expand" title="Link to this heading">#</a></h2>
+<p>A profile <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> wrote records the preset it came from under
+<code class="docutils literal notranslate"><span class="pre">provenance:</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> compares the two and splits what it finds:</p>
+<ul class="simple">
+<li><p>A <strong>structural</strong> difference — a key, block or list member one document has
+and the other has not — is refused, with both <code class="docutils literal notranslate"><span class="pre">file:line</span></code> references,
+unless a <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">DEVIATION:</span> <span class="pre">&lt;why&gt;</span></code> comment within three lines above the line
+claims it (for a line the profile does not have, a comment anywhere naming
+the key or member). <code class="docutils literal notranslate"><span class="pre">--drift=warn</span></code> reports these and passes.</p></li>
+<li><p>A <strong>value</strong> difference on a key both documents carry is only reported. Your
+profile is the source of truth, and a preset that changes a value in a newer
+OSPREY release should not fail your build.</p></li>
+</ul>
+<p>So the external-store recipe below, which takes <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> out of
+<code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> and adds <code class="docutils literal notranslate"><span class="pre">services.graphdb.uri</span></code> and <code class="docutils literal notranslate"><span class="pre">.username</span></code>, is
+three structural differences and wants marker comments; changing <code class="docutils literal notranslate"><span class="pre">web.theme</span></code>
+from the preset’s <code class="docutils literal notranslate"><span class="pre">light</span></code> to <code class="docutils literal notranslate"><span class="pre">dark</span></code> is a value difference and wants
+nothing.</p>
+<p>A profile written before the <code class="docutils literal notranslate"><span class="pre">config:</span></code> block carried everything spells only
+what its facility changed, and still names a packaged app template at its top
+level. Such a profile is refused, naming that key and the verb that fixes it:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>expand<span class="w">                          </span><span class="c1"># preset from provenance:</span>
+osprey<span class="w"> </span>profile<span class="w"> </span>expand<span class="w"> </span>--from<span class="w"> </span>control-assistant<span class="w"> </span><span class="c1"># or name it</span>
+osprey<span class="w"> </span>profile<span class="w"> </span>expand<span class="w"> </span>--providers<span class="w">              </span><span class="c1"># refresh providers.yml too</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">expand</span></code> writes every key the preset documents and the profile lacks into the
+profile’s own <code class="docutils literal notranslate"><span class="pre">config:</span></code> block, each under the comment the preset documents it
+with, and drops that retired key. It only adds — nothing
+already in the file is touched — so running it twice leaves the profile exactly
+as the first run left it. See <a class="reference internal" href="../cli.html#cli-profile-expand"><span class="std std-ref">osprey profile expand [--from PRESET] [--providers] [--repo DIRECTORY]</span></a> for the two classes of
+key it deliberately leaves out and for what it prints.</p>
 </section>
 <section id="mcp-server-injection">
 <span id="profile-mcp-servers"></span><h2>MCP server injection<a class="headerlink" href="#mcp-server-injection" title="Link to this heading">#</a></h2>
@@ -919,24 +1130,23 @@ which is the point. A read-only posture that a later edit could quietly lift
 would not be a posture at all.</p>
 <p>Arming <em>some</em> targets and not others renders differently, and the difference is
 worth knowing before you write such a profile. <code class="docutils literal notranslate"><span class="pre">settings.json</span></code> is rendered
-once, before any target has been picked, so a tool that is legal on the
+once, before any session has picked a target, so a tool that is legal on the
 simulator and refused on the machine cannot be denied there — and it cannot be
 left in <code class="docutils literal notranslate"><span class="pre">ask</span></code> either, or an operator would be prompted to approve a write the
 target’s posture forbids. Such a profile therefore renders <strong>neither</strong>: the
 gated tools leave both lists, and the boundary is carried per call by the
-safety hook (which reads the deployment’s active target) and by the connector
+safety hook (which reads the session’s active target) and by the connector
 behind it. The static deny is the stronger of the two, so reach for it — a
 profile that arms nothing — whenever the requirement is “this tier can never
 move anything”.</p>
 <div class="important admonition">
-<p class="admonition-title">Permission lists grow across <code class="docutils literal notranslate"><span class="pre">extends</span></code>; they never shrink</p>
+<p class="admonition-title">Permission lists grow across <code class="docutils literal notranslate"><span class="pre">extends</span></code>; taking an entry out is explicit</p>
 <p>The permission lists under <code class="docutils literal notranslate"><span class="pre">config:</span></code> — <code class="docutils literal notranslate"><span class="pre">deny</span></code>, <code class="docutils literal notranslate"><span class="pre">ask</span></code> and their
 <code class="docutils literal notranslate"><span class="pre">remove_*</span></code> companions — <strong>union</strong> with the ones they inherit. A child
-profile or a persona delta can add to an inherited permission list, but it
-has no way to take an entry out of it: <code class="docutils literal notranslate"><span class="pre">exclude:</span></code> subtracts from the
-convention lists (<code class="docutils literal notranslate"><span class="pre">skills</span></code>, <code class="docutils literal notranslate"><span class="pre">agents</span></code>, <code class="docutils literal notranslate"><span class="pre">web_panels</span></code> and their
-siblings — see <a class="reference internal" href="../../how-to/build-profiles.html#profile-exclude"><span class="std std-ref">Removing something a profile brings</span></a>) and does not reach inside <code class="docutils literal notranslate"><span class="pre">config:</span></code>
-at all.</p>
+profile or a persona delta can add to an inherited permission list; to
+take an entry out it has to say so, with <code class="docutils literal notranslate"><span class="pre">remove_deny</span></code> / <code class="docutils literal notranslate"><span class="pre">remove_ask</span></code>
+(which match by substring) or with <code class="docutils literal notranslate"><span class="pre">exclude:</span> <span class="pre">config:</span></code> naming the exact
+entry (see <a class="reference internal" href="../../how-to/build-profiles.html#profile-exclude"><span class="std std-ref">Removing something a profile brings</span></a>).</p>
 <p>That is why a preset that wants to withhold a privilege from every tier and
 grant it back to one writes the floor as <code class="docutils literal notranslate"><span class="pre">deny</span></code>, and lets the privileged
 tier lift it with <code class="docutils literal notranslate"><span class="pre">remove_deny</span></code>. Writing the floor the other way round —
@@ -997,45 +1207,62 @@ instead of reading a channel database. The store <em>is</em> the database, so th
 profile ships no channel-database inputs and pins no <code class="docutils literal notranslate"><span class="pre">tier</span></code> — what it does
 need is a <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block, and the paradigm works with either shape
 that block comes in.</p>
-<p>A deployment that runs its own store already has one. The <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code>
-app template renders <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> into <code class="docutils literal notranslate"><span class="pre">services</span></code> and <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>,
-and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> starts, bootstraps and seeds it — see
-<a class="reference internal" href="../../how-to/deploy-project/index.html"><span class="doc">Container Deployment</span></a>:</p>
+<p>A deployment that runs its own store already has one.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--preset</span> <span class="pre">control-assistant</span></code> writes the <code class="docutils literal notranslate"><span class="pre">services.graphdb.*</span></code>
+keys and the <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> entry in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> into the profile’s
+<code class="docutils literal notranslate"><span class="pre">config:</span></code> block, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> starts, bootstraps and seeds it — see
+<a class="reference internal" href="../../how-to/deploy-project/index.html"><span class="doc">Container Deployment</span></a>. That profile reads, in outline:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-room</span>
-<span class="nt">app_template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control_assistant</span>
 <span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic</span>
 <span class="nt">channel_finder_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">graph</span><span class="w">     </span><span class="c1"># no `tier` — graph has no tiered artifacts</span>
+<span class="nt">data</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data</span>
+<span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">services.graphdb.path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/graphdb</span>
+<span class="w">  </span><span class="nt">services.graphdb.image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">neo4j:5.26-community</span>
+<span class="w">  </span><span class="nt">services.graphdb.ttl_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./data/demo_machine.ttl</span>
+<span class="w">  </span><span class="c1"># ... the JVM and query-bound keys the preset also ships</span>
+<span class="w">  </span><span class="nt">deployed_services</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">postgresql</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">openobserve</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">qmd</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">graphdb</span><span class="p p-Indicator">]</span>
 </pre></div>
 </div>
 <p>The mode reads the same <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block when the store is one the
 facility already runs and this deployment only connects to. The keys that
 express that are an explicit <code class="docutils literal notranslate"><span class="pre">uri</span></code>, <code class="docutils literal notranslate"><span class="pre">username</span></code> (default <code class="docutils literal notranslate"><span class="pre">neo4j</span></code>), and a
-<code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> list without <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> in it — the template’s default is
-<code class="docutils literal notranslate"><span class="pre">[postgresql,</span> <span class="pre">openobserve,</span> <span class="pre">qmd,</span> <span class="pre">graphdb]</span></code>, and the override replaces the list
-whole:</p>
+<code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> list without <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> in it. An edit replaces that list
+whole, so write out the services you <em>do</em> want rather than the one you are
+taking away:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">channel_finder_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">graph</span>
 <span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="c1"># DEVIATION: the graph store is the facility&#39;s, not this deployment&#39;s</span>
 <span class="w">  </span><span class="nt">services.graphdb.uri</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bolt://graph.facility.org:7687</span>
 <span class="w">  </span><span class="nt">services.graphdb.username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">neo4j</span>
+<span class="w">  </span><span class="c1"># DEVIATION: graphdb is the facility&#39;s store, so deployed_services drops it</span>
 <span class="w">  </span><span class="nt">deployed_services</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">postgresql</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">openobserve</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">qmd</span><span class="p p-Indicator">]</span>
 </pre></div>
 </div>
+<p>Those are structural differences from the preset — two added keys and a dropped
+list member — which is why the marker comments are there. Without them
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> refuses the profile (<a class="reference internal" href="#profile-preset-drift"><span class="std std-ref">Preset drift, and osprey profile expand</span></a>).</p>
 <p>The procedure that goes with those keys — the password to place, what is minted
 and seeded on each path, and how to load a corpus into a store OSPREY does not
 run — is in
 <a class="reference internal" href="../../how-to/facility-knowledge/use-facility-graph.html#graph-external-store"><span class="std std-ref">Pointing at a store the facility runs</span></a>. A store
 this deployment runs is seeded during <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>; a store it only connects
 to is not.</p>
-<p>A profile whose app template carries no <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block at all — the
-channel-finder app template carries none — is refused at build time, naming the
-missing block, rather than rendering a channel finder with nothing to read. An
-attached project (<code class="docutils literal notranslate"><span class="pre">deploy_services:</span> <span class="pre">false</span></code>) is refused the same way unless it
-names an external store, because it renders <code class="docutils literal notranslate"><span class="pre">services:</span> <span class="pre">{}</span></code> whatever its app
-template says. For what the mode changes about the agent’s answers, see
-<a class="reference internal" href="../../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a>; for the corpus behind them,
+<p>Removing the store means deleting those keys. A whole-block
+<code class="docutils literal notranslate"><span class="pre">config:</span> <span class="pre">services.graphdb:</span> <span class="pre">{}</span></code> or a bare <code class="docutils literal notranslate"><span class="pre">services.graphdb:</span></code> with no value
+is refused by name: an empty block reads as “a store at the defaults” wherever
+the block is resolved, and a null one is what every resolver downstream trips
+over. Neither removes anything, because nothing injects a store to subtract.</p>
+<p>A profile that renders no <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block at all — the
+channel-finder-standalone preset ships none — is refused at build time, naming
+the missing block, rather than rendering a channel finder with nothing to read.
+An attached project (<code class="docutils literal notranslate"><span class="pre">deploy_services:</span> <span class="pre">false</span></code>) is refused the same way unless
+it names an external store, because it renders <code class="docutils literal notranslate"><span class="pre">services:</span> <span class="pre">{}</span></code> whatever its
+own <code class="docutils literal notranslate"><span class="pre">config:</span></code> block says. For what the mode changes about the agent’s
+answers, see <a class="reference internal" href="../../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a>; for the corpus behind them,
 <a class="reference internal" href="../../how-to/facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p>
 <p>The qmd sidecar behind hybrid logbook search is guarded the same way. The
-<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> and <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> templates switch
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> and <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> presets switch
 <code class="docutils literal notranslate"><span class="pre">ariel.search_modules.hybrid</span></code> on and deploy the <code class="docutils literal notranslate"><span class="pre">services.qmd</span></code> sidecar that
 answers it, but an attached project renders <code class="docutils literal notranslate"><span class="pre">services:</span> <span class="pre">{}</span></code> — so on its own it
 would keep the mode with nothing behind it, and every logbook query would fail
@@ -1058,7 +1285,7 @@ copies would dial different places, and the build names both. (A persona
 inherits the hosting profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> keys, so a port moved there is
 spelled in every persona as the host’s own value, and agrees.) A persona
 built <em>alone</em> (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--preset</span> <span class="pre">control-assistant-logbook</span></code> in a
-repo with no hosting deployment) is told what its app template deploys at the
+repo with no hosting deployment) is told what its own preset deploys at the
 shipped defaults instead, and there its <code class="docutils literal notranslate"><span class="pre">config:</span></code> is where a host that
 differs is named:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
@@ -1124,7 +1351,7 @@ never writes a key under <code class="docutils literal notranslate"><span class=
 the gateways the facility authored on a stand-in deployment exactly as on one
 without: a facility already pointed at its own control system can stand a
 rehearsal up beside it. What the stand-in rehearses is the procedure, not the
-risk — <code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">standin</span></code> moves the deployment onto it, and
+risk — <code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">standin</span></code> moves a session onto it, and
 <code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">live</span></code> from there walks the real go-live path. See
 <a class="reference internal" href="../../how-to/control-systems/switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a>.</p>
 <p><strong>One fact, one home.</strong> The key is where the stand-in is described, and the build
@@ -1141,8 +1368,8 @@ none gets none here either.</p></li>
 <p>A profile that spells any of the seven in its own <code class="docutils literal notranslate"><span class="pre">config:</span></code> block is refused by
 name at build time rather than silently having the derived copy win: two homes
 for one fact are free to disagree, and an address left in <code class="docutils literal notranslate"><span class="pre">config:</span></code> reads as
-the endpoint the <code class="docutils literal notranslate"><span class="pre">standin</span></code> target dials while the deployment is actually
-dialling somewhere else. The refusal is scoped to those leaves — a persona’s own
+the endpoint the <code class="docutils literal notranslate"><span class="pre">standin</span></code> target dials while every session on it is somewhere
+else. The refusal is scoped to those leaves — a persona’s own
 <code class="docutils literal notranslate"><span class="pre">control_system.connector.live_standin.writes_enabled</span></code> says something the build
 has no opinion about, and is yours to write.</p>
 <p><strong>What the block does not decide.</strong> Write posture, limits checking and the
@@ -1559,6 +1786,10 @@ what the stack looks like when it is up.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#profile-yaml-reference">Profile YAML reference</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-overrides">Configuration overrides</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#keys-the-build-renders">Keys the build renders</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-provider-catalog-providers-yml">The provider catalog — providers.yml</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-posture-floor">The posture floor</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#preset-drift-and-osprey-profile-expand">Preset drift, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">expand</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-server-injection">MCP server injection</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#shipping-the-server-s-code">Shipping the server’s code</a></li>
 </ul>

@@ -790,22 +790,30 @@ empty, and every query reports the empty state above.</p>
 </section>
 <section id="pointing-at-a-store-the-facility-runs">
 <span id="graph-external-store"></span><h2>Pointing at a Store the Facility Runs<a class="headerlink" href="#pointing-at-a-store-the-facility-runs" title="Link to this heading">#</a></h2>
-<p>The store does not have to be one this deployment brings up. Give
-<code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> an explicit <code class="docutils literal notranslate"><span class="pre">uri</span></code> and leave <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> out of
-<code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">graphdb</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">uri</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bolt://graph.facility.example:7687</span>
-<span class="w">    </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osprey</span>
-<span class="w">  </span><span class="c1"># ... the rest of your services, unchanged</span>
-
-<span class="nt">deployed_services</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">postgresql</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">openobserve</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">qmd</span><span class="p p-Indicator">]</span><span class="w">   </span><span class="c1"># no graphdb</span>
+<p>The store does not have to be one this deployment brings up. In the profile’s
+<code class="docutils literal notranslate"><span class="pre">config:</span></code> block, give <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> an explicit <code class="docutils literal notranslate"><span class="pre">uri</span></code> and leave
+<code class="docutils literal notranslate"><span class="pre">graphdb</span></code> out of <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="c1"># DEVIATION: the graph store is the facility&#39;s, not this deployment&#39;s</span>
+<span class="w">  </span><span class="nt">services.graphdb.uri</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bolt://graph.facility.example:7687</span>
+<span class="w">  </span><span class="nt">services.graphdb.username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osprey</span>
+<span class="w">  </span><span class="c1"># ... the rest of your services keys, unchanged</span>
+<span class="w">  </span><span class="c1"># DEVIATION: graphdb is the facility&#39;s store, so deployed_services drops it</span>
+<span class="w">  </span><span class="nt">deployed_services</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">postgresql</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">openobserve</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">qmd</span><span class="p p-Indicator">]</span><span class="w">   </span><span class="c1"># no graphdb</span>
 </pre></div>
 </div>
 <p>Leaving <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> is the mistake to avoid: the build
 still stands up a local Neo4j that nobody then queries. <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>
-is a list, so an override replaces it whole — write out the services you <em>do</em>
+is a list, so an edit replaces it whole — write out the services you <em>do</em>
 want rather than the one you are taking away.</p>
+<p>Both edits are structural differences from the preset the profile was
+materialized from, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> refuses them until a
+<code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">DEVIATION:</span> <span class="pre">&lt;why&gt;</span></code> comment claims each one — which is what the two comments
+in that block are doing. A dropped list member needs its own marker: one
+comment does not cover the key beside it.</p>
+<p>Which differences are refused and which are only reported is set out under
+<a class="reference internal" href="../../reference/configuration/profile.html#profile-preset-drift"><span class="std std-ref">Preset drift, and osprey profile expand</span></a> in the
+profile reference.</p>
 <p>Put that account’s password in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code> as <code class="docutils literal notranslate"><span class="pre">GRAPHDB_PASSWORD</span></code>.
 Nothing mints one here — the store belongs to somebody else, so OSPREY starts
 nothing and bootstraps nothing, and it seeds nothing on its own: the corpus is

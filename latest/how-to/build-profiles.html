@@ -1032,9 +1032,23 @@ your shadowing copy, and the still-selected built-in renders again.</p>
 <code class="docutils literal notranslate"><span class="pre">output_styles</span></code>, <code class="docutils literal notranslate"><span class="pre">web_panels</span></code> and <code class="docutils literal notranslate"><span class="pre">dependencies</span></code>; qualified exclusion
 accepts any convention directory. Excluding something that is not there is a
 silent no-op.</p>
+<p><code class="docutils literal notranslate"><span class="pre">config:</span></code> is the one key under <code class="docutils literal notranslate"><span class="pre">exclude:</span></code> whose value is a mapping rather
+than a list. Each entry names a list-valued <code class="docutils literal notranslate"><span class="pre">config:</span></code> key by its dotted
+spelling and lists what to take out of it:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">exclude</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">config</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">deployed_services</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mongodb</span><span class="w">                    </span><span class="c1"># this layer deploys everything else</span>
+</pre></div>
+</div>
+<p>This is how a layer deploys fewer services than the profile it sits on. Lists
+under <code class="docutils literal notranslate"><span class="pre">config:</span></code> union across <code class="docutils literal notranslate"><span class="pre">extends</span></code> and across a host-variant overlay,
+so a layer cannot state a shorter list; it names the entries it drops instead.
+A key the profile does not carry is a silent no-op; a key that holds anything
+other than a list is refused.</p>
 <p>An excluded <code class="docutils literal notranslate"><span class="pre">web_panels</span></code> entry renders no tab, whatever the persona still
-inherits about that panel under <code class="docutils literal notranslate"><span class="pre">config:</span></code>. <code class="docutils literal notranslate"><span class="pre">exclude:</span></code> never reaches inside
-<code class="docutils literal notranslate"><span class="pre">config:</span></code> — a <code class="docutils literal notranslate"><span class="pre">web.panels.lattice.label</span></code> or a custom panel’s
+inherits about that panel under <code class="docutils literal notranslate"><span class="pre">config:</span></code>. <code class="docutils literal notranslate"><span class="pre">exclude:</span></code> takes entries out of
+lists, never scalars — a <code class="docutils literal notranslate"><span class="pre">web.panels.lattice.label</span></code> or a custom panel’s
 <code class="docutils literal notranslate"><span class="pre">web.panels.&lt;id&gt;.url</span></code> the base profile set is still in the persona’s render —
 but <code class="docutils literal notranslate"><span class="pre">web_panels</span></code> is what shows a tab: the build writes <code class="docutils literal notranslate"><span class="pre">enabled</span></code> onto every
 <code class="docutils literal notranslate"><span class="pre">web.panels.&lt;id&gt;</span></code> block a render carries, <code class="docutils literal notranslate"><span class="pre">true</span></code> for a selected panel and
@@ -1144,7 +1158,9 @@ instead of starting it silently.</p></li>
 </ul>
 <p>An overlay adds and replaces; it does not subtract. Lists are merged rather
 than swapped, so use <a class="reference internal" href="#profile-exclude"><span class="std std-ref">exclude:</span></a> to take something away
-on one host — that works in an overlay like anywhere else.</p>
+on one host — that works in an overlay like anywhere else, and
+<code class="docutils literal notranslate"><span class="pre">exclude:</span> <span class="pre">{config:</span> <span class="pre">{deployed_services:</span> <span class="pre">[...]}}</span></code> is how one host deploys
+fewer services than the profile it builds from.</p>
 </section>
 <section id="secrets">
 <span id="profile-secrets"></span><h2>Secrets<a class="headerlink" href="#secrets" title="Link to this heading">#</a></h2>
@@ -1244,8 +1260,11 @@ at or above the working directory).</p></td>
 <p class="admonition-title">Settings are changed before the build, not during it</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> takes no configuration overrides. Change a setting with
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span></code>, which writes it into <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — comments and
-formatting intact — and then build. The profile always describes what the
-build will produce, so there is no layer that vanishes afterwards.</p>
+formatting intact — and then build. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--set</span></code> makes the same
+edit before the file exists. Either way the value at the key is replaced,
+so a list you state is the list the profile holds. The profile always
+describes what the build will produce, so there is no layer that vanishes
+afterwards.</p>
 </div>
 <p>Every build wipes and re-renders <code class="docutils literal notranslate"><span class="pre">build/</span></code> and preserves what you own: the env
 chain (<code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> and <code class="docutils literal notranslate"><span class="pre">.env</span></code>), <code class="docutils literal notranslate"><span class="pre">var/</span></code>, and the repository’s <code class="docutils literal notranslate"><span class="pre">.git</span></code>.
@@ -1278,23 +1297,29 @@ directories, the data tree, service templates, lifecycle steps, environment
 variables — reporting every problem found, not just the first.</p>
 <p>It also compares the profile with the preset it was materialized from, so a
 line the preset gained after <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> (a panel, a hook, a permission)
-does not go missing silently. A difference you mean is claimed once, with a
-comment above the line:</p>
+does not go missing silently. Only <em>structural</em> differences are refused — a
+key or list member one document has and the other has not. One you mean is
+claimed once, with a comment above the line:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
-<span class="w">  </span><span class="c1"># DEVIATION: the control room is dark</span>
-<span class="w">  </span><span class="nt">web.theme</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dark</span>
+<span class="w">  </span><span class="c1"># DEVIATION: this deployment reads the facility&#39;s own knowledge graph</span>
+<span class="w">  </span><span class="nt">services.graphdb.uri</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bolt://graph.facility.example:7687</span>
 </pre></div>
 </div>
-<p>Unclaimed differences fail the check (<code class="docutils literal notranslate"><span class="pre">--drift=warn</span></code> only reports them); a
-stale marker is reported too. The tag defaults to <code class="docutils literal notranslate"><span class="pre">DEVIATION</span></code> and is set by
-<code class="docutils literal notranslate"><span class="pre">provenance.deviation_marker</span></code>.</p>
+<p>Unclaimed structural differences fail the check (<code class="docutils literal notranslate"><span class="pre">--drift=warn</span></code> only reports
+them); a stale marker is reported too. The tag defaults to <code class="docutils literal notranslate"><span class="pre">DEVIATION</span></code> and is
+set by <code class="docutils literal notranslate"><span class="pre">provenance.deviation_marker</span></code>.</p>
+<p>A key both documents carry with <em>different values</em> — <code class="docutils literal notranslate"><span class="pre">web.theme:</span> <span class="pre">dark</span></code> where
+the preset says <code class="docutils literal notranslate"><span class="pre">light</span></code> — is only reported, never refused. The profile is the
+source of truth for what this deployment runs, so an edited setting needs no
+marker, and a preset that changes a value in a later release does not fail a
+build that was fine yesterday.</p>
 </section>
 </section>
 <section id="what-the-build-does">
 <h2>What the build does<a class="headerlink" href="#what-the-build-does" title="Link to this heading">#</a></h2>
 <ol class="arabic simple">
 <li><p>Settle the profile (materialize from a preset on first use, or read the one
-you named), writing any <code class="docutils literal notranslate"><span class="pre">--set</span></code> / <code class="docutils literal notranslate"><span class="pre">-O</span></code> / <code class="docutils literal notranslate"><span class="pre">--tier</span></code> into it.</p></li>
+you named), writing any <code class="docutils literal notranslate"><span class="pre">--set</span></code> / <code class="docutils literal notranslate"><span class="pre">--tier</span></code> into it.</p></li>
 <li><p>Resolve and validate the profile, including any persona delta merged over it.</p></li>
 <li><p>Check <code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code>; abort if unsatisfied.</p></li>
 <li><p>Clear the previous render. <code class="docutils literal notranslate"><span class="pre">build/</span></code> is wiped whole and re-made; nothing
