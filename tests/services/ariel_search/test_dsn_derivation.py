@@ -5,7 +5,7 @@ Rendering ``ariel.database.uri`` into every project as a hardcoded
 facts already declared under ``services.postgresql``.  Moving the database port
 there would leave the DSN pointing at the stale one, with nothing to say so.
 
-The templates do not render the key at all: with ``uri`` unset the DSN is
+The presets do not write the key at all: with ``uri`` unset the DSN is
 derived from ``services.postgresql`` at load time, so a port move is a one-place
 edit.  An explicit ``uri`` still wins verbatim — that is how a project points at
 a database it does not run — and a legacy ``connection_string`` keeps working,
@@ -21,56 +21,41 @@ from typing import Any
 import pytest
 import yaml
 
-import osprey.templates
+import osprey.profiles
+from osprey.cli.build_profile_archiver import _expand_dotted
+from osprey.cli.build_profile_ports import layout_port_fill
+from osprey.cli.build_profile_resolve import resolve_build_profile
 from osprey.port_layout import (
     DEFAULT_PORT_BASE,
     default_port,
-    layout_ports,
     resolve_port_base,
 )
 from osprey.services.ariel_search.config import ARIELConfig, resolve_ariel_dsn
 
 DSN_LOGGER = "osprey.services.ariel_search.config"
 
-TEMPLATE_ROOT = Path(osprey.templates.__file__).parent
-ARIEL_TEMPLATES = {
-    "control_assistant": "apps/control_assistant/config.yml.j2",
-    "ariel_standalone": "apps/ariel_standalone/config.yml.j2",
-}
+#: The bundled presets that run ARIEL against a Postgres of their own. The
+#: framework template renders no ``ariel`` or ``services`` block, so the
+#: deployment's statement about both comes from its profile's ``config:``.
+ARIEL_PRESETS = ["ariel-standalone", "control-assistant"]
 
 
-def _render_template(relative_path: str) -> str:
-    """Render a shipped app config template with a representative context."""
-    from jinja2 import ChainableUndefined, Environment, FileSystemLoader
-
-    env = Environment(
-        loader=FileSystemLoader(str(TEMPLATE_ROOT)),
-        undefined=ChainableUndefined,
-        keep_trailing_newline=True,
-    )
-    return env.get_template(relative_path).render(
-        # The port table the real render builds in
-        # TemplateManager._project_context; this helper reaches the
-        # template directly, so it carries it itself.
-        port_base=DEFAULT_PORT_BASE,
-        osprey_ports=layout_ports(DEFAULT_PORT_BASE),
-        project_name="demo",
-        facility_name="Demo Facility",
-        default_provider="anthropic",
-        default_model="claude-haiku-4-5-20251001",
-        channel_finder_mode="in_context",
-        default_pipeline="in_context",
-        enable_in_context=True,
-        enable_hierarchical=False,
-        enable_middle_layer=False,
-        channel_finder_tools=[],
-        project_root="/tmp/demo",
+def _preset_source(preset: str) -> str:
+    return (Path(osprey.profiles.__file__).parent / "presets" / f"{preset}.yml").read_text(
+        encoding="utf-8"
     )
 
 
-def _load_rendered(relative_path: str) -> dict[str, Any]:
-    """Render a template and parse it the way the config loader would."""
-    return yaml.safe_load(_render_template(relative_path))
+def _rendered(preset: str) -> dict[str, Any]:
+    """The preset's resolved ``config:`` as a deployment renders it.
+
+    Dotted keys folded in, and the layout's ports filled under the service
+    blocks it names — a preset does not spell ``port_host``, the build writes
+    it from the deployment's port layout.
+    """
+    profile, _profile_dir = resolve_build_profile(None, preset)
+    config = {**layout_port_fill(profile.config, DEFAULT_PORT_BASE), **profile.config}
+    return _expand_dotted(config)
 
 
 @pytest.fixture(autouse=True)
@@ -98,32 +83,31 @@ def rearmed_connection_string_warning(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# The shipped templates
+# The shipped presets
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("name", sorted(ARIEL_TEMPLATES))
-def test_templates_render_no_ariel_database_uri(name: str) -> None:
-    """No shipped template writes the DSN out — there is nothing to drift."""
-    text = _render_template(ARIEL_TEMPLATES[name])
-    config = _load_rendered(ARIEL_TEMPLATES[name])
+@pytest.mark.parametrize("preset", ARIEL_PRESETS)
+def test_presets_write_no_ariel_database_uri(preset: str) -> None:
+    """No shipped preset writes the DSN out — there is nothing to drift."""
+    config = _rendered(preset)
 
     assert config["ariel"].get("database") is None, (
-        f"{name} still renders an ariel.database block: {config['ariel']['database']!r} — "
+        f"{preset} still writes an ariel.database block: {config['ariel']['database']!r} — "
         "the DSN is derived from services.postgresql, not written out"
     )
-    assert "#   uri: postgresql://" in text, (
-        f"{name} lost the commented external-database override example — a project "
+    assert "# ariel.database.uri: postgresql://" in _preset_source(preset), (
+        f"{preset} lost the commented external-database override example — a project "
         "pointing at a database it does not run needs to see how"
     )
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("name", sorted(ARIEL_TEMPLATES))
-def test_templates_declare_what_the_dsn_derives_from(name: str) -> None:
-    """Deriving is only honest if the source keys are actually rendered."""
-    postgresql = _load_rendered(ARIEL_TEMPLATES[name])["services"]["postgresql"]
+@pytest.mark.parametrize("preset", ARIEL_PRESETS)
+def test_presets_declare_what_the_dsn_derives_from(preset: str) -> None:
+    """Deriving is only honest if the source keys are actually written."""
+    postgresql = _rendered(preset)["services"]["postgresql"]
 
     assert postgresql["username"] == "ariel"
     assert postgresql["database_name"] == "ariel"
@@ -136,8 +120,8 @@ def test_templates_declare_what_the_dsn_derives_from(name: str) -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("name", sorted(ARIEL_TEMPLATES))
-def test_dsn_follows_a_post_render_port_host_edit(name: str) -> None:
+@pytest.mark.parametrize("preset", ARIEL_PRESETS)
+def test_dsn_follows_a_post_render_port_host_edit(preset: str) -> None:
     """Editing services.postgresql after render moves the DSN with it.
 
     This is the whole point of the change: a rendered project that reassigns
@@ -145,7 +129,7 @@ def test_dsn_follows_a_post_render_port_host_edit(name: str) -> None:
     connection that
     follows, without a second edit to a duplicated DSN.
     """
-    config = _load_rendered(ARIEL_TEMPLATES[name])
+    config = _rendered(preset)
 
     as_rendered = ARIELConfig.from_dict(config["ariel"], config["services"]["postgresql"])
     rendered_port = default_port("postgres", base=DEFAULT_PORT_BASE)

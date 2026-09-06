@@ -83,6 +83,11 @@ def test_render_matrix_still_covers_every_conditional_branch():
 
     If it stops, the union shrinks and every check built on it weakens without
     anything going red — so the discriminating keys are asserted directly.
+
+    The guard enforces both arms: the key is in the union, and the framework
+    template is its ONLY author. Mere presence is not enough, because a key a
+    preset also spells stays in the union after the matrix stops rendering its
+    branch, and the check would then pass on the preset's copy.
     """
     guard = make_guard()
     guard.check_branch_self_test()
@@ -97,7 +102,7 @@ def test_approval_matcher_parser_extracts_tool_names():
     and every governed set comes back empty — and equal to nothing.
     """
     guard = make_guard()
-    assert guard.governed_tools("ariel_standalone")
+    assert guard.governed_tools("ariel-standalone")
 
 
 def test_line_anchored_regexes_are_matched_with_re_m():
@@ -166,6 +171,56 @@ def test_mode_1_unmapped_rendered_key_goes_red():
     assert "web.theme" in details(guard)
 
 
+def test_the_union_covers_both_sources():
+    """A key from each side, so neither half can quietly stop contributing.
+
+    The framework template and the presets are the two authors of a rendered
+    config, and every check here is built on their union. If one dropped out,
+    the union would shrink and the whole manifest would go green against half
+    the configuration.
+    """
+    union = make_guard().union()
+
+    assert union["claude_code.provider"] == {guard_module.FRAMEWORK_SOURCE}, (
+        "a derived key comes from the framework template alone"
+    )
+    assert guard_module.FRAMEWORK_SOURCE not in union["approval.enabled"], (
+        "an operator-stated key comes from the presets alone"
+    )
+    assert union["approval.enabled"] == {
+        guard_module.preset_id(rel) for rel in MANIFEST["render_contexts"]["presets"]
+    }
+
+
+def test_leaves_below_a_data_map_are_not_demanded():
+    """Provider, persona and layout NAMES are the deployment's, not schema.
+
+    Without the skip every persona a facility declares would be an unmapped
+    key, so this asserts both halves: the names below a data map pass, and the
+    data map's own entry is still required.
+    """
+    guard = make_guard()
+    prefixes = guard.data_map_prefixes()
+    assert "api.providers" in prefixes
+    assert "modules.web_terminals.personas" in prefixes
+
+    below = [
+        path for path in guard.union() if any(path.startswith(f"{prefix}.") for prefix in prefixes)
+    ]
+    assert below, "the shipped presets are supposed to populate at least one data map"
+    assert not (set(below) & set(MANIFEST["keys"])), (
+        "a data map's leaves must not be enumerated in the manifest"
+    )
+
+    def stop_calling_it_a_data_map(manifest):
+        del manifest["keys"]["modules.web_terminals.personas"]["data-map"]
+
+    demanding = make_guard(stop_calling_it_a_data_map)
+    demanding.check_unmapped_keys()
+    assert "unmapped-key" in modes(demanding)
+    assert "modules.web_terminals.personas." in details(demanding)
+
+
 def test_mode_2_unmatched_evidence_regex_goes_red():
     def break_the_evidence(manifest):
         manifest["keys"]["facility.name"]["evidence"] = "no_reader_spells_this_anywhere"
@@ -177,31 +232,35 @@ def test_mode_2_unmatched_evidence_regex_goes_red():
 
 
 def test_mode_3_deleted_key_back_in_the_rendered_union_goes_red():
-    def resurrect_in_a_template(manifest):
+    def resurrect_in_the_union(manifest):
         manifest["deleted"].append("system.timezone")
 
-    guard = make_guard(resurrect_in_a_template)
+    guard = make_guard(resurrect_in_the_union)
     guard.check_deleted()
     assert "resurrection" in modes(guard)
     assert "rendered again" in details(guard)
 
 
 def test_mode_3_deleted_key_in_a_preset_config_override_goes_red():
-    """The preset surface is a second way a retired key comes back."""
+    """The preset surface reports the FILE, which the union does not.
+
+    Since the presets became half the union, a preset key trips both arms — so
+    what this pins is the second one's message: it names the preset file the
+    key came back in, which is what an operator has to open.
+    """
 
     def resurrect_in_a_preset(manifest):
-        # Preset-only on purpose: no template renders it, so only the preset
-        # arm of the check can be what fires.
         manifest["deleted"].append("modules.web_terminals.enabled")
 
     guard = make_guard(resurrect_in_a_preset)
     guard.check_deleted()
     assert "resurrection" in modes(guard)
     assert "preset config override" in details(guard)
+    assert "control-assistant.yml" in details(guard)
 
 
 def test_mode_3_deleted_key_in_the_loader_defaults_goes_red():
-    """And a third: a key no template ships but the loader synthesizes."""
+    """And a third: a key nothing ships but the loader synthesizes."""
 
     def resurrect_in_the_loader(manifest):
         manifest["deleted"].append("facility_timezone")
@@ -210,6 +269,69 @@ def test_mode_3_deleted_key_in_the_loader_defaults_goes_red():
     guard.check_deleted()
     assert "resurrection" in modes(guard)
     assert "synthesizes" in details(guard)
+
+
+def test_an_exempt_commented_example_does_not_go_red():
+    """Two deleted keys are documented commented on purpose; see the manifest.
+
+    Both left what OSPREY SHIPS while staying live in their readers, so the
+    commented line beside that prose documents an override that works. The
+    exemption is narrow, which the second half asserts: the same key spelled
+    LIVE in a preset is still a resurrection.
+    """
+    guard = make_guard()
+    exempt = MANIFEST["deleted_commented_examples"]
+    assert exempt, "the manifest is supposed to record the deliberate exemptions"
+
+    for key in exempt:
+        assert key in MANIFEST["deleted"]
+        assert guard.commented_preset_overrides(key) == []
+
+    guard.check_deleted()
+    guard.check_deleted_commented_examples()
+    assert guard.result.ok, details(guard)
+
+
+def test_an_exemption_for_a_key_that_was_never_deleted_goes_red():
+    def exempt_a_live_key(manifest):
+        manifest["deleted_commented_examples"]["cli.theme"] = "not deleted at all"
+
+    guard = make_guard(exempt_a_live_key)
+    guard.check_deleted_commented_examples()
+    assert "resurrection" in modes(guard)
+    assert "not on the deleted list" in details(guard)
+
+
+def test_an_exemption_with_no_reason_goes_red():
+    """An exemption is only as good as the reason recorded beside it.
+
+    A blank one reads as "someone waved this through" and is the shape the next
+    retired key gets added under, so the empty arm has its own control. Both
+    spellings of blank are exercised, because the check strips before testing
+    and a whitespace-only reason is the one that would otherwise pass.
+    """
+
+    for blank in ("", "   "):
+
+        def blank_the_reason(manifest, blank=blank):
+            manifest["deleted_commented_examples"]["ariel.database.uri"] = blank
+
+        guard = make_guard(blank_the_reason)
+        guard.check_deleted_commented_examples()
+        assert "resurrection" in modes(guard), f"a reason of {blank!r} must not pass"
+        assert "gives no reason" in details(guard)
+
+
+def test_an_exemption_no_preset_uses_any_more_goes_red():
+    """An unused exemption is a hole waiting for the next retired key."""
+
+    def exempt_a_key_no_preset_documents(manifest):
+        manifest["deleted_commented_examples"]["facility_name"] = "nothing documents this"
+
+    guard = make_guard(exempt_a_key_no_preset_documents)
+    guard.check_deleted_commented_examples()
+    assert "resurrection" in modes(guard)
+    assert "is unused" in details(guard)
 
 
 def test_commented_preset_override_of_a_deleted_key_is_detected(tmp_path):
@@ -229,6 +351,72 @@ def test_commented_preset_override_of_a_deleted_key_is_detected(tmp_path):
     guard = make_guard(root=tmp_path)
     assert guard.commented_preset_overrides("control_system.connector.timeout") == ["probe.yml"]
     assert guard.commented_preset_overrides("control_system.writes_enabled") == []
+
+
+#: A key whose ``evidence`` regex the manifest's own prose spells UNESCAPED, so
+#: the pattern matches the ledger as well as the reader. Picking one that cannot
+#: self-match (``cli.theme``, whose regex survives only in its escaped form)
+#: makes the silent half of the exclusion test vacuous: it asserts the ledger is
+#: excluded using a pattern that would have found nothing there either way.
+SELF_MATCHING_EVIDENCE_KEY = "services.qmd.path"
+
+
+def test_the_manifest_is_not_scanned_as_source(monkeypatch):
+    """The ledger lives inside the tree it greps, and names every deleted key.
+
+    Both text checks would answer themselves without the exclusion, so both are
+    asserted by NEUTRALISING it and watching them break — an implementation that
+    skipped the file only for orphan sites would pass on the loud half alone.
+
+    The loud half is the orphan scan: regexes matched their own ``deleted:``
+    entries the moment the file moved into the package. The silent half is the
+    one that matters — an ``evidence`` regex the manifest itself spells matches
+    the entry quoting it, so a key whose reader was deleted would stay green
+    forever, and nothing would go red to say so.
+    """
+    guard = make_guard()
+    scanned = {path for path, _text in guard.texts("src/osprey")}
+    assert scanned, "the evidence root is supposed to hold files"
+    assert not any(Path(path).name == guard_module.MANIFEST_FILENAME for path in scanned), (
+        "the manifest must not be scanned as source"
+    )
+
+    text = "\n".join(guard.joined(root) for root in guard_module.EVIDENCE_ROOTS)
+    a_deleted_key = "channel_finder.explicit_validation_mode"
+    assert a_deleted_key in MANIFEST["deleted"]
+    assert a_deleted_key not in text, (
+        "a deleted key's name reaches the scanned text only from the ledger itself"
+    )
+
+    an_evidence_regex = MANIFEST["keys"][SELF_MATCHING_EVIDENCE_KEY]["evidence"]
+    assert guard.has_match(an_evidence_regex, text), "the real reader must still match"
+    assert not guard.has_match(
+        an_evidence_regex, "\n".join(t for _p, t in guard.texts("src/osprey/profiles"))
+    ), "the only match under profiles/ would have been the manifest entry quoting it"
+
+    # Neutralise the exclusion. The text cache is keyed on (root, rel_root) and
+    # not on the filename rule, so it is cleared on both sides of the mutation.
+    guard_module._TEXT_CACHE.clear()
+    try:
+        monkeypatch.setattr(guard_module, "MANIFEST_FILENAME", "not-the-ledger.yml")
+        unguarded = make_guard()
+        assert any(
+            Path(path).name == "config_key_manifest.yml"
+            for path, _text in unguarded.texts("src/osprey")
+        ), "neutralising the rule is supposed to let the ledger into the scan"
+
+        unguarded.check_orphan_sites()
+        assert "orphan-site" in modes(unguarded), (
+            "the loud half: orphan regexes match their own `deleted:` entries"
+        )
+
+        profiles_only = "\n".join(t for _p, t in unguarded.texts("src/osprey/profiles"))
+        assert unguarded.has_match(an_evidence_regex, profiles_only), (
+            "the silent half: the ledger answers the evidence check on its own, so a "
+            "key whose reader was deleted would never go red"
+        )
+    finally:
+        guard_module._TEXT_CACHE.clear()
 
 
 def test_mode_4_orphan_site_regex_matching_again_goes_red():
@@ -270,10 +458,10 @@ def test_mode_4_scans_every_root_of_a_multi_root_site():
     assert "packages/osprey-connectors" in details(guard)
 
 
-def test_mode_5_all_templates_parity_miss_goes_red():
+def test_mode_5_all_presets_parity_miss_goes_red():
     def demand_parity_where_none_exists(manifest):
-        # web.theme is live in project, commented in control_assistant and
-        # absent from the three minimal bundles — deliberately per-template.
+        # web.theme is live in control-assistant, commented in hello-world and
+        # absent from the two standalones — deliberately per-preset.
         manifest["keys"]["web.theme"]["all-templates"] = True
 
     guard = make_guard(demand_parity_where_none_exists)
@@ -282,19 +470,27 @@ def test_mode_5_all_templates_parity_miss_goes_red():
     assert "web.theme" in details(guard)
 
 
-CONTROL_ASSISTANT = "src/osprey/templates/apps/control_assistant/config.yml.j2"
+CONTROL_ASSISTANT = "src/osprey/profiles/presets/control-assistant.yml"
+ARIEL_STANDALONE = "src/osprey/profiles/presets/ariel-standalone.yml"
+HELLO_WORLD = "src/osprey/profiles/presets/hello-world.yml"
 
 
-def copy_templates(tmp_path: Path) -> Path:
-    """A temp root holding just the five templates the markers live in."""
-    for rel in MANIFEST["render_contexts"]["templates"]:
+def copy_presets(tmp_path: Path) -> Path:
+    """A temp root holding just the four presets the markers live in.
+
+    The stanzas moved out of the app templates and into the presets when the
+    templates were deleted: the preset is the file ``osprey init`` copies out as
+    ``profile.yml``, so it is the document an operator can actually find a panel
+    port in.
+    """
+    for rel in MANIFEST["render_contexts"]["presets"]:
         target = tmp_path / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(REPO_ROOT / rel, target)
 
     clean = make_guard(root=tmp_path)
     clean.check_panel_port_markers()
-    assert clean.result.ok, "the copied templates should start clean:\n" + details(clean)
+    assert clean.result.ok, "the copied presets should start clean:\n" + details(clean)
     return tmp_path
 
 
@@ -315,7 +511,7 @@ def test_panel_port_stanzas_are_reconciled_with_the_live_registry():
 
 def test_mode_6_marker_naming_a_panel_that_does_not_exist_goes_red(tmp_path):
     """A count-based check cannot see this: renaming preserves the count."""
-    root = copy_templates(tmp_path)
+    root = copy_presets(tmp_path)
     victim = root / CONTROL_ASSISTANT
     before = victim.read_text()
     victim.write_text(before.replace("osprey:panel-port okf", "osprey:panel-port okf_panel"))
@@ -331,8 +527,8 @@ def test_mode_6_marker_naming_a_panel_that_does_not_exist_goes_red(tmp_path):
 
 
 def test_mode_6_registered_server_with_no_stanza_anywhere_goes_red(tmp_path):
-    """A newly registered web server that no template documents."""
-    root = copy_templates(tmp_path)
+    """A newly registered web server that no preset documents."""
+    root = copy_presets(tmp_path)
     from osprey.registry.web import FRAMEWORK_WEB_SERVERS
 
     guard = make_guard(root=root)
@@ -341,16 +537,16 @@ def test_mode_6_registered_server_with_no_stanza_anywhere_goes_red(tmp_path):
     assert "timing_panel" in details(guard)
 
 
-def test_mode_6_one_bundle_losing_a_stanza_goes_red(tmp_path):
-    """The union claims are blind to this, which is why the per-template map exists.
+def test_mode_6_one_preset_losing_a_stanza_goes_red(tmp_path):
+    """The union claims are blind to this, which is why the per-preset map exists.
 
-    ariel_standalone drops its own ``ariel`` stanza while control_assistant
+    ariel-standalone drops its own ``ariel`` stanza while control-assistant
     still carries one. Every union-based claim therefore still holds — no
-    invented name, coverage complete, reference bundle complete — so the
-    per-template check is provably the only thing that can fire.
+    invented name, coverage complete, reference preset complete — so the
+    per-preset check is provably the only thing that can fire.
     """
-    root = copy_templates(tmp_path)
-    victim = root / "src/osprey/templates/apps/ariel_standalone/config.yml.j2"
+    root = copy_presets(tmp_path)
+    victim = root / ARIEL_STANDALONE
     victim.write_text(victim.read_text().replace("  # osprey:panel-port ariel\n", ""))
 
     guard = make_guard(root=root)
@@ -358,12 +554,12 @@ def test_mode_6_one_bundle_losing_a_stanza_goes_red(tmp_path):
     from osprey.registry.web import FRAMEWORK_WEB_SERVERS
 
     registry = set(FRAMEWORK_WEB_SERVERS)
-    assert markers["src/osprey/templates/apps/ariel_standalone/config.yml.j2"] == {"artifact"}
+    assert markers[ARIEL_STANDALONE] == {"artifact"}
     assert set().union(*markers.values()) == registry, (
         "coverage must stay complete, or the union claim would fire instead"
     )
     assert any(names >= registry for names in markers.values()), (
-        "the reference bundle must stay complete, or claim (c) would fire instead"
+        "the reference preset must stay complete, or claim (c) would fire instead"
     )
 
     guard.check_panel_port_markers()
@@ -372,19 +568,19 @@ def test_mode_6_one_bundle_losing_a_stanza_goes_red(tmp_path):
 
 
 def test_mode_6_full_set_documented_nowhere_goes_red(tmp_path):
-    """Coverage can hold while no single template shows an operator all of them.
+    """Coverage can hold while no single preset shows an operator all of them.
 
-    Moving one stanza out of the reference bundle into a minimal one keeps the
-    union complete, so the coverage claim cannot be what fires. The per-template
-    map also objects to both edits, which is correct — each bundle really has
+    Moving one stanza out of the reference preset into a minimal one keeps the
+    union complete, so the coverage claim cannot be what fires. The per-preset
+    map also objects to both edits, which is correct — each preset really has
     drifted — so this asserts the third claim's own message specifically.
     """
-    root = copy_templates(tmp_path)
+    root = copy_presets(tmp_path)
     reference = root / CONTROL_ASSISTANT
     reference.write_text(
         reference.read_text().replace("# osprey:panel-port lattice_dashboard", "#")
     )
-    minimal = root / "src/osprey/templates/apps/hello_world/config.yml.j2"
+    minimal = root / HELLO_WORLD
     minimal.write_text(minimal.read_text() + "\n# osprey:panel-port lattice_dashboard\n")
 
     guard = make_guard(root=root)
@@ -396,7 +592,7 @@ def test_mode_6_full_set_documented_nowhere_goes_red(tmp_path):
     )
     guard.check_panel_port_markers()
     assert "panel-port" in modes(guard)
-    assert "no single template documents the full panel-port set" in details(guard)
+    assert "no single preset documents the full panel-port set" in details(guard)
 
 
 def test_kept_reader_names_are_present_in_src_but_never_grepped():
@@ -437,12 +633,158 @@ def test_kept_reader_names_are_present_in_src_but_never_grepped():
 
 
 def test_phantom_manifest_key_goes_red():
-    def add_a_key_no_template_renders(manifest):
+    def add_a_key_nothing_renders(manifest):
         manifest["keys"]["invented.key"] = {"evidence": "osprey"}
 
-    guard = make_guard(add_a_key_no_template_renders)
+    guard = make_guard(add_a_key_nothing_renders)
     guard.check_phantom_keys()
     assert "phantom-key" in modes(guard)
+
+
+def test_a_rendered_key_marked_unrendered_goes_red():
+    """``rendered: false`` is read in BOTH directions, or it is a one-way escape.
+
+    Skipped only when the key is absent, the flag rots silently in exactly the
+    direction the phantom check exists to catch: a key that starts being shipped
+    keeps a marking saying nothing ships it, and the prose beside it goes on
+    describing a commented example while a preset writes the key live. Four
+    entries had drifted that way — ``facility.prefix`` and the three
+    virtual-accelerator ``limits_checking`` paths, all of them live in
+    ``control-assistant``.
+
+    The failure has to name the source, because the fix is to say what ships it.
+    """
+
+    def mark_a_shipped_key_unrendered(manifest):
+        manifest["keys"]["web.theme"]["rendered"] = False
+
+    guard = make_guard(mark_a_shipped_key_unrendered)
+    assert "web.theme" in guard.union(), "the control needs a key something really renders"
+
+    guard.check_phantom_keys()
+    assert "phantom-key" in modes(guard)
+    assert "web.theme" in details(guard)
+    assert "control-assistant" in details(guard), "the failure must name what renders it"
+
+
+def test_manifest_defaults_column_is_complete():
+    """The whole default column, checked against the live manifest.
+
+    Deliberately not folded into ``test_guard_is_green_on_this_tree``: that one
+    runs the full guard, which renders the framework template and resolves
+    every preset, and the column is a property of the MANIFEST alone. Keeping
+    it separate is
+    what lets the column stay pinned while the render side is being repointed —
+    a rendering failure must not be able to take this assertion down with it,
+    because a column nobody checks is a column that rots.
+    """
+    guard = make_guard()
+    guard.check_defaults()
+    assert guard.result.ok, details(guard)
+
+
+def test_manifest_self_consistency_holds_without_rendering():
+    """Every manifest-only check, run together against the live manifest.
+
+    These four ask nothing of the render: they read the manifest and the
+    source tree. Running them as one test says plainly which properties survive
+    independently of the render matrix.
+    """
+    guard = make_guard()
+    guard.check_defaults()
+    guard.check_covered_by_chains()
+    guard.check_evidence()
+    guard.check_evidence_vacuity()
+    assert guard.result.ok, details(guard)
+
+
+def test_missing_default_goes_red():
+    """A key with no `default:` is a hole, not a key with no default."""
+
+    def drop_the_default(manifest):
+        del manifest["keys"]["cli.theme"]["default"]
+
+    guard = make_guard(drop_the_default)
+    guard.check_defaults()
+    assert "default" in modes(guard)
+    assert "cli.theme" in details(guard)
+
+
+def test_required_on_a_non_posture_key_goes_red():
+    """`required` documents a refusal, so it may not be spelled where none happens."""
+
+    def demand_a_key_the_build_does_not(manifest):
+        manifest["keys"]["cli.theme"]["default"] = "required"
+
+    guard = make_guard(demand_a_key_the_build_does_not)
+    guard.check_defaults()
+    assert "default" in modes(guard)
+    assert "cli.theme" in details(guard)
+
+
+def test_posture_floor_key_losing_required_goes_red():
+    """The other direction: a floor key must not acquire an invented fallback."""
+
+    def invent_a_fallback(manifest):
+        manifest["keys"]["hooks.debug"]["default"] = False
+
+    guard = make_guard(invent_a_fallback)
+    guard.check_defaults()
+    assert "default" in modes(guard)
+    assert "hooks.debug" in details(guard)
+
+
+def test_unexplained_derived_default_goes_red():
+    """`derived` with no note is the escape hatch the note rule exists to close."""
+
+    def strip_the_note(manifest):
+        manifest["keys"]["services.qmd.port"].pop("default_note", None)
+
+    guard = make_guard(strip_the_note)
+    guard.check_defaults()
+    assert "default" in modes(guard)
+    assert "services.qmd.port" in details(guard)
+
+
+def test_unexplained_no_fallback_default_goes_red():
+    """The note rule binds both sentinels, not just `derived`."""
+
+    def strip_the_note(manifest):
+        manifest["keys"]["services.qmd.path"].pop("default_note", None)
+
+    guard = make_guard(strip_the_note)
+    guard.check_defaults()
+    assert "default" in modes(guard)
+    assert "services.qmd.path" in details(guard)
+
+
+@pytest.mark.parametrize("misspelling", ["no_fallback", "Derived", "N/A", " required "])
+def test_near_miss_sentinel_goes_red(misspelling):
+    """A sentinel spelled wrong is read as a literal by every other check.
+
+    That is the silent failure: `no_fallback` skips the note rule and would be
+    rendered by `osprey config --defaults` as if it were a real default value.
+    """
+
+    def mistype_the_sentinel(manifest):
+        manifest["keys"]["cli.theme"]["default"] = misspelling
+
+    guard = make_guard(mistype_the_sentinel)
+    guard.check_defaults()
+    assert "default" in modes(guard)
+    assert "cli.theme" in details(guard)
+
+
+def test_note_on_a_literal_default_goes_red():
+    """A literal is the whole answer; a note beside one means the wrong sentinel."""
+
+    def explain_a_literal(manifest):
+        manifest["keys"]["cli.theme"]["default_note"] = "something about the theme"
+
+    guard = make_guard(explain_a_literal)
+    guard.check_defaults()
+    assert "default" in modes(guard)
+    assert "cli.theme" in details(guard)
 
 
 def test_dangling_covered_by_chain_goes_red():
@@ -469,7 +811,7 @@ def test_vacuous_bare_word_evidence_goes_red():
 
 def test_wrong_governed_set_claim_goes_red():
     def overstate_the_claim(manifest):
-        manifest["governed_sets"]["claims"]["channel_finder_standalone"]["tools"] = [
+        manifest["governed_sets"]["claims"]["channel-finder-standalone"]["tools"] = [
             "setup_patch",
             "channel_write",
         ]
@@ -504,6 +846,33 @@ def test_uncovered_conditional_branch_goes_red():
     guard = make_guard(name_a_key_the_matrix_never_renders)
     guard.check_branch_self_test()
     assert "branch-self-test" in modes(guard)
+
+
+def test_a_self_test_key_a_preset_also_spells_goes_red():
+    """A shared key cannot detect a shrunk matrix, so the check refuses one.
+
+    It would stay in the union on the preset's copy after the framework stopped
+    rendering its branch, and the self-test would go on passing — silence in the
+    one place the manifest built a tripwire. The mutation walks one path up from
+    the real ``ariel_server_on`` key to its parent block, which the framework
+    template and two presets all render, so it is the realistic way this rots:
+    an edit that keeps the key plausible while dropping what made it decisive.
+    """
+
+    def point_it_at_a_key_the_presets_share(manifest):
+        manifest["render_contexts"]["self_test_keys"]["ariel_server_on"] = (
+            "ariel.enhancement_modules.semantic_processor.model"
+        )
+
+    guard = make_guard(point_it_at_a_key_the_presets_share)
+    shared = guard.union()["ariel.enhancement_modules.semantic_processor.model"]
+    assert guard_module.FRAMEWORK_SOURCE in shared and len(shared) > 1, (
+        "the control needs a key the framework and a preset both render"
+    )
+
+    guard.check_branch_self_test()
+    assert "branch-self-test" in modes(guard)
+    assert "must come from the framework template" in details(guard)
 
 
 def test_incomplete_provider_tier_map_goes_red():

@@ -11,6 +11,7 @@ rationale line rather than sitting next to it.
 
 from __future__ import annotations
 
+import json
 import textwrap
 from pathlib import Path
 
@@ -23,7 +24,6 @@ from osprey.cli.build_profile import BuildProfile, list_presets, resolve_build_p
 from osprey.cli.build_profile_emit import (
     _ANNOTATIONS,
     _EXPLICIT_KEYS,
-    _FIELD_TO_YAML,
     _SYNTHESIS_RATIONALE,
     emit_standalone_profile_yaml,
 )
@@ -51,7 +51,7 @@ _ANNOTATION_FRAGMENTS: dict[str, tuple[str, ...]] = {
 
 
 def _emit(preset: str) -> str:
-    return emit_standalone_profile_yaml(preset, (), (), "Emitted")
+    return emit_standalone_profile_yaml(preset, (), "Emitted")
 
 
 def _uncomment(line: str) -> str:
@@ -76,7 +76,13 @@ def _snippet(lines: tuple[str, ...]) -> str:
 
 
 def _yaml_key(field: str) -> str:
-    return _FIELD_TO_YAML.get(field, field)
+    """The YAML spelling of a profile field.
+
+    They are the same word: the one alias the emitter carried mapped the
+    retired bundle field onto ``app_template:``, and that key is preset-side
+    now. Kept as a function so a future alias has one place to land.
+    """
+    return field
 
 
 # ---------------------------------------------------------------------------
@@ -229,9 +235,16 @@ def _sole_key_line(lines: list[str], key: str) -> int:
 
 
 def _resolve(profile_dir: Path, lines: list[str]) -> BuildProfile:
-    """Write *lines* as the profile of a bare directory and resolve them."""
+    """Write *lines* as the profile of a bare directory and resolve them.
+
+    ``osprey init`` writes ``data:`` into the profile it materializes and lays
+    the tree down beside it; the emitter alone produces neither, and validation
+    requires both. So the tree is created and the key added here, exactly as
+    the verb would have.
+    """
+    (profile_dir / "data").mkdir(exist_ok=True)
     path = profile_dir / "profile.yml"
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("data: data\n" + "\n".join(lines) + "\n")
     return resolve_build_profile(path, None)[0]
 
 
@@ -322,7 +335,7 @@ def test_edited_annotation_keeps_everything_the_key_already_resolved(
 
 
 # ---------------------------------------------------------------------------
-# (f) the fragments, applied as an override, survive init and build
+# (f) the fragments, applied as --set edits, survive init and build
 # ---------------------------------------------------------------------------
 
 
@@ -331,14 +344,29 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
-def _init_with_fragment(runner: CliRunner, tmp_path: Path, fragment: dict[str, object]):
-    """Materialize control-assistant with *fragment* layered on top of it."""
-    override = tmp_path / "frag.yml"
-    override.write_text(yaml.safe_dump(fragment))
+def _web_panels_edit(*added: str) -> str:
+    """The ``--set web_panels=`` pair naming control-assistant's panels plus *added*.
+
+    A ``--set`` pair REPLACES the value at the key it names, so a facility
+    adding a panel states the whole selection — the preset's own panels
+    included, or the ``default_panel`` those panels back stops resolving.
+    """
+    preset, _dir = resolve_build_profile(None, "control-assistant")
+    return "web_panels=" + json.dumps([*preset.web_panels, *added])
+
+
+def _init_with_edits(runner: CliRunner, tmp_path: Path, *pairs: str):
+    """Materialize control-assistant with each of *pairs* stated as a ``--set``.
+
+    The annotation teaches a fragment of profile YAML; ``--set`` is how a
+    facility states it on the command line, one key per pair, each replacing
+    the value at the key it names.
+    """
     target = tmp_path / "facility"
+    edits = [arg for pair in pairs for arg in ("--set", pair)]
     result = runner.invoke(
         init,
-        [str(target), "--preset", "control-assistant", "--no-git", "-O", str(override)],
+        [str(target), "--preset", "control-assistant", "--no-git", *edits],
     )
     return target, result
 
@@ -353,17 +381,13 @@ def test_fragment_web_panel_reaches_the_built_config(runner: CliRunner, tmp_path
     Resolving is not the claim the example makes — it says the facility gets a
     tab pointed at its own address, and only the rendered config can show that.
     """
-    repo, result = _init_with_fragment(
+    repo, result = _init_with_edits(
         runner,
         tmp_path,
-        {
-            "web_panels": ["elog"],
-            "config": {
-                "web.panels.elog.url": _ELOG_URL,
-                "web.panels.elog.label": "ELOG",
-                "web.panels.elog.path": "/",
-            },
-        },
+        _web_panels_edit("elog"),
+        f"config.web.panels.elog.url={_ELOG_URL}",
+        "config.web.panels.elog.label=ELOG",
+        "config.web.panels.elog.path=/",
     )
     assert result.exit_code == 0, result.output
 
@@ -380,7 +404,7 @@ def test_fragment_web_panel_list_alone_is_refused(runner: CliRunner, tmp_path: P
     A list entry with no address behind it would otherwise produce a repo whose
     web workspace advertises a tab that goes nowhere.
     """
-    _, result = _init_with_fragment(runner, tmp_path, {"web_panels": ["elog"]})
+    _, result = _init_with_edits(runner, tmp_path, _web_panels_edit("elog"))
 
     assert result.exit_code != 0
     assert "Unknown web_panel 'elog'" in result.output
@@ -389,7 +413,7 @@ def test_fragment_web_panel_list_alone_is_refused(runner: CliRunner, tmp_path: P
 
 def test_fragment_env_required_reaches_the_env_example(runner: CliRunner, tmp_path: Path) -> None:
     """A required variable is only documented once it is in .env.example."""
-    repo, result = _init_with_fragment(runner, tmp_path, {"env": {"required": ["MY_TOKEN"]}})
+    repo, result = _init_with_edits(runner, tmp_path, "env.required=[MY_TOKEN]")
     assert result.exit_code == 0, result.output
 
     assert "MY_TOKEN" in (repo / ".env.example").read_text()

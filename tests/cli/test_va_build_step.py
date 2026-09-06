@@ -40,6 +40,34 @@ def _bundle_data_dir() -> Path:
     return Path(osprey.__file__).parent / "templates" / "apps" / "control_assistant" / "data"
 
 
+#: What a hand-written profile has to state to build at all.
+#:
+#: A preset ships these, but this suite writes its profile by hand rather than
+#: materializing one — it exercises the VA build step in isolation, and
+#: inheriting a preset would drag in that preset's own ``virtual_accelerator:``
+#: block, which is exactly the variable under test here.
+#:
+#: Two groups: the posture floor, which refuses a build that leaves any of its
+#: keys to a reader's fallback, and the store behind the ARIEL server, which is
+#: on by framework default and whose client would otherwise dial a
+#: ``postgresql`` port with nothing listening behind it.
+POSTURE_FLOOR = {
+    "control_system.type": "mock",
+    "archiver.type": "mock_archiver",
+    "approval.enabled": True,
+    "approval.default_policy": "always",
+    "claude_code.telemetry.enabled": False,
+    "hooks.debug": False,
+    "services.postgresql.path": "./services/postgresql",
+    "deployed_services": ["postgresql"],
+    "system.timezone": "UTC",
+    # A target-switch block the build could write an acknowledgment into. The
+    # stand-in tests assert that it never does, and an absent block would make
+    # that assertion pass for the wrong reason.
+    "control_system.target_switch.drain_timeout_s": 5,
+}
+
+
 def _write_profile(
     repo_dir: Path,
     *,
@@ -74,20 +102,20 @@ def _write_profile(
     repo_dir.mkdir(parents=True, exist_ok=True)
     shutil.copytree(_bundle_data_dir(), repo_dir / "data")
 
-    profile = {
+    profile: dict = {
         "name": "VA Build Step Test",
-        "data_bundle": "control_assistant",
         "data": "data",
         "provider": "cborg",
         "model": "haiku",
         "channel_finder_mode": "hierarchical",
+        "config": dict(POSTURE_FLOOR),
     }
     if deploy_va or live_standin is not None:
         profile["virtual_accelerator"] = {"port": 5064}
         if live_standin is not None:
             profile["virtual_accelerator"]["live_standin"] = live_standin
     if config:
-        profile["config"] = config
+        profile["config"].update(config)
     path = repo_dir / "profile.yml"
     path.write_text(yaml.dump(profile, default_flow_style=False))
     return path

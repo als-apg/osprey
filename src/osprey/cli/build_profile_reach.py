@@ -21,10 +21,10 @@ config into the attached render on the ordinary config-override path, exactly
 as :func:`osprey.cli.build_profile_archiver.va_archiver_config_overrides` does
 for the archive: the build already knows where every service is, and no
 persona restates it. Built with no host in its repo, an attached profile is
-projected from what its app template deploys at the shipped defaults (it
-extends a deployment of that template), with its own ``config:`` laid over
-them. A deploying project gets nothing from here; its injectors write the
-full blocks.
+projected from its own ``config:`` rendered as a deployment (it extends a
+deployment spelled by that same block), with the layout's ports filled in for
+the service blocks it names. A deploying project gets nothing from here; its
+injectors write the full blocks.
 """
 
 from __future__ import annotations
@@ -262,15 +262,22 @@ def reach_override_errors(config: Any, projected: Mapping[str, Any]) -> list[str
 
     The build derives *projected* from the hosting deployment's render, so a
     ``config:`` entry for the same key is a second home for one fact. The
-    two are allowed to agree — a persona profile INHERITS the hosting
-    profile's ``config:`` dotted keys, so a host that moved a port there
-    spells it in every persona's merged config too, and those spellings ARE
-    the host's value — and refused when they disagree, because that case is
-    the silent one: a persona dialing a port the host stopped publishing gets
-    connection refused with nothing to say which of the two spellings was
-    stale. A hand-copied value that agrees today is refused the day the host
-    moves and it does not. Built alone, the profile's ``config:`` is laid
-    over the app template's defaults before projection, so it can only agree.
+    invariant is therefore agreement, not silence, and the reason is the
+    preset: every shipped preset states its whole rendered configuration under
+    ``config:``, personas ``extends:`` one, and a persona's merged ``config:``
+    is its preset's plus its own delta. So a persona ALREADY spells most of
+    what the host publishes — ``services.postgresql.username``,
+    ``services.graphdb.uri``, every projected key the preset happens to carry —
+    and those spellings are not copies of the host's value, they are where the
+    host's value came from. Refusing an inherited preset key would refuse every
+    persona built from a preset that names a projected service.
+
+    A DISAGREEMENT is the silent case, and that is what is refused: a persona
+    dialing a port the host stopped publishing gets connection refused with
+    nothing to say which of the two spellings was stale. A hand-copied value
+    that agrees today is refused the day the host moves and it does not. Built
+    alone, the projection is derived from the profile's own ``config:``
+    rendered as a deployment, so it can only agree.
 
     Args:
         config: The attached profile's ``config:`` block, as merged.

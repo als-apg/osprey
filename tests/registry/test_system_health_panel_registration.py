@@ -185,11 +185,15 @@ def test_frontend_panel_manager_registers_system_health_tab():
 
 
 def test_build_chain_reads_builtins_dynamically():
+    # The build gate imports the shared set rather than hardcoding panel ids, so
+    # adding an id to BUILTIN_PANELS is enough for the build to accept it.
+    # ``templates.manifest`` held a second copy of that gate for the template
+    # manifests, which no longer exist: the profile and its preset are now the
+    # whole statement of a deployment, so nothing there validates panels.
+    # A fresh-file read (not inspect.getsource) keeps the guard deterministic.
     from osprey.cli import build_profile_model
-    from osprey.cli.templates import manifest
 
     assert "BUILTIN_PANELS" in _fresh_source(build_profile_model)
-    assert "BUILTIN_PANELS" in _fresh_source(manifest)
 
 
 # -- collision guard -----------------------------------------------------------

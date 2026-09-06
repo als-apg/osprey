@@ -53,6 +53,42 @@ from osprey.registry.mcp import (
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
 
 
+def _bundle_data_root(bundle: str = "control_assistant") -> Path:
+    """The tree these fixtures give ``create_project`` as the profile's ``data:``.
+
+    A build copies the tree its profile's ``data:`` key names, and that key is
+    required — nothing falls back to a packaged tree any more. These fixtures
+    render straight from a bundle rather than from a profile, so they name the
+    tree that bundle packages, which is the same content the render used to
+    reach for on its own.
+    """
+    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+
+
+def _create_project(manager: TemplateManager, **kwargs) -> Path:
+    """``create_project`` plus the manifest stamp a real build writes next.
+
+    A build stamps ``.osprey-manifest.json`` immediately after the render, and
+    the Claude Code regen reads the preset back out of it to learn which
+    artifacts the project selected. A fixture that renders without stamping is
+    not a project any build produces: it regenerates with an empty artifact
+    selection, and the write-gate lint rightly refuses the result.
+    """
+    project = manager.create_project(**kwargs)
+    bundle = kwargs.setdefault("data_bundle", "control_assistant")
+    manager.generate_manifest(
+        project,
+        kwargs["project_name"],
+        bundle.replace("_", "-"),
+        {},
+        # The selection the render was made with, exactly as a build stamps it:
+        # a site that hands `create_project` its own `artifacts=` must get that
+        # selection back on the regen, not the bundle's full list.
+        artifacts=manager._effective_artifacts(bundle, kwargs.get("artifacts")),
+    )
+    return project
+
+
 def _parse_frontmatter(md_path: Path) -> dict:
     text = md_path.read_text(encoding="utf-8")
     m = _FRONTMATTER_RE.match(text)
@@ -70,26 +106,50 @@ def _split_csv(value) -> list[str]:
     return [t.strip() for t in str(value).split(",") if t.strip()]
 
 
+def _apply_preset_config(manager: TemplateManager, project: Path, preset: str) -> Path:
+    """The two steps a build takes after the render, on a fixture project.
+
+    A project's declarative config — its control system, its services, the
+    servers it enables — is its preset's, and the framework template renders
+    none of it. So a build overlays the resolved ``config:`` onto config.yml
+    and regenerates ``.claude/`` from the result, and a fixture that stops at
+    the render is holding half a project.
+    """
+    from osprey.cli.build_profile import resolve_build_profile
+    from osprey.utils.config_writer import config_update_fields
+
+    profile, _profile_dir = resolve_build_profile(None, preset=preset)
+    config_update_fields(project / "config.yml", profile.config)
+    manager.regenerate_claude_code(project)
+    return project
+
+
 def _build_control_assistant(tmp_path_factory) -> Path:
     """Build a control-assistant project via TemplateManager (no venv, no lifecycle)."""
     out_dir = tmp_path_factory.mktemp("ca_build")
     manager = TemplateManager()
-    return manager.create_project(
+    project = _create_project(
+        manager,
         project_name="ca-contract",
         output_dir=out_dir,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
+        data_root=_bundle_data_root("control_assistant"),
     )
+    return _apply_preset_config(manager, project, "control-assistant")
 
 
 def _build_hello_world(tmp_path_factory) -> Path:
     out_dir = tmp_path_factory.mktemp("hw_build")
     manager = TemplateManager()
-    return manager.create_project(
+    project = _create_project(
+        manager,
         project_name="hw-contract",
         output_dir=out_dir,
         data_bundle="hello_world",
+        data_root=_bundle_data_root("hello_world"),
     )
+    return _apply_preset_config(manager, project, "hello-world")
 
 
 # ---------------------------------------------------------------------------
@@ -216,19 +276,21 @@ def test_external_server_command_placeholder_resolves_to_interpreter(tmp_path):
     ``args`` and ``env`` already ran through ``_resolve_placeholder``;
     ``command`` is the fix under test. Materialized into a fresh tmp repo — not
     the module-scoped ``built_hello_world_project`` fixture — so the ``probe``
-    fragment cannot leak into sibling tests.
+    server cannot leak into sibling tests.
     """
-    override = tmp_path / "probe.yml"
-    override.write_text(
-        'mcp_servers:\n  probe:\n    command: "{current_python_env}"\n    args: ["-m", "probe"]\n',
-        encoding="utf-8",
-    )
     target = tmp_path / "probe-repo"
     runner = CliRunner()
 
     init_result = runner.invoke(
         init,
-        [str(target), "--preset", "hello-world", "--no-git", "-O", str(override)],
+        [
+            str(target),
+            "--preset",
+            "hello-world",
+            "--no-git",
+            "--set",
+            'mcp_servers={"probe": {"command": "{current_python_env}", "args": ["-m", "probe"]}}',
+        ],
     )
     assert init_result.exit_code == 0, init_result.output
 
@@ -451,7 +513,8 @@ def test_narrowed_skill_selection_renders_only_the_selected_skills(tmp_path):
     because that is the case a same-or-wider selection cannot distinguish.
     """
     manager = TemplateManager()
-    project = manager.create_project(
+    project = _create_project(
+        manager,
         project_name="narrowed-skills",
         output_dir=tmp_path,
         data_bundle="control_assistant",
@@ -463,6 +526,7 @@ def test_narrowed_skill_selection_renders_only_the_selected_skills(tmp_path):
             "output_styles": ["control-operator"],
             "web_panels": ["ariel"],
         },
+        data_root=_bundle_data_root("control_assistant"),
     )
 
     skills_dir = project / ".claude" / "skills"
@@ -480,11 +544,13 @@ def test_overlay_agent_frontmatter_preserved(tmp_path):
     with its frontmatter intact, and the auto-discovery path picks it up.
     """
     manager = TemplateManager()
-    project = manager.create_project(
+    project = _create_project(
+        manager,
         project_name="overlay-test",
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
+        data_root=_bundle_data_root("control_assistant"),
     )
 
     # Drop a custom agent file with a known frontmatter shape.
@@ -534,11 +600,13 @@ def test_extends_phoebus2_rendered_artifacts(tmp_path, monkeypatch):
     * hook_config.json: both phoebus prefixes in server/approval prefixes.
     """
     manager = TemplateManager()
-    project = manager.create_project(
+    project = _create_project(
+        manager,
         project_name="extends-contract",
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
+        data_root=_bundle_data_root("control_assistant"),
     )
 
     from osprey.utils.config_writer import config_update_fields
@@ -619,10 +687,12 @@ def test_hook_config_write_tools_dedupe(tmp_path):
     entries are appended, in config order, after the server-derived ones.
     """
     manager = TemplateManager()
-    project = manager.create_project(
+    project = _create_project(
+        manager,
         project_name="write-tools-dedupe",
         output_dir=tmp_path,
         data_bundle="hello_world",
+        data_root=_bundle_data_root("hello_world"),
     )
 
     baseline = _read_hook_config(project)["write_tools"]
@@ -661,10 +731,12 @@ def test_hook_config_with_no_enabled_servers(tmp_path):
     truncated or absent one.
     """
     manager = TemplateManager()
-    project = manager.create_project(
+    project = _create_project(
+        manager,
         project_name="no-servers",
         output_dir=tmp_path,
         data_bundle="hello_world",
+        data_root=_bundle_data_root("hello_world"),
     )
 
     enabled = _server_names_from_prefixes(_read_hook_config(project))
@@ -703,10 +775,12 @@ def test_hook_config_lane_addressed_tools_come_from_the_registry(tmp_path):
     hook compares the short name.
     """
     manager = TemplateManager()
-    project = manager.create_project(
+    project = _create_project(
+        manager,
         project_name="lane-addressed-tools",
         output_dir=tmp_path,
         data_bundle="hello_world",
+        data_root=_bundle_data_root("hello_world"),
     )
 
     hook_cfg = _read_hook_config(project)
@@ -859,11 +933,13 @@ def test_crown_jewel_invariant_passes_on_preset(built_control_assistant_project)
 def test_crown_jewel_invariant_catches_missing_tool(tmp_path):
     """Inject a tool entry not in permissions.allow → validator must complain."""
     manager = TemplateManager()
-    project = manager.create_project(
+    project = _create_project(
+        manager,
         project_name="missing-tool-test",
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
+        data_root=_bundle_data_root("control_assistant"),
     )
 
     bogus = project / ".claude" / "agents" / "bogus.md"
@@ -891,11 +967,13 @@ def test_crown_jewel_invariant_catches_missing_tool(tmp_path):
 def test_crown_jewel_invariant_rejects_wildcards(tmp_path):
     """Wildcards in agent tools: must be rejected — list MCP tools explicitly."""
     manager = TemplateManager()
-    project = manager.create_project(
+    project = _create_project(
+        manager,
         project_name="wildcard-test",
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
+        data_root=_bundle_data_root("control_assistant"),
     )
 
     wild = project / ".claude" / "agents" / "wild.md"
@@ -949,6 +1027,7 @@ def test_build_command_fails_on_violation(tmp_path, monkeypatch, caplog):
     """
     profile_dir = tmp_path / "broken-deployment"
     profile_dir.mkdir()
+    (profile_dir / "data").mkdir()
     agents_dir = profile_dir / "agents"
     agents_dir.mkdir()
     (agents_dir / "bogus.md").write_text(
@@ -971,10 +1050,12 @@ def test_build_command_fails_on_violation(tmp_path, monkeypatch, caplog):
         yaml.dump(
             {
                 "name": "Broken Profile",
-                "data_bundle": "hello_world",
+                # The preset carries the posture floor and the bundle; only the
+                # unbacked agent tool below is what this build should die on.
+                "extends": "hello-world",
+                "data": "data",
                 "provider": "anthropic",
                 "model": "claude-haiku-4-5",
-                "config": {"control_system.type": "mock"},
             },
             default_flow_style=False,
         )
@@ -1013,16 +1094,24 @@ def _killswitch_project(tmp_path, name: str, fields: dict) -> Path:
     The regen path is required here: ``create_project`` never runs the
     writes-off kill-switch block, so only a re-render reflects a
     ``writes_enabled`` setting.
+
+    The preset's own ``config:`` goes on first, because the connector blocks
+    these postures are stated against are the preset's — the framework template
+    renders no ``control_system`` at all — and a posture keyed on a connector
+    the project never declared is not the deployment under test.
     """
     from osprey.utils.config_writer import config_update_fields
 
     manager = TemplateManager()
-    project = manager.create_project(
+    project = _create_project(
+        manager,
         project_name=name,
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
+        data_root=_bundle_data_root("control_assistant"),
     )
+    _apply_preset_config(manager, project, "control-assistant")
     config_update_fields(project / "config.yml", fields)
     manager.regenerate_claude_code(project)
     return project
@@ -1407,12 +1496,15 @@ def test_a_deployment_whose_only_target_is_disarmed_still_renders_the_deny(tmp_p
     from osprey.utils.config_writer import config_delete_field, config_update_fields
 
     manager = TemplateManager()
-    project = manager.create_project(
+    project = _create_project(
+        manager,
         project_name="posture-single-target-disarmed",
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
+        data_root=_bundle_data_root("control_assistant"),
     )
+    _apply_preset_config(manager, project, "control-assistant")
     config_update_fields(
         project / "config.yml",
         {_TYPE_KEY: _LIVE_TYPE, "control_system.writes_enabled": True, _LIVE_WRITES: False},
@@ -1447,15 +1539,21 @@ def _render_preset_project(tmp_path_factory, preset: str) -> Path:
     ``.claude/`` from the result.
     """
     from osprey.cli.build_profile import resolve_build_profile
+    from osprey.cli.build_profile_presets import preset_data_bundle
     from osprey.utils.config_writer import config_update_fields
 
     profile, _profile_dir = resolve_build_profile(None, preset=preset)
     manager = TemplateManager()
-    project = manager.create_project(
+    project = _create_project(
+        manager,
         project_name=f"{preset}-floor",
         output_dir=tmp_path_factory.mktemp("floor_build"),
-        data_bundle=profile.data_bundle,
+        # The bundle is a fact about the preset, not a key on the resolved
+        # profile: it is read back from the preset chain, the way the build
+        # reads it.
+        data_bundle=preset_data_bundle(preset),
         context={"channel_finder_mode": "hierarchical"},
+        data_root=_bundle_data_root(preset_data_bundle(preset)),
     )
     config_update_fields(project / "config.yml", profile.config)
     manager.regenerate_claude_code(project)
@@ -1560,7 +1658,8 @@ def test_hook_helper_libraries_are_copied_but_never_wired(tmp_path):
     wired-but-not-copied is an ImportError inside the hooks that import it.
     """
     manager = TemplateManager()
-    project = manager.create_project(
+    project = _create_project(
+        manager,
         project_name="hook-helpers",
         output_dir=tmp_path,
         data_bundle="control_assistant",
@@ -1573,6 +1672,7 @@ def test_hook_helper_libraries_are_copied_but_never_wired(tmp_path):
             "hooks": ["hook-log", "target-state", "hook-config", "approval", "memory-guard"],
             "rules": ["safety"],
         },
+        data_root=_bundle_data_root("control_assistant"),
     )
 
     helpers = ("osprey_hook_log.py", "osprey_target_state.py")

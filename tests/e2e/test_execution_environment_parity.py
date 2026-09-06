@@ -66,6 +66,7 @@ from osprey.utils.workspace import (
     RENDERED_CONFIG_RELPATH,
     container_image_context,
 )
+from tests.e2e.profile_edits import set_pairs
 
 # ── Markers ──────────────────────────────────────────────────────────────────
 
@@ -378,20 +379,14 @@ def built_render(base_venv, tmp_path_factory) -> Path:
     the directory the image is built from.
     """
     out_dir = tmp_path_factory.mktemp("parity-build")
-    override = out_dir / "environment-override.yml"
-    override.write_text(
-        "environment:\n"
-        f"  python: {base_venv}\n"
-        "  packages:\n"
-        f"    - {MARKER_ADDED}\n"
-        "config:\n"
+    edits = {
+        "environment": {"python": str(base_venv), "packages": [MARKER_ADDED]},
         # The gallery auto-launches a web server on a fixed host port on first
         # artifact save. Nothing here inspects the gallery, and a shared CI or
         # dev host may already hold that port — turn it off on BOTH sides so the
         # comparison stays about packages and execution.
-        "  artifact_server.auto_launch: false\n",
-        encoding="utf-8",
-    )
+        "config": {"artifact_server.auto_launch": False},
+    }
 
     repo = out_dir / PROJECT_NAME
     runner = CliRunner()
@@ -407,8 +402,7 @@ def built_render(base_venv, tmp_path_factory) -> Path:
             "provider=als-apg",
             "--set",
             "model=haiku",
-            "-O",
-            str(override),
+            *set_pairs(edits),
         ],
     )
     assert init_result.exit_code == 0, init_result.output

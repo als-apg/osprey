@@ -32,6 +32,7 @@ from typing import Any
 import click
 
 from .output import note, report, warn
+from .profile_expand import RETIRED_TEMPLATE_KEY
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 from .styles import Styles
 
@@ -137,7 +138,10 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     KEY is a top-level profile key (provider, model, tier, channel_finder_mode,
     connector) or a dotted path. Keys under `config.` address the rendered
     config: `config.control_system.type=epics` writes that literal dotted entry
-    into the profile's config: block, replacing the value already there.
+    into the profile's config: block, replacing the value already there. A
+    mapping value states the whole block at that key: `config.approval.tools={…}`
+    replaces every `approval.tools.*` entry, `config.approval.tools.execute=skip`
+    changes that one leaf.
 
     VALUE is read as YAML — true/false become booleans, bare numbers become
     numbers, everything else is text.
@@ -188,6 +192,15 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
         note(key)
 
     unrecognized = _unrecognized_top_level_keys(expanded)
+    # The retired app-template key is unknown for a REASON the generic advice
+    # gets wrong: prefixing it with `config.` writes a key nothing reads, and
+    # what the operator actually wants is the verb that fills the profile in.
+    # Its own message says so, and it is the same one the loader refuses with.
+    if RETIRED_TEMPLATE_KEY in unrecognized:
+        from .build_profile_load import _RETIRED_APP_TEMPLATE_REFUSAL
+
+        unrecognized.remove(RETIRED_TEMPLATE_KEY)
+        warn(f"Not a profile key: {RETIRED_TEMPLATE_KEY}", _RETIRED_APP_TEMPLATE_REFUSAL)
     if unrecognized:
         warn(
             f"Not a profile key: {', '.join(unrecognized)}",

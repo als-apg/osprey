@@ -1,0 +1,96 @@
+agent_data:
+  base_dir: var/agent_data
+api:
+  providers:
+  - als-apg
+  - amsc-i2
+  - anthropic
+  - argo
+  - cborg
+  - ds4
+  - google
+  - ollama
+  - openai
+  - stanford
+approval:
+  default_policy: always
+  enabled: true
+  tools:
+    archiver_read: skip
+    channel_read: skip
+    channel_write: always
+    entry_create: always
+    execute: selective
+    setup_patch: always
+archiver:
+  auto_bin_points: 10000
+  type: mock_archiver
+artifact_server:
+  auto_launch: true
+  host: 127.0.0.1
+  port: 10200
+build_dir: ./build
+claude_code:
+  agents:
+    logbook-deep-research:
+      enabled: false
+    logbook-search:
+      enabled: false
+  default_model: haiku
+  provider: anthropic
+  servers:
+    ariel:
+      enabled: false
+    channel-finder:
+      enabled: false
+    controls:
+      enabled: true
+    example_server:
+      args:
+      - -m
+      - example_server
+      command: '{current_python_env}'
+      env:
+        OSPREY_CONFIG: '{project_root}/build/config.yml'
+        PYTHONPATH: '{project_root}/build/_mcp_servers'
+      permissions:
+        allow:
+        - example_status
+        ask: []
+  telemetry:
+    backend: openobserve
+    enabled: true
+    log_assistant_responses: true
+    log_raw_api_bodies: true
+    log_tool_details: true
+    log_user_prompts: true
+    openobserve:
+      org: default
+      password: ${ZO_INGEST_SA_TOKEN}
+      user: ${ZO_INGEST_USER_EMAIL:-ingest@example.com}
+    protocol: http/protobuf
+container_runtime: docker
+control_system:
+  channel_read_artifact_retention: 20
+  limits_checking:
+    allow_unlisted_channels: true
+    database_path: data/channel_limits.json
+    enabled: true
+  read_inline_max_elements: 2000
+  type: mock
+  writes_enabled: false
+deployed_services:
+- openobserve
+execution:
+  execution_method: subprocess
+file_paths:
+  api_calls_dir: api_calls
+  registry_exports_dir: registry_exports
+project_name: osprey-freeze
+services:
+  openobserve:
+    path: ./services/openobserve
+    port: 10050
+    retention_days: 14
+system:
+  timezone: UTC

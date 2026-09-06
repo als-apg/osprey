@@ -94,6 +94,7 @@ from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
 from osprey.utils.dotenv import parse_dotenv_file
 from tests.e2e._orm_stack import VA_CA_PORT
 from tests.e2e._volumes import remove_project_volumes
+from tests.e2e.profile_edits import set_pairs
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
 
@@ -272,45 +273,43 @@ def _control_context(agent_data_root: str) -> dict[str, Any] | None:
 # ---------------------------------------------------------------------------
 
 
-def _override_text() -> str:
-    """The ``--override`` overlay for the deployment.
+def _profile_edits() -> dict[str, Any]:
+    """The profile edits for the deployment.
 
     The virtual accelerator is the baseline and the stand-in the second target;
     the preset's archive stays (a simulated machine may not be paired with an
     invented history) but shrunk to seconds of seeding. The bluesky stack, the
     dispatcher and telemetry are dropped: nothing here reaches them, and every
-    container they add is a minute of build. ``modules.web_terminals`` cannot
-    carry the roster from here — list values union with the preset's — so the
-    roster and the persona catalog are rewritten in :func:`_shape_repo`.
+    container they add is a minute of build. The roster and the persona
+    catalog are rewritten in :func:`_shape_repo` instead of stated here: they
+    are derived from the preset's own catalog, which only exists once the
+    repo is materialized.
     """
-    return yaml.safe_dump(
-        {
-            "config": {
-                "container_runtime": RUNTIME,
-                "facility.name": "E2E Notebook Panel Fixture",
-                "facility.prefix": PREFIX,
-                "facility.timezone": "UTC",
-                "deploy.fqdn": "127.0.0.1",
-                PORT_BASE_CONFIG_KEY: PORT_BASE,
-                "control_system.type": "virtual_accelerator",
-                "claude_code.telemetry.enabled": False,
-                "claude_code.servers.bluesky.enabled": False,
-                "claude_code.servers.health.enabled": False,
-                "modules.web_terminals": {
-                    "enabled": True,
-                    "image_source": "local",
-                    "default_persona": PERSONA,
-                    "auth": {"method": "token"},
-                },
+    return {
+        "config": {
+            "container_runtime": RUNTIME,
+            "facility.name": "E2E Notebook Panel Fixture",
+            "facility.prefix": PREFIX,
+            "facility.timezone": "UTC",
+            "deploy.fqdn": "127.0.0.1",
+            PORT_BASE_CONFIG_KEY: PORT_BASE,
+            "control_system.type": "virtual_accelerator",
+            "claude_code.telemetry.enabled": False,
+            "claude_code.servers.bluesky.enabled": False,
+            "claude_code.servers.health.enabled": False,
+            "modules.web_terminals": {
+                "enabled": True,
+                "image_source": "local",
+                "default_persona": PERSONA,
+                "auth": {"method": "token"},
             },
-            "channel_finder_mode": "hierarchical",
-            "dispatch": None,
-            "bluesky": None,
-            "bluesky_web": None,
-            "va_archiver": {"retention_days": 2, "hot_span_hours": 2},
         },
-        sort_keys=False,
-    )
+        "channel_finder_mode": "hierarchical",
+        "dispatch": None,
+        "bluesky": None,
+        "bluesky_web": None,
+        "va_archiver": {"retention_days": 2, "hot_span_hours": 2},
+    }
 
 
 def _shape_repo(repo: Path) -> None:
@@ -352,8 +351,6 @@ def _shape_repo(repo: Path) -> None:
 
 def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
     repo = tmp_path / PROJECT_NAME
-    override_path = tmp_path / "override.yml"
-    override_path.write_text(_override_text(), encoding="utf-8")
 
     init = _run_osprey(
         osprey_bin,
@@ -363,8 +360,7 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
             "--preset",
             PRESET,
             "--no-git",
-            "--override",
-            str(override_path),
+            *set_pairs(_profile_edits()),
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",
         ],

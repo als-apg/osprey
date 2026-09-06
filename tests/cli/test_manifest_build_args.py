@@ -14,7 +14,6 @@ def _args(context, *, preset_name="control-assistant", profile_path=None):
         project_name="proj",
         preset_name=preset_name,
         profile_path=profile_path,
-        data_bundle="control_assistant",
         context=context,
     )
 

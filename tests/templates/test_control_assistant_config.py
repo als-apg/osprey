@@ -7,72 +7,97 @@ facility-hosted one through ``uri``. So ``pipeline_mode: graph`` plus that block
 the *entire* configuration: there is no ``pipelines.graph`` block, and graph mode
 introduces no config key that the other modes do not already render.
 
-That is a claim about the shape of the rendered file, so it is pinned as one here:
-the graph render's key set is the in-context render's key set with the pipeline
-block removed — nothing added, nothing else dropped. The corollary is pinned too:
-the manager derives an ``enable_graph`` flag for every registered paradigm, and no
-template reads this one. Should a template start reading it, the test that walks
-the template tree fails, and the render matrix in ``scripts/config_key_manifest.yml``
-(which exercises the ``enable_*`` branches) would need a fourth cell.
+That is a claim about the shape of the rendered file, so it is pinned as one here.
+A render is two layers: the framework template (``project/config.yml.j2``), which
+writes the keys derived from the profile's fields — ``channel_finder_mode:`` among
+them — and the preset's resolved ``config:`` block, which the build lays over it
+and which is the same in every mode. The graph render's key set is the in-context
+render's key set with the pipeline block removed — nothing added, nothing else
+dropped. The corollary is pinned too: the manager derives an ``enable_graph`` flag
+for every registered paradigm, and no template reads this one. Should a template
+start reading it, the test that walks the template tree fails, and the render
+matrix in ``osprey/profiles/config_key_manifest.yml`` (which exercises the ``enable_*``
+branches) would need a fourth cell.
 
-The mode-enumerating comments are checked against the registry rather than against
+The mode-enumerating comment is checked against the registry rather than against
 a literal list, so a fifth paradigm fails these tests instead of quietly leaving
 the preset's prose one mode short.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
-import pytest
 import yaml
 
+import osprey.profiles
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.cli.build_cmd import _ariel_server_enabled
+from osprey.cli.build_profile_archiver import _expand_dotted
+from osprey.cli.build_profile_model import BuildProfile
+from osprey.cli.build_profile_resolve import resolve_build_profile
 from osprey.cli.templates.manager import TemplateManager, _enable_flags
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
+from osprey.profiles.providers import load_provider_catalog
+from osprey.profiles.web_panels import BUILTIN_PANELS
 
-CONFIG_TEMPLATE = "apps/control_assistant/config.yml.j2"
-README_TEMPLATE = "apps/control_assistant/README.md.j2"
-
-#: Context sufficient to render the preset. Keys absent from it render empty,
-#: which is why only the paradigm-selecting keys are spelled out per mode.
-_BASE_CTX: dict[str, Any] = {
-    "project_name": "demo",
-    "app_display_name": "Demo Control Assistant",
-    "facility_name": "Demo",
-    "framework_version": "0.0.0",
-    "default_provider": "anthropic",
-    "default_model": "haiku",
-    "current_python_env": "/usr/bin/python3",
-    "selected_web_panels": [],
-    "builtin_panels": [],
-    "system": {"timezone": "UTC"},
-    "osprey_labels": {"project_name": "demo", "project_root": "/tmp/demo"},
-    # Every host port in the template renders from this table. These tests
-    # bypass TemplateManager._project_context, which is where the real render
-    # builds it, so they supply it themselves at the default base.
-    "port_base": DEFAULT_PORT_BASE,
-    "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
-}
+PRESET = "control-assistant"
+CONFIG_TEMPLATE = "project/config.yml.j2"
+PRESET_PATH = Path(osprey.profiles.__file__).parent / "presets" / f"{PRESET}.yml"
 
 
-def _ctx(mode: str) -> dict[str, Any]:
-    """Render context for one paradigm, with the flags derived as the manager derives them."""
+def _profile(mode: str) -> BuildProfile:
+    """The preset resolved with *mode* selected, the way ``osprey build --set`` does."""
+    profile, _profile_dir = resolve_build_profile(
+        None, PRESET, set_pairs=(f"channel_finder_mode={mode}",)
+    )
+    return profile
+
+
+def _ctx(profile: BuildProfile) -> dict[str, Any]:
+    """The framework template's context for *profile*, derived as the build derives it.
+
+    Only the profile-field-derived half matters here; the rest of the real
+    context (ports, interpreter paths) is pinned at the defaults.
+    """
+    mode = profile.channel_finder_mode or ""
     return {
-        **_BASE_CTX,
+        "project_name": "demo",
+        "project_root": "/repos/demo",
+        "default_provider": profile.provider,
+        "default_model": profile.model,
+        "port_base": DEFAULT_PORT_BASE,
+        "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
+        "provider_catalog": load_provider_catalog(None).entries,
+        "builtin_panels": sorted(BUILTIN_PANELS),
+        "selected_web_panels": list(profile.web_panels),
+        "default_panel": profile.default_panel,
+        "panel_presets": profile.panel_presets,
+        "ariel_server_on": _ariel_server_enabled(profile),
         "channel_finder_mode": mode,
         "default_pipeline": mode,
         **_enable_flags(mode),
     }
 
 
-def _render(template_path: str, mode: str) -> str:
-    return TemplateManager().jinja_env.get_template(template_path).render(**_ctx(mode))
+def _overlay(base: dict[str, Any], top: dict[str, Any]) -> dict[str, Any]:
+    """*top* laid over *base*, mapping by mapping — the config-override path's merge."""
+    merged = dict(base)
+    for key, value in top.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _overlay(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
 
 
 def _config(mode: str) -> dict[str, Any]:
-    return yaml.safe_load(_render(CONFIG_TEMPLATE, mode))
+    """The rendered config for *mode*: framework template, then the preset's ``config:``."""
+    profile = _profile(mode)
+    rendered = TemplateManager().jinja_env.get_template(CONFIG_TEMPLATE).render(**_ctx(profile))
+    return _overlay(yaml.safe_load(rendered) or {}, _expand_dotted(profile.config))
 
 
 def _dotted_keys(node: Any, prefix: str = "") -> set[str]:
@@ -84,6 +109,12 @@ def _dotted_keys(node: Any, prefix: str = "") -> set[str]:
             keys.add(path)
             keys |= _dotted_keys(value, f"{path}.")
     return keys
+
+
+def test_graph_mode_is_the_preset_default():
+    """The preset selects the graph paradigm by name; the modes below override it."""
+    profile, _profile_dir = resolve_build_profile(None, PRESET)
+    assert profile.channel_finder_mode == "graph"
 
 
 def test_graph_mode_selects_the_paradigm_by_name():
@@ -132,12 +163,28 @@ def _mentions_enable_graph(path: Path) -> bool:
         return False
 
 
-@pytest.mark.parametrize("template_path", [CONFIG_TEMPLATE, README_TEMPLATE])
-def test_pipeline_mode_comment_names_every_paradigm(template_path: str):
-    """The comment beside `pipeline_mode:` enumerates the registry, not a subset."""
-    rendered = _render(template_path, "in_context")
-    comment = next(
-        line for line in rendered.splitlines() if line.strip().startswith("pipeline_mode:")
-    )
-    missing = [mode for mode in VALID_CHANNEL_FINDER_MODES if f'"{mode}"' not in comment]
-    assert missing == [], f"{template_path} names no paradigm {missing} in {comment.strip()!r}"
+def _comment_above_mode_field() -> str:
+    """The contiguous comment block the preset writes directly above ``channel_finder_mode:``."""
+    lines = PRESET_PATH.read_text(encoding="utf-8").splitlines()
+    index = next(i for i, line in enumerate(lines) if line.startswith("channel_finder_mode:"))
+    comment: list[str] = []
+    for line in reversed(lines[:index]):
+        if not line.startswith("#"):
+            break
+        comment.append(line)
+    return "\n".join(reversed(comment))
+
+
+def test_mode_field_comment_names_every_paradigm():
+    """The comment beside `channel_finder_mode:` enumerates the registry, not a subset."""
+    comment = _comment_above_mode_field()
+    assert comment, "no comment above channel_finder_mode: in the preset"
+    # A mode counts only as a standalone token: "knowledge graph" in the prose
+    # must not stand in for the `graph` paradigm.
+    prose = comment.replace("knowledge graph", "")
+    missing = [
+        mode
+        for mode in VALID_CHANNEL_FINDER_MODES
+        if not re.search(rf"(?<![\w-]){re.escape(mode)}(?![\w-])", prose)
+    ]
+    assert missing == [], f"{PRESET_PATH.name} names no paradigm {missing} in {comment!r}"

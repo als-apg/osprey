@@ -88,11 +88,17 @@ def _graph_repo(root: Path, *, corpus: str | None, personas: tuple[str, ...] = (
         (data / "facility.ttl").write_text(corpus, encoding="utf-8")
     (root / "profile.yml").write_text(
         "name: Graph Index\n"
-        "app_template: control_assistant\n"
         "provider: anthropic\n"
         "channel_finder_mode: graph\n"
         "data: data\n"
         "config:\n"
+        # The posture floor a hand-written profile states for itself: with no
+        # app template beneath it, nothing else can answer these. `mock` and
+        # `none` because this repo is about the search index, not the machine.
+        "  control_system.type: mock\n"
+        "  archiver.type: none\n"
+        "  claude_code.telemetry.enabled: false\n"
+        "  hooks.debug: false\n"
         f"  services.graphdb.ttl_path: {_CORPUS_RELATIVE}\n"
     )
     for persona in personas:
@@ -290,10 +296,16 @@ def _preset_repo(tmp_path: Path, name: str) -> Path:
     from osprey.cli.init_cmd import init
 
     repo = tmp_path / name
-    override = tmp_path / f"{name}-override.yml"
-    override.write_text("channel_finder_mode: graph\n", encoding="utf-8")
     created = CliRunner().invoke(
-        init, [str(repo), "--preset", "control-assistant", "--no-git", "-O", str(override)]
+        init,
+        [
+            str(repo),
+            "--preset",
+            "control-assistant",
+            "--no-git",
+            "--set",
+            "channel_finder_mode=graph",
+        ],
     )
     assert created.exit_code == 0, created.output
     return repo

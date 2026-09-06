@@ -21,6 +21,7 @@ from osprey.cli.build_profile_load import (
     _PROFILE_SCHEMA_MIN_OSPREY,
     load_profile,
 )
+from osprey.cli.build_profile_presets import PRESET_DATA_BUNDLE_KEY
 from osprey.cli.build_profile_resolve import resolve_build_profile
 from osprey.errors import BuildProfileError
 
@@ -94,12 +95,8 @@ def test_error_lists_the_valid_keys(tmp_path: Path) -> None:
 
     message = str(excinfo.value)
     assert "valid keys are:" in message
-    assert "data_bundle" in message
+    assert "config" in message
     assert "mcp_servers" in message
-    # The YAML-surface spelling has to be listed even though the check itself
-    # never sees it (normalization pops it first): this list is what a facility
-    # is told to write, and `app_template` is the current spelling.
-    assert "app_template" in message
 
 
 def test_unknown_key_in_an_extends_parent_is_rejected(fake_presets: Path, tmp_path: Path) -> None:
@@ -123,9 +120,10 @@ def test_extends_and_exclude_are_not_unknown(fake_presets: Path, tmp_path: Path)
     """Both are consumed during resolution but stay allowlisted for the
     pre-resolution callers that parse a raw layer."""
     _write_yaml(fake_presets / "base.yml", {"name": "base", "skills": ["a", "b"]})
+    (tmp_path / "data").mkdir(exist_ok=True)
     child = _write_yaml(
         tmp_path / "child.yml",
-        {"name": "child", "extends": "base", "exclude": {"skills": ["b"]}},
+        {"name": "child", "extends": "base", "data": "data", "exclude": {"skills": ["b"]}},
     )
 
     profile, _dir = resolve_build_profile(child, None)
@@ -137,6 +135,62 @@ def test_every_bundled_preset_passes_the_stricter_schema() -> None:
     """The shipped presets must not be the first casualties of the promotion."""
     for name in build_profile_presets.list_presets():
         resolve_build_profile(None, name)
+
+
+# ---------------------------------------------------------------------------
+# `app_template:` left the profile schema
+# ---------------------------------------------------------------------------
+
+
+def test_app_template_refusal_names_expand(tmp_path: Path) -> None:
+    """A profile emitted before this schema still carries `app_template:`.
+
+    The build no longer renders an app template, so the config that key used to
+    stand for is not supplied from anywhere — the profile has to spell it. The
+    generic unknown-key error would send the operator to delete the key and
+    leave them with a deployment silently missing what the template used to
+    contribute, so this one key gets a message naming the verb that fills the
+    gap in.
+    """
+    profile = _write_yaml(tmp_path / "p.yml", {"name": "p", "app_template": "control_assistant"})
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        load_profile(profile)
+
+    message = str(excinfo.value)
+    assert "app_template is no longer a profile key" in message
+    assert "osprey profile expand" in message
+    # Not the generic "did you mean" / key-list wording: that one tells the
+    # operator to delete the key, which loses the config it stood for.
+    assert "valid keys are:" not in message
+
+
+def test_app_template_is_refused_through_extends_too(fake_presets: Path, tmp_path: Path) -> None:
+    """Inheritance is not a laundering path for the retired key either.
+
+    A hand-written parent profile is an ordinary profile document, so the key
+    is refused wherever on the chain it is spelled — unlike a bundled preset,
+    where the key is consumed by the preset reader.
+    """
+    parent = _write_yaml(tmp_path / "parent.yml", {"name": "parent", "app_template": "hello_world"})
+    child = _write_yaml(tmp_path / "child.yml", {"name": "child", "extends": str(parent)})
+
+    with pytest.raises(BuildProfileError, match="no longer a profile key"):
+        resolve_build_profile(child, None)
+
+
+def test_a_set_pair_cannot_reintroduce_app_template(fake_presets: Path) -> None:
+    """`--set app_template=...` is refused like any other retired spelling."""
+    _write_yaml(fake_presets / "base.yml", {"name": "base"})
+
+    with pytest.raises(BuildProfileError, match="no longer a profile key"):
+        resolve_build_profile(None, "base", set_pairs=("app_template=hello_world",))
+
+
+def test_the_retired_key_is_not_in_the_schema() -> None:
+    """Neither spelling of the app-template selector is a profile key."""
+    assert PRESET_DATA_BUNDLE_KEY not in _KNOWN_PROFILE_KEYS
+    assert "data_bundle" not in _KNOWN_PROFILE_KEYS
 
 
 # ---------------------------------------------------------------------------
@@ -182,10 +236,9 @@ def test_schema_min_osprey_is_a_usable_version_floor() -> None:
 
 
 def test_schema_floor_covers_the_keys_it_gates() -> None:
-    """The floor exists for these keys, so both must be part of the schema.
+    """The floor exists for these keys, so they must be part of the schema.
 
-    ``app_template`` is normalized away before the unknown-key check ever runs;
-    it stays a member because the same frozenset is the "valid keys are:" list
-    that check prints (pinned by test_error_lists_the_valid_keys).
+    ``config:`` carries the whole declarative statement a release older than
+    the floor would read only in part, and ``data:`` names the tree it copies.
     """
-    assert {"app_template", "data"} <= _KNOWN_PROFILE_KEYS
+    assert {"config", "data"} <= _KNOWN_PROFILE_KEYS

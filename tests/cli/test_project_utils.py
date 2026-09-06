@@ -13,7 +13,7 @@ _CONFIG = "project_name: demo\n"
 def _repo(root: Path, *, rendered: bool = True) -> Path:
     """A deployment repo: ``profile.yml`` at the root, optionally with a render."""
     root.mkdir(parents=True, exist_ok=True)
-    (root / "profile.yml").write_text("name: Demo\ndata_bundle: hello_world\n", encoding="utf-8")
+    (root / "profile.yml").write_text("name: Demo\ndata: data\n", encoding="utf-8")
     if rendered:
         (root / "build").mkdir(exist_ok=True)
         (root / "build" / "config.yml").write_text(_CONFIG, encoding="utf-8")

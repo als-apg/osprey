@@ -41,6 +41,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from osprey.errors import BuildProfileError
+from osprey.profiles.providers import PROVIDERS_FILENAME
 from osprey.utils.logger import get_logger
 from osprey.utils.workspace import BUILD_DIR_NAME, STATE_DIR_NAME
 
@@ -259,6 +260,10 @@ _SYSTEMD_UNIT_ENTRY = "osprey.service"
 _SOURCE_ZONE_ENTRIES: frozenset[str] = frozenset(
     {
         "profile.yml",
+        # The provider catalog `osprey init` writes beside the profile and the
+        # build renders into `api.providers`. Source zone like the profile
+        # itself: tracked, and the file an operator adds a gateway to.
+        PROVIDERS_FILENAME,
         "triggers.yml",
         "data",
         "personas",

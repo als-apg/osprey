@@ -762,11 +762,15 @@ def _resolved_users() -> list[dict]:
 
 BARE_PROFILE = """\
 name: Bare
-app_template: hello_world
 provider: anthropic
 model: haiku
+data: data
+channel_finder_mode: hierarchical
 config:
   control_system.type: mock
+  archiver.type: mock_archiver
+  claude_code.telemetry.enabled: false
+  hooks.debug: false
 """
 
 
@@ -776,10 +780,18 @@ def test_a_minimal_profile_directory_builds_standalone(tmp_path: Path) -> None:
     Root discovery's narrow trigger: only a file inside ``personas/`` beside a
     ``profile.yml`` is a delta. Everything else — including a hand-written
     scratch profile like this one — is simply the source zone of the repo it
-    sits in, and needs no data tree and no ``.env`` to render.
+    sits in, and needs no ``.env`` to render.
+
+    The tree ``data:`` names is empty here. It is required (nothing falls back
+    to a packaged tree), but a scratch profile that ships no channel databases
+    still builds — the key has to be answered, not filled. The ``config:``
+    block spells the posture floor for the same reason: those keys have no
+    silent default any more, so the smallest profile that builds is the one
+    that states them.
     """
     repo = tmp_path / "scratch"
     _write(repo / "profile.yml", BARE_PROFILE)
+    (repo / "data").mkdir(parents=True, exist_ok=True)
 
     _assert_ok(_build(repo), "minimal repo build")
 

@@ -1,0 +1,148 @@
+agent_data:
+  base_dir: var/agent_data
+api:
+  providers:
+  - als-apg
+  - anthropic
+  - cborg
+  - google
+  - ollama
+  - openai
+approval:
+  default_policy: always
+  enabled: true
+  tools:
+    entry_create: always
+ariel:
+  default_search_mode: hybrid
+  embedding:
+    provider: ollama
+  enhancement_modules:
+    qmd_export:
+      enabled: true
+      settings:
+        mirror_path: var/ariel_mirror
+    semantic_processor:
+      enabled: false
+      model:
+        max_tokens: 256
+        model_id: haiku
+      provider: anthropic
+    text_embedding:
+      enabled: true
+      models:
+      - dimension: 768
+        name: nomic-embed-text
+      provider: ollama
+  ingestion:
+    adapter: generic_json
+    source_url: data/logbook_seed/demo_logbook.json
+  search_modules:
+    hybrid:
+      enabled: true
+      settings:
+        candidate_limit: 40
+        rerank: true
+    keyword:
+      enabled: true
+      settings:
+        pattern_timeout_seconds: 10.0
+        patterns_enabled: true
+    semantic:
+      enabled: true
+      model: nomic-embed-text
+      provider: ollama
+  vocabulary:
+    canonical_to_acronym: true
+    canonical_to_shorthand: false
+    enabled: false
+    expand_by_default: true
+artifact_server:
+  auto_launch: true
+  host: 127.0.0.1
+  port: 10200
+build_dir: ./build
+claude_code:
+  default_model: haiku
+  provider: anthropic
+  servers:
+    controls:
+      enabled: false
+    python:
+      enabled: false
+  telemetry:
+    backend: openobserve
+    enabled: true
+    log_assistant_responses: true
+    log_raw_api_bodies: true
+    log_tool_details: true
+    log_user_prompts: true
+    openobserve:
+      org: default
+      password: ${ZO_INGEST_SA_TOKEN}
+      user: ${ZO_INGEST_USER_EMAIL:-ingest@example.com}
+    protocol: http/protobuf
+container_runtime: docker
+deployed_services:
+- postgresql
+- openobserve
+- qmd
+- graphdb
+execution:
+  execution_method: subprocess
+facility:
+  name: Example Research Facility
+file_paths:
+  api_calls_dir: api_calls
+  registry_exports_dir: registry_exports
+hooks:
+  debug: true
+logbook:
+  composition:
+    default_tier: haiku
+    provider: anthropic
+project_name: osprey-freeze
+scaffold:
+  user_owned:
+  - rules/facility
+services:
+  graphdb:
+    heap_initial_size: 512m
+    heap_max_size: 1G
+    http_port_host: 10803
+    image: neo4j:5.26-community
+    pagecache_size: 512m
+    path: ./services/graphdb
+    port_host: 10802
+    query_max_rows: 200
+    query_timeout_s: 15
+    ttl_path: ./data/demo_machine.ttl
+  openobserve:
+    path: ./services/openobserve
+    port: 10050
+    retention_days: 14
+  postgresql:
+    database_name: ariel
+    path: ./services/postgresql
+    port_host: 10800
+    username: ariel
+  qmd:
+    interval: 30
+    path: ./services/qmd
+    port: 10060
+system:
+  timezone: UTC
+web:
+  config_panel:
+    enabled: true
+  default_panel: ariel
+  docs_url: https://als-apg.github.io/osprey
+  feedback:
+    email: thellert@lbl.gov
+    github_repo: als-apg/osprey
+    max_store_bytes: 268435456
+  panels:
+    ariel:
+      enabled: true
+  scaffold_gallery:
+    write_enabled: true

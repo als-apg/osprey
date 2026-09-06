@@ -13,21 +13,26 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from osprey.build.manifest import MANIFEST_FILENAME, sha256_file
-from osprey.profiles.web_panels import BUILTIN_PANELS
+from osprey.errors import BuildProfileError
 from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
 
 logger = logging.getLogger("osprey.cli.templates")
 
+# Manifest schema version for future compatibility.
+#
+# 1.3.0 — ``creation.template`` is the preset the profile records (``None`` for
+# a hand-written profile) instead of a preset-or-bundle best effort, and
+# ``creation.data_bundle`` / ``build_args.data_bundle`` are gone: the app bundle
+# is a fact about the preset, so a reader that wants it asks the preset.
+MANIFEST_SCHEMA_VERSION = "1.3.0"
 
-class ManifestError(ValueError):
-    """Raised when a template manifest references unknown artifacts or panels."""
-
-
-# Manifest schema version for future compatibility
-MANIFEST_SCHEMA_VERSION = "1.2.0"
+#: Keys once written under ``creation`` that no longer exist. A manifest an
+#: older build wrote still carries them, and every reader of build provenance is
+#: advisory: it says what it found and moves on rather than failing the
+#: operation it is annotating. Debug, not warning — nothing is wrong with such a
+#: project, and the next build restamps it.
+_RETIRED_CREATION_KEYS = ("data_bundle",)
 
 # Maps manifest YAML category keys to BuildArtifactCatalog canonical-name prefixes.
 # Needed because YAML convention uses underscores while registry uses hyphens.
@@ -40,7 +45,7 @@ _MANIFEST_CATEGORY_PREFIX = {
 }
 
 #: Framework-managed output paths tracked for checksum collection during regen,
-#: for the case where neither a project manifest nor a template manifest names a
+#: for the case where neither a project manifest nor a preset names a
 #: selection.
 #:
 #: DERIVED from the artifact catalog, never hand-listed: a literal list falls
@@ -127,93 +132,58 @@ def _stored_artifacts(project_dir: Path | None) -> dict | None:
 
 
 def load_template_manifest(
-    template_root: Path,
-    template_name: str,
+    template_name: str | None,
     project_dir: Path | None = None,
 ) -> dict | None:
-    """Load manifest.yml for a template, if it exists.
+    """The artifact selection that applies to a render, or ``None``.
 
-    When the template-level ``manifest.yml`` does not exist, falls back to
-    reading the ``"artifacts"`` section from the project-local
-    ``.osprey-manifest.json`` (when ``project_dir`` is provided).
+    Two sources, in that order: the project's own ``.osprey-manifest.json``,
+    which records what the build that made the project actually selected, and
+    failing that the bundled preset ``template_name`` names. Bundled templates
+    carry no artifact declaration of their own.
 
     Args:
-        template_root: Path to osprey's bundled templates directory
-        template_name: Name of the application template (e.g. "control_assistant")
-        project_dir: Optional project directory. When given and the template
-            manifest does not exist, artifacts are read from the project's
-            ``.osprey-manifest.json`` instead.
+        template_name: The app bundle directory ("control_assistant"), or the
+            preset a built project's manifest records ("control-assistant").
+            Both spellings resolve, because the bundled-preset fallback below
+            normalizes whichever it is given onto the hyphenated preset file.
+            ``None`` when the caller has no name to offer — a project built
+            from a profile that records no preset — and then only the
+            project-local source applies.
+        project_dir: Optional project directory. When given, artifacts are read
+            from its ``.osprey-manifest.json`` in preference to the preset.
 
     Returns:
-        Parsed YAML-like dict, or None if no manifest source is available.
+        ``{"artifacts": {...}}``, or None if no source is available.
     """
-    manifest_path = template_root / "apps" / template_name / "manifest.yml"
-    if not manifest_path.exists():
-        # Fall back to project-local manifest artifacts
-        stored_artifacts = _stored_artifacts(project_dir)
-        if stored_artifacts:
-            return {"artifacts": stored_artifacts}
-        # Fall back to the bundled preset profile (manifest.yml was removed; preset
-        # profiles are now the canonical source of artifact declarations per data bundle)
-        _preset_name = template_name.replace("_", "-") + ".yml"
-        try:
-            import importlib.resources
-
-            profile_text = (
-                importlib.resources.files("osprey.profiles.presets")
-                .joinpath(_preset_name)
-                .read_text(encoding="utf-8")
-            )
-            profile_data = yaml.safe_load(profile_text) or {}
-            artifact_keys = ("hooks", "rules", "skills", "agents", "output_styles", "web_panels")
-            artifacts = {k: profile_data.get(k, []) for k in artifact_keys if k in profile_data}
-            if artifacts:
-                return {"artifacts": artifacts}
-        except (FileNotFoundError, ModuleNotFoundError, OSError):
-            pass
+    stored_artifacts = _stored_artifacts(project_dir)
+    if stored_artifacts:
+        return {"artifacts": stored_artifacts}
+    if template_name is None:
         return None
+    # The bundled preset profile is the canonical source of artifact declarations.
+    #
+    # Resolved through the profile resolver, not read as raw YAML: a preset
+    # that says `extends: control-assistant` declares only its DELTA, so
+    # reading its file alone answers with a fraction of what it selects —
+    # the persona presets would report no skills, or web_panels with no
+    # agents. Resolving is also what applies `exclude:`, so a persona that
+    # subtracts an artifact is reported without it.
+    artifact_keys = ("hooks", "rules", "skills", "agents", "output_styles", "web_panels")
+    try:
+        from osprey.cli.build_profile_merge import resolve_profile_document
+        from osprey.cli.build_profile_presets import _load_preset_raw, _preset_exists
 
-    with open(manifest_path, encoding="utf-8") as f:
-        manifest = yaml.safe_load(f) or {}
-
-    # Validate entries against the prompt registry
-    registry = BuildArtifactCatalog.default()
-    artifacts = manifest.get("artifacts", {})
-    for category, entries in artifacts.items():
-        prefix = _MANIFEST_CATEGORY_PREFIX.get(category)
-        if prefix is None:
-            logger.warning(
-                "Unknown manifest category '%s' in template '%s'", category, template_name
-            )
-            continue
-        for entry_name in entries:
-            canonical_prefix = prefix + entry_name
-            # Check if any registry artifact starts with this prefix
-            matches = [
-                a
-                for a in registry.all_artifacts()
-                if a.canonical_name == canonical_prefix
-                or a.canonical_name.startswith(canonical_prefix + "/")
-            ]
-            if not matches:
-                logger.warning(
-                    "Manifest entry '%s/%s' in template '%s' not found in prompt registry",
-                    category,
-                    entry_name,
-                    template_name,
-                )
-
-    # Validate web_panels entries against the shared registry. Unreachable for
-    # presets today (they short-circuit at the artifacts wrapper above) but the
-    # load-bearing gate for any future template manifest.
-    for panel_id in manifest.get("web_panels", []):
-        if panel_id not in BUILTIN_PANELS:
-            raise ManifestError(
-                f"Unknown web_panel {panel_id!r} in template {template_name!r} "
-                f"(valid: {sorted(BUILTIN_PANELS)})"
-            )
-
-    return manifest
+        if _preset_exists(template_name) is None:
+            return None
+        raw, preset_path = _load_preset_raw(template_name)
+        resolved = resolve_profile_document(raw, preset_path, warn=False).raw
+        artifacts = {k: resolved[k] for k in artifact_keys if k in resolved}
+        if artifacts:
+            return {"artifacts": artifacts}
+    except (BuildProfileError, OSError):
+        pass
+    return None
 
 
 def resolve_manifest_outputs(manifest: dict) -> set[str]:
@@ -254,8 +224,7 @@ def resolve_manifest_outputs(manifest: dict) -> set[str]:
 
 
 def get_tracked_files(
-    template_root: Path,
-    template_name: str,
+    template_name: str | None,
     project_dir: Path | None = None,
 ) -> list[str]:
     """Get the list of tracked files for regen, based on manifest if available.
@@ -263,12 +232,12 @@ def get_tracked_files(
     Resolution order:
     1. If ``project_dir`` is given and its ``.osprey-manifest.json`` contains
        an ``"artifacts"`` key, use those artifact selections.
-    2. Otherwise fall back to the template-level ``manifest.yml``.
-    3. If neither exists, return the static ``REGEN_TRACKED_FILES`` list.
+    2. Otherwise fall back to the bundled preset ``template_name`` names.
+    3. If neither answers, return the static ``REGEN_TRACKED_FILES`` list.
 
     Args:
-        template_root: Path to osprey's bundled templates directory
-        template_name: Name of the application template
+        template_name: Bundle or preset name, as :func:`load_template_manifest`
+            takes it; ``None`` when the caller has neither.
         project_dir: Optional project directory; when provided, the project-local
             ``.osprey-manifest.json`` is checked for stored artifact selections.
 
@@ -280,8 +249,8 @@ def get_tracked_files(
     if stored_artifacts:
         return sorted(resolve_manifest_outputs({"artifacts": stored_artifacts}))
 
-    # 2. Fall back to template manifest.yml
-    tmpl_manifest = load_template_manifest(template_root, template_name)
+    # 2. Fall back to the bundled preset's declaration
+    tmpl_manifest = load_template_manifest(template_name)
     if tmpl_manifest is not None:
         return sorted(resolve_manifest_outputs(tmpl_manifest))
     return list(REGEN_TRACKED_FILES)
@@ -334,7 +303,6 @@ def extract_build_args(
     project_name: str,
     preset_name: str | None,
     profile_path: str | None,
-    data_bundle: str,
     context: dict[str, Any],
 ) -> dict[str, Any]:
     """Extract build invocation arguments for manifest storage.
@@ -359,8 +327,6 @@ def extract_build_args(
             was invoked via ``--preset``; otherwise ``None``.
         profile_path: Path string to the positional profile YAML if the build
             was invoked positionally; otherwise ``None``.
-        data_bundle: The underlying app bundle resolved from the profile
-            (e.g. "hello_world", "control_assistant").
         context: Full template context.
 
     Returns:
@@ -369,7 +335,6 @@ def extract_build_args(
     build_args: dict[str, Any] = {
         "project_name": project_name,
         "source": "preset" if preset_name else "profile",
-        "data_bundle": data_bundle,
     }
     if preset_name:
         build_args["preset"] = preset_name
@@ -535,7 +500,7 @@ def generate_manifest(
     jinja_env,
     project_dir: Path,
     project_name: str,
-    template_name: str,
+    recorded_preset: str | None,
     context: dict[str, Any],
     *,
     artifacts: dict[str, list[str]] | None = None,
@@ -549,7 +514,9 @@ def generate_manifest(
         jinja_env: The Jinja2 environment used during rendering.
         project_dir: Project root directory (where the manifest is written).
         project_name: Name of the project.
-        template_name: Underlying app bundle (data_bundle) used to render.
+        recorded_preset: The preset the built profile records — ``None`` for a
+            hand-written profile that records none. Stamped as
+            ``creation.template``; see the note there.
         context: Full template-render context.
         artifacts: Profile-driven artifact selection.
         preset_name: Hyphenated preset name if invoked via ``--preset``.
@@ -562,7 +529,6 @@ def generate_manifest(
         project_name=project_name,
         preset_name=preset_name,
         profile_path=profile_path,
-        data_bundle=template_name,
         context=context,
     )
     file_checksums = calculate_file_checksums(project_dir)
@@ -571,16 +537,17 @@ def generate_manifest(
     framework_version = get_framework_release_version()
     user_owned_manifest = build_user_owned_manifest(template_root, jinja_env, project_dir, context)
 
-    # The 'template' field carries the original preset name (hyphenated) when
-    # the user invoked --preset; otherwise it carries the bundle name as a
-    # best-effort fallback. 'data_bundle' is always the underlying app bundle.
-    template_field = preset_name if preset_name else template_name
-
     creation_block: dict[str, Any] = {
         "osprey_version": framework_version,
         "timestamp": datetime.now(UTC).isoformat(),
-        "template": template_field,
-        "data_bundle": template_name,
+        # One meaning, always: the preset this project's profile records. Not a
+        # preset-or-bundle best effort — a field that names two different kinds
+        # of thing depending on how the build was invoked cannot be read without
+        # knowing the invocation, which is precisely what a later reader does
+        # not have. `None` is the honest answer for a hand-written profile that
+        # records no preset, and readers treat it as "no preset to name" rather
+        # than substituting a default.
+        "template": recorded_preset,
         "claude_code_only": True,
     }
     # Stamp a content hash of what this project was rendered from, so `osprey up`
@@ -645,6 +612,30 @@ def generate_manifest(
     return manifest_data
 
 
+def note_retired_creation_keys(creation: Any) -> None:
+    """Debug-log any :data:`_RETIRED_CREATION_KEYS` a manifest still carries.
+
+    A manifest older than this schema version is still a perfectly good
+    manifest: the keys it holds that the current build no longer writes are
+    ignored, never refused. This is the one place that says so out loud, so the
+    fact is greppable when someone wonders why a field they remember has no
+    effect.
+
+    :param creation: A manifest's ``creation`` block, whatever it turned out to
+        be — a non-mapping is simply nothing to report.
+    """
+    if not isinstance(creation, dict):
+        return
+    for key in _RETIRED_CREATION_KEYS:
+        if key in creation:
+            logger.debug(
+                "Project manifest carries retired creation key %r (schema %s no longer "
+                "writes it); ignoring it. The next build restamps the manifest.",
+                key,
+                MANIFEST_SCHEMA_VERSION,
+            )
+
+
 def load_project_manifest(project_dir: Path) -> dict[str, Any] | None:
     """Read a built project's ``.osprey-manifest.json``.
 
@@ -662,7 +653,10 @@ def load_project_manifest(project_dir: Path) -> dict[str, Any] | None:
         data = json.loads(raw)
     except ValueError:
         return None
-    return data if isinstance(data, dict) else None
+    if not isinstance(data, dict):
+        return None
+    note_retired_creation_keys(data.get("creation"))
+    return data
 
 
 def manifest_profile_path(project_dir: Path) -> Path | None:

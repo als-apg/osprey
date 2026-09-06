@@ -5,12 +5,12 @@ consumers dial it, what the build projects into an attached render, which
 credential each entitled container receives and which host directories it is
 handed. Two kinds of test here read that declaration and nothing else:
 
-* **Completeness.** Every service a shipped template can deploy — the app
-  templates' ``services:`` blocks and every ``templates/services/<name>``
-  directory the injectors copy — has a contract, or a contract that says why
-  nothing in a container dials it. A service added without one fails here,
-  which is the point: the registry is only a single source of truth while it
-  is complete.
+* **Completeness.** Every service a shipped deployment can carry — every
+  ``services:`` block the bundled presets write and every
+  ``templates/services/<name>`` directory the injectors copy — has a contract,
+  or a contract that says why nothing in a container dials it. A service added
+  without one fails here, which is the point: the registry is only a single
+  source of truth while it is complete.
 * **The seams, on a real built stack.** For every persona render the
   control-assistant preset builds: each consumer the render switches on
   resolves an endpoint; each credential its gate grants is a line in that
@@ -22,7 +22,6 @@ handed. Two kinds of test here read that declaration and nothing else:
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
@@ -59,15 +58,23 @@ _TEMPLATES = _SRC / "templates"
 # ---------------------------------------------------------------------------
 
 
-def _app_template_services() -> set[str]:
-    """Every ``services.<name>`` a shipped app template renders."""
+def _preset_services() -> set[str]:
+    """Every ``services.<name>`` a shipped preset writes.
+
+    The presets are where a deployment's services are declared now: the
+    framework template renders none, so scanning it would find nothing. Read
+    from the resolved ``config:`` block rather than the file text, so a preset
+    that inherits a service through ``extends:`` counts too.
+    """
+    from osprey.cli.build_profile_archiver import _expand_dotted
+    from osprey.cli.build_profile_presets import list_presets
+    from osprey.cli.build_profile_resolve import resolve_build_profile
+
     names: set[str] = set()
-    for template in (_TEMPLATES / "apps").glob("*/config.yml.j2"):
-        text = template.read_text(encoding="utf-8")
-        match = re.search(r"^services:\n((?:  .*\n|\n)*)", text, re.MULTILINE)
-        if match is None:
-            continue
-        names.update(re.findall(r"^  ([a-z_]+):", match.group(1), re.MULTILINE))
+    for preset in list_presets():
+        profile, _preset_dir = resolve_build_profile(None, preset)
+        services = _expand_dotted(profile.config).get("services") or {}
+        names.update(name for name in services if isinstance(name, str))
     return names
 
 
@@ -96,7 +103,7 @@ def _injected_services() -> set[str]:
 
 
 def _deployable_services() -> set[str]:
-    return _app_template_services() | _service_template_dirs() | _injected_services()
+    return _preset_services() | _service_template_dirs() | _injected_services()
 
 
 def test_every_deployable_service_has_a_contract():

@@ -26,14 +26,25 @@ rather than exact channel names.
 Choosing a Pipeline
 ===================
 
-Set the active pipeline in ``config.yml``:
+Set the active pipeline with the top-level ``channel_finder_mode:`` field in
+the deployment's ``profile.yml``:
 
 .. code-block:: yaml
 
-   channel_finder:
-     pipeline_mode: in_context  # or "hierarchical", "middle_layer" or "graph"
+   channel_finder_mode: in_context  # or "hierarchical", "middle_layer", "graph"
 
-When ``pipeline_mode`` is unset, OSPREY auto-detects: it uses the first
+or from the command line, which writes the same line:
+
+.. code-block:: bash
+
+   osprey set channel_finder_mode=in_context
+
+The build renders that field into ``channel_finder.pipeline_mode`` and the
+per-mode ``channel_finder.pipelines`` block in ``config.yml``. Both are the
+build's to write: a ``config:`` line for either is refused, naming the field to
+set instead (:ref:`profile-derived-keys`).
+
+When the field is unset, OSPREY auto-detects: it uses the first
 pipeline that has a database configured, preferring middle layer, then
 hierarchical, then in-context. Auto-detection never lands on ``graph`` — that
 pipeline reads no database file, so there is nothing to detect and you name it
@@ -161,15 +172,16 @@ property names *this* graph actually holds; ``read_cypher`` runs one query and
 returns rows. There is no resolution API behind them — the subagent looks a
 phrase up or adapts an example rather than calling a lookup.
 
-Configuration is the mode plus the store, and nothing else. There is no graph
-entry under ``pipelines:`` — that section renders empty in graph mode — and no
-``tier``, because the pipeline has no tiered artifacts:
+Configuration is the mode plus the store, and nothing else — no ``tier``,
+because the pipeline has no tiered artifacts:
 
 .. code-block:: yaml
 
-   channel_finder:
-     pipeline_mode: graph
-     pipelines:        # nothing here — graph names no database file
+   channel_finder_mode: graph
+
+The render that field produces has no graph entry under
+``channel_finder.pipelines``: that section comes out empty in graph mode,
+because graph names no database file.
 
 The store block names one more thing: the search index the finder reads, under
 ``services.graphdb.index_path`` — ``./data/channel_databases/graph.duckdb``
@@ -183,8 +195,8 @@ and ``username``, with ``GRAPHDB_PASSWORD`` in the project ``.env``). See
 block itself. A build that enables the channel finder but renders no
 ``services.graphdb`` block is refused, naming the missing block, rather than
 shipping a pipeline with nothing to read — which is why the
-``channel_finder_standalone`` app template, which carries no such block, cannot
-run this mode.
+``channel-finder-standalone`` preset, which ships no such block, cannot run
+this mode.
 
 Load the corpus into the store:
 

@@ -25,6 +25,8 @@ below is pinned.
 
 from __future__ import annotations
 
+import copy
+import json
 from pathlib import Path
 
 import pytest
@@ -365,25 +367,6 @@ def test_baked_model_selection_reaches_every_persona_by_inheritance(
             assert key not in parsed, (persona_file.name, key)
 
 
-def test_baked_override_file_model_selection_is_inherited_too(
-    runner: CliRunner, tmp_path: Path
-) -> None:
-    """A choice made in an ``-O`` override file bakes into the host profile and
-    reaches every persona exactly as far as an inline one — it lands in the host
-    and nowhere else."""
-    override = tmp_path / "o.yml"
-    override.write_text("provider: cborg\nmodel: opus\n", encoding="utf-8")
-    target = tmp_path / "my-facility"
-
-    assert _new(runner, target, "control-assistant", "-O", str(override)).exit_code == 0
-
-    resolved, _dir = resolve_build_profile((target / "profile.yml").resolve(), None)
-    assert (resolved.provider, resolved.model) == ("cborg", "opus")
-    for persona_file in sorted((target / "personas").iterdir()):
-        parsed = yaml.safe_load(persona_file.read_text())
-        assert "provider" not in parsed and "model" not in parsed, persona_file.name
-
-
 def test_persona_preset_outside_the_host_chain_is_rejected(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -433,31 +416,39 @@ def test_persona_preset_outside_the_host_chain_is_rejected(
 # ---------------------------------------------------------------------------
 
 
-def _persona_override(tmp_path: Path, personas: dict) -> Path:
-    """An ``-O`` layer adding persona entries to the web-terminal catalog.
+def _web_terminals_edit(**changes: object) -> tuple[str, ...]:
+    """A ``--set`` pair restating control-assistant's web-terminal block, changed.
 
-    Spelled with the literal dotted ``modules.web_terminals`` key the presets
-    use, so the deep-merge lands inside the inherited subtree instead of
-    replacing it.
+    A ``--set`` pair is an EDIT: it replaces the value at the key it names,
+    so a block that is meant to keep its inherited content has to be stated in
+    full. The preset's own resolved block is read back and the named keys are
+    replaced in a copy of it, which is what a facility editing the profile by
+    hand would be left holding — one ``modules.web_terminals`` key, complete.
     """
-    path = tmp_path / "personas-override.yml"
-    path.write_text(
-        yaml.safe_dump({"config": {"modules.web_terminals": {"personas": personas}}}),
-        encoding="utf-8",
-    )
-    return path
+    preset, _dir = resolve_build_profile(None, "control-assistant")
+    block = copy.deepcopy(preset.config["modules.web_terminals"])
+    block.update(changes)
+    return ("--set", "config.modules.web_terminals=" + json.dumps(block))
 
 
-def test_persona_rendering_a_different_app_template_is_rejected(
-    runner: CliRunner, tmp_path: Path
-) -> None:
-    """One shared ``../data`` tree cannot serve two app templates. Caught before
-    anything is written, and every affected persona is named at once."""
+def _persona_edit(personas: dict) -> tuple[str, ...]:
+    """The ``--set`` pair adding *personas* to the web-terminal catalog."""
+    preset, _dir = resolve_build_profile(None, "control-assistant")
+    catalog = copy.deepcopy(preset.config["modules.web_terminals"]["personas"])
+    return _web_terminals_edit(personas={**catalog, **personas})
+
+
+def test_a_persona_cannot_name_a_bundle_of_its_own(runner: CliRunner, tmp_path: Path) -> None:
+    """One shared ``../data`` tree cannot serve two bundles — and now nothing asks it to.
+
+    The rule used to be a per-persona check: a persona naming a different
+    ``app_template:`` was refused because every persona reads the root's one
+    materialized tree. The key has left the profile schema entirely, so the
+    same mistake is now refused earlier and for a plainer reason — there is no
+    profile key to write it into. Caught before anything is written, either way.
+    """
     target = tmp_path / "my-facility"
 
-    # Pinned to a database paradigm so the app-template rule is the one refusal
-    # in play: in the preset's graph mode, hello_world's missing graph store
-    # would be refused first and this test would pass for the wrong reason.
     result = _new(
         runner,
         target,
@@ -469,8 +460,7 @@ def test_persona_rendering_a_different_app_template_is_rejected(
     )
 
     assert result.exit_code == 2
-    assert "cannot serve both" in result.output
-    assert "readonly" in result.output and "readwrite" in result.output
+    assert "app_template is no longer a profile key" in result.output
     assert not target.exists()  # fail-before-mutating
 
 
@@ -480,13 +470,12 @@ def test_persona_name_that_is_not_a_plain_file_name_is_rejected(
 ) -> None:
     """The catalog key becomes a file name under ``personas/``, so a separator
     (or a traversal) would write outside the directory."""
-    override = _persona_override(
-        tmp_path,
-        {bad_name: {"project": "x", "project_path": "../x", "build_profile": "control-assistant"}},
+    edit = _persona_edit(
+        {bad_name: {"project": "x", "project_path": "../x", "build_profile": "control-assistant"}}
     )
     target = tmp_path / "my-facility"
 
-    result = _new(runner, target, "control-assistant", "-O", str(override))
+    result = _new(runner, target, "control-assistant", *edit)
 
     assert result.exit_code == 2
     assert "plain name" in result.output
@@ -496,19 +485,18 @@ def test_persona_name_that_is_not_a_plain_file_name_is_rejected(
 def test_persona_build_profile_that_does_not_resolve_is_rejected(
     runner: CliRunner, tmp_path: Path
 ) -> None:
-    override = _persona_override(
-        tmp_path,
+    edit = _persona_edit(
         {
             "ghost": {
                 "project": "g",
                 "project_path": "../g",
                 "build_profile": "no-such-preset",
             }
-        },
+        }
     )
     target = tmp_path / "my-facility"
 
-    result = _new(runner, target, "control-assistant", "-O", str(override))
+    result = _new(runner, target, "control-assistant", *edit)
 
     assert result.exit_code == 2
     assert "ghost" in result.output
@@ -517,10 +505,10 @@ def test_persona_build_profile_that_does_not_resolve_is_rejected(
 
 
 def test_persona_with_no_build_profile_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
-    override = _persona_override(tmp_path, {"bare": {"project": "b", "project_path": "../b"}})
+    edit = _persona_edit({"bare": {"project": "b", "project_path": "../b"}})
     target = tmp_path / "my-facility"
 
-    result = _new(runner, target, "control-assistant", "-O", str(override))
+    result = _new(runner, target, "control-assistant", *edit)
 
     assert result.exit_code == 2
     assert "bare" in result.output
@@ -531,16 +519,15 @@ def test_persona_with_no_build_profile_is_rejected(runner: CliRunner, tmp_path: 
 def test_every_unusable_persona_is_reported_in_one_error(runner: CliRunner, tmp_path: Path) -> None:
     """Accumulated errors: a user fixing a catalog sees the whole list, not the
     first problem followed by another run and another problem."""
-    override = _persona_override(
-        tmp_path,
+    edit = _persona_edit(
         {
             "a/b": {"project": "x", "project_path": "../x", "build_profile": "control-assistant"},
             "ghost": {"project": "g", "project_path": "../g", "build_profile": "no-such-preset"},
-        },
+        }
     )
     target = tmp_path / "my-facility"
 
-    result = _new(runner, target, "control-assistant", "-O", str(override))
+    result = _new(runner, target, "control-assistant", *edit)
 
     assert result.exit_code == 2
     assert "a/b" in result.output
@@ -600,31 +587,19 @@ def test_the_build_renders_every_catalog_entry_the_emitter_wrote(
 # ---------------------------------------------------------------------------
 
 
-def _card_override(tmp_path: Path, access: object) -> Path:
-    """An ``-O`` layer adding one admin card, carrying *access*, to the roster.
+def _card_edit(access: object) -> tuple[str, ...]:
+    """The ``--set`` pair adding one admin card, carrying *access*, to the roster.
 
-    Roster lists concatenate across profile layers rather than merging entry by
-    entry, so this ADDS a sixth card to the preset's five; ``dana`` is a name
-    the preset does not use and index 9 is clear of the ports it pins. The
+    The roster is stated in full — the preset's own cards plus a sixth — because
+    an edit replaces the list rather than concatenating onto it. ``dana`` is a
+    name the preset does not use and index 9 is clear of the ports it pins. The
     ``admin`` persona is the shipped stack's privileged tier — the agent's
     setup tool and the web Config panel.
     """
-    path = tmp_path / "card-override.yml"
-    path.write_text(
-        yaml.safe_dump(
-            {
-                "config": {
-                    "modules.web_terminals": {
-                        "users": [
-                            {"name": "dana", "index": 9, "persona": "admin", "access": access}
-                        ]
-                    }
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-    return path
+    preset, _dir = resolve_build_profile(None, "control-assistant")
+    roster = copy.deepcopy(preset.config["modules.web_terminals"]["users"])
+    roster.append({"name": "dana", "index": 9, "persona": "admin", "access": access})
+    return _web_terminals_edit(users=roster)
 
 
 def _shared_card_refusals(output: str) -> set[str]:
@@ -655,10 +630,9 @@ def test_a_shared_privileged_card_is_refused(
     materialization refuses and quotes the value as authored — as members when
     the file holds a list, as ``access: <word>`` when it holds a shorthand, so
     the phrase says which shape to go looking for."""
-    override = _card_override(tmp_path, access)
     target = tmp_path / "my-facility"
 
-    result = _new(runner, target, "control-assistant", "-O", str(override))
+    result = _new(runner, target, "control-assistant", *_card_edit(access))
 
     assert result.exit_code == 2
     assert f"user 'dana' is a shared card ({phrase})" in result.output
@@ -674,10 +648,9 @@ def test_an_owner_only_card_on_the_same_persona_materializes(
     """The counter-case: the privileged persona itself is not the problem. Both
     spellings of owner-only resolve to the entry's own user, nobody else may
     open the card, and the same roster materializes."""
-    override = _card_override(tmp_path, access)
     target = tmp_path / "my-facility"
 
-    result = _new(runner, target, "control-assistant", "-O", str(override))
+    result = _new(runner, target, "control-assistant", *_card_edit(access))
 
     assert result.exit_code == 0
     assert (target / "personas" / "admin.yml").is_file()
@@ -698,9 +671,8 @@ def test_init_and_the_deploy_lint_refuse_the_shared_card_in_the_same_words(
     # Materialized owner-only, then flipped in the emitted profile: `init` is
     # what refuses the shared card, so a profile carrying one cannot be
     # materialized for the lint to read.
-    owner_only = _card_override(tmp_path, "own")
     linted = tmp_path / "linted-facility"
-    assert _new(runner, linted, "control-assistant", "-O", str(owner_only)).exit_code == 0
+    assert _new(runner, linted, "control-assistant", *_card_edit("own")).exit_code == 0
 
     profile_path = linted / "profile.yml"
     document = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
@@ -714,8 +686,7 @@ def test_init_and_the_deploy_lint_refuse_the_shared_card_in_the_same_words(
         runner,
         tmp_path / "refused-facility",
         "control-assistant",
-        "-O",
-        str(_card_override(tmp_path, ["domain:lbl.gov"])),
+        *_card_edit(["domain:lbl.gov"]),
     )
 
     assert lint_result.exit_code == 2 and init_result.exit_code == 2
@@ -733,10 +704,9 @@ def test_an_unreadable_access_value_is_refused_rather_than_raised(
     first. The privileged rule says nothing about that entry: the value it
     would be judged on is the unreadable one.
     """
-    override = _card_override(tmp_path, ["group:ops"])
     target = tmp_path / "my-facility"
 
-    result = _new(runner, target, "control-assistant", "-O", str(override))
+    result = _new(runner, target, "control-assistant", *_card_edit(["group:ops"]))
 
     assert result.exit_code == 2
     assert "entry 'dana' has an access member 'group:ops'" in result.output

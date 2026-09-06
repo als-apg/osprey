@@ -37,7 +37,7 @@ def data_profile(tmp_path):
     root = tmp_path / "facility"
     _write(root / "data" / "channel_databases" / "als.json", '{"channels": []}\n')
     _write(root / "data" / "docs" / "notes.md", "notes\n")
-    return _write(root / "profile.yml", "name: Facility\napp_template: hello_world\ndata: data\n")
+    return _write(root / "profile.yml", "name: Facility\ndata: data\n")
 
 
 def test_data_tree_edit_moves_the_hash(data_profile):
@@ -151,7 +151,7 @@ def test_profile_without_file_inputs_is_unaffected_by_neighbouring_files(tmp_pat
     This is what keeps the bundled presets' pinned digests stable: they declare
     no file inputs, so nothing beside them can move their hash.
     """
-    profile = _write(tmp_path / "profile.yml", "name: Plain\napp_template: hello_world\n")
+    profile = _write(tmp_path / "profile.yml", "name: Plain\n")
     before = compute_profile_hash(profile)
     _write(tmp_path / "data" / "stray.json", "{}\n")
     _write(tmp_path / "unrelated.md", "text\n")

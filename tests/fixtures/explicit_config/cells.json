@@ -1,0 +1,64 @@
+[
+  {
+    "directory": "hello-world/unset",
+    "mode": null,
+    "preset": "hello-world",
+    "status": "frozen"
+  },
+  {
+    "directory": "control-assistant/in_context",
+    "mode": "in_context",
+    "preset": "control-assistant",
+    "status": "frozen"
+  },
+  {
+    "directory": "control-assistant/hierarchical",
+    "mode": "hierarchical",
+    "preset": "control-assistant",
+    "status": "frozen"
+  },
+  {
+    "directory": "control-assistant/middle_layer",
+    "mode": "middle_layer",
+    "preset": "control-assistant",
+    "status": "frozen"
+  },
+  {
+    "directory": "control-assistant/graph",
+    "mode": "graph",
+    "preset": "control-assistant",
+    "status": "frozen"
+  },
+  {
+    "directory": "ariel-standalone/unset",
+    "mode": null,
+    "preset": "ariel-standalone",
+    "status": "frozen"
+  },
+  {
+    "directory": "channel-finder-standalone/in_context",
+    "mode": "in_context",
+    "preset": "channel-finder-standalone",
+    "status": "frozen"
+  },
+  {
+    "directory": "channel-finder-standalone/hierarchical",
+    "mode": "hierarchical",
+    "preset": "channel-finder-standalone",
+    "status": "frozen"
+  },
+  {
+    "directory": "channel-finder-standalone/middle_layer",
+    "mode": "middle_layer",
+    "preset": "channel-finder-standalone",
+    "status": "frozen"
+  },
+  {
+    "directory": "channel-finder-standalone/graph",
+    "mode": "graph",
+    "preset": "channel-finder-standalone",
+    "reason": "Usage: python -m osprey init [OPTIONS] [DIRECTORY] Try 'python -m osprey init --help' for help. Error: Cannot materialize 'channel-finder-standalone': Build profile validation failed:   - channel_finder_mode: graph needs a services.graphdb block and this build renders none (app_template: channel_finder_standalone). Build on an app template that deploys a graph store, or name one the facility already runs with `config: services.graphdb.uri: bolt://host:7687` plus GRAPHDB_PASSWORD in the project .env.",
+    "stage": "init",
+    "status": "refused"
+  }
+]

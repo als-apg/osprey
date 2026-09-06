@@ -154,12 +154,24 @@ def _get_bundle() -> OKFBundle:
     return _bundle
 
 
-def _resolve_bundle_path(config: dict, config_dir: Path) -> Path:
+def _resolve_bundle_path(config: dict, config_dir: Path) -> Path | None:
     """Look up ``facility_knowledge.bundle_path`` in *config* and resolve it.
 
     Resolution itself is delegated to the shared
     :func:`osprey.services.facility_knowledge.bundle_path.resolve_bundle_path`
     so this server, the CLI and the OKF panel open the same directory.
+
+    Every step of the lookup is a ``.get``, and an unusable value answers
+    ``None`` rather than raising. A config with no ``facility_knowledge`` block
+    is the ordinary shape for a deployment that runs this server without a
+    bundle yet; so, less obviously, is a block present but empty
+    (``facility_knowledge:`` with nothing under it) or one whose
+    ``bundle_path`` was emptied but left in place. Subscripting turned the
+    first of those into a ``KeyError`` and the other two into a ``TypeError``
+    that nothing caught, so the same missing configuration either logged a
+    warning or crashed the server at startup depending on how it was spelled.
+    The caller says so once, clearly, and the tools then refuse with
+    ``server_not_initialised``.
 
     Args:
         config: Parsed OSPREY config dict.
@@ -167,14 +179,16 @@ def _resolve_bundle_path(config: dict, config_dir: Path) -> Path:
             against the project root derived from it.
 
     Returns:
-        Absolute :class:`~pathlib.Path` to the bundle root.
-
-    Raises:
-        KeyError: If ``facility_knowledge.bundle_path`` is absent from config.
+        Absolute :class:`~pathlib.Path` to the bundle root, or ``None`` when
+        ``facility_knowledge.bundle_path`` is absent, empty, or not a path.
     """
     from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
 
-    return resolve_bundle_path(config["facility_knowledge"]["bundle_path"], config_dir)
+    section = config.get("facility_knowledge")
+    raw = section.get("bundle_path") if isinstance(section, dict) else None
+    if not isinstance(raw, str | Path) or not str(raw).strip():
+        return None
+    return resolve_bundle_path(raw, config_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -200,13 +214,14 @@ def create_server() -> FastMCP:
     config_path = resolve_config_path()
     config = load_osprey_config()
 
-    try:
-        bundle_path = _resolve_bundle_path(config, config_path.parent)
-    except KeyError:
+    bundle_path = _resolve_bundle_path(config, config_path.parent)
+    if bundle_path is None:
         logger.warning(
-            "facility_knowledge.bundle_path not set in config — tools will return errors"
+            "facility_knowledge.bundle_path is not set in %s — the facility-knowledge "
+            "server starts, but every tool will refuse with 'server_not_initialised' "
+            "until the key names a bundle directory",
+            config_path,
         )
-        bundle_path = None
 
     if bundle_path is not None:
         try:

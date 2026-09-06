@@ -15,6 +15,7 @@ is per-preset content here, per-command behavior there.
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from osprey.cli.build_cmd import build
 from osprey.cli.build_profile import list_presets, resolve_build_profile
 from osprey.cli.init_cmd import init
 from osprey.errors import BuildProfileError
+from osprey.profiles.providers import PROVIDERS_FILENAME, compute_providers_hash
 
 
 @pytest.fixture
@@ -105,7 +107,10 @@ def test_profile_is_standalone(runner: CliRunner, tmp_path: Path) -> None:
     text = (target / "profile.yml").read_text()
     assert not any(line.startswith("extends:") for line in text.splitlines()), text
     parsed = yaml.safe_load(text)
-    assert parsed["app_template"] == "hello_world"
+    # The bundle is a preset-side fact, not a profile key: the emitted profile
+    # records which preset it was materialized from and nothing else about it.
+    assert "app_template" not in parsed
+    assert parsed["provenance"]["preset"] == "hello-world"
     assert parsed["provider"] == "anthropic"
 
 
@@ -130,7 +135,7 @@ def test_preset_name_is_normalized(runner: CliRunner, tmp_path: Path) -> None:
     assert _new(runner, target, "control_assistant").exit_code == 0
 
     parsed = yaml.safe_load((target / "profile.yml").read_text())
-    assert parsed["app_template"] == "control_assistant"
+    assert parsed["provenance"]["preset"] == "control-assistant"
     # The provenance header records the CANONICAL spelling rather than the one
     # typed: it is what a later reader — and the drift check — matches the
     # preset by, so a normalization that stopped here would strand both.
@@ -148,7 +153,7 @@ def test_extends_chain_preset_materializes_flat(runner: CliRunner, tmp_path: Pat
     assert not any(line.startswith("extends:") for line in text.splitlines()), text
     assert "deploy_services: false" in text
     assert "control_system.writes_enabled: false" in text
-    assert "app_template: control_assistant" in text
+    assert "preset: control-assistant-readonly" in text
 
 
 def test_preset_comments_survive(runner: CliRunner, tmp_path: Path) -> None:
@@ -334,6 +339,25 @@ def _provider_key_vars() -> list[str]:
     return [entry["var"] for entry in provider_api_key_entries()]
 
 
+def _add_catalog_entry(repo: Path, name: str) -> str:
+    """Append a gateway to *repo*'s ``providers.yml``, the way an operator would.
+
+    Returns the environment variable the entry's key references, so a caller
+    asserting on the seeded ``.env`` names it once.
+    """
+    from osprey.profiles.providers import PROVIDERS_FILENAME
+
+    variable = f"{name.upper().replace('-', '_')}_API_KEY"
+    with (repo / PROVIDERS_FILENAME).open("a", encoding="utf-8") as catalog:
+        catalog.write(
+            f"  # The gateway in the control room rack.\n"
+            f"  {name}:\n"
+            f"    api_key: ${{{variable}}}\n"
+            f"    base_url: https://gateway.example.invalid/v1\n"
+        )
+    return variable
+
+
 @pytest.fixture
 def no_provider_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     """Unset every provider key, so a developer's own exports cannot leak in.
@@ -381,29 +405,33 @@ def test_a_switched_provider_takes_its_own_key(
     assert parse_dotenv_file(target / ".env") == {"OPENAI_API_KEY": "sk-openai-test"}
 
 
-def test_a_provider_configured_under_api_providers_is_referenced(
+def test_a_gateway_added_to_the_catalog_is_referenced(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_provider_keys: None
 ) -> None:
-    """A profile that configures a provider's endpoint intends to reach it, so
-    its key is seeded even when the agent runs on a different one."""
+    """A repo that writes a gateway into `providers.yml` intends to reach it, so
+    its key is seeded even when the agent runs on a different one.
+
+    The endpoint used to be declared as `config: api.providers.<name>.*`, which
+    is refused now that the catalog is a file of its own; the statement it made
+    is made by the catalog entry instead. The variable comes from the entry's
+    own `api_key:`, which is the only place a gateway OSPREY does not ship can
+    name one.
+    """
     from osprey.utils.dotenv import parse_dotenv_file
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-    monkeypatch.setenv("CBORG_API_KEY", "sk-cborg-test")
+    monkeypatch.setenv("HOUSE_GATEWAY_API_KEY", "sk-house-test")
     target = tmp_path / "my-facility"
 
-    result = _new(
-        runner,
-        target,
-        "hello-world",
-        "--set",
-        "config={api.providers.cborg.base_url: https://example.invalid}",
-    )
+    assert _new(runner, target, "hello-world").exit_code == 0
+    _add_catalog_entry(target, "house-gateway")
+
+    result = _new(runner, target, "hello-world", "--force")
 
     assert result.exit_code == 0, result.output
     assert parse_dotenv_file(target / ".env") == {
         "ANTHROPIC_API_KEY": "sk-ant-test",
-        "CBORG_API_KEY": "sk-cborg-test",
+        "HOUSE_GATEWAY_API_KEY": "sk-house-test",
     }
 
 
@@ -418,6 +446,8 @@ def test_persona_deltas_contribute_their_own_providers() -> None:
     assert _referenced_providers(host, {"ops": {"provider": "cborg"}}) == {"anthropic", "cborg"}
     # A delta that overrides neither key inherits the host's selection.
     assert _referenced_providers(host, {"ops": {"model": "sonnet"}}) == {"anthropic"}
+    # An entry only this repo's catalog carries is referenced without being named.
+    assert _referenced_providers(host, {}, ("house-gateway",)) == {"anthropic", "house-gateway"}
 
 
 def test_a_malformed_persona_delta_is_reported_before_anything_is_written(
@@ -626,6 +656,7 @@ def test_data_tree_is_byte_identical_to_the_bundle(
     (``_EXCLUDED_DATA_SUBTREES``), so that a source checkout which has run the
     benchmarks materializes the same tree a wheel install does.
     """
+    from osprey.cli.build_cmd import _profile_data_bundle
     from osprey.cli.profile_cmd import _EXCLUDED_DATA_SUBTREES
     from osprey.cli.templates.manager import TemplateManager
 
@@ -633,7 +664,10 @@ def test_data_tree_is_byte_identical_to_the_bundle(
     assert _new(runner, target, preset).exit_code == 0
 
     resolved, _dir = resolve_build_profile((target / "profile.yml").resolve(), None)
-    source = TemplateManager().template_root / "apps" / resolved.data_bundle / "data"
+    # The bundle is read back from the preset the profile records, the way the
+    # build reads it — the profile itself carries no such key.
+    bundle = _profile_data_bundle(resolved)
+    source = TemplateManager().template_root / "apps" / bundle / "data"
 
     copied = sorted(p.relative_to(target / "data") for p in (target / "data").rglob("*"))
     original = sorted(
@@ -706,41 +740,27 @@ def test_built_project_data_comes_from_the_profile(runner: CliRunner, tmp_path: 
 
 
 # ---------------------------------------------------------------------------
-# Baked overrides
+# Baked --set edits
 # ---------------------------------------------------------------------------
 
 
 def test_set_pairs_are_baked_and_resolvable(runner: CliRunner, tmp_path: Path) -> None:
+    """Every pair on the command line is written into the emitted profile.
+
+    More than one, because the profile is the source of truth: an edit that
+    reached the resolution and not the file would leave the repo describing a
+    deployment nobody asked for.
+    """
     target = tmp_path / "my-facility"
 
-    assert _new(runner, target, "hello-world", "--set", "model=opus").exit_code == 0
+    created = _new(
+        runner, target, "hello-world", "--set", "model=opus", "--set", "provider=als-apg"
+    )
+    assert created.exit_code == 0, created.output
 
     resolved, _dir = resolve_build_profile((target / "profile.yml").resolve(), None)
     assert resolved.model == "opus"
-
-
-def test_override_file_is_baked(runner: CliRunner, tmp_path: Path) -> None:
-    override = tmp_path / "o.yml"
-    override.write_text("model: sonnet\nprovider: als-apg\n", encoding="utf-8")
-    target = tmp_path / "my-facility"
-
-    assert _new(runner, target, "hello-world", "-O", str(override)).exit_code == 0
-
-    resolved, _dir = resolve_build_profile((target / "profile.yml").resolve(), None)
-    assert resolved.model == "sonnet"
     assert resolved.provider == "als-apg"
-
-
-def test_set_wins_over_override_file(runner: CliRunner, tmp_path: Path) -> None:
-    override = tmp_path / "o.yml"
-    override.write_text("model: sonnet\n", encoding="utf-8")
-    target = tmp_path / "my-facility"
-
-    result = _new(runner, target, "hello-world", "-O", str(override), "--set", "model=opus")
-
-    assert result.exit_code == 0, result.output
-    resolved, _dir = resolve_build_profile((target / "profile.yml").resolve(), None)
-    assert resolved.model == "opus"
 
 
 def test_name_override_replaces_the_directory_derived_name(
@@ -1099,20 +1119,19 @@ def test_force_leaves_no_holding_directory_behind(runner: CliRunner, tmp_path: P
     assert not (target / HELD_SOURCE_ZONE_DIRNAME).exists()
 
 
-def test_extends_override_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
-    override = tmp_path / "o.yml"
-    override.write_text("extends: control-assistant\n", encoding="utf-8")
+def test_extends_edit_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
+    """A materialized profile is standalone, so nothing may give it a parent."""
     target = tmp_path / "p-facility"
 
-    result = _new(runner, target, "hello-world", "-O", str(override))
+    result = _new(runner, target, "hello-world", "--set", "extends=control-assistant")
 
     assert result.exit_code == 2
     assert "extends" in result.output
     assert not target.exists()
 
 
-def test_invalid_override_leaves_no_partial_directory(runner: CliRunner, tmp_path: Path) -> None:
-    """The atomicity guarantee: a bad layer fails and materializes nothing."""
+def test_an_invalid_edit_leaves_no_partial_directory(runner: CliRunner, tmp_path: Path) -> None:
+    """The atomicity guarantee: a bad edit fails and materializes nothing."""
     target = tmp_path / "p-facility"
 
     result = _new(runner, target, "hello-world", "--set", "tier=2")
@@ -1122,40 +1141,12 @@ def test_invalid_override_leaves_no_partial_directory(runner: CliRunner, tmp_pat
     assert not target.exists()
 
 
-def test_data_override_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
+def test_a_data_edit_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
     """`osprey init` materializes the tree, so pointing `data:` elsewhere is a
     mistake — and the preset-mode guard catches it before anything is written."""
     target = tmp_path / "p-facility"
 
     result = _new(runner, target, "hello-world", "--set", "data=/somewhere/else")
-
-    assert result.exit_code == 2
-    assert "data" in result.output
-    assert not target.exists()
-
-
-def test_app_template_override_selects_the_copied_bundle(runner: CliRunner, tmp_path: Path) -> None:
-    """The copied tree follows the RESOLVED bundle, not the preset's default —
-    `--set app_template=...` has to move the data with it."""
-    target = tmp_path / "p-facility"
-
-    result = _new(runner, target, "hello-world", "--set", "app_template=channel_finder_standalone")
-
-    assert result.exit_code == 0, result.output
-    parsed = yaml.safe_load((target / "profile.yml").read_text())
-    assert parsed["app_template"] == "channel_finder_standalone"
-    # The channel-finder bundle's tree, not hello-world's lone limits file.
-    assert (target / "data" / "channel_databases" / "hierarchical.json").is_file()
-    assert not (target / "data" / "channel_limits.json").exists()
-
-
-def test_data_override_via_file_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
-    """The `-O` route into `data:` is closed too, not just `--set`."""
-    override = tmp_path / "o.yml"
-    override.write_text("data: /somewhere/else\n", encoding="utf-8")
-    target = tmp_path / "p-facility"
-
-    result = _new(runner, target, "hello-world", "-O", str(override))
 
     assert result.exit_code == 2
     assert "data" in result.output
@@ -1219,7 +1210,7 @@ def test_failed_round_trip_after_mkdir_removes_the_target(
 def test_round_trip_failure_without_layers_does_not_blame_overrides(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """No `-O` and no `--set` means the user supplied nothing to blame."""
+    """No `--set` means the user supplied nothing to blame."""
     from osprey.cli import build_profile
 
     real = build_profile.resolve_build_profile
@@ -1235,15 +1226,6 @@ def test_round_trip_failure_without_layers_does_not_blame_overrides(
 
     assert "Overrides produce" not in result.output
     assert "does not validate" in result.output
-
-
-def test_missing_override_file_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
-    target = tmp_path / "p-facility"
-
-    result = _new(runner, target, "hello-world", "-O", str(tmp_path / "nope.yml"))
-
-    assert result.exit_code == 2
-    assert not target.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -1349,6 +1331,10 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
     assert d_new.pop("provenance") == {
         "preset": preset,
         "preset_hash": compute_preset_hash(preset),
+        # The catalog written beside it, recorded the same way and for the same
+        # reason: it is the second file the build reads, and a later run has to
+        # be able to say whether it still matches the one OSPREY ships.
+        "providers_hash": compute_providers_hash(target / PROVIDERS_FILENAME),
         "deviation_marker": DEFAULT_DEVIATION_MARKER,
     }
     for stamped in ("name", "requires_osprey_version", "data"):
@@ -1399,17 +1385,20 @@ def test_facility_extension_guidance_is_appended(runner: CliRunner, tmp_path: Pa
     assert '#       color: "#4C9AFF"' in text
 
     # A profile that defines mcp_servers itself gets the real key, not the hint.
-    override = tmp_path / "o.yml"
-    override.write_text(
-        "mcp_servers:\n"
-        "  facility_tools:\n"
-        "    command: /usr/bin/facility-mcp\n"
-        "    permissions:\n"
-        "      allow: [ping]\n"
+    servers = json.dumps(
+        {
+            "facility_tools": {
+                "command": "/usr/bin/facility-mcp",
+                "permissions": {"allow": ["ping"]},
+            }
+        }
     )
     with_servers = tmp_path / "with-servers"
 
-    assert _new(runner, with_servers, "control-assistant", "-O", str(override)).exit_code == 0
+    assert (
+        _new(runner, with_servers, "control-assistant", "--set", f"mcp_servers={servers}").exit_code
+        == 0
+    )
 
     text = (with_servers / "profile.yml").read_text()
     assert "# mcp_servers:" not in text

@@ -85,6 +85,7 @@ from osprey.services.bluesky_bridge.queue_backend import (
     REASON_BROWSE_ONLY_CONNECTOR,
 )
 from tests.e2e._volumes import remove_project_volumes
+from tests.e2e.profile_edits import set_pairs
 
 # Deliberately NOT the bridge's slot in the deployment's port block: this is a
 # shared dev machine with other long-running services, and the bridge's port
@@ -188,13 +189,9 @@ def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     base = tmp_path_factory.mktemp("scan_deploy_build")
     repo = base / PROJECT_NAME
 
-    # Only top-level PROFILE keys go through `--set`; a `config.`-scoped key
-    # needs an override file (a dotted `--set` would build a nested dict for
-    # every segment and replace the whole `services:` block).
-    override_path = base / "override.yml"
-    override_path.write_text(
-        f"config:\n  services.openobserve.port: {OPENOBSERVE_PORT}\n", encoding="utf-8"
-    )
+    # A `config.`-scoped edit names one leaf of the rendered config:
+    # everything after `config.` is one key, so the rest of the `services:`
+    # block stays as the preset wrote it.
 
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset, `build` renders build/ from it. The repo directory
@@ -207,10 +204,10 @@ def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             "--preset",
             "hello-world",
             "--no-git",
-            "--override",
-            str(override_path),
-            # The one --set is what opts this project into the bluesky stack at
-            # all: a `bluesky:` profile block is what `_inject_bluesky` keys on.
+            *set_pairs({"config": {"services.openobserve.port": OPENOBSERVE_PORT}}),
+            # The `bluesky.port` edit is what opts this project into the bluesky
+            # stack at all: a `bluesky:` profile block is what `_inject_bluesky`
+            # keys on.
             "--set",
             f"bluesky.port={BRIDGE_PORT}",
         ],

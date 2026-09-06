@@ -102,6 +102,7 @@ import pytest
 import yaml
 
 from tests.e2e._volumes import remove_project_volumes
+from tests.e2e.profile_edits import set_pairs
 
 # ``dockerbuild`` is load-bearing, not descriptive: a guard in
 # tests/deployment/test_ci_workflow_wiring.py requires every file carrying it to
@@ -316,13 +317,13 @@ def _write_persona_project(root: Path) -> Path:
     return root
 
 
-def _override_text() -> str:
-    """The ``-O`` overlay carrying this lane's whole web-terminal stanza.
+def _profile_edits() -> dict[str, Any]:
+    """The edits carrying this lane's whole web-terminal stanza.
 
     Dotted leaf keys under ``config:``, the one spelling a profile's config
     block accepts — and ``modules.web_terminals`` deliberately as ONE dotted key
-    with a nested value, so it sets that subtree without replacing the rendered
-    ``modules:`` mapping around it.
+    with a nested value, so it states that subtree's leaves without replacing
+    the rendered ``modules:`` mapping around it.
 
     ``allow_insecure_http`` is what lets auth render without TLS. That is the
     documented posture for a deployment behind a TLS terminator, and here it
@@ -341,37 +342,34 @@ def _override_text() -> str:
     minted by the store, and preflight will not generate ``.env.users`` for a
     telemetry block naming a credential no deploy on this config can issue.
     """
-    return yaml.safe_dump(
-        {
-            "config": {
-                "container_runtime": RUNTIME,
-                "facility.name": "E2E Auth Perimeter Fixture",
-                "facility.prefix": PREFIX,
-                "facility.timezone": "UTC",
-                "deploy.fqdn": "127.0.0.1",
-                "deployed_services": [],
-                "claude_code.telemetry.enabled": False,
-                "modules.web_terminals": {
-                    "enabled": True,
-                    "image_source": "local",
-                    "default_persona": PERSONA,
-                    "nginx_port": NGINX_PORT,
-                    "web_base_port": BASE_PORTS["web"],
-                    "artifact_base_port": BASE_PORTS["artifact"],
-                    "ariel_base_port": BASE_PORTS["ariel"],
-                    "lattice_base_port": BASE_PORTS["lattice"],
-                    "channel_finder_base_port": BASE_PORTS["channel_finder"],
-                    "users": list(USERS),
-                    "auth": {
-                        "method": "password",
-                        "port": AUTH_PORT,
-                        "allow_insecure_http": True,
-                    },
+    return {
+        "config": {
+            "container_runtime": RUNTIME,
+            "facility.name": "E2E Auth Perimeter Fixture",
+            "facility.prefix": PREFIX,
+            "facility.timezone": "UTC",
+            "deploy.fqdn": "127.0.0.1",
+            "deployed_services": [],
+            "claude_code.telemetry.enabled": False,
+            "modules.web_terminals": {
+                "enabled": True,
+                "image_source": "local",
+                "default_persona": PERSONA,
+                "nginx_port": NGINX_PORT,
+                "web_base_port": BASE_PORTS["web"],
+                "artifact_base_port": BASE_PORTS["artifact"],
+                "ariel_base_port": BASE_PORTS["ariel"],
+                "lattice_base_port": BASE_PORTS["lattice"],
+                "channel_finder_base_port": BASE_PORTS["channel_finder"],
+                "users": list(USERS),
+                "auth": {
+                    "method": "password",
+                    "port": AUTH_PORT,
+                    "allow_insecure_http": True,
                 },
-            }
-        },
-        sort_keys=False,
-    )
+            },
+        }
+    }
 
 
 def _add_persona_catalog(repo: Path, persona_path: Path) -> None:
@@ -384,13 +382,18 @@ def _add_persona_catalog(repo: Path, persona_path: Path) -> None:
     ``profile.yml`` once the repo exists and before ``osprey build`` reads it,
     which is the remedy materialization itself names for a hand-written persona.
 
+    Written as the dotted key ``modules.web_terminals.personas``, the same
+    spelling the lane's own edits use: a profile's ``config:`` is a flat bag
+    of dotted paths into the rendered config, and one more path is how a
+    catalog joins the stanza the edits already wrote.
+
     A YAML round-trip rather than a text splice: the emitted profile is plain
     YAML, and the comments a dump drops are documentation for an operator, not
     input to the build.
     """
     profile_path = repo / "profile.yml"
     profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
-    profile["config"]["modules.web_terminals"]["personas"] = {
+    profile["config"]["modules.web_terminals.personas"] = {
         PERSONA: {"project": PERSONA_PROJECT, "project_path": str(persona_path)}
     }
     profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
@@ -404,8 +407,6 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
     """
     persona_path = _write_persona_project(tmp_path / "persona")
     repo = tmp_path / PROJECT_NAME
-    override_path = tmp_path / "override.yml"
-    override_path.write_text(_override_text(), encoding="utf-8")
 
     init = _run_osprey(
         osprey_bin,
@@ -415,8 +416,7 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
             "--preset",
             PRESET,
             "--no-git",
-            "--override",
-            str(override_path),
+            *set_pairs(_profile_edits()),
         ],
         tmp_path,
         timeout=RENDER_TIMEOUT_SEC,

@@ -55,8 +55,10 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.cli.build_cmd import _profile_data_bundle
 from osprey.cli.build_profile import BuildProfile, list_presets, resolve_build_profile
 from osprey.cli.build_profile_presets import _presets_dir
+from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment.qmd_service import DEFAULT_PORT as QMD_DEFAULT_PORT
 from osprey.deployment.qmd_service import resolve_qmd_service_config
 from osprey.deployment.web_terminals.lint import Finding, lint_web_terminals
@@ -71,6 +73,50 @@ from osprey.port_layout import (
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.utils.config_writer import config_update_fields
 from osprey_connectors.types import CONTROL_TARGETS, target_writes_enabled
+
+
+def _bundle_data_root(bundle: str = "control_assistant") -> Path:
+    """The tree these fixtures hand the render as the profile's ``data:``.
+
+    A build copies the tree its profile's ``data:`` key names, and that key is
+    required — nothing falls back to a packaged tree any more. These fixtures
+    render straight from a bundle rather than from a profile, so they name the
+    tree that bundle packages, which is the content the render used to reach
+    for on its own.
+    """
+    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+
+
+def _create_project(manager: TemplateManager, **kwargs) -> Path:
+    """``create_project`` plus the three steps a real build takes next.
+
+    A build renders the framework template, overlays the resolved profile's
+    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
+    regenerates ``.claude/`` from the finished config. The template carries
+    only derived and profile-field-derived keys, so a fixture that stops after
+    the render holds half a config — the declarative half is the preset's, and
+    the artifacts rendered before it landed do not know about the deployment's
+    control system, services or servers. These fixtures render from a bundle
+    rather than from a profile, so they overlay the preset ``osprey init``
+    pairs with that bundle.
+    """
+    from osprey.cli.build_profile import resolve_build_profile
+    from osprey.utils.config_writer import config_update_fields
+
+    bundle = kwargs.setdefault("data_bundle", "control_assistant")
+    preset = bundle.replace("_", "-")
+    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    project = manager.create_project(**kwargs)
+    profile, _preset_dir = resolve_build_profile(None, preset=preset)
+    config_update_fields(project / "config.yml", profile.config)
+    manager.generate_manifest(
+        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
+    )
+    # The build's last render, and the one that ships: `create_project` wrote
+    # `.claude/` from a config.yml that did not yet carry the preset's block.
+    manager.regenerate_claude_code(project)
+    return project
+
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -572,6 +618,19 @@ class TestControlAssistantWebTier:
 # ---------------------------------------------------------------------------
 
 
+def _own_config(name: str) -> dict:
+    """The ``config:`` keys a preset spells in its own file.
+
+    Distinct from the resolved profile's ``config``, which carries everything
+    the chain inherited. The tiers below are about what a persona STATES, and
+    a persona that states nothing still resolves to its base's whole block.
+    """
+    from osprey.cli.build_profile_presets import _read_preset_document
+
+    raw, _path = _read_preset_document(name)
+    return raw.get("config") or {}
+
+
 class TestControlAssistantPersonas:
     """The three tiers: identical projects except for the tier contract.
 
@@ -588,7 +647,7 @@ class TestControlAssistantPersonas:
     def test_readonly_extends_base_and_disables_writes(self) -> None:
         profile = resolve_preset("control-assistant-readonly")
         assert profile.name == "Control Assistant (Read-Only)"
-        assert profile.data_bundle == "control_assistant"
+        assert _profile_data_bundle(profile) == "control_assistant"
         assert profile.config.get(WRITES_KEY) is False
         # Flat dotted key, never nested YAML under config:.
         assert "control_system" not in profile.config
@@ -596,7 +655,7 @@ class TestControlAssistantPersonas:
     def test_readwrite_extends_base_and_enables_writes(self) -> None:
         profile = resolve_preset("control-assistant-readwrite")
         assert profile.name == "Control Assistant (Read-Write)"
-        assert profile.data_bundle == "control_assistant"
+        assert _profile_data_bundle(profile) == "control_assistant"
         assert profile.config.get(WRITES_KEY) is True
         assert "control_system" not in profile.config
 
@@ -612,7 +671,7 @@ class TestControlAssistantPersonas:
         that it is cancelled."""
         profile = resolve_preset("control-assistant-admin")
         assert profile.name == "Control Assistant (Admin)"
-        assert profile.data_bundle == "control_assistant"
+        assert _profile_data_bundle(profile) == "control_assistant"
         assert profile.config.get(WRITES_KEY) is True
         assert profile.config.get(UI_MODE_KEY) == "expert"
         assert "control_system" not in profile.config
@@ -823,14 +882,18 @@ class TestControlAssistantPersonas:
     def test_personas_pin_no_service_address(self) -> None:
         """No tier spells where the hosting deployment's services are.
 
-        The personas render attached (``deploy_services: false``), so the app
-        template gives them ``services: {}`` — and the build then tells each
-        render every client-facing fact from the hosting deployment's own
-        render (``osprey.deployment.reach``): the graph store's bolt port, the
-        qmd sidecar's port, the Postgres, the telemetry store, the bridge, the
-        EVENTS and BLUESKY tab URLs. A preset that pinned one would be a second
-        copy of a number the host already states, free to drift when an
-        operator moves the service — and the build refuses such a pin.
+        The personas render attached (``deploy_services: false``), and the
+        build tells each render every client-facing fact from the hosting
+        deployment's own render (``osprey.deployment.reach``): the graph
+        store's bolt port, the qmd sidecar's port, the Postgres, the telemetry
+        store, the bridge, the EVENTS and BLUESKY tab URLs. A preset that
+        pinned one would be a second copy of a number the host already states,
+        free to drift when an operator moves the service.
+
+        Read from each persona's own file rather than from the resolved
+        profile: the base they extend declares the services the deployment
+        runs, so every persona INHERITS those keys. What must stay empty is
+        what a persona says for itself.
         """
         for name in (
             "control-assistant-readonly",
@@ -839,14 +902,14 @@ class TestControlAssistantPersonas:
             "control-assistant-logbook",
             "control-assistant-knowledge",
         ):
-            profile = resolve_preset(name)
+            own = _own_config(name)
             pinned = sorted(
                 key
-                for key in profile.config
+                for key in own
                 if str(key).startswith(("services.", "web.panels.events.", "web.panels.bluesky."))
             )
             assert pinned == [], f"{name} pins {pinned}"
-            assert "services" not in profile.config
+            assert "services" not in own
 
     @pytest.mark.parametrize("persona", ("readonly", "readwrite", "admin"))
     def test_operator_personas_render_the_graph_server(
@@ -1095,11 +1158,13 @@ PINNED_TARGET_WRITE_POSTURE: dict[str, dict[str, bool]] = {
     # target is unarmed, and none has ever had a write path to lose.
     "ariel-standalone": {"live": False, "va": False, "standin": False},
     "channel-finder-standalone": {"live": False, "va": False, "standin": False},
-    # The hosting preset names its control system and says nothing about
-    # writes, which is the shipped floor: a deployment is read-only until a
-    # profile arms it by name. Its baseline is the stand-in, and the stand-in
-    # is unarmed like the rest.
-    "control-assistant": {"live": False, "va": False, "standin": False},
+    # The hosting preset arms the flat key and pins no per-type block, so every
+    # target inherits the arming — the stand-in included, which is the point:
+    # its baseline IS the stand-in, and a stand-in that refused writes could
+    # not rehearse anything. The read-only tier is what pins it back off, and
+    # this row is what makes that tier's pin load-bearing rather than
+    # decorative.
+    "control-assistant": {"live": True, "va": True, "standin": True},
     "hello-world": {"live": False, "va": False, "standin": False},
     # The write-armed tiers. Their flat ``true`` is what every type inherits,
     # so the posture is the same on all three machines — the stand-in
@@ -1205,7 +1270,7 @@ class TestWritePostureMatrix:
         profile = resolve_preset("control-assistant-va-readwrite")
 
         assert profile.name == "Control Assistant (VA Read-Write)"
-        assert profile.data_bundle == "control_assistant"
+        assert _profile_data_bundle(profile) == "control_assistant"
         assert profile.config.get(WRITES_KEY) is False
         assert profile.config.get(VA_WRITES_KEY) is True
         assert EPICS_WRITES_KEY not in profile.config
@@ -1223,7 +1288,11 @@ class TestWritePostureMatrix:
         assert set(profile.web_panels) == set(resolve_preset("control-assistant").web_panels) | set(
             WRITE_TIER_PANELS
         )
-        assert [key for key in profile.config if str(key).startswith("services.")] == []
+        assert [
+            key
+            for key in _own_config("control-assistant-va-readwrite")
+            if str(key).startswith("services.")
+        ] == []
 
     def test_the_flat_tiers_are_armed_on_every_target(self, tmp_path: Path) -> None:
         """readwrite and admin write no per-type WRITE key at all, so both
@@ -1268,7 +1337,8 @@ class TestWebTerminalContextShipped:
         from osprey.cli.templates.manager import TemplateManager
         from osprey.deployment.web_terminals import seeding
 
-        project_dir = TemplateManager().create_project(
+        project_dir = _create_project(
+            TemplateManager(),
             project_name="ctx-ship-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
@@ -1294,7 +1364,8 @@ class TestWebTerminalContextShipped:
         from osprey.cli.templates.manager import TemplateManager
         from osprey.deployment.web_terminals import seeding
 
-        project_dir = TemplateManager().create_project(
+        project_dir = _create_project(
+            TemplateManager(),
             project_name="ctx-ship-hello",
             output_dir=tmp_path,
             data_bundle="hello_world",
@@ -1323,7 +1394,8 @@ class TestWebTerminalContextShipped:
         from osprey.cli.templates.manager import TemplateManager
         from osprey.deployment.web_terminals import seeding
 
-        rendered = TemplateManager().create_project(
+        rendered = _create_project(
+            TemplateManager(),
             project_name="ctx-seed-hello",
             output_dir=tmp_path,
             data_bundle="hello_world",

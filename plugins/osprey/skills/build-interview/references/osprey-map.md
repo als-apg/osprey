@@ -48,8 +48,8 @@ profile.
 | `build/` | OUTPUT. Rendered by `osprey build`; git-ignored, 100% disposable |
 | `var/` | STATE. Agent memory, sessions, audit log; git-ignored, durable. No build touches it |
 
-Pull one piece of a preset's app template into this repo with `osprey scaffold pull
-<preset>[:path] [--list] [--force] [--with-content]`; the recipe lives in
+Pull one piece of a preset's packaged data bundle into this repo with `osprey scaffold
+pull <preset>[:path] [--list] [--force] [--with-content]`; the recipe lives in
 `references/map.md` and `references/knowledge-starter.md`.
 
 Write this repo's own persona files from another preset's catalog with
@@ -86,8 +86,10 @@ roster.
 | Bundled presets (what `extends:` resolves to) | `src/osprey/profiles/presets/` |
 | Canonical example | the `control-assistant` family in that directory |
 | The `deploy:` block's shape and rules | `src/osprey/cli/build_profile_deploy.py` |
-| Selectable model providers | `_BUILTIN_PROVIDERS` in `src/osprey/models/provider_registry.py` |
-| App templates rendered into a project | `src/osprey/templates/apps/` |
+| Selectable model providers | `src/osprey/profiles/providers.yml` — the packaged catalog `osprey init` copies into the repo as `providers.yml`; `provider:` names one of its entries |
+| Every config key the framework reads, and its default | `osprey config --defaults` (packaged ledger: `src/osprey/profiles/config_key_manifest.yml`) |
+| Packaged data bundles a preset materializes | `src/osprey/templates/apps/` — `data/`, `mcp_servers/`, `web-terminal-context/` only; the config a preset ships is in the preset file, not here |
+| The framework config template | `src/osprey/templates/project/config.yml.j2` — derived keys only (project layout, ports, `providers.yml`, profile fields) |
 | Control-system connectors | `src/osprey/connectors/` |
 
 Open the preset file rather than describing it from memory: safety posture, enabled

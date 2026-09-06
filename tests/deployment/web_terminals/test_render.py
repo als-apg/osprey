@@ -4725,14 +4725,26 @@ def test_the_shipped_config_and_the_container_env_name_the_same_variable() -> No
     only thing that puts it in the container. Repoint one without the other --
     exactly what happened when the shipped configs moved off the store's root
     credential -- and every web terminal starts naming a variable nothing sets.
+
+    The naming half comes from the presets now: the framework template renders
+    no telemetry block, so a deployment's credential reference is written by its
+    profile's `config:`. Every preset that deploys the store is checked, because
+    one of them drifting is the failure this pins.
     """
     # Arrange
-    import osprey
+    from osprey.cli.build_profile_archiver import _expand_dotted
+    from osprey.cli.build_profile_resolve import resolve_build_profile
 
-    shipped_config = Path(osprey.__file__).parent / "templates" / "project" / "config.yml.j2"
-    shipped = shipped_config.read_text(encoding="utf-8")
-    declared = re.search(r"^ *password: \$\{([A-Za-z_][A-Za-z0-9_]*)\}$", shipped, re.MULTILINE)
-    assert declared, "the shipped telemetry block no longer names a bare ${VAR} password"
+    declared_vars = set()
+    for preset in ("hello-world", "ariel-standalone", "control-assistant"):
+        profile, _profile_dir = resolve_build_profile(None, preset)
+        telemetry = _expand_dotted(profile.config)["claude_code"]["telemetry"]
+        password = (telemetry.get("openobserve") or {}).get("password")
+        declared = re.fullmatch(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", str(password))
+        assert declared, f"{preset}'s telemetry block no longer names a bare ${{VAR}} password"
+        declared_vars.add(declared.group(1))
+
+    assert len(declared_vars) == 1, f"the presets name different variables: {declared_vars}"
 
     # Act
     compose = yaml.safe_load(render_web_terminals(_config(["alice"]))["docker-compose.web.yml"])
@@ -4740,7 +4752,7 @@ def test_the_shipped_config_and_the_container_env_name_the_same_variable() -> No
     # Assert
     environment = compose["services"]["web-alice"]["environment"]
     delivered = {entry.split("=", 1)[0] for entry in environment}
-    assert declared.group(1) in delivered
+    assert declared_vars <= delivered
 
 
 # ---------------------------------------------------------------------------

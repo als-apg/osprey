@@ -491,24 +491,15 @@ def _is_material(name: str) -> bool:
 def _display_key(name: str) -> str:
     """The key as the operator would recognize it, not as the digest stores it.
 
-    Profile keys are digested by canonical field name, which is what keeps a
-    pure change of YAML-surface spelling from reading as drift. That canonical
-    name is the wrong thing to *print*: an operator who edited ``app_template:``
-    would be sent looking for a ``data_bundle:`` key their file does not
-    contain. Material keys carry :data:`MATERIAL_PREFIX`, an internal marker
-    that has no business in a message; underneath it they are already the paths
-    the operator edited.
+    Profile keys are digested under the name the profile spells, so they print
+    as they are. Material keys carry :data:`MATERIAL_PREFIX`, an internal
+    marker that has no business in a message; underneath it they are already
+    the paths the operator edited.
     """
-    from osprey.cli.build_profile_document import _YAML_TO_FIELD
-
     if name == MATERIAL_KEY:
         return MATERIAL_DISPLAY
     if _is_material(name):
         return name[len(MATERIAL_PREFIX) :]
-
-    for yaml_key, field_name in _YAML_TO_FIELD.items():
-        if name == field_name:
-            return yaml_key
     return name
 
 

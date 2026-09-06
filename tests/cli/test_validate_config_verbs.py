@@ -26,7 +26,6 @@ from click.testing import CliRunner
 from osprey.cli.config_cmd import config
 from osprey.cli.main import cli
 from osprey.cli.validate_cmd import validate
-from osprey.port_layout import DEFAULT_PORT_BASE, default_port
 
 #: The frozen reference deployment — the shape `osprey init` is being built to
 #: emit. Used here so the zero-argument path is exercised against a real
@@ -48,7 +47,8 @@ WEB_TERMINALS: dict[str, Any] = {
 PROFILE_WITH_COMMENTS = """\
 # The facility this deployment serves.
 name: Demo Facility
-data_bundle: hello_world  # the bundled sample data
+model: haiku  # tier, or any model ID the provider serves
+data: data
 """
 
 
@@ -62,14 +62,23 @@ def repo(tmp_path: Path) -> Path:
     """A deployment repo: a directory with a valid ``profile.yml`` at its root."""
     root = tmp_path / "als-assistant"
     root.mkdir()
+    (root / "data").mkdir()
     (root / "profile.yml").write_text(PROFILE_WITH_COMMENTS, encoding="utf-8")
     return root
 
 
 def _write_profile(root: Path, body: dict[str, Any]) -> Path:
+    """Write ``body`` as a repo profile, with the data tree every profile needs.
+
+    ``data:`` is required of a repo profile and names a directory that has to
+    exist, so it is supplied here rather than repeated in every fixture below —
+    none of these tests is about the data tree. A body that states its own
+    ``data`` keeps it.
+    """
     root.mkdir(parents=True, exist_ok=True)
+    (root / "data").mkdir(exist_ok=True)
     path = root / "profile.yml"
-    path.write_text(yaml.safe_dump(body, sort_keys=False), encoding="utf-8")
+    path.write_text(yaml.safe_dump({"data": "data", **body}, sort_keys=False), encoding="utf-8")
     return path
 
 
@@ -211,9 +220,8 @@ def test_validate_exits_2_on_an_invalid_profile(
     pipeline has always keyed on, unchanged by the move."""
     root = tmp_path / "broken"
     root.mkdir()
-    (root / "profile.yml").write_text(
-        "name: Bad\ndata_bundle: hello_world\nconfig: []\n", encoding="utf-8"
-    )
+    (root / "data").mkdir()
+    (root / "profile.yml").write_text("name: Bad\ndata: data\nconfig: []\n", encoding="utf-8")
     monkeypatch.chdir(root)
 
     result = runner.invoke(validate, [])
@@ -234,7 +242,6 @@ def test_validate_still_runs_the_deploy_config_lint(
         root,
         {
             "name": "Demo Facility",
-            "data_bundle": "hello_world",
             "config": {"facility.prefix": "demo", "modules.web_terminals": dict(WEB_TERMINALS)},
         },
     )
@@ -259,7 +266,6 @@ def test_validate_refuses_a_per_type_limits_block_missing_a_leaf(
         root,
         {
             "name": "Demo Facility",
-            "data_bundle": "hello_world",
             "config": {
                 "control_system.connector.virtual_accelerator.limits_checking.enabled": True
             },
@@ -286,7 +292,6 @@ def test_validate_passes_a_complete_per_type_limits_block(
         root,
         {
             "name": "Demo Facility",
-            "data_bundle": "hello_world",
             "config": {
                 "control_system.connector.virtual_accelerator.limits_checking.enabled": True,
                 "control_system.connector.virtual_accelerator.limits_checking."
@@ -420,9 +425,15 @@ def test_config_defaults_needs_no_deployment_repo(
 def test_config_defaults_renders_parseable_yaml(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The view is a rendered Jinja template, so a template edit can produce
-    something that prints fine and parses as nothing. Loading it here is what
-    makes that a test failure instead of a support question."""
+    """The view is built text, so an edit to it can produce something that
+    prints fine and parses as nothing. Loading it here is what makes that a
+    test failure instead of a support question.
+
+    Keys are flat and dotted, and a key with no literal fallback carries a
+    marker rather than a value: ``project_name``'s reader falls back to the
+    project directory's own name, so there is no literal to print and the
+    ledger says ``<derived>``.
+    """
     monkeypatch.chdir(tmp_path)
 
     result = runner.invoke(config, ["--defaults"])
@@ -430,24 +441,8 @@ def test_config_defaults_renders_parseable_yaml(
     loaded = yaml.safe_load(result.output)
 
     assert isinstance(loaded, dict), result.output
-    assert loaded["project_name"] == "example_project"
-    assert "control_system" in loaded
-
-
-def test_config_defaults_shows_the_layout_at_the_default_base(
-    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """This view has no deployment to resolve a port base from, so it is the
-    one place the layout's own default is the right answer — and the ports it
-    prints have to BE that default, not an empty value or some other base."""
-    monkeypatch.chdir(tmp_path)
-
-    result = runner.invoke(config, ["--defaults"])
-    loaded = yaml.safe_load(result.output)
-
-    assert loaded["services"]["openobserve"]["port"] == default_port(
-        "openobserve", base=DEFAULT_PORT_BASE
-    )
+    assert loaded["project_name"] == "<derived>"
+    assert "control_system.type" in loaded
 
 
 def test_config_refuses_rendered_and_defaults_together(

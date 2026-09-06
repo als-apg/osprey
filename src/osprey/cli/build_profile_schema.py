@@ -142,6 +142,12 @@ class ProfileProvenance:
     """Bundled preset name the profile was materialized from."""
     preset_hash: str
     """Content hash of that preset as resolved at materialization time."""
+    providers_hash: str = ""
+    """Content hash of the ``providers.yml`` catalog written beside the profile
+    at materialization time
+    (:func:`~osprey.profiles.providers.compute_providers_hash`). Empty for a
+    profile emitted before the catalog became a sibling file — the catalog note
+    is then simply not drawn, which is right: there is nothing to compare."""
     deviation_marker: str = DEFAULT_DEVIATION_MARKER
     """Tag of the ``# <TAG>:`` comment that marks a difference as deliberate."""
 

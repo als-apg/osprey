@@ -1,27 +1,37 @@
-"""Multi-source profile resolution: preset / file + overlays + ``--set``.
+"""Profile resolution: a preset or a file, host-variant overlays, ``--set`` edits.
 
-The entry point ``osprey init``'s materialization and ``osprey validate`` call.
-Picks the base layer
-(bundled preset or on-disk file), deep-merges override files and ``--set``
-values over it, then hands the assembled raw dict to ``extends`` resolution and
-:func:`osprey.cli.build_profile_load._parse_profile`. Also owns the ``--set``
-mini-parser, the top-level shorthand keys (model selection plus ``connector``)
-whose explicit use is recorded in the build manifest, and the guard that keeps
-a ``--set config.*`` path from quietly losing to — or quietly clobbering — the
-literal dotted key some other layer spells for the same place.
+The entry point ``osprey init``'s materialization, ``osprey build`` and
+``osprey validate`` call. Picks the base (a bundled preset or an on-disk file),
+resolves ``extends``, then applies the command line's ``--set`` pairs and hands
+the result to :func:`osprey.cli.build_profile_load._parse_profile`. Also owns the
+``--set`` mini-parser, the top-level shorthand keys (model selection plus
+``connector``) whose explicit use is recorded in the build manifest, and the
+rule that lets a ``config.*`` key stated on the command line outrank the deeper
+keys some other layer spells beneath it, instead of losing to them by key order.
 
-The profile is the source of truth, so an explicit override *is* a profile edit:
-:func:`write_back_cli_overrides` turns ``osprey set``'s pairs into a
-comment-preserving edit of the repo's own ``profile.yml``, which the ordinary
-resolution path then reads back like any other profile content. Nothing is
-layered at invocation time and thrown away afterwards.
+Two things reach a profile, and they mean different things:
+
+* **Inheritance** — ``extends:``, a persona delta over the profile beside it, a
+  host-variant overlay over ``profile.yml``. A layer is a *difference*: it adds
+  to what it inherits, string lists union, and taking something away is an
+  explicit verb (``exclude:``, ``remove_deny``). That merge lives in
+  :mod:`osprey.cli.build_profile_merge`.
+* **An edit** — ``--set`` at ``osprey init`` and ``osprey set`` afterwards. An
+  edit *states*: the value at the key it names is replaced, whatever was there.
+  :func:`apply_cli_edits` makes that edit to the resolved document before it is
+  written; :func:`write_back_cli_overrides` makes the same edit to the file once
+  it exists. Neither is a layer, and nothing is layered at invocation time and
+  thrown away afterwards: the profile is the source of truth, so an edit is an
+  edit of that profile.
 """
 
 from __future__ import annotations
 
+import copy
 import io
 import os
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -29,9 +39,10 @@ import click
 import yaml
 
 from osprey.errors import BuildProfileError
+from osprey.port_layout import PORT_BASE_CONFIG_KEY
 from osprey.utils.logger import get_logger
 
-from .build_profile_document import _normalize_profile_aliases, _read_profile_document
+from .build_profile_document import _read_profile_document
 from .build_profile_load import (
     CONNECTOR_CONFIG_KEY,
     CONNECTOR_PROFILE_KEY,
@@ -59,12 +70,35 @@ EXTENDS_OVERRIDE_REFUSAL = (
 )
 
 
+class _MappingValue(dict):
+    """A mapping given as a ``--set`` VALUE, as opposed to nesting spelled by key dots.
+
+    ``--set bluesky.port=1`` and ``--set bluesky={port: 1}`` both parse to
+    ``{"bluesky": {"port": 1}}``; the dict shape cannot tell them apart, and
+    they mean different edits — the first names the leaf ``bluesky.port``, the
+    second states the whole value of ``bluesky``. The VALUE mapping is wrapped
+    in this type so :func:`_dotted_leaves` stops at it and writes it whole,
+    while key nesting stays a plain dict and is descended into.
+    """
+
+
 def _parse_set_pairs(pairs: tuple[str, ...]) -> dict[str, Any]:
     """Parse ``--set KEY.PATH=VALUE`` pairs into a nested dict.
 
     The right-hand side is parsed with ``yaml.safe_load`` so callers get
     type coercion for free: ``true``/``false`` -> bool, ``[a,b]`` -> list,
-    bare ints/floats -> numeric, anything else -> string.
+    bare ints/floats -> numeric, anything else -> string. A mapping value is
+    marked as one (:class:`_MappingValue`): it is the value of the key named,
+    written whole, not a shorthand for one edit per leaf inside it.
+
+    ``config.`` is the one prefix that stops the nesting. A profile's
+    ``config:`` block is a flat bag of LITERAL DOTTED KEYS, each applied
+    verbatim to the one rendered-config leaf it addresses, so
+    ``--set config.a.b=1`` becomes ``{"config": {"a.b": 1}}`` — the same
+    spelling :func:`write_back_cli_overrides` writes into ``profile.yml``, and
+    the same one the presets ship. Nesting it instead would put a second,
+    differently-shaped statement of the same path beside the preset's, where
+    which of the two reaches ``config.yml`` depends on key order.
     """
     result: dict[str, Any] = {}
     for pair in pairs:
@@ -76,10 +110,15 @@ def _parse_set_pairs(pairs: tuple[str, ...]) -> dict[str, Any]:
             raise BuildProfileError(f"--set key must be non-empty: {pair!r}")
         try:
             value = yaml.safe_load(raw_value)
+            if isinstance(value, dict):
+                value = _MappingValue(value)
         except yaml.YAMLError as e:
             raise BuildProfileError(f"--set value for {key!r} is not valid YAML: {e}") from e
         target: dict[str, Any] = result
         parts = key.split(".")
+        if parts[0] == _CONFIG_SET_PREFIX and len(parts) > 1:
+            # Everything after `config.` is ONE key, dots and all.
+            parts = [_CONFIG_SET_PREFIX, ".".join(parts[1:])]
         for part in parts[:-1]:
             existing = target.get(part)
             if existing is None:
@@ -91,9 +130,10 @@ def _parse_set_pairs(pairs: tuple[str, ...]) -> dict[str, Any]:
                 )
             target = existing
         target[parts[-1]] = value
-    # ``--set`` is its own authored layer, so it normalizes like a document —
-    # but the value loads above are scalar, not document, reads.
-    return _normalize_profile_aliases(result, "--set")
+    # Returned as the layer it is: the value loads above are scalar reads, and
+    # a `--set` pair names a profile key directly, so there is nothing between
+    # what was typed and what the merge sees.
+    return result
 
 
 # The model-selection shorthand keys a user can override via `--set`, whose
@@ -137,25 +177,86 @@ _CONFIG_SET_PREFIX = "config"
 _CONNECTOR_CONFIG_SEGMENTS = tuple(CONNECTOR_CONFIG_KEY.split("."))
 
 
-def _set_config_paths(set_pairs: tuple[str, ...]) -> list[tuple[str, ...]]:
-    """The ``config:`` paths ``--set`` pairs address as nested mapping keys.
+def _stated_config_paths(layer: dict[str, Any]) -> list[tuple[str, ...]]:
+    """The rendered-config paths one CLI layer states outright.
 
-    ``--set config.control_system.type=epics`` states the path it means
-    verbatim in its key, so the segments after ``config`` are recorded exactly
-    as written. That provenance is what makes the collision check downstream
-    decidable: an authored ``config:`` block cannot be read the same way,
-    because a nested mapping there is an ordinary *value* (``modules.web_terminals:``
-    carries one) and nothing distinguishes it from a path a writer had in mind.
-
-    Duplicate and prefix-related pairs are kept as written — each one is a
-    spelling the user typed, and the check reports what it was given.
+    A ``config:`` block's own keys ARE paths — the literal dotted key
+    ``approval.tools.channel_read`` addresses one leaf, the plain key
+    ``approval`` holding a mapping addresses that whole subtree — so a layer
+    states exactly what its top-level ``config`` keys spell. That is the
+    provenance :func:`_drop_shadowed_config_keys` needs, and it exists only for
+    the layers the command line supplied: a key the base or an ``extends``
+    parent contributes is inherited content, not a statement made now.
     """
-    paths: list[tuple[str, ...]] = []
-    for pair in set_pairs:
-        parts = pair.partition("=")[0].strip().split(".")
-        if len(parts) > 1 and parts[0] == _CONFIG_SET_PREFIX:
-            paths.append(tuple(parts[1:]))
-    return paths
+    config = layer.get(_CONFIG_SET_PREFIX)
+    if not isinstance(config, dict):
+        return []
+    return [tuple(key.split(".")) for key in config if isinstance(key, str)]
+
+
+def _shadowed_config_keys(config: Mapping[str, Any], stated: list[tuple[str, ...]]) -> set[str]:
+    """The ``config:`` keys strictly beneath a stated path (a stated path itself is kept)."""
+    claimed = set(stated)
+    shadowed: set[str] = set()
+    for key in config:
+        if not isinstance(key, str):
+            continue
+        path = tuple(key.split("."))
+        if path in claimed:
+            continue
+        if any(len(above) < len(path) and path[: len(above)] == above for above in claimed):
+            shadowed.add(key)
+    return shadowed
+
+
+def _drop_shadowed_config_keys(
+    raw: dict[str, Any], stated: list[tuple[str, ...]]
+) -> dict[str, Any]:
+    """Drop inherited ``config:`` keys that a CLI-stated key sits above.
+
+    ``config_update_fields`` applies dotted keys in iteration order and sets
+    each addressed path verbatim, so a key and a deeper key beneath it are two
+    different dict keys that both survive every merge — and then one of the two
+    values is discarded, by an order nobody wrote down. ``--set
+    config.approval.tools='{…}'`` beside a preset's
+    ``approval.tools.channel_read`` is exactly that pair.
+
+    An edit is the last word, so the key it names wins the whole subtree
+    beneath it: every key BENEATH a stated path (segment-prefix match, so
+    ``approval.tools`` claims ``approval.tools.channel_read`` and not
+    ``approval.tools_extra``) is dropped, and the value the operator just gave
+    is the one that renders. A stated path itself is never dropped.
+
+    This is the first half of an edit and runs BEFORE the edit's own leaves are
+    written (:func:`apply_cli_edits`, :func:`write_back_cli_overrides`): a
+    mapping value is written as the dotted leaves beneath its key, and those
+    leaves lie under the path the edit claims, so pruning afterwards would
+    delete the edit itself. Run on the FULLY resolved raw, after ``extends``:
+    a parent's literal dotted key is inherited content just as surely as the
+    base preset's.
+
+    Args:
+        raw: Resolved raw profile dict.
+        stated: Paths the edit states, from :func:`_stated_config_paths`.
+
+    Returns:
+        ``raw`` when nothing is shadowed, else a copy with a pruned ``config``.
+    """
+    config = raw.get(_CONFIG_SET_PREFIX)
+    if not stated or not isinstance(config, dict):
+        return raw
+    shadowed = _shadowed_config_keys(config, stated)
+    if not shadowed:
+        return raw
+    logger.debug(
+        "Dropped %d config key(s) shadowed by a CLI override: %s",
+        len(shadowed),
+        ", ".join(sorted(shadowed)),
+    )
+    return {
+        **raw,
+        _CONFIG_SET_PREFIX: {key: value for key, value in config.items() if key not in shadowed},
+    }
 
 
 def _literal_control_system_type(layer: dict[str, Any]) -> Any:
@@ -181,10 +282,10 @@ def _reject_connector_type_conflict(layers: list[dict[str, Any]]) -> None:
 
     The shorthand is the short spelling of that one config key, so a command
     line giving both states the connector twice, and nothing in the profile
-    says which spelling wins. Scoped to the layers the caller passed on the
-    command line (``-O`` files and ``--set`` pairs): a preset or ``extends``
-    parent that already sets the literal key is exactly what the shorthand is
-    for overriding, and must keep working.
+    says which spelling wins. Scoped to what the command line states (the
+    ``--set`` pairs): a preset or ``extends`` parent that already sets the
+    literal key is exactly what the shorthand is for overriding, and must keep
+    working.
 
     Raises:
         BuildProfileError: If any CLI layer names the shorthand while any names
@@ -214,143 +315,108 @@ def _reject_connector_type_conflict(layers: list[dict[str, Any]]) -> None:
     )
 
 
-def _reject_set_config_collisions(
-    raw: dict[str, Any], set_config_paths: list[tuple[str, ...]]
-) -> None:
-    """Reject ``--set config.*`` paths that collide with a literal dotted key.
+def cli_edit_layer(set_pairs: tuple[str, ...]) -> dict[str, Any]:
+    """The edit a command line's ``--set`` pairs make, as one profile fragment.
 
-    A ``config:`` block is a flat bag of dotted keys applied verbatim, one
-    addressed leaf each, while ``--set config.a.b=1`` merges a nested ``a:``
-    mapping in beside them. The two spellings never collide in the deep merge —
-    ``'a.b'`` and ``'a'`` are different dict keys — so both survive, and which
-    one reaches the rendered ``config.yml`` depends on key order: the nested
-    mapping is written verbatim at ``a``, replacing that whole subtree
-    (``config_update_fields``), while
-    :func:`~osprey.cli.build_profile_emit._collapse_config_prefixes` folds the
-    pair the other way, deeper-key-wins. Either way one of the two values the
-    user gave is silently discarded, so the pair is refused instead.
-
-    Runs on the fully-merged raw profile, after ``extends`` resolution, so no
-    source of the literal key escapes: the preset, an ``-O`` file, an
-    ``extends`` parent, or the top-level ``connector`` shorthand a parent
-    carries (which resolves to the literal key at parse time).
-
-    Args:
-        raw: Resolved raw profile dict, post-``extends``.
-        set_config_paths: Paths recorded by :func:`merge_cli_overrides`.
+    Parsed (:func:`_parse_set_pairs`), checked for a connector named twice
+    (:func:`_reject_connector_type_conflict`), and with the ``connector`` and
+    ``port_base`` shorthands folded into the ``config:`` keys they stand for —
+    so what an edit states is the literal key a reader of the profile would
+    edit, never a shorthand that silently outranks the block printed beside it.
 
     Raises:
-        BuildProfileError: naming every colliding pair at once, each with the
-            literal spelling that already sets it and how to write it instead.
+        BuildProfileError: On an unparseable pair, an invalid ``connector``
+            value, or pairs naming both ``connector`` and
+            ``config.control_system.type``.
     """
-    if not set_config_paths:
-        return
-    config = raw.get("config")
-    literal_keys = (
-        [key for key in config if isinstance(key, str) and "." in key]
-        if isinstance(config, dict)
-        else []
-    )
-    # A parent's `connector:` has not been folded yet at this point; it names
-    # the literal key just as surely as spelling it out.
-    if CONNECTOR_PROFILE_KEY in raw and CONNECTOR_CONFIG_KEY not in literal_keys:
-        literal_keys.append(CONNECTOR_CONFIG_KEY)
-
-    problems: list[str] = []
-    for path in set_config_paths:
-        # Root-segment match is the whole test: the nested mapping enters the
-        # config under its first segment alone, so every dotted key beginning
-        # there is in its blast radius, not only the one addressing the same leaf.
-        colliding = sorted(key for key in literal_keys if key.split(".")[0] == path[0])
-        if not colliding:
-            continue
-        dotted = ".".join(path)
-        remedy = (
-            f"Use the connector shorthand instead: --set {CONNECTOR_PROFILE_KEY}=<type>."
-            if path == _CONNECTOR_CONFIG_SEGMENTS
-            else (
-                "Write the literal dotted key in a -O override file instead:\n"
-                f"  config:\n    {dotted}: <value>"
-            )
-        )
-        problems.append(
-            f"--set {_CONFIG_SET_PREFIX}.{dotted}=... merges a nested {path[0]!r} mapping "
-            f"into config:, but the resolved profile already spells that subtree with "
-            f"literal dotted key(s): {', '.join(repr(key) for key in colliding)}. Both "
-            f"survive the merge and which one reaches config.yml depends on key order, "
-            f"so one of the two values would be discarded silently. {remedy}"
-        )
-    if problems:
-        raise BuildProfileError("\n\n".join(problems))
+    layer = _parse_set_pairs(set_pairs)
+    _reject_connector_type_conflict([layer])
+    return _apply_port_base_shorthand(_apply_connector_shorthand(layer))
 
 
-def merge_cli_overrides(
-    base: dict[str, Any],
-    overrides: tuple[Path, ...],
-    set_pairs: tuple[str, ...],
-    *,
-    set_config_paths: list[tuple[str, ...]] | None = None,
+def apply_cli_edits(resolved: dict[str, Any], set_pairs: tuple[str, ...]) -> dict[str, Any]:
+    """Apply ``--set`` pairs to a resolved raw profile, replacing at each key.
+
+    A ``--set`` pair is an edit of the profile — the edit ``osprey set`` makes
+    to the file once it exists — and it means the same thing here: the value at
+    the key it names is replaced, whatever was there (a scalar, a mapping, a
+    list). It is applied AFTER ``extends`` resolution, to the document as it
+    would be written out, and never as one more layer under inheritance.
+    Routed through :func:`~osprey.cli.build_profile_merge._deep_merge` instead,
+    a list stated on the command line would union with the preset's, and a
+    narrowing such as ``config.deployed_services=[]`` would be silently lost.
+    Inheritance adds; an edit states.
+
+    A ``config.*`` key the edit names wins the whole subtree beneath it: the
+    inherited keys under that path go first (:func:`_drop_shadowed_config_keys`),
+    then the edit's own leaves land, so ``config.approval.tools={…}`` leaves
+    exactly the ``approval.tools.*`` entries it spelled and none of the preset's.
+    The prune is done here, as part of the edit, because the edit is the only
+    place the provenance exists — afterwards an edited key is indistinguishable
+    from an inherited one.
+
+    The shorthand folds run on the document BEFORE the edit lands, as well as
+    on the edit itself, so a hand-written profile spelling ``connector:`` at
+    the top level has it folded into ``config.control_system.type`` first and
+    ``--set connector=…`` then replaces that key rather than being overwritten
+    by the fold. Idempotent.
+
+    Args:
+        resolved: The profile as resolved so far, ``extends`` already applied.
+        set_pairs: ``--set KEY=VALUE`` pairs.
+
+    Raises:
+        BuildProfileError: Whatever :func:`cli_edit_layer` raises.
+    """
+    folded = _apply_port_base_shorthand(_apply_connector_shorthand(resolved))
+    if not set_pairs:
+        return folded
+    layer = cli_edit_layer(set_pairs)
+    claimed = _drop_shadowed_config_keys(folded, _stated_config_paths(layer))
+    return _replace_leaves(claimed, _flatten_override_layer(layer))
+
+
+def _replace_leaves(
+    document: dict[str, Any], updates: list[tuple[list[str], Any]]
 ) -> dict[str, Any]:
-    """Layer ``-O`` override files and ``--set`` pairs over ``base``.
+    """Set each ``key_path`` in a copy of ``document`` to its value.
 
-    The shared CLI layering step: override files deep-merge in declaration
-    order, then ``--set`` values merge on top. Used by the project-render path
-    (:func:`resolve_build_profile`) and by ``osprey init``, which bakes
-    the merged result into the materialized ``profile.yml``.
+    The in-memory twin of :func:`_write_profile_values`, walking the same leaf
+    list :func:`_flatten_override_layer` produces, so an edit applied to a
+    profile before it is written and one written into the file afterwards
+    address the same keys and land the same values.
+    """
+    edited = copy.deepcopy(document)
+    for key_path, value in updates:
+        node: dict[str, Any] = edited
+        for segment in key_path[:-1]:
+            if not isinstance(node.get(segment), dict):
+                node[segment] = {}
+            node = node[segment]
+        node[key_path[-1]] = value
+    return edited
 
-    The ``connector`` shorthand is folded into ``config`` here rather than at
-    parse time alone, so the profile ``osprey init`` bakes states the
-    connector at the one literal key a reader would edit
-    (``control_system.type``) instead of carrying a shorthand that silently
-    outranks the ``config:`` block printed beside it. The fold happens after
-    all layers merge, so the last layer to name the connector wins.
 
-    Args:
-        base: The base layer — bundled preset raw or profile-file raw.
-        overrides: ``-O`` override files, deep-merged in declaration order.
-        set_pairs: ``--set KEY=VALUE`` pairs, merged last.
-        set_config_paths: Optional collector, extended with every ``config:``
-            path the ``--set`` pairs address (:func:`_set_config_paths`). The
-            layering step is where that provenance exists, but the collision it
-            feeds can only be judged against the fully-merged raw — so
-            :func:`resolve_build_profile` carries the list across ``extends``
-            resolution and checks there, once.
+def _read_overlay(path: Path) -> dict[str, Any] | None:
+    """Read one host-variant overlay: a YAML mapping, or ``None`` for an empty file.
 
     Raises:
-        BuildProfileError: On a missing or non-mapping override file, an
-            unparseable ``--set`` pair, an invalid ``connector`` value, or CLI
-            layers naming both ``connector`` and ``config.control_system.type``.
+        BuildProfileError: If the file is missing or not a mapping.
     """
-    raw = base
-    # The layers the caller passed on the command line, kept apart from ``base``:
-    # the connector conflict is about what one command line states twice.
-    cli_layers: list[dict[str, Any]] = []
-    for override_path in overrides:
-        if not override_path.exists():
-            raise BuildProfileError(f"Override not found: {override_path}")
-        override_raw = _read_profile_document(override_path)
-        if override_raw is None:
-            continue
-        if not isinstance(override_raw, dict):
-            raise BuildProfileError(f"Override must be a YAML mapping: {override_path}")
-        cli_layers.append(override_raw)
-        raw = _deep_merge(raw, override_raw)
-
-    if set_pairs:
-        set_raw = _parse_set_pairs(set_pairs)
-        cli_layers.append(set_raw)
-        raw = _deep_merge(raw, set_raw)
-
-    _reject_connector_type_conflict(cli_layers)
-    if set_config_paths is not None:
-        set_config_paths.extend(_set_config_paths(set_pairs))
-    return _apply_port_base_shorthand(_apply_connector_shorthand(raw))
+    if not path.exists():
+        raise BuildProfileError(f"Overlay not found: {path}")
+    raw = _read_profile_document(path)
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise BuildProfileError(f"Overlay must be a YAML mapping: {path}")
+    return raw
 
 
 def resolve_build_profile(
     profile_path: Path | None,
     preset: str | None,
-    overrides: tuple[Path, ...] = (),
+    overlays: tuple[Path, ...] = (),
     set_pairs: tuple[str, ...] = (),
 ) -> tuple[BuildProfile, Path]:
     """The two fields most callers need from :func:`resolve_build_document`.
@@ -372,24 +438,27 @@ def resolve_build_profile(
     Raises:
         BuildProfileError: Whatever :func:`resolve_build_document` raises.
     """
-    document = resolve_build_document(profile_path, preset, overrides, set_pairs)
+    document = resolve_build_document(profile_path, preset, overlays, set_pairs)
     return document.profile, document.profile_dir
 
 
 def resolve_build_document(
     profile_path: Path | None,
     preset: str | None,
-    overrides: tuple[Path, ...] = (),
+    overlays: tuple[Path, ...] = (),
     set_pairs: tuple[str, ...] = (),
 ) -> LoadedProfile:
-    """Resolve a build profile from any combination of preset / file / overlays.
+    """Resolve a build profile from a preset or a file, plus overlays and edits.
 
     Mode is determined by which of ``profile_path`` and ``preset`` is given;
     they are mutually exclusive and exactly one is required.
 
-    Layers are applied in order: base -> override file(s) -> --set values.
-    All layers are merged via :func:`_deep_merge` (string lists union-dedup,
-    other lists concatenate) before ``extends:`` is resolved.
+    ``overlays`` are the host-variant profiles ``osprey build`` selects
+    (:mod:`osprey.cli.variant_selection`): inheritance layers, merged over the
+    file through :func:`_deep_merge` before ``extends:`` is resolved, so string
+    lists union and ``exclude:`` subtracts, as in any other layer. ``set_pairs``
+    are edits, applied by :func:`apply_cli_edits` AFTER resolution: each
+    replaces the value at the key it names.
 
     The multi-source counterpart of
     :func:`~osprey.cli.build_profile_load.load_profile_document`, and it returns
@@ -404,8 +473,7 @@ def resolve_build_document(
 
     Raises:
         BuildProfileError: For mutual-exclusion violations, missing files,
-        invalid YAML, a ``--set config.*`` path colliding with a literal dotted
-        key, a ``data:`` tree in preset mode, or validation failures.
+        invalid YAML, a ``data:`` tree in preset mode, or validation failures.
     """
     if profile_path is not None and preset is not None:
         raise BuildProfileError("Pass either a profile path or --preset, not both.")
@@ -417,19 +485,26 @@ def resolve_build_document(
     # folds none either, for the same reason).
     is_persona_delta = False
     excluded_artifacts: frozenset[str] = frozenset()
+    # Which bundled preset the resolved document came through — the one thing
+    # that still says which packaged data bundle its tree is from, now that the
+    # preset-side `app_template:` is consumed during resolution.
+    inherited_preset: str | None = None
 
     if preset is not None:
         raw, base_anchor = _load_preset_raw(preset)
         profile_dir = base_anchor.parent
-        set_config_paths: list[tuple[str, ...]] = []
-        raw = merge_cli_overrides(raw, overrides, set_pairs, set_config_paths=set_config_paths)
         raw = _resolve_extends(raw, base_anchor)
-        # Same collision guard as the profile-file branch below, run after
-        # extends resolution so a parent's literal dotted key is visible too.
-        _reject_set_config_collisions(raw, set_config_paths)
+        # In preset mode the named preset IS the nearest one; what it extends is
+        # followed from there by `preset_data_bundle`.
+        inherited_preset = preset
+        # The command line edits the RESOLVED document, so a list it states is
+        # the list the profile then holds rather than one more layer for the
+        # inheritance merge to union with the preset's, and a subtree it names
+        # outranks the deeper keys the preset or a parent spells beneath.
+        raw = apply_cli_edits(raw, set_pairs)
 
         # Checked after extends resolution so no injection path escapes: the
-        # preset itself, a -O file, a --set pair, or an extends parent. A preset
+        # preset itself, a --set pair, or an extends parent. A preset
         # has no profile directory to anchor a data tree against (profile_dir is
         # the bundled package dir), so carrying one is always a mistake.
         if raw.get("data") is not None:
@@ -446,8 +521,10 @@ def resolve_build_document(
         raw = _read_profile_document(profile_path)
         if not isinstance(raw, dict):
             raise BuildProfileError(f"Profile must be a YAML mapping, got {type(raw).__name__}")
-        set_config_paths_file: list[tuple[str, ...]] = []
-        raw = merge_cli_overrides(raw, overrides, set_pairs, set_config_paths=set_config_paths_file)
+        for overlay_path in overlays:
+            overlay = _read_overlay(overlay_path)
+            if overlay is not None:
+                raw = _deep_merge(raw, overlay)
         # Resolution goes through the one call that decides what a profile file
         # *means* — the same one the loader and the content hash make. A file
         # under `personas/` is a delta merged over the `profile.yml` beside it
@@ -458,13 +535,15 @@ def resolve_build_document(
         raw, profile_dir = document.raw, document.root_dir
         is_persona_delta = document.is_persona_delta
         excluded_artifacts = document.excluded_artifacts
-        # One check, after full resolution, because only here does the whole
-        # picture exist: the paths ``--set`` addressed (provenance, from before
-        # the merge) and every literal dotted key any layer — the file, a -O
-        # overlay, an extends parent, a persona base — contributes (after it).
-        _reject_set_config_collisions(raw, set_config_paths_file)
+        inherited_preset = document.inherited_preset
+        # The command line's edits go onto the fully resolved document — the
+        # file, its variant overlay, an extends parent, a persona base, all
+        # merged — because only here does the whole picture an edit outranks
+        # exist: every literal dotted key any layer contributes.
+        raw = apply_cli_edits(raw, set_pairs)
 
     profile = _parse_profile(raw)
+    profile.inherited_preset = inherited_preset
     profile.validate(profile_dir)
     return LoadedProfile(
         profile=profile,
@@ -517,7 +596,6 @@ PROFILE_FILENAME = "profile.yml"
 
 def write_back_cli_overrides(
     profile_path: Path,
-    overrides: tuple[Path, ...] = (),
     set_pairs: tuple[str, ...] = (),
     tier: int | None = None,
 ) -> list[str]:
@@ -532,40 +610,35 @@ def write_back_cli_overrides(
 
     The edit **replaces** the value at each dotted key path. A value written
     into a file has to be the value the file then holds, or the profile stops
-    describing the deployment. (A first materialization still bakes its layers
-    in through :func:`merge_cli_overrides`, so ``osprey init -O``/``--set`` on a
-    *fresh* repo keeps layering semantics.)
+    describing the deployment. A first materialization makes the same edit to
+    the document before writing it (:func:`apply_cli_edits`), so
+    ``osprey init --set`` and ``osprey set`` land identically.
 
     ``config:`` is written the way a profile spells it — one mapping key holding
     the whole dotted path (``control_system.type``) rather than a nested map, so
     a write-back addresses the same rendered-config leaf the profile's own
-    entries do instead of wholesale-replacing a config subtree.
+    entries do. A mapping VALUE is the other case: ``config.a={…}`` states the
+    whole value of ``a``, so it is written whole and the entries beneath ``a``
+    are removed first.
 
     Args:
         profile_path: The ``profile.yml`` (or persona delta) being edited.
-        overrides: ``-O`` files, deep-merged in declaration order. Nothing in
-            the shipped CLI passes them: ``osprey init -O`` layers at
-            materialization instead (see :func:`merge_cli_overrides`), so this
-            is API surface, not a live path.
-        set_pairs: The ``osprey set`` pairs — the only argument its one
-            production caller passes.
-        tier: Written as the profile's ``tier:`` key. Caller-less for the same
-            reason as *overrides*.
+        set_pairs: The ``osprey set`` pairs.
+        tier: Written as the profile's ``tier:`` key.
 
     Returns:
         The dotted key paths written, in write order; empty when there was
         nothing to write.
 
     Raises:
-        BuildProfileError: If an override file is missing, unreadable, or not a
-            YAML mapping, or a ``--set`` pair is malformed.
-        click.UsageError: If a layer sets ``extends``, which a materialized
+        BuildProfileError: If a ``--set`` pair is malformed.
+        click.UsageError: If a pair sets ``extends``, which a materialized
             profile cannot have — the same refusal materialization makes, so the
-            same override file is answered the same way on every build.
+            same edit is answered the same way on every build.
     """
-    # Layered against an empty base so only what the CLI supplied is written —
-    # the profile's own content is never rewritten as a side effect.
-    layer = merge_cli_overrides({}, overrides, set_pairs)
+    # Only what the CLI supplied is written — the profile's own content is
+    # never rewritten as a side effect.
+    layer = cli_edit_layer(set_pairs)
     if tier is not None:
         layer["tier"] = tier
     if "extends" in layer:
@@ -574,7 +647,7 @@ def write_back_cli_overrides(
         return []
 
     updates = _flatten_override_layer(layer)
-    _write_profile_values(profile_path, updates)
+    _write_profile_values(profile_path, updates, claimed=_stated_config_paths(layer))
     written = [".".join(key_path) for key_path, _ in updates]
     # Debug, not info: the two callers both report the write in their own words
     # — ``osprey set`` prints the keys it wrote, and a build prints them as part
@@ -590,12 +663,12 @@ def write_back_cli_overrides(
 
 
 def _flatten_override_layer(layer: dict[str, Any]) -> list[tuple[list[str], Any]]:
-    """Flatten a CLI override layer into ``(key_path, value)`` leaf writes.
+    """Flatten a CLI edit layer into ``(key_path, value)`` writes.
 
-    Descends mappings so an override touches only the leaf it names; scalars,
-    lists and empty mappings are leaves — which is exactly
-    :func:`_dotted_leaves`, so the descent is done there rather than a second
-    time here.
+    Descends the nesting key dots spelled, so ``a.b=1`` touches only the leaf
+    ``a.b``; scalars, lists and mapping VALUES (:class:`_MappingValue`) are
+    written whole at the key named — which is exactly :func:`_dotted_leaves`,
+    so the descent is done there rather than a second time here.
 
     ``config:`` is the one block that does not nest: its keys are dotted paths
     into the *rendered* config, held as single mapping keys. Its interior is
@@ -621,19 +694,43 @@ def _flatten_override_layer(layer: dict[str, Any]) -> list[tuple[list[str], Any]
 def _dotted_leaves(
     mapping: dict[str, Any], prefix: tuple[str, ...] = ()
 ) -> list[tuple[tuple[str, ...], Any]]:
-    """Every leaf of ``mapping`` as a ``(path_segments, value)`` pair."""
+    """Every leaf of ``mapping`` as a ``(path_segments, value)`` pair.
+
+    Key nesting (a plain dict) is descended; a mapping given as a value
+    (:class:`_MappingValue`) is a leaf and comes back as a plain dict.
+    """
     leaves: list[tuple[tuple[str, ...], Any]] = []
     for key, value in mapping.items():
         path = (*prefix, str(key))
-        if isinstance(value, dict) and value:
+        if isinstance(value, _MappingValue):
+            leaves.append((path, dict(value)))
+        elif isinstance(value, dict) and value:
             leaves.extend(_dotted_leaves(value, path))
         else:
             leaves.append((path, value))
     return leaves
 
 
-def _write_profile_values(profile_path: Path, updates: list[tuple[list[str], Any]]) -> None:
+#: Top-level shorthand keys and the rendered-config key each stands for.
+_SHORTHAND_CONFIG_KEYS: tuple[tuple[str, str], ...] = (
+    (CONNECTOR_PROFILE_KEY, CONNECTOR_CONFIG_KEY),
+    (PORT_BASE_PROFILE_KEY, PORT_BASE_CONFIG_KEY),
+)
+
+
+def _write_profile_values(
+    profile_path: Path,
+    updates: list[tuple[list[str], Any]],
+    claimed: list[tuple[str, ...]] = (),
+) -> None:
     """Set each ``key_path`` in ``profile_path`` to its value, keeping comments.
+
+    ``claimed`` are the rendered-config paths the edit names
+    (:func:`_stated_config_paths`); every ``config:`` entry beneath one of them
+    is removed before the new leaves are written, the same prune
+    :func:`apply_cli_edits` makes in memory — so ``osprey set
+    config.approval.tools={…}`` leaves the file holding the ``approval.tools.*``
+    entries it spelled and none of the ones it replaced.
 
     Uses the shared round-trip YAML handle rather than a private one: the
     profile is a hand-edited, heavily commented document, and a second handle
@@ -650,6 +747,10 @@ def _write_profile_values(profile_path: Path, updates: list[tuple[list[str], Any
     from osprey.utils.config_writer import _yaml, load_config_document
 
     data = load_config_document(profile_path)
+    config = data.get(_CONFIG_SET_PREFIX)
+    if claimed and isinstance(config, dict):
+        for key in _shadowed_config_keys(config, claimed):
+            del config[key]
     for key_path, value in updates:
         node = data
         for segment in key_path[:-1]:
@@ -657,6 +758,13 @@ def _write_profile_values(profile_path: Path, updates: list[tuple[list[str], Any
                 node[segment] = CommentedMap()
             node = node[segment]
         node[key_path[-1]] = value
+    # An edit that lands on the config key a top-level shorthand stands for
+    # retires the shorthand: left beside it, the parse-time fold would restore
+    # the old value on the next read and the edit would silently not stick.
+    written = {".".join(key_path) for key_path, _ in updates}
+    for shorthand, config_key in _SHORTHAND_CONFIG_KEYS:
+        if f"{_CONFIG_SET_PREFIX}.{config_key}" in written and shorthand in data:
+            del data[shorthand]
     rendered = io.StringIO()
     _yaml.dump(data, rendered)
     _atomic_write_bytes(profile_path, rendered.getvalue().encode("utf-8"))

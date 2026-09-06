@@ -4392,6 +4392,11 @@ def test_lint_preset_persona_inheriting_an_armed_block_is_an_error(tmp_path, mon
             }
         )
     )
+    # `data:` is required of every profile EXCEPT a bundled preset, and the
+    # exemption is "the profile directory IS the presets directory". This one
+    # patch covers it: the model asks `is_bundled_preset_dir`, which reads the
+    # directory from here, so these two are exempt rather than validating as
+    # ordinary profiles with no data tree.
     monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: presets_dir)
     config = _profile_config(
         default_persona="tier",

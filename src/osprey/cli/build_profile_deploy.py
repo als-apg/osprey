@@ -375,8 +375,8 @@ def limits_block_errors(config: Mapping[str, Any]) -> list[str]:
     posture, and a deployment pointed at that type later would inherit it.
 
     Args:
-        config: The profile's ``config:`` block, as merged — presets, ``-O``
-            overlays, ``--set`` pairs and ``extends`` parents folded together.
+        config: The profile's ``config:`` block, as merged — presets,
+            overlays, ``--set`` edits and ``extends`` parents folded together.
             A non-mapping has nothing to refuse.
 
     Returns:

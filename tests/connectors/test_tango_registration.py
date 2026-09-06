@@ -116,7 +116,7 @@ class TestCliSurface:
         repo = tmp_path / "tango-deployment"
         repo.mkdir()
         (repo / "profile.yml").write_text(
-            "name: TANGO Test\ndata_bundle: hello_world\nprovider: anthropic\n",
+            "name: TANGO Test\ndata: data\nprovider: anthropic\n",
             encoding="utf-8",
         )
 

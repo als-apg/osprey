@@ -95,6 +95,7 @@ def build(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
         )
         repo = tmp_path / "proj"
         repo.mkdir(exist_ok=True)
+        (repo / "data").mkdir(exist_ok=True)
         profile = repo / "profile.yml"
         profile.write_text(profile_yaml, encoding="utf-8")
         args = ["build", "--repo", str(repo), "--skip-lifecycle"]
@@ -114,7 +115,7 @@ def _profile_yaml(
     packages: list[str] | None = None,
 ) -> str:
     """A hello-world-derived profile carrying the declarations under test."""
-    lines = ["extends: hello-world", f"osprey_install: {OSPREY_SPEC}"]
+    lines = ["extends: hello-world", "data: data", f"osprey_install: {OSPREY_SPEC}"]
     if dependencies:
         lines += ["dependencies:", *(f"  - {json.dumps(dep)}" for dep in dependencies)]
     if python or packages:

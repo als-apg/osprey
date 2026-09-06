@@ -50,6 +50,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -59,6 +60,7 @@ from osprey.deployment.container_lifecycle import _STORE_ISSUED_VARS
 from osprey.deployment.openobserve_provision import INGEST_TOKEN_VAR
 from osprey.utils.dotenv import parse_dotenv_file
 from tests.e2e._volumes import remove_project_volumes
+from tests.e2e.profile_edits import set_pairs
 
 #: The ingest account NAME, read off the registry that pairs it with the token
 #: rather than spelled again here — the two must never disagree about which
@@ -67,7 +69,7 @@ INGEST_EMAIL_VAR = _STORE_ISSUED_VARS[INGEST_TOKEN_VAR].identity_var
 
 # Deliberately NOT OpenObserve's 5080 default: this is a shared dev machine and
 # 5080 can collide with an unrelated process. Pinned through the SOURCE zone at
-# init (see _write_port_override), because the compose file is rendered by the
+# init (see _port_edit), because the compose file is rendered by the
 # build; the container still listens on 5080 inside.
 OO_HOST_PORT = 15080
 OO_BASE_URL = f"http://localhost:{OO_HOST_PORT}"
@@ -175,21 +177,17 @@ def _remove_oo_data_volumes() -> None:
     )
 
 
-def _write_port_override(base: Path) -> Path:
+def _port_edit() -> dict[str, Any]:
     """Pin the openobserve host port in the SOURCE zone, for ``osprey init``.
 
     The service's compose file is rendered by ``osprey build`` and ``osprey up``
     deploys it as built, so the port has to be set on the profile the build
     reads — an edit to ``build/config.yml`` after the build never reaches the
-    rendered compose. A dotted LEAF key on purpose: it sets only the port and
+    rendered compose. A dotted LEAF key on purpose: it states only the port and
     leaves the preset's sibling ``services.openobserve`` settings (path,
-    retention_days) intact, whereas a nested mapping would replace the subtree.
+    retention_days) intact.
     """
-    override_path = base / "override.yml"
-    override_path.write_text(
-        f"config:\n  services.openobserve.port: {OO_HOST_PORT}\n", encoding="utf-8"
-    )
-    return override_path
+    return {"config": {"services.openobserve.port": OO_HOST_PORT}}
 
 
 def _assert_render_deploys_openobserve(repo: Path) -> None:
@@ -247,8 +245,7 @@ def deployed_openobserve(tmp_path_factory: pytest.TempPathFactory) -> Iterator[P
             "--preset",
             "hello-world",
             "--no-git",
-            "--override",
-            str(_write_port_override(base)),
+            *set_pairs(_port_edit()),
         ],
         cwd=base,
         timeout=300,

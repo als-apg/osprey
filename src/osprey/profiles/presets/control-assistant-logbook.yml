@@ -128,6 +128,7 @@ config:
   # build copies every such fact from the deployment's own render into it
   # (the Reach Contract, `osprey.deployment.reach`). Per-user web-terminal
   # containers run `network_mode: host`, so container `localhost` IS the
-  # deployment host and the copied ports are dialed there. Built alone, with
-  # no hosting deployment in the repo, the build copies what the app template
-  # deploys at its defaults instead — and a host that differs is named here.
+  # deployment host and the copied ports are dialed there. The build renders
+  # no services for this persona and writes `deployed_services: []` into its
+  # config — every `services.*` key inherited from the base profile is dropped
+  # from this render — and a host that differs is named here.

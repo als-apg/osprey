@@ -17,23 +17,11 @@ app_template: ariel_standalone
 provider: anthropic
 model: haiku   # tier (haiku/sonnet/opus), or any model ID the provider serves
 
-# Any custom gateway works too: name it as the provider, describe it under
-# `config:` below, and put its key in this repo's .env — the variable name
-# derives from the provider name, <NAME>_API_KEY. Worked example:
-#
-# provider: my-gateway
-# config:
-#   api.providers.my-gateway.api_key: ${MY_GATEWAY_API_KEY}
-#   api.providers.my-gateway.base_url: https://my-gateway.example.com/v1
-#   # Optional — the gateway speaks Anthropic natively (e.g. a LiteLLM proxy
-#   # in Anthropic mode), so the local translation proxy is skipped:
-#   api.providers.my-gateway.api_protocol: anthropic
-#   # Optional tier map, model IDs as the gateway names them. Unmapped tiers
-#   # fall back to `model:` above, with a build-time warning:
-#   api.providers.my-gateway.models:
-#     haiku: claude-haiku-4-5
-#     sonnet: claude-sonnet-4-6
-#     opus: claude-opus-4-6
+# `provider:` names an entry in providers.yml, the provider catalog beside this
+# file. To use a gateway of your own, add its entry there (api_key, base_url and
+# a models tier map) and name it here; the key goes in this repo's .env under the
+# variable the entry's `api_key` references. A `config: api.providers.*` key is
+# refused: the catalog is the one home for provider endpoints.
 
 # Selects an alternate CLAUDE.md persona — "logbook research assistant"
 # instead of the default control-system operator. See
@@ -85,6 +73,356 @@ web_panels:
 # just not the one the user sees first.
 default_panel: ariel
 
-# ── Config overrides ─────────────────────────────────────────────────────────
+# ── Everything else ──────────────────────────────────────────────────────────
+# One dotted `key.path` per line. Never write a nested block here: it would
+# replace the whole subtree and silently drop the keys beside it.
+#
+# This block is where configuration lives. build/config.yml is generated from
+# it and should never be hand-edited. `osprey set` writes here.
+#
+# Not written here, because the build derives them: the project's paths, the
+# provider catalog (providers.yml beside this file), the agent's, the
+# semantic processor's and the logbook composer's provider and model (from
+# `provider:` / `model:` above), the panel selection (from `web_panels:` /
+# `default_panel:`), and every host port.
 config:
+  # ── Facility ───────────────────────────────────────────────────────────────
+  # Display name woven into the agent prompts and the web landing page. Keep it
+  # in sync with .claude/rules/facility.md.
+  facility.name: Example Research Facility
+  # Short prefix for container names (`<prefix>-nginx`, `<prefix>-web-<user>`).
+  # Only the multi-user web-terminal stack reads it.
+  # facility.prefix: ex
+  # This facility's compiled ontology table feeds the channel-finder subagent's
+  # vocabulary. No channel finder here: the graph agent reads the vocabulary
+  # out of the seeded store instead, so the key stays an example.
+  # facility.ontology: data/facility_ontology.json
+
+  # ── Services ───────────────────────────────────────────────────────────────
+  # Containerized companion services. Declare one as `services.<name>.*` and
+  # add its name to `deployed_services` below to launch it with `osprey up`.
+  # No host ports are written here: each service publishes on its fixed slot
+  # above `deployment.port_base` (set that key to move the whole block). Add
+  # `services.<name>.port` (`port_host` for the stores) only to pin one
+  # outside it.
+  #
+  # PostgreSQL backs ARIEL logbook search. Compose directory, under build/.
+  services.postgresql.path: ./services/postgresql
+  # Database and role ARIEL connects as. No password key: it lives in this
+  # repo's .env as ARIEL_DB_PASSWORD (minted by `osprey up`), read by both the
+  # container and the agent's ARIEL DSN, which is derived from this block.
+  services.postgresql.database_name: ariel
+  services.postgresql.username: ariel
+  # OpenObserve, the local telemetry store the agent emits to (see
+  # `claude_code.telemetry.*` below). Compose directory, under build/.
+  services.openobserve.path: ./services/openobserve
+  # Growth bound: drop data older than N days (min 3). A named volume has no
+  # size cap, so age is the size knob.
+  services.openobserve.retention_days: 14
+  # qmd, the semantic-search sidecar. It indexes the ARIEL markdown mirror that
+  # `ariel.enhancement_modules.qmd_export` writes and answers the `hybrid`
+  # search mode over HTTP, with its language models baked into the image (no
+  # Ollama needed). The image is built locally on the first `osprey up`; the
+  # ~2.1 GB of models make that first build long. On a large existing logbook
+  # the first index pass runs before the port opens (about 41 minutes for
+  # 135,000 entries); `osprey health` shows the container as starting until
+  # then. It publishes on `deployment.bind_address` with no token and no TLS,
+  # so leave that on loopback.
+  services.qmd.path: ./services/qmd
+  # Fallback corpus-sweep period in seconds. The mirror's `.qmd-touch` marker
+  # is the primary re-index trigger, so this is the ceiling on staleness.
+  # Raise it on a large corpus, where a no-op sweep is not free.
+  services.qmd.interval: 30
+  # Neo4j graph store holding a DISPOSABLE mirror of an RDF/Turtle corpus. The
+  # TTL on disk stays the source of truth and `osprey knowledge seed-graph`
+  # rebuilds the graph from it. It answers the multi-hop questions keyword and
+  # semantic search cannot: what a channel belongs to, what a subsystem
+  # contains. No password key: the container reads GRAPHDB_PASSWORD from this
+  # repo's .env, minted by `osprey up`.
+  services.graphdb.path: ./services/graphdb
+  # Pinned to the 5.26 LTS line: neosemantics (n10s), the plugin that imports
+  # the RDF, has no manifest entry for anything newer. Repoint it at a mirror
+  # or a pre-baked image on an air-gapped host.
+  services.graphdb.image: neo4j:5.26-community
+  # Corpus to seed the store from, relative to the build directory. This is
+  # the demo machine every OSPREY demo describes. Point it at your own TTL, or
+  # remove the key to bring the store up bootstrapped but empty.
+  services.graphdb.ttl_path: ./data/demo_machine.ttl
+  # Search index derived from the corpus above at build time, and the default —
+  # uncomment only to move it. The channel explorer's search, the channel roster
+  # and the agent's keyword tool read this file rather than querying the store,
+  # so it answers in milliseconds at any corpus size. Resolved against the
+  # render like `ttl_path`; rebuild it by hand after regenerating the TTL with
+  # `osprey knowledge build-index`.
+  # services.graphdb.index_path: ./data/channel_databases/graph.duckdb
+  # JVM memory. Neo4j sizes nothing automatically inside a container, so all
+  # three are spelled out. Budget roughly heap_max_size + pagecache_size +
+  # ~0.5G overhead; a substantially larger graph wants more.
+  services.graphdb.heap_initial_size: 512m
+  services.graphdb.heap_max_size: 1G
+  # Off-heap cache for graph data and indexes, separate from the heap.
+  services.graphdb.pagecache_size: 512m
+  # Bounds on ONE agent query through the `read_cypher` tool: the server-side
+  # transaction timeout in seconds, and the rows returned before truncation
+  # (the tool says when it cut). Raising them spends the agent's context.
+  services.graphdb.query_timeout_s: 15
+  services.graphdb.query_max_rows: 200
+  # To use a graph store this deployment does not run, name it here and take
+  # `graphdb` out of `deployed_services`. Nothing is minted on that path: set
+  # GRAPHDB_PASSWORD in this repo's .env yourself.
+  # services.graphdb.uri: bolt://graph.example.org:7687
+  # services.graphdb.username: neo4j
+  # Which declared services `osprey up` launches. qmd and graphdb each go
+  # together with their `services.<name>.*` keys above: remove both or neither.
+  deployed_services:
+    - postgresql
+    - openobserve
+    - qmd
+    - graphdb
+  # Host interface the services publish on. 127.0.0.1 keeps every port
+  # loopback-only, the safe state; 0.0.0.0 exposes them to the network.
+  # deployment.bind_address: 127.0.0.1
+
+  # ── Approval ───────────────────────────────────────────────────────────────
+  # Applied by the approval hook, so it reaches only hook-wired tools: here
+  # ARIEL `entry_create`, workspace `setup_patch` and facility-knowledge
+  # `draft_concept`. Everything else is gated by the rendered settings.json
+  # permissions.
+  approval.enabled: true
+  # Policy for any hook-wired tool not listed below. "always" is fail-closed.
+  approval.default_policy: always
+  # Creating a logbook entry always asks first.
   approval.tools.entry_create: always
+
+  # ── Hook observability ─────────────────────────────────────────────────────
+  # On here. Every hook call logs one line to stderr and appends to
+  # .claude/hooks/hook_debug.jsonl (never rotated: prune it yourself), which
+  # is what the web terminal's Safety panel hook feed reads. OSPREY_HOOK_DEBUG
+  # in the environment forces it on regardless of this key.
+  hooks.debug: true
+
+  # ── ARIEL logbook search ───────────────────────────────────────────────────
+  # No `ariel.database.uri`: the DSN is derived from `services.postgresql.*`
+  # above, so moving the database stays a one-place edit. Set it only to point
+  # ARIEL at a Postgres this deployment does not run; an explicit uri wins.
+  # ariel.database.uri: postgresql://ariel:${ARIEL_DB_PASSWORD}@logbook-db.example.org:5432/ariel
+  # osprey:panel-port ariel
+  # The ARIEL tab's own web server. It launches when `ariel` is in
+  # `web_panels:` above, on this deployment's ARIEL slot; OSPREY_ARIEL_PORT or
+  # the port key below override it. `host` has no env override.
+  # ariel.web.host: 127.0.0.1
+  # ariel.web.port: <a port outside this deployment's block>
+  # ariel.web.auto_launch: true
+  # Where entries come from. The bundle ships a demo logbook; for production
+  # point adapter and source_url at your logbook system and run
+  # `osprey ariel ingest`.
+  ariel.ingestion.adapter: generic_json
+  ariel.ingestion.source_url: data/logbook_seed/demo_logbook.json
+  # Which module answers a search that names no mode: the web interface's
+  # opening tab, `osprey ariel search` without `--mode`, and the service API.
+  # Naming a module that is off below is refused at startup.
+  ariel.default_search_mode: hybrid
+  # Facility vocabulary: control-room shorthand ("t/s the bpm offset") mapped
+  # to the words the logbook prose contains. Off here because a vocabulary is
+  # facility content and this preset ships none: write a vocabulary.yml (the
+  # control-assistant preset ships a twenty-concept example under data/ariel/),
+  # set the path below and switch this on. The file is read once at startup; a
+  # broken one fails loudly there. Check it with `osprey ariel vocab-check`.
+  ariel.vocabulary.enabled: false
+  # Path to the vocabulary file, relative to the project root.
+  # ariel.vocabulary.path: data/ariel/vocabulary.yml
+  # Whether a search that expresses no preference gets expansion. The
+  # per-request `expand_query` argument overrides it either way.
+  ariel.vocabulary.expand_by_default: true
+  # Reverse expansion gates. Matching a form and adding its canonical is
+  # always on (`bpm` finds "beam position monitor"); these decide whether a
+  # spelled-out canonical also searches its short form. Free recall for an
+  # acronym, noise for an ordinary word ("calibration" → "cal").
+  ariel.vocabulary.canonical_to_acronym: true
+  ariel.vocabulary.canonical_to_shorthand: false
+  # Search modules. Knobs MUST sit under `settings`: the loader keeps only
+  # `enabled`, `provider`, `model` and `settings` and drops any other key
+  # silently.
+  #
+  # Keyword search over Postgres.
+  ariel.search_modules.keyword.enabled: true
+  # Pattern tokens in a keyword query: `*` globs and explicit `/regex/`, run
+  # as case-insensitive matches (a glob is also anchored to word boundaries).
+  # Both need 3 consecutive literal characters to use the index. Set false to
+  # make `*` and `/…/` plain words again.
+  ariel.search_modules.keyword.settings.patterns_enabled: true
+  # Wall-clock envelope for a pattern search, in seconds. A pattern that cannot
+  # use the index scans the whole logbook; this returns a timeout diagnostic
+  # instead of holding the caller open.
+  ariel.search_modules.keyword.settings.pattern_timeout_seconds: 10.0
+  # Semantic search over pgvector embeddings. Degrades to keyword-only when
+  # Ollama or pgvector is unavailable, and says so.
+  ariel.search_modules.semantic.enabled: true
+  # Embedding provider (an entry in providers.yml) and model.
+  ariel.search_modules.semantic.provider: ollama
+  ariel.search_modules.semantic.model: nomic-embed-text
+  # Hybrid keyword+semantic search answered by the qmd sidecar: the
+  # best-ranked retrieval this preset ships, and the only semantic-quality
+  # mode that needs nothing on the host. It needs `services.qmd.*` above and
+  # the `qmd_export` enhancement below; switch all three off together or not
+  # at all. Unlike semantic search it does not degrade: a query against a
+  # missing sidecar is reported as "search is down".
+  ariel.search_modules.hybrid.enabled: true
+  # qmd's LLM reranker: an LLM reviews every candidate, so it dominates query
+  # latency. One key for both surfaces, the agent's hybrid_search tool and the
+  # ARIEL panel; each can override it per call or per session.
+  ariel.search_modules.hybrid.settings.rerank: true
+  # Candidates the reranker considers. Lowering it trades recall for latency.
+  ariel.search_modules.hybrid.settings.candidate_limit: 40
+  # Enhancement modules, run during ingestion.
+  #
+  # Semantic processor: LLM keyword extraction and summarisation. Off because
+  # it costs LLM calls; the provider and model follow `provider:` / `model:`.
+  ariel.enhancement_modules.semantic_processor.enabled: false
+  # Token budget for each of its LLM calls.
+  ariel.enhancement_modules.semantic_processor.model.max_tokens: 256
+  # Text embedding for semantic search. Degrades gracefully when Ollama or
+  # pgvector is unavailable.
+  ariel.enhancement_modules.text_embedding.enabled: true
+  ariel.enhancement_modules.text_embedding.provider: ollama
+  # Embedding models and their vector dimension.
+  ariel.enhancement_modules.text_embedding.models:
+    - name: nomic-embed-text
+      dimension: 768
+  # qmd export: one markdown file per entry into the mirror tree the sidecar
+  # indexes. On for the same reason `hybrid` above is; an enabled export with
+  # no mirror_path is refused at startup.
+  ariel.enhancement_modules.qmd_export.enabled: true
+  # The mirror tree, relative to the project root. Under var/ (the durable
+  # STATE zone, kept out of git): it is machine-written and as large as the
+  # logbook. The compose generator binds this same path into the sidecar.
+  ariel.enhancement_modules.qmd_export.settings.mirror_path: var/ariel_mirror
+  # Default provider for EMBEDDING modules that name none of their own. Not a
+  # general fallback: the semantic processor's provider is derived separately.
+  ariel.embedding.provider: ollama
+
+  # ── Logbook composition ────────────────────────────────────────────────────
+  # The compose panel in the artifact gallery. Its provider follows
+  # `provider:` above; this is the tier used when the operator picks none
+  # (haiku | sonnet | opus), mapped to a model ID through providers.yml.
+  logbook.composition.default_tier: haiku
+
+  # ── Agent servers ──────────────────────────────────────────────────────────
+  # An ARIEL-only deployment: the control-system and Python-executor servers
+  # are off. The workspace and ariel servers stay on (the deep-research
+  # skill needs the workspace server for artifact handoff).
+  claude_code.servers.controls.enabled: false
+  claude_code.servers.python.enabled: false
+  # Override model IDs per tier, or the tier one agent runs at.
+  # claude_code.models.haiku: anthropic/claude-haiku-alt
+  # claude_code.agent_models.logbook-deep-research: sonnet
+
+  # ── Telemetry ──────────────────────────────────────────────────────────────
+  # The agent emits OTLP logs and metrics to the OpenObserve store this
+  # deployment runs (`services.openobserve.*` above). On by default: the
+  # harness already records every prompt and API body to disk, so this adds no
+  # exposure, only a queryable local store you own.
+  claude_code.telemetry.enabled: true
+  # openobserve | generic
+  claude_code.telemetry.backend: openobserve
+  # http/protobuf | grpc. grpc needs an explicit `claude_code.telemetry.endpoint`
+  # and is refused against the auto-derived openobserve endpoint (HTTP only).
+  claude_code.telemetry.protocol: http/protobuf
+  # No endpoint key: with backend openobserve it is derived per network
+  # context, so the in-container dispatch worker does not emit to its own
+  # loopback.
+  # The store's INGEST account: `osprey up` creates a service account named by
+  # ZO_INGEST_USER_EMAIL and writes the token it issues to this repo's .env as
+  # ZO_INGEST_SA_TOKEN. No default for the token on purpose: a literal default
+  # would be a published credential.
+  claude_code.telemetry.openobserve.user: ${ZO_INGEST_USER_EMAIL:-ingest@example.com}
+  claude_code.telemetry.openobserve.password: ${ZO_INGEST_SA_TOKEN}
+  # OpenObserve organisation the records land in.
+  claude_code.telemetry.openobserve.org: default
+  # Content gates, all on: the store is local and loopback-bound. Set any to
+  # false to keep that category out of the emitted telemetry. Rebinding the
+  # store off localhost? Change its password first: these include raw API
+  # bodies.
+  claude_code.telemetry.log_user_prompts: true
+  claude_code.telemetry.log_assistant_responses: true
+  claude_code.telemetry.log_tool_details: true
+  # Raw provider request and response bodies.
+  claude_code.telemetry.log_raw_api_bodies: true
+
+  # ── Web terminal ───────────────────────────────────────────────────────────
+  # osprey:panel-port artifact
+  # The WORKSPACE tab's artifact server. Under `osprey web` it launches at
+  # startup whatever the panel list says; `auto_launch: false` is the only
+  # thing that stops it. The port is this deployment's workspace slot;
+  # OSPREY_ARTIFACT_SERVER_PORT or `artifact_server.port` override it. `host`
+  # has no env override.
+  artifact_server.host: 127.0.0.1
+  artifact_server.auto_launch: true
+  # Target of the Documentation button. Point it at a locally hosted copy of
+  # the docs when the control room has no route to the public site.
+  web.docs_url: https://als-apg.github.io/osprey
+  # Whether the web Config panel may edit this deployment's config.yml and
+  # .claude/ setup files. `false` withdraws the panel's whole server surface
+  # (every /api/config verb answers 403), not just its tab: these files are what
+  # the agent's permissions are rendered from. Leave true for a single-user
+  # deployment; set false for the read-only tiers of a multi-user one.
+  web.config_panel.enabled: true
+  # Whether the Scaffold gallery may WRITE. `false` closes create, save, reset,
+  # register and delete (403) while every read stays open. A privilege
+  # boundary: the gallery authors the .claude/ content the agent obeys. Leave
+  # true for a single-user deployment; set false for read-only tiers.
+  web.scaffold_gallery.write_enabled: true
+  # The Feedback dialog's outbound channels. Nothing is posted for the user:
+  # the browser opens a prefilled issue form or mail draft. Every submission
+  # is also recorded here (`osprey feedback list` / `export`).
+  #
+  # Reports go to ONE destination: whoever owns this deployment. A user is
+  # not asked whether a bug is OSPREY's or this facility's configuration.
+  # Left unconfigured, the owner is the OSPREY project itself. A facility
+  # that names an owner becomes the destination, and the reports it
+  # receives carry a one-click link for forwarding a framework bug
+  # upstream. One block, because the address and the tracker have to move
+  # together: redirecting the mail but leaving the tracker upstream sends
+  # half the reports to strangers.
+  # web.feedback.owner:
+  #   name: ALS Controls
+  #   email: controls@example.org
+  #   tracker:
+  #     kind: gitlab            # gitlab | github
+  #     target: https://git.example.org/controls/osprey
+  #                             # gitlab: the project URL; github: owner/name
+  #     label: Controls GitLab  # optional caption for the radio
+  # owner/repo whose new-issue form the GitHub channel prefills. Predates
+  # `owner` above and still wins over it wherever it is spelled, so an
+  # existing deployment keeps meaning what it meant; "" offers no GitHub
+  # channel.
+  web.feedback.github_repo: als-apg/osprey
+  # Further trackers, one channel each: a `gitlab` entry takes the project's
+  # base URL, a `github` entry owner/repo; `label` captions it.
+  # web.feedback.trackers:
+  #   - kind: gitlab
+  #     url: https://git.example.org/controls/osprey
+  #     label: Facility GitLab
+  # Recipient of the prefilled mailto: draft the Email channel opens. Wins
+  # over `owner.email` above, on the same grounds as `github_repo`.
+  web.feedback.email: thellert@lbl.gov
+  # Ceiling in bytes on the on-disk feedback store (256 MB). Above it the
+  # oldest saved session contexts are deleted; submission headers are kept.
+  web.feedback.max_store_bytes: 268435456
+  # Optional panel controls, off by default. Named layouts a human applies
+  # from the "+" popover are the `panel_presets:` field, not a key here.
+  # web.panels.<id>.hidden: true          # launch a panel but keep its tab hidden
+  # web.allow_runtime_panels: true        # let the agent register ad-hoc URL panels
+  # web.runtime_panel_allowlist: ["dashboard.local:3000"]   # restrict those targets
+
+  # ── Runtime ────────────────────────────────────────────────────────────────
+  # Agent Python runs as a host subprocess.
+  execution.execution_method: subprocess
+  # Facility timezone: ARIEL parses operator times as facility-local and
+  # renders every logbook timestamp in this zone. Pinned to UTC for
+  # reproducibility; set your real zone in production. Avoid ${TZ:-...}:
+  # inheriting the host $TZ makes logbook queries non-deterministic.
+  system.timezone: UTC
+  # Container runtime `osprey up` uses: auto (Docker first, then Podman),
+  # docker, or podman. CONTAINER_RUNTIME in the environment overrides it.
+  container_runtime: auto

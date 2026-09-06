@@ -2946,7 +2946,7 @@ BRIDGE_IMAGE = _orm_stack.bridge_image(PROJECT_NAME)
 VA_IMAGE = _orm_stack.va_image(PROJECT_NAME)
 PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 
-#: Everything this module deep-merges into ``_orm_stack.override_yaml()``:
+#: Everything this module deep-merges into ``_orm_stack.profile_edits()``:
 #: host-port moves ``init_args`` has no ``--set`` hook for, plus the approval
 #: policy the headless agent needs. Note the two ALTITUDES, which is the
 #: whole reason this is one dict and not sibling entries:
@@ -2960,15 +2960,15 @@ PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 #:   entries are synthesized by the build injectors AFTER the config overlay
 #:   runs, so a dotted ``config:`` key for either is silently discarded — no
 #:   error, no stray key, just the default port. They must be set at profile
-#:   altitude, as top-level blocks, which is where the override file already
-#:   speaks.
+#:   altitude, as top-level blocks, which is where the shared edits already
+#:   speak.
 #:
 #: ``va_archiver.port_host`` moves the archiver store's Mongo off 27017, and
 #: it is the altitude trap above in its most expensive form: ``osprey up``
 #: refuses to touch ANY container when one published port is taken, so a
 #: tutorial stack holding 27017 blocks this whole module — and the ``config:``
 #: spelling of the same key is accepted in silence and changes nothing. The
-#: ``va_archiver`` block deep-merges into the one ``_orm_stack.override_yaml()``
+#: ``va_archiver`` block deep-merges into the one ``_orm_stack.profile_edits()``
 #: already declares, so the CI-sized retention knobs there stay put.
 #:
 #: The ``bluesky`` block here carries ONLY ``tiled_port``: ``bluesky.port`` and
@@ -2985,7 +2985,7 @@ PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 #: ``config.yml`` and defaults unlisted tools to ``always`` — so without these
 #: the hook returns ``permissionDecision: "ask"`` on every ``queue_add``, and a
 #: headless session with no responder takes that as a hard denial. Set here
-#: rather than in ``_orm_stack.override_yaml()`` because that helper is shared
+#: rather than in ``_orm_stack.profile_edits()`` because that helper is shared
 #: with both round-trip e2es and the Docker-free render gate, which must keep
 #: the shipped default policy.
 #:

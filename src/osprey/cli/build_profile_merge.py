@@ -17,8 +17,13 @@ from typing import Any
 
 from osprey.errors import BuildProfileError
 
-from .build_profile_document import _normalize_profile_aliases, _read_profile_document
-from .build_profile_presets import _load_preset_raw, _preset_exists, list_presets
+from .build_profile_document import _read_profile_document
+from .build_profile_presets import (
+    PRESET_DATA_BUNDLE_KEY,
+    _load_preset_raw,
+    _preset_exists,
+    list_presets,
+)
 from .profile_root import PERSONA_DIRNAME, ROOT_PROFILE_FILENAME, resolve_profile_root
 
 _LOGGER = logging.getLogger(__name__)
@@ -203,6 +208,47 @@ def _split_exclude_entry(field_name: str, source: str | None, entry: Any) -> tup
     return entry, False
 
 
+def _apply_config_exclude(merged: dict[str, Any], entries: Any) -> None:
+    """Subtract ``exclude.config`` entries from list-valued ``config:`` keys.
+
+    Each key names a ``config:`` entry by its dotted spelling and maps to the
+    items to remove from the list held there. A key the merged config does not
+    carry is a silent no-op, like any other absent exclusion; a key that is
+    present but holds something other than a list is refused, because the
+    profile would then be making two statements about one fact.
+
+    Args:
+        merged: The merged raw profile dict (mutated in place).
+        entries: The raw ``exclude.config`` value.
+
+    Raises:
+        BuildProfileError: If ``entries`` is not a mapping, maps a key to a
+            non-list, or names a key whose inherited value is not a list.
+    """
+    if not isinstance(entries, dict):
+        raise BuildProfileError(
+            "exclude.config must be a mapping of dotted config key to the list of "
+            f"entries to remove (got {type(entries).__name__})"
+        )
+    config = merged.get("config")
+    for key, removal in entries.items():
+        if not isinstance(removal, list):
+            raise BuildProfileError(
+                f"exclude.config.{key} must be a list of entries to remove "
+                f"(got {type(removal).__name__})"
+            )
+        if not isinstance(config, dict) or key not in config:
+            continue
+        current = config[key]
+        if not isinstance(current, list):
+            raise BuildProfileError(
+                f"exclude.config.{key}: the inherited value is not a list "
+                f"(got {type(current).__name__}). exclude: takes entries out of a "
+                "list; to change a scalar, state it under config: instead."
+            )
+        config[key] = [item for item in current if item not in removal]
+
+
 def _apply_exclude(
     merged: dict[str, Any],
     exclude: Any,
@@ -236,6 +282,14 @@ def _apply_exclude(
     omitting the files while leaving it standing would deploy a server whose
     source is missing, and there is no built-in version to fall back to.
 
+    ``config`` is the one key whose value is a mapping rather than a list: each
+    entry names a list-valued ``config:`` key by its dotted spelling and lists
+    the items to subtract from it (``exclude: {config: {deployed_services:
+    [mongodb]}}``). That is how a layer — a host-variant overlay above all —
+    deploys fewer services than the profile it sits on: the inheritance merge
+    unions lists, so a layer cannot state a shorter one, and taking away has
+    to be said. See :func:`_apply_config_exclude`.
+
     Excluding an entry that is not present is a silent no-op. Because this runs
     after each ``_deep_merge`` in :func:`_resolve_extends`, a deeper ``extends``
     layer that re-adds an entry merges in afterwards and wins; an entry re-added
@@ -268,12 +322,16 @@ def _apply_exclude(
             f"(got {type(exclude).__name__})"
         )
     for field_name, entries in exclude.items():
+        if field_name == "config":
+            _apply_config_exclude(merged, entries)
+            continue
         source = _convention_source_for_field(field_name)
         if field_name not in _EXCLUDABLE_FIELDS and source is None:
             raise BuildProfileError(
                 f"exclude: unknown or non-list field {field_name!r} (must be one of "
-                f"{sorted(_EXCLUDABLE_FIELDS)}, or a convention directory: "
-                f"{sorted(CONVENTION_SOURCES)})"
+                f"{sorted(_EXCLUDABLE_FIELDS)}, a convention directory: "
+                f"{sorted(CONVENTION_SOURCES)}, or 'config' mapping a dotted key to "
+                "the entries to remove from its list)"
             )
         if not isinstance(entries, list):
             raise BuildProfileError(
@@ -307,6 +365,7 @@ def _resolve_extends(
     *,
     artifacts: set[str] | None = None,
     shadow_candidates: set[str] | None = None,
+    preset_lineage: list[str] | None = None,
 ) -> dict[str, Any]:
     """Resolve ``extends`` chain, returning a fully merged raw YAML dict.
 
@@ -318,6 +377,8 @@ def _resolve_extends(
             layer in the chain, mutated in place. ``None`` skips recording.
         shadow_candidates: Set collecting bare library-selection exclusions from
             every layer, mutated in place. ``None`` skips recording.
+        preset_lineage: List collecting the bundled presets the chain extends,
+            nearest layer first, mutated in place. ``None`` skips recording.
 
     Returns:
         Merged raw dict with ``extends`` consumed.
@@ -374,9 +435,30 @@ def _resolve_extends(
     if not isinstance(base_raw, dict):
         raise BuildProfileError(f"Extended profile must be a YAML mapping: {base_path}")
 
+    if preset_path is not None:
+        # A bundled preset reached as a base is consumed exactly as one reached
+        # by name is (:func:`~.build_profile_presets._load_preset_raw`), so an
+        # inherited ``app_template:`` never becomes part of what the child
+        # resolves to. Confined to the preset branch: the same key in a
+        # hand-written parent profile is a profile key, and is refused as one.
+        base_raw.pop(PRESET_DATA_BUNDLE_KEY, None)
+        # Consuming the key would otherwise lose the one fact it carried: which
+        # packaged data bundle this profile's tree came from. Record the preset
+        # instead, so a reader can ask
+        # :func:`~.build_profile_presets.preset_data_bundle` the same question
+        # the deep merge used to answer. Recorded before the recursion, so the
+        # list runs nearest-first — the order the merge resolves by.
+        if preset_lineage is not None:
+            preset_lineage.append(str(extends_value))
+
     # Recurse: the base may itself extend another profile
     base_raw = _resolve_extends(
-        base_raw, base_path, chain, artifacts=artifacts, shadow_candidates=shadow_candidates
+        base_raw,
+        base_path,
+        chain,
+        artifacts=artifacts,
+        shadow_candidates=shadow_candidates,
+        preset_lineage=preset_lineage,
     )
 
     merged = _deep_merge(base_raw, raw)
@@ -598,12 +680,19 @@ class ResolvedProfileDocument:
             The build omits these files, and ownership derivation scans the
             post-exclude set — so excluding a shadow restores the framework's
             own version of that artifact.
+        inherited_preset: The bundled preset nearest this document on its
+            ``extends`` chain, or ``None`` when the chain reaches none. It is
+            the only surviving trace of the preset-side ``app_template:`` the
+            chain consumed, and so the answer to "which packaged data bundle is
+            this profile's tree from" for a profile that records no
+            ``provenance:`` block of its own.
     """
 
     raw: dict[str, Any]
     root_dir: Path
     is_persona_delta: bool
     excluded_artifacts: frozenset[str]
+    inherited_preset: str | None = None
 
 
 def resolve_profile_document(
@@ -641,9 +730,10 @@ def resolve_profile_document(
             ``extends`` resolution fails.
     """
     root_dir, is_persona_delta = resolve_profile_root(profile_path)
-    normalized = _normalize_profile_aliases(dict(raw), str(profile_path))
+    normalized = dict(raw)
     artifacts: set[str] = set()
     shadowed: set[str] = set()
+    lineage: list[str] = []
 
     def finish(resolved: dict[str, Any], as_delta: bool) -> ResolvedProfileDocument:
         """Report the resolution diagnostics, then package the result.
@@ -657,12 +747,22 @@ def resolve_profile_document(
             _warn_unmatched_exclusions(root_dir, artifacts)
             _warn_shadowed_bare_exclusions(root_dir, shadowed)
             _warn_missing_target_state(root_dir, resolved)
-        return ResolvedProfileDocument(resolved, root_dir, as_delta, frozenset(artifacts))
+        return ResolvedProfileDocument(
+            resolved,
+            root_dir,
+            as_delta,
+            frozenset(artifacts),
+            lineage[0] if lineage else None,
+        )
 
     if not is_persona_delta:
         return finish(
             _resolve_extends(
-                normalized, profile_path, artifacts=artifacts, shadow_candidates=shadowed
+                normalized,
+                profile_path,
+                artifacts=artifacts,
+                shadow_candidates=shadowed,
+                preset_lineage=lineage,
             ),
             False,
         )
@@ -681,10 +781,11 @@ def resolve_profile_document(
     if not isinstance(root_raw, dict):
         raise BuildProfileError(f"Profile root must be a YAML mapping: {root_path}")
     root_resolved = _resolve_extends(
-        _normalize_profile_aliases(dict(root_raw), str(root_path)),
+        dict(root_raw),
         root_path,
         artifacts=artifacts,
         shadow_candidates=shadowed,
+        preset_lineage=lineage,
     )
     # The delta goes into the merge unresolved on purpose: it carries no
     # ``extends:`` of its own (rejected above), and _resolve_extends would

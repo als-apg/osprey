@@ -36,6 +36,7 @@ from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
+from tests.e2e.profile_edits import set_pairs
 from tests.e2e.sdk_helpers import (
     agent_data_dir,
     e2e_port_base,
@@ -135,12 +136,16 @@ def init_project(
         "--set",
         "channel_finder_mode=hierarchical",
     ]
-    preset_pins = tmp_path / "_archiver-pin.yml"
-    preset_pins.write_text(
-        "config:\n  archiver.type: mock_archiver\nvirtual_accelerator:\n  live_standin: null\n",
-        encoding="utf-8",
+    # ``archiver.type`` is written in the literal dotted spelling the preset
+    # already uses, so the edit replaces that entry instead of landing beside it.
+    init_args.extend(
+        set_pairs(
+            {
+                "config": {"archiver.type": "mock_archiver"},
+                "virtual_accelerator": {"live_standin": None},
+            }
+        )
     )
-    init_args.extend(["-O", str(preset_pins)])
     init_args.extend(["--set", f"port_base={e2e_port_base()}"])
     init_result = runner.invoke(init, init_args)
     assert init_result.exit_code == 0, f"osprey init failed: {init_result.output}"

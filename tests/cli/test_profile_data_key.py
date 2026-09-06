@@ -149,15 +149,6 @@ def test_preset_mode_rejects_data_from_set_pair(fake_presets: Path, tmp_path: Pa
     assert "--preset base" in message
 
 
-def test_preset_mode_rejects_data_from_override_file(fake_presets: Path, tmp_path: Path) -> None:
-    """The same rejection however the key is injected — here via ``-O``."""
-    _write_yaml(fake_presets / "base.yml", {"name": "base"})
-    override = _write_yaml(tmp_path / "o.yml", {"data": "data"})
-
-    with pytest.raises(BuildProfileError, match="not supported with --preset"):
-        resolve_build_profile(None, "base", overrides=(override,))
-
-
 def test_preset_mode_rejects_data_carried_by_the_preset_itself(fake_presets: Path) -> None:
     """A preset that spells ``data:`` is rejected rather than silently anchored
     on the bundled package directory."""

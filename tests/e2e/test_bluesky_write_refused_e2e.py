@@ -72,15 +72,19 @@ def _enable_bluesky_server(repo: Path) -> None:
     Mirrors ``sdk_helpers.enable_writes_in_project``'s text-patch + regen
     pattern: the ``bluesky`` server isn't in ``hello_world``'s default
     ``claude_code.servers`` block at all, so this inserts an explicit
-    ``bluesky: {enabled: true}`` entry next to ``controls`` and re-renders the
-    Claude Code artifacts so ``.mcp.json``/``hook_config.json`` pick it up.
+    ``bluesky`` entry next to ``controls`` and re-renders the Claude Code
+    artifacts so ``.mcp.json``/``hook_config.json`` pick it up.
+
+    The marker is the rendered block, indentation included: the build writes
+    each server as a nested mapping, so a one-line ``controls: {enabled: true}``
+    matches nothing. The assertion is the guard for the next such change.
     """
     render = render_dir(repo)
     config_path = render / "config.yml"
     text = config_path.read_text(encoding="utf-8")
-    marker = "controls: {enabled: true}"
+    marker = "    controls:\n      enabled: true\n"
     assert marker in text, f"Expected {marker!r} in {config_path}; template may have changed."
-    updated = text.replace(marker, f"{marker}\n    bluesky: {{enabled: true}}", 1)
+    updated = text.replace(marker, f"{marker}    bluesky:\n      enabled: true\n", 1)
     config_path.write_text(updated, encoding="utf-8")
 
     from osprey.cli.templates.manager import TemplateManager
