@@ -89,7 +89,6 @@ class TestCapabilities:
         assert "bundle_path" in result
         assert "count" in result
         assert "types" in result
-        assert "write_enabled" in result
 
     @pytest.mark.asyncio
     async def test_count_matches_concepts(self, fixture_bundle: Path):
@@ -131,12 +130,18 @@ class TestCapabilities:
         assert len(types) == len(set(types))
 
     @pytest.mark.asyncio
-    async def test_write_enabled_is_true(self):
+    async def test_no_write_enabled_field(self):
+        """The field was a constant `True` that no consumer read.
+
+        It described nothing: the shipped knowledge persona denies
+        `draft_concept` outright, so on that deployment the manifest said writes
+        were enabled while every write was refused.
+        """
         from osprey.mcp_server.facility_knowledge.server import capabilities
 
         result = json.loads(await get_tool_fn(capabilities)())
 
-        assert result["write_enabled"] is True
+        assert "write_enabled" not in result
 
     @pytest.mark.asyncio
     async def test_bundle_path_is_string(self, fixture_bundle: Path):
@@ -171,8 +176,54 @@ class TestCapabilities:
         from osprey.mcp_server.facility_knowledge.server import capabilities
 
         monkeypatch.setattr(srv, "_bundle", None)
+        monkeypatch.setattr(srv, "_bundle_error", None)
 
         with assert_raises_error(error_type="server_not_initialised"):
+            await get_tool_fn(capabilities)()
+
+    @pytest.mark.asyncio
+    async def test_an_unconfigured_bundle_names_the_config_key(self, monkeypatch):
+        """ "Start the server" is the wrong remedy for a config that names no bundle.
+
+        The server IS started; what is missing is `facility_knowledge.bundle_path`.
+        One error code for three causes sent the operator to restart something
+        that was already running.
+        """
+        import osprey.mcp_server.facility_knowledge.server as srv
+        from osprey.mcp_server.facility_knowledge.server import capabilities
+
+        monkeypatch.setattr(srv, "_bundle", None)
+        monkeypatch.setattr(
+            srv,
+            "_bundle_error",
+            (
+                "bundle_not_configured",
+                "This deployment names no facility knowledge bundle.",
+                ["Set `facility_knowledge.bundle_path` ..."],
+            ),
+        )
+
+        with assert_raises_error(error_type="bundle_not_configured"):
+            await get_tool_fn(capabilities)()
+
+    @pytest.mark.asyncio
+    async def test_a_failed_load_names_the_resolved_path(self, monkeypatch):
+        """A bundle that would not load is a third fault with a third fix."""
+        import osprey.mcp_server.facility_knowledge.server as srv
+        from osprey.mcp_server.facility_knowledge.server import capabilities
+
+        monkeypatch.setattr(srv, "_bundle", None)
+        monkeypatch.setattr(
+            srv,
+            "_bundle_error",
+            (
+                "bundle_load_failed",
+                "The facility knowledge bundle at /srv/okf could not be loaded: no index.md",
+                ["Check that /srv/okf exists ..."],
+            ),
+        )
+
+        with assert_raises_error(error_type="bundle_load_failed"):
             await get_tool_fn(capabilities)()
 
     @pytest.mark.asyncio
@@ -205,3 +256,59 @@ class TestRegistryPermissions:
             "'capabilities' is missing from osprey_facility_knowledge.permissions_allow "
             f"(current: {sdef.permissions_allow!r})"
         )
+
+
+# ---------------------------------------------------------------------------
+# create_server records WHICH fault left the bundle unavailable
+# ---------------------------------------------------------------------------
+
+
+class TestBundleFailureCause:
+    """Three faults, three fixes — so three error codes, decided at startup.
+
+    ``_get_bundle`` runs long after the config was read and cannot tell an
+    absent ``bundle_path`` from one that would not load. ``create_server`` can,
+    and is the only place that can, so it records the cause there.
+    """
+
+    def _run_create_server(self, monkeypatch, tmp_path: Path, config: dict):
+        import osprey.mcp_server.facility_knowledge.server as srv
+        import osprey.utils.workspace as workspace
+
+        monkeypatch.setattr(workspace, "resolve_config_path", lambda: tmp_path / "config.yml")
+        monkeypatch.setattr(workspace, "load_osprey_config", lambda: config)
+        monkeypatch.setattr(srv, "_bundle", None)
+        monkeypatch.setattr(srv, "_bundle_error", None)
+
+        srv.create_server()
+        return srv
+
+    def test_absent_bundle_path_is_recorded_as_not_configured(self, monkeypatch, tmp_path):
+        srv = self._run_create_server(monkeypatch, tmp_path, {})
+
+        assert srv._bundle is None
+        assert srv._bundle_error is not None
+        code, message, remedies = srv._bundle_error
+        assert code == "bundle_not_configured"
+        assert any("facility_knowledge.bundle_path" in r for r in remedies), remedies
+        assert "start" not in message.lower()
+
+    def test_unloadable_bundle_is_recorded_with_its_resolved_path(self, monkeypatch, tmp_path):
+        missing = tmp_path / "not-a-bundle"
+        srv = self._run_create_server(
+            monkeypatch, tmp_path, {"facility_knowledge": {"bundle_path": str(missing)}}
+        )
+
+        assert srv._bundle is None
+        assert srv._bundle_error is not None
+        code, message, _remedies = srv._bundle_error
+        assert code == "bundle_load_failed"
+        assert str(missing) in message
+
+    def test_a_loadable_bundle_records_no_cause(self, monkeypatch, tmp_path, fixture_bundle):
+        srv = self._run_create_server(
+            monkeypatch, tmp_path, {"facility_knowledge": {"bundle_path": str(fixture_bundle)}}
+        )
+
+        assert srv._bundle is not None
+        assert srv._bundle_error is None

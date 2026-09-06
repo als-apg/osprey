@@ -50,6 +50,12 @@ mcp = FastMCP(
 
 _bundle: OKFBundle | None = None  # resolved lazily at startup by create_server
 
+#: Why :data:`_bundle` is ``None``, recorded by :func:`create_server` so the
+#: tools can name the cause instead of guessing. ``None`` here means
+#: ``create_server`` never ran — the genuine "server not initialised" case, and
+#: the only one of the three the operator fixes by starting the server.
+_bundle_error: tuple[str, str, list[str]] | None = None
+
 # ---------------------------------------------------------------------------
 # Concurrent-draft collision guard
 # ---------------------------------------------------------------------------
@@ -141,16 +147,24 @@ def _touch_bundle_marker(root: Path) -> bool:
 def _get_bundle() -> OKFBundle:
     """Return the initialised OKFBundle singleton.
 
+    Three different faults leave the bundle unavailable, and they have three
+    different fixes: the deployment never named a bundle, the bundle it named
+    could not be loaded, or the server was never started. Answering all three
+    with "start the server" sent an operator whose config was wrong to restart a
+    server that was already running. :func:`create_server` records which one it
+    was; this raises that one.
+
     Raises:
-        ToolError: If the bundle has not been initialised (server not started
-            via :func:`create_server`).
+        ToolError: Carrying ``bundle_not_configured``, ``bundle_load_failed`` or
+            ``server_not_initialised``, whichever actually applies.
     """
     if _bundle is None:
-        make_error(
+        code, message, remedies = _bundle_error or (
             "server_not_initialised",
             "Facility knowledge bundle has not been initialised.",
             ["Start the server via `python -m osprey.mcp_server.facility_knowledge`."],
         )
+        make_error(code, message, remedies)
     return _bundle
 
 
@@ -192,13 +206,15 @@ def create_server() -> FastMCP:
     Returns:
         The configured :class:`~fastmcp.FastMCP` instance.
     """
-    global _bundle
+    global _bundle, _bundle_error
 
     from osprey.services.facility_knowledge.okf.bundle import OKFBundle, OKFBundleError
     from osprey.utils.workspace import load_osprey_config, resolve_config_path
 
     config_path = resolve_config_path()
     config = load_osprey_config()
+
+    _bundle_error = None
 
     try:
         bundle_path = _resolve_bundle_path(config, config_path.parent)
@@ -207,6 +223,14 @@ def create_server() -> FastMCP:
             "facility_knowledge.bundle_path not set in config — tools will return errors"
         )
         bundle_path = None
+        _bundle_error = (
+            "bundle_not_configured",
+            "This deployment names no facility knowledge bundle.",
+            [
+                "Set `facility_knowledge.bundle_path` in the deployment's config "
+                "and run `osprey build`.",
+            ],
+        )
 
     if bundle_path is not None:
         try:
@@ -215,6 +239,15 @@ def create_server() -> FastMCP:
         except OKFBundleError as exc:
             logger.error("Failed to load facility knowledge bundle: %s", exc)
             _bundle = None
+            _bundle_error = (
+                "bundle_load_failed",
+                f"The facility knowledge bundle at {bundle_path} could not be loaded: {exc}",
+                [
+                    f"Check that {bundle_path} exists and holds a readable OKF bundle.",
+                    "Point `facility_knowledge.bundle_path` at the right directory and "
+                    "run `osprey build`.",
+                ],
+            )
 
     # Tools are defined below in this module and self-register via @mcp.tool()
     # at import time — no separate tool imports needed.
@@ -269,13 +302,13 @@ def _tool_error_envelope(operation: str) -> Iterator[None]:
 async def capabilities() -> str:
     """Report facility knowledge bundle capabilities.
 
-    Returns bundle path, concept count, sorted list of distinct concept types,
-    and whether draft writes are enabled.  Does NOT require database connectivity
-    beyond the already-initialised bundle singleton.
+    Returns bundle path, concept count and the sorted list of distinct concept
+    types.  Does NOT require database connectivity beyond the
+    already-initialised bundle singleton.
 
     Returns:
-        JSON object with ``bundle_path``, ``count``, ``types`` (sorted list of
-        distinct ``type`` frontmatter values), and ``write_enabled: true``.
+        JSON object with ``bundle_path``, ``count`` and ``types`` (sorted list
+        of distinct ``type`` frontmatter values).
     """
     with _tool_error_envelope("capabilities"):
         bundle = _get_bundle()
@@ -297,7 +330,6 @@ async def capabilities() -> str:
                 "bundle_path": str(bundle.root),
                 "count": len(entries),
                 "types": sorted(raw_types),
-                "write_enabled": True,
             }
         )
 

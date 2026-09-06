@@ -733,6 +733,8 @@ EXPECTED_ERROR_CLASSES = {
     "configuration_error": "Internal",
     "not_configured": "Internal",
     "server_not_initialised": "Internal",
+    "bundle_not_configured": "Internal",
+    "bundle_load_failed": "Internal",
     "dependency_missing": "Internal",
     "conversion_error": "Internal",
     "capture_error": "Internal",
