@@ -40,6 +40,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.e2e.profile_edits import set_pairs
+
 #: The deployment repo's directory name IS the deployment's name, and the name
 #: the compose templates namespace every container by.
 PROJECT_NAME = "e2e-dispatch-render"
@@ -80,7 +82,7 @@ def _init_dispatch_repo(
 
     A deployment repo is one directory marked by ``profile.yml`` at its root, so
     the fixture material here is a profile: ``hello-world`` declares no dispatch
-    of its own, and the override layers on the ``dispatch:`` block that makes the
+    of its own, and the edit states the ``dispatch:`` block that makes the
     build's ``_inject_dispatch`` step copy the bundled
     event_dispatcher/dispatch_worker compose templates in and register both in
     ``deployed_services``. No container image is ever built.
@@ -90,14 +92,13 @@ def _init_dispatch_repo(
     osprey_bin = _find_osprey_console_script()
     repo = root / PROJECT_NAME
 
-    override_path = root / "dispatch.yml"
-    override_path.write_text(
-        "dispatch:\n"
-        "  triggers: tutorial_triggers.yml\n"
-        f"  worker_count: {worker_count}\n"
-        f"  workspace_mode: {workspace_mode}\n",
-        encoding="utf-8",
-    )
+    edits = {
+        "dispatch": {
+            "triggers": "tutorial_triggers.yml",
+            "worker_count": worker_count,
+            "workspace_mode": workspace_mode,
+        }
+    }
 
     init = _run(
         [
@@ -107,8 +108,7 @@ def _init_dispatch_repo(
             "--preset",
             "hello-world",
             "--no-git",
-            "--override",
-            str(override_path),
+            *set_pairs(edits),
         ],
         cwd=root,
         timeout=INIT_TIMEOUT_SEC,

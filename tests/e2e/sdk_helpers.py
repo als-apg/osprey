@@ -36,6 +36,7 @@ import yaml
 
 from osprey.port_layout import BLOCK_SIZE
 from tests import ci_diagnostics
+from tests.e2e.profile_edits import set_pairs
 
 # SDK imports — skip entire module if not installed
 try:
@@ -388,17 +389,13 @@ def init_project(
         "--set",
         f"connector={connector}",
     ]
-    # An override FILE rather than ``--set config.archiver.type=``, which would
-    # now reach the same leaf: the file is also where the stand-in pin below
-    # goes, and one layer carrying both keeps this to a single ``-O`` argument.
-    # Either way the key is written in the literal dotted spelling the preset
-    # already uses, so it replaces that entry instead of landing beside it.
-    preset_pins = tmp_path / "_archiver-pin.yml"
-    pins = f"config:\n  archiver.type: {archiver}\n"
+    # ``archiver.type`` is written in the literal dotted spelling the preset
+    # already uses, so the edit replaces that entry instead of landing beside
+    # it. The stand-in pin rides along where the preset declares a VA.
+    pins: dict[str, Any] = {"config": {"archiver.type": archiver}}
     if _preset_declares_virtual_accelerator(template):
-        pins += "virtual_accelerator:\n  live_standin: null\n"
-    preset_pins.write_text(pins, encoding="utf-8")
-    init_args.extend(["-O", str(preset_pins)])
+        pins["virtual_accelerator"] = {"live_standin": None}
+    init_args.extend(set_pairs(pins))
     init_args.extend(["--set", f"port_base={e2e_port_base()}"])
     if effective_tier is not None:
         init_args.extend(["--set", f"tier={effective_tier}"])

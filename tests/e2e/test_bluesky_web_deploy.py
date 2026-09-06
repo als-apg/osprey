@@ -19,15 +19,15 @@ the real deployment repo and ``select_correctors``/``select_bpms``/
 ``write_devices_file`` author the worker's plan devices from the repo's own
 ``data/channel_limits.json`` -- the limits database the build copies into the
 build zone for the deployed containers, never a hardcoded preset channel.
-``override_yaml()`` still pins ``control_system.type: virtual_accelerator``
+``profile_edits()`` still pins ``control_system.type: virtual_accelerator``
 explicitly even though the preset now defaults to it (a connector-mediated
 plan only runs against a setpoint-tracking control system; the shipped
 default is asserted, not assumed, in ``test_bluesky_queue_e2e.py``). The one
 thing ``_orm_stack.init_args``/``build_project_subprocess`` don't parameterize
-is the bluesky-web sidecar's port, so this module calls ``override_yaml``/
-``init_args``/``find_osprey_console_script`` directly (mirroring what
+is the bluesky-web sidecar's port, so this module calls ``init_args``/
+``find_osprey_console_script`` directly (mirroring what
 ``build_project_subprocess`` does internally) and appends one extra
-``--set bluesky_web.port=...`` override to the ``osprey init`` step.
+``--set bluesky_web.port=...`` edit to the ``osprey init`` step.
 
 Plan discovery (test 3/4's headline): ``GET /plans`` through the sidecar's
 read-proxy is scanned for a plan whose ``metadata.writes`` is ``True`` (the
@@ -109,9 +109,9 @@ VA_CA_PORT = _orm_stack.VA_CA_PORT
 # the control-assistant preset with no profile knob to drop them, and a
 # locally-running tutorial deploy routinely holds both. A bound-port collision
 # aborts `osprey up` before the containers this proof needs ever start, so both
-# move to high, unassigned ports. Appended to _orm_stack's override rather than
-# added there: only this module needs them moved, and _orm_stack's shape is
-# shared with the render gate.
+# move to high, unassigned ports. Stated in this module's own `extra_config`
+# rather than added to _orm_stack: only this module needs them moved, and
+# _orm_stack's shape is shared with the render gate.
 POSTGRES_PORT = 25434
 OPENOBSERVE_PORT = 25083
 
@@ -433,34 +433,13 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # container/image names derived above still hold.
     repo = base / PROJECT_NAME
 
-    override_path = base / "override.yml"
-    # The two port moves go INSIDE _orm_stack's `config:` block, which its
-    # top-level `dispatch: null` line closes -- appending at the end of the
-    # string would nest them under `dispatch` instead. Splicing ahead of that
-    # line keeps the indentation right; the assert makes a change to
-    # _orm_stack's shape fail loudly here rather than silently produce an
-    # override that does nothing.
-    extra_config = (
-        f"  services.postgresql.port_host: {POSTGRES_PORT}\n"
-        f"  services.openobserve.port: {OPENOBSERVE_PORT}\n"
-    )
-    override_yaml = _orm_stack.override_yaml()
-    assert "dispatch: null\n" in override_yaml, (
-        "_orm_stack.override_yaml() no longer ends its config block with "
-        "`dispatch: null` -- the port-move splice below needs a new anchor"
-    )
-    override_path.write_text(
-        override_yaml.replace("dispatch: null\n", extra_config + "dispatch: null\n"),
-        encoding="utf-8",
-    )
-
     # _orm_stack.init_args()/build_project_subprocess() don't parameterize
     # the bluesky-web sidecar's port, so build the arg list directly (mirrors
     # what build_project_subprocess does internally) and append one extra
-    # --set for it.
+    # --set for it. The two port moves this module needs go through
+    # `extra_config`, which lands them beside _orm_stack's own `config:` pins.
     args = _orm_stack.init_args(
         PROJECT_NAME,
-        override_path=override_path,
         output_dir=base,
         bridge_port=BRIDGE_PORT,
         va_port=VA_CA_PORT,
@@ -468,11 +447,17 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         # 20700 note): everything not pinned explicitly follows it instead of
         # landing on a real deployment's default 10000 block.
         port_base=21700,
+        extra_config={
+            "config": {
+                "services.postgresql.port_host": POSTGRES_PORT,
+                "services.openobserve.port": OPENOBSERVE_PORT,
+            }
+        },
     )
     args += ["--set", f"bluesky_web.port={BLUESKY_WEB_PORT}"]
 
     # Two steps, because the surface has two: `init` writes the repo's source
-    # zone from the preset plus these overrides, `build` renders build/ from it.
+    # zone from the preset plus these edits, `build` renders build/ from it.
     init = _run([str(osprey_bin), "init", *args], cwd=base, timeout=BUILD_TIMEOUT_SEC)
     if init.returncode != 0:
         pytest.fail(

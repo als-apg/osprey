@@ -69,6 +69,8 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 import yaml
 
+from tests.e2e.profile_edits import set_pairs
+
 if TYPE_CHECKING:
     from click.testing import CliRunner, Result
 
@@ -207,52 +209,50 @@ DEFAULT_BPM_COUNT = 4
 # Two days of retention behind a two-hour dense head is about a sixteenth of the
 # samples: seconds of seeding instead of a minute, and a store sized to match.
 #
-# One snippet shared by all four VA lanes (`override_yaml` below, plus the three
-# that write their own override) rather than four hand-copied blocks that drift.
-# Deep-merged onto the preset's block, so `host:` and both cadences keep the
-# values the preset ships -- only the two span knobs move.
-VA_ARCHIVER_CI_KNOBS = "va_archiver:\n  retention_days: 2\n  hot_span_hours: 2\n"
+# One mapping shared by all four VA lanes (`profile_edits` below, plus the
+# three that state their own edits) rather than four hand-copied blocks that
+# drift. Stated as top-level profile keys, so the two span knobs replace the
+# preset's values for those two keys while `host:` and both cadences keep what
+# the preset ships.
+VA_ARCHIVER_CI_KNOBS: dict[str, Any] = {"va_archiver": {"retention_days": 2, "hot_span_hours": 2}}
 
 
-def override_yaml() -> str:
-    """FR11's ``--override`` YAML content: VA control system + the bluesky MCP
-    server.
+def profile_edits() -> dict[str, Any]:
+    """The lane's profile pins: VA control system + the bluesky MCP server.
 
-    ``dispatch: null`` drops control-assistant's default event-dispatcher
+    ``dispatch: None`` drops control-assistant's default event-dispatcher
     stack (Node + Claude CLI image) -- irrelevant to the plan stack and far
     slower to build than the VA/bridge images already are (mirrors
     test_va_substrate_equivalence.py / test_tiled_roundtrip.py).
 
-    ``modules.web_terminals.enabled: false`` drops the preset's per-persona
+    ``modules.web_terminals.enabled: False`` drops the preset's per-persona
     web-terminal stack (two persona images + nginx, all built locally) for
     the same reason: nothing in the plan stack touches persona routing, and
     that coverage lives in the dedicated web-terminals lanes
     (control-assistant-demo-e2e, multi-user-deploy-lifecycle-e2e,
     tests/e2e/web_terminals/). One dotted LEAF key on purpose -- the preset
     sets the whole ``modules.web_terminals`` subtree as a single dotted key,
-    and overriding just ``.enabled`` leaves its siblings intact, whereas a
-    nested ``modules:`` mapping would wholesale-replace the subtree (see the
-    preset's own comment above its ``modules.web_terminals`` block).
+    and stating just ``.enabled`` leaves its siblings intact, whereas stating
+    the ``modules.web_terminals`` key itself would replace the subtree (see
+    the preset's own comment above its ``modules.web_terminals`` block).
 
     ``VA_ARCHIVER_CI_KNOBS`` shrinks the archive the preset's ``va_archiver:``
-    block declares to a CI-sized one -- see the constant for why. It trails
-    ``dispatch: null`` so it stays outside the ``config:`` block (both are
-    top-level profile keys, and ``test_bluesky_web_deploy`` splices its port
-    moves in ahead of that line).
+    block declares to a CI-sized one -- see the constant for why.
 
-    Written as flat dotted-string keys under ``config:`` (matching the
-    preset's own convention), not a `--set config.control_system.type=...`
-    CLI override -- `--set` builds a NESTED dict for every dotted segment,
-    which would replace the entire `control_system:`/`execution:` block
-    instead of overriding just one field.
+    ``config:`` keys are flat dotted strings (matching the preset's own
+    convention): each names one leaf of the rendered config, so pinning
+    ``control_system.type`` leaves the rest of the ``control_system:`` block
+    as the preset wrote it.
     """
-    return (
-        "config:\n"
-        "  control_system.type: virtual_accelerator\n"
-        "  claude_code.servers.bluesky.enabled: true\n"
-        "  modules.web_terminals.enabled: false\n"
-        "dispatch: null\n" + VA_ARCHIVER_CI_KNOBS
-    )
+    return {
+        "config": {
+            "control_system.type": "virtual_accelerator",
+            "claude_code.servers.bluesky.enabled": True,
+            "modules.web_terminals.enabled": False,
+        },
+        "dispatch": None,
+        **VA_ARCHIVER_CI_KNOBS,
+    }
 
 
 def _deep_merge(base: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
@@ -271,31 +271,24 @@ def _deep_merge(base: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
-def merged_override_yaml(extra_config: dict[str, Any]) -> str:
-    """``override_yaml()`` with ``extra_config`` deep-merged into it.
+def merged_profile_edits(extra_config: dict[str, Any]) -> dict[str, Any]:
+    """``profile_edits()`` with ``extra_config`` deep-merged into it.
 
-    Reaches the keys ``build_args`` has no ``--set`` hook for -- e.g. the
+    Reaches the keys ``init_args`` has no named parameter for -- e.g. the
     postgres/openobserve/tiled/panels HOST ports a module must move to run
     concurrently with another deployed stack::
 
-        merged_override_yaml({"config": {"services.postgresql.port_host": 15433}})
+        merged_profile_edits({"config": {"services.postgresql.port_host": 15433}})
 
-    Round-trips through YAML (``safe_load`` -> merge -> ``safe_dump``) rather
-    than returning ``override_yaml()``'s hand-written text, so nothing here
-    guarantees byte-identity with it: an empty ``extra_config`` happens to
-    re-emit the same bytes today, but that is incidental to PyYAML's current
-    formatting, not a promise. Callers that need the exact hand-written bytes
-    should use ``override_yaml()`` directly -- only callers that actually need
-    a merge take this path (see ``init_args``).
+    Shaped like the profile, exactly as ``profile_edits()`` is, so a caller
+    reads its own additions beside the shared pins they land on.
     """
-    base = yaml.safe_load(override_yaml()) or {}
-    return yaml.safe_dump(_deep_merge(base, extra_config), sort_keys=False)
+    return _deep_merge(profile_edits(), extra_config)
 
 
 def init_args(
     project_name: str,
     *,
-    override_path: Path,
     output_dir: Path,
     bridge_port: int = BRIDGE_PORT,
     va_port: int = VA_CA_PORT,
@@ -309,7 +302,7 @@ def init_args(
 
     The stack is materialized in two steps, because the surface has two:
     ``osprey init`` writes the deployment repo's source zone from the preset
-    plus these overrides, and a later ``osprey build`` renders ``build/`` from
+    plus these edits, and a later ``osprey build`` renders ``build/`` from
     it. This function covers the first step only; both builders below run the
     second. ``--no-git`` because every caller works in a throwaway directory
     and none of them reads the history.
@@ -320,33 +313,24 @@ def init_args(
     ``osprey up`` afterward -- see ``build_project_subprocess``).
 
     ``provider``/``model``, when given, append ``--set provider=<provider>``
-    and/or ``--set model=<model>`` overrides -- e.g. an agentic-discovery
+    and/or ``--set model=<model>`` edits -- e.g. an agentic-discovery
     caller that must pin an explicit provider rather than let the
     control-assistant preset's own default apply silently (this project's
     "no default provider" convention). Left ``None`` by default: nothing is
     appended and the preset's own provider/model apply unchanged, so the
     default deploy shape is unaffected by these params.
 
-    ``extra_config``, when given, is deep-merged into ``override_yaml()`` and
-    the result REWRITES ``override_path`` -- the way to reach config keys that
-    have no ``--set`` hook here (postgres/openobserve/tiled/panels host ports).
-    Writing rather than appending another CLI flag keeps a single ``--override``
-    file, which is what ``osprey build`` wants. That rewrite OVERWRITES whatever
-    the caller previously wrote to ``override_path``, so a caller that hand-rolls
-    its own override text (as the bluesky-web e2e does) must pass its
-    additions here rather than pre-writing them. Empty or ``None`` is a no-op:
-    ``override_path`` is left exactly as the caller wrote it, byte for byte.
+    ``extra_config``, when given, is deep-merged into ``profile_edits()`` --
+    the way to reach config keys that have no named parameter here
+    (postgres/openobserve/tiled/panels host ports). Empty or ``None`` is a
+    no-op: the shared pins go out on their own.
     """
-    if extra_config:
-        override_path.write_text(merged_override_yaml(extra_config), encoding="utf-8")
-
     args = [
         str(output_dir / project_name),
         "--preset",
         "control-assistant",
         "--no-git",
-        "--override",
-        str(override_path),
+        *set_pairs(merged_profile_edits(extra_config or {})),
         "--set",
         f"virtual_accelerator.port={va_port}",
         "--set",
@@ -497,15 +481,11 @@ def build_via_cli_runner(
     from osprey.cli.build_cmd import build
     from osprey.cli.init_cmd import init
 
-    override_path = tmp_path / "override.yml"
-    override_path.write_text(override_yaml(), encoding="utf-8")
-
     repo = tmp_path / project_name
     result: Result = runner.invoke(
         init,
         init_args(
             project_name,
-            override_path=override_path,
             output_dir=tmp_path,
             bridge_port=bridge_port,
             va_port=va_port,
@@ -565,8 +545,8 @@ def build_project_subprocess(
 
     ``provider``/``model``/``extra_config`` thread straight through to
     ``init_args`` (see its docstring). All ``None`` by default, which preserves
-    the exact default deploy shape -- including a byte-identical override file
-    (an empty ``extra_config`` is likewise a no-op).
+    the exact default deploy shape (an empty ``extra_config`` is likewise a
+    no-op).
 
     ``pre_build``, when given, is called with the deployment REPO after
     ``osprey init`` has written it and before ``osprey build`` renders it --
@@ -578,15 +558,12 @@ def build_project_subprocess(
     pre-created ``data/`` makes the copy fail outright.
     """
     osprey_bin = find_osprey_console_script()
-    override_path = output_dir / "override.yml"
-    override_path.write_text(override_yaml(), encoding="utf-8")
 
     cmd = [
         str(osprey_bin),
         "init",
         *init_args(
             project_name,
-            override_path=override_path,
             output_dir=output_dir,
             bridge_port=bridge_port,
             va_port=va_port,

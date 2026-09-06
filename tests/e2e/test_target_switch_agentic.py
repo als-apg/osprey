@@ -74,6 +74,7 @@ import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -85,6 +86,7 @@ from osprey.mcp_server.control_system.connector_host_manager import baseline_tar
 from osprey.mcp_server.control_system.target_state import STATE_DIR_NAME, STATE_FILE_GLOB
 from osprey.mcp_server.control_system.tools.control_target import target_rows
 from tests.e2e.judge import LLMJudge
+from tests.e2e.profile_edits import set_pairs
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
     HookEvent,
@@ -398,15 +400,13 @@ def _virtual_accelerator(port: int, repo: Path) -> Iterator[str]:
 # ---------------------------------------------------------------------------
 
 
-def _overlay_text(*, bench_port: int, va_port: int) -> str:
-    """The single ``-O`` layer that turns the stock preset into this world.
+def _profile_edits(*, bench_port: int, va_port: int) -> dict[str, Any]:
+    """The edits that turn the stock preset into this world.
 
     Written with **literal dotted keys** under ``config:``, which is not a style
     choice: ``osprey build`` refuses a profile that spells one subtree both ways,
-    and ``--set config.control_system.*`` would merge a competing nested mapping
-    alongside the preset's dotted keys and be hard-refused. A ``-O`` file is
-    exempt from that collision rule and replaces keys in the spelling the
-    profile already uses.
+    so each key is stated in the spelling the preset already uses and replaces
+    that entry rather than landing beside it.
 
     What each group is for, since none of it is decoration:
 
@@ -430,14 +430,14 @@ def _overlay_text(*, bench_port: int, va_port: int) -> str:
     ``target_switch.live_gateway_acknowledged``
         The operator acknowledgment naming this run's bench endpoint.
     ``limits_checking.allow_unlisted_channels``
-        The only DEPLOYMENT-WIDE limits key this overlay sets. The preset
+        The only DEPLOYMENT-WIDE limits key these edits set. The preset
         already ships it ``false``, and the render keeps its own 2908-channel
         ``data/channel_limits.json`` as ``database_path``; the line is restated
         here so the lane pins the posture it needs rather than silently
         inheriting whatever the preset's posture later becomes. The
         strict-limits gate requires it falsy — true or absent leaves the live
         target blocked on a limits-posture reason and no switch is ever
-        reachable. The overlay writes no per-type
+        reachable. Nothing here writes a per-type
         ``connector.<type>.limits_checking`` block of its own: the preset's
         permissive ``virtual_accelerator`` block rides along and answers for the
         simulator, while ``live`` — an ``epics`` target with no block of its own
@@ -456,10 +456,11 @@ def _overlay_text(*, bench_port: int, va_port: int) -> str:
         own live machine — the bench IOC — so leaving the stand-in on collides
         with every ``epics`` key below (the build refuses one fact spelled in
         two places) and stands up a container no scenario here talks to. Nulled
-        rather than deleted because an override cannot remove a key.
+        rather than deleted because an edit states a value rather than
+        removing a key.
     ``exclude:``
-        A ``-O`` list key UNIONS with the preset's and can never subtract, so
-        the artifact trims cannot be expressed by re-listing ``skills:``. The
+        The subtraction directive, which is how a trim is spelled without
+        restating the preset's whole ``skills:``/``agents:`` inventory. The
         two logbook agents are the load-bearing half: they are ARIEL-wired yet
         declare no ``server_dependency``, so nothing auto-disables them when no
         ARIEL is deployed. The three bluesky skills are plain markdown shipped
@@ -475,68 +476,64 @@ def _overlay_text(*, bench_port: int, va_port: int) -> str:
     the connector-honesty gate is config-only, so the mock control system the
     agent talks to is a real EPICS connector either way.
     """
-    lines = [
-        "# Written by tests/e2e/test_target_switch_agentic.py — one -O layer over",
-        "# the stock control-assistant preset. Literal dotted keys under `config:`.",
-        "",
-        "# Service trims: YAML null, not `enabled: false` (every parser gates on",
-        "# is-not-None; an `enabled` key under `services:` fails schema validation).",
-        "bluesky: null",
-        "bluesky_web: null",
-        "dispatch: null",
-        "va_archiver: null",
-        "",
-        "# The preset's live stand-in is a second VA installed as the live machine:",
-        "# it derives the `epics` block below and forces strict limits. This lane",
-        "# brings its own live machine (the bench IOC), so the stand-in is both a",
-        "# collision and a container nothing here talks to.",
-        "virtual_accelerator:",
-        "  live_standin: null",
-        "",
-        "# List keys in a -O layer UNION with the preset's and can never subtract,",
-        "# so the artifact trims have to be spelled as an exclusion.",
-        "exclude:",
-        "  skills:",
-        "    - writing-bluesky-plans",
-        "    - operating-bluesky-plans",
-        "    - bluesky-plans",
-        "  agents:",
-        "    - logbook-search",
-        "    - logbook-deep-research",
-        "",
-        "config:",
-        "  # The baseline: the simulator, spelled out because the preset baselines",
-        "  # on the stand-in nulled above and the build refuses that pairing.",
-        "  control_system.type: virtual_accelerator",
-        "  # The live machine: the bench IOC, on the port it is already serving.",
-        f"  control_system.connector.epics.probe_channel: {BENCH_PROBE_CHANNEL}",
-        "  control_system.connector.epics.gateways.read_only.address: localhost",
-        f"  control_system.connector.epics.gateways.read_only.port: {bench_port}",
-        "  control_system.connector.epics.gateways.read_only.use_name_server: true",
-        "  control_system.connector.epics.gateways.write_access.address: localhost",
-        f"  control_system.connector.epics.gateways.write_access.port: {bench_port}",
-        "  control_system.connector.epics.gateways.write_access.use_name_server: true",
-        "  # The baseline: the virtual accelerator, on the port booted for it.",
-        f"  control_system.connector.virtual_accelerator.probe_channel: {VA_PROBE_CHANNEL}",
-        "  control_system.connector.virtual_accelerator.gateways.read_only.address: localhost",
-        f"  control_system.connector.virtual_accelerator.gateways.read_only.port: {va_port}",
-        "  control_system.connector.virtual_accelerator.gateways.read_only.use_name_server: true",
-        "  control_system.connector.virtual_accelerator.gateways.write_access.address: localhost",
-        f"  control_system.connector.virtual_accelerator.gateways.write_access.port: {va_port}",
-        "  control_system.connector.virtual_accelerator.gateways.write_access"
-        ".use_name_server: true",
-        "  # The operator acknowledgment, naming this run's live endpoint.",
-        f"  control_system.target_switch.live_gateway_acknowledged: localhost:{bench_port}",
-        "  # The only DEPLOYMENT-WIDE limits key. The preset already ships it",
-        "  # false; restated so the lane pins the posture rather than inheriting",
-        "  # it. No per-type epics block, so this is what answers for live. The",
-        "  # render's own 2908-channel database stays.",
-        "  control_system.limits_checking.allow_unlisted_channels: false",
-        "  claude_code.servers.bluesky.enabled: false",
-        "  modules.web_terminals.enabled: false",
-        "",
-    ]
-    return "\n".join(lines)
+    return {
+        # Service trims: YAML null, not `enabled: false` (every parser gates on
+        # is-not-None; an `enabled` key under `services:` fails schema validation).
+        "bluesky": None,
+        "bluesky_web": None,
+        "dispatch": None,
+        "va_archiver": None,
+        # The preset's live stand-in is a second VA installed as the live machine:
+        # it derives the `epics` block below and forces strict limits. This lane
+        # brings its own live machine (the bench IOC), so the stand-in is both a
+        # collision and a container nothing here talks to.
+        "virtual_accelerator": {"live_standin": None},
+        # The subtraction directive: a trim spelled without restating the
+        # preset's whole skills/agents inventory.
+        "exclude": {
+            "skills": [
+                "writing-bluesky-plans",
+                "operating-bluesky-plans",
+                "bluesky-plans",
+            ],
+            "agents": ["logbook-search", "logbook-deep-research"],
+        },
+        "config": {
+            # The baseline: the simulator, spelled out because the preset
+            # baselines on the stand-in nulled above and the build refuses
+            # that pairing.
+            "control_system.type": "virtual_accelerator",
+            # The live machine: the bench IOC, on the port it is already serving.
+            "control_system.connector.epics.probe_channel": BENCH_PROBE_CHANNEL,
+            "control_system.connector.epics.gateways.read_only.address": "localhost",
+            "control_system.connector.epics.gateways.read_only.port": bench_port,
+            "control_system.connector.epics.gateways.read_only.use_name_server": True,
+            "control_system.connector.epics.gateways.write_access.address": "localhost",
+            "control_system.connector.epics.gateways.write_access.port": bench_port,
+            "control_system.connector.epics.gateways.write_access.use_name_server": True,
+            # The baseline: the virtual accelerator, on the port booted for it.
+            "control_system.connector.virtual_accelerator.probe_channel": (VA_PROBE_CHANNEL),
+            "control_system.connector.virtual_accelerator.gateways.read_only.address": (
+                "localhost"
+            ),
+            "control_system.connector.virtual_accelerator.gateways.read_only.port": (va_port),
+            "control_system.connector.virtual_accelerator.gateways.read_only.use_name_server": True,
+            "control_system.connector.virtual_accelerator.gateways.write_access.address": (
+                "localhost"
+            ),
+            "control_system.connector.virtual_accelerator.gateways.write_access.port": (va_port),
+            "control_system.connector.virtual_accelerator.gateways.write_access.use_name_server": True,
+            # The operator acknowledgment, naming this run's live endpoint.
+            "control_system.target_switch.live_gateway_acknowledged": (f"localhost:{bench_port}"),
+            # The only DEPLOYMENT-WIDE limits key. The preset already ships it
+            # false; restated so the lane pins the posture rather than inheriting
+            # it. No per-type epics block, so this is what answers for live. The
+            # render's own 2908-channel database stays.
+            "control_system.limits_checking.allow_unlisted_channels": False,
+            "claude_code.servers.bluesky.enabled": False,
+            "modules.web_terminals.enabled": False,
+        },
+    }
 
 
 def _run_osprey(verb: str, args: list[str], *, timeout: int) -> None:
@@ -578,8 +575,6 @@ def _init_and_build(workspace: Path, *, bench_port: int, va_port: int) -> Path:
     ``sdk_helpers`` function takes.
     """
     repo = workspace / "target_switch_agentic"
-    overlay = workspace / "overlay.yml"
-    overlay.write_text(_overlay_text(bench_port=bench_port, va_port=va_port), encoding="utf-8")
 
     _run_osprey(
         "init",
@@ -592,8 +587,7 @@ def _init_and_build(workspace: Path, *, bench_port: int, va_port: int) -> Path:
             "provider=als-apg",
             "--set",
             "model=opus",
-            "-O",
-            str(overlay),
+            *set_pairs(_profile_edits(bench_port=bench_port, va_port=va_port)),
         ],
         timeout=INIT_TIMEOUT_S,
     )

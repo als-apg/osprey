@@ -71,6 +71,7 @@ import yaml
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
 from tests.e2e._volumes import remove_project_volumes
+from tests.e2e.profile_edits import set_pairs
 
 #: This deploy's own thousand-port block, chosen so the whole stack — the
 #: dispatcher, nginx and every panel family — coexists with a live
@@ -211,20 +212,17 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     # host-global identifiers are remapped to e2e-unique values (see
     # COEXISTENCE in the module docstring): the container-name prefix, and the
     # one port base every published port of the stack derives from. Dotted LEAF
-    # keys on purpose -- each override sets only its own leaf and leaves its
-    # subtree's siblings intact, whereas a nested `modules:` or `deployment:`
-    # mapping would wholesale-replace the subtree (same convention as
-    # tests/e2e/_orm_stack.py). The persona catalog's own `project` /
-    # `project_path` are deliberately NOT overridden: `osprey init` writes them
-    # from the repo's name, and the build renders each persona exactly there.
-    override_path = base / "override.yml"
-    override_lines = [
-        "config:",
-        f"  facility.prefix: {WEB_PREFIX}",
-        f"  {PORT_BASE_CONFIG_KEY}: {PORT_BASE}",
-        "",
-    ]
-    override_path.write_text("\n".join(override_lines), encoding="utf-8")
+    # keys on purpose -- each edit states only its own leaf and leaves its
+    # subtree's siblings intact (same convention as tests/e2e/_orm_stack.py).
+    # The persona catalog's own `project` / `project_path` are deliberately
+    # NOT stated: `osprey init` writes them from the repo's name, and the
+    # build renders each persona exactly there.
+    edits = {
+        "config": {
+            "facility.prefix": WEB_PREFIX,
+            PORT_BASE_CONFIG_KEY: PORT_BASE,
+        }
+    }
 
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset, `build` renders build/ from it — including one
@@ -237,8 +235,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             "--preset",
             "control-assistant",
             "--no-git",
-            "--override",
-            str(override_path),
+            *set_pairs(edits),
             "--set",
             "provider=als-apg",
             "--set",

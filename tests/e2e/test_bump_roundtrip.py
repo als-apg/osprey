@@ -165,7 +165,7 @@ QMD_PORT = 28180  # clear of the qmd slot any tutorial stack on the host holds
 
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 
-#: Override-file additions on top of ``_orm_stack.override_yaml()``.
+#: Additions on top of ``_orm_stack.profile_edits()``.
 #:
 #: The port moves cover every host port with no ``--set`` hook on
 #: ``_orm_stack.init_args`` (which reaches only the bridge and VA ports).
@@ -175,7 +175,7 @@ BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 #: ``va_archiver`` block that renders it.
 #:
 #: ``bluesky_web: null`` drops the bluesky-web sidecar, for the same reason
-#: ``override_yaml()`` already drops ``dispatch`` and the web terminals:
+#: ``profile_edits()`` already drops ``dispatch`` and the web terminals:
 #: nothing here reads it, and it is a THIRD locally-built image compiled in
 #: parallel with the VA and the bridge. Three concurrent source builds, each
 #: resolving a large wheel set, is what an 8 GB Docker VM does not have the

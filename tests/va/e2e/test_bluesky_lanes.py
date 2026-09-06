@@ -90,6 +90,7 @@ from osprey.mcp_server.bluesky.server_context import (
 from osprey.mcp_server.bluesky.tools import queue as queue_tools
 from osprey.mcp_server.control_system import target_state
 from osprey.utils.workspace import reset_config_cache
+from tests.e2e.profile_edits import set_pairs
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 from tests.va.e2e import conftest as e2e_conftest
 
@@ -104,7 +105,7 @@ pytestmark = [
 PROJECT_NAME = "lane-e2e"
 
 #: The lane whose target is the deployment baseline (this module pins
-#: ``control_system.type`` to the virtual accelerator, see ``_override_yaml``),
+#: ``control_system.type`` to the virtual accelerator, see ``_profile_edits``),
 #: and the lane the opt-in renders beside it. Imported rather than spelled, so
 #: a rename of the service keys fails here instead of drifting.
 LANE_VA = LANE_ONE
@@ -389,7 +390,7 @@ def live_endpoint():
 # ---------------------------------------------------------------------------
 # The two-lane deployment
 # ---------------------------------------------------------------------------
-def _override_yaml() -> str:
+def _profile_edits() -> dict[str, Any]:
     """Host hygiene, CI sizing, and the VA baseline -- never the lane axis.
 
     ``dispatch: null`` and ``modules.web_terminals.enabled: false`` drop two
@@ -406,23 +407,26 @@ def _override_yaml() -> str:
     The pin selects the baseline whose pair carries that lane; it does not
     paper over anything about the preset.
 
-    Flat dotted keys under ``config:`` (the preset's own convention): a ``--set``
-    would build a NESTED dict for every dotted segment and replace whole blocks.
+    Flat dotted keys under ``config:`` (the preset's own convention):
+    everything after ``config.`` is one key naming one leaf of the rendered
+    config, so the blocks around each leaf stay as the preset wrote them.
     """
-    return (
-        "config:\n"
-        "  control_system.type: virtual_accelerator\n"
-        "  claude_code.servers.bluesky.enabled: true\n"
-        "  modules.web_terminals.enabled: false\n"
-        f"  services.postgresql.port_host: {POSTGRES_PORT}\n"
-        f"  services.openobserve.port: {OPENOBSERVE_PORT}\n"
-        f"  services.qmd.port: {QMD_PORT}\n"
-        "dispatch: null\n"
-        "va_archiver:\n"
-        "  retention_days: 2\n"
-        "  hot_span_hours: 2\n"
-        f"  port_host: {MONGODB_PORT}\n"
-    )
+    return {
+        "config": {
+            "control_system.type": "virtual_accelerator",
+            "claude_code.servers.bluesky.enabled": True,
+            "modules.web_terminals.enabled": False,
+            "services.postgresql.port_host": POSTGRES_PORT,
+            "services.openobserve.port": OPENOBSERVE_PORT,
+            "services.qmd.port": QMD_PORT,
+        },
+        "dispatch": None,
+        "va_archiver": {
+            "retention_days": 2,
+            "hot_span_hours": 2,
+            "port_host": MONGODB_PORT,
+        },
+    }
 
 
 def _init_and_build(base: Path, name: str, *, second_lane: bool) -> Path:
@@ -435,8 +439,6 @@ def _init_and_build(base: Path, name: str, *, second_lane: bool) -> Path:
     two-lane deployment in exactly one profile key.
     """
     repo = base / name
-    override = base / f"override-{name}.yml"
-    override.write_text(_override_yaml(), encoding="utf-8")
 
     argv = [
         str(_osprey_bin()),
@@ -445,8 +447,7 @@ def _init_and_build(base: Path, name: str, *, second_lane: bool) -> Path:
         "--preset",
         "control-assistant",
         "--no-git",
-        "--override",
-        str(override),
+        *set_pairs(_profile_edits()),
         "--set",
         f"virtual_accelerator.port={VA_CA_PORT}",
         "--set",

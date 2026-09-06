@@ -143,6 +143,7 @@ from osprey.mcp_server.sandbox_env import PERIMETER_DENY_PORTS_ENV, PERIMETER_MA
 from osprey.services.python_executor.execution.net_guard import NET_GUARD_REFUSAL_PREFIX
 from osprey.utils.dotenv import parse_dotenv_file
 from tests.e2e._volumes import remove_project_volumes
+from tests.e2e.profile_edits import set_pairs
 
 # ``dockerbuild`` is load-bearing, not descriptive: a guard in
 # tests/deployment/test_ci_workflow_wiring.py requires every file carrying it to
@@ -466,14 +467,16 @@ def _render_reference_project(tmp_path: Path, osprey_bin: Path) -> Path:
     # names an unresolvable secret. The perimeter lane avoids this with a
     # config-less busybox stub; a real `osprey web` persona must render a config
     # that actually stands up.
-    ref_override = tmp_path / "persona-ref-override.yml"
-    ref_override.write_text(
-        yaml.safe_dump({"config": {"claude_code.telemetry.enabled": False}}, sort_keys=False),
-        encoding="utf-8",
-    )
     init = _run_osprey(
         osprey_bin,
-        ["init", str(ref_repo), "--preset", PRESET, "--no-git", "--override", str(ref_override)],
+        [
+            "init",
+            str(ref_repo),
+            "--preset",
+            PRESET,
+            "--no-git",
+            *set_pairs({"config": {"claude_code.telemetry.enabled": False}}),
+        ],
         tmp_path,
         timeout=RENDER_TIMEOUT_SEC,
     )
@@ -548,13 +551,13 @@ def _write_persona_project(root: Path, ref_build: Path) -> Path:
     return root
 
 
-def _override_text(lane: Lane) -> str:
-    """The ``-O`` overlay carrying one lane's whole web-terminal stanza.
+def _profile_edits(lane: Lane) -> dict[str, Any]:
+    """The edits carrying one lane's whole web-terminal stanza.
 
     Dotted leaf keys under ``config:``, the one spelling a profile's config
     block accepts — and ``modules.web_terminals`` deliberately as ONE dotted key
-    with a nested value, so it sets that subtree without replacing the rendered
-    ``modules:`` mapping around it.
+    with a nested value, so it states that subtree's leaves without replacing
+    the rendered ``modules:`` mapping around it.
 
     ``auth.method`` is spelled explicitly in both lanes, ``token`` included even
     though an absent ``auth:`` block renders it: a reader of this file should not
@@ -572,35 +575,30 @@ def _override_text(lane: Lane) -> str:
     off with them, and for the same reason the perimeter lane disables it — the
     preset ships it aimed at a store this deploy no longer runs.
     """
-    return yaml.safe_dump(
-        {
-            "config": {
-                "container_runtime": RUNTIME,
-                "facility.name": f"E2E Multiuser Fixture ({lane.posture})",
-                "facility.prefix": lane.prefix,
-                "facility.timezone": "UTC",
-                "deploy.fqdn": "127.0.0.1",
-                "deployed_services": [],
-                "claude_code.telemetry.enabled": False,
-                "modules.web_terminals": {
-                    "enabled": True,
-                    "image_source": "local",
-                    "default_persona": PERSONA,
-                    "nginx_port": lane.nginx_port,
-                    "web_base_port": lane.base_ports["web"],
-                    "artifact_base_port": lane.base_ports["artifact"],
-                    "ariel_base_port": lane.base_ports["ariel"],
-                    "lattice_base_port": lane.base_ports["lattice"],
-                    "channel_finder_base_port": lane.base_ports["channel_finder"],
-                    "users": [
-                        dict(user) if isinstance(user, dict) else user for user in lane.users
-                    ],
-                    "auth": {"method": lane.posture},
-                },
-            }
-        },
-        sort_keys=False,
-    )
+    return {
+        "config": {
+            "container_runtime": RUNTIME,
+            "facility.name": f"E2E Multiuser Fixture ({lane.posture})",
+            "facility.prefix": lane.prefix,
+            "facility.timezone": "UTC",
+            "deploy.fqdn": "127.0.0.1",
+            "deployed_services": [],
+            "claude_code.telemetry.enabled": False,
+            "modules.web_terminals": {
+                "enabled": True,
+                "image_source": "local",
+                "default_persona": PERSONA,
+                "nginx_port": lane.nginx_port,
+                "web_base_port": lane.base_ports["web"],
+                "artifact_base_port": lane.base_ports["artifact"],
+                "ariel_base_port": lane.base_ports["ariel"],
+                "lattice_base_port": lane.base_ports["lattice"],
+                "channel_finder_base_port": lane.base_ports["channel_finder"],
+                "users": [dict(user) if isinstance(user, dict) else user for user in lane.users],
+                "auth": {"method": lane.posture},
+            },
+        }
+    }
 
 
 def _add_persona_catalog(repo: Path, persona_path: Path) -> None:
@@ -613,10 +611,15 @@ def _add_persona_catalog(repo: Path, persona_path: Path) -> None:
     so the entry is added to ``profile.yml`` once the repo exists and before
     ``osprey build`` reads it, which is the remedy materialization itself names
     for a hand-written persona.
+
+    Written as the dotted key ``modules.web_terminals.personas``, the same
+    spelling the lane's own edits use: a profile's ``config:`` is a flat bag
+    of dotted paths into the rendered config, and one more path is how a
+    catalog joins the stanza the edits already wrote.
     """
     profile_path = repo / "profile.yml"
     profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
-    profile["config"]["modules.web_terminals"]["personas"] = {
+    profile["config"]["modules.web_terminals.personas"] = {
         PERSONA: {"project": PERSONA_PROJECT, "project_path": str(persona_path)}
     }
     profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
@@ -629,12 +632,10 @@ def _make_repo(lane: Lane, tmp_path: Path, osprey_bin: Path, persona_path: Path)
     quick: nothing here runs the deployment's own venv, only its containers.
     """
     repo = tmp_path / lane.project_name
-    override_path = tmp_path / f"{lane.prefix}-override.yml"
-    override_path.write_text(_override_text(lane), encoding="utf-8")
 
     init = _run_osprey(
         osprey_bin,
-        ["init", str(repo), "--preset", PRESET, "--no-git", "--override", str(override_path)],
+        ["init", str(repo), "--preset", PRESET, "--no-git", *set_pairs(_profile_edits(lane))],
         tmp_path,
         timeout=RENDER_TIMEOUT_SEC,
     )

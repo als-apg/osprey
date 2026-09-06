@@ -79,6 +79,7 @@ from osprey.deployment.compose_generator import resolve_project_name
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
 from tests.e2e._volumes import remove_project_volumes
+from tests.e2e.profile_edits import set_pairs
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SWEEP_SCRIPT = REPO_ROOT / "scripts" / "va" / "sweep_check.py"
@@ -360,10 +361,9 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # Extends control-assistant (which already ships data/simulation/machine.json
     # + channel_limits.json) with the one flag it doesn't default to: the
     # control-system type. Written as a flat dotted-string key under `config:`,
-    # the spelling the preset itself uses and the one `--set
-    # config.control_system.type=...` would now produce -- either reaches the
-    # same leaf, and neither disturbs the rest of the `control_system` block
-    # (writes_enabled/limits_checking/connector gateways).
+    # the spelling the preset itself uses: everything after `config.` is one
+    # key naming one leaf, so the rest of the `control_system` block
+    # (writes_enabled/limits_checking/connector gateways) is left alone.
     # `dispatch: null` drops control-assistant's default event-dispatcher
     # stack (Node + Claude CLI image) -- irrelevant here and far slower to
     # build than the VA image already is.
@@ -377,14 +377,14 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # to a CI-sized one -- this proof deploys the store (the preset's
     # `va_archiver:` block is what makes the VA's history real) but reads none
     # of its history, and seeding a tutorial-sized month costs every run.
-    override_path = base / "override.yml"
-    override_path.write_text(
-        "config:\n"
-        "  control_system.type: virtual_accelerator\n"
-        "  modules.web_terminals.enabled: false\n"
-        "dispatch: null\n" + _orm_stack.VA_ARCHIVER_CI_KNOBS,
-        encoding="utf-8",
-    )
+    edits = {
+        "config": {
+            "control_system.type": "virtual_accelerator",
+            "modules.web_terminals.enabled": False,
+        },
+        "dispatch": None,
+        **_orm_stack.VA_ARCHIVER_CI_KNOBS,
+    }
 
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset, `build` renders build/ from it. The repo directory
@@ -397,8 +397,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             "--preset",
             "control-assistant",
             "--no-git",
-            "--override",
-            str(override_path),
+            *set_pairs(edits),
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",
             "--set",
