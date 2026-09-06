@@ -11,7 +11,8 @@
  *      keeps an unmapped tool visible.
  *   3. `createChatRenderer` -- the view-model: user/agent entries, streamed
  *      text accumulation, the activity-line state machine, first-turn
- *      session_reset suppression, and error rendering.
+ *      session_reset suppression, error rendering, and the transcript replay
+ *      that repopulates the log after a handoff from the other view.
  *
  * On the XSS tests: the *real* vendored DOMPurify cannot be exercised here --
  * under happy-dom (the vitest env) DOMPurify mis-parses and leaks `<script>`
@@ -526,6 +527,112 @@ describe('createChatRenderer', () => {
     // after reset, a session_reset is again a first-turn (suppressed)
     r.handleEvent({ type: 'session_reset' });
     expect(container.querySelector('.op-system')).toBeNull();
+  });
+
+  describe('replay of prior transcript turns', () => {
+    /** Three turns in the shape `GET /api/session-chat` serves. */
+    const turns = [
+      { role: 'user', content: 'read the beam current', timestamp: '2026-09-05T10:00:00Z' },
+      { role: 'assistant', content: 'The beam current is 500 mA.', timestamp: '2026-09-05T10:00:02Z' },
+      { role: 'user', content: 'and the orbit?', timestamp: '2026-09-05T10:00:09Z' },
+    ];
+
+    test('renders one entry per turn, in order, and returns the count', () => {
+      const r = createChatRenderer(container);
+      expect(r.replay(turns)).toBe(3);
+      expect(r.messageCount()).toBe(3);
+
+      const entries = container.querySelectorAll('.op-entry');
+      expect(entries.length).toBe(3);
+      expect(entries[0].classList.contains('operator')).toBe(true);
+      expect(entries[1].classList.contains('assistant')).toBe(true);
+      expect(entries[2].classList.contains('operator')).toBe(true);
+      expect(entries[1].querySelector('.op-entry-body')?.textContent).toBe(
+        'The beam current is 500 mA.'
+      );
+    });
+
+    test('agent turns go through the sanitising markdown path', () => {
+      vi.stubGlobal('DOMPurify', strippingPurify);
+      const r = createChatRenderer(container);
+      r.replay([
+        {
+          role: 'assistant',
+          content: 'result: <img src=x onerror="steal()"><script>evil()</script>',
+        },
+      ]);
+      const body = qs(container, '.op-entry.assistant .op-entry-body');
+      expect(body.querySelector('script')).toBeNull();
+      expect(body.querySelector('[onerror]')).toBeNull();
+    });
+
+    test('markdown in an agent turn is rendered, not shown as source', () => {
+      vi.stubGlobal('marked', { parse: (/** @type {string} */ t) => `<p><em>${t}</em></p>` });
+      const r = createChatRenderer(container);
+      r.replay([{ role: 'assistant', content: 'orbit corrected' }]);
+      const body = qs(container, '.op-entry.assistant .op-entry-body');
+      expect(body.querySelector('em')?.textContent).toBe('orbit corrected');
+    });
+
+    test('a session_reset after a replay draws no divider', () => {
+      // Replayed turns are the same conversation continued in another window,
+      // so the fresh stream's frame-0 reset is not a boundary worth marking.
+      const r = createChatRenderer(container);
+      r.replay(turns);
+      r.handleEvent({ type: 'session_reset' });
+      expect(container.querySelector('.op-system')).toBeNull();
+      expect(r.messageCount()).toBe(3);
+    });
+
+    test('a reset still earns a divider once a live exchange completes above it', () => {
+      const r = createChatRenderer(container);
+      r.replay(turns);
+      r.handleEvent({ type: 'text', content: 'The orbit is flat.' });
+      r.handleEvent({ type: 'result', is_error: false });
+      r.addUserMessage('thanks');
+      r.handleEvent({ type: 'session_reset' });
+      expect(qs(container, '.op-system').textContent).toBe('session reset');
+    });
+
+    test('a live text event after a replay opens a fresh agent entry', () => {
+      const r = createChatRenderer(container);
+      r.replay([{ role: 'assistant', content: 'replayed' }]);
+      r.handleEvent({ type: 'text', content: 'live' });
+      const agents = container.querySelectorAll('.op-entry.assistant');
+      expect(agents.length).toBe(2);
+      expect(agents[0].querySelector('.op-entry-body')?.textContent).toBe('replayed');
+      expect(agents[1].querySelector('.op-entry-body')?.textContent).toBe('live');
+    });
+
+    test('an empty or missing turn list renders nothing', () => {
+      const r = createChatRenderer(container);
+      expect(r.replay([])).toBe(0);
+      expect(r.replay(undefined)).toBe(0);
+      expect(container.children.length).toBe(0);
+      expect(r.messageCount()).toBe(0);
+    });
+
+    test('a turn with no content is skipped and not counted', () => {
+      const r = createChatRenderer(container);
+      expect(r.replay([{ role: 'user', content: '' }, { role: 'assistant', content: 'hi' }])).toBe(1);
+      expect(r.messageCount()).toBe(1);
+      expect(container.querySelectorAll('.op-entry.operator').length).toBe(0);
+    });
+
+    test('addAgentMessage appends a finished agent entry and marks the exchange', () => {
+      const r = createChatRenderer(container);
+      const entry = r.addAgentMessage('The beam current is 500 mA.');
+      expect(entry.classList.contains('assistant')).toBe(true);
+      expect(qs(container, '.op-entry.assistant .op-entry-body').textContent).toBe(
+        'The beam current is 500 mA.'
+      );
+      expect(r.messageCount()).toBe(1);
+      // Unlike a replay, a directly added agent message is a completed
+      // exchange, so the next reset is worth a divider.
+      r.addUserMessage('and the orbit?');
+      r.handleEvent({ type: 'session_reset' });
+      expect(qs(container, '.op-system').textContent).toBe('session reset');
+    });
   });
 
   test('a hostile tool name reaches the activity line as text, never markup', () => {

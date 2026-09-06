@@ -192,6 +192,46 @@ describe('per-persona pointer scope', () => {
   });
 });
 
+describe('the session key outlives the connection', () => {
+  // A view flip tears this terminal's socket down so the other surface can
+  // take the session over. Both halves of the pointer have to survive that:
+  // the stored key, so a reload still resumes it, and the answer to "which
+  // session is this card on?", which the chat asks while nothing is attached.
+
+  test('stopTerminal leaves the stored key and the reported id in place', () => {
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    receive({ type: 'session_info', session_id: 'session-k' });
+
+    terminal.stopTerminal();
+
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('session-k');
+    expect(terminal.getCurrentSessionId()).toBe('session-k');
+  });
+
+  test('the stored key answers before anything has connected', () => {
+    // Page load with a kept-warm session: the chat can ask for the key before
+    // the terminal's own confirmation has arrived.
+    localStorage.setItem(STORAGE_KEY, 'session-k');
+
+    terminal.initTerminal('terminal-container');
+
+    expect(terminal.getCurrentSessionId()).toBe('session-k');
+  });
+
+  test('a dead key is still forgotten, not kept across the teardown', () => {
+    // The one teardown where the key itself is what failed: the server
+    // refused to resume it, so nothing may report it as the current session.
+    localStorage.setItem(STORAGE_KEY, 'gone-id');
+    terminal.initTerminal('terminal-container');
+    openSocket();
+
+    receive({ type: 'transcript_missing', session_id: 'gone-id' });
+
+    expect(terminal.getCurrentSessionId()).toBeNull();
+  });
+});
+
 describe('resume confirmation: stale id self-correction', () => {
   test('matching confirmed id: storage keeps the resumed id, currentSessionId updates', () => {
     localStorage.setItem(STORAGE_KEY, 'requested-id');
@@ -441,41 +481,59 @@ describe('transcript missing: an explicit state, never a dead PTY', () => {
 describe('a refused own-resume in Simple view', () => {
   // The block above pins the Expert answer to this same frame: say what
   // happened, then wait for Enter. Simple view hides the terminal entirely, so
-  // both halves of that answer land in a window nobody can see or reach, and
-  // the chat would sit silent until someone thought to reload. The stale
-  // pointer is already gone from storage by then, so nothing is left for the
-  // operator to decide and the client makes the only remaining move itself.
+  // both halves of that answer would land in a window nobody can see or reach.
+  // Nor is anything started in its place: the chat is the surface there, it is
+  // bound to the same key, and a hidden terminal spawning the session's agent
+  // would take the conversation away from it. The pointer is that shared key,
+  // so it survives too — clearing it is how this client says "this
+  // conversation is gone", which is not what a terminal that never got to
+  // attach knows.
+  //
+  // The terminal only reaches this state in Simple view by being flipped
+  // mid-connect, so these start it the way the flip does (startExpert), not
+  // through initTerminal — which no longer connects in Simple view at all.
 
-  test('a fresh session is started instead of arming a hidden Enter', () => {
+  test('the shared pointer survives, because the chat is bound to it', () => {
     document.documentElement.setAttribute('data-ui-mode', 'simple');
-    localStorage.setItem(STORAGE_KEY, 'gone-id');
+    localStorage.setItem(STORAGE_KEY, 'shared-key');
     terminal.initTerminal('terminal-container');
+    terminal.startExpert();
+    openSocket();
+
+    receive({ type: 'transcript_missing', session_id: 'shared-key' });
+
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('shared-key');
+    expect(terminal.getCurrentSessionId()).toBe('shared-key');
+  });
+
+  test('nothing is started in the hidden terminal, and nothing is asked of the operator', () => {
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    localStorage.setItem(STORAGE_KEY, 'shared-key');
+    terminal.initTerminal('terminal-container');
+    terminal.startExpert();
     openSocket();
     const socketsBefore = FakeWebSocket.created;
 
-    receive({ type: 'transcript_missing', session_id: 'gone-id' });
+    receive({ type: 'transcript_missing', session_id: 'shared-key' });
 
-    expect(FakeWebSocket.created).toBe(socketsBefore + 1);
-    const url = /** @type {FakeWebSocket} */ (FakeWebSocket.last).url;
-    expect(url).not.toContain('session_id=');
-    expect(url).not.toContain('mode=resume');
+    expect(FakeWebSocket.created).toBe(socketsBefore);
     // Nothing was asked of the operator, so nothing claims to have been.
     expect(/** @type {FakeTerminal} */ (FakeTerminal.last).written).not.toMatch(/Press Enter/);
   });
 
-  test('Enter is ordinary input on the session that replaces it', () => {
+  test('a pointer that has moved on is left alone too', () => {
+    // The chat minted a new key while this connect was in flight. The refused
+    // id is not the one in storage, so there is nothing here to correct.
     document.documentElement.setAttribute('data-ui-mode', 'simple');
-    localStorage.setItem(STORAGE_KEY, 'gone-id');
+    localStorage.setItem(STORAGE_KEY, 'old-key');
     terminal.initTerminal('terminal-container');
+    terminal.startExpert();
     openSocket();
-    receive({ type: 'transcript_missing', session_id: 'gone-id' });
-    openSocket();
-    const socketsBefore = FakeWebSocket.created;
+    localStorage.setItem(STORAGE_KEY, 'newer-key');
 
-    press('\r');
+    receive({ type: 'transcript_missing', session_id: 'old-key' });
 
-    expect(FakeWebSocket.created).toBe(socketsBefore);
-    expect(/** @type {FakeWebSocket} */ (FakeWebSocket.last).sent).toContain('\r');
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('newer-key');
   });
 
   test('a refused switch is untouched by the mode', () => {
@@ -483,6 +541,7 @@ describe('a refused own-resume in Simple view', () => {
     // live session and there is nothing to start in either view.
     document.documentElement.setAttribute('data-ui-mode', 'simple');
     terminal.initTerminal('terminal-container');
+    terminal.startExpert();
     openSocket();
     receive({ type: 'session_info', session_id: 'live-id' });
     const socketsBefore = FakeWebSocket.created;

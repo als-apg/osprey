@@ -115,12 +115,10 @@ def build_pty_env(extra_env: dict[str, str] | None = None) -> dict[str, str]:
 #: connections to the *same pool key*, as built by
 #: :func:`osprey.interfaces.web_terminal.routes.websocket._build_extra_env`:
 #:
-#: * ``OSPREY_SESSION_ID`` — set only when the handler knows the Claude session
-#:   id, and then equal to the pool key itself. A session spawned fresh (id
-#:   dictated on the CLI, ``claude_session_id`` still ``None``) carries no such
-#:   variable; switching back to that same session later resumes it by id and
-#:   does. Absent-or-equal-to-the-key: it names the session the pool already
-#:   keyed on, so it carries no privilege the key does not.
+#: * ``OSPREY_SESSION_ID`` — stamped on every spawn path, always equal to the
+#:   pool key (``claude_session_id or telemetry_session_id``): it names the
+#:   session the pool already keyed on, so it carries no privilege the key
+#:   does not.
 #: * ``OSPREY_TELEMETRY_SESSION_ID`` — same shape. The spawn call site passes a
 #:   telemetry id, the ``switch_session`` call site does not, and when present
 #:   it is also the pool key.
@@ -309,7 +307,18 @@ class PtySession:
         self._last_cols = cols
 
     def terminate(self) -> None:
-        """Terminate the subprocess and close the PTY."""
+        """Terminate the subprocess and close the PTY.
+
+        Blocking, and best-effort: it hangs up the terminal, then escalates
+        SIGTERM to SIGKILL, waiting between steps, so it can occupy the
+        calling thread for about seven seconds. A caller that must not block
+        that long runs it in a worker thread.
+
+        It may also return with the child still running — the SIGKILL wait can
+        expire, which is logged and then let go. Returning is therefore not
+        proof of death: :attr:`is_alive` is, and it is the probe anything that
+        needs to *know* the child is gone must poll.
+        """
         # Close master fd FIRST — the kernel sends SIGHUP to the entire
         # session (all process groups under this session leader), which is the
         # standard Unix mechanism for cleaning up terminal sessions.  Shells
@@ -366,7 +375,11 @@ class PtySession:
 
     @property
     def is_alive(self) -> bool:
-        """Check if the subprocess is still running."""
+        """Whether the subprocess is still running.
+
+        The public death probe: :meth:`terminate` can return with the child
+        alive, so a caller that must observe the process gone polls this.
+        """
         if self._process is None:
             return False
         return self._process.poll() is None
@@ -388,7 +401,16 @@ class PtyRegistry:
 
     def __init__(self, max_background: int = 5) -> None:
         self._sessions: OrderedDict[str, PtySession] = OrderedDict()
-        self._attached: set[str] = set()
+        # Pool key -> the token of the caller currently consuming it. The
+        # token, not the key, is what identifies an attachment: two callers
+        # can meet on one key, and only the one holding the token may release
+        # it. See attach_session().
+        self._attached: dict[str, object] = {}
+        # Pool keys a hand-off in flight will re-fill. Unlike an attachment a
+        # reservation names no owner and grants no exclusivity; it only keeps
+        # the eviction pass off a key whose consumer has left and whose next
+        # consumer has not arrived. See reserve().
+        self._reserved: set[str] = set()
         # Fingerprint of the extra_env each pooled child was spawned with, kept
         # in lockstep with _sessions. Read by get_or_create_session to decide
         # whether a warm entry may be reattached; see env_fingerprint().
@@ -469,7 +491,7 @@ class PtyRegistry:
                 # Dead — remove silently, respawn below
                 self._sessions.pop(session_key, None)
                 self._env_fingerprints.pop(session_key, None)
-                self._attached.discard(session_key)
+                self._attached.pop(session_key, None)
 
         # Evict if at capacity
         self._evict_lru()
@@ -483,26 +505,98 @@ class PtyRegistry:
         self._audit_keys.pop(session_key, None)
         return session, False
 
-    def attach_session(self, session_key: str) -> bool:
-        """Mark session as actively consumed by a WebSocket.
+    def attach_session(self, session_key: str, owner: object) -> bool:
+        """Mark a pooled session as actively consumed by one caller.
 
-        Returns False if already attached or not in pool.
+        One consumer per key: two readers on a single PTY file descriptor
+        split the child's output between them, so a key that is already
+        attached is refused rather than shared. The caller that wins holds the
+        attachment until it releases it with the same token.
+
+        Args:
+            session_key: The pool key to attach.
+            owner: A token identifying the caller — any object, compared by
+                identity. Only the holder of this token can detach the key
+                again, which is what keeps a departing caller from releasing
+                an attachment a newer one has since taken over.
+
+        Returns:
+            True when the attachment was taken. False when the key is not in
+            the pool, or when it is already attached — by another caller or by
+            this one.
         """
         if session_key not in self._sessions:
             return False
         if session_key in self._attached:
             return False
-        self._attached.add(session_key)
+        self._attached[session_key] = owner
         return True
 
-    def detach_session(self, session_key: str) -> None:
-        """Remove from attached set without terminating.
+    def detach_session(self, session_key: str, owner: object) -> None:
+        """Release an attachment without terminating the session.
 
         LRU-bumps the session so it's less likely to be evicted.
+
+        A detach from anyone but the current holder is a no-op — including a
+        detach of a key that is not attached at all. A caller whose session
+        went away and was replaced under the same key therefore tears its own
+        state down without clearing the attachment the replacement holds.
+
+        Args:
+            session_key: The pool key to release.
+            owner: The token :meth:`attach_session` was given for this key.
         """
-        self._attached.discard(session_key)
+        if session_key not in self._attached or self._attached[session_key] is not owner:
+            return
+        del self._attached[session_key]
         if session_key in self._sessions:
             self._sessions.move_to_end(session_key)
+
+    def is_attached(self, session_key: str) -> bool:
+        """Whether some caller currently holds *session_key*.
+
+        The authoritative answer, and the one to ask before evicting or
+        popping a key: :meth:`attached_owner` cannot tell an unattached key
+        from one attached with a falsy token.
+        """
+        return session_key in self._attached
+
+    def reserve(self, session_key: str) -> None:
+        """Hold *session_key* against eviction while a hand-off is in flight.
+
+        A hand-off leaves its key attached to nobody: the outgoing surface
+        releases the key before the incoming one takes it, and in that gap a
+        pooled entry looks exactly like the cold background session the
+        eviction pass exists to reclaim. A reservation says the gap is
+        deliberate and a consumer is on its way, so :meth:`_evict_lru` steps
+        over the key the way it steps over an attached one.
+
+        A reservation is not an attachment. It carries no owner token, grants
+        no exclusive right to read the child, and is taken and dropped by the
+        same hand-off, so reserving a key twice is reserving it once. A key
+        that holds no session may be reserved — a hand-off reserves before it
+        pops, and the entry it protects may not exist yet.
+
+        Every reservation must be released in a ``finally``: a key left
+        reserved is a key the pool can never reclaim.
+        """
+        self._reserved.add(session_key)
+
+    def unreserve(self, session_key: str) -> None:
+        """Release a hand-off reservation.
+
+        A no-op for a key that holds none, so a ``finally`` can call it
+        without knowing whether :meth:`reserve` was reached.
+        """
+        self._reserved.discard(session_key)
+
+    def is_reserved(self, session_key: str) -> bool:
+        """Whether a hand-off currently holds *session_key*."""
+        return session_key in self._reserved
+
+    def attached_owner(self, session_key: str) -> object | None:
+        """The token currently holding *session_key*, or None if it is free."""
+        return self._attached.get(session_key)
 
     def rekey_session(self, old_key: str, new_key: str) -> None:
         """Rename a session entry (e.g. after UUID discovery).
@@ -546,8 +640,7 @@ class PtyRegistry:
         if fingerprint is not None:
             self._env_fingerprints[new_key] = fingerprint
         if old_key in self._attached:
-            self._attached.discard(old_key)
-            self._attached.add(new_key)
+            self._attached[new_key] = self._attached.pop(old_key)
 
         # Chained renames collapse to the FIRST key — that is the one the
         # running child exported. An alias that would name the key itself is
@@ -595,21 +688,39 @@ class PtyRegistry:
         """
         return self._audit_keys.get(session_key, session_key)
 
-    def _evict_lru(self) -> None:
-        """Evict the oldest non-attached session if at capacity."""
+    def pop_lru_victim(self) -> PtySession | None:
+        """Remove and return the session a spawn at capacity would evict, unkilled.
+
+        The selection half of :meth:`_evict_lru`, for a caller on an event
+        loop that is about to call :meth:`get_or_create_session` and cannot
+        afford the blocking kill that eviction performs there: it takes the
+        victim out of the pool here, kills it wherever it likes, and the spawn
+        that follows finds room. Nothing is popped below capacity.
+
+        A key is held either by a consumer reading its child
+        (:meth:`attach_session`) or by a hand-off about to re-fill it
+        (:meth:`reserve`). Both are stepped over, so a pool whose every entry
+        is held grows past ``max_background`` rather than killing a session
+        somebody is using — capacity is a target, not a guarantee.
+
+        Returns:
+            The oldest unheld session, forgotten by the pool exactly as
+            :meth:`pop_session` forgets one, or None when the pool is below
+            capacity or every entry is held.
+        """
         if len(self._sessions) < self._max_background:
-            return
-        # Find oldest non-attached
+            return None
         for key in list(self._sessions):
-            if key not in self._attached:
-                evicted = self._sessions.pop(key)
-                bound_as = self.audit_session_key(key)
-                self._env_fingerprints.pop(key, None)
-                self._audit_keys.pop(key, None)
-                evicted.terminate()
-                _clear_notebook_binding(bound_as)
+            if not self.is_attached(key) and not self.is_reserved(key):
                 logger.info("Evicted LRU session %s", key)
-                return
+                return self.pop_session(key)
+        return None
+
+    def _evict_lru(self) -> None:
+        """Evict the oldest unheld session if at capacity (see :meth:`pop_lru_victim`)."""
+        victim = self.pop_lru_victim()
+        if victim is not None:
+            victim.terminate()
 
     def _spawn_session(
         self,
@@ -655,24 +766,74 @@ class PtyRegistry:
         """Get an existing session by ID."""
         return self._sessions.get(session_id)
 
-    def terminate_session(self, session_id: str) -> None:
-        """Terminate and remove a session.
+    def pop_session(self, session_id: str) -> PtySession | None:
+        """Remove a session from the pool and hand it to the caller, unkilled.
 
-        Drops the entry's recorded env fingerprint and audit alias with it, so
-        the key is fully forgotten and a later spawn under the same key records
-        its own. The notebook session binding goes too, resolved through the
-        audit alias *before* it is dropped — the binding names a session by the
-        key its child stamps, which for a rekeyed session is not the pool key
-        being terminated here.
+        Everything :meth:`terminate_session` does *except* the kill. The pool
+        entry goes, and with it the recorded env fingerprint, the audit alias
+        and any attachment, so the key is fully forgotten and a later spawn
+        under it records its own. The notebook session binding goes too,
+        resolved through the audit alias *before* that alias is dropped — the
+        binding names a session by the key its child stamps, which for a
+        rekeyed session is not the pool key being removed here.
+
+        The split exists because the two halves belong on different threads.
+        The bookkeeping is a handful of dict operations and is safe on an
+        event loop; :meth:`PtySession.terminate` blocks for seconds waiting on
+        signals and is not. Once the entry is out of the pool no new consumer
+        can reach the child, so the caller is free to kill it wherever it
+        likes — and must, since nothing else holds a reference any more.
+
+        Returns:
+            The removed session, or None when *session_id* names no pooled
+            session. The bookkeeping runs either way, which for an unknown key
+            means only clearing a notebook binding that still points at it.
         """
         session = self._sessions.pop(session_id, None)
         bound_as = self.audit_session_key(session_id)
         self._env_fingerprints.pop(session_id, None)
         self._audit_keys.pop(session_id, None)
+        self._attached.pop(session_id, None)
+        _clear_notebook_binding(bound_as)
+        return session
+
+    def reinsert(self, session_id: str, session: PtySession) -> bool:
+        """Put a session :meth:`pop_session` removed back into the pool, unattached.
+
+        The path for a kill that did not take: a hand-off pops the entry,
+        terminates the child, and finds it still alive after the death wait.
+        Dropping the object then would orphan a running process nothing can
+        reach; parking it in a side list would give the pool a second
+        registry to drift from. Putting it back lets the next acquire meet it
+        as an ordinary holder and run the kill again.
+
+        No launch fingerprint is recorded — the pop dropped it and a survivor
+        of a kill is not a child to reattach warm — and no attachment or
+        reservation is taken, so the entry is exactly as evictable as any
+        other background session.
+
+        Returns:
+            True when the session was put back. False, with the pool left
+            alone, when *session_id* is occupied: something else filled the
+            key in the meantime and the survivor is the caller's to deal with.
+        """
+        if session_id in self._sessions:
+            return False
+        self._sessions[session_id] = session
+        return True
+
+    def terminate_session(self, session_id: str) -> None:
+        """Terminate and remove a session.
+
+        The pool bookkeeping is :meth:`pop_session`; the kill that follows
+        blocks the calling thread for as long as the child takes to die, and
+        may return with it still alive (see :meth:`PtySession.terminate`). A
+        caller on an event loop that cannot afford either uses the two halves
+        separately.
+        """
+        session = self.pop_session(session_id)
         if session is not None:
             session.terminate()
-        self._attached.discard(session_id)
-        _clear_notebook_binding(bound_as)
 
     def terminate_session_if_owner(self, session_id: str, owner: PtySession) -> None:
         """Terminate only if the caller still owns the session.
@@ -695,3 +856,4 @@ class PtyRegistry:
         self._env_fingerprints.clear()
         self._audit_keys.clear()
         self._attached.clear()
+        self._reserved.clear()

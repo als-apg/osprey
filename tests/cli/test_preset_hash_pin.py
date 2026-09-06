@@ -27,9 +27,19 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # ARIEL deployment answers structural questions through delegation instead
     # of direct mcp__graph__* calls — so the staleness advisory firing on
     # already-deployed projects is the correct signal.
-    "ariel-standalone": "sha256:ae72c2982cf20738d0d6783531e3619fa4fcccce13199b25056c4db4ce4e51f9",
+    # Moved — and every bundled preset moved with it, which is the signature of
+    # a change to the shared hook list rather than to one tier. `turn-state`
+    # joined every preset's `hooks:`, shipping the reporter that tells the web
+    # terminal when a turn starts and ends. A rebuilt project gains the hook
+    # file in `.claude/hooks/` and four settings.json registrations
+    # (UserPromptSubmit, Stop, StopFailure, and a SessionStart entry matched to
+    # `startup|resume|clear`), which is what lets a view switch wait until the
+    # process is between turns. Deploy-visible, so the staleness advisory
+    # firing on already-deployed projects is the correct signal.
+    "ariel-standalone": "sha256:878c0f09885509f0d7e6866d8603da3f571dfe26ec3aa5293cc437145543136a",
+    # Moved with the shared hook list above: `turn-state`.
     "channel-finder-standalone": (
-        "sha256:71c5399c9ff3f181c1998f2e35d2cdb65a29efc499dcbae73f0d4a0982544f3a"
+        "sha256:ead6c626c7f5a539f21110b827f2eb2e3d15e42522aafb02db0c4c72acc08883"
     ),
     # A digest here is the resolved content of the preset AND of every preset
     # that extends it, so a change in the base moves every control-assistant
@@ -207,7 +217,8 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # already-deployed control-assistant projects is the correct signal. The
     # three standalone digests are unchanged, which is the check that the tab
     # reached the control-assistant family and nothing else.
-    "control-assistant": "sha256:56c00c4b3c1792fc62aa8df77482da07e6b7cfcb530a811c5ff1affae0f3e511",
+    # Moved with the shared hook list above: `turn-state`.
+    "control-assistant": "sha256:1c53e20bcc5d3f5e01048cc7a00e53704957111887dd88197780d837c2dcca4f",
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
     # Moved alone when the admin tier gained the EVENTS/BLUESKY `web_panels`
@@ -221,8 +232,9 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: the `knowledge` card joined the roster.
     # Moved with the base above: the plan queue comes up armed.
     # Moved with the base above: the JUPYTER tab.
+    # Moved with the shared hook list above: `turn-state`.
     "control-assistant-admin": (
-        "sha256:184f6c4f1a377f29007d713aabc3bb24aa7ddda79d48d24b2459d3594d944442"
+        "sha256:3ad2185c2946552f8476ddd5a33b84bfa20432a900d6011a1ce5806c9315e3ae"
     ),
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
@@ -232,8 +244,9 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: the `knowledge` card joined the roster.
     # Moved with the base above: the plan queue comes up armed.
     # Moved with the base above: the JUPYTER tab.
+    # Moved with the shared hook list above: `turn-state`.
     "control-assistant-logbook": (
-        "sha256:aaf0d35ccf2d2c3219d196e2888fcea36450489d197d2412c714197aa6cb82b5"
+        "sha256:1d3091e9a09c4c6d83136ffdc5b4e1553cdbba5d419843c644d4e4dad6650e8d"
     ),
     # New: the second standalone persona. The facility knowledge graph, the
     # graph-mode channel finder and the knowledge bundle behind one shared
@@ -242,8 +255,9 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # (`draft_concept`) denied.
     # Moved with the base above: the plan queue comes up armed.
     # Moved with the base above: the JUPYTER tab.
+    # Moved with the shared hook list above: `turn-state`.
     "control-assistant-knowledge": (
-        "sha256:0777311b1d4e018fcb27a8d3c178c7591ef3cee4c94bece650dbb673b78ad96a"
+        "sha256:15fb041fbee6ea3caf8ff83dbfd9a0eb9faa7deb8cc34849ab502fb76b2f3494"
     ),
     # The two operator tiers below moved together, and alone, when each gained
     # the single dotted key `services.graphdb.port_host: 7687` in its `config:`
@@ -307,8 +321,9 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: the `knowledge` card joined the roster.
     # Moved with the base above: the plan queue comes up armed.
     # Moved with the base above: the JUPYTER tab.
+    # Moved with the shared hook list above: `turn-state`.
     "control-assistant-readonly": (
-        "sha256:cfeb9f033ceab1ebf1c9353b681512370ecb89494463738861ace01ab58db36a"
+        "sha256:c1d9905d8ed9de3f522deb60578af0e8fc0f7323f1bb6a2073bc077250c937d6"
     ),
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
@@ -317,8 +332,9 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: the `knowledge` card joined the roster.
     # Moved with the base above: the plan queue comes up armed.
     # Moved with the base above: the JUPYTER tab.
+    # Moved with the shared hook list above: `turn-state`.
     "control-assistant-readwrite": (
-        "sha256:32ccac3d13793f322596f51a440b6e9ce1f93ef3469c35ed4a763f70a334ce40"
+        "sha256:c710eb5ba5717f372d6fe07343d8ea59e714c8dcf1f0d3615496b76961bdd397"
     ),
     # New with per-target write posture, not a moved entry: the rung between
     # the two flat tiers, armed on the virtual accelerator alone. It pins the
@@ -333,8 +349,9 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: the `knowledge` card joined the roster.
     # Moved with the base above: the plan queue comes up armed.
     # Moved with the base above: the JUPYTER tab.
+    # Moved with the shared hook list above: `turn-state`.
     "control-assistant-va-readwrite": (
-        "sha256:161d353e06f81965954d1d3c56f98053460ff9af02e1b2519e9f1758690237f9"
+        "sha256:8718753c94636f8ea2f60db58f89a461e0d3ef1a46cdc331e48079ebc830c0b8"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:
@@ -349,7 +366,8 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved again when the preset gained a live `mcp_servers.example_server`
     # block, so a rebuilt project launches the seeded example MCP server and
     # its `example_status` tool appears in the session.
-    "hello-world": "sha256:fdd41e470ce46d49f206640e558eaab9e909ce034b6bcc456ff50e3edb1e0436",
+    # Moved with the shared hook list above: `turn-state`.
+    "hello-world": "sha256:45fcda3c05242e9728b036caca8226bdd1fea1cfb5053cd497c03ad8ae1d8a2d",
 }
 
 

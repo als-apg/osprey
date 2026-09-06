@@ -82,9 +82,12 @@ knows the rail but not the tiles, and its report carries a *numeric* age).
 Unknown and empty are different claims, and only one of them is honest.  Both
 hooks apply this rule identically — see :func:`_occupancy_is_known`.
 
-The seed is **unconditional**: SessionStart re-fires on resume and on ``/clear``
-with the same session id, and a stale snapshot would make the first delta line
-of the resumed session describe changes the agent already knows about.  It is
+The seed is **unconditional**: SessionStart re-fires on a resume under the same
+session id, and a snapshot left from before it would make the first delta line
+of the resumed session describe changes the agent already knows about.  A
+``/clear`` is the other case — it opens a *new* Claude Code session id, and so
+a new snapshot path, while the OSPREY session key in the environment stays what
+it was — and seeding there is a first write rather than an overwrite.  It is
 written only when a ``session_id`` is available *and* the live state was
 fetched — with no live state there is nothing honest to record, and the delta
 hook reseeds from a missing snapshot on its own.
@@ -366,9 +369,11 @@ def main():
             state = _workspace_state(data)
             tile_line = _build_tile_line(state)
             if session_id:
-                # Unconditional: SessionStart re-fires on resume and /clear with
-                # the same id, and the delta hook must start from what is on
-                # screen now, not from what was there before the resume.
+                # Unconditional: SessionStart re-fires on a resume under the
+                # same id, and the delta hook must start from what is on screen
+                # now, not from what was there before the resume. A /clear
+                # opens a new id and so a new snapshot, though the OSPREY
+                # session key in the environment is unchanged.
                 _write_snapshot(_snapshot_path(session_id), state)
         except Exception:
             # Web terminal down or unreachable — the surface line (env-only)

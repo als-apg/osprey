@@ -19,6 +19,9 @@
  *     definite 401 stops the reconnect loop and reloads -- as a navigation,
  *     which is the request shape both the nginx perimeter (login redirect) and
  *     the app's own gate (an HTML "not signed in" page) answer usefully
+ *   - refusal close codes: 4409 (session held elsewhere) and 4503 (outgoing
+ *     agent still running) end the reconnect loop and reach the caller as
+ *     onRefused; every other close code reconnects exactly as before
  *
  * Module isolation: api.js keeps `wsState`/`sseState`/`stateListeners` as
  * module-private state that no init() resets. `vi.resetModules()` plus a fresh
@@ -560,6 +563,131 @@ describe('reconnect: session-expiry probe (reload-on-401)', () => {
       headers: { Accept: 'application/json' },
     });
     expect(loc.reload).not.toHaveBeenCalled();
+  });
+});
+
+describe('createWebSocket: refusal close codes are terminal', () => {
+  /**
+   * Stub `WebSocket`, recording every instance so a test can drive `onclose`
+   * by hand and count the reconnect attempts that follow.
+   * @returns {any[]} the constructed instances, in order
+   */
+  function stubWebSocket() {
+    /** @type {any[]} */
+    const instances = [];
+    vi.stubGlobal(
+      'WebSocket',
+      class {
+        constructor() {
+          instances.push(this);
+        }
+        close() {}
+      }
+    );
+    return instances;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:5000', reload: vi.fn() });
+    // A refusal must not reach the expiry probe at all; every test here fails
+    // loudly if it does.
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test('exports the two refusal codes and a predicate that accepts only those', () => {
+    expect(api.WS_CLOSE_SESSION_ATTACHED).toBe(4409);
+    expect(api.WS_CLOSE_OUTGOING_RUNNING).toBe(4503);
+    expect(api.isRefusalCloseCode(4409)).toBe(true);
+    expect(api.isRefusalCloseCode(4503)).toBe(true);
+    // Ordinary closes stay ordinary: an abnormal drop, a clean close, and the
+    // HTTP statuses these codes are named after are all reconnectable.
+    for (const code of [1000, 1001, 1006, 1011, 409, 503, 4000, 4500]) {
+      expect(api.isRefusalCloseCode(code)).toBe(false);
+    }
+  });
+
+  test('a 4409 close reports the refusal and schedules no reconnect', () => {
+    const sockets = stubWebSocket();
+    const onRefused = vi.fn();
+
+    api.createWebSocket('ws://localhost:5000/ws/terminal', { onRefused });
+    sockets[0].onclose({ code: 4409, reason: 'session_attached_elsewhere' });
+
+    expect(onRefused).toHaveBeenCalledTimes(1);
+    expect(onRefused).toHaveBeenCalledWith(4409, 'session_attached_elsewhere');
+    expect(vi.getTimerCount()).toBe(0);
+    // Past the whole backoff ceiling: no further connection is attempted.
+    vi.advanceTimersByTime(60000);
+    expect(sockets).toHaveLength(1);
+  });
+
+  test('a 4503 close reports the refusal and schedules no reconnect', () => {
+    const sockets = stubWebSocket();
+    const onRefused = vi.fn();
+
+    api.createWebSocket('ws://localhost:5000/ws/terminal', { onRefused });
+    sockets[0].onclose({ code: 4503, reason: 'outgoing_still_running' });
+
+    expect(onRefused).toHaveBeenCalledTimes(1);
+    expect(onRefused).toHaveBeenCalledWith(4503, 'outgoing_still_running');
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(60000);
+    expect(sockets).toHaveLength(1);
+  });
+
+  test('a refusal still reaches onClose, and never asks the expiry probe', () => {
+    // The refusal is the server's answer about a session it just confirmed is
+    // alive, so probing /api/session would only add a request. onClose keeps
+    // firing on every close, refusal included: the wrapper's shape is unchanged.
+    const sockets = stubWebSocket();
+    const onClose = vi.fn();
+
+    api.createWebSocket('ws://localhost:5000/ws/terminal', { onClose });
+    sockets[0].onclose({ code: 4409, reason: 'session_attached_elsewhere' });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  test('a refusal without an onRefused callback is still terminal', () => {
+    // The callback is optional; the reconnect decision does not depend on it.
+    const sockets = stubWebSocket();
+
+    api.createWebSocket('ws://localhost:5000/ws/terminal');
+    sockets[0].onclose({ code: 4409, reason: 'session_attached_elsewhere' });
+
+    vi.advanceTimersByTime(60000);
+    expect(sockets).toHaveLength(1);
+  });
+
+  test('an ordinary 1006 close reconnects as before and reports no refusal', () => {
+    const sockets = stubWebSocket();
+    const onRefused = vi.fn();
+
+    api.createWebSocket('ws://localhost:5000/ws/terminal', { onRefused });
+    sockets[0].onclose({ code: 1006, reason: '' });
+
+    expect(onRefused).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1000);
+    expect(sockets).toHaveLength(2);
+  });
+
+  test('stop() before any close suppresses the reconnect whatever the code', () => {
+    const sockets = stubWebSocket();
+    const onRefused = vi.fn();
+
+    const conn = api.createWebSocket('ws://localhost:5000/ws/terminal', { onRefused });
+    conn.stop();
+    sockets[0].onclose({ code: 1006, reason: '' });
+
+    vi.advanceTimersByTime(60000);
+    expect(sockets).toHaveLength(1);
+    expect(onRefused).not.toHaveBeenCalled();
   });
 });
 

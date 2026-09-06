@@ -46,6 +46,7 @@ from osprey.interfaces.web_terminal.operator_session import (
     POSTURE_SESSION_ENV,
     OperatorRegistry,
 )
+from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import chat as chat_routes
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey_connectors import session_store
@@ -131,6 +132,42 @@ class TestAChatKeyIsAddressable:
             assert callable(getattr(OperatorRegistry, name, None)), name
 
 
+def _chat_request(app):
+    """A ``Request`` double for ``_acquire_chat_turn``.
+
+    Beyond the app it carries ``is_disconnected``: every chat turn now takes
+    the session key through ``acquire_surface``, which polls the caller's
+    channel while it waits for whatever holds the key to let go.
+    """
+
+    async def is_disconnected() -> bool:
+        return False
+
+    return SimpleNamespace(app=app, is_disconnected=is_disconnected)
+
+
+class _PoolFace:
+    """The chat-pool view ``acquire_surface`` inspects on a registry double.
+
+    The door looks the key up in the pool before deciding anything, and looks
+    again after a spawn to confirm the new child was actually registered — so
+    a registry double that only answers ``get_or_create_chat_session`` is no
+    longer enough.
+    """
+
+    def __init__(self):
+        self.sessions: dict[str, object] = {}
+
+    def get(self, chat_id):
+        return self.sessions.get(chat_id)
+
+    def has_key(self, chat_id):
+        return chat_id in self.sessions
+
+    async def terminate(self, chat_id):
+        return self.sessions.pop(chat_id, None)
+
+
 class _FakeChatSession:
     """Lightweight OperatorSession double for pool tests.
 
@@ -140,9 +177,11 @@ class _FakeChatSession:
     ``_acquire_chat_turn`` rather than the pool directly.
     """
 
-    def __init__(self, cwd="/tmp", env=None):
+    def __init__(self, cwd="/tmp", env=None, session_key=None):
         self.cwd = cwd
         self.env = env
+        self.session_key = session_key
+        self.resume_id = None
         self.is_active = True
         self.last_activity = time.monotonic()
         self.in_flight = False
@@ -152,7 +191,8 @@ class _FakeChatSession:
         self.turns = 0
         self.started = asyncio.Event()
 
-    async def start(self):
+    async def start(self, *, resume_id=None):
+        self.resume_id = resume_id
         self.started.set()
         if self.start_delay:
             await asyncio.sleep(self.start_delay)
@@ -174,8 +214,8 @@ class _FakeChatSession:
 def _pool(start_delay: float = 0.0, **kwargs) -> tuple[ChatSessionPool, list[_FakeChatSession]]:
     created: list[_FakeChatSession] = []
 
-    def factory(cwd, env):
-        session = _FakeChatSession(cwd=cwd, env=env)
+    def factory(cwd, env, session_key=None):
+        session = _FakeChatSession(cwd=cwd, env=env, session_key=session_key)
         session.start_delay = start_delay
         created.append(session)
         return session
@@ -329,16 +369,24 @@ class TestChatRouteMapsTheRefusal:
         """
 
         class _Registry:
-            async def get_or_create_chat_session(self, chat_id, cwd, env=None):
+            chats = _PoolFace()
+
+            async def get_or_create_chat_session(self, chat_id, cwd, env=None, *, resume_id=None):
                 raise ChatSessionTerminatedError("terminated while starting")
 
-        request = SimpleNamespace(
-            app=SimpleNamespace(
-                state=SimpleNamespace(project_cwd="/tmp", operator_registry=_Registry())
+        request = _chat_request(
+            SimpleNamespace(
+                state=SimpleNamespace(
+                    project_cwd="/tmp",
+                    operator_registry=_Registry(),
+                    pty_registry=PtyRegistry(),
+                    transcript_map={},
+                    transcript_map_provisional=False,
+                )
             )
         )
 
-        with pytest.raises(Exception) as excinfo:
+        with known_sessions(), pytest.raises(Exception) as excinfo:
             await chat_routes._acquire_chat_turn(request, CHAT_A)
 
         assert excinfo.value.status_code == 409
@@ -462,26 +510,36 @@ class TestChatPoolEnvFingerprint:
     async def test_a_narrowing_does_not_rebuild_the_chat_child(self, client):
         """End to end on the real registry and the real chat handler.
 
-        The other side of the fingerprint, and the point of the whole feature:
-        a posture flip is NOT an environment change, so the child that is
-        already holding the operator\'s conversation is reused. The narrowing
-        still governs that child — its next write reads the store — which is
-        why nothing has to die for it to apply.
+        The point of the whole feature: a posture flip must not cost the
+        operator the conversation they are in. The second turn does not reach
+        the pool at all — the hand-off finds the chat already holding the key
+        and gives it straight back — so no environment is compared and nothing
+        can decide to rebuild. The narrowing still governs that child, because
+        its next write reads the store. The fingerprint rule itself is pinned
+        by the pool-level tests in this class.
         """
         registry = OperatorRegistry()
         client.app.state.operator_registry = registry
-        request = SimpleNamespace(app=client.app)
+        request = _chat_request(client.app)
 
-        with patch(
-            "osprey.interfaces.web_terminal.operator_session.OperatorSession",
-            _FakeChatSession,
+        with (
+            known_sessions(),
+            patch(
+                "osprey.interfaces.web_terminal.operator_session.OperatorSession",
+                _FakeChatSession,
+            ),
         ):
             first, _token, _ = await chat_routes._acquire_chat_turn(request, CHAT_A)
             websocket_routes._session_postures(client.app)[CHAT_A] = {"standin": "sandbox"}
-            second, _token2, was_reused = await chat_routes._acquire_chat_turn(request, CHAT_A)
+            second, _token2, fresh_conversation = await chat_routes._acquire_chat_turn(
+                request, CHAT_A
+            )
 
         assert second is first
-        assert was_reused is True
+        # The same statement as the old ``was_reused is True``, in the term the
+        # route now returns: nothing was spawned for the second turn, so the
+        # conversation did not start over and the client is sent no divider.
+        assert fresh_conversation is False
         assert first.stop_calls == 0
         # No mode was ever stamped; the child was handed the store key instead.
         assert "OSPREY_EXECUTION_MODE" not in first.env
@@ -491,7 +549,7 @@ class TestChatPoolEnvFingerprint:
 class TestTheEnvIsReadUnderThePoolLock:
     """Atomicity of "build the environment" and "register the creation".
 
-    Before, the route built the child\'s environment and handed the pool a
+    Before, the route built the child's environment and handed the pool a
     finished mapping. Nothing kept those two steps together except the accident
     that no await on the way in actually suspends — one added ``await`` in the
     handler and a change could land in the gap, with no test going red. The
@@ -557,16 +615,21 @@ class TestTheEnvIsReadUnderThePoolLock:
         captured: dict[str, object] = {}
 
         class _Registry:
-            async def get_or_create_chat_session(self, chat_id, cwd, env=None):
+            chats = _PoolFace()
+
+            async def get_or_create_chat_session(self, chat_id, cwd, env=None, *, resume_id=None):
                 captured["env"] = env
-                return SimpleNamespace(acquire_turn=lambda: 1), False
+                session = SimpleNamespace(acquire_turn=lambda: 1)
+                self.chats.sessions[chat_id] = session
+                return session, False
 
             async def cleanup_all(self):  # the lifespan's shutdown calls this
                 return None
 
         client.app.state.operator_registry = _Registry()
 
-        asyncio.run(chat_routes._acquire_chat_turn(SimpleNamespace(app=client.app), CHAT_A))
+        with known_sessions():
+            asyncio.run(chat_routes._acquire_chat_turn(_chat_request(client.app), CHAT_A))
 
         build_env = captured["env"]
         assert callable(build_env)

@@ -90,7 +90,7 @@ async def _drain(queue: asyncio.Queue) -> list[dict]:
 
 @pytest.mark.asyncio
 async def test_success_is_unchanged(monkeypatch):
-    async def fake_query(options, project_dir, prompt):
+    async def fake_query(options, project_dir, prompt, **_kw):
         yield AssistantMessage(content=[TextBlock(text="hi")], model="m")
         yield _result_message(is_error=False, subtype="success")
 
@@ -115,7 +115,7 @@ async def test_success_is_unchanged(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_budget_cap_subtype_flips_to_run(monkeypatch):
-    async def fake_query(options, project_dir, prompt):
+    async def fake_query(options, project_dir, prompt, **_kw):
         yield AssistantMessage(content=[ToolUseBlock(id="t1", name="Read", input={})], model="m")
         yield _result_message(
             is_error=True, subtype="error_max_budget_usd", result="Budget exceeded"
@@ -138,7 +138,7 @@ async def test_budget_cap_subtype_flips_to_run(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_max_turns_subtype_flips_to_run(monkeypatch):
-    async def fake_query(options, project_dir, prompt):
+    async def fake_query(options, project_dir, prompt, **_kw):
         yield _result_message(is_error=True, subtype="error_max_turns", result="Max turns")
 
     monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
@@ -153,7 +153,7 @@ async def test_max_turns_subtype_flips_to_run(monkeypatch):
 async def test_error_result_with_provider_text_is_provider(monkeypatch):
     """A non-budget error whose text reads as a provider fault stays retryable."""
 
-    async def fake_query(options, project_dir, prompt):
+    async def fake_query(options, project_dir, prompt, **_kw):
         yield _result_message(
             is_error=True,
             subtype="error_during_execution",
@@ -172,7 +172,7 @@ async def test_error_result_with_provider_text_is_provider(monkeypatch):
 async def test_error_result_api_status_folds_into_classification(monkeypatch):
     """api_error_status is appended to the error text and drives classification."""
 
-    async def fake_query(options, project_dir, prompt):
+    async def fake_query(options, project_dir, prompt, **_kw):
         yield _result_message(
             is_error=True,
             subtype="error_during_execution",
@@ -190,7 +190,7 @@ async def test_error_result_api_status_folds_into_classification(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_error_result_generic_is_run(monkeypatch):
-    async def fake_query(options, project_dir, prompt):
+    async def fake_query(options, project_dir, prompt, **_kw):
         yield _result_message(
             is_error=True, subtype="error_during_execution", result="a tool crashed mid-run"
         )
@@ -204,7 +204,7 @@ async def test_error_result_generic_is_run(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_error_result_without_text_gets_synthesized_message(monkeypatch):
-    async def fake_query(options, project_dir, prompt):
+    async def fake_query(options, project_dir, prompt, **_kw):
         yield _result_message(is_error=True, subtype="error_during_execution", result=None)
 
     monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
@@ -224,7 +224,7 @@ async def test_error_result_without_text_gets_synthesized_message(monkeypatch):
 async def test_inactivity_timeout_is_provider(monkeypatch):
     monkeypatch.setattr(sdk_runner, "_INACTIVITY_TIMEOUT_SEC", 0.05)
 
-    async def fake_query(options, project_dir, prompt):
+    async def fake_query(options, project_dir, prompt, **_kw):
         yield AssistantMessage(content=[ToolUseBlock(id="t1", name="Read", input={})], model="m")
         await asyncio.sleep(10)  # provider goes silent -> watchdog trips
         yield _result_message()
@@ -246,7 +246,7 @@ async def test_inactivity_timeout_is_provider(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_generic_exception_run(monkeypatch):
-    async def fake_query(options, project_dir, prompt):
+    async def fake_query(options, project_dir, prompt, **_kw):
         yield AssistantMessage(content=[ToolUseBlock(id="t1", name="Read", input={})], model="m")
         raise RuntimeError("something broke")
 
@@ -261,7 +261,7 @@ async def test_generic_exception_run(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_generic_exception_provider_message(monkeypatch):
-    async def fake_query(options, project_dir, prompt):
+    async def fake_query(options, project_dir, prompt, **_kw):
         raise RuntimeError("401 unauthorized: invalid api key")
         yield  # unreachable — makes this an async generator, like the real query
 
@@ -299,7 +299,7 @@ async def test_counter_hook_bumped_on_error(monkeypatch):
     seen: list[str] = []
     failure_class.register_counter_hook(seen.append)
 
-    async def fake_query(options, project_dir, prompt):
+    async def fake_query(options, project_dir, prompt, **_kw):
         yield _result_message(is_error=True, subtype="error_during_execution", result="crash")
 
     monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)

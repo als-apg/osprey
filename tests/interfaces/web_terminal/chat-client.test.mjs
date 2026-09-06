@@ -26,6 +26,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  delete window.__OSPREY_PREFIX__;
 });
 
 /**
@@ -298,6 +299,22 @@ describe('sendPrompt: transport failures', () => {
     expect(cb.onError.mock.calls[0][0].slug).toBe('');
   });
 
+  test('a 204 closes the turn without reporting an error', async () => {
+    // The server abandoned the request; there is no body to stream, and a
+    // missing body is not the transport failure it would be on a 200.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 204, statusText: 'No Content', body: null }))
+    );
+
+    const cb = collector();
+    chat.sendPrompt('c', 'p', cb.handlers);
+    await vi.waitFor(() => expect(cb.onClose).toHaveBeenCalledTimes(1));
+
+    expect(cb.onError).not.toHaveBeenCalled();
+    expect(cb.events).toEqual([]);
+  });
+
   test('a rejected fetch reports onError and closes', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network down'); }));
 
@@ -382,12 +399,201 @@ describe('interrupt', () => {
   });
 });
 
-describe('deleteChat', () => {
-  test('DELETEs /api/chat/{id} with keepalive and the id encoded', async () => {
-    const fetchMock = vi.fn(async () => ({ ok: true }));
+/**
+ * Build a fake non-streaming `Response` carrying *body* as its JSON.
+ * @param {any} body
+ * @param {{ ok?: boolean, status?: number, statusText?: string }} [opts]
+ */
+function jsonResponse(body, opts = {}) {
+  const { ok = true, status = 200, statusText = 'OK' } = opts;
+  return { ok, status, statusText, json: async () => body };
+}
+
+/** The URL of the first call made to *fetchMock*. */
+function firstUrl(/** @type {any} */ fetchMock) {
+  return fetchMock.mock.calls[0][0];
+}
+
+/** The `init` of the first call made to *fetchMock*. */
+function firstInit(/** @type {any} */ fetchMock) {
+  return fetchMock.mock.calls[0][1];
+}
+
+describe('requestHandoff: request shape', () => {
+  test('POSTs to /api/session/{key}/handoff and resolves the state envelope', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ state: 'ready', session_id: 'k-1' }));
     vi.stubGlobal('fetch', fetchMock);
 
-    chat.deleteChat('chat 2');
-    expect(fetchMock).toHaveBeenCalledWith('/api/chat/chat%202', { method: 'DELETE', keepalive: true });
+    const result = await chat.requestHandoff('k-1');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(firstUrl(fetchMock)).toBe('/api/session/k-1/handoff');
+    const init = firstInit(fetchMock);
+    expect(init.method).toBe('POST');
+    expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(JSON.parse(init.body)).toEqual({ to: 'simple', interrupt: false });
+    expect(result).toEqual({ state: 'ready', session_id: 'k-1' });
+  });
+
+  test('forwards interrupt: true when the operator cuts a running turn', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ state: 'ready', session_id: 'k' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await chat.requestHandoff('k', { interrupt: true });
+    expect(JSON.parse(firstInit(fetchMock).body)).toEqual({ to: 'simple', interrupt: true });
+  });
+
+  test('applies the multi-user prefix and encodes the key', async () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    const fetchMock = vi.fn(async () => jsonResponse({ state: 'ready', session_id: 'a/b' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await chat.requestHandoff('a/b');
+    expect(firstUrl(fetchMock)).toBe('/u/alice/api/session/a%2Fb/handoff');
+  });
+
+  test('resolves null on a 204 — the request was abandoned server-side', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 204,
+        statusText: 'No Content',
+        json: async () => {
+          throw new SyntaxError('Unexpected end of JSON input');
+        },
+      }))
+    );
+
+    await expect(chat.requestHandoff('k')).resolves.toBeNull();
+  });
+
+  test('adds no timeout of its own — no signal unless the caller passes one', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ state: 'ready', session_id: 'k' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await chat.requestHandoff('k');
+    expect(firstInit(fetchMock).signal).toBeUndefined();
+  });
+});
+
+describe('requestHandoff: abort', () => {
+  test("passes the caller's signal through to fetch", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ state: 'ready', session_id: 'k' }));
+    vi.stubGlobal('fetch', fetchMock);
+    const controller = new AbortController();
+
+    await chat.requestHandoff('k', { signal: controller.signal });
+    expect(firstInit(fetchMock).signal).toBe(controller.signal);
+  });
+
+  test('aborting the signal rejects the pending hand-off', async () => {
+    // A fetch that never settles on its own, mirroring a hand-off waiting on a
+    // long Expert turn: only the signal ends it.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((/** @type {string} */ _url, /** @type {any} */ init) =>
+        new Promise((_resolve, reject) => {
+          /** @type {AbortSignal} */
+          const signal = init.signal;
+          const fail = () => {
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          };
+          if (signal.aborted) fail();
+          else signal.addEventListener('abort', fail);
+        })
+      )
+    );
+    const controller = new AbortController();
+
+    const pending = chat.requestHandoff('k', { signal: controller.signal });
+    controller.abort();
+    await expect(pending).rejects.toThrow('aborted');
+  });
+});
+
+describe('requestHandoff: rejection slugs', () => {
+  test.each([
+    [409, 'Conflict', 'session_attached_elsewhere'],
+    [429, 'Too Many Requests', 'chat_capacity'],
+    [503, 'Service Unavailable', 'shutting_down'],
+  ])('%i carries status and the detail.error slug', async (status, statusText, slug) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: { error: slug } }, { ok: false, status, statusText }))
+    );
+
+    const err = await chat.requestHandoff('k').catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.status).toBe(status);
+    expect(err.slug).toBe(slug);
+    expect(err.message).toBe(`HTTP ${status}: ${statusText}`);
+  });
+
+  test('a rejection without a JSON body leaves the slug empty', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 503,
+        statusText: 'Service Unavailable',
+        json: async () => {
+          throw new Error('not JSON');
+        },
+      }))
+    );
+
+    const err = await chat.requestHandoff('k').catch((e) => e);
+    expect(err.status).toBe(503);
+    expect(err.slug).toBe('');
+  });
+});
+
+describe('fetchHistory', () => {
+  test('GETs the full transcript for the key and returns its turns', async () => {
+    const turns = [
+      { role: 'user', content: 'hi', timestamp: '2026-09-05T00:00:00Z' },
+      { role: 'assistant', content: 'hello' },
+    ];
+    const fetchMock = vi.fn(async () => jsonResponse({ turns, count: turns.length }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(chat.fetchHistory('k-1')).resolves.toEqual(turns);
+    expect(fetchMock).toHaveBeenCalledWith('/api/session-chat?session_id=k-1&full=1', {
+      cache: 'no-store',
+    });
+  });
+
+  test('applies the multi-user prefix and encodes the key', async () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    const fetchMock = vi.fn(async () => jsonResponse({ turns: [], count: 0 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await chat.fetchHistory('a/b');
+    expect(firstUrl(fetchMock)).toBe('/u/alice/api/session-chat?session_id=a%2Fb&full=1');
+  });
+
+  test('a body without turns yields an empty list', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ count: 0 })));
+    await expect(chat.fetchHistory('k')).resolves.toEqual([]);
+  });
+
+  test('a non-2xx status rejects with the status and slug', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({ detail: { error: 'session_unknown' } }, {
+          ok: false,
+          status: 404,
+          statusText: 'Not Found',
+        })
+      )
+    );
+
+    const err = await chat.fetchHistory('k').catch((e) => e);
+    expect(err.status).toBe(404);
+    expect(err.slug).toBe('session_unknown');
   });
 });

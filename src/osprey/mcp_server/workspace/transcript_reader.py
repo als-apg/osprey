@@ -7,7 +7,9 @@ transcripts on demand.
 
 import json
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 from osprey.agent_runner.project_paths import claude_project_dir
 
@@ -18,6 +20,20 @@ _MCP_TOOL_PREFIX = "mcp__"
 MAX_RESULT_LENGTH = 500
 MAX_ERROR_RESULT_LENGTH = 2000
 MAX_CHAT_MESSAGE_LENGTH = 2000
+
+# Claude Code writes this marker as a synthetic user entry when a turn is
+# cancelled, and wraps slash-command echoes and their captured output in these
+# tags. Both are the TUI's own bookkeeping, not conversation.
+INTERRUPT_MARKER = "[Request interrupted by user"
+COMMAND_NAME_PREFIX = "<command-name>"
+LOCAL_COMMAND_STDOUT_PREFIX = "<local-command-stdout>"
+LOCAL_COMMAND_STDERR_PREFIX = "<local-command-stderr>"
+LOCAL_COMMAND_PREFIXES = (LOCAL_COMMAND_STDOUT_PREFIX, LOCAL_COMMAND_STDERR_PREFIX)
+_BOOKKEEPING_PREFIXES = (COMMAND_NAME_PREFIX, *LOCAL_COMMAND_PREFIXES)
+
+# A transcript grows without bound, but the tail rule only ever looks at its
+# newest message entry, so only this much of the end is read.
+_TAIL_READ_BYTES = 256 * 1024
 
 
 def _is_error_response(result_str: str) -> bool:
@@ -66,6 +82,124 @@ def _split_mcp_tool_name(tool_name: str) -> tuple[str, str, str] | None:
     if not sep or not server or not short_name:
         return None
     return short_name, server, tool_name
+
+
+def _conversation_text(entry: dict) -> str:
+    """Extract only text content blocks from a user or assistant entry."""
+    message = entry.get("message", {})
+    content_blocks = message.get("content", [])
+    if isinstance(content_blocks, str):
+        return content_blocks.strip()
+    parts: list[str] = []
+    for block in content_blocks:
+        if isinstance(block, str):
+            parts.append(block)
+        elif isinstance(block, dict) and block.get("type") == "text":
+            parts.append(block.get("text", ""))
+    return "\n".join(parts).strip()
+
+
+def is_bookkeeping_entry(entry: dict) -> bool:
+    """Report whether an entry is the TUI's own accounting, not conversation.
+
+    Covers meta entries, the slash-command echo and its captured output, and
+    the marker written when a turn is cancelled. Replaying a conversation onto
+    another surface shows none of these.
+    """
+    if not isinstance(entry, dict):
+        return False
+    if entry.get("isMeta"):
+        return True
+    text = _conversation_text(entry)
+    if not text:
+        return False
+    return text.startswith(INTERRUPT_MARKER) or text.startswith(_BOOKKEEPING_PREFIXES)
+
+
+def _entry_epoch(entry: dict) -> float | None:
+    """Parse an entry's ISO-8601 timestamp into POSIX seconds, or None."""
+    raw = entry.get("timestamp")
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        stamp = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=UTC)
+    return stamp.timestamp()
+
+
+def _scan_last_message(lines: list[str]) -> dict | None:
+    """Return the newest user or assistant entry among JSONL lines."""
+    for line in reversed(lines):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(entry, dict) and entry.get("type") in ("user", "assistant"):
+            return entry
+    return None
+
+
+def _last_message_entry(path: Path) -> dict | None:
+    """Read a transcript's newest user or assistant entry.
+
+    Only the tail of the file is read; a transcript whose closing entries are
+    all larger than that window falls back to a full read.
+    """
+    try:
+        size = path.stat().st_size
+        truncated = size > _TAIL_READ_BYTES
+        with path.open("rb") as handle:
+            if truncated:
+                handle.seek(size - _TAIL_READ_BYTES)
+                handle.readline()  # discard the partial line the seek landed in
+            chunk = handle.read()
+    except OSError:
+        return None
+
+    entry = _scan_last_message(chunk.decode("utf-8", "replace").splitlines())
+    if entry is None and truncated:
+        try:
+            entry = _scan_last_message(path.read_text().splitlines())
+        except OSError:
+            return None
+    return entry
+
+
+def tail_state(path: Path, busy_since: float | None) -> Literal["busy", "idle", "unknown"]:
+    """Classify a transcript's tail as a turn in flight, at rest, or unreadable.
+
+    A text-bearing user entry at the end of the transcript is a prompt the
+    agent has not answered yet, so the session is ``busy``. Two shapes say the
+    opposite: the interrupt marker, and slash-command output written after
+    ``busy_since`` (the caller's busy stamp, in POSIX seconds; ``None`` when
+    the caller holds no busy stamp at all). Everything else — an assistant
+    entry, a tool-result-only user entry, other bookkeeping — carries no
+    evidence either way and returns ``unknown``, leaving the caller with
+    whatever its own state store says.
+    """
+    entry = _last_message_entry(path)
+    if entry is None or entry.get("type") != "user":
+        return "unknown"
+
+    text = _conversation_text(entry)
+    if not text:
+        return "unknown"
+    if text.startswith(INTERRUPT_MARKER):
+        return "idle"
+    if text.startswith(LOCAL_COMMAND_PREFIXES):
+        if busy_since is None:
+            return "idle"
+        stamp = _entry_epoch(entry)
+        return "idle" if stamp is not None and stamp > busy_since else "unknown"
+    if is_bookkeeping_entry(entry):
+        return "unknown"
+    return "busy"
 
 
 class TranscriptReader:
@@ -334,8 +468,18 @@ class TranscriptReader:
             return []
         return self.read_session(path, **kwargs)
 
-    def read_chat_history_by_id(self, session_id: str) -> list[dict]:
+    def read_chat_history_by_id(
+        self,
+        session_id: str,
+        *,
+        max_chars: int | None = MAX_CHAT_MESSAGE_LENGTH,
+    ) -> list[dict]:
         """Read chat history for a specific session by ID.
+
+        Args:
+            session_id: The Claude Code session UUID.
+            max_chars: Per-message character cap; ``None`` leaves messages
+                whole.
 
         Returns:
             List of conversation turn dicts, or empty list if not found.
@@ -343,7 +487,7 @@ class TranscriptReader:
         path = self.find_transcript_by_id(session_id)
         if not path:
             return []
-        return self.read_chat_history(path)
+        return self.read_chat_history(path, max_chars=max_chars)
 
     def read_agent_timeline(self, agent_id: str, *, session_id: str | None = None) -> list[dict]:
         """Read the full internal timeline of a subagent.
@@ -517,15 +661,22 @@ class TranscriptReader:
 
         return timeline
 
-    def read_chat_history(self, path: Path) -> list[dict]:
+    def read_chat_history(
+        self,
+        path: Path,
+        *,
+        max_chars: int | None = MAX_CHAT_MESSAGE_LENGTH,
+    ) -> list[dict]:
         """Extract conversation turns (user text + assistant text) from a transcript.
 
         Returns a chronologically ordered list of dicts with keys:
         ``role`` ("user" | "assistant"), ``content`` (str), ``timestamp`` (str).
 
         Only text content blocks are captured — tool_use / tool_result blocks
-        are skipped.  Individual messages are truncated to
-        ``MAX_CHAT_MESSAGE_LENGTH`` characters.
+        are skipped, as are the TUI's bookkeeping entries. Individual messages
+        are truncated to ``max_chars`` characters; pass ``None`` to leave them
+        whole, which is what replaying a conversation onto another surface
+        needs.
         """
         if not path.is_file():
             return []
@@ -542,21 +693,21 @@ class TranscriptReader:
                 continue
 
             entry_type = entry.get("type")
-            timestamp = entry.get("timestamp", "")
+            if entry_type not in ("user", "assistant") or is_bookkeeping_entry(entry):
+                continue
 
-            if entry_type == "user":
-                text = self._extract_conversation_text(entry)
-                if text:
-                    if len(text) > MAX_CHAT_MESSAGE_LENGTH:
-                        text = text[:MAX_CHAT_MESSAGE_LENGTH] + "..."
-                    turns.append({"role": "user", "content": text, "timestamp": timestamp})
-
-            elif entry_type == "assistant":
-                text = self._extract_conversation_text(entry)
-                if text:
-                    if len(text) > MAX_CHAT_MESSAGE_LENGTH:
-                        text = text[:MAX_CHAT_MESSAGE_LENGTH] + "..."
-                    turns.append({"role": "assistant", "content": text, "timestamp": timestamp})
+            text = self._extract_conversation_text(entry)
+            if not text:
+                continue
+            if max_chars is not None and len(text) > max_chars:
+                text = text[:max_chars] + "..."
+            turns.append(
+                {
+                    "role": entry_type,
+                    "content": text,
+                    "timestamp": entry.get("timestamp", ""),
+                }
+            )
 
         return turns
 
@@ -574,17 +725,7 @@ class TranscriptReader:
     @staticmethod
     def _extract_conversation_text(entry: dict) -> str:
         """Extract only text content blocks from a user or assistant entry."""
-        message = entry.get("message", {})
-        content_blocks = message.get("content", [])
-        if isinstance(content_blocks, str):
-            return content_blocks.strip()
-        parts: list[str] = []
-        for block in content_blocks:
-            if isinstance(block, str):
-                parts.append(block)
-            elif isinstance(block, dict) and block.get("type") == "text":
-                parts.append(block.get("text", ""))
-        return "\n".join(parts).strip()
+        return _conversation_text(entry)
 
     @staticmethod
     def _collect_task_meta(
@@ -645,6 +786,7 @@ class TranscriptReader:
                 return ""
         except Exception:
             return ""
+        return ""
 
     @staticmethod
     def _match_subagent_to_task(
