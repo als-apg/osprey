@@ -125,8 +125,12 @@ INVENTED_HISTORY_TYPES = (VIRTUAL_ACCELERATOR, LIVE_STANDIN)
 
 #: Types that speak real Channel Access — the facility's own EPICS machine, a
 #: virtual-accelerator soft-IOC, or the live stand-in soft-IOC. The queue worker
-#: builds its devices over Channel Access and nothing else, so these are the
-#: only types plans can execute against; every other type browses.
+#: builds its devices over Channel Access, so these are the types plans can
+#: execute against today and every other type browses. That is a property of
+#: the worker's device layer, not of the plan stack: a facility whose machine
+#: speaks another protocol executes plans once a device layer for it exists,
+#: and adds its type here — this list is not a statement that no other protocol
+#: can ever run plans.
 CHANNEL_ACCESS_TYPES = (EPICS, VIRTUAL_ACCELERATOR, LIVE_STANDIN)
 
 #: The target each self-standing machine's type is the baseline of. A type

@@ -1351,7 +1351,9 @@ class QueueBackend:
                 lane_degraded=lane_degraded,
                 detail=(
                     f"The {connector_type!r} connector is not one the plan stack can execute "
-                    f"plans against. To execute plans, run `{FLIP_COMMAND}` and redeploy."
+                    "plans against: the queue worker builds its devices over Channel "
+                    "Access, so a deployment executes plans only on a connector that "
+                    "speaks it. Plans can be composed and validated here."
                 ),
             )
 

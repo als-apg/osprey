@@ -259,9 +259,13 @@ quirks worth knowing:
    ``control-assistant`` preset, off unless a deployment says so.
 
    Whether a deployment can execute plans at all is decided by its control
-   system: ``virtual_accelerator`` and ``epics`` can, ``mock`` is
-   browse-only. The panels and the agent both surface this as a capability
-   banner; on a browse-only deployment it names the flip:
+   system. The queue worker builds its devices over Channel Access, so the
+   connectors that speak it execute plans — ``epics``, ``virtual_accelerator``
+   and the live stand-in — and every other one browses. ``mock`` browses
+   because it moves nothing; a connector for another protocol browses because
+   no device layer for it exists yet, which is a gap in the plan stack rather
+   than a property of the facility. The panels and the agent both surface this
+   as a capability banner; on the ``mock`` connector it names the flip:
 
    .. code-block:: bash
 
