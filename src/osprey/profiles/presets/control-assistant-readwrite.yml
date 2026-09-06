@@ -60,6 +60,7 @@ config:
   # `network_mode: host`, so container `localhost` IS the deployment host and
   # the copied ports are dialed there. Move a port on the hosting profile and
   # every persona follows; spell a different one here and the build refuses
-  # the contradiction. Built alone, with no hosting deployment in the repo,
-  # the build copies what the app template deploys at its defaults instead
-  # — and a host that differs IS named here.
+  # the contradiction. The build renders no services for this persona and
+  # writes `deployed_services: []` into its config — every `services.*` key
+  # inherited from the base profile is dropped from this render — and a host
+  # that differs IS named here.

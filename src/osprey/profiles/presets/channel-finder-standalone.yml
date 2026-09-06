@@ -18,30 +18,20 @@ app_template: channel_finder_standalone
 provider: anthropic
 model: haiku   # tier (haiku/sonnet/opus), or any model ID the provider serves
 
-# Any custom gateway works too: name it as the provider, describe it under a
-# `config:` section, and put its key in this repo's .env — the variable name
-# derives from the provider name, <NAME>_API_KEY. Worked example:
-#
-# provider: my-gateway
-# config:
-#   api.providers.my-gateway.api_key: ${MY_GATEWAY_API_KEY}
-#   api.providers.my-gateway.base_url: https://my-gateway.example.com/v1
-#   # Optional — the gateway speaks Anthropic natively (e.g. a LiteLLM proxy
-#   # in Anthropic mode), so the local translation proxy is skipped:
-#   api.providers.my-gateway.api_protocol: anthropic
-#   # Optional tier map, model IDs as the gateway names them. Unmapped tiers
-#   # fall back to `model:` above, with a build-time warning:
-#   api.providers.my-gateway.models:
-#     haiku: claude-haiku-4-5
-#     sonnet: claude-sonnet-4-6
-#     opus: claude-opus-4-6
+# `provider:` names an entry in providers.yml, the provider catalog beside this
+# file. To use a gateway of your own, add its entry there (api_key, base_url and
+# a models tier map) and name it here; the key goes in this repo's .env under the
+# variable the entry's `api_key` references. A `config: api.providers.*` key is
+# refused: the catalog is the one home for provider endpoints.
 
 # Channel-finder pipeline. The bundle ships a demo hierarchical database, so
 # hierarchical is the out-of-the-box default. Override for your data via
 # `--set channel_finder_mode=in_context|middle_layer` or a profile that
 # extends this preset. The fourth paradigm, `graph`, answers from a knowledge
 # graph store instead of a database file; this bundle configures no such store,
-# so the build rejects it here.
+# so the build rejects it here. The build derives the pipeline block
+# (`channel_finder.pipeline_mode`, `channel_finder.pipelines.*`) from this
+# field, so nothing about the pipeline is written under `config:` below.
 channel_finder_mode: hierarchical
 
 # Selects the channel-finder persona — "channel/PV address finder" instead of
@@ -89,3 +79,149 @@ web_panels:
 
 # Focus the CHANNELS tab on cold load instead of the always-on Workspace tab.
 default_panel: channel-finder
+
+# ── Everything else ──────────────────────────────────────────────────────────
+# One dotted `key.path` per line. Never write a nested block here: it would
+# replace the whole subtree and silently drop the keys beside it.
+#
+# This block is where configuration lives. build/config.yml is generated from
+# it and should never be hand-edited. `osprey set` writes here.
+#
+# Not written here, because the build derives them: the project's paths, the
+# provider catalog (providers.yml beside this file), `claude_code.provider` and
+# `claude_code.default_model` (from `provider:` / `model:` above), the
+# channel-finder pipeline block (from `channel_finder_mode:`), the panel
+# selection (from `web_panels:` / `default_panel:`), and every host port.
+config:
+  # ── Facility ───────────────────────────────────────────────────────────────
+  # Display name woven into the agent prompts and the web landing page. Keep it
+  # in sync with .claude/rules/facility.md.
+  facility.name: Example Research Facility
+  # Short prefix for container names (`<prefix>-nginx`, `<prefix>-web-<user>`).
+  # Only the multi-user web-terminal stack reads it.
+  # facility.prefix: ex
+  # This facility's compiled ontology table, the JSON `osprey knowledge
+  # compile-ontology` writes, relative to the project root. It is the one
+  # source for the device vocabulary the channel-finder subagent's terminology
+  # table renders. Drop the key and the subagent is told no vocabulary was
+  # declared; point it at a missing file and the build stops and says so.
+  facility.ontology: data/facility_ontology.json
+
+  # ── Channel finder ─────────────────────────────────────────────────────────
+  # The pipeline itself is derived from `channel_finder_mode:` above. What is
+  # left to configure here is optional, so it ships commented out.
+  #
+  # osprey:panel-port channel_finder
+  # The CHANNELS tab's own web server. It launches when `channel-finder` is in
+  # `web_panels:` above, on this deployment's channel-finder slot;
+  # OSPREY_CHANNEL_FINDER_PORT or the port key below override it. `host` has
+  # no env override. Uncomment to move or disable it.
+  # channel_finder.web.host: 127.0.0.1
+  # channel_finder.web.port: <a port outside this deployment's block>
+  # channel_finder.web.auto_launch: true
+  # Descriptive names for channels that belong to no device family, generated
+  # offline by `osprey channel-finder build-database --use-llm`. That flag
+  # needs `provider` set (no fallback to the agent's provider); `model_id` is a
+  # tier or a model ID the provider serves. Build-time only.
+  # channel_finder.channel_name_generation.llm_model.provider: anthropic
+  # channel_finder.channel_name_generation.llm_model.model_id: haiku
+  # channel_finder.channel_name_generation.llm_model.max_tokens: 1000
+  # channel_finder.channel_name_generation.llm_batch_size: 10
+  # No benchmark query set ships here. `osprey channel-finder benchmark` still
+  # runs with `--queries-path FILE`; to make a file the default, name it here.
+  # channel_finder.benchmark.dataset_path: data/benchmarks/queries.json
+
+  # ── Approval ───────────────────────────────────────────────────────────────
+  # The channel finder is read-only, so no write tool is gated here. The
+  # approval hook reaches only hook-wired tools; in this deployment that is
+  # the workspace setup_patch tool alone. Everything else is gated by the
+  # rendered settings.json permissions.
+  approval.enabled: true
+  # Policy for any hook-wired tool not listed: "always" is fail-closed.
+  approval.default_policy: always
+
+  # ── Hook observability ─────────────────────────────────────────────────────
+  # On here. Every hook call logs one line to stderr and appends to
+  # .claude/hooks/hook_debug.jsonl (never rotated: prune it yourself), which
+  # is what the web terminal's Safety panel hook feed reads. OSPREY_HOOK_DEBUG
+  # in the environment forces it on regardless of this key.
+  hooks.debug: true
+
+  # ── Agent servers ──────────────────────────────────────────────────────────
+  # The channel-finder server and subagent are derived from
+  # `channel_finder_mode:`. Every other framework server is off: no control
+  # system, no Python sandbox, no logbook, no facility-knowledge bundle. Only
+  # the workspace server (artifact handoff) and channel-finder remain.
+  claude_code.servers.controls.enabled: false
+  claude_code.servers.python.enabled: false
+  claude_code.servers.ariel.enabled: false
+  # No facility-knowledge bundle ships here either.
+  claude_code.servers.osprey_facility_knowledge.enabled: false
+
+  # ── Telemetry ──────────────────────────────────────────────────────────────
+  # Off: this preset deploys no OpenObserve store, so telemetry has nowhere
+  # local to land. The control-assistant preset shows the store and the
+  # `claude_code.telemetry.*` keys that feed it.
+  claude_code.telemetry.enabled: false
+
+  # ── Web terminal ───────────────────────────────────────────────────────────
+  # osprey:panel-port artifact
+  # The WORKSPACE tab's artifact server. Under `osprey web` it launches at
+  # startup whatever the panel list says; `auto_launch: false` is the only
+  # thing that stops it. The port is this deployment's workspace slot;
+  # OSPREY_ARTIFACT_SERVER_PORT or `artifact_server.port` override it. `host`
+  # has no env override.
+  artifact_server.host: 127.0.0.1
+  artifact_server.auto_launch: true
+  # Target of the Documentation button. Point it at a locally hosted copy of
+  # the docs when the control room has no route to the public site.
+  web.docs_url: https://als-apg.github.io/osprey
+  # Whether the web Config panel may edit this deployment's config.yml and
+  # .claude/ setup files. `false` withdraws the panel's whole server surface
+  # (every /api/config verb answers 403), not just its tab: these files are what
+  # the agent's permissions are rendered from. Leave true for a single-user
+  # deployment; set false for the read-only tiers of a multi-user one.
+  web.config_panel.enabled: true
+  # Whether the Scaffold gallery may WRITE. `false` closes create, save, reset,
+  # register and delete (403) while every read stays open. A privilege
+  # boundary: the gallery authors the .claude/ content the agent obeys. Leave
+  # true for a single-user deployment; set false for read-only tiers.
+  web.scaffold_gallery.write_enabled: true
+  # The Feedback dialog's outbound channels. Nothing is posted for the user:
+  # the browser opens a prefilled GitHub issue form or mail draft. Every
+  # submission is also recorded here (`osprey feedback list` / `export`).
+  #
+  # owner/repo whose new-issue form the GitHub channel prefills. Point it at
+  # the repository your users' reports should land in; "" offers no GitHub
+  # channel.
+  web.feedback.github_repo: als-apg/osprey
+  # Further trackers, one channel each: a `gitlab` entry takes the project's
+  # base URL, a `github` entry owner/repo; `label` captions it.
+  # web.feedback.trackers:
+  #   - kind: gitlab
+  #     url: https://git.example.org/controls/osprey
+  #     label: Facility GitLab
+  # Recipient of the prefilled mailto: draft the Email channel opens.
+  web.feedback.email: thellert@lbl.gov
+  # Ceiling in bytes on the on-disk feedback store (256 MB). Above it the
+  # oldest saved session contexts are deleted; submission headers are kept.
+  web.feedback.max_store_bytes: 268435456
+  # Optional panel controls, off by default. Named layouts a human applies
+  # from the "+" popover are the `panel_presets:` field, not a key here.
+  # web.panels.<id>.hidden: true          # launch a panel but keep its tab hidden
+  # web.allow_runtime_panels: true        # let the agent register ad-hoc URL panels
+  # web.runtime_panel_allowlist: ["dashboard.local:3000"]   # restrict those targets
+
+  # ── Runtime ────────────────────────────────────────────────────────────────
+  # Agent Python runs as a host subprocess.
+  execution.execution_method: subprocess
+  # Facility timezone: how operator times are read and every timestamp is
+  # rendered. Pinned to UTC for reproducibility; set your real zone in
+  # production (e.g. America/Los_Angeles).
+  system.timezone: UTC
+  # Container runtime `osprey up` uses: auto (Docker first, then Podman),
+  # docker, or podman. CONTAINER_RUNTIME in the environment overrides it.
+  container_runtime: auto
+  # The channel finder is file-backed and needs no standing service, so
+  # `osprey web` runs it with zero `osprey up`. Nothing to deploy.
+  deployed_services: []
