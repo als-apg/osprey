@@ -46,6 +46,7 @@ from osprey.services.virtual_accelerator.manifest.paths import (
     PACKAGE_PATHS,
     ManifestPaths,
 )
+from tests._graph_index import build_index_from_ttl, default_index_path
 
 #: The sentence that must no longer exist anywhere in a build's output.
 _DEAD_FALLBACK_SENTENCE = "built-in demo namespace"
@@ -102,6 +103,8 @@ def _shared(repo_root: Path) -> _SharedRenderInputs:
         manager=TemplateManager(),
         va_manifests={},
         va_reported=set(),
+        graph_indexes={},
+        graph_facts_reported=set(),
     )
 
 
@@ -634,6 +637,11 @@ def test_the_exemplar_build_derives_its_lattice_from_its_own_channels(built_exem
 
 # --- a graph-mode tree, served from its knowledge graph ---------------------
 
+#: How a graph-mode project spells the search index the roster reads: the
+#: ``services.graphdb.index_path`` default, which is what the manifest's own
+#: metadata records and every refusal about it names.
+_INDEX_SPELLING = "./data/channel_databases/graph.duckdb"
+
 _GRAPH_CORPUS = """\
 @prefix narad_p: <https://narad.example.org/property/> .
 @prefix narad_sem: <https://narad.example.org/schema/shared_semantics/> .
@@ -646,8 +654,14 @@ _GRAPH_CORPUS = """\
 """
 
 
-def _graph_repo(root: Path, *, corpus: str | None = _GRAPH_CORPUS) -> Path:
-    """A graph-mode deployment repo: a corpus and the per-tree sources, no databases."""
+def _graph_repo(root: Path, *, corpus: str | None = _GRAPH_CORPUS, index: bool = False) -> Path:
+    """A graph-mode deployment repo: a corpus and the per-tree sources, no databases.
+
+    ``index`` writes the search index the roster reads beside the corpus, for
+    the tests that call the manifest step directly. A test that runs the whole
+    build leaves it off: the build derives its own index into the render, which
+    is the path being exercised.
+    """
     from tests.fixtures.lifecycle_repo import FACILITY_ONTOLOGY_JSON
 
     root.mkdir(parents=True, exist_ok=True)
@@ -662,6 +676,8 @@ def _graph_repo(root: Path, *, corpus: str | None = _GRAPH_CORPUS) -> Path:
     (data / "facility_ontology.json").write_text(FACILITY_ONTOLOGY_JSON)
     if corpus is not None:
         (data / "facility.ttl").write_text(corpus)
+        if index:
+            build_index_from_ttl(data / "facility.ttl", _graph_config(root))
     (root / "profile.yml").write_text(
         "name: Graph VA\n"
         "app_template: control_assistant\n"
@@ -720,7 +736,10 @@ def test_a_graph_mode_repo_deploys_a_va_and_the_fact_names_the_corpus(tmp_path_f
 
     assert result.exit_code == 0, result.output
     printed = " ".join(result.output.split())
-    assert "knowledge-graph corpus (./data/facility.ttl)" in printed
+    # The file the channel set was actually built from: the roster reads the
+    # search index the build derived, and the fact names what it read.
+    assert f"channel search index ({_INDEX_SPELLING})" in printed
+    assert "knowledge-graph corpus" not in printed
     assert "3 channel(s)" in printed
     # The honest gain and cost: the one pair the roster vouches for is served
     # as a setpoint echo, and everything else is static-noisy -- no identity
@@ -732,7 +751,7 @@ def test_a_graph_mode_repo_deploys_a_va_and_the_fact_names_the_corpus(tmp_path_f
 
     manifest = json.loads((repo / "build" / "data" / "simulation" / MANIFEST_FILENAME).read_text())
     assert manifest["_metadata"]["source_paradigms"] == ["graph"]
-    assert manifest["_metadata"]["source_corpus"] == "./data/facility.ttl"
+    assert manifest["_metadata"]["source_corpus"] == _INDEX_SPELLING
     assert {c["address"] for c in manifest["channels"]} == {
         "SR:MAG:HCM:01:CURRENT:SP",
         "SR:MAG:HCM:01:CURRENT:RB",
@@ -748,13 +767,13 @@ def test_a_graph_mode_repo_deploys_a_va_and_the_fact_names_the_corpus(tmp_path_f
 
 def test_a_graph_manifests_fact_names_the_corpus_not_databases(tmp_path, capsys):
     """The reporting step alone, for the wording the build test reads end to end."""
-    root = _graph_repo(tmp_path / "repo")
+    root = _graph_repo(tmp_path / "repo", index=True)
     prepared = prepare_project_manifest(root / "data", DEFAULT_TIER, config=_graph_config(root))
 
     _report(_shared(tmp_path), _profile(data="data"), root / "data", prepared)
 
     printed = _printed(capsys)
-    assert "knowledge-graph corpus (./data/facility.ttl)" in printed
+    assert _INDEX_SPELLING in printed
     assert "channel database(s)" not in printed
     assert "Not staged" not in printed
     assert "The corpus pairs 1 setpoint(s) with a readback" in printed
@@ -779,7 +798,7 @@ def test_a_graph_corpus_pairing_nothing_still_states_the_cost(tmp_path, capsys):
         '<https://narad.example.org/binding/bend_sp> narad_p:fullPv "SR01C___B______AC00" ;\n'
         "    narad_p:writesSignal narad_sem:bend_signal .\n"
     )
-    root = _graph_repo(tmp_path / "repo", corpus=corpus)
+    root = _graph_repo(tmp_path / "repo", corpus=corpus, index=True)
     prepared = prepare_project_manifest(root / "data", DEFAULT_TIER, config=_graph_config(root))
 
     _report(_shared(tmp_path), _profile(data="data"), root / "data", prepared)
@@ -792,9 +811,12 @@ def test_a_graph_corpus_pairing_nothing_still_states_the_cost(tmp_path, capsys):
     assert prepared.manifest["_metadata"]["setpoint_count"] == 0
 
 
-def test_a_graph_repo_with_an_unreadable_corpus_refuses_naming_it(tmp_path):
+def test_a_graph_repo_with_an_unreadable_index_refuses_naming_it(tmp_path):
     """Distinct from both the absent-paradigms and unreadable-databases refusals."""
-    root = _graph_repo(tmp_path / "repo", corpus="not turtle {{{\n")
+    root = _graph_repo(tmp_path / "repo")
+    index_path = default_index_path(root)
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_path.write_bytes(b"not a database {{{")
     config = _graph_config(root)
 
     assert prepare_project_manifest(root / "data", DEFAULT_TIER, config=config) is None
@@ -809,7 +831,7 @@ def test_a_graph_repo_with_an_unreadable_corpus_refuses_naming_it(tmp_path):
         )
 
     message = str(excinfo.value)
-    assert "./data/facility.ttl" in message
+    assert _INDEX_SPELLING in message
     assert "could not be read" in message
     assert "are all absent" not in message
     assert "channel database" not in message
@@ -819,6 +841,7 @@ def test_a_graph_repo_with_an_empty_corpus_refuses_naming_it(tmp_path):
     root = _graph_repo(
         tmp_path / "repo",
         corpus="@prefix narad_p: <https://narad.example.org/property/> .\n",
+        index=True,
     )
     config = _graph_config(root)
 
@@ -834,7 +857,7 @@ def test_a_graph_repo_with_an_empty_corpus_refuses_naming_it(tmp_path):
         )
 
     message = str(excinfo.value)
-    assert "./data/facility.ttl" in message
+    assert _INDEX_SPELLING in message
     assert "declares no channels" in message
 
 
@@ -844,6 +867,10 @@ def test_a_graph_repo_with_an_unreadable_corpus_fails_a_real_build(tmp_path_fact
     The deferred graph check runs after the render, so this pins that the
     refusal still stops a real ``osprey build`` before anything is published:
     no ``build/`` tree, and no manifest env keys written into ``.env``.
+
+    A corpus the build cannot parse costs the index rather than the render, so
+    what the refusal names is the index that was never written -- and the
+    remedy it carries is the one that would write it.
     """
     from click.testing import CliRunner
 
@@ -861,8 +888,9 @@ def test_a_graph_repo_with_an_unreadable_corpus_fails_a_real_build(tmp_path_fact
         os.chdir(previous)
 
     assert result.exit_code != 0
-    assert "./data/facility.ttl" in caplog.text
-    assert "could not be read" in caplog.text
+    assert _INDEX_SPELLING in caplog.text
+    assert "is not there" in caplog.text
+    assert "osprey knowledge build-index" in caplog.text
     assert "are all absent" not in caplog.text
     # Refused before the swap published anything.
     assert not (repo / "build" / "config.yml").is_file()

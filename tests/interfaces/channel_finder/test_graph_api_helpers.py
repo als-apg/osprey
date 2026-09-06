@@ -1,11 +1,15 @@
 """Tests for the graph-paradigm query constants and pure helpers.
 
-These cover the two pieces of the graph explorer that hold logic rather than
-plumbing: the taxonomy pruner that decides which ``:Class`` rows are worth
+These cover the pieces of the graph explorer that hold logic rather than
+plumbing: the two Cypher constants the explorer still runs directly against
+the store, the taxonomy pruner that decides which ``:Class`` rows are worth
 drawing, and the error mapper that turns a failed store read into a response
-body. Both are pure — no driver, no store, no app — so the rows here are
-hand-written in the shape :data:`GRAPH_ONTOLOGY_CYPHER` returns, and the
-demo-shaped case pins the count an operator actually sees.
+body. The pruner and the error mapper are pure — no driver, no store, no app —
+so the rows here are hand-written in the shape the graph paradigm's ontology
+query returns (now ``GRAPH_ONTOLOGY_CYPHER`` in
+``tests/integration/_graph_oracles.py``, since the explorer reads a search
+index rather than that query directly), and the demo-shaped case pins the
+count an operator actually sees.
 """
 
 from __future__ import annotations
@@ -13,20 +17,20 @@ from __future__ import annotations
 import pytest
 
 from osprey.interfaces.channel_finder.database_api import (
-    GRAPH_CHANNEL_COUNT_CYPHER,
-    GRAPH_DEVICE_COUNT_CYPHER,
-    GRAPH_ONTOLOGY_CYPHER,
-    GRAPH_SECTION_COUNT_CYPHER,
-    GRAPH_SIGNAL_COUNT_CYPHER,
-    RELATIONSHIP_TYPES_CYPHER,
     _class_name,
     _graph_error_payload,
-    _prune_device_taxonomy,
 )
 from osprey.mcp_server.graph.server_context import (
     GraphNotConfigured,
     GraphQueryTimeout,
     GraphUnreachable,
+)
+from osprey.services.channel_finder.graph_index.taxonomy import (
+    prune_device_taxonomy as _prune_device_taxonomy,
+)
+from osprey.services.channel_finder.graph_queries import (
+    GRAPH_CHANNEL_COUNT_CYPHER,
+    GRAPH_DEVICE_CYPHER,
 )
 
 _SEM = "https://narad.example.org/schema/shared_semantics/"
@@ -89,53 +93,13 @@ def _demo_rows() -> list[dict]:
 
 
 class TestCypherConstants:
-    def test_ontology_query_defines_devices_as_bound_resources(self):
-        assert "(d:Resource)-[:TYPE]->(sub)" in GRAPH_ONTOLOGY_CYPHER
-        assert "(d)-[:HASBINDING]->(:ChannelBinding)" in GRAPH_ONTOLOGY_CYPHER
+    def test_channel_count_query_returns_a_single_aliased_count(self):
+        assert GRAPH_CHANNEL_COUNT_CYPHER.startswith("MATCH ")
+        assert "count(" in GRAPH_CHANNEL_COUNT_CYPHER
+        assert GRAPH_CHANNEL_COUNT_CYPHER.rstrip().endswith("AS n")
 
-    def test_ontology_query_bounds_the_subclass_walk(self):
-        # An unbounded walk would never terminate on a SUBCLASSOF cycle.
-        assert "[:SUBCLASSOF*0..10]" in GRAPH_ONTOLOGY_CYPHER
-
-    def test_ontology_query_returns_the_five_columns_the_pruner_reads(self):
-        assert "AS uri" in GRAPH_ONTOLOGY_CYPHER
-        assert "AS altLabel" in GRAPH_ONTOLOGY_CYPHER
-        assert "parents" in GRAPH_ONTOLOGY_CYPHER
-        assert "AS rollup" in GRAPH_ONTOLOGY_CYPHER
-        assert "AS direct" in GRAPH_ONTOLOGY_CYPHER
-
-    @pytest.mark.parametrize(
-        "cypher",
-        [
-            GRAPH_DEVICE_COUNT_CYPHER,
-            GRAPH_SIGNAL_COUNT_CYPHER,
-            GRAPH_SECTION_COUNT_CYPHER,
-            GRAPH_CHANNEL_COUNT_CYPHER,
-        ],
-    )
-    def test_count_queries_return_a_single_aliased_count(self, cypher):
-        assert cypher.startswith("MATCH ")
-        assert "count(" in cypher
-        assert cypher.rstrip().endswith("AS n")
-
-    def test_device_count_matches_the_ontology_definition_of_a_device(self):
-        assert "(d:Resource)-[:HASBINDING]->(:ChannelBinding)" in GRAPH_DEVICE_COUNT_CYPHER
-        assert "count(DISTINCT d)" in GRAPH_DEVICE_COUNT_CYPHER
-
-    def test_section_count_skips_devices_with_no_section(self):
-        assert "d.sectionCode IS NOT NULL" in GRAPH_SECTION_COUNT_CYPHER
-        assert "count(DISTINCT d.sectionCode)" in GRAPH_SECTION_COUNT_CYPHER
-
-    def test_reexported_constants_match_their_source(self):
-        from osprey.services.channel_finder.benchmarks.runner import (
-            GRAPH_CHANNEL_COUNT_CYPHER as source_channels,
-        )
-        from osprey.services.facility_knowledge.seeder.prompt_snapshot import (
-            RELATIONSHIP_TYPES_CYPHER as source_rels,
-        )
-
-        assert GRAPH_CHANNEL_COUNT_CYPHER == source_channels
-        assert RELATIONSHIP_TYPES_CYPHER == source_rels
+    def test_device_query_is_keyed_by_uri(self):
+        assert "{uri: $uri}" in GRAPH_DEVICE_CYPHER
 
 
 class TestClassName:

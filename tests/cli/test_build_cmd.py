@@ -1912,6 +1912,14 @@ def _render(repo: Path):
 # a preset tier source. See tests/build/test_mode_registry_single_source.py.
 _PARADIGMS_FOR_BUILD: tuple[str, ...] = tuple(FILE_DATABASE_PARADIGMS)
 
+#: The flat channel databases a build materializes for those paradigms. Named
+#: here so the graph render can assert it flattened none of them without also
+#: asserting the directory is empty: the app template ships an example database
+#: and an ``examples/`` tree in there, which every render carries.
+_PARADIGM_DATABASE_FILENAMES: frozenset[str] = frozenset(
+    f"{paradigm}.json" for paradigm in _PARADIGMS_FOR_BUILD
+)
+
 
 # Tier selection is restricted to {1, 3}, and tier 1 is in_context-only
 # (it ships no hierarchical/middle_layer DB). Only these combos are buildable.
@@ -3147,13 +3155,28 @@ class TestTierIsPinnedOnlyWhereTheParadigmAcceptsOne:
             f"a render pinned a tier for the graph paradigm: {tiers}. graph has no "
             "tiered artifacts, so create_project refuses an explicit tier."
         )
-        # The paradigm reached the render: graph flattens no channel database,
-        # so the server it declares is the whole of the evidence.
+        # The paradigm reached the render: graph flattens no paradigm channel
+        # database, so the server it declares is the whole of that evidence.
         servers = json.loads((render / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
         assert servers["channel-finder"]["args"] == [
             "-m",
             "osprey.mcp_server.channel_finder_graph",
         ]
+        # What it DOES flatten into that directory is the search index derived
+        # from the corpus it stages: the file the roster, the explorer and the
+        # agent's keyword tool read instead of parsing the corpus again. The
+        # builder itself is pinned in tests/cli/test_build_graph_index.py; here
+        # it is the render's own inventory that has to name it.
+        databases = render / "data" / "channel_databases"
+        staged = sorted(path.name for path in databases.glob("*"))
+        assert "graph.duckdb" in staged, f"a graph render stages {staged}"
+        assert not [name for name in staged if name in _PARADIGM_DATABASE_FILENAMES], (
+            f"a graph render flattened a paradigm channel database: {staged}"
+        )
+        # And the manifest does not checksum it: a derived binary carrying its
+        # own content digest would read as render drift on every rebuild.
+        manifest = json.loads((render / ".osprey-manifest.json").read_text(encoding="utf-8"))
+        assert not [name for name in manifest["file_checksums"] if name.endswith(".duckdb")]
 
     def test_an_explicit_tier_overrides_the_derivation_on_a_file_paradigm(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

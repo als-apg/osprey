@@ -351,7 +351,7 @@ jobs:
           cli)  SHARD_PATH="cli"; SHARD_IGNORE="" ;;
           rest) SHARD_PATH="";    SHARD_IGNORE="--ignore=tests/cli" ;;
         esac
-        uv run pytest tests/$SHARD_PATH $SHARD_IGNORE --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py -m "not pty" -v --tb=short --durations=50 --timeout=600 --timeout-method=signal -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
+        uv run pytest tests/$SHARD_PATH $SHARD_IGNORE --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py --ignore=tests/services/channel_finder/graph_index/test_scale.py -m "not pty" -v --tb=short --durations=50 --timeout=600 --timeout-method=signal -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
 
     # The two steps below are the reason the step above has its own timeout.
     # They run on success too: on a green lane the summary is the slow-test
@@ -1578,6 +1578,17 @@ jobs:
 
     - name: Install dependencies
       run: uv sync --extra dev
+
+    - name: Search-index scale guard (no LLM, no store)
+      # The unit lane ignores this module by path: its budgets are held to a
+      # workstation's numbers, and four xdist workers on a four-vCPU runner
+      # miss them by ~7x on both corpora at once — the box, not the code (see
+      # the module docstring). It runs here instead, serially and alone.
+      # Placed ahead of the probe below deliberately: a DuckDB latency
+      # measurement needs no API key, and gating it on one would mean an
+      # unreachable proxy silently takes the scale guard down with it.
+      run: |
+        uv run pytest tests/services/channel_finder/graph_index/test_scale.py -v --tb=short
 
     - name: Pre-flight LLM endpoint reachability check
       env:

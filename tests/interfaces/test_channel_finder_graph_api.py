@@ -14,10 +14,9 @@ What these tests pin:
   the in-context paradigm's prompt into pieces, and the graph builds no prompt.
 - A deployment that stages no corpus — one pointed at an external store — still
   *starts*: both routes answer 503 naming ``services.graphdb.ttl_path``, which
-  is the key an operator edits. The same goes for a corpus that is there and
-  cannot be parsed.
-- The roster is read once at lifespan, not once per request: the corpus is a
-  multi-megabyte Turtle file.
+  is the key an operator edits. The same goes for a search index nobody built,
+  and for one that is there and cannot be opened.
+- The roster is read once at lifespan, not once per request.
 - The file-backed paradigms are untouched.
 """
 
@@ -33,6 +32,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import osprey.channel_roster as channel_roster
+from tests._graph_index import build_index_from_ttl, default_index_path
 
 _CONFIG_SEAM = "osprey.utils.workspace.load_osprey_config"
 _GRAPH_CONTEXT_SEAM = "osprey.interfaces.channel_finder.app._make_graph_context"
@@ -107,8 +107,9 @@ def _started(config: dict[str, Any]) -> Iterator[TestClient]:
 @pytest.fixture
 def graph_client(tmp_path: Path) -> Iterator[TestClient]:
     """A started graph-mode app whose corpus holds :data:`_CORPUS`."""
-    _write_corpus(tmp_path / "corpus.ttl", _CORPUS)
-    with _started(_graph_config(tmp_path)) as client:
+    config = _graph_config(tmp_path)
+    build_index_from_ttl(_write_corpus(tmp_path / "corpus.ttl", _CORPUS), config)
+    with _started(config) as client:
         yield client
 
 
@@ -185,7 +186,10 @@ class TestGraphEnumeration:
             encoding="utf-8",
         )
 
-        with _started(_graph_config(tmp_path)) as client:
+        config = _graph_config(tmp_path)
+        build_index_from_ttl(path, config)
+
+        with _started(config) as client:
             body = client.get("/api/channels").json()
 
             assert body == {"channels": [{"channel": "SR:DIAG:BPM:01:X"}], "total": 1}
@@ -200,8 +204,9 @@ class TestGraphEnumeration:
         """Not a range check: the graph builds no prompt to chunk at all."""
         assert graph_client.get("/api/channels?chunk_idx=0&chunk_size=1").status_code == 422
 
-    def test_the_corpus_is_read_once_for_the_whole_process(self, tmp_path):
-        _write_corpus(tmp_path / "corpus.ttl", _CORPUS)
+    def test_the_index_is_read_once_for_the_whole_process(self, tmp_path):
+        config = _graph_config(tmp_path)
+        build_index_from_ttl(_write_corpus(tmp_path / "corpus.ttl", _CORPUS), config)
         reads: list[dict[str, Any]] = []
         real = channel_roster.registered_channels
 
@@ -210,7 +215,7 @@ class TestGraphEnumeration:
             return real(config)
 
         with patch.object(channel_roster, "registered_channels", counted):
-            with _started(_graph_config(tmp_path)) as client:
+            with _started(config) as client:
                 client.get("/api/channels")
                 client.get("/api/channels")
                 client.post("/api/validate", json={"channels": ["SR:DIAG:BPM:01:X"]})
@@ -256,12 +261,15 @@ class TestADeploymentThatStagesNoCorpus:
         assert client.get("/api/channels").json()["detail"] == absence.message()
 
 
-class TestACorpusThatCannotBeRead:
-    """A staged corpus that is missing or unparseable is not an absent one."""
+class TestAnIndexThatCannotBeRead:
+    """A staged index that is missing or unreadable is not an absent one."""
 
     @pytest.fixture
     def client(self, tmp_path: Path) -> Iterator[TestClient]:
-        (tmp_path / "corpus.ttl").write_text("this is not turtle {{{", encoding="utf-8")
+        _write_corpus(tmp_path / "corpus.ttl", _CORPUS)
+        index_path = default_index_path(tmp_path)
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        index_path.write_bytes(b"this is not a database {{{")
         with _started(_graph_config(tmp_path)) as started:
             yield started
 
@@ -277,21 +285,35 @@ class TestACorpusThatCannotBeRead:
         assert _TTL_KEY in _unavailable_text(validate.json())
         assert _TTL_KEY in _unavailable_text(channels.json())
 
-    def test_the_detail_names_the_corpus_that_could_not_be_read(self, client, tmp_path):
-        """Named as the config spells it, not as the server resolved it: the
-        corpus is declared by a relative ``ttl_path``, and the resolved name is
-        a path inside whatever tree this process happens to be serving from."""
+    def test_the_detail_names_the_index_and_why_the_driver_refused_it(self, client, tmp_path):
+        """A file that is there and unreadable is diagnosed, not just reported.
+
+        The driver's own sentence travels with the absence, so an operator
+        looking at the 503 can tell "nobody built it" from "what is there is
+        not a database" -- and it names the file it opened to say so.
+        """
         detail = client.get("/api/channels").json()["detail"]
 
-        assert "corpus.ttl" in detail
-        assert str(tmp_path) not in detail
+        assert str(default_index_path(tmp_path)) in detail
+        assert "DuckDB" in detail
 
-    def test_a_corpus_that_is_not_there_at_all_reads_the_same_way(self, tmp_path):
-        with _started(_graph_config(tmp_path, ttl_path="never-staged.ttl")) as client:
+    def test_an_index_that_was_never_built_reads_the_same_way(self, tmp_path):
+        """The corpus is staged and nothing derived an index from it.
+
+        Named as the config spells it, not as the server resolved it: the
+        index path is relative (here, defaulted), and its resolved name is a
+        path inside whatever tree this process happens to be serving from.
+        """
+        _write_corpus(tmp_path / "corpus.ttl", _CORPUS)
+
+        with _started(_graph_config(tmp_path)) as client:
             resp = client.get("/api/channels")
+            body = resp.json()
 
             assert resp.status_code == 503
-            assert _TTL_KEY in _unavailable_text(resp.json())
+            assert _TTL_KEY in _unavailable_text(body)
+            assert "./data/channel_databases/graph.duckdb" in body["detail"]
+            assert str(tmp_path) not in body["detail"]
 
 
 class TestACorpusThatDeclaresNoChannels:
@@ -299,8 +321,9 @@ class TestACorpusThatDeclaresNoChannels:
 
     @pytest.fixture
     def client(self, tmp_path: Path) -> Iterator[TestClient]:
-        _write_corpus(tmp_path / "corpus.ttl", {})
-        with _started(_graph_config(tmp_path)) as started:
+        config = _graph_config(tmp_path)
+        build_index_from_ttl(_write_corpus(tmp_path / "corpus.ttl", {}), config)
+        with _started(config) as started:
             yield started
 
     def test_enumeration_503s_rather_than_serving_an_empty_facility(self, client):

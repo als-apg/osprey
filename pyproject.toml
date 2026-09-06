@@ -553,7 +553,7 @@ markers = [
     "integration: Integration tests (real external services)",
     "e2e: End-to-end workflow tests - WARNING: Use 'pytest tests/e2e/' not '-m e2e' (see tests/e2e/README.md)",
     "e2e_smoke: Quick smoke tests for critical workflows",
-    "channel_finder_benchmark: Channel finder benchmark validation tests",
+    "channel_finder_benchmark: Channel finder benchmark validation tests. Run on demand, in the benchmark job (`gh workflow run ci.yml -f run_benchmarks=true`), never on a PR: the LLM scoring lane is too expensive to gate on, and the search-index scale guard measures wall-clock latency, which four xdist workers sharing a runner distort past any budget worth keeping. Tests carrying it must be kept out of the unit lane — the LLM ones by living under tests/e2e/, the scale guard by an --ignore on the lane's own line",
     "e2e_tutorial: Tutorial workflow validation tests",
     "agentic_benchmark: Model-capability lane of the benchmark matrix — genuine agentic tasks (multi-tool reasoning, judged answers) where the model-under-test can fail",
     "harness_benchmark: Harness-integrity lane of the benchmark matrix — an agent runs but the assertion is model-independent OSPREY behavior (safety hooks, approval flow, plumbing)",
@@ -573,6 +573,7 @@ markers = [
     "qmd: Tests that need the qmd sidecar image (OSPREY_QMD_IMAGE). They REFUSE to skip when it is absent — a lane that skipped on a missing image would report success having proved nothing — so a lane that does not build or load one must deselect them with `-m 'not qmd'`",
     "real_workspace_watcher: Web-terminal app test that needs a live filesystem observer — opts out of the conftest stub that keeps broadcaster assertions deterministic",
     "real_http_posters: MCP-server test of the HTTP posters themselves — opts out of the conftest stub that keeps notify_* POSTs from reaching a live web terminal",
+    "real_graph_index: Build test of the channel search index derivation itself — opts out of the conftest stub that builds each corpus once per session and copies it into every render",
     "pty: Real-terminal tests that run an osprey verb on a pty and read back the bytes an operator would have seen. POSIX-only (they self-skip elsewhere), and deselected from the parallel lane because they assert on repaint cadence and on a spinner advancing between frames, which three other xdist workers loading the box would distort; they get their own serial CI step instead. Carried per-test, not per-directory: tests/pty/test_stub_coverage.py needs no terminal and stays in the parallel lane.",
 ]
 

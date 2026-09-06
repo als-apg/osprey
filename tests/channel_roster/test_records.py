@@ -25,7 +25,7 @@ from osprey.channel_roster import (
 )
 from osprey.channel_roster.records import _template_fields
 
-_GRAPH = RosterSource(kind=RosterSourceKind.GRAPH, path=Path("/data/demo_machine.ttl"))
+_GRAPH = RosterSource(kind=RosterSourceKind.GRAPH, path=Path("/data/graph.duckdb"))
 _DB = RosterSource(kind=RosterSourceKind.DATABASE, path=Path("/data/hierarchical.json"))
 
 
@@ -93,7 +93,9 @@ class TestRosterSource:
         assert {kind.value for kind in RosterSourceKind} == {"graph", "database"}
 
     def test_describe_names_the_kind_and_the_resolved_path(self) -> None:
-        assert _GRAPH.describe() == "the facility knowledge graph (/data/demo_machine.ttl)"
+        assert _GRAPH.describe() == (
+            "the channel index built from the facility knowledge graph (/data/graph.duckdb)"
+        )
         assert _DB.describe() == "the channel finder database (/data/hierarchical.json)"
 
     def test_describe_prefers_the_spelling_an_operator_configured(self) -> None:
@@ -107,13 +109,16 @@ class TestRosterSource:
         """
         source = RosterSource(
             kind=RosterSourceKind.GRAPH,
-            path=Path("/repo/build/.tmp/proj/data/demo_machine.ttl"),
-            spelled="./data/demo_machine.ttl",
+            path=Path("/repo/build/.tmp/proj/data/graph.duckdb"),
+            spelled="./data/channel_databases/graph.duckdb",
         )
 
-        assert source.describe() == "the facility knowledge graph (./data/demo_machine.ttl)"
-        assert source.for_display() == "./data/demo_machine.ttl"
-        assert source.path == Path("/repo/build/.tmp/proj/data/demo_machine.ttl")
+        assert source.describe() == (
+            "the channel index built from the facility knowledge graph "
+            "(./data/channel_databases/graph.duckdb)"
+        )
+        assert source.for_display() == "./data/channel_databases/graph.duckdb"
+        assert source.path == Path("/repo/build/.tmp/proj/data/graph.duckdb")
 
     def test_every_kind_has_a_label(self) -> None:
         for kind in RosterSourceKind:
@@ -127,17 +132,48 @@ class TestRosterAbsence:
         operator can act on."""
         absence = RosterAbsence(
             reason=RosterAbsenceReason.MISSING_SOURCE,
-            path=Path("/repo/build/.tmp/proj/data/demo_machine.ttl"),
-            spelled="./data/demo_machine.ttl",
+            path=Path("/repo/build/.tmp/proj/data/graph.duckdb"),
+            spelled="./data/channel_databases/graph.duckdb",
             config_keys=("services.graphdb.ttl_path",),
         )
 
         message = absence.message()
 
-        assert "./data/demo_machine.ttl" in message
+        assert "./data/channel_databases/graph.duckdb" in message
         assert "services.graphdb.ttl_path" in message
         assert ".tmp" not in message, "the resolved staging path is not a thing to retype"
-        assert absence.path == Path("/repo/build/.tmp/proj/data/demo_machine.ttl")
+        assert absence.path == Path("/repo/build/.tmp/proj/data/graph.duckdb")
+
+    def test_a_missing_source_with_no_remedy_renders_the_template_alone(self) -> None:
+        """The database readers state no command, and their sentence is
+        unchanged by the graph reader having one."""
+        absence = RosterAbsence(
+            reason=RosterAbsenceReason.MISSING_SOURCE,
+            path=Path("/data/hierarchical.json"),
+            config_keys=("database.path",),
+        )
+
+        assert absence.message() == (
+            "The channel roster source at /data/hierarchical.json is not there, so the "
+            "set of channels this facility has is unknown; it is declared by database.path."
+        )
+
+    def test_a_missing_source_says_its_remedy_as_a_second_sentence(self) -> None:
+        """A source a build writes has one thing to do about it, and the reader
+        that knows the command supplies it."""
+        absence = RosterAbsence(
+            reason=RosterAbsenceReason.MISSING_SOURCE,
+            path=Path("/proj/data/channel_databases/graph.duckdb"),
+            config_keys=("services.graphdb.index_path",),
+            detail="Build it with `osprey knowledge build-index`, or re-run `osprey build`.",
+        )
+
+        assert absence.message() == (
+            "The channel roster source at /proj/data/channel_databases/graph.duckdb is "
+            "not there, so the set of channels this facility has is unknown; it is "
+            "declared by services.graphdb.index_path. Build it with `osprey knowledge "
+            "build-index`, or re-run `osprey build`."
+        )
 
     def test_missing_and_corrupt_are_distinct_reasons(self) -> None:
         """The pair consumers branch on: absent is fail-soft, unreadable is

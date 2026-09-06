@@ -42,6 +42,7 @@ import shutil
 import sys
 import time
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NamedTuple
 from uuid import uuid4
@@ -1204,6 +1205,33 @@ class _SharedRenderInputs(NamedTuple):
     the manifest.
     """
 
+    graph_indexes: dict[str, Path]
+    """Graph search indexes this build has already written, by corpus digest.
+
+    Deriving one parses the whole Turtle corpus with rdflib, which is seconds on
+    a real facility, and every render pass of one build stages the same corpus:
+    the deployment's own project, each persona delta, each container image copy.
+    The first pass that needs an index builds it; every later pass whose corpus
+    hashes the same copies the file it wrote.
+
+    Keyed on the digest of the corpus TEXT
+    (:func:`~osprey.services.facility_knowledge.seeder.graph_seeder.ttl_sha256`),
+    which is the same number the index's ``meta`` row and the store's seed
+    marker carry. A file key would not work: each render pass re-copies the
+    profile's ``data/`` tree, so the staged corpus is a different file with a
+    fresh mtime every time, and a stat key would miss on every pass. Hashing a
+    few megabytes costs milliseconds, and the builder reads the text anyway.
+    """
+
+    graph_facts_reported: set[str]
+    """Search-index facts this build has already stated, by their text.
+
+    Every render pass resolves the same profile, so "no corpus to derive an
+    index from" is one fact about the build rather than one per render. The
+    first pass states it; later passes log it at DEBUG, the way
+    :attr:`va_reported` keeps the manifest outcome to one line.
+    """
+
     profile_overlays: tuple[Path, ...] = ()
     """Profile layers merged over EVERY profile this build resolves.
 
@@ -1519,19 +1547,21 @@ def _report_va_manifest_outcome(
 
     shared.va_reported.add(key)
     metadata = prepared.manifest["_metadata"]
-    corpus = metadata.get("source_corpus")
+    # The graph source as an operator names it: the search index the
+    # roster read, not the Turtle corpus behind it.
+    graph_source = metadata.get("source_corpus")
     absent = metadata["absent_paradigms"]
     novel = metadata["machine_json_novel_addresses"]
     from_databases = metadata["total_channels"] - len(novel)
     # The tree is named by what it is rather than by its absolute path: the
     # operator is being told what the accelerator will serve, not sent to a
     # path they would have to retype.
-    if corpus is not None:
-        # The one source that is not a database file. The corpus path is the
+    if graph_source is not None:
+        # The one source that is not a channel database. The index path is the
         # configured spelling, which IS what an operator would retype.
         line = (
-            f"Virtual-accelerator channel set built from this project's knowledge-graph "
-            f"corpus ({corpus}): {from_databases} channel(s)"
+            f"Virtual-accelerator channel set built from this project's channel search "
+            f"index ({graph_source}): {from_databases} channel(s)"
         )
     else:
         fed = _named_in_prose(metadata["source_paradigms"])
@@ -1546,7 +1576,7 @@ def _report_va_manifest_outcome(
         # that exist nowhere else.
         line += f", plus {len(novel)} address(es) seeded only by simulation/machine.json"
     line += "."
-    if corpus is not None and metadata["setpoint_count"]:
+    if graph_source is not None and metadata["setpoint_count"]:
         # What the corpus's device grouping bought: the pairs it states are
         # the only channels a graph-sourced accelerator can echo a write on,
         # and the operator driving one should know which count that is.
@@ -1582,7 +1612,7 @@ def _report_va_manifest_outcome(
         PARTITION_STATIC_NOISY
     }
     if degraded:
-        if corpus is not None:
+        if graph_source is not None:
             lead_in = " The knowledge graph carries no hierarchy identity keys, so"
         elif "hierarchical" not in metadata["source_paradigms"]:
             lead_in = " Without a hierarchical database the channels carry no identity keys, so"
@@ -1601,6 +1631,179 @@ def _report_va_manifest_outcome(
         f"{reconciliation['candidates_checked']} checked, "
         f"{len(reconciliation['valid'])} valid, {len(reconciliation['invalid'])} invalid."
     )
+
+
+@dataclass(frozen=True, slots=True)
+class GraphIndexTarget:
+    """The corpus one render derives its channel search index from, and where it goes.
+
+    Both paths are absolute and both belong to the render: the corpus is the
+    copy this render staged, and the index is written beside the channel
+    databases inside the same directory, so a render is a complete account of
+    what the containers built from it will read.
+    """
+
+    corpus_path: Path
+    """The staged Turtle corpus, as ``services.graphdb.ttl_path`` resolves."""
+
+    index_path: Path
+    """Where ``services.graphdb.index_path`` says the index goes."""
+
+
+def _graph_index_target(
+    render_dir: Path,
+    rendered_config: Mapping[str, Any],
+    reported: set[str] | None = None,
+) -> GraphIndexTarget | None:
+    """The corpus and index path for a graph-mode render, or ``None`` with a reason.
+
+    Only the rendered config can answer this: both keys are render-relative
+    (:func:`osprey.utils.config_paths.resolve_render_relative_path`), so they
+    are resolved against the render that wrote them rather than against the repo
+    or the working directory. That is the same resolution the roster, the
+    ``osprey knowledge`` verbs and the deploy's seeding step apply, which is what
+    keeps the build writing the index where every reader afterwards looks.
+
+    The three answers that are not a target are facts rather than failures. A
+    project with no corpus staged is a legal project: it keeps its device card
+    from the store it dials, and its roster reports the same absence it reports
+    today. So each returns ``None`` after saying which key left it there, and
+    the build carries on.
+
+    Args:
+        render_dir: The render's own directory, holding its ``config.yml``.
+        rendered_config: That config, already loaded by the caller.
+        reported: The facts this build has already stated
+            (:attr:`_SharedRenderInputs.graph_facts_reported`). A fact in it is
+            logged at DEBUG instead of repeated at INFO by every render pass.
+
+    Returns:
+        The target, or ``None`` when this render has no corpus to derive an
+        index from.
+    """
+    from osprey.deployment.graphdb_service import (
+        resolve_graph_index_path,
+        resolve_graphdb_service_config,
+    )
+    from osprey.utils.config_paths import resolve_render_relative_path
+
+    def _fact_once(message: str) -> None:
+        if reported is not None and message in reported:
+            logger.debug(message)
+            return
+        if reported is not None:
+            reported.add(message)
+        _report_fact(message)
+
+    try:
+        settings = resolve_graphdb_service_config(rendered_config)
+    except ValueError as error:
+        _fact_once(f"No channel search index: the services.graphdb block cannot be read ({error}).")
+        return None
+
+    ttl_path = settings.ttl_path if settings is not None else None
+    if ttl_path is None:
+        _fact_once(
+            "No channel search index: services.graphdb.ttl_path names no corpus to derive one from."
+        )
+        return None
+
+    corpus_path = resolve_render_relative_path(ttl_path, render_dir)
+    if not corpus_path.is_file():
+        _fact_once(
+            f"No channel search index: services.graphdb.ttl_path names {corpus_path}, "
+            "which this build does not stage."
+        )
+        return None
+
+    return GraphIndexTarget(
+        corpus_path=corpus_path,
+        index_path=resolve_graph_index_path(rendered_config, config_dir=render_dir),
+    )
+
+
+def _build_graph_index(
+    shared: _SharedRenderInputs, target: GraphIndexTarget, progress: Any
+) -> Path | None:
+    """Write the render's channel search index, building it at most once per build.
+
+    The index is what the graph paradigm's roster, explorer and keyword tool
+    read, so every render that ships a corpus ships one derived from THAT
+    corpus. Deriving it is an rdflib parse of the whole file, and the render
+    passes of one build stage the same corpus over and over, so the first pass
+    builds and the rest copy: the memo is keyed on the corpus text's digest
+    (:attr:`_SharedRenderInputs.graph_indexes`).
+
+    The corpus is read here for that digest and read again by the builder. Two
+    reads of a file this build staged itself and nothing else writes, in
+    exchange for a memo key that survives the ``data/`` tree being re-copied
+    with fresh mtimes for every pass.
+
+    A corpus that cannot be turned into an index is a warning and no index.
+    The corpus is the store's own seed source, so a build that stopped here
+    would refuse to render a project whose store seeds fine, and the readers
+    already say what an absent index means and how to build one.
+
+    Args:
+        shared: This build's shared render inputs, carrying the memo.
+        target: The corpus to read and the index path to write.
+        progress: The render's step-line callable.
+
+    Returns:
+        The index that now exists, or ``None`` when no index could be derived
+        from the corpus -- it could not be read, it would not parse, or the
+        index path could not be written.
+    """
+    import duckdb
+
+    from osprey.services.channel_finder.graph_index import GraphIndexBuildError, build_graph_index
+    from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
+
+    def _no_index(error: Exception) -> None:
+        from . import output
+
+        output.warn_fact(
+            logger,
+            f"{target.corpus_path.name} could not be turned into a channel search index, "
+            "so this build ships none",
+            str(error),
+        )
+
+    # Every step from the corpus to a file on disk sits under one guard, because
+    # they all cost the same thing: bytes that are not UTF-8, a file the build
+    # cannot read, Turtle that will not parse, a directory it cannot write, a
+    # driver that refuses the target. Each costs the index and not the build --
+    # the corpus is the store's own seed source, so refusing here would stop a
+    # build whose store seeds fine. The copy of an already-built index is inside
+    # the guard for that reason too: a full disk must not be the one failure
+    # that takes the whole render down.
+    try:
+        digest = ttl_sha256(target.corpus_path.read_text(encoding="utf-8"))
+        target.index_path.parent.mkdir(parents=True, exist_ok=True)
+
+        built = shared.graph_indexes.get(digest)
+        if built is not None and built != target.index_path and built.is_file():
+            shutil.copy2(built, target.index_path)
+            progress("  ✓ Copied the channel search index built from %s", target.corpus_path.name)
+            return target.index_path
+
+        report = build_graph_index(target.corpus_path, target.index_path)
+    except (GraphIndexBuildError, OSError, UnicodeDecodeError, duckdb.Error) as error:
+        _no_index(error)
+        return None
+
+    shared.graph_indexes[digest] = target.index_path
+    progress(
+        "  ✓ Built the channel search index (%d channel(s) from %s)",
+        report.channel_count,
+        target.corpus_path.name,
+    )
+    _report_fact(
+        f"Channel search index built from {target.corpus_path.name}: "
+        f"{report.binding_count} binding(s) over {report.device_count} device(s), "
+        f"{report.channel_count} channel(s), {report.class_count} class(es)."
+    )
+    return target.index_path
 
 
 def _render_project(
@@ -1945,14 +2148,30 @@ def _render_project(
             if reg_count:
                 progress("  ✓ Registered %d profile artifact(s) in config.yml", reg_count)
 
+        # The render is on disk, so its config can resolve the two paths that are
+        # relative to it: the corpus this render staged and the index derived
+        # from it. Loaded once here and handed to the deferred manifest step
+        # below, which asks the same config the same question.
+        rendered = _rendered_config(render_dir)
+        rendered["config_dir"] = str(render_dir)
+
+        # The graph paradigm's roster, explorer and keyword tool all read the
+        # search index rather than the corpus, so a graph-mode render that ships
+        # a corpus ships the index too. Gated on the paradigm the profile
+        # resolved, which is what the render just wrote as
+        # `channel_finder.pipeline_mode`. Before the manifest write below, so the
+        # index is inside the render when the checksums are taken.
+        if build_profile.channel_finder_mode == "graph":
+            graph_target = _graph_index_target(render_dir, rendered, shared.graph_facts_reported)
+            if graph_target is not None:
+                _build_graph_index(shared, graph_target, progress)
+
         if va_graph_deferred:
             # The deferred half of the manifest step above: the render is on disk,
             # so the rendered config can resolve the corpus the roster reads --
             # the same resolution every other roster consumer applies. The refusal
             # (a virtual accelerator with an unreadable or empty corpus) fires
             # here, still before anything is published outside the render zone.
-            rendered = _rendered_config(render_dir)
-            rendered["config_dir"] = str(render_dir)
             prepared_va_manifest = prepare_project_manifest(
                 va_data_root, va_key[1], config=rendered
             )
@@ -3004,6 +3223,8 @@ def _build_repo(
             manager=TemplateManager(),
             va_manifests={},
             va_reported=set(),
+            graph_indexes={},
+            graph_facts_reported=set(),
             profile_overlays=profile_overlays,
         )
 

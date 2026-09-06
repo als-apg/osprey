@@ -2,10 +2,11 @@
 
 Drives the category against a fake neo4j driver injected through
 ``neo4j.GraphDatabase.driver``, exercising the presence gate (a
-``services.graphdb`` config block), the two emitted rows (bolt connectivity and
-the ``(:Resource)`` count), and every degradation path — a missing driver
-package, an unreachable store, and a rejected credential — none of which may
-produce an ``error`` row or raise.
+``services.graphdb`` config block), the three emitted rows (bolt connectivity,
+the ``(:Resource)`` count and the ``(:_OspreySeed)`` provenance marker), and
+every degradation path — a missing driver package, an unreachable store, a
+rejected credential, an unreadable count or marker — none of which may produce
+an ``error`` row or raise.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ import sys
 
 import pytest
 
-from osprey.health.core.graphdb import graphdb
+from osprey.health.core.graphdb import SEED_DIGEST_DETAIL_PREFIX, graphdb, seed_digest
 from osprey.health.models import CheckResult, Status
 from osprey.port_layout import default_port
 
@@ -34,19 +35,36 @@ class _FakeEagerResult:
         self.records = records
 
 
+#: A plausible corpus digest. Only its prefix and its full text matter here.
+DIGEST = "9f2c1ab34de5670089abcdef0123456789abcdef0123456789abcdef01234567"
+
+
 class _FakeDriver:
-    """Records the queries it was asked to run and answers them from a script."""
+    """Records the queries it was asked to run and answers them from a script.
+
+    The ping is the first query; everything after it is answered on what the
+    query text asks for, so the probe may read the count and the marker in
+    either order without the fake having to be rewritten.
+    """
 
     def __init__(
         self,
         *,
         count: int = 7,
+        sha256: str | None = DIGEST,
+        direction_source: str | None = "grammar",
+        null_marker: bool = False,
         connect_error: Exception | None = None,
         count_error: Exception | None = None,
+        marker_error: Exception | None = None,
     ) -> None:
         self.count = count
+        self.sha256 = sha256
+        self.direction_source = direction_source
+        self.null_marker = null_marker
         self.connect_error = connect_error
         self.count_error = count_error
+        self.marker_error = marker_error
         self.queries: list[str] = []
         self.closed = False
 
@@ -56,12 +74,27 @@ class _FakeDriver:
             if self.connect_error is not None:
                 raise self.connect_error
             return _FakeEagerResult([_FakeRecord(ok=1)])
+        if "_OspreySeed" in query:
+            if self.marker_error is not None:
+                raise self.marker_error
+            if self.null_marker:
+                return _FakeEagerResult([_FakeRecord(sha256=None, direction_source=None)])
+            if self.sha256 is None:
+                return _FakeEagerResult([])
+            return _FakeEagerResult(
+                [_FakeRecord(sha256=self.sha256, direction_source=self.direction_source)]
+            )
         if self.count_error is not None:
             raise self.count_error
         return _FakeEagerResult([_FakeRecord(count=self.count)])
 
     def close(self) -> None:
         self.closed = True
+
+    @property
+    def marker_queries(self) -> list[str]:
+        """Every query this driver was asked that reads the seed marker."""
+        return [q for q in self.queries if "_OspreySeed" in q]
 
 
 def _install_driver(monkeypatch: pytest.MonkeyPatch, driver: _FakeDriver) -> list[tuple]:
@@ -135,10 +168,10 @@ async def test_gate_never_opens_a_driver(monkeypatch: pytest.MonkeyPatch) -> Non
 # --------------------------------------------------------------------------- #
 
 
-async def test_configured_emits_both_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_configured_emits_all_three_rows(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_driver(monkeypatch, _FakeDriver())
     by_name = await _run(_cfg())
-    assert set(by_name) == {"graphdb_connection", "graphdb_resources"}
+    assert set(by_name) == {"graphdb_connection", "graphdb_resources", "graphdb_seed"}
     assert all(r.category == "graphdb" for r in by_name.values())
 
 
@@ -184,6 +217,126 @@ async def test_driver_is_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_driver(monkeypatch, driver)
     await _run(_cfg())
     assert driver.closed is True
+
+
+# --------------------------------------------------------------------------- #
+# Seed marker
+# --------------------------------------------------------------------------- #
+
+
+async def test_seed_row_reports_the_marker_digest_and_direction_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A marked store is ``ok``, showing the digest prefix and where directions came from."""
+    driver = _FakeDriver()
+    _install_driver(monkeypatch, driver)
+    row = (await _run(_cfg()))["graphdb_seed"]
+    assert row.status is Status.OK
+    assert row.value.startswith(DIGEST[:12])
+    assert DIGEST[:13] not in row.value, "the row must abbreviate, not print the whole digest"
+    assert "grammar" in row.value
+    # The marker is read off the SAME driver the other two rows used, matched on
+    # the label and the kind the seeder MERGEs it under.
+    assert len(driver.marker_queries) == 1
+    assert "kind" in driver.marker_queries[0]
+
+
+async def test_seed_row_carries_the_full_digest_for_a_later_comparison(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``details`` holds the whole sha256, so no caller has to re-query the store."""
+    _install_driver(monkeypatch, _FakeDriver())
+    row = (await _run(_cfg()))["graphdb_seed"]
+    assert row.details.startswith(SEED_DIGEST_DETAIL_PREFIX)
+    assert DIGEST in row.details
+    assert seed_digest(row) == DIGEST
+
+
+async def test_seed_row_omits_a_direction_source_the_corpus_did_not_declare(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A corpus with no direction header leaves the value as the digest prefix alone."""
+    _install_driver(monkeypatch, _FakeDriver(direction_source=None))
+    row = (await _run(_cfg()))["graphdb_seed"]
+    assert row.status is Status.OK
+    assert row.value == DIGEST[:12]
+
+
+async def test_corpus_without_a_marker_warns_that_it_cannot_be_identified(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Resources but no marker: a crashed import or a store seeded outside osprey."""
+    _install_driver(monkeypatch, _FakeDriver(count=7, sha256=None))
+    row = (await _run(_cfg()))["graphdb_seed"]
+    assert row.status is Status.WARNING
+    assert "no seed marker" in row.message
+    assert "unseeded" not in row.message, "a store holding a corpus is not unseeded"
+    assert "osprey knowledge seed-graph" in row.details
+    assert seed_digest(row) == ""
+
+
+async def test_empty_store_without_a_marker_warns_unseeded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No resources and no marker: nothing has been imported yet."""
+    _install_driver(monkeypatch, _FakeDriver(count=0, sha256=None))
+    row = (await _run(_cfg()))["graphdb_seed"]
+    assert row.status is Status.WARNING
+    assert "unseeded" in row.message
+    assert "osprey knowledge seed-graph" in row.details
+
+
+async def test_marker_without_a_digest_reads_as_no_marker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A marker node carrying a null sha256 identifies nothing, so it warns."""
+    _install_driver(monkeypatch, _FakeDriver(count=7, null_marker=True))
+    row = (await _run(_cfg()))["graphdb_seed"]
+    assert row.status is Status.WARNING
+    assert "no seed marker" in row.message
+
+
+async def test_unreadable_marker_warns_but_keeps_the_other_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed marker read degrades its own row and leaves the other two standing."""
+    from neo4j.exceptions import Neo4jError
+
+    _install_driver(monkeypatch, _FakeDriver(marker_error=Neo4jError("boom")))
+    by_name = await _run(_cfg())
+    assert by_name["graphdb_connection"].status is Status.OK
+    assert by_name["graphdb_resources"].status is Status.OK
+    assert by_name["graphdb_seed"].status is Status.WARNING
+    assert "seed marker" in by_name["graphdb_seed"].message
+
+
+async def test_unmarked_store_with_an_unreadable_count_claims_neither_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no count to go on, the row must not assert that the store is unseeded."""
+    _install_driver(monkeypatch, _FakeDriver(sha256=None, count_error=RuntimeError("boom")))
+    row = (await _run(_cfg()))["graphdb_seed"]
+    assert row.status is Status.WARNING
+    assert "no seed marker" in row.message
+    assert "unseeded" not in row.message
+    assert "unknown" in row.details
+
+
+def test_seed_digest_is_empty_for_a_row_that_carries_none() -> None:
+    """The accessor answers "" rather than guessing at unrelated detail text."""
+    assert seed_digest(CheckResult("graphdb_seed", "graphdb", Status.WARNING, "unseeded")) == ""
+    assert (
+        seed_digest(
+            CheckResult(
+                "graphdb_resources",
+                "graphdb",
+                Status.OK,
+                "counted",
+                details="Import the TTL corpus.",
+            )
+        )
+        == ""
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -282,6 +435,10 @@ async def test_no_row_is_ever_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
         _FakeDriver(count=0),
         _FakeDriver(connect_error=ServiceUnavailable("down")),
         _FakeDriver(count_error=RuntimeError("boom")),
+        _FakeDriver(sha256=None),
+        _FakeDriver(count=0, sha256=None),
+        _FakeDriver(null_marker=True),
+        _FakeDriver(marker_error=RuntimeError("boom")),
     ):
         _install_driver(monkeypatch, driver)
         by_name = await _run(_cfg())

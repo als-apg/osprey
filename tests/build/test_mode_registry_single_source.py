@@ -31,12 +31,17 @@ def test_mcp_pipeline_tool_map_serves_graph():
     Pinned because the channel-finder server renders its ``permissions.allow``
     from this map: a missing or misspelled entry ships a graph-mode agent whose
     every tool call is denied, with nothing raising to say so.
+
+    ``search_channels`` reads the search index rather than the store, and it is
+    registered on this pipeline alone — the standalone ``graph`` server stays a
+    pure Cypher surface.
     """
     assert CHANNEL_FINDER_TOOLS_BY_PIPELINE["graph"] == [
         "capabilities",
         "example_queries",
         "get_schema",
         "read_cypher",
+        "search_channels",
     ]
 
 

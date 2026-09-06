@@ -17,7 +17,17 @@ explicit external ``uri``) and derives both rows from it:
   further can be read — when the ``neo4j`` driver is not installed, the store is
   unreachable, the credential was rejected, or the config block is malformed;
 * ``graphdb_resources`` — the number of ``(:Resource)`` nodes in the graph
-  (``value``); ``warning`` when that is zero or the count could not be read.
+  (``value``); ``warning`` when that is zero or the count could not be read;
+* ``graphdb_seed`` — the ``(:_OspreySeed)`` marker the seeder writes after a
+  successful import: ``ok`` with the corpus digest's prefix (and the direction
+  source, when the corpus declared one) as ``value``; ``warning`` when the store
+  holds a corpus the marker cannot identify, when nothing has been imported at
+  all, or when the marker could not be read.
+
+The seed row's ``details`` carries the corpus's **full** sha256 behind
+:data:`SEED_DIGEST_DETAIL_PREFIX`, so a caller comparing the store's corpus
+against another artifact derived from the same one reads it off the row with
+:func:`seed_digest` instead of opening a second driver.
 
 The row counts ``(:Resource)`` nodes specifically rather than all nodes, and
 says so in its message: bootstrapping the store creates neosemantics
@@ -56,6 +66,7 @@ CATEGORY = "graphdb"
 
 _CONNECTION_ROW = "graphdb_connection"
 _RESOURCES_ROW = "graphdb_resources"
+_SEED_ROW = "graphdb_seed"
 
 #: Seconds the driver may spend acquiring a connection before it gives up. Kept
 #: well inside the category timeout: an unreachable store should render as one
@@ -70,6 +81,28 @@ _PING_QUERY = "RETURN 1 AS ok"
 #: The corpus's node count. ``(:Resource)`` is the label neosemantics gives every
 #: imported RDF subject, so this counts data and not the store's own bookkeeping.
 _RESOURCE_COUNT_QUERY = "MATCH (n:Resource) RETURN count(n) AS count"
+
+#: The seeder's singleton provenance marker, matched on the same ``kind`` the
+#: seeder MERGEs it under. It carries the sha256 of the Turtle text that was
+#: imported and, when that corpus declared one, the source its read/write
+#: directions came from. The property names are the seeder's own spelling
+#: (``sha256``, ``directionSource``) and are aliased here to the row builder's.
+_SEED_MARKER_QUERY = (
+    "MATCH (m:_OspreySeed {kind: 'ttl'}) "
+    "RETURN m.sha256 AS sha256, m.directionSource AS direction_source "
+    "LIMIT 1"
+)
+
+#: How much of the digest the row shows. Long enough to tell two corpora apart
+#: at a glance in a tile, short enough to leave the line readable — the full
+#: value stays available in ``details`` for callers that must compare exactly.
+_DIGEST_PREFIX_LEN = 12
+
+#: ``details`` prefix under which the ``graphdb_seed`` row carries the corpus's
+#: full sha256. Public, with :func:`seed_digest` as its reader: the row is the
+#: only place the digest is read from the store, so anything that needs to
+#: compare against it parses it back out here rather than re-querying.
+SEED_DIGEST_DETAIL_PREFIX = "Seeded corpus sha256: "
 
 #: Named by both the empty-graph row and the deploy that auto-seeds, so an
 #: operator reading either is pointed at the same verb — imported rather than
@@ -154,8 +187,8 @@ def _probe(connection: GraphdbConnection) -> list[CheckResult]:
         connection: Address and credentials to open the driver with.
 
     Returns:
-        Both rows, or the connection row alone when nothing further could be
-        read from the store.
+        All three rows, or the connection row alone when nothing further could
+        be read from the store.
     """
     try:
         from neo4j import GraphDatabase
@@ -197,7 +230,12 @@ def _probe(connection: GraphdbConnection) -> list[CheckResult]:
             f"Graph store reachable over bolt ({connection.uri})",
             latency_ms=latency_ms,
         )
-        return [connection_row, _resources_row(driver)]
+        count, count_error = _read_resource_count(driver)
+        return [
+            connection_row,
+            _resources_row(count, count_error),
+            _seed_row(driver, count),
+        ]
     finally:
         try:
             driver.close()
@@ -205,27 +243,48 @@ def _probe(connection: GraphdbConnection) -> list[CheckResult]:
             pass
 
 
-def _resources_row(driver: Any) -> CheckResult:
-    """Count ``(:Resource)`` nodes; ``warning`` on zero or on a failed read.
+def _read_resource_count(driver: Any) -> tuple[int | None, str]:
+    """Count ``(:Resource)`` nodes once, for both rows that read that number.
+
+    The count is taken here rather than inside :func:`_resources_row` because
+    the seed row needs the same number: whether a store with no marker is an
+    unfinished import or simply an unseeded one is decided by whether it holds
+    a corpus at all, and asking twice could answer those two rows from two
+    different readings of the store.
 
     Args:
         driver: An open neo4j driver, already known to answer Cypher.
+
+    Returns:
+        ``(count, "")`` when the count was read, ``(None, error_text)`` when it
+        could not be.
+    """
+    try:
+        result = driver.execute_query(_RESOURCE_COUNT_QUERY)
+        records = list(result.records)
+        return (int(records[0]["count"]) if records else 0), ""
+    except Exception as exc:  # noqa: BLE001 - an unreadable count is a warning
+        return None, str(exc)
+
+
+def _resources_row(count: int | None, error: str) -> CheckResult:
+    """Report the ``(:Resource)`` count; ``warning`` on zero or a failed read.
+
+    Args:
+        count: What :func:`_read_resource_count` read, or ``None``.
+        error: The failure text when *count* is ``None``.
 
     Returns:
         The ``graphdb_resources`` row. Zero is a warning rather than an error
         because a bootstrapped-but-unseeded store is a recoverable state with a
         one-command remedy, not a broken deployment.
     """
-    try:
-        result = driver.execute_query(_RESOURCE_COUNT_QUERY)
-        records = list(result.records)
-        count = int(records[0]["count"]) if records else 0
-    except Exception as exc:  # noqa: BLE001 - an unreadable count is a warning
+    if count is None:
         return CheckResult(
             _RESOURCES_ROW,
             CATEGORY,
             Status.WARNING,
-            f"Could not count the graph's Resource nodes: {exc}",
+            f"Could not count the graph's Resource nodes: {error}",
         )
 
     if count <= 0:
@@ -243,6 +302,116 @@ def _resources_row(driver: Any) -> CheckResult:
         "Resource nodes imported from the TTL corpus",
         value=f"{count:,} Resource nodes",
     )
+
+
+def _seed_row(driver: Any, count: int | None) -> CheckResult:
+    """Read the seed marker and say which corpus the store was imported from.
+
+    Args:
+        driver: An open neo4j driver, already known to answer Cypher.
+        count: The ``(:Resource)`` count already read for this same store, or
+            ``None`` when it could not be read. Only consulted when there is no
+            marker, to tell an unfinished import from an unseeded store.
+
+    Returns:
+        The ``graphdb_seed`` row — ``ok`` with the digest prefix as ``value``
+        and the full digest in ``details``, otherwise a ``warning``. Like every
+        row here it is advisory: a store nobody has seeded yet is a step not
+        taken, not a broken build.
+    """
+    try:
+        result = driver.execute_query(_SEED_MARKER_QUERY)
+        records = list(result.records)
+        record = records[0] if records else None
+        sha256 = record["sha256"] if record is not None else None
+        direction_source = record["direction_source"] if record is not None else None
+    except Exception as exc:  # noqa: BLE001 - an unreadable marker is a warning
+        return CheckResult(
+            _SEED_ROW,
+            CATEGORY,
+            Status.WARNING,
+            f"Could not read the graph's seed marker: {exc}",
+        )
+
+    if sha256 is None:
+        # A marker node whose digest is missing reads the same as no marker at
+        # all: the seeder writes the digest in the very MERGE that creates the
+        # node, so a marker without one identifies nothing.
+        return _unmarked_row(count)
+
+    digest = str(sha256)
+    value = digest[:_DIGEST_PREFIX_LEN]
+    if direction_source:
+        value = f"{value} (directions from {direction_source})"
+    return CheckResult(
+        _SEED_ROW,
+        CATEGORY,
+        Status.OK,
+        "Store carries the seed marker of the TTL corpus it was imported from",
+        value=value,
+        details=f"{SEED_DIGEST_DETAIL_PREFIX}{digest}.",
+    )
+
+
+def _unmarked_row(count: int | None) -> CheckResult:
+    """Build the ``graphdb_seed`` row for a store carrying no marker.
+
+    Args:
+        count: The ``(:Resource)`` count, or ``None`` when it could not be read.
+
+    Returns:
+        The ``warning`` row. A store with data but no marker is the more serious
+        of the two — an import that died partway, or a store seeded outside
+        osprey — and says so, because "unseeded" would understate a graph that
+        already answers queries from a corpus nobody can name.
+    """
+    if count is None:
+        return CheckResult(
+            _SEED_ROW,
+            CATEGORY,
+            Status.WARNING,
+            "Graph store carries no seed marker",
+            details=(
+                "Its Resource count could not be read either, so whether it holds a corpus "
+                f"is unknown. Import the TTL corpus with `{_SEED_COMMAND}`."
+            ),
+        )
+    if count > 0:
+        return CheckResult(
+            _SEED_ROW,
+            CATEGORY,
+            Status.WARNING,
+            "Graph store holds a corpus with no seed marker",
+            details=(
+                "The marker is written last, so an import that failed partway leaves this "
+                "state — as does a store seeded outside osprey. Either way the corpus it "
+                f"holds cannot be identified: re-import it with `{_SEED_COMMAND}`."
+            ),
+        )
+    return CheckResult(
+        _SEED_ROW,
+        CATEGORY,
+        Status.WARNING,
+        "Graph store is unseeded: no TTL corpus has been imported",
+        details=f"Import the TTL corpus with `{_SEED_COMMAND}`.",
+    )
+
+
+def seed_digest(row: CheckResult) -> str:
+    """Return the full corpus digest a ``graphdb_seed`` row carries.
+
+    Args:
+        row: A ``graphdb_seed`` row — under this name or a caller's relabelling
+            of it, since only ``details`` is read.
+
+    Returns:
+        The sha256 hex digest, or ``""`` for any row that carries none (a
+        warning row, or a row from some other check).
+    """
+    details = row.details
+    if not details.startswith(SEED_DIGEST_DETAIL_PREFIX):
+        return ""
+    return details[len(SEED_DIGEST_DETAIL_PREFIX) :].split()[0].rstrip(".")
 
 
 def _unreachable_row(

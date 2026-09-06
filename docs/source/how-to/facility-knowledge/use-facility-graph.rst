@@ -39,7 +39,8 @@ which devices share a PV.
    - Why the server can only read, and what it refuses before dialing
    - What each degraded state means and the remedy it names
    - How to generate a graph corpus from your own channel databases
-   - Why the corpus is the deployment's channel list, not only a search index
+   - Why the corpus is the deployment's channel list, not only a graph
+   - What the build derives from the corpus, and when to rebuild it
    - How to point the tools at a store the facility already runs
 
    **Prerequisites:** a project with a ``services.graphdb`` block — the
@@ -374,23 +375,35 @@ address the virtual accelerator does not serve. Both are the documented shapes
 of those smaller views, not a mismatch. A build with a channel database of your
 own restores the correspondence by regenerating the corpus from it.
 
-The corpus is the channel list, not only a search index
--------------------------------------------------------
+The corpus is the channel list, not only a graph
+------------------------------------------------
 
 On a graph-mode build the corpus is what the deployment answers "which channels
-does this facility have" with. Three places read it and get the same list:
+does this facility have" with. It answers through a search index: ``osprey
+build`` reads the corpus once and writes
+``data/channel_databases/graph.duckdb``, a flat table of the same bindings, and
+that file is what the running deployment reads. No process parses the corpus
+while the deployment is up, so a click answers in milliseconds however large
+the machine is.
+
+Four places read the index and get the same list:
 
 * **The queue server's devices.** With no device file of your own, ``osprey
-  build`` derives the plan device set from the corpus: every write-direction
+  build`` derives the plan device set from this list: every write-direction
   binding becomes a settable, every read-direction one a readable. A settable
   takes the ``:RB`` sibling of its ``:SP`` address as its readback where the
   corpus enumerates that address as a read binding, and otherwise carries none.
   See :doc:`../bluesky/write-plans`.
 * **The channel finder in graph mode.** It keeps no database of its own and
-  turns phrases into addresses out of this same corpus.
-* **The channel finder's web view.** Its channel list serves the corpus's
-  addresses and their total, and a name checked against it is checked for
-  membership in the corpus.
+  turns phrases into addresses out of this same list. The OSPREY agent's
+  ``search_channels`` tool looks addresses up here by keyword and facet; its
+  Cypher tools still ask the store, which is where questions about structure
+  belong.
+* **The channel finder's web view.** Its search results, its ontology and
+  statistics panels and its channel list all come from the index. The device
+  card is the exception: it reads the store, a single keyed lookup.
+* **The virtual accelerator.** Its channel manifest is derived from the same
+  list, so a simulated machine serves addresses the deployment knows.
 
 Because the direction of a binding is a property of the graph rather than a
 guess from the address, a graph-mode build reads the settable/readable split
@@ -399,11 +412,52 @@ derive that split instead — from the write-limits file, or failing that from
 the ``:SP`` address grammar — because no paradigm database records a
 direction.
 
-Where the corpus cannot be read — the store belongs to the facility and this
-deployment holds no ``.ttl`` file, or ``services.graphdb.ttl_path`` points at
-nothing — the web view says it has nothing to enumerate from and names that
+Where there is no corpus to build from — the store belongs to the facility and
+this deployment holds no ``.ttl`` file, or ``services.graphdb.ttl_path`` points
+at nothing — the web view says it has nothing to enumerate from and names that
 key, rather than reporting a facility with no channels. The rest of the app
 starts as usual, and the graph tools keep answering from the store.
+
+
+Rebuilding the Search Index
+===========================
+
+``osprey build`` writes the index for you, from the corpus the render carries.
+Rebuild it by hand after editing or regenerating the corpus:
+
+.. code-block:: bash
+
+   osprey knowledge build-index
+
+Both paths come from the project's config: the corpus from
+``services.graphdb.ttl_path``, the index from ``services.graphdb.index_path``,
+which defaults to ``./data/channel_databases/graph.duckdb``. Name either with
+``--ttl`` or ``--output`` to override it. With no corpus configured the command
+refuses in one sentence and says which key to set. Run it inside the render, or
+with ``OSPREY_CONFIG`` pointing at the project's ``config.yml``, so both keys
+resolve against the same project.
+
+Seed the store from the same file you indexed. The two are independent
+derivations of one corpus, and only that keeps them describing one machine:
+
+.. code-block:: bash
+
+   osprey knowledge build-index
+   osprey knowledge seed-graph
+
+A channel finder already running on the host keeps the index it opened, so
+restart it to pick up a rebuilt one. A deployed stack needs nothing: its build
+writes the index into the image it starts from.
+
+``osprey health`` reports both halves under the channel finder category:
+
+* ``channel_finder_seed`` — the corpus the store was imported from, as the
+  digest its seed marker carries. It warns when the store is unseeded, or holds
+  a corpus no marker identifies.
+* ``channel_finder_search_index`` — the index, with its binding and device
+  counts. It warns when the index is absent, cannot be read, or was built from
+  a different corpus than the store holds, which is the reading that catches a
+  seed and an index that have drifted apart.
 
 
 Multi-User Operator Terminals

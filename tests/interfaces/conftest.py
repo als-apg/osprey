@@ -285,17 +285,24 @@ def write_graph_config(tmp_path: Path | str) -> Path:
     URI it names is the fixture corpus's ``DEMO_STORE_URI``, so the config on
     disk and the URI the fake store reports cannot drift apart.
 
+    The search index is built into the same directory and named absolutely. A
+    launched app opens what the config points at, so the alternative is an app
+    whose search, ontology and statistics all answer "no index" — the shell of
+    the graph UI rather than the graph UI.
+
     Args:
-        tmp_path: Directory to write the config into.
+        tmp_path: Directory to write the config into, and to build the search
+            index in.
 
     Returns:
         Path to the written ``config.yml``.
     """
-    from tests.interfaces.channel_finder.graph_fixture import DEMO_STORE_URI
+    from tests.interfaces.channel_finder.graph_fixture import DEMO_STORE_URI, build_demo_index
 
+    index_path = build_demo_index(tmp_path)
     config = {
         "channel_finder": {"pipeline_mode": "graph", "pipelines": None},
-        "services": {"graphdb": {"uri": DEMO_STORE_URI}},
+        "services": {"graphdb": {"uri": DEMO_STORE_URI, "index_path": str(index_path)}},
     }
     config_path = Path(tmp_path) / "config.yml"
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")

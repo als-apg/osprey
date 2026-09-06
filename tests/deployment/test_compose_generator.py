@@ -38,6 +38,7 @@ from osprey.deployment.compose_generator import (
 from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.port_layout import CA_DEFAULT_PORT, default_port, layout_ports, resolve_port_base
 from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR, RENDERED_CONFIG_RELPATH
+from tests._graph_index import build_index_from_ttl
 
 
 def _layout_ports_for(deployment: dict | None = None) -> dict[str, int]:
@@ -6509,6 +6510,12 @@ _DEMO_HIERARCHICAL = _DEMO_DATA / "channel_databases" / "tiers" / "tier3" / "hie
 DEMO_WRITES = 396
 DEMO_READS = 2512
 
+#: How a graph-mode project spells the search index the roster reads (the
+#: ``services.graphdb.index_path`` default), and how the roster names it. Every
+#: fact and every absence about a graph-derived device set says this.
+_INDEX_SPELLING = "./data/channel_databases/graph.duckdb"
+_GRAPH_SOURCE = f"the channel index built from the facility knowledge graph ({_INDEX_SPELLING})"
+
 #: Prefix every hand-written corpus below carries, as the knowledge-graph
 #: seeder mints them.
 _CORPUS_PREAMBLE = """\
@@ -6659,22 +6666,46 @@ def _write_device_file(path: Path, document: object) -> Path:
     return path
 
 
-def _corpus(path: Path, addresses: dict[str, str]) -> Path:
+def _corpus(path: Path, addresses: dict[str, str], *, index: bool = True) -> Path:
     """Write a knowledge-graph corpus binding each address to its direction.
 
     ``addresses`` maps a channel address to the predicate its binding carries
     (``writesSignal`` / ``readsSignal``), which is what makes the graph a
     roster: the corpus STATES which channels are settable rather than leaving
     it to be inferred from address grammar.
+
+    The search index a build derives from the corpus is written beside it, at
+    the default ``services.graphdb.index_path`` under the render holding
+    ``data/`` -- because that file, not the corpus, is what the roster reads.
+    ``index=False`` stages the corpus alone, for the cases about a render
+    nothing derived.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     bindings = "".join(
-        f'<https://narad.example.org/binding/b{index}> narad_p:fullPv "{address}" ;\n'
-        f"    narad_p:{predicate} narad_sem:s{index} .\n"
-        for index, (address, predicate) in enumerate(addresses.items())
+        f'<https://narad.example.org/binding/b{index_no}> narad_p:fullPv "{address}" ;\n'
+        f"    narad_p:{predicate} narad_sem:s{index_no} .\n"
+        for index_no, (address, predicate) in enumerate(addresses.items())
     )
     path.write_text(_CORPUS_PREAMBLE + bindings, encoding="utf-8")
+    if index:
+        build_index_from_ttl(path)
     return path
+
+
+def _demo_graph_project(root: Path) -> dict:
+    """Stage the shipped demo corpus into *root* and derive its index.
+
+    The corpus is copied rather than read where it ships: a render owns the
+    index it derives, and deriving one into the packaged template tree would
+    write into the source checkout.
+    """
+    import shutil
+
+    corpus = root / "data" / _DEMO_CORPUS_RELPATH
+    corpus.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(_DEMO_DATA / _DEMO_CORPUS_RELPATH, corpus)
+    build_index_from_ttl(corpus)
+    return _graph_devices_config(root, ttl_path=f"data/{_DEMO_CORPUS_RELPATH}")
 
 
 def _flat_database(path: Path, addresses: list[str]) -> Path:
@@ -7080,7 +7111,7 @@ def test_the_shipped_demo_machine_is_derived_from_its_knowledge_graph(
     readback, so a plan that sets a corrector reads back the channel the
     facility pairs with it rather than its own setpoint.
     """
-    config = _graph_devices_config(_DEMO_DATA, ttl_path=_DEMO_CORPUS_RELPATH)
+    config = _demo_graph_project(tmp_path)
     out_dir = _devices_out_dir(tmp_path)
 
     staged = _stage_devices(config, out_dir)
@@ -7092,10 +7123,10 @@ def test_the_shipped_demo_machine_is_derived_from_its_knowledge_graph(
     assert sum("readback" in entry for entry in document["settables"]) == DEMO_WRITES
     assert devices_facts == [
         f"bluesky plan devices: {DEMO_WRITES} settable / {DEMO_READS} readable derived "
-        f"from the facility knowledge graph ({_DEMO_CORPUS_RELPATH})"
+        f"from {_GRAPH_SOURCE}"
     ], (
         "the fact names the artifact the device set is a projection of, spelled the "
-        "way the config spells it — a build resolves a relative corpus into its own "
+        "way the config spells it — a build resolves a relative index into its own "
         "staging tree, and a `build/.tmp/...` path is not a thing an operator edits"
     )
 
@@ -7113,7 +7144,7 @@ def test_the_same_demo_tree_in_hierarchical_mode_derives_the_same_machine(
     graph_dir = _devices_out_dir(tmp_path / "graph")
     database_dir = _devices_out_dir(tmp_path / "database")
 
-    _stage_devices(_graph_devices_config(_DEMO_DATA, ttl_path=_DEMO_CORPUS_RELPATH), graph_dir)
+    _stage_devices(_demo_graph_project(tmp_path), graph_dir)
     _stage_devices(_database_devices_config(_DEMO_DATA, path=_DEMO_HIERARCHICAL), database_dir)
 
     from_graph = _staged_document(graph_dir)
@@ -7177,18 +7208,20 @@ def _directionless_corpus(path: Path, addresses: dict[str, str], *, unstated: li
     Written out here rather than through :func:`_corpus`: a binding that names a
     ``fullPv`` and neither ``writesSignal`` nor ``readsSignal`` is the drifted
     shape, and there is no way to spell it in a table of address -> predicate.
+    The index the roster reads is derived from it the same way.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     bindings = "".join(
-        f'<https://narad.example.org/binding/b{index}> narad_p:fullPv "{address}" ;\n'
-        f"    narad_p:{predicate} narad_sem:s{index} .\n"
-        for index, (address, predicate) in enumerate(addresses.items())
+        f'<https://narad.example.org/binding/b{index_no}> narad_p:fullPv "{address}" ;\n'
+        f"    narad_p:{predicate} narad_sem:s{index_no} .\n"
+        for index_no, (address, predicate) in enumerate(addresses.items())
     )
     bindings += "".join(
-        f'<https://narad.example.org/binding/u{index}> narad_p:fullPv "{address}" .\n'
-        for index, address in enumerate(unstated)
+        f'<https://narad.example.org/binding/u{index_no}> narad_p:fullPv "{address}" .\n'
+        for index_no, address in enumerate(unstated)
     )
     path.write_text(_CORPUS_PREAMBLE + bindings, encoding="utf-8")
+    build_index_from_ttl(path)
     return path
 
 
@@ -7205,8 +7238,7 @@ def test_a_healthy_roster_omits_nothing_and_says_nothing_about_omissions(
 
     assert _stage_devices(_graph_devices_config(tmp_path), out_dir) is True
     assert devices_facts == [
-        "bluesky plan devices: 1 settable / 1 readable derived from the facility "
-        "knowledge graph (data/demo_machine.ttl)"
+        f"bluesky plan devices: 1 settable / 1 readable derived from {_GRAPH_SOURCE}"
     ]
 
 
@@ -7234,9 +7266,8 @@ def test_channels_with_no_direction_are_counted_into_the_fact_not_dropped(
     assert [entry["name"] for entry in document["settables"]] == ["A:B:C:SP"]
     assert [entry["name"] for entry in document["readables"]] == ["A:B:C:RB"]
     assert devices_facts == [
-        "bluesky plan devices: 1 settable / 1 readable derived from the facility "
-        "knowledge graph (data/demo_machine.ttl); 2 channels whose direction the "
-        "source could not state were omitted"
+        f"bluesky plan devices: 1 settable / 1 readable derived from {_GRAPH_SOURCE}"
+        "; 2 channels whose direction the source could not state were omitted"
     ]
 
 
@@ -7283,8 +7314,8 @@ def test_a_roster_that_states_no_direction_at_all_stages_nothing(
         "a settable-free device file is the one thing this must never stage"
     )
     assert devices_facts == [
-        "bluesky plans browse-only: the facility knowledge graph (data/demo_machine.ttl) "
-        "enumerates 4 channels and states a direction for none of them"
+        f"bluesky plans browse-only: {_GRAPH_SOURCE} enumerates 4 channels and states "
+        "a direction for none of them"
     ]
 
 
@@ -7341,7 +7372,7 @@ def test_the_derived_file_names_its_source_in_its_own_header(
 
     header = (out_dir / "bluesky_devices.yml").read_text(encoding="utf-8")
     assert "the facility knowledge graph" in header
-    assert "data/demo_machine.ttl" in header, "the header credits the configured corpus"
+    assert _INDEX_SPELLING in header, "the header credits the source as the config spells it"
     assert str(corpus.parent) not in header, (
         "not the resolved path: staged into a build tree, that names a directory the "
         "reader of this file cannot open"
@@ -7430,7 +7461,7 @@ def test_a_stale_device_file_is_removed_when_nothing_is_staged(
     assert not (out_dir / "bluesky_devices.yml").exists()
 
 
-def test_graph_mode_naming_no_corpus_names_both_keys_that_would_declare_one(
+def test_graph_mode_naming_no_corpus_names_every_key_that_would_declare_one(
     tmp_path: Path, devices_facts: list[str]
 ) -> None:
     """The remedy is a config edit, so the fact names the keys to edit.
@@ -7448,7 +7479,8 @@ def test_graph_mode_naming_no_corpus_names_both_keys_that_would_declare_one(
     assert devices_facts == [
         "bluesky plans browse-only: Graph mode is configured but names no readable "
         "knowledge-graph corpus, so the set of channels this facility has is unknown; "
-        "the corpus is declared by services.graphdb.ttl_path and services.graphdb.uri."
+        "the corpus is declared by services.graphdb.ttl_path, services.graphdb.index_path "
+        "and services.graphdb.uri."
     ]
 
 
@@ -7497,31 +7529,32 @@ def test_a_roster_source_that_enumerates_nothing_is_browse_only(
     assert staged is False
     assert not (out_dir / "bluesky_devices.yml").exists()
     assert devices_facts == [
-        "bluesky plans browse-only: The channel roster source at data/demo_machine.ttl "
+        f"bluesky plans browse-only: The channel roster source at {_INDEX_SPELLING} "
         "was read and declares no channels, which is a staging or seeding gap rather "
         "than a facility with none."
     ]
 
 
-def test_a_corpus_that_is_there_and_unreadable_refuses_the_render(
+def test_an_index_that_is_there_and_unreadable_refuses_the_render(
     tmp_path: Path, devices_facts: list[str]
 ) -> None:
     """Fail-closed on a corrupt source -- the other half of the three-way rule.
 
     An absent source is a facility this project did not describe. One that is
-    there and cannot be parsed is a facility it meant to describe and got
-    wrong, and deriving past it would hand the worker a namespace nobody
-    authored while the build reported success.
+    there and cannot be read is a facility it meant to describe and got wrong,
+    and deriving past it would hand the worker a namespace nobody authored
+    while the build reported success.
     """
-    corpus = tmp_path / "data" / "demo_machine.ttl"
-    corpus.parent.mkdir(parents=True, exist_ok=True)
-    corpus.write_text("this is not turtle at all <<<", encoding="utf-8")
+    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"}, index=False)
+    index_path = tmp_path / "data" / "channel_databases" / "graph.duckdb"
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_path.write_bytes(b"this is not a database at all <<<")
     out_dir = _devices_out_dir(tmp_path)
 
     with pytest.raises(DeploymentPreconditionError) as excinfo:
         _stage_devices(_graph_devices_config(tmp_path), out_dir)
 
-    assert "data/demo_machine.ttl" in excinfo.value.reason, (
+    assert _INDEX_SPELLING in excinfo.value.reason, (
         "the refusal names the file to repair, as the config spells it"
     )
     assert DEVICES_KEY in excinfo.value.remedy, (
@@ -7530,14 +7563,14 @@ def test_a_corpus_that_is_there_and_unreadable_refuses_the_render(
     assert not (out_dir / "bluesky_devices.yml").exists()
 
 
-def test_a_configured_corpus_that_is_simply_absent_is_browse_only(
+def test_a_configured_source_that_is_simply_absent_is_browse_only(
     tmp_path: Path, devices_facts: list[str]
 ) -> None:
     """ "Not there" is fail-soft; only "there and unreadable" refuses.
 
-    A tree whose corpus has not been staged yet must not become a build
-    failure -- the same distinction the virtual-accelerator manifest draws
-    between a namespace a project did not ship and one it shipped broken.
+    A tree whose index has not been built yet must not become a build failure
+    -- the same distinction the virtual-accelerator manifest draws between a
+    namespace a project did not ship and one it shipped broken.
     """
     out_dir = _devices_out_dir(tmp_path)
 
@@ -7546,9 +7579,11 @@ def test_a_configured_corpus_that_is_simply_absent_is_browse_only(
     assert staged is False
     assert not (out_dir / "bluesky_devices.yml").exists()
     assert devices_facts == [
-        "bluesky plans browse-only: The channel roster source at data/demo_machine.ttl "
+        f"bluesky plans browse-only: The channel roster source at {_INDEX_SPELLING} "
         "is not there, so the set of channels this facility has is unknown; it is "
-        "declared by services.graphdb.ttl_path and services.graphdb.uri."
+        "declared by services.graphdb.ttl_path, services.graphdb.index_path and "
+        "services.graphdb.uri. Build it with `osprey knowledge build-index`, or re-run "
+        "`osprey build`."
     ], "the roster says absent rather than broken, and this seam stays fail-soft on it"
 
 
