@@ -17,17 +17,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from osprey.audit.envelope import POSTURE_SOURCE_PROCESS
-from osprey.interfaces.web_terminal.chat_session_pool import (
-    ChatCapacityError,
-    ChatSessionTerminatedError,
-)
+from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionTerminatedError
 from osprey.interfaces.web_terminal.operator_session import (
     CLAUDE_SDK_AVAILABLE,
     POSTURE_SOURCE_LIVE,
@@ -37,7 +34,16 @@ from osprey.interfaces.web_terminal.operator_session import (
     build_operator_child_env,
     is_terminal_event,
 )
-from osprey.interfaces.web_terminal.routes.websocket import is_posture_key
+from osprey.interfaces.web_terminal.session_handoff import (
+    SURFACE_SIMPLE,
+    ChannelClosed,
+    ChannelToken,
+    HandoffError,
+    HandoffRefused,
+    SpawnRequest,
+    acquire_surface,
+)
+from osprey.interfaces.web_terminal.session_key import is_posture_key
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +65,7 @@ class ChatRequest(BaseModel):
     in-memory dict on this path.
 
     The closed bare-UUID grammar lives on the *posture* surface instead
-    (``_require_session_uuid`` in ``routes/websocket.py``), because that is
+    (:mod:`osprey.interfaces.web_terminal.session_key`), because that is
     where a caller-supplied key becomes a store key on disk that decides a
     child's execution mode. The practical consequence is worth stating: the
     shipped client mints its chat id with ``crypto.randomUUID()``
@@ -113,19 +119,40 @@ def _turn_timeout_s(request: Request) -> float:
 
 
 async def _acquire_chat_turn(request: Request, chat_id: str) -> tuple[OperatorSession, int, bool]:
-    """Get-or-create the chat session and mint its per-turn guard.
+    """Take the session key for the Simple view, then mint this turn's guard.
 
-    Returns ``(session, token, was_reused)``. Maps registry/guard failures to the
-    HTTP contract: :class:`ChatCapacityError` -> 429, :class:`TurnInProgressError`
-    -> 409, :class:`ChatSessionTerminatedError` -> 409, each with a
-    machine-readable body.
+    Every turn goes through :func:`acquire_surface`, because the key may be
+    held by the Expert view's terminal and only the hand-off door can stand
+    that process down before this one starts. A key the chat already holds
+    passes straight through: the pooled child is handed back and the spawn
+    callback below is never called, so the pool's own environment comparison
+    no longer runs per turn. It runs on the one path that still creates a
+    child — this key holding nothing live.
+
+    Returns ``(session, token, fresh_conversation)``. ``fresh_conversation``
+    is True only when the child that will answer this prompt was started with
+    no transcript to resume: the conversation begins here and the client is
+    told so with a ``session_reset`` marker. A resumed child continues a
+    conversation the operator has already seen — in the other view, or in this
+    one before a restart — so it carries no marker.
+
+    Maps every failure to the HTTP contract with a machine-readable ``error``
+    in the body: 409 when another view or connection is consuming the key,
+    when a terminal turn can only be ended by an interrupt
+    (``handoff_needs_interrupt`` — the client offers to stop it and ask
+    again), when the chat was torn down as it started
+    (:class:`ChatSessionTerminatedError`), or when a turn is already in flight
+    (:class:`TurnInProgressError`); 429 when the chat pool is full; 503 when
+    the hand-off's premise vanished under it. :class:`ChannelClosed` is left
+    to the caller — the client that asked for this turn is already gone.
     """
     cwd: str = request.app.state.project_cwd
     registry = request.app.state.operator_registry
 
-    try:
-        session, was_reused = await registry.get_or_create_chat_session(
-            chat_id,
+    async def spawn(spawn_request: SpawnRequest) -> OperatorSession:
+        """Start the chat child the hand-off door asked for, under its key."""
+        session, _created = await registry.get_or_create_chat_session(
+            spawn_request.key,
             cwd,
             # A BUILDER, not a mapping — and that is load-bearing, not style.
             # The chat pool is keyed on chat_id, so that is this surface's
@@ -156,20 +183,38 @@ async def _acquire_chat_turn(request: Request, chat_id: str) -> tuple[OperatorSe
             # ``ChatSessionPool.get_or_create``.
             lambda: build_operator_child_env(
                 cwd,
-                session_key=chat_id,
+                session_key=spawn_request.key,
                 app=request.app,
                 posture_source=(
-                    POSTURE_SOURCE_LIVE if is_posture_key(chat_id) else POSTURE_SOURCE_PROCESS
+                    POSTURE_SOURCE_LIVE
+                    if is_posture_key(spawn_request.key)
+                    else POSTURE_SOURCE_PROCESS
                 ),
             ),
+            resume_id=spawn_request.resume_id,
         )
-    except ChatCapacityError:
+        return cast("OperatorSession", session)
+
+    try:
+        result = await acquire_surface(
+            request.app,
+            chat_id,
+            SURFACE_SIMPLE,
+            ChannelToken(request.is_disconnected),
+            spawn=spawn,
+        )
+    except HandoffRefused as refused:
+        # 409 for a contested key, 429 for a full pool, 503 for an outgoing
+        # process that outlived its kill. The slug is what the client branches
+        # on; the message is for the log and the developer console.
         raise HTTPException(
-            status_code=429,
-            detail={
-                "error": "chat_capacity",
-                "message": "All chat sessions are busy; try again shortly.",
-            },
+            status_code=refused.status,
+            detail={"error": refused.error, "message": str(refused)},
+        ) from None
+    except HandoffError as failed:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": failed.error, "message": str(failed)},
         ) from None
     except ChatSessionTerminatedError:
         # The chat was torn down while this very session was starting — a
@@ -186,9 +231,12 @@ async def _acquire_chat_turn(request: Request, chat_id: str) -> tuple[OperatorSe
             },
         ) from None
 
+    session = cast("OperatorSession", result.session)
     try:
         token = session.acquire_turn()
     except TurnInProgressError:
+        # The backstop behind the hand-off's own wait: a turn that started
+        # between that wait ending and this guard being taken.
         raise HTTPException(
             status_code=409,
             detail={
@@ -197,7 +245,7 @@ async def _acquire_chat_turn(request: Request, chat_id: str) -> tuple[OperatorSe
             },
         ) from None
 
-    return session, token, was_reused
+    return session, token, result.spawned and result.resume_id is None
 
 
 @router.post("/api/chat")
@@ -215,14 +263,20 @@ async def chat(request: Request, body: ChatRequest, stream: bool = True):
     if not prompt:
         raise HTTPException(status_code=422, detail="Prompt must not be empty")
 
-    session, token, was_reused = await _acquire_chat_turn(request, body.chat_id)
+    try:
+        session, token, fresh_conversation = await _acquire_chat_turn(request, body.chat_id)
+    except ChannelClosed:
+        # The client hung up while the session key was being handed over.
+        # Nothing is left holding anything; there is simply nobody to answer.
+        return Response(status_code=204)
+
     turn_timeout_s = _turn_timeout_s(request)
 
     if not stream:
-        return await _buffered_response(session, token, prompt, was_reused, turn_timeout_s)
+        return await _buffered_response(session, token, prompt, fresh_conversation, turn_timeout_s)
 
     return StreamingResponse(
-        _stream_events(session, token, prompt, was_reused, turn_timeout_s),
+        _stream_events(session, token, prompt, fresh_conversation, turn_timeout_s),
         media_type="text/event-stream",
     )
 
@@ -231,7 +285,7 @@ async def _stream_events(
     session: OperatorSession,
     token: int,
     prompt: str,
-    was_reused: bool,
+    fresh_conversation: bool,
     turn_timeout_s: float,
 ):
     """SSE consumer of :meth:`OperatorSession.run_turn` for one turn.
@@ -246,7 +300,7 @@ async def _stream_events(
     synchronous, so the pair cannot be interleaved by another request).
     """
     try:
-        if not was_reused:
+        if fresh_conversation:
             yield _sse(_strip_for_chat({"type": "session_reset"}))
 
         async for event in session.run_turn(
@@ -287,7 +341,7 @@ async def _buffered_response(
     session: OperatorSession,
     token: int,
     prompt: str,
-    was_reused: bool,
+    fresh_conversation: bool,
     turn_timeout_s: float,
 ) -> JSONResponse:
     """Run one turn to completion and return a single reduced JSON response.
@@ -295,8 +349,8 @@ async def _buffered_response(
     Consumes the same :meth:`OperatorSession.run_turn` machine as the SSE
     branch — heartbeat markers are skipped instead of forwarded, and a silence
     timeout maps to 504 instead of an error frame. A ``session_reset`` marker is
-    prepended to ``events`` on a fresh session and ``_strip_for_chat`` applies
-    to every event. The top-level payload is reduced to exactly
+    prepended to ``events`` when the conversation starts with this turn, and
+    ``_strip_for_chat`` applies to every event. The top-level payload is reduced to exactly
     ``{text, events, is_error, error?}`` — cost/duration/turn counts never
     reach the chat client.
     """
@@ -306,7 +360,7 @@ async def _buffered_response(
     error_msg: str | None = None
     status_code = 200
 
-    if not was_reused:
+    if fresh_conversation:
         events.append(_strip_for_chat({"type": "session_reset"}))
 
     try:

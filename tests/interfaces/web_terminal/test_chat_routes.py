@@ -29,11 +29,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 import osprey.interfaces.web_terminal.routes.chat as chat_module
+import osprey.interfaces.web_terminal.session_handoff as handoff_module
 from osprey.interfaces.web_terminal.chat_session_pool import ChatCapacityError
 from osprey.interfaces.web_terminal.operator_session import (
     OperatorRegistry,
     OperatorSession,
 )
+from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes.chat import _strip_for_chat
 from tests.interfaces.web_terminal.test_operator_session import (
     FakeAssistantMessage,
@@ -44,6 +46,22 @@ from tests.interfaces.web_terminal.test_operator_session import (
     FakeToolResultBlock,
     FakeToolUseBlock,
 )
+
+
+@pytest.fixture(autouse=True)
+def transcripts_on_disk():
+    """The transcripts the hand-off door believes exist, empty by default.
+
+    Every turn now goes through ``acquire_surface``, which decides what a new
+    child resumes by listing the transcripts under the app's project. These
+    tests run against whatever that project directory really holds, so the
+    listing is pinned here instead. A test that wants a key to resume adds its
+    id to the yielded set.
+    """
+    ids: set[str] = set()
+    with patch.object(handoff_module, "_transcripts_on_disk", lambda app: set(ids)):
+        yield ids
+
 
 # ---- Representative events, one per type `_message_to_events` can emit. ----
 # Each entry: (label, input_event, expected_output_event).
@@ -237,6 +255,9 @@ class _FakeChatSession(OperatorSession):
 
     def __init__(self, events):
         super().__init__(cwd="/tmp")
+        # A session the pools consider live: ``is_active`` is what the
+        # hand-off door reads to tell a pooled chat from a corpse.
+        self._started = True
         self._events = list(events)
         self.quiesce_calls = 0
         self.release_calls = 0
@@ -257,19 +278,50 @@ class _FakeChatSession(OperatorSession):
         return asyncio.get_event_loop().create_task(asyncio.sleep(0))
 
 
+class _FakeChatPool:
+    """The pool face the hand-off door inspects, backed by ``_FakeRegistry``."""
+
+    def __init__(self, registry):
+        self._registry = registry
+
+    def get(self, chat_id):
+        return self._registry.pooled.get(chat_id)
+
+    def has_key(self, chat_id):
+        return chat_id in self._registry.pooled
+
+    async def terminate(self, chat_id):
+        return self._registry.pooled.pop(chat_id, None)
+
+
 class _FakeRegistry:
-    def __init__(self, session=None, was_reused=False, capacity=False):
+    """A chat registry double, plus the pool view ``acquire_surface`` reads.
+
+    ``pooled_key`` seeds the pool with *session* under that key, which is how
+    a test says "this chat is already live": the hand-off hands it back and
+    nothing is spawned. Left unset, the key holds nothing and the route's
+    spawn callback creates the session — the only path that still reaches
+    ``get_or_create_chat_session``.
+    """
+
+    def __init__(self, session=None, pooled_key=None, capacity=False):
         self._session = session
-        self._was_reused = was_reused
         self._capacity = capacity
         self.calls: list[str] = []
         self.terminated: list[str] = []
+        self.resume_ids: list[str | None] = []
+        self.pooled: dict[str, object] = {}
+        if pooled_key is not None:
+            self.pooled[pooled_key] = session
+        self.chats = _FakeChatPool(self)
 
-    async def get_or_create_chat_session(self, chat_id, cwd, env):
+    async def get_or_create_chat_session(self, chat_id, cwd, env, *, resume_id=None):
         self.calls.append(chat_id)
+        self.resume_ids.append(resume_id)
         if self._capacity:
             raise ChatCapacityError("all busy")
-        return self._session, self._was_reused
+        self.pooled[chat_id] = self._session
+        return self._session, False
 
     def get_chat_session(self, chat_id):
         return self._session
@@ -284,7 +336,24 @@ def _make_chat_app(registry, turn_timeout_s=5) -> FastAPI:
     app.state.project_cwd = "/tmp"
     app.state.operator_registry = registry
     app.state.chat_turn_timeout_s = turn_timeout_s
+    _seed_handoff_state(app.state)
     return app
+
+
+def _seed_handoff_state(state) -> None:
+    """The app state ``acquire_surface`` reads beyond the chat pool.
+
+    An empty PTY registry (no terminal holds these keys), and a transcript map
+    that is already loaded so no key resolution reaches the agent-data root.
+    """
+    state.pty_registry = PtyRegistry()
+    state.transcript_map = {}
+    state.transcript_map_provisional = False
+
+
+async def _connected() -> bool:
+    """A client that is still there; the channel probe every request needs."""
+    return False
 
 
 def _data_frames(text: str) -> list[dict]:
@@ -306,7 +375,7 @@ class TestChatStreamRoute:
                 {"type": "result", "is_error": False, "total_cost_usd": 0.1},
             ]
         )
-        registry = _FakeRegistry(session=session, was_reused=False)
+        registry = _FakeRegistry(session=session)
         client = TestClient(_make_chat_app(registry))
 
         resp = client.post("/api/chat", json={"prompt": "hello", "chat_id": "c1"})
@@ -325,7 +394,7 @@ class TestChatStreamRoute:
 
     def test_reused_session_has_no_session_reset(self):
         session = _FakeChatSession([{"type": "result", "is_error": False}])
-        registry = _FakeRegistry(session=session, was_reused=True)
+        registry = _FakeRegistry(session=session, pooled_key="c1")
         client = TestClient(_make_chat_app(registry))
 
         resp = client.post("/api/chat", json={"prompt": "again", "chat_id": "c1"})
@@ -345,7 +414,7 @@ class TestChatStreamRoute:
                 {"type": "result", "is_error": False},
             ]
         )
-        registry = _FakeRegistry(session=session, was_reused=True)
+        registry = _FakeRegistry(session=session, pooled_key="c1")
         client = TestClient(_make_chat_app(registry))
 
         resp = client.post("/api/chat", json={"prompt": "x", "chat_id": "c1"})
@@ -355,7 +424,7 @@ class TestChatStreamRoute:
     def test_turn_in_progress_returns_409(self):
         session = _FakeChatSession([{"type": "result", "is_error": False}])
         session.acquire_turn()  # a turn is already held
-        registry = _FakeRegistry(session=session, was_reused=True)
+        registry = _FakeRegistry(session=session, pooled_key="c1")
         client = TestClient(_make_chat_app(registry))
 
         resp = client.post("/api/chat", json={"prompt": "x", "chat_id": "c1"})
@@ -397,7 +466,7 @@ class TestChatBufferedRoute:
                 {"type": "result", "is_error": False, "total_cost_usd": 0.9, "num_turns": 2},
             ]
         )
-        registry = _FakeRegistry(session=session, was_reused=False)
+        registry = _FakeRegistry(session=session)
         client = TestClient(_make_chat_app(registry))
 
         resp = client.post(
@@ -421,7 +490,7 @@ class TestChatBufferedRoute:
 
     def test_reused_session_omits_session_reset(self):
         session = _FakeChatSession([{"type": "result", "is_error": False}])
-        registry = _FakeRegistry(session=session, was_reused=True)
+        registry = _FakeRegistry(session=session, pooled_key="c1")
         client = TestClient(_make_chat_app(registry))
 
         resp = client.post(
@@ -434,7 +503,7 @@ class TestChatBufferedRoute:
         session = _FakeChatSession(
             [{"type": "error", "message": "boom", "error_type": "ClaudeSDKError"}]
         )
-        registry = _FakeRegistry(session=session, was_reused=True)
+        registry = _FakeRegistry(session=session, pooled_key="c1")
         client = TestClient(_make_chat_app(registry))
 
         resp = client.post(
@@ -445,6 +514,85 @@ class TestChatBufferedRoute:
         assert set(payload) == {"text", "events", "is_error", "error"}
         assert payload["is_error"] is True
         assert payload["error"] == "boom"
+
+
+class TestChatHandoffMapping:
+    """What the hand-off door raises, and what the client is told.
+
+    Every refusal reaches the client as a status plus a machine-readable
+    ``error`` slug, because that slug is what ``chat.js`` branches on to
+    choose its copy and whether to offer a retry.
+    """
+
+    def _refusing_app(self, exc):
+        """A chat app whose acquire always fails with *exc*."""
+        registry = _FakeRegistry(session=_FakeChatSession([]))
+        app = _make_chat_app(registry)
+
+        async def refuse(*args, **kwargs):
+            raise exc
+
+        return app, patch.object(chat_module, "acquire_surface", refuse)
+
+    def test_a_terminal_turn_only_an_interrupt_can_end_is_409_with_its_slug(self):
+        app, patched = self._refusing_app(handoff_module.HandoffRefused.needs_interrupt("c1"))
+        with patched, TestClient(app) as client:
+            resp = client.post("/api/chat", json={"prompt": "x", "chat_id": "c1"})
+
+        assert resp.status_code == 409
+        assert resp.json()["detail"]["error"] == "handoff_needs_interrupt"
+
+    def test_an_outgoing_process_that_outlived_its_kill_is_503_with_its_slug(self):
+        app, patched = self._refusing_app(
+            handoff_module.HandoffRefused.outgoing_still_running("c1")
+        )
+        with patched, TestClient(app) as client:
+            resp = client.post("/api/chat", json={"prompt": "x", "chat_id": "c1"})
+
+        assert resp.status_code == 503
+        assert resp.json()["detail"]["error"] == "outgoing_still_running"
+
+    def test_a_vanished_premise_is_503_with_its_slug(self):
+        app, patched = self._refusing_app(handoff_module.HandoffError.vanished("c1", "expert"))
+        with patched, TestClient(app) as client:
+            resp = client.post("/api/chat", json={"prompt": "x", "chat_id": "c1"})
+
+        assert resp.status_code == 503
+        assert resp.json()["detail"]["error"] == "outgoing_vanished"
+
+    def test_a_client_that_hung_up_gets_no_stream(self):
+        """``ChannelClosed`` is not an error to report — there is nobody to report it to."""
+        app, patched = self._refusing_app(handoff_module.ChannelClosed())
+        with patched, TestClient(app) as client:
+            resp = client.post("/api/chat", json={"prompt": "x", "chat_id": "c1"})
+
+        assert resp.status_code == 204
+        assert resp.content == b""
+
+
+class TestChatResumesTheKeysTranscript:
+    """The transcript the key points at is what the new chat child opens."""
+
+    def test_the_resume_id_reaches_the_pool_and_suppresses_the_reset(self, transcripts_on_disk):
+        transcripts_on_disk.add("c1")
+        session = _FakeChatSession([{"type": "result", "is_error": False}])
+        registry = _FakeRegistry(session=session)
+        client = TestClient(_make_chat_app(registry))
+
+        frames = _data_frames(client.post("/api/chat", json={"prompt": "x", "chat_id": "c1"}).text)
+
+        assert registry.resume_ids == ["c1"]
+        assert all(f.get("type") != "session_reset" for f in frames)
+
+    def test_a_key_with_no_transcript_starts_fresh_under_the_key(self):
+        session = _FakeChatSession([{"type": "result", "is_error": False}])
+        registry = _FakeRegistry(session=session)
+        client = TestClient(_make_chat_app(registry))
+
+        frames = _data_frames(client.post("/api/chat", json={"prompt": "x", "chat_id": "c1"}).text)
+
+        assert registry.resume_ids == [None]
+        assert frames[0] == {"type": "session_reset"}
 
 
 class TestInterruptEndpoint:
@@ -688,7 +836,8 @@ def _req(registry, *, cwd: str = "/tmp", turn_timeout_s: float = 5.0):
     state = SimpleNamespace(
         project_cwd=cwd, operator_registry=registry, chat_turn_timeout_s=turn_timeout_s
     )
-    return SimpleNamespace(app=SimpleNamespace(state=state))
+    _seed_handoff_state(state)
+    return SimpleNamespace(app=SimpleNamespace(state=state), is_disconnected=_connected)
 
 
 async def _collect_sse(resp) -> list[dict]:
@@ -697,6 +846,38 @@ async def _collect_sse(resp) -> list[dict]:
     async for chunk in resp.body_iterator:
         chunks.append(chunk if isinstance(chunk, str) else chunk.decode())
     return _data_frames("".join(chunks))
+
+
+def _fast_handoff_clock(app):
+    """Spend the hand-off's graces in fake time.
+
+    ``HandoffState`` takes its clock and its sleep by injection precisely so a
+    test need not sit out the two-second attach grace for real. Each sleep
+    advances the clock by what it was asked to wait and yields instead.
+    """
+    state = handoff_module.get_state(app)
+    now = [0.0]
+
+    async def sleep(seconds):
+        now[0] += seconds
+        await asyncio.sleep(0)
+
+    state.clock = lambda: now[0]
+    state.sleep = sleep
+
+
+async def _settled(task, *, ticks: int = 60, tick: float = 0.05):
+    """Await *task*, which is expected to finish on its own within the ticks.
+
+    Polls rather than ``wait_for`` so a task that overruns is reported as a
+    failed assertion instead of being cancelled mid hand-off.
+    """
+    for _ in range(ticks):
+        if task.done():
+            break
+        await asyncio.sleep(tick)
+    assert task.done(), "the acquire never completed"
+    return await task
 
 
 async def _inflight_session(req, chat_id: str):
@@ -770,21 +951,74 @@ class TestChatAtomicity:
 
 
 class TestChatStatusMapIntegration:
-    """Matrix 3 & 4: 409 (turn in flight) and 429 (all busy) on real sessions."""
+    """Matrix 3 & 4: the wait on a turn in flight, and 429 (all busy) on real sessions."""
 
-    async def test_second_prompt_while_in_flight_returns_409(self):
+    async def test_second_prompt_waits_for_the_turn_in_flight(self):
+        """The second prompt is queued behind the first, not refused.
+
+        Taking the key for the Simple view when the Simple view already holds
+        it and is working is a wait: the hand-off polls the chat until it is
+        idle and then hands back the very same child. This replaces the
+        immediate 409 the route used to answer — that refusal survives only as
+        the guard's backstop for a turn that starts inside the gap between the
+        wait ending and the guard being taken (``test_turn_in_progress_returns_409``).
+        """
         with _seam(_stall_responder()) as make:
             registry = OperatorRegistry()
             req = _req(registry)
             session, token = await _inflight_session(req, "c")
 
+            second = asyncio.ensure_future(
+                chat_module.chat(req, chat_module.ChatRequest(prompt="second", chat_id="c"))
+            )
+            for _ in range(5):
+                await asyncio.sleep(0.05)
+            assert not second.done()  # still waiting on the turn in flight
+            assert len(make.created) == 1  # and waiting on the pooled chat, not a new one
+
+            # End the parked turn: the guard goes first, so the wait sees idle.
+            session.release_turn(token)
+            session._client.interrupted.set()
+
+            resp = await _settled(second)
+            assert resp.media_type == "text/event-stream"
+            assert len(make.created) == 1  # the same child answers the second prompt
+
+            await registry.cleanup_all()
+
+    async def test_a_third_prompt_arriving_mid_wait_is_refused(self):
+        """Two overlapping acquires of one key: the newcomer is not queued.
+
+        The first prompt is working and the second is inside the hand-off's
+        wait, holding the key's pending slot. A third arrival has no way in —
+        the slot names another connection — so the attach grace runs out and
+        it is refused, rather than stacking a second unbounded wait on one
+        key. The refusal is the same one the terminal answers with a 4409
+        close, so the client already knows the slug.
+        """
+        with _seam(_stall_responder()) as make:
+            registry = OperatorRegistry()
+            req = _req(registry)
+            _fast_handoff_clock(req.app)
+            session, token = await _inflight_session(req, "c")
+
+            waiting = asyncio.ensure_future(
+                chat_module.chat(req, chat_module.ChatRequest(prompt="second", chat_id="c"))
+            )
+            for _ in range(5):  # let the second request register its slot
+                await asyncio.sleep(0)
+            assert not waiting.done()
+
             with pytest.raises(HTTPException) as ei:
-                await chat_module.chat(req, chat_module.ChatRequest(prompt="second", chat_id="c"))
+                await chat_module.chat(req, chat_module.ChatRequest(prompt="third", chat_id="c"))
 
             assert ei.value.status_code == 409
-            assert ei.value.detail["error"] == "turn_in_progress"
-            assert len(make.created) == 1  # no new session for the rejected prompt
+            assert ei.value.detail["error"] == "session_attached_elsewhere"
+            assert len(make.created) == 1  # neither latecomer built anything
 
+            waiting.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await waiting
             session.release_turn(token)
             session._client.interrupted.set()
             await registry.cleanup_all()
@@ -846,6 +1080,7 @@ class TestChatSessionResetContract:
             assert all(e.get("type") != "session_reset" for e in p2["events"])
 
     def test_eviction_makes_a_recreated_chat_fresh_again(self):
+        """A re-create with no transcript to resume starts the conversation over."""
         with _seam(_clean_responder()) as make:
             app = _make_chat_app(OperatorRegistry(chat_max_sessions=1))
             with TestClient(app) as client:
@@ -860,6 +1095,27 @@ class TestChatSessionResetContract:
             assert fA2[0] == {"type": "session_reset"}
             # Three distinct creations: A#1, B, A#2.
             assert len(make.created) == 3
+
+    def test_a_recreated_chat_that_resumes_carries_no_reset(self, transcripts_on_disk):
+        """A child started on an existing transcript continues the conversation.
+
+        The marker says "this conversation starts here", and after a resume it
+        does not: the operator is looking at the same exchange, whether they
+        left it in this view or in the terminal. So the re-created 'A' — a new
+        process by every other measure — sends none.
+        """
+        transcripts_on_disk.add("A")
+        with _seam(_clean_responder()) as make:
+            app = _make_chat_app(OperatorRegistry(chat_max_sessions=1))
+            with TestClient(app) as client:
+                client.post("/api/chat", json={"prompt": "a", "chat_id": "A"})
+                client.post("/api/chat", json={"prompt": "b", "chat_id": "B"})
+                fA2 = _data_frames(
+                    client.post("/api/chat", json={"prompt": "a2", "chat_id": "A"}).text
+                )
+
+            assert all(f.get("type") != "session_reset" for f in fA2)
+            assert len(make.created) == 3  # still a new process, just not a new conversation
 
 
 class TestChatDeleteEndpointIntegration:
@@ -969,7 +1225,7 @@ class TestChatTurnRelease:
             # Drive the real buffered handler as a task, then cancel it mid-turn.
             task = asyncio.create_task(
                 chat_module._buffered_response(
-                    session, token, "p", was_reused=True, turn_timeout_s=30
+                    session, token, "p", fresh_conversation=False, turn_timeout_s=30
                 )
             )
             await asyncio.wait_for(client.reached_hold.wait(), timeout=1.0)
@@ -994,7 +1250,7 @@ class TestChatTurnRelease:
             client.responder = _clean_responder("after-cancel")
             token2 = session.acquire_turn()
             resp = await chat_module._buffered_response(
-                session, token2, "p2", was_reused=True, turn_timeout_s=5
+                session, token2, "p2", fresh_conversation=False, turn_timeout_s=5
             )
             payload = _json.loads(resp.body)
             assert payload["text"] == "after-cancel"

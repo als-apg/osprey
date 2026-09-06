@@ -52,13 +52,14 @@ class ChatSessionPool:
     """LRU-ordered pool of chat sessions with capacity eviction and idle reaping.
 
     The lock is held only for map inspection/mutation, never across
-    ``session.start()`` or teardown. ``factory(cwd, env)`` returns an unstarted
-    session; the pool starts it outside the lock.
+    ``session.start()`` or teardown. ``factory(cwd, env, session_key)`` returns
+    an unstarted session; the pool starts it outside the lock, naming there the
+    transcript it should resume.
     """
 
     def __init__(
         self,
-        factory: Callable[[str, dict[str, str] | None], OperatorSession],
+        factory: Callable[[str, dict[str, str] | None, str], OperatorSession],
         max_sessions: int = 5,
         idle_seconds: float = 900.0,
     ) -> None:
@@ -67,12 +68,12 @@ class ChatSessionPool:
         self._sessions: OrderedDict[str, OperatorSession] = OrderedDict()
         self._lock = asyncio.Lock()
         self._pending: dict[str, asyncio.Future[OperatorSession]] = {}
-        # Fingerprint of the env each key's child was built from — written when
-        # a creation is registered and kept as that creation becomes a session,
-        # so a pending and a pooled entry answer the same question. See
-        # get_or_create's reuse check. The digest, never the mapping: a chat
-        # child's env carries the panel token.
-        self._env_fingerprints: dict[str, str] = {}
+        # What each key's child was built from — the env digest and the
+        # transcript it resumed — written when a creation is registered and
+        # kept as that creation becomes a session, so a pending and a pooled
+        # entry answer the same question. See get_or_create's reuse check. The
+        # digest, never the mapping: a chat child's env carries the panel token.
+        self._launches: dict[str, tuple[str, str | None]] = {}
         # Creations that a terminate/drain overtook. Keyed on the Future rather
         # than the chat id, so a *later* creation under the same id is not
         # collateral damage of an earlier terminate.
@@ -85,6 +86,8 @@ class ChatSessionPool:
         chat_id: str,
         cwd: str,
         env: dict[str, str] | Callable[[], dict[str, str] | None] | None = None,
+        *,
+        resume_id: str | None = None,
     ) -> tuple[OperatorSession, bool]:
         """Return a live session for ``chat_id``, creating it if needed.
 
@@ -114,6 +117,14 @@ class ChatSessionPool:
         synchronous — the lock is held across the call, so it must not await.
         They are also called on **every** invocation, reuse included, because
         the reuse check below compares against what they produce.
+
+        *resume_id* names the transcript the child continues. Omitted, the
+        child starts a conversation of its own under ``chat_id``. Like the
+        environment it is fixed when the child is spawned, so it is compared
+        alongside the environment below: the same transcript keeps the live
+        child, a different one rebuilds. That comparison is what lets a
+        transcript that moved while another surface held the key reach this
+        one — the key never changes, so nothing else would notice.
 
         **A live entry is only reused when its environment still matches.** A
         child's environment is fixed when it is spawned and cannot be
@@ -149,9 +160,11 @@ class ChatSessionPool:
                 resolved_env = env() if callable(env) else env
             except BaseException as exc:
                 builder_error = exc
-                fingerprint = None
+                launch = None
             else:
-                fingerprint = env_fingerprint(resolved_env)
+                # Everything that is fixed when a child is spawned and cannot
+                # be amended afterwards, in one comparable value.
+                launch = (env_fingerprint(resolved_env), resume_id)
 
             existing = self._sessions.get(chat_id)
             if existing is not None and not existing.is_active:
@@ -160,36 +173,39 @@ class ChatSessionPool:
                 # must not leave this popped-but-unreaped, and a corpse is
                 # nothing to compare an environment against anyway.
                 self._sessions.pop(chat_id, None)
-                self._env_fingerprints.pop(chat_id, None)
+                self._launches.pop(chat_id, None)
                 to_stop.append(existing)
             elif existing is not None and builder_error is None:
-                recorded = self._env_fingerprints.get(chat_id, EMPTY_ENV_FINGERPRINT)
-                if recorded == fingerprint:
+                recorded = self._launches.get(chat_id, (EMPTY_ENV_FINGERPRINT, None))
+                if recorded == launch:
                     self._sessions.move_to_end(chat_id)  # LRU bump
                     return existing, True
-                # The env changed under a live child. A child's environment is
-                # fixed at spawn and cannot be amended, so the only way to
-                # deliver the change is to tear it down and build a new one —
-                # busy or not, exactly as :meth:`terminate` does, because a
-                # turn running under a posture the operator has revoked is the
-                # case this exists for. Values are never logged: the env
-                # carries the panel token.
+                # The env or the transcript changed under a live child.
+                # Both are fixed at spawn and cannot be amended, so the only
+                # way to deliver the change is to tear the child down and build
+                # a new one — busy or not, exactly as :meth:`terminate` does,
+                # because a turn running under a posture the operator has
+                # revoked is the case this exists for. Values are never logged:
+                # the env carries the panel token.
                 logger.info(
-                    "Launch env changed for chat session %r — tearing the warm "
-                    "session down so the new environment reaches a fresh child",
+                    "Launch environment or transcript changed for chat session "
+                    "%r — tearing the warm session down so the new one reaches "
+                    "a fresh child",
                     chat_id,
                 )
                 self._sessions.pop(chat_id, None)
-                self._env_fingerprints.pop(chat_id, None)
+                self._launches.pop(chat_id, None)
                 to_stop.append(existing)
             # A live entry with a builder that raised is left exactly as it is:
             # a failed read of the posture store is no reason to kill a child.
+            # (``launch`` is None exactly when the builder raised.)
 
-            if builder_error is None:
+            if launch is not None:
                 pending = self._pending.get(chat_id)
-                if pending is not None and self._env_fingerprints.get(chat_id) != fingerprint:
+                if pending is not None and self._launches.get(chat_id) != launch:
                     # A creation is in flight that was built from a different
-                    # environment. Joining it would hand this caller the very
+                    # environment or transcript. Joining it would hand this
+                    # caller the very
                     # child the change was meant to replace, so it is overtaken
                     # instead and this call becomes the creator. The marker is
                     # keyed on the Future, so the creation registered below is
@@ -213,7 +229,7 @@ class ChatSessionPool:
                         to_stop.append(victim)
                     pending = asyncio.get_running_loop().create_future()
                     self._pending[chat_id] = pending
-                    self._env_fingerprints[chat_id] = fingerprint
+                    self._launches[chat_id] = launch
                     creator = True
 
         # Teardowns happen outside the lock (never block map access on stop()).
@@ -244,15 +260,15 @@ class ChatSessionPool:
             return session, True
 
         try:
-            session = self._factory(cwd, resolved_env)
-            await session.start()  # deliberately outside the lock
+            session = self._factory(cwd, resolved_env, chat_id)
+            await session.start(resume_id=resume_id)  # deliberately outside the lock
         except BaseException as exc:
             async with self._lock:
                 if self._pending.get(chat_id) is pending:
                     # Ours to clear — and the fingerprint with it. Guarded,
                     # because a later creation may already own both.
                     del self._pending[chat_id]
-                    self._env_fingerprints.pop(chat_id, None)
+                    self._launches.pop(chat_id, None)
                 self._superseded.discard(pending)
             if not pending.done():
                 pending.set_exception(exc)
@@ -271,14 +287,14 @@ class ChatSessionPool:
             superseded = pending in self._superseded
             self._superseded.discard(pending)
             if not superseded:
-                # The fingerprint registered with this creation carries over
-                # unchanged: it already describes the child now landing here.
+                # The launch identity registered with this creation carries
+                # over unchanged: it already describes the child landing here.
                 self._sessions[chat_id] = session
             elif mine:
                 # Nothing of this creation survives, so neither does its
-                # fingerprint — unless a later creation has already claimed
+                # launch identity — unless a later creation has already claimed
                 # the key, which ``mine`` is what tells us.
-                self._env_fingerprints.pop(chat_id, None)
+                self._launches.pop(chat_id, None)
 
         if superseded:
             # A terminate/drain arrived while this session was starting. It had
@@ -330,7 +346,7 @@ class ChatSessionPool:
         """
         return chat_id in self._sessions or chat_id in self._pending
 
-    async def terminate(self, chat_id: str) -> None:
+    async def terminate(self, chat_id: str) -> OperatorSession | None:
         """Evict and tear down a chat session (busy-safe, idempotent).
 
         Eviction is the half that makes a respawn possible: with the entry
@@ -342,13 +358,52 @@ class ChatSessionPool:
         and torn down by its own creator the moment ``start()`` returns (see
         :class:`ChatSessionTerminatedError`). This call does not wait for that:
         a hung ``start()`` must not hang the operator's toggle.
+
+        Returns:
+            The session that was popped and torn down, or ``None`` when the key
+            held nothing poppable. The object outlives the pool entry, and a
+            caller that must know the child is *gone* rather than merely asked
+            to leave reads
+            :attr:`~osprey.interfaces.web_terminal.operator_session.OperatorSession.process_exited`
+            on it. The pool itself keeps no reference.
         """
         async with self._lock:
             session = self._sessions.pop(chat_id, None)
             self._supersede_pending(chat_id)
-            self._env_fingerprints.pop(chat_id, None)
+            self._launches.pop(chat_id, None)
         if session is not None:
             await session.teardown()
+        return session
+
+    async def reinsert(self, chat_id: str, session: OperatorSession) -> bool:
+        """Put a session :meth:`terminate` popped back into the pool.
+
+        The path for a teardown whose child outlived it: a hand-off terminates
+        the entry, then finds
+        :attr:`~osprey.interfaces.web_terminal.operator_session.OperatorSession.process_exited`
+        still False after its death wait. Dropping the object would orphan a
+        running process; putting it back lets the next acquire meet it as an
+        ordinary entry and tear it down again. The session is inactive by
+        then — its client closed, its child not — and every later
+        :meth:`terminate` of it runs ``teardown`` again, which sends the
+        retained child SIGKILL when it still has no return code. The hand-off
+        door tells such a survivor apart from a corpse by ``process_exited``
+        being False and hands it off for that second teardown and death
+        check; :meth:`get_or_create` merely reaps it as a dead entry before
+        creating, which still re-signals the child. No launch identity is
+        recorded, for the same reason.
+
+        Returns:
+            True when the session was put back. False, with the pool left
+            alone, when *chat_id* already holds a session or a creation in
+            flight: something else filled the key in the meantime and the
+            survivor is the caller's to deal with.
+        """
+        async with self._lock:
+            if chat_id in self._sessions or chat_id in self._pending:
+                return False
+            self._sessions[chat_id] = session
+            return True
 
     async def reap_idle(self) -> int:
         """Tear down every idle chat session; return how many were reaped.
@@ -361,7 +416,7 @@ class ChatSessionPool:
             idle_keys = [k for k, s in self._sessions.items() if self._is_idle(s, now)]
             victims = [self._sessions.pop(k) for k in idle_keys]
             for key in idle_keys:
-                self._env_fingerprints.pop(key, None)
+                self._launches.pop(key, None)
         if victims:
             await asyncio.gather(*(s.teardown() for s in victims))
         return len(victims)
@@ -375,7 +430,7 @@ class ChatSessionPool:
             # starting register itself into the drained pool behind us.
             self._superseded.update(self._pending.values())
             self._pending.clear()
-            self._env_fingerprints.clear()
+            self._launches.clear()
         if sessions:
             await asyncio.gather(*(s.teardown() for s in sessions))
 
@@ -408,5 +463,5 @@ class ChatSessionPool:
                 break
         if victim_key is None:
             return None
-        self._env_fingerprints.pop(victim_key, None)
+        self._launches.pop(victim_key, None)
         return self._sessions.pop(victim_key)

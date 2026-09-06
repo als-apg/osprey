@@ -810,6 +810,14 @@ def test_hello_world_renders_no_graph_surface_at_all(built_hello_world_project):
     [
         ("osprey_panels_context.py", "SessionStart"),
         ("osprey_workspace_delta.py", "UserPromptSubmit"),
+        # The turn reporter is the third half of panel awareness: it is what
+        # tells the web terminal whether its own agent is mid-turn. One case
+        # per registered event, because a turn has more than one edge and
+        # losing any single registration is invisible from the others.
+        ("osprey_turn_state.py", "UserPromptSubmit"),
+        ("osprey_turn_state.py", "Stop"),
+        ("osprey_turn_state.py", "StopFailure"),
+        ("osprey_turn_state.py", "SessionStart"),
     ],
 )
 def test_panel_hooks_rendered_and_wired(built_control_assistant_project, hook_file, event):

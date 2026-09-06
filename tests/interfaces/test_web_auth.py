@@ -1231,6 +1231,7 @@ _EXPECTED_PANEL_ROUTES = {
     ("POST", "/api/panel-close"),
     ("POST", "/api/panel-arrange"),
     ("POST", "/api/agent-activity"),
+    ("POST", "/api/agent-turn"),
     ("POST", "/api/focus"),
 }
 

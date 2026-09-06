@@ -1145,7 +1145,7 @@ def _build_framework_hook_rules(
     return [r for _, r in pre_rules], [r for _, r in post_rules]
 
 
-#: Claude Code hook events a profile may declare wiring for. The four events
+#: Claude Code hook events a profile may declare wiring for. The six events
 #: ``settings.json.j2`` renders unconditionally come first; the rest are keys the
 #: template adds only when something declares them.
 CLAUDE_CODE_HOOK_EVENTS: tuple[str, ...] = (
@@ -1153,8 +1153,9 @@ CLAUDE_CODE_HOOK_EVENTS: tuple[str, ...] = (
     "PostToolUse",
     "UserPromptSubmit",
     "SessionStart",
-    "SessionEnd",
     "Stop",
+    "StopFailure",
+    "SessionEnd",
     "SubagentStop",
     "Notification",
     "PreCompact",
@@ -1164,7 +1165,7 @@ CLAUDE_CODE_HOOK_EVENTS: tuple[str, ...] = (
 #: array the template renders regardless. Everything else in
 #: :data:`CLAUDE_CODE_HOOK_EVENTS` becomes a new key when declared.
 FRAMEWORK_WIRED_EVENTS: frozenset[str] = frozenset(
-    {"PreToolUse", "PostToolUse", "UserPromptSubmit", "SessionStart"}
+    {"PreToolUse", "PostToolUse", "UserPromptSubmit", "SessionStart", "Stop", "StopFailure"}
 )
 
 #: Claude Code's own default hook timeout, in seconds. A declaration that says

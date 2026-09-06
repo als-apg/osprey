@@ -383,13 +383,21 @@ def test_a_regex_matcher_survives_the_render_as_valid_json(tmp_path: Path):
     assert _settings(project)["hooks"]["PreToolUse"][-1]["matcher"] == matcher
 
 
-def test_an_event_the_framework_wires_nothing_on_becomes_its_own_key(tmp_path: Path):
-    """Declaring on Stop adds the key; a build that declares nothing has none."""
+def test_a_declaration_on_stop_joins_the_framework_entry(tmp_path: Path):
+    """Declaring on Stop appends beside the framework's own entry, in one key.
+
+    ``Stop`` is framework-wired: the turn-state hook reports the end of a turn
+    there, so the key exists in every build. A declaration therefore extends
+    that array rather than creating a second ``"Stop"`` — which would be legal
+    JSON whose framework half is silently dropped on parse.
+    """
     profile = tmp_path / "profile"
     _write(profile / "hooks" / "facility_guard.py", "print('guard')\n")
 
     plain = _settings(_build(tmp_path, "no-stop", profile))
-    assert "Stop" not in plain["hooks"]
+    framework = [c for c in _hook_commands(plain) if "osprey_turn_state.py" in c]
+    assert framework
+    assert not any("facility_guard.py" in c for c in _hook_commands(plain))
 
     wired = _settings(
         _build(
@@ -399,7 +407,9 @@ def test_an_event_the_framework_wires_nothing_on_becomes_its_own_key(tmp_path: P
             declarations={"claude_code.hooks.Stop": ["hooks/facility_guard.py"]},
         )
     )
-    (entry,) = wired["hooks"]["Stop"]
+    entries = wired["hooks"]["Stop"]
+    assert any("osprey_turn_state.py" in json.dumps(entry) for entry in entries)
+    (entry,) = [e for e in entries if "facility_guard.py" in json.dumps(e)]
     assert "facility_guard.py" in entry["hooks"][0]["command"]
     # No matcher: Stop takes none, and an empty one would match nothing.
     assert "matcher" not in entry

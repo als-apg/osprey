@@ -3,8 +3,11 @@
 L1 (Integration): Real PtyRegistry, fake PtySession via patched _spawn_session.
 Tests the WebSocket message protocol end-to-end through the real handler.
 
-L2 (Contract): Fully mocked PtyRegistry.
-Tests that terminal_ws calls registry methods in the correct sequence.
+L2 (Contract): Mocked PtyRegistry with a stateful pool behind it.
+Tests that terminal_ws calls registry methods in the correct sequence. The
+handler takes every key through ``acquire_surface``, which inspects the pool
+before spawning and checks the spawn was pooled afterwards, so the mock keeps
+a real dict of what sits under each key rather than a fixed return value.
 
 All tests connect in ``mode=resume`` with a pre-set UUID to avoid the
 5-second session-discovery poll that fires for new sessions. The
@@ -21,14 +24,17 @@ import asyncio
 import json
 import sys
 import uuid as uuid_mod
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
+import anyio
 import pytest
 from starlette.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
+from osprey.interfaces.web_terminal.routes.websocket import _TerminalChannel
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
+from tests.interfaces.web_terminal._fakes import FakePtySession
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
 
@@ -38,63 +44,38 @@ pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="PTY not availab
 # ---------------------------------------------------------------------------
 
 
-class FakePtySession:
-    """Minimal PtySession substitute — stays alive, produces no output."""
+#: How long one frame may take to arrive before the test fails. A handler
+#: that answers nothing is a regression, not a stall.
+RECV_TIMEOUT_S = 10.0
 
-    def __init__(self):
-        self._alive = True
-        self._last_rows = 24
-        self._last_cols = 80
-        self._command_list = ["fake"]
 
-    @property
-    def is_alive(self):
-        return self._alive
+async def _receive_within(rx, seconds: float):
+    with anyio.fail_after(seconds):
+        return await rx.receive()
 
-    @property
-    def exit_code(self):
-        return None if self._alive else 0
 
-    def start(self, initial_rows=24, initial_cols=80, extra_env=None):
-        self._last_rows = initial_rows
-        self._last_cols = initial_cols
+def _recv(ws):
+    """One frame off the socket, or ``TimeoutError`` after ``RECV_TIMEOUT_S``.
 
-    def resize(self, rows, cols):
-        self._last_rows = rows
-        self._last_cols = cols
-
-    def write_input(self, data):
-        pass
-
-    def terminate(self):
-        self._alive = False
-
-    async def read_output(self):
-        """Async generator that blocks quietly until the session dies."""
-        try:
-            while self._alive:
-                await asyncio.sleep(0.05)
-        except (asyncio.CancelledError, GeneratorExit):
-            return
-        # Unreachable yield — makes this function an async generator.
-        if False:
-            yield b""  # pragma: no cover
+    ``ws.receive()`` waits on the portal with no deadline, and the test thread
+    then sits in a lock wait that pytest-timeout's signal cannot interrupt.
+    The deadline runs inside the portal, on the stream the session reads. A
+    server close surfaces at once as ``WebSocketDisconnect``.
+    """
+    message = ws.portal.call(_receive_within, ws._send_rx, RECV_TIMEOUT_S)
+    ws._raise_on_close(message)
+    return message
 
 
 def _recv_json(ws, msg_type: str, max_frames: int = 30):
     """Receive frames until a JSON message with the given ``type`` arrives.
 
     Skips binary frames.  Raises ``AssertionError`` if ``msg_type`` is not
-    found within *max_frames* frames.
-
-    .. note::
-
-       If the server sends **nothing**, ``ws.receive()`` blocks indefinitely.
-       Use pytest-timeout or a CI-level timeout as a safety net.
+    found within *max_frames* frames, ``TimeoutError`` if a frame is late.
     """
     collected = []
     for _ in range(max_frames):
-        raw = ws.receive()
+        raw = _recv(ws)
         if "text" in raw:
             data = json.loads(raw["text"])
             collected.append(data)
@@ -355,17 +336,39 @@ class TestSessionSwitchingContract:
 
     @staticmethod
     def _mock_registry(app, fake_session=None):
-        """Replace the registry with a MagicMock that returns *fake_session*."""
+        """Replace the registry with a MagicMock over a real pool dict.
+
+        ``get_or_create_session`` hands out *fake_session* first, then
+        whatever a test appends to ``mock_reg.hand_out``, and pools it under
+        the key; ``get_session`` reads that pool, so the hand-off door sees an
+        empty key before the spawn and the spawned session after it — and the
+        handler's teardown asks it who currently owns the key.
+        test_disconnect_leaves_a_replacement_session_alone below replaces the
+        pool entry to model a newer handler's session under the same key.
+        """
         if fake_session is None:
             fake_session = FakePtySession()
+        pool: dict[str, FakePtySession] = {}
+        hand_out: list[FakePtySession] = [fake_session]
         mock_reg = MagicMock(spec=PtyRegistry)
-        mock_reg.get_or_create_session.return_value = (fake_session, False)
+
+        def get_or_create(key, *_args, **_kwargs):
+            pooled = pool.get(key)
+            if pooled is not None and pooled.is_alive:
+                return pooled, True
+            session = hand_out.pop(0) if hand_out else FakePtySession()
+            pool[key] = session
+            return session, False
+
+        mock_reg.get_or_create_session.side_effect = get_or_create
+        mock_reg.get_session.side_effect = pool.get
+        mock_reg.pop_session.side_effect = lambda key: pool.pop(key, None)
+        mock_reg.pop_lru_victim.return_value = None  # a pool below capacity evicts nothing
         mock_reg.attach_session.return_value = True
-        # The handler's teardown asks who currently owns the key before
-        # touching it; answer with the session it was handed, i.e. "still the
-        # owner". test_disconnect_leaves_a_replacement_session_alone below
-        # overrides this to model the other case.
-        mock_reg.get_session.return_value = fake_session
+        mock_reg.is_attached.return_value = False
+        mock_reg.attached_owner.return_value = None
+        mock_reg.pool = pool
+        mock_reg.hand_out = hand_out
         app.state.pty_registry = mock_reg
         return mock_reg, fake_session
 
@@ -385,9 +388,11 @@ class TestSessionSwitchingContract:
         key_used = mock_reg.get_or_create_session.call_args[0][0]
         assert key_used == sid
 
-        # attach_session was called (at least once) with the same key
-        attach_calls = [c for c in mock_reg.attach_session.call_args_list if c == call(sid)]
+        # attach_session was called (at least once) with the same key, and
+        # with the handler's attachment token alongside it.
+        attach_calls = [c for c in mock_reg.attach_session.call_args_list if c.args[0] == sid]
         assert len(attach_calls) >= 1
+        assert all(len(c.args) == 2 for c in attach_calls)
 
     # -- switch_session contract --
 
@@ -404,9 +409,7 @@ class TestSessionSwitchingContract:
 
                 # Reset to isolate switch calls from initial-connect calls
                 mock_reg.reset_mock()
-                new_fake = FakePtySession()
-                mock_reg.get_or_create_session.return_value = (new_fake, False)
-                mock_reg.attach_session.return_value = True
+                mock_reg.hand_out.append(FakePtySession())
 
                 ws.send_json({"type": "switch_session", "session_id": target})
                 _recv_json(ws, "session_switched")
@@ -427,8 +430,13 @@ class TestSessionSwitchingContract:
 
         assert detach_i < create_i < attach_after_create[0]
 
-        # Verify args
-        assert mock_reg.method_calls[detach_i] == call.detach_session(initial)
+        # Verify args. The detach names the old key and the token the attach
+        # that follows it hands to the new one — one token per handler.
+        detach_call = mock_reg.method_calls[detach_i]
+        assert detach_call[0] == "detach_session"
+        assert detach_call[1][0] == initial
+        token = detach_call[1][1]
+        assert mock_reg.method_calls[attach_after_create[0]][1] == (target, token)
         create_call = mock_reg.method_calls[create_i]
         assert create_call[1][0] == target  # first positional arg = target UUID
 
@@ -465,8 +473,8 @@ class TestSessionSwitchingContract:
                 _send_resize(ws)
                 mock_reg.reset_mock()
 
-        # Handler's finally: detach(current_key)
-        mock_reg.detach_session.assert_called_with(sid)
+        # Handler's finally: detach(current_key, token)
+        assert mock_reg.detach_session.call_args.args[0] == sid
         # Session is alive → nothing is terminated
         mock_reg.terminate_session.assert_not_called()
         mock_reg.terminate_session_if_owner.assert_not_called()
@@ -487,7 +495,7 @@ class TestSessionSwitchingContract:
                 dead._alive = False
                 time.sleep(0.2)  # let output loop notice and exit
 
-        mock_reg.detach_session.assert_called_with(sid)
+        assert mock_reg.detach_session.call_args.args[0] == sid
         # Terminated through the owner-checked entry point, which takes the
         # session this handler owns as well as the key — see
         # test_disconnect_leaves_a_replacement_session_alone.
@@ -515,8 +523,7 @@ class TestSessionSwitchingContract:
                 dead._alive = False
                 time.sleep(0.2)  # let output loop notice and exit
                 # A newer handler has since put its own session under this key.
-                replacement = FakePtySession()
-                mock_reg.get_session.return_value = replacement
+                mock_reg.pool[sid] = FakePtySession()
 
         # The newer handler's attachment is left intact...
         mock_reg.detach_session.assert_not_called()
@@ -525,3 +532,99 @@ class TestSessionSwitchingContract:
         # this handler owns without disturbing the pool.
         mock_reg.terminate_session.assert_not_called()
         mock_reg.terminate_session_if_owner.assert_called_with(sid, dead)
+
+
+# ---------------------------------------------------------------------------
+# L0: the socket reader under the hand-off door
+# ---------------------------------------------------------------------------
+
+
+class _MemoryWebSocket:
+    """A socket that hands a frame straight to a parked receiver.
+
+    Starlette's test client feeds the app from an anyio memory stream, which
+    delivers a frame to a waiting receiver in the sender's own loop turn; a
+    receiver cancelled before it runs then drops that frame.
+    """
+
+    def __init__(self) -> None:
+        self.tx, self.rx = anyio.create_memory_object_stream[dict](10)
+
+    async def receive(self) -> dict:
+        return await self.rx.receive()
+
+
+async def _ticks_until(condition, what: str) -> None:
+    """Run the loop tick by tick until *condition* holds; a bounded wait."""
+    for _ in range(50):
+        if condition():
+            return
+        await asyncio.sleep(0)
+    raise AssertionError(f"never reached: {what}")
+
+
+async def _park(ws: _MemoryWebSocket, task: asyncio.Task) -> None:
+    """Let *task* run until its socket read is a parked receiver on the stream."""
+    await _ticks_until(lambda: bool(ws.rx._state.waiting_receivers), "a parked receiver")
+    assert not task.done()
+
+
+def _switch_frame() -> dict:
+    return {
+        "type": "websocket.receive",
+        "text": json.dumps({"type": "switch_session", "session_id": _uuid()}),
+    }
+
+
+class TestTerminalChannelReader:
+    """The frame that lands as the door returns must reach the main loop."""
+
+    async def test_frame_delivered_as_the_side_reader_is_cancelled_is_kept(self):
+        ws = _MemoryWebSocket()
+        channel = _TerminalChannel(ws)
+        reader = asyncio.ensure_future(channel._read_while_acquiring())
+        await _park(ws, reader)
+
+        frame = _switch_frame()
+        ws.tx.send_nowait(frame)  # handed straight to the parked receiver
+        reader.cancel()  # before any wakeup runs
+        with pytest.raises(asyncio.CancelledError):
+            await reader
+
+        assert await asyncio.wait_for(channel.receive(), 1.0) == frame
+        channel.release()
+
+    async def test_frame_read_before_the_side_reader_is_cancelled_is_kept(self):
+        """The read has completed, the reader has not run: the cancel lands
+        on its wakeup, and the completed read must still be collected."""
+        ws = _MemoryWebSocket()
+        channel = _TerminalChannel(ws)
+        reader = asyncio.ensure_future(channel._read_while_acquiring())
+        await _park(ws, reader)
+
+        frame = _switch_frame()
+        ws.tx.send_nowait(frame)
+        await _ticks_until(lambda: channel._read is not None and channel._read.done(), "the read")
+        assert not channel.deferred  # the reader has not been woken yet
+        reader.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await reader
+
+        assert await asyncio.wait_for(channel.receive(), 1.0) == frame
+        channel.release()
+
+    async def test_release_cancels_a_read_left_in_flight(self):
+        ws = _MemoryWebSocket()
+        channel = _TerminalChannel(ws)
+        waiter = asyncio.ensure_future(channel.receive())
+        await _park(ws, waiter)
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+
+        pending = channel._read
+        assert pending is not None and not pending.done()
+        channel.release()
+        await asyncio.sleep(0)
+        assert pending.cancelled()
+        assert channel._read is None

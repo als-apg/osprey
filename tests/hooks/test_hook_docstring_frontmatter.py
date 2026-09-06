@@ -26,6 +26,7 @@ HOOK_FILES = [
     "osprey_focus_validate.py",
     "osprey_panels_context.py",
     "osprey_workspace_delta.py",
+    "osprey_turn_state.py",
     "osprey_cf_feedback_capture.py",
 ]
 
@@ -105,13 +106,26 @@ class TestHookFrontMatter:
         assert not missing, f"Missing required fields: {missing}"
 
     def test_event_is_valid(self, hook_file):
-        """Event field is one of the known Claude Code hook events."""
+        """Every event named is a known Claude Code hook event.
+
+        A hook may name several, comma-separated: one file can be registered on
+        more than one event, and the turn-state reporter is registered on four
+        because a turn has more than one edge.
+        """
         docstring = _load_docstring(hook_file)
         fields, _ = _parse_front_matter(docstring)
 
-        valid_events = {"PreToolUse", "PostToolUse", "SessionStart", "UserPromptSubmit"}
-        assert fields["event"] in valid_events, (
-            f"Invalid event '{fields['event']}', expected one of {valid_events}"
+        valid_events = {
+            "PreToolUse",
+            "PostToolUse",
+            "SessionStart",
+            "UserPromptSubmit",
+            "Stop",
+            "StopFailure",
+        }
+        declared = [event.strip() for event in str(fields["event"]).split(",")]
+        assert declared and all(event in valid_events for event in declared), (
+            f"Invalid event '{fields['event']}', expected one or more of {valid_events}"
         )
 
     def test_has_ascii_diagram(self, hook_file):

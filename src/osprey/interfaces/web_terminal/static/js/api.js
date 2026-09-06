@@ -10,6 +10,7 @@
  * @property {(e: MessageEvent) => void} [onMessage]
  * @property {(e: CloseEvent) => void} [onClose]
  * @property {(e: Event) => void} [onError]
+ * @property {(code: number, reason: string) => void} [onRefused]
  */
 
 /**
@@ -188,11 +189,49 @@ export function wsUrl(path) {
 }
 
 /**
+ * Close code for a socket the server refused because the session is held
+ * elsewhere — another tab, or the other view — and for the older handler a
+ * same-surface takeover displaces. The private range mirrors the HTTP 409 the
+ * same refusal carries on the request routes.
+ */
+export const WS_CLOSE_SESSION_ATTACHED = 4409;
+
+/**
+ * Close code for a refusal because the outgoing agent was still running once
+ * its teardown returned: nothing was started in its place, so a retry is the
+ * next step. Mirrors the HTTP 503 of the same refusal.
+ */
+export const WS_CLOSE_OUTGOING_RUNNING = 4503;
+
+/**
+ * Whether a close code is one of the server's deliberate refusals, which are
+ * final for the connection that received them.
+ *
+ * The distinction the reconnect loop needs is *why* the socket closed. A
+ * dropped link says nothing about the session, so backing off and trying again
+ * is right. A refusal is an answer: the session is demonstrably alive and held
+ * by someone else, or its previous process has not died yet. Reconnecting on
+ * one would fight the holder or hammer an unfinished teardown, so these codes
+ * end the loop and reach the caller instead.
+ * @param {number} code
+ * @returns {boolean}
+ */
+export function isRefusalCloseCode(code) {
+  return code === WS_CLOSE_SESSION_ATTACHED || code === WS_CLOSE_OUTGOING_RUNNING;
+}
+
+/**
  * Create a WebSocket with exponential backoff reconnection.
+ *
+ * Every close reconnects — unless `stop()` has been called, the session has
+ * expired, or the server refused with one of the codes {@link
+ * isRefusalCloseCode} names. A refusal ends this wrapper: `onRefused` fires
+ * with the code and reason so the caller can say which one it was, and a retry
+ * is a new wrapper rather than a resumed loop.
  * @param {string} url
  * @param {WebSocketHandlers} [handlers]
  */
-export function createWebSocket(url, { onOpen, onMessage, onClose, onError } = {}) {
+export function createWebSocket(url, { onOpen, onMessage, onClose, onError, onRefused } = {}) {
   /** @type {WebSocket|null} */
   let ws = null;
   let attempt = 0;
@@ -222,6 +261,13 @@ export function createWebSocket(url, { onOpen, onMessage, onClose, onError } = {
       wsState = 'disconnected';
       notifyStateChange();
       if (onClose) onClose(e);
+      if (isRefusalCloseCode(e.code)) {
+        // The session survived — the server said so by refusing — so the
+        // expiry probe has nothing to ask and the backoff nothing to retry.
+        stopped = true;
+        if (onRefused) onRefused(e.code, e.reason);
+        return;
+      }
       scheduleReconnect();
       reloadIfSessionExpired();
     };
