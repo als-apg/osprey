@@ -238,6 +238,23 @@ def test_health_fails_closed_on_an_unsupported_connector(connector, bridge) -> N
     assert capability["reason"] == qb.REASON_UNSUPPORTED_CONNECTOR
 
 
+def test_an_unsupported_connector_is_not_told_to_run_the_simulator(connector, bridge) -> None:
+    """A production deployment on another protocol is not a misconfiguration.
+
+    The flip command points a deployment at the simulator. Offering it to a
+    facility whose machine speaks DOOCS reads as "swap your control system for
+    a simulator" — the one remedy that cannot be right. State the condition
+    instead: the queue worker builds its devices over Channel Access.
+    """
+    connector("doocs")
+
+    with bridge(_ScriptedManager()) as client:
+        capability = _capability(client.get("/health"))
+
+    assert qb.FLIP_COMMAND not in capability["detail"]
+    assert "Channel Access" in capability["detail"]
+
+
 def test_health_fails_closed_without_a_configured_manager(connector, bridge) -> None:
     connector("virtual_accelerator")
 
