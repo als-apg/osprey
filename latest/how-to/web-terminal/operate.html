@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 05, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 06, 2026"/>
   </head>
   
   
@@ -603,6 +603,46 @@ plain Ctrl+C always interrupts the agent. Serve the terminal over HTTPS for
 this to work in every browser — on a plain <code class="docutils literal notranslate"><span class="pre">http://</span></code> page copying falls
 back to an older browser mechanism that Safari may refuse.</p>
 </section>
+<section id="one-session-both-views">
+<span id="web-terminal-one-session"></span><h2>One session, both views<a class="headerlink" href="#one-session-both-views" title="Link to this heading">#</a></h2>
+<p>Expert and Simple are two windows onto the same conversation. Pick the other
+one from the display menu and the agent you were talking to comes with you: the
+terminal and the chat share one session, one write state and one transcript,
+and only the view you are looking at runs the agent.</p>
+<p>Handing it over waits for the work in flight. Switch while the agent is
+mid-turn and the view you arrive in reads <em>Finishing in the other view</em> with
+the time you have been waiting, and offers <strong>Stop and switch now</strong>. Let it
+finish and the conversation reappears where it left off, with everything said
+so far already in the log. Nothing is ended on a clock: only the turn
+finishing, closing the page, or that button ends it. The button interrupts the
+agent, and stops it outright if it has not yielded within five seconds.</p>
+<p>A refusal can meet you instead of the wait. <em>This session is in use in
+another tab or view.</em> means another browser tab holds it, so close that tab or
+work there instead. <em>The previous agent is still shutting down.</em> is the one
+worth retrying, and the card offers <strong>Retry</strong>.</p>
+<p>Running <code class="docutils literal notranslate"><span class="pre">/clear</span></code> in the terminal starts a new conversation without starting a
+new session: the write state and the machine you are standing on carry over,
+and the chat shows the cleared conversation too. A prompt you send in the chat
+while a turn is still running waits for that turn rather than being refused,
+and goes as soon as the agent is free.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>Deployments built before this release.</strong> The wait needs the
+<code class="docutils literal notranslate"><span class="pre">turn-state</span></code> hook, which tells the web terminal when a turn starts and
+ends, and a deployment scaffolded earlier does not have it: add
+<code class="docutils literal notranslate"><span class="pre">turn-state</span></code> to the profile’s <code class="docutils literal notranslate"><span class="pre">hooks:</span></code> list and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.
+Without it, switching away from a terminal that might be working never
+waits. It says <em>The other view may still be working.</em> and offers only
+<strong>Stop and switch now</strong>, and a terminal that was idle all along can still
+take the full five seconds to hand over.</p>
+</div>
+<p>One version pin is worth keeping current now that the two views share a
+conversation. The terminal runs the exact agent CLI version
+<code class="docutils literal notranslate"><span class="pre">claude_code.cli_version</span></code> names, and the chat runs the one the Agent SDK
+bundles, so a pin that has drifted from the bundle makes the same conversation
+behave differently either side of a switch. The server names both versions in
+its log at startup, and warns when they disagree.</p>
+</section>
 <section id="the-control-target-chip">
 <span id="web-terminal-session-posture"></span><h2>The control-target chip<a class="headerlink" href="#the-control-target-chip" title="Link to this heading">#</a></h2>
 <p>The header carries a chip that answers, at a glance, the question every write
@@ -842,11 +882,14 @@ their agent through the Agent SDK rather than a terminal. Both read the same
 record at write time, so a write state you set reaches them exactly as it reaches
 a terminal session. Where they differ is in what the chip can do for them.</p>
 <p>A <strong>chat session’s write controls work</strong> — its writes meet the same ceiling
-and the same locks a terminal’s do — but it is offered no <strong>Switch to</strong>: a
-chat has no machine connection of its own to move. Know one thing before
-relying on a chat’s write state: the chat page starts a fresh chat every
-time it loads, so a state you set for it lasts as long as that page does
-rather than following the conversation.</p>
+and the same locks a terminal’s do — but <strong>Switch to</strong> comes and goes with
+the view. While the Expert view holds the session there is a terminal with a
+machine connection to move, and a row you can switch to offers the button;
+while Simple holds it there is no such connection, so the button’s place on
+every row is empty. Switch back to Expert and it is there again.</p>
+<p>The write state itself does not come and go. Both views are one session
+(<a class="reference internal" href="#web-terminal-one-session"><span class="std std-ref">One session, both views</span></a>), so a state you set in either is the state
+the other finds, and it follows the conversation across the switch.</p>
 <p>An <strong>operator websocket session’s write controls govern nothing</strong>: the chip
 has no way to hand a write state to that kind of session, so what you set
 here never reaches it.</p>
@@ -928,6 +971,9 @@ you set them in, so a different browser or a different machine starts those
 from the deployment’s own defaults. The panel layout is remembered once per
 view: Simple starts from a single panel beside the console and Expert from the
 full workspace, and each keeps the arrangement you make of it.</p>
+<p>The view is a preference; the conversation is not tied to it. Switching between
+Expert and Simple hands the same session over rather than starting a second
+one. See <a class="reference internal" href="#web-terminal-one-session"><span class="std std-ref">One session, both views</span></a>.</p>
 <p>With nothing saved yet you get the deployment’s arrangement, which an operator
 sets with <code class="docutils literal notranslate"><span class="pre">web.bar_items</span></code>. The keys, and what each one does, are in
 <a class="reference internal" href="../../reference/configuration/config.html#config-bar-items"><span class="std std-ref">The header and status bar</span></a>.</p>
@@ -1040,6 +1086,7 @@ verbs that read the results back.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-you-get">What you get</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-session-both-views">One session, both views</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-control-target-chip">The control-target chip</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-machine-you-are-on-and-the-others">The machine you are on, and the others</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#take-writes-away-or-give-them-back">Take writes away, or give them back</a></li>
