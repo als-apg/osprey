@@ -15,6 +15,7 @@ is per-preset content here, per-command behavior there.
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -739,41 +740,27 @@ def test_built_project_data_comes_from_the_profile(runner: CliRunner, tmp_path: 
 
 
 # ---------------------------------------------------------------------------
-# Baked overrides
+# Baked --set edits
 # ---------------------------------------------------------------------------
 
 
 def test_set_pairs_are_baked_and_resolvable(runner: CliRunner, tmp_path: Path) -> None:
+    """Every pair on the command line is written into the emitted profile.
+
+    More than one, because the profile is the source of truth: an edit that
+    reached the resolution and not the file would leave the repo describing a
+    deployment nobody asked for.
+    """
     target = tmp_path / "my-facility"
 
-    assert _new(runner, target, "hello-world", "--set", "model=opus").exit_code == 0
+    created = _new(
+        runner, target, "hello-world", "--set", "model=opus", "--set", "provider=als-apg"
+    )
+    assert created.exit_code == 0, created.output
 
     resolved, _dir = resolve_build_profile((target / "profile.yml").resolve(), None)
     assert resolved.model == "opus"
-
-
-def test_override_file_is_baked(runner: CliRunner, tmp_path: Path) -> None:
-    override = tmp_path / "o.yml"
-    override.write_text("model: sonnet\nprovider: als-apg\n", encoding="utf-8")
-    target = tmp_path / "my-facility"
-
-    assert _new(runner, target, "hello-world", "-O", str(override)).exit_code == 0
-
-    resolved, _dir = resolve_build_profile((target / "profile.yml").resolve(), None)
-    assert resolved.model == "sonnet"
     assert resolved.provider == "als-apg"
-
-
-def test_set_wins_over_override_file(runner: CliRunner, tmp_path: Path) -> None:
-    override = tmp_path / "o.yml"
-    override.write_text("model: sonnet\n", encoding="utf-8")
-    target = tmp_path / "my-facility"
-
-    result = _new(runner, target, "hello-world", "-O", str(override), "--set", "model=opus")
-
-    assert result.exit_code == 0, result.output
-    resolved, _dir = resolve_build_profile((target / "profile.yml").resolve(), None)
-    assert resolved.model == "opus"
 
 
 def test_name_override_replaces_the_directory_derived_name(
@@ -1132,20 +1119,19 @@ def test_force_leaves_no_holding_directory_behind(runner: CliRunner, tmp_path: P
     assert not (target / HELD_SOURCE_ZONE_DIRNAME).exists()
 
 
-def test_extends_override_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
-    override = tmp_path / "o.yml"
-    override.write_text("extends: control-assistant\n", encoding="utf-8")
+def test_extends_edit_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
+    """A materialized profile is standalone, so nothing may give it a parent."""
     target = tmp_path / "p-facility"
 
-    result = _new(runner, target, "hello-world", "-O", str(override))
+    result = _new(runner, target, "hello-world", "--set", "extends=control-assistant")
 
     assert result.exit_code == 2
     assert "extends" in result.output
     assert not target.exists()
 
 
-def test_invalid_override_leaves_no_partial_directory(runner: CliRunner, tmp_path: Path) -> None:
-    """The atomicity guarantee: a bad layer fails and materializes nothing."""
+def test_an_invalid_edit_leaves_no_partial_directory(runner: CliRunner, tmp_path: Path) -> None:
+    """The atomicity guarantee: a bad edit fails and materializes nothing."""
     target = tmp_path / "p-facility"
 
     result = _new(runner, target, "hello-world", "--set", "tier=2")
@@ -1155,25 +1141,12 @@ def test_invalid_override_leaves_no_partial_directory(runner: CliRunner, tmp_pat
     assert not target.exists()
 
 
-def test_data_override_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
+def test_a_data_edit_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
     """`osprey init` materializes the tree, so pointing `data:` elsewhere is a
     mistake — and the preset-mode guard catches it before anything is written."""
     target = tmp_path / "p-facility"
 
     result = _new(runner, target, "hello-world", "--set", "data=/somewhere/else")
-
-    assert result.exit_code == 2
-    assert "data" in result.output
-    assert not target.exists()
-
-
-def test_data_override_via_file_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
-    """The `-O` route into `data:` is closed too, not just `--set`."""
-    override = tmp_path / "o.yml"
-    override.write_text("data: /somewhere/else\n", encoding="utf-8")
-    target = tmp_path / "p-facility"
-
-    result = _new(runner, target, "hello-world", "-O", str(override))
 
     assert result.exit_code == 2
     assert "data" in result.output
@@ -1237,7 +1210,7 @@ def test_failed_round_trip_after_mkdir_removes_the_target(
 def test_round_trip_failure_without_layers_does_not_blame_overrides(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """No `-O` and no `--set` means the user supplied nothing to blame."""
+    """No `--set` means the user supplied nothing to blame."""
     from osprey.cli import build_profile
 
     real = build_profile.resolve_build_profile
@@ -1253,15 +1226,6 @@ def test_round_trip_failure_without_layers_does_not_blame_overrides(
 
     assert "Overrides produce" not in result.output
     assert "does not validate" in result.output
-
-
-def test_missing_override_file_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
-    target = tmp_path / "p-facility"
-
-    result = _new(runner, target, "hello-world", "-O", str(tmp_path / "nope.yml"))
-
-    assert result.exit_code == 2
-    assert not target.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -1421,17 +1385,20 @@ def test_facility_extension_guidance_is_appended(runner: CliRunner, tmp_path: Pa
     assert '#       color: "#4C9AFF"' in text
 
     # A profile that defines mcp_servers itself gets the real key, not the hint.
-    override = tmp_path / "o.yml"
-    override.write_text(
-        "mcp_servers:\n"
-        "  facility_tools:\n"
-        "    command: /usr/bin/facility-mcp\n"
-        "    permissions:\n"
-        "      allow: [ping]\n"
+    servers = json.dumps(
+        {
+            "facility_tools": {
+                "command": "/usr/bin/facility-mcp",
+                "permissions": {"allow": ["ping"]},
+            }
+        }
     )
     with_servers = tmp_path / "with-servers"
 
-    assert _new(runner, with_servers, "control-assistant", "-O", str(override)).exit_code == 0
+    assert (
+        _new(runner, with_servers, "control-assistant", "--set", f"mcp_servers={servers}").exit_code
+        == 0
+    )
 
     text = (with_servers / "profile.yml").read_text()
     assert "# mcp_servers:" not in text

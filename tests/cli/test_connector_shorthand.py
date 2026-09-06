@@ -3,8 +3,8 @@
 ``connector: epics`` is the short spelling of
 ``config: {control_system.type: epics}``. The shorthand is folded into the
 literal dotted config key on every path a profile can arrive by — bundled
-preset, ``-O`` file, ``--set`` pair, ``extends`` parent, or a hand-written
-profile loaded directly — so it can never be accepted and then ignored. Its
+preset, ``--set`` edit, ``extends`` parent, or a hand-written profile loaded
+directly — so it can never be accepted and then ignored. Its
 value is validated against the settable connector types, so a misspelling
 fails the build instead of resolving to a control system the facility never
 asked for. That list is the initable one plus the live stand-in: a deployment
@@ -21,12 +21,17 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_profile import _KNOWN_PROFILE_KEYS, _parse_profile, load_profile
-from osprey.cli.build_profile_load import CONNECTOR_CONFIG_KEY, CONNECTOR_PROFILE_KEY
+from osprey.cli.build_profile_load import (
+    CONNECTOR_CONFIG_KEY,
+    CONNECTOR_PROFILE_KEY,
+    PORT_BASE_PROFILE_KEY,
+)
 from osprey.cli.build_profile_resolve import (
     MODEL_SELECTION_OVERRIDE_KEYS,
     SHORTHAND_OVERRIDE_KEYS,
+    apply_cli_edits,
+    cli_edit_layer,
     explicit_model_override_keys,
-    merge_cli_overrides,
     resolve_build_profile,
 )
 from osprey.cli.init_cmd import init
@@ -37,6 +42,7 @@ from osprey.connectors.types import (
     SET_CONTROL_SYSTEM_TYPES,
 )
 from osprey.errors import BuildProfileError
+from osprey.port_layout import PORT_BASE_CONFIG_KEY
 
 
 @pytest.fixture(autouse=True)
@@ -123,50 +129,60 @@ def test_config_must_be_a_mapping_to_carry_the_shorthand() -> None:
         )
 
 
-# ── --set / -O layering ──────────────────────────────────────────────────────
+# ── --set edits ──────────────────────────────────────────────────────────────
 
 
-def test_merge_cli_overrides_folds_set_shorthand() -> None:
+def test_a_cli_edit_folds_the_set_shorthand() -> None:
     """``--set connector=…`` is baked as the literal dotted key, not the shorthand."""
-    merged = merge_cli_overrides({}, (), ("connector=epics",))
+    edit = cli_edit_layer(("connector=epics",))
 
-    assert merged == {"config": {CONNECTOR_CONFIG_KEY: "epics"}}
+    assert edit == {"config": {CONNECTOR_CONFIG_KEY: "epics"}}
 
 
-def test_set_shorthand_wins_over_the_base_layer() -> None:
-    """The base layer's connector is replaced, not merged alongside."""
+def test_the_set_shorthand_replaces_the_documents_connector() -> None:
+    """The resolved document's connector is replaced, not merged alongside."""
     base = {"name": "x", "data": "data", "config": {CONNECTOR_CONFIG_KEY: "mock"}}
-    merged = merge_cli_overrides(base, (), ("connector=virtual_accelerator",))
+    edited = apply_cli_edits(base, ("connector=virtual_accelerator",))
 
-    assert merged["config"][CONNECTOR_CONFIG_KEY] == "virtual_accelerator"
-
-
-def test_override_file_shorthand_is_folded(tmp_path: Path) -> None:
-    """A ``-O`` file may spell the shorthand too."""
-    override = tmp_path / "over.yml"
-    override.write_text("connector: doocs\n", encoding="utf-8")
-
-    merged = merge_cli_overrides({"name": "x", "data": "data"}, (override,), ())
-
-    assert merged["config"][CONNECTOR_CONFIG_KEY] == "doocs"
-    assert CONNECTOR_PROFILE_KEY not in merged
+    assert edited["config"][CONNECTOR_CONFIG_KEY] == "virtual_accelerator"
 
 
-def test_last_layer_naming_the_connector_wins(tmp_path: Path) -> None:
-    """``--set`` layers over a ``-O`` file that also names the connector."""
-    override = tmp_path / "over.yml"
-    override.write_text("connector: doocs\n", encoding="utf-8")
+def test_a_shorthand_already_in_the_document_is_folded() -> None:
+    """A document that spells ``connector:`` itself is folded on the edit path too.
 
-    merged = merge_cli_overrides({"name": "x", "data": "data"}, (override,), ("connector=epics",))
+    The fold runs over the whole document, not only over the pairs, so no entry
+    path — a preset, a hand-written profile — carries a shorthand past this
+    point and has it silently ignored.
+    """
+    edited = apply_cli_edits({"name": "x", "data": "data", "connector": "doocs"}, ())
 
-    assert merged["config"][CONNECTOR_CONFIG_KEY] == "epics"
+    assert edited["config"][CONNECTOR_CONFIG_KEY] == "doocs"
+    assert CONNECTOR_PROFILE_KEY not in edited
 
 
-def test_merge_without_shorthand_is_unchanged() -> None:
+def test_a_set_pair_outranks_the_documents_own_shorthand() -> None:
+    """``--set connector=`` states the value, over a document naming another.
+
+    Order is the whole of it: the document's own shorthand is folded into the
+    literal config key BEFORE the edit lands, so the edit replaces a key that
+    is already there. Folded afterwards, a hand-written ``connector:`` would
+    quietly overwrite what the operator just typed — and an ``osprey set`` that
+    writes the config key while leaving the shorthand beside it would be undone
+    on the next read.
+    """
+    edited = apply_cli_edits(
+        {"name": "x", "data": "data", "connector": "doocs"}, ("connector=epics",)
+    )
+
+    assert edited["config"][CONNECTOR_CONFIG_KEY] == "epics"
+    assert CONNECTOR_PROFILE_KEY not in edited
+
+
+def test_an_edit_without_the_shorthand_invents_no_config_block() -> None:
     """No ``connector`` anywhere means no ``config:`` block is invented."""
-    merged = merge_cli_overrides({"name": "x", "data": "data"}, (), ("model=sonnet",))
+    edited = apply_cli_edits({"name": "x", "data": "data"}, ("model=sonnet",))
 
-    assert merged == {"name": "x", "data": "data", "model": "sonnet"}
+    assert edited == {"name": "x", "data": "data", "model": "sonnet"}
 
 
 # ── extends parents and plain file loads ─────────────────────────────────────
@@ -196,7 +212,7 @@ def test_shorthand_in_an_extends_parent_is_folded(tmp_path: Path) -> None:
 
 
 def test_shorthand_in_a_plain_profile_file_is_folded(tmp_path: Path) -> None:
-    """``load_profile`` folds it too — not only the preset/override path."""
+    """``load_profile`` folds it too — not only the preset/edit path."""
     profile_file = tmp_path / "profile.yml"
     (tmp_path / "data").mkdir(exist_ok=True)
     profile_file.write_text("name: Plain\ndata: data\nconnector: doocs\n", encoding="utf-8")
@@ -259,10 +275,10 @@ def test_non_string_connector_values_are_rejected(value: object) -> None:
         _parse_profile({"name": "x", "data": "data", "connector": value})
 
 
-def test_invalid_set_value_is_rejected_at_merge_time() -> None:
-    """The CLI layering step validates too — before anything is written."""
+def test_invalid_set_value_is_rejected_when_the_edit_is_parsed() -> None:
+    """The edit is validated too — before anything is written."""
     with pytest.raises(BuildProfileError, match="Unknown connector 'epcis'"):
-        merge_cli_overrides({}, (), ("connector=epcis",))
+        cli_edit_layer(("connector=epcis",))
 
 
 # ── forwarding to persona renders ────────────────────────────────────────────
@@ -345,6 +361,36 @@ def test_init_bakes_the_literal_key(tmp_path: Path) -> None:
     assert baked["config"][CONNECTOR_CONFIG_KEY] == "doocs"
 
 
+def test_osprey_set_retires_the_shorthands_it_rewrites(tmp_path: Path) -> None:
+    """A file edit that writes a config key drops the shorthand beside it.
+
+    Left in place, the parse-time fold would restore the shorthand's value
+    over the key ``osprey set`` just wrote, on the very next read.
+    """
+    target = tmp_path / "my-deployment"
+    runner = CliRunner()
+    result = runner.invoke(init, [str(target), "--preset", "hello-world", "--no-git"])
+    assert result.exit_code == 0, result.output
+    profile = target / "profile.yml"
+    document = yaml.safe_load(profile.read_text(encoding="utf-8"))
+    document[CONNECTOR_PROFILE_KEY] = "doocs"
+    document[PORT_BASE_PROFILE_KEY] = 10000
+    document["config"].pop(CONNECTOR_CONFIG_KEY, None)
+    document["config"].pop(PORT_BASE_CONFIG_KEY, None)
+    profile.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+
+    written = runner.invoke(
+        set_command, ["--repo", str(target), "connector=mock", "port_base=42000"]
+    )
+    assert written.exit_code == 0, written.output
+
+    baked = yaml.safe_load(profile.read_text(encoding="utf-8"))
+    assert CONNECTOR_PROFILE_KEY not in baked
+    assert PORT_BASE_PROFILE_KEY not in baked
+    assert baked["config"][CONNECTOR_CONFIG_KEY] == "mock"
+    assert baked["config"][PORT_BASE_CONFIG_KEY] == 42000
+
+
 # ── the stand-in is settable, not initable ───────────────────────────────────
 #
 # The live stand-in is a control target of its own, reached by pointing a
@@ -373,11 +419,11 @@ def test_parse_accepts_the_stand_in() -> None:
     assert profile.config[CONNECTOR_CONFIG_KEY] == LIVE_STANDIN
 
 
-def test_merge_cli_overrides_accepts_the_stand_in() -> None:
-    """``--set connector=live_standin`` survives the CLI layering step."""
-    merged = merge_cli_overrides({}, (), (f"connector={LIVE_STANDIN}",))
+def test_a_cli_edit_accepts_the_stand_in() -> None:
+    """``--set connector=live_standin`` survives the edit's own validation."""
+    edit = cli_edit_layer((f"connector={LIVE_STANDIN}",))
 
-    assert merged == {"config": {CONNECTOR_CONFIG_KEY: LIVE_STANDIN}}
+    assert edit == {"config": {CONNECTOR_CONFIG_KEY: LIVE_STANDIN}}
 
 
 def test_misspelled_stand_in_suggests_the_stand_in() -> None:

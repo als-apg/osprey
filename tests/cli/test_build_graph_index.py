@@ -296,10 +296,16 @@ def _preset_repo(tmp_path: Path, name: str) -> Path:
     from osprey.cli.init_cmd import init
 
     repo = tmp_path / name
-    override = tmp_path / f"{name}-override.yml"
-    override.write_text("channel_finder_mode: graph\n", encoding="utf-8")
     created = CliRunner().invoke(
-        init, [str(repo), "--preset", "control-assistant", "--no-git", "-O", str(override)]
+        init,
+        [
+            str(repo),
+            "--preset",
+            "control-assistant",
+            "--no-git",
+            "--set",
+            "channel_finder_mode=graph",
+        ],
     )
     assert created.exit_code == 0, created.output
     return repo

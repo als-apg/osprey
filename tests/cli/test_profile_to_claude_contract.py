@@ -276,19 +276,21 @@ def test_external_server_command_placeholder_resolves_to_interpreter(tmp_path):
     ``args`` and ``env`` already ran through ``_resolve_placeholder``;
     ``command`` is the fix under test. Materialized into a fresh tmp repo — not
     the module-scoped ``built_hello_world_project`` fixture — so the ``probe``
-    fragment cannot leak into sibling tests.
+    server cannot leak into sibling tests.
     """
-    override = tmp_path / "probe.yml"
-    override.write_text(
-        'mcp_servers:\n  probe:\n    command: "{current_python_env}"\n    args: ["-m", "probe"]\n',
-        encoding="utf-8",
-    )
     target = tmp_path / "probe-repo"
     runner = CliRunner()
 
     init_result = runner.invoke(
         init,
-        [str(target), "--preset", "hello-world", "--no-git", "-O", str(override)],
+        [
+            str(target),
+            "--preset",
+            "hello-world",
+            "--no-git",
+            "--set",
+            'mcp_servers={"probe": {"command": "{current_python_env}", "args": ["-m", "probe"]}}',
+        ],
     )
     assert init_result.exit_code == 0, init_result.output
 

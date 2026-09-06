@@ -1758,6 +1758,20 @@ class TestProfileExtends:
 # ---------------------------------------------------------------------------
 
 
+def _set_args(profile_keys: dict[str, object]) -> list[str]:
+    """*profile_keys* as ``--set`` arguments for ``osprey init``.
+
+    One pair per top-level profile key. A ``--set`` value is YAML, and a
+    mapping given as one is written whole at the key it names, so a block like
+    ``va_archiver:`` travels in a single pair.
+    """
+    return [
+        arg
+        for key, value in profile_keys.items()
+        for arg in ("--set", f"{key}={json.dumps(value)}")
+    ]
+
+
 def _build_for_web_panels(
     tmp_path: Path,
     web_panels: list[str] | None,
@@ -3088,19 +3102,15 @@ class TestVAArchiverConfigDerivation:
     """The `va_archiver:` block's keys reach a built project's config.yml."""
 
     def _build(self, tmp_path: Path, project_name: str, **profile_keys: object) -> Path:
-        """Init the hello-world preset with *profile_keys* layered on top, build,
-        and return the RENDER — the directory whose config.yml the deploy reads."""
+        """Init the hello-world preset with *profile_keys* stated, build, and
+        return the RENDER — the directory whose config.yml the deploy reads."""
         from click.testing import CliRunner
 
         from osprey.cli.build_cmd import build
         from osprey.cli.init_cmd import init
 
         repo = tmp_path / project_name
-        argv = [str(repo), "--preset", "hello-world", "--no-git"]
-        if profile_keys:
-            override = tmp_path / f"{project_name}-override.yml"
-            override.write_text(yaml.safe_dump(profile_keys, sort_keys=False), encoding="utf-8")
-            argv += ["-O", str(override)]
+        argv = [str(repo), "--preset", "hello-world", "--no-git", *_set_args(profile_keys)]
 
         runner = CliRunner()
         result = runner.invoke(init, argv)
@@ -3225,7 +3235,7 @@ class TestTierIsPinnedOnlyWhereTheParadigmAcceptsOne:
         name: str,
         **profile_keys: object,
     ) -> tuple[Path, list[int | None]]:
-        """Build the control-assistant preset with *profile_keys* layered on.
+        """Build the control-assistant preset with *profile_keys* stated.
 
         Returns the render and the ``tier`` every render in the build handed
         ``create_project``. A build renders more than once — the deployment's
@@ -3247,12 +3257,17 @@ class TestTierIsPinnedOnlyWhereTheParadigmAcceptsOne:
         from osprey.cli.templates.manager import TemplateManager
 
         repo = tmp_path / name
-        override = tmp_path / f"{name}-override.yml"
-        override.write_text(yaml.safe_dump(profile_keys, sort_keys=False), encoding="utf-8")
 
         runner = CliRunner()
         created = runner.invoke(
-            init, [str(repo), "--preset", "control-assistant", "--no-git", "-O", str(override)]
+            init,
+            [
+                str(repo),
+                "--preset",
+                "control-assistant",
+                "--no-git",
+                *_set_args(profile_keys),
+            ],
         )
         assert created.exit_code == 0, created.output
 

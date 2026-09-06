@@ -52,8 +52,8 @@ _COMMENT_REACH = 3
 _CONFIG_KEY_RE = re.compile(r"^ {2}([A-Za-z_][\w.]*):")
 
 
-def _emit(preset: str, overrides: tuple[Path, ...] = (), set_pairs: tuple[str, ...] = ()) -> str:
-    return emit_standalone_profile_yaml(preset, overrides, set_pairs, "Emitted")
+def _emit(preset: str, set_pairs: tuple[str, ...] = ()) -> str:
+    return emit_standalone_profile_yaml(preset, set_pairs, "Emitted")
 
 
 def _active_and_commented(text: str) -> tuple[set[str], set[str]]:
@@ -167,24 +167,21 @@ def test_commented_members_are_active_or_templated(preset: str) -> None:
         )
 
 
-def test_commented_members_stay_covered_with_overrides_supplying_blocks(tmp_path: Path) -> None:
-    """(c) again, with `-O` making two COMMENTED members active — the ones that
-    would otherwise always take the template branch."""
-    (tmp_path / "art").mkdir()
-    override = tmp_path / "o.yml"
-    override.write_text(
-        "mcp_servers:\n"
-        "  matlab:\n"
-        "    command: /opt/matlab/bin/mcp-matlab\n"
-        "artifact_server:\n"
-        "  categories:\n"
-        "    optics:\n"
-        "      label: Optics\n"
-        '      color: "#4C9AFF"\n',
-        encoding="utf-8",
-    )
+def test_commented_members_stay_covered_with_set_supplying_blocks() -> None:
+    """(c) again, with ``--set`` making two COMMENTED members active — the ones
+    that would otherwise always take the template branch.
 
-    text = _emit("hello-world", (override,))
+    A mapping given as a ``--set`` value is written whole at the key it names,
+    so one pair per key states the block a facility would otherwise author by
+    hand.
+    """
+    text = _emit(
+        "hello-world",
+        (
+            'mcp_servers={"matlab": {"command": "/opt/matlab/bin/mcp-matlab"}}',
+            'artifact_server={"categories": {"optics": {"label": "Optics", "color": "#4C9AFF"}}}',
+        ),
+    )
     active, commented = _active_and_commented(text)
 
     assert "mcp_servers" in active
@@ -224,10 +221,7 @@ def test_data_emits_active_when_the_resolved_profile_carries_it(tmp_path: Path) 
     """Forward-compat for `osprey init` (3.4), which materializes a data tree and
     injects `data` into the resolved dict: the COMMENTED contract is
     active-when-carried, so nothing here may assume `data` renders commented."""
-    override = tmp_path / "o.yml"
-    override.write_text("data: data\n", encoding="utf-8")
-
-    text = _emit("hello-world", (override,))
+    text = _emit("hello-world", ("data=data",))
     active, _commented = _active_and_commented(text)
 
     assert "data" in active

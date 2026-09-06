@@ -207,7 +207,7 @@ def test_control_assistant_profile_validates() -> None:
 # ── Task 3.3: turn-key VA-backed plan stack render ───────────────────────────
 #
 # The control-assistant preset now bakes the bluesky/virtual_accelerator/
-# bluesky_web injector blocks in directly (no --set/--override flags needed),
+# bluesky_web injector blocks in directly (no --set flags needed),
 # so `osprey build` on the bare preset renders the full plan stack + the
 # BLUESKY panel turn-key. These tests build a control-assistant deployment
 # repo in-process (CliRunner, --skip-deps --skip-lifecycle -- Docker-free,

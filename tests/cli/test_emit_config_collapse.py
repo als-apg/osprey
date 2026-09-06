@@ -32,8 +32,8 @@ from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 NGINX_PORT = default_port("nginx")
 
 
-def _emit(preset: str, overrides: tuple[Path, ...] = ()) -> str:
-    return emit_standalone_profile_yaml(preset, overrides, (), "Emitted")
+def _emit(preset: str, set_pairs: tuple[str, ...] = ()) -> str:
+    return emit_standalone_profile_yaml(preset, set_pairs, "Emitted")
 
 
 def _prefix_pairs(config: dict) -> list[tuple[str, str]]:
@@ -206,14 +206,14 @@ def test_emit_rejects_a_scalar_parent_introduced_by_an_override(tmp_path: Path) 
     An overlay writing both spellings itself is what is left, and it is the
     real shape of the mistake — one file, two statements about one path.
     """
-    override = tmp_path / "o.yml"
-    override.write_text(
-        "config:\n  modules.web_terminals: false\n  modules.web_terminals.enabled: true\n",
-        encoding="utf-8",
-    )
-
     with pytest.raises(BuildProfileError, match="modules.web_terminals.enabled"):
-        _emit("control-assistant-readonly", (override,))
+        _emit(
+            "control-assistant-readonly",
+            (
+                "config.modules.web_terminals=false",
+                "config.modules.web_terminals.enabled=true",
+            ),
+        )
 
 
 def test_an_override_scalar_replaces_the_subtree_it_names(tmp_path: Path) -> None:
@@ -223,10 +223,9 @@ def test_an_override_scalar_replaces_the_subtree_it_names(tmp_path: Path) -> Non
     whole subtree at render time, so the emitted profile says that outright
     instead of carrying the inherited leaves it is about to overwrite.
     """
-    override = tmp_path / "o.yml"
-    override.write_text("config:\n  modules.web_terminals: false\n", encoding="utf-8")
-
-    config = yaml.safe_load(_emit("control-assistant-readonly", (override,)))["config"]
+    config = yaml.safe_load(
+        _emit("control-assistant-readonly", ("config.modules.web_terminals=false",))
+    )["config"]
 
     assert config["modules.web_terminals"] is False
     assert not [key for key in config if key.startswith("modules.web_terminals.")]

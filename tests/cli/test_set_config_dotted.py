@@ -12,8 +12,8 @@ block at once, where the deep merge keeps both and which of them survives to
 The other half of the same rule is what a stated key OUTRANKS. A command line
 is the last word, so a ``config`` key it states wins the whole subtree it names:
 every inherited key beneath it (segment-prefix match) is dropped before the
-render sees it, whether the operator stated it with ``--set``, in a ``-O``
-overlay, or through ``osprey set``.
+render sees it, whether the operator stated it with ``--set`` at ``osprey
+init`` or with ``osprey set`` afterwards.
 """
 
 from __future__ import annotations
@@ -31,7 +31,8 @@ from osprey.cli.build_profile_resolve import (
     _drop_shadowed_config_keys,
     _parse_set_pairs,
     _stated_config_paths,
-    merge_cli_overrides,
+    apply_cli_edits,
+    cli_edit_layer,
     resolve_build_profile,
 )
 from osprey.cli.init_cmd import init
@@ -42,6 +43,11 @@ from osprey.errors import BuildProfileError
 def _flat(text: str) -> str:
     """Collapse whitespace so assertions survive terminal line wrapping."""
     return " ".join(text.split())
+
+
+def _set_args(pairs: tuple[str, ...]) -> list[str]:
+    """The ``--set`` command-line form of *pairs*."""
+    return [arg for pair in pairs for arg in ("--set", pair)]
 
 
 def _init(runner: CliRunner, repo: Path, preset: str, *extra: str) -> None:
@@ -70,6 +76,54 @@ def test_a_config_pair_keeps_its_value_shape() -> None:
     """The RHS is still YAML: a mapping value stays a mapping under one key."""
     assert _parse_set_pairs(("config.approval.tools={channel_read: always}",)) == {
         "config": {"approval.tools": {"channel_read": "always"}}
+    }
+
+
+def test_a_config_mapping_value_replaces_the_subtree_it_names() -> None:
+    """``--set config.approval.tools={…}`` IS ``approval.tools``, as one key.
+
+    A mapping given as a VALUE is written whole at the key it names, and every
+    deeper key the document spells beneath it goes: two statements about one
+    rendered path would otherwise both survive, and which of them reached
+    ``config.yml`` would depend on key order nobody wrote down.
+    """
+    document = {
+        "config": {
+            "approval.tools.channel_read": "skip",
+            "approval.tools.execute": "ask",
+            "approval.enabled": True,
+        }
+    }
+
+    edited = apply_cli_edits(document, ("config.approval.tools={channel_read: always}",))
+
+    assert edited["config"] == {
+        "approval.enabled": True,
+        "approval.tools": {"channel_read": "always"},
+    }
+
+
+def test_a_config_leaf_pair_edits_one_key_and_keeps_its_siblings() -> None:
+    """The other spelling: ``config.approval.tools.channel_read=`` is one leaf.
+
+    Naming the leaf states the leaf, so the document's other ``approval.tools.*``
+    entries are not beneath what was said and stay. The pair with the test above
+    is the whole rule — the value's SHAPE decides how much the edit claims.
+    """
+    document = {
+        "config": {
+            "approval.tools.channel_read": "skip",
+            "approval.tools.execute": "ask",
+            "approval.enabled": True,
+        }
+    }
+
+    edited = apply_cli_edits(document, ("config.approval.tools.channel_read=always",))
+
+    assert edited["config"] == {
+        "approval.tools.channel_read": "always",
+        "approval.tools.execute": "ask",
+        "approval.enabled": True,
     }
 
 
@@ -178,17 +232,40 @@ def test_a_stated_subtree_replaces_the_presets_leaves_beneath_it() -> None:
     assert profile.config["approval.enabled"] is True
 
 
-def test_a_nested_override_file_mapping_replaces_the_leaves_beneath_it(tmp_path: Path) -> None:
-    """An ``-O`` overlay states its paths by nesting, and outranks the same way."""
-    override = tmp_path / "over.yml"
-    override.write_text(
-        "config:\n  approval:\n    tools:\n      channel_read: always\n", encoding="utf-8"
-    )
+def test_a_nested_mapping_value_replaces_the_leaves_beneath_it() -> None:
+    """A pair whose value nests states the path it names, and outranks the same way.
 
-    profile, _dir = resolve_build_profile(None, "hello-world", (override,))
+    ``--set config.approval={...}`` names one path — ``approval`` — however
+    deeply its value nests, so every one of the preset's ``approval.*`` leaves
+    is beneath it and goes.
+    """
+    profile, _dir = resolve_build_profile(
+        None, "hello-world", set_pairs=("config.approval={tools: {channel_read: always}}",)
+    )
 
     assert profile.config["approval"] == {"tools": {"channel_read": "always"}}
     assert not [key for key in profile.config if key.split(".")[0] == "approval" and "." in key]
+
+
+def test_a_top_level_mapping_value_states_the_whole_block() -> None:
+    """``--set bluesky={port: 2}`` is the whole of ``bluesky``, at top level too.
+
+    The rule is the same above ``config:`` as inside it: a mapping given as
+    the VALUE states the block at the key it names, so whatever the document
+    held there is gone, siblings included.
+    """
+    raw = apply_cli_edits(
+        {"name": "x", "bluesky": {"port": 1, "host": "h"}}, ("bluesky={port: 2}",)
+    )
+
+    assert raw["bluesky"] == {"port": 2}
+
+
+def test_a_top_level_dotted_key_edits_one_leaf() -> None:
+    """``--set bluesky.port=2`` names a leaf: it is replaced, its siblings stay."""
+    raw = apply_cli_edits({"name": "x", "bluesky": {"port": 1, "host": "h"}}, ("bluesky.port=2",))
+
+    assert raw["bluesky"] == {"port": 2, "host": "h"}
 
 
 def test_a_literal_key_inherited_from_a_parent_is_shadowed_too() -> None:
@@ -245,19 +322,10 @@ def test_connector_with_a_literal_type_set_is_refused() -> None:
     assert f"config.{CONNECTOR_CONFIG_KEY}='doocs'" in message
 
 
-def test_connector_with_a_literal_key_in_an_override_file_is_refused(tmp_path: Path) -> None:
-    """The ``-O`` file spelling is the same statement, so it conflicts the same way."""
-    override = tmp_path / "over.yml"
-    override.write_text(f"config:\n  {CONNECTOR_CONFIG_KEY}: doocs\n", encoding="utf-8")
-
+def test_the_conflict_is_caught_when_the_edit_is_parsed() -> None:
+    """Before the edit reaches any document — both spellings are the edit's own."""
     with pytest.raises(BuildProfileError, match="Conflicting connector overrides"):
-        resolve_build_profile(None, "hello-world", (override,), ("connector=epics",))
-
-
-def test_the_conflict_is_caught_at_merge_time() -> None:
-    """Before extends resolution — the two spellings are both CLI-layer facts."""
-    with pytest.raises(BuildProfileError, match="Conflicting connector overrides"):
-        merge_cli_overrides({}, (), ("connector=epics", "config.control_system.type=doocs"))
+        cli_edit_layer(("connector=epics", "config.control_system.type=doocs"))
 
 
 def test_the_shorthand_alone_still_overrides_the_preset_literal_key() -> None:
@@ -300,6 +368,31 @@ def test_osprey_set_reaches_the_rendered_config(runner_repo: tuple[CliRunner, Pa
     assert _build(runner, repo)["approval"]["tools"]["channel_read"] == "always"
 
 
+def test_osprey_set_with_a_mapping_value_prunes_the_file_beneath_it(
+    runner_repo: tuple[CliRunner, Path],
+) -> None:
+    """The file edit prunes what it outranks, the same as the in-memory one.
+
+    ``osprey set`` writes the profile a facility hand-edits, so the document
+    has to say what the resolver would: one ``approval.tools`` key holding the
+    mapping, none of the preset's ``approval.tools.*`` leaves left beside it to
+    say something else, and the siblings above it untouched.
+    """
+    runner, repo = runner_repo
+    _init(runner, repo, "hello-world")
+
+    written = runner.invoke(
+        set_cmd, ["--repo", str(repo), 'config.approval.tools={"channel_read": "always"}']
+    )
+    assert written.exit_code == 0, written.output
+
+    config = yaml.safe_load((repo / "profile.yml").read_text(encoding="utf-8"))["config"]
+    assert config["approval.tools"] == {"channel_read": "always"}
+    assert not [key for key in config if key.startswith("approval.tools.")]
+    assert config["approval.enabled"] is True
+    assert _build(runner, repo)["approval"]["tools"] == {"channel_read": "always"}
+
+
 def test_osprey_set_moves_a_service_port_and_the_ledger_with_it(
     runner_repo: tuple[CliRunner, Path],
 ) -> None:
@@ -320,6 +413,102 @@ def test_osprey_set_moves_a_service_port_and_the_ledger_with_it(
     profile, _dir = resolve_build_profile(repo / "profile.yml", None)
     assert profile._claimed_ports()["services.graphdb.port_host"] == 9999
     assert _build(runner, repo)["services"]["graphdb"]["port_host"] == 9999
+
+
+def test_osprey_set_with_a_leaf_key_keeps_the_siblings_in_the_file(
+    runner_repo: tuple[CliRunner, Path],
+) -> None:
+    """And the leaf spelling edits one key of the file, as it does in memory."""
+    runner, repo = runner_repo
+    _init(runner, repo, "hello-world")
+    before = _profile_config(repo)
+    sibling = "approval.tools.execute"
+    assert sibling in before
+
+    written = runner.invoke(
+        set_cmd, ["--repo", str(repo), "config.approval.tools.channel_read=always"]
+    )
+    assert written.exit_code == 0, written.output
+
+    config = _profile_config(repo)
+    assert config["approval.tools.channel_read"] == "always"
+    assert config[sibling] == before[sibling]
+    assert "approval.tools" not in config
+
+
+#: One edit of each shape a ``--set`` value can take: a scalar, a list, and a
+#: null. A list and a null are the two an inheritance merge could not express —
+#: a union cannot narrow, and a null read as "absent" would keep the old value —
+#: so they are where the two entry points would drift apart if either still
+#: layered instead of edited.
+_EQUIVALENT_EDITS = (
+    "config.approval.tools.channel_read=always",
+    "config.claude_code.permissions.deny=[]",
+    "config.hooks.debug=null",
+)
+
+
+def _profile_config(repo: Path) -> dict:
+    """The ``config:`` block the profile at *repo* HOLDS, as written."""
+    return yaml.safe_load((repo / "profile.yml").read_text(encoding="utf-8"))["config"]
+
+
+def _resolved_config(repo: Path) -> dict:
+    """The config block the profile at *repo* resolves to."""
+    profile, _dir = resolve_build_profile(repo / "profile.yml", None)
+    return profile.config
+
+
+def test_init_set_and_osprey_set_resolve_to_the_same_profile(tmp_path: Path) -> None:
+    """``osprey init --set k=v`` == ``osprey init`` then ``osprey set k=v``.
+
+    Both are the same edit of the same profile — one made to the document
+    before it is written, one made to the file afterwards — so they have to
+    land the same value at the same key. Pinned over a list and a null as well
+    as a scalar, because those are the shapes a layered merge would have got
+    wrong while the scalar looked fine.
+    """
+    runner = CliRunner()
+    # Same LEAF name under different parents: the deployment name is derived
+    # from the directory, and it reaches the profile's own config.
+    at_init = tmp_path / "at-init" / "deployment"
+    afterwards = tmp_path / "afterwards" / "deployment"
+
+    _init(runner, at_init, "control-assistant", *_set_args(_EQUIVALENT_EDITS))
+    _init(runner, afterwards, "control-assistant")
+    written = runner.invoke(set_cmd, ["--repo", str(afterwards), *_EQUIVALENT_EDITS])
+    assert written.exit_code == 0, written.output
+
+    assert _resolved_config(at_init) == _resolved_config(afterwards)
+    for key, value in (
+        ("approval.tools.channel_read", "always"),
+        ("claude_code.permissions.deny", []),
+        ("hooks.debug", None),
+    ):
+        assert _resolved_config(at_init)[key] == value
+
+
+def test_init_set_and_osprey_set_write_the_same_profile_text(tmp_path: Path) -> None:
+    """The two entry points also agree on the FILE, key for key.
+
+    Resolution could paper over a difference in spelling — a nested block and a
+    dotted key resolve alike — but the profile is what a facility reads and
+    hand-edits, so the same edit has to leave the same document behind.
+    """
+    runner = CliRunner()
+    # Same LEAF name under different parents: the deployment name is derived
+    # from the directory, and it reaches the profile's own config.
+    at_init = tmp_path / "at-init" / "deployment"
+    afterwards = tmp_path / "afterwards" / "deployment"
+
+    _init(runner, at_init, "control-assistant", *_set_args(_EQUIVALENT_EDITS))
+    _init(runner, afterwards, "control-assistant")
+    assert runner.invoke(set_cmd, ["--repo", str(afterwards), *_EQUIVALENT_EDITS]).exit_code == 0
+
+    def _config(repo: Path) -> dict:
+        return yaml.safe_load((repo / "profile.yml").read_text(encoding="utf-8"))["config"]
+
+    assert _config(at_init) == _config(afterwards)
 
 
 @pytest.fixture

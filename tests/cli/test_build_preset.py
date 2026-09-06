@@ -1,15 +1,20 @@
-"""Tests for the preset/override/--set surface and the `osprey build` it feeds.
+"""Tests for the preset/--set surface and the `osprey build` it feeds.
 
-A deployment starts with `osprey init --preset NAME [-O FILE] [--set K=V]`,
-which resolves the named preset through the profile pipeline and materializes
-it as `profile.yml` (plus `data/`, `personas/`, `.env.example`) at a repo's
-root. `osprey build --repo DIR` is zero-argument from there: it re-resolves
-that repo's own `profile.yml`, with no preset/override/--set surface of its
-own, and renders `DIR/build/`. This module covers both halves — the resolution
-pipeline `osprey init` drives (bundled presets, override files, --set inline
-scalars/lists, `extends`, the drift-guard that prevents presets from depending
-on profile-dir-relative paths that would break when shipped in a wheel) and
-what a plain `osprey build` does with the profile.yml it finds.
+A deployment starts with `osprey init --preset NAME [--set K=V]`, which
+resolves the named preset through the profile pipeline and materializes it as
+`profile.yml` (plus `data/`, `personas/`, `.env.example`) at a repo's root.
+`osprey build --repo DIR` is zero-argument from there: it re-resolves that
+repo's own `profile.yml`, with no preset/--set surface of its own, and renders
+`DIR/build/`. This module covers both halves — the resolution pipeline `osprey
+init` drives (bundled presets, --set inline scalars/lists, `extends`, the
+drift-guard that prevents presets from depending on profile-dir-relative paths
+that would break when shipped in a wheel) and what a plain `osprey build` does
+with the profile.yml it finds.
+
+A `--set` pair is an EDIT of the profile, not one more inheritance layer: it
+replaces the value at the key it names, whatever was there. Inheritance
+(`extends:`, a persona delta, a host-variant overlay) still adds — string lists
+union — and the two are pinned apart below.
 """
 
 from __future__ import annotations
@@ -99,7 +104,7 @@ def _materialize(runner: CliRunner, parent, name: str, preset: str, *extra: str)
 
     Returns the ``init`` result when it failed and the ``build`` result when it
     did not, so a caller asserting on ``exit_code`` sees whichever step actually
-    refused. ``-O`` and ``--set`` belong to ``init`` — they are baked into the
+    refused. ``--set`` belongs to ``init`` — its pairs are baked into the
     emitted profile, not applied at render time — so they are forwarded there.
 
     The render lands at ``<parent>/<name>/build``; :func:`_project` is the one
@@ -116,7 +121,7 @@ def _render_from(runner: CliRunner, profile_path, *extra: str):
     """Render the deployment repo that *profile_path* is the source of.
 
     A profile file IS its repo's source zone, so the repo is simply the file's
-    directory. ``extra`` is accepted and ignored on this path: ``-O``/``--set``
+    directory. ``extra`` is accepted and ignored on this path: ``--set`` pairs
     are materialization-time inputs, and a repo whose profile already exists on
     disk has nothing left to bake.
     """
@@ -137,15 +142,6 @@ def test_preset_hello_world_creates_project(runner: CliRunner, tmp_path: Path) -
     assert (project_dir / "CLAUDE.md").exists()
 
 
-def test_preset_with_override_file(runner: CliRunner, tmp_path: Path) -> None:
-    override = tmp_path / "over.yml"
-    override.write_text("model: opus\n")
-    result = _materialize(runner, str(tmp_path), "smoke", "hello-world", "-O", str(override))
-    assert result.exit_code == 0, result.output
-    config = _config_yaml(_project(tmp_path, "smoke"))
-    assert config["claude_code"]["default_model"] == "opus"
-
-
 def test_set_flag_overrides_scalar(runner: CliRunner, tmp_path: Path) -> None:
     result = _materialize(runner, str(tmp_path), "smoke", "hello-world", "--set", "model=sonnet")
     assert result.exit_code == 0, result.output
@@ -153,22 +149,24 @@ def test_set_flag_overrides_scalar(runner: CliRunner, tmp_path: Path) -> None:
     assert config["claude_code"]["default_model"] == "sonnet"
 
 
-def test_set_with_list_value_extends(runner: CliRunner, tmp_path: Path) -> None:
-    """--set on a string list union-dedups (per _merge_lists), preserving base order."""
+def test_set_with_a_list_value_replaces_the_presets_list(runner: CliRunner, tmp_path: Path) -> None:
+    """``--set hooks=[…]`` states the hook list; the preset's entries do not survive.
+
+    The edit half of the rule at the CLI surface. An inheritance layer would
+    union these and leave the operator unable to take a hook away, which is the
+    narrowing the explicit-profile work exists to make expressible.
+    """
     result = _materialize(
         runner, str(tmp_path), "smoke", "hello-world", "--set", "hooks=[memory-guard]"
     )
     assert result.exit_code == 0, result.output
-    # The persisted manifest is the post-merge artifact list seen by the build.
+    # The persisted manifest is the artifact list the build actually saw.
     manifest_path = _project(tmp_path, "smoke") / ".osprey-manifest.json"
     assert manifest_path.exists(), result.output
     import json
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    hooks = set(manifest["artifacts"]["hooks"])
-    assert "memory-guard" in hooks
-    # Preset's original hooks remain (union, not replace).
-    assert {"hook-log", "hook-config", "approval"} <= hooks
+    assert manifest["artifacts"]["hooks"] == ["memory-guard"]
 
 
 def test_preset_ariel_standalone_renders_logbook_persona(runner: CliRunner, tmp_path: Path) -> None:
@@ -342,93 +340,6 @@ def test_manifest_uses_build_args_not_init_args(runner: CliRunner, tmp_path: Pat
     assert "init_args" not in manifest
 
 
-def test_override_deep_merges_nested_dict(runner: CliRunner, tmp_path: Path) -> None:
-    """T2: nested dicts in -O files deep-merge into preset values, not replace."""
-    override = tmp_path / "over.yml"
-    override.write_text("config:\n  system:\n    timezone: UTC\n")
-    result = _materialize(runner, str(tmp_path), "smoke", "hello-world", "-O", str(override))
-    assert result.exit_code == 0, result.output
-    config = _config_yaml(_project(tmp_path, "smoke"))
-    # The override-injected value must land at the rendered nested key.
-    assert config.get("system", {}).get("timezone") == "UTC"
-
-
-def test_override_unions_string_list(runner: CliRunner, tmp_path: Path) -> None:
-    """T2: string lists union-dedup with preserved base order (per _merge_lists)."""
-    override = tmp_path / "over.yml"
-    # hello-world preset has hooks: [hook-log, hook-config, approval] (or similar).
-    # Add memory-guard via override; pre-existing items must remain.
-    override.write_text("hooks:\n  - memory-guard\n")
-    result = _materialize(runner, str(tmp_path), "smoke", "hello-world", "-O", str(override))
-    assert result.exit_code == 0, result.output
-    import json
-
-    manifest = json.loads((_project(tmp_path, "smoke") / ".osprey-manifest.json").read_text())
-    hooks = set(manifest["artifacts"]["hooks"])
-    assert "memory-guard" in hooks
-    assert {"hook-log", "hook-config", "approval"} <= hooks
-
-
-def test_multiple_override_files_apply_in_order(runner: CliRunner, tmp_path: Path) -> None:
-    """T2: -O is multiple=True; later files win at the same key."""
-    a = tmp_path / "a.yml"
-    a.write_text("model: sonnet\n")
-    b = tmp_path / "b.yml"
-    b.write_text("model: opus\n")
-    result = _materialize(runner, str(tmp_path), "smoke", "hello-world", "-O", str(a), "-O", str(b))
-    assert result.exit_code == 0, result.output
-    config = _config_yaml(_project(tmp_path, "smoke"))
-    assert config["claude_code"]["default_model"] == "opus"
-
-
-def test_override_missing_file_aborts(runner: CliRunner, tmp_path: Path) -> None:
-    """A missing -O file is refused where -O lives: `osprey init`, which
-    validates and bakes override layers into the profile it materializes.
-    `osprey build` carries no -O of its own — it only ever re-renders a
-    profile.yml that already exists — so there is nothing left for it to
-    refuse this way."""
-    result = _materialize(
-        runner,
-        str(tmp_path),
-        "smoke",
-        "hello-world",
-        "-O",
-        str(tmp_path / "does-not-exist.yml"),
-    )
-    assert result.exit_code != 0, result.output
-    assert "not found" in result.output.lower()
-
-
-def test_override_malformed_yaml_aborts(runner: CliRunner, tmp_path: Path) -> None:
-    """Malformed YAML in an -O file aborts `osprey init` with a YAML-specific
-    message naming the file, not a raw parser traceback."""
-    bad = tmp_path / "bad.yml"
-    bad.write_text("model: : invalid:\n  - [unterminated\n")
-    result = _materialize(runner, str(tmp_path), "smoke", "hello-world", "-O", str(bad))
-    assert result.exit_code != 0, result.output
-    assert "yaml" in result.output.lower()
-
-
-def test_override_empty_file_is_noop(runner: CliRunner, tmp_path: Path) -> None:
-    """T2: an empty -O file (parses to None) is a no-op (skip-None branch)."""
-    empty = tmp_path / "empty.yml"
-    empty.write_text("")
-    result = _materialize(runner, str(tmp_path), "smoke", "hello-world", "-O", str(empty))
-    assert result.exit_code == 0, result.output
-    # Project still built; preset's defaults remain.
-    assert (_project(tmp_path, "smoke") / "config.yml").exists()
-
-
-def test_override_non_mapping_aborts(runner: CliRunner, tmp_path: Path) -> None:
-    """An -O file whose top-level body is a list, not a mapping, aborts
-    `osprey init` — there is nothing to deep-merge a list into."""
-    bad = tmp_path / "list.yml"
-    bad.write_text("- one\n- two\n")
-    result = _materialize(runner, str(tmp_path), "smoke", "hello-world", "-O", str(bad))
-    assert result.exit_code != 0, result.output
-    assert "mapping" in result.output.lower()
-
-
 def test_set_dotted_path_lands_in_config_yml(runner: CliRunner, tmp_path: Path) -> None:
     """T3 (also pins B3 closure): --set with dotted key writes to nested config."""
     # `config.<...>` is the documented path for inserting custom rendered-config
@@ -469,16 +380,91 @@ def test_set_yaml_typed_values(runner: CliRunner, tmp_path: Path) -> None:
     assert sect.get("a_list") == ["a", "b"] or cfg.get("a_list") == ["a", "b"]
 
 
-def test_set_overrides_override_file(runner: CliRunner, tmp_path: Path) -> None:
-    """T3: --set wins over -O at the same key (per docstring precedence)."""
-    over = tmp_path / "o.yml"
-    over.write_text("model: sonnet\n")
-    result = _materialize(
-        runner, str(tmp_path), "smoke", "hello-world", "-O", str(over), "--set", "model=opus"
+# ---------------------------------------------------------------------------
+# An edit states; inheritance adds
+#
+# The two things that reach a profile mean different things. `extends:`, a
+# persona delta and a host-variant overlay are inheritance — a layer is a
+# DIFFERENCE, so string lists union and taking something away is an explicit
+# verb. A `--set` pair is an EDIT — it REPLACES the value at the key it names,
+# whatever was there. The cases below are the ones where the difference is
+# visible, and where routing an edit back through the inheritance merge would
+# silently lose what the operator said.
+# ---------------------------------------------------------------------------
+
+
+def test_init_set_can_state_an_empty_service_list(runner: CliRunner, tmp_path: Path) -> None:
+    """`--set config.deployed_services=[]` reaches the emitted profile as `[]`.
+
+    The narrowing a union cannot express, and the case that motivated the
+    change: layered under inheritance, an empty list merged with the preset's
+    four services is the preset's four services, so a deployment that meant to
+    deploy nothing quietly deployed everything.
+    """
+    repo = tmp_path / "smoke"
+    result = runner.invoke(
+        init,
+        [
+            str(repo),
+            "--preset",
+            "control-assistant",
+            "--no-git",
+            "--set",
+            "config.deployed_services=[]",
+        ],
     )
     assert result.exit_code == 0, result.output
-    cfg = _config_yaml(_project(tmp_path, "smoke"))
-    assert cfg["claude_code"]["default_model"] == "opus"
+
+    assert _profile_yaml(repo)["config"]["deployed_services"] == []
+
+
+def test_a_set_list_replaces_rather_than_unions_with_the_preset() -> None:
+    """`--set config.claude_code.permissions.deny=[…]` IS the deny list.
+
+    control-assistant denies one tool of its own. The edit names that key, so
+    what resolves is exactly what was stated — not the preset's entry with the
+    stated one appended, which is what a union would give.
+    """
+    profile, _dir = resolve_build_profile(
+        None,
+        "control-assistant",
+        set_pairs=("config.claude_code.permissions.deny=[Bash(rm)]",),
+    )
+
+    assert profile.config["claude_code.permissions.deny"] == ["Bash(rm)"]
+
+
+def test_a_persona_inherits_the_bases_deny_entries_by_union() -> None:
+    """The inheritance half: control-assistant-knowledge extends control-assistant.
+
+    Its delta adds one denied tool and inherits the base's, because a layer is
+    a difference and string lists union. Pinned beside the edit case below so
+    the two rules are read together — this is what an edit at the same key has
+    to override.
+    """
+    profile, _dir = resolve_build_profile(None, "control-assistant-knowledge")
+
+    assert profile.config["claude_code.permissions.deny"] == [
+        "mcp__osprey_workspace__setup_patch",
+        "mcp__osprey_facility_knowledge__draft_concept",
+    ]
+
+
+def test_an_edit_applies_after_extends_and_replaces_the_inherited_list() -> None:
+    """The edit half of the same key: `--set` lands AFTER `extends` resolution.
+
+    Applied as one more layer under inheritance it would union with both the
+    persona's entry and the base's, and the base's
+    `mcp__osprey_workspace__setup_patch` would reappear in a list the operator
+    just stated in full. Applied to the resolved document, it is the list.
+    """
+    profile, _dir = resolve_build_profile(
+        None,
+        "control-assistant-knowledge",
+        set_pairs=("config.claude_code.permissions.deny=[Bash(rm)]",),
+    )
+
+    assert profile.config["claude_code.permissions.deny"] == ["Bash(rm)"]
 
 
 def test_set_path_through_scalar_aborts(runner: CliRunner, tmp_path: Path) -> None:
@@ -1060,14 +1046,6 @@ def test_set_value_invalid_yaml_raises() -> None:
     """A --set value that isn't valid YAML raises BuildProfileError, not a YAMLError."""
     with pytest.raises(BuildProfileError, match="is not valid YAML"):
         resolve_build_profile(None, preset="hello-world", set_pairs=("foo=[unterminated",))
-
-
-def test_override_file_invalid_yaml_raises(tmp_path: Path) -> None:
-    """An -O override file with invalid YAML raises BuildProfileError, not a YAMLError."""
-    bad = tmp_path / "bad.yml"
-    bad.write_text("model: : invalid:\n  - [unterminated\n")
-    with pytest.raises(BuildProfileError, match="Invalid YAML"):
-        resolve_build_profile(None, preset="hello-world", overrides=(bad,))
 
 
 # ---------------------------------------------------------------------------

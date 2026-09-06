@@ -18,7 +18,7 @@ from osprey.cli.build_profile import _KNOWN_PROFILE_KEYS, _parse_profile
 from osprey.cli.build_profile_load import PORT_BASE_PROFILE_KEY
 from osprey.cli.build_profile_resolve import (
     SHORTHAND_OVERRIDE_KEYS,
-    merge_cli_overrides,
+    apply_cli_edits,
 )
 from osprey.errors import BuildProfileError
 from osprey.port_layout import PORT_BASE_CONFIG_KEY
@@ -64,8 +64,14 @@ def test_shorthand_overrides_an_existing_literal_key() -> None:
     assert profile.config[PORT_BASE_CONFIG_KEY] == 42000
 
 
-def test_merge_cli_overrides_folds_set_shorthand() -> None:
-    raw = merge_cli_overrides(_minimal(), (), ("port_base=42000",))
+def test_a_cli_edit_folds_the_shorthand_into_the_dotted_key() -> None:
+    """``--set port_base=`` lands as the literal config key, not the shorthand.
+
+    Pins the fold on the edit path: what the profile then holds is the key a
+    reader would edit by hand, so nothing silently outranks the config block
+    printed beside it.
+    """
+    raw = apply_cli_edits(_minimal(), ("port_base=42000",))
 
     assert raw["config"][PORT_BASE_CONFIG_KEY] == 42000
     assert PORT_BASE_PROFILE_KEY not in raw

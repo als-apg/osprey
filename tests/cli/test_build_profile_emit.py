@@ -141,7 +141,7 @@ def test_preset_without_extends_cannot_be_emitted_as_a_delta() -> None:
 
 
 def _standalone(preset: str) -> str:
-    return emit_standalone_profile_yaml(preset, (), (), "Emitted")
+    return emit_standalone_profile_yaml(preset, (), "Emitted")
 
 
 @pytest.mark.parametrize("preset", list_presets())
