@@ -351,6 +351,17 @@ ariel:
     adapter: generic_json
     source_url: data/logbook_seed/demo_logbook.json
 
+    # TLS on the logbook fetch. Verification is ON — an ingest that cannot
+    # verify the logbook's certificate fails rather than trusting whatever
+    # answered. Two ways out, in order of preference:
+    #   ca_bundle: point at your site CA's PEM when it is not in the image
+    #     trust store (a CA installed into the image needs no key here);
+    #   verify_ssl: false — the deliberate opt-out for a certificate that
+    #     cannot be verified at all. Credentials and entry text then travel
+    #     over a connection nobody has authenticated.
+    # ca_bundle: /etc/ssl/certs/site-ca.pem
+    # verify_ssl: false
+
   # Which module answers a search that names no mode — the web interface's
   # opening tab, `osprey ariel search` without `--mode`, and the service API.
   # Naming a module that is not enabled below is refused at startup rather

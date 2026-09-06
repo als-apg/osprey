@@ -1035,6 +1035,14 @@ ariel:
   # scenarios and seeds their logbook entries into Postgres (see the
   # sim-scenarios skill). For production, add an `ingestion` block pointing at
   # your logbook system (adapter + source_url) and use `osprey ariel ingest`.
+  # That block's TLS keys default to verifying the logbook's certificate; name
+  # your site CA with `ca_bundle` when it is not in the image trust store, and
+  # keep `verify_ssl: false` for a certificate that cannot be verified at all.
+  # ingestion:
+  #   adapter: generic_json
+  #   source_url: https://logbook.example.org/api/entries
+  #   ca_bundle: /etc/ssl/certs/site-ca.pem
+  #   verify_ssl: false
 
   # osprey:panel-port ariel
   # ARIEL tab: the search UI is a web server of its own, configured under this

@@ -23,6 +23,7 @@ from osprey.services.ariel_search.exceptions import (
     IngestionError,
 )
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter
+from osprey.services.ariel_search.ingestion.http import build_ssl_context
 from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
 from osprey.utils.logger import get_logger
 
@@ -105,6 +106,7 @@ class ALSLogbookAdapter(FacilityAdapter):
 
         self.proxy_url = config.ingestion.proxy_url or os.environ.get("ARIEL_SOCKS_PROXY")
         self.verify_ssl = config.ingestion.verify_ssl
+        self.ca_bundle = config.ingestion.ca_bundle
         self.chunk_days = config.ingestion.chunk_days or 365
         self.request_timeout = config.ingestion.request_timeout_seconds or 60
         self.max_retries = config.ingestion.max_retries or 3
@@ -296,13 +298,7 @@ class ALSLogbookAdapter(FacilityAdapter):
         """
         connector = self._create_connector()
 
-        ssl_context: ssl.SSLContext | bool
-        if self.verify_ssl:
-            ssl_context = True
-        else:
-            ssl_context = ssl.create_default_context()
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
+        ssl_context = build_ssl_context(self.verify_ssl, self.ca_bundle)
 
         timeout = aiohttp.ClientTimeout(total=self.request_timeout)
         last_error: Exception | None = None
@@ -400,13 +396,7 @@ class ALSLogbookAdapter(FacilityAdapter):
 
         connector = self._create_connector()
 
-        ssl_context: ssl.SSLContext | bool
-        if self.verify_ssl:
-            ssl_context = True
-        else:
-            ssl_context = ssl.create_default_context()
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
+        ssl_context = build_ssl_context(self.verify_ssl, self.ca_bundle)
 
         timeout = aiohttp.ClientTimeout(total=self.request_timeout)
 

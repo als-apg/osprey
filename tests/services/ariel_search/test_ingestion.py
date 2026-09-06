@@ -724,6 +724,21 @@ class TestALSLogbookAdapterHTTP:
         adapter = ALSLogbookAdapter(config)
         assert adapter.verify_ssl is True
 
+    def test_verify_ssl_defaults_on(self):
+        """An ingestion block that says nothing about TLS still verifies."""
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://test"},
+                "ingestion": {
+                    "adapter": "als_logbook",
+                    "source_url": "https://example.com/api",
+                },
+            }
+        )
+        adapter = ALSLogbookAdapter(config)
+        assert adapter.verify_ssl is True
+        assert adapter.ca_bundle is None
+
     def test_config_chunk_days(self):
         """Chunk days setting is read from config."""
         config = self._make_config(chunk_days=30)
@@ -1134,7 +1149,8 @@ class TestALSLogbookAdapterHTTPConfigParsing:
         config = IngestionConfig.from_dict({"adapter": "als_logbook"})
 
         assert config.proxy_url is None
-        assert config.verify_ssl is False
+        assert config.verify_ssl is True
+        assert config.ca_bundle is None
         assert config.chunk_days == 365
         assert config.request_timeout_seconds == 60
         assert config.max_retries == 3
@@ -1163,6 +1179,24 @@ class TestALSLogbookAdapterHTTPConfigParsing:
         assert config.request_timeout_seconds == 120
         assert config.max_retries == 5
         assert config.retry_delay_seconds == 10
+
+    def test_ingestion_config_verify_ssl_opt_out_is_explicit(self):
+        """Verification is only off when the config says so in words."""
+        from osprey.services.ariel_search.config import IngestionConfig
+
+        config = IngestionConfig.from_dict({"adapter": "als_logbook", "verify_ssl": False})
+
+        assert config.verify_ssl is False
+
+    def test_ingestion_config_ca_bundle(self):
+        """A site CA bundle path is carried through to the adapter."""
+        from osprey.services.ariel_search.config import IngestionConfig
+
+        config = IngestionConfig.from_dict(
+            {"adapter": "als_logbook", "ca_bundle": "/etc/ssl/certs/site-ca.pem"}
+        )
+
+        assert config.ca_bundle == "/etc/ssl/certs/site-ca.pem"
 
     def test_ingestion_config_env_fallback(self):
         """Proxy URL falls back to ARIEL_SOCKS_PROXY env var."""
@@ -1490,3 +1524,51 @@ class TestALSLogbookAdapterWrite:
 
         with pytest.raises(AuthenticationRequiredError, match="credentials"):
             await adapter.create_entry(request)
+
+
+class TestBuildSSLContext:
+    """Tests for the shared ingestion TLS helper."""
+
+    def test_verifying_default_uses_the_image_trust_store(self):
+        """No bundle named means aiohttp's own default, not a hand-built one."""
+        from osprey.services.ariel_search.ingestion.http import build_ssl_context
+
+        assert build_ssl_context(True, None) is True
+
+    def test_ca_bundle_builds_a_verifying_context(self, tmp_path):
+        """A named bundle produces a context that still verifies."""
+        import ssl
+
+        from osprey.services.ariel_search.ingestion.http import build_ssl_context
+
+        bundle = tmp_path / "site-ca.pem"
+        bundle.write_bytes(Path(ssl.get_default_verify_paths().openssl_cafile).read_bytes())
+
+        context = build_ssl_context(True, str(bundle))
+
+        assert isinstance(context, ssl.SSLContext)
+        assert context.verify_mode == ssl.CERT_REQUIRED
+        assert context.check_hostname is True
+
+    def test_opt_out_disables_verification(self):
+        """verify_ssl false is the one path that turns checking off."""
+        import ssl
+
+        from osprey.services.ariel_search.ingestion.http import build_ssl_context
+
+        context = build_ssl_context(False, None)
+
+        assert isinstance(context, ssl.SSLContext)
+        assert context.verify_mode == ssl.CERT_NONE
+        assert context.check_hostname is False
+
+    def test_adapter_builds_its_context_through_the_helper(self):
+        """The ALS adapter has no private copy of the TLS decision."""
+        import inspect
+
+        from osprey.services.ariel_search.ingestion.adapters import als
+
+        source = inspect.getsource(als)
+
+        assert "build_ssl_context(" in source
+        assert "ssl.CERT_NONE" not in source
