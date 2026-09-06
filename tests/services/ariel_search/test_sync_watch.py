@@ -43,10 +43,10 @@ _SOURCE = "file:///entries.json"
 
 
 def _config(**ingestion: Any) -> dict[str, Any]:
-    """Config dict with a reachable-looking ingestion source."""
+    """Config dict with a reachable-looking ingestion source and its adapter."""
     return {
         "database": {"uri": "postgresql://localhost/test"},
-        "ingestion": {"source_url": _SOURCE, **ingestion},
+        "ingestion": {"adapter": "generic_json", "source_url": _SOURCE, **ingestion},
     }
 
 

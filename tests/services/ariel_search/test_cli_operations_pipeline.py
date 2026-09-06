@@ -66,10 +66,14 @@ _SOURCE = "file:///entries.json"
 
 
 def _config(**ingestion: Any) -> dict[str, Any]:
-    """Fresh config dict; ``ingestion`` kwargs become the ``ingestion`` block."""
+    """Fresh config dict; ``ingestion`` kwargs become the ``ingestion`` block.
+
+    An ingestion block always names an adapter — the key is required — so one
+    is filled in unless the caller named its own.
+    """
     cfg: dict[str, Any] = {"database": dict(_DB["database"])}
     if ingestion:
-        cfg["ingestion"] = dict(ingestion)
+        cfg["ingestion"] = {"adapter": "generic_json", **ingestion}
     return cfg
 
 
@@ -235,20 +239,23 @@ class TestRunSync:
             "max_consecutive_failures": 3,
         }
 
-    async def test_missing_ingestion_block_gets_the_override_too(
+    async def test_missing_ingestion_block_is_refused(
         self, monkeypatch, mock_repository, fake_pool
     ):
+        """A sync with nothing to ingest from is refused, naming the missing key."""
+        from osprey.services.ariel_search.exceptions import ConfigurationError
+
         _patch_pool(monkeypatch, fake_pool)
         _patch_migrations(monkeypatch, applied=[])
-        schedulers = _patch_scheduler(monkeypatch, _poll_result(added=0))
+        _patch_scheduler(monkeypatch, _poll_result(added=0))
         _patch_service(monkeypatch, _StubService(mock_repository))
         _patch_enhancers(monkeypatch, [])
 
         config_dict = dict(_DB)
 
-        await ops.run_sync(config_dict)
+        with pytest.raises(ConfigurationError, match="ariel.ingestion.adapter is required"):
+            await ops.run_sync(config_dict)
 
-        assert schedulers[0].config.ingestion.watch.require_initial_ingest is False
         # The synthesized block never leaks back to the caller.
         assert "ingestion" not in config_dict
 
@@ -591,11 +598,14 @@ class TestRunWatchOnce:
         assert config_dict["ingestion"]["poll_interval_seconds"] == 30
         assert schedulers[0].config.ingestion.poll_interval_seconds == 30
 
-    async def test_interval_without_a_source_is_recorded_then_rejected(self, monkeypatch):
+    async def test_interval_without_an_ingestion_block_is_recorded_then_rejected(self, monkeypatch):
+        """An interval alone is not a configuration: the adapter is still required."""
+        from osprey.services.ariel_search.exceptions import ConfigurationError
+
         _forbid_service(monkeypatch)
 
         config_dict = dict(_DB)
-        with pytest.raises(ValueError, match="No ingestion source configured"):
+        with pytest.raises(ConfigurationError, match="ariel.ingestion.adapter is required"):
             await ops.run_watch(
                 config_dict,
                 source=None,
@@ -605,9 +615,25 @@ class TestRunWatchOnce:
                 dry_run=False,
             )
 
-        # The override is applied before the source check, so the synthesized
-        # block is left behind even though the call is rejected.
+        # The override is applied before the config is parsed, so the
+        # synthesized block is left behind even though the call is rejected.
         assert config_dict["ingestion"] == {"poll_interval_seconds": 45}
+
+    async def test_source_without_an_adapter_is_still_refused(self, monkeypatch):
+        """--source names where, not what reads it; the adapter is a separate answer."""
+        from osprey.services.ariel_search.exceptions import ConfigurationError
+
+        _forbid_service(monkeypatch)
+
+        with pytest.raises(ConfigurationError, match="ariel.ingestion.adapter is required"):
+            await ops.run_watch(
+                dict(_DB),
+                source=_SOURCE,
+                adapter=None,
+                once=True,
+                interval=None,
+                dry_run=False,
+            )
 
     async def test_the_updated_count_survives_the_projection(self, monkeypatch, mock_repository):
         """``entries_updated`` reaches the CLI result, not just the poll result.

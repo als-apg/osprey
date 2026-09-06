@@ -150,6 +150,38 @@ class TestIngestionConfig:
         assert config.source_url == "https://als.example.com/api"
         assert config.poll_interval_seconds == 1800
 
+    def test_tls_defaults(self) -> None:
+        """Verification is on and no site CA is assumed."""
+        config = IngestionConfig.from_dict({"adapter": "als_logbook"})
+        assert config.verify_ssl is True
+        assert config.ca_bundle is None
+
+    def test_ca_bundle_threads_through(self) -> None:
+        """A named site CA reaches the config the adapter reads."""
+        config = IngestionConfig.from_dict(
+            {"adapter": "als_logbook", "ca_bundle": "/etc/ssl/certs/site-ca.pem"}
+        )
+        assert config.ca_bundle == "/etc/ssl/certs/site-ca.pem"
+
+    def test_missing_adapter_is_refused(self) -> None:
+        """There is no default adapter: the old one was not a registered name."""
+        with pytest.raises(ConfigurationError) as exc_info:
+            IngestionConfig.from_dict({"source_url": "https://als.example.com/api"})
+
+        assert "ariel.ingestion.adapter is required" in str(exc_info.value)
+
+    def test_the_refusal_lists_the_registered_adapters(self) -> None:
+        """An operator who meets it is told what to write instead."""
+        with pytest.raises(ConfigurationError) as exc_info:
+            IngestionConfig.from_dict({})
+
+        assert "generic_json" in str(exc_info.value)
+
+    def test_an_empty_adapter_is_refused_too(self) -> None:
+        """`adapter:` with nothing after it names no adapter."""
+        with pytest.raises(ConfigurationError):
+            IngestionConfig.from_dict({"adapter": ""})
+
     def test_watch_defaults(self) -> None:
         """IngestionConfig has default WatchConfig."""
         config = IngestionConfig(adapter="generic_json")
