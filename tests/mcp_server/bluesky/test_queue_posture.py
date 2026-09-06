@@ -3,8 +3,8 @@
 The queue surface has always re-read the DEPLOYMENT's write posture for the
 control target its bound lane serves, fresh from config, before anything
 reaches the network. This file pins the second term that now ANDs into that
-answer: the per-(session, target) narrowing an operator sets from the header
-chip, read through ``osprey_connectors.session_store.effective_writes``.
+answer: the per-target narrowing an operator sets from the header chip, read
+through ``osprey_connectors.session_store.effective_writes``.
 
 Three properties, all asserted directly:
 
@@ -13,12 +13,12 @@ Three properties, all asserted directly:
    even though the deployment's own config arms every target here. The
    converse — an unarmed ceiling that the store says nothing about — still
    refuses, so nothing in the store can widen a deployment.
-2. **The narrowing is per target, not per session.** A session that sandboxed
-   ``standin`` still queues and starts on a lane serving ``va``: the entry
-   names one machine, and the lane's own target is what indexes it.
-3. **No session key means the store is not consulted.** A process nobody
-   stamped ``OSPREY_POSTURE_SESSION`` into behaves exactly as it did before
-   this store existed, whatever the file happens to hold.
+2. **The narrowing is per target.** A deployment that sandboxed ``standin``
+   still queues and starts on a lane serving ``va``: the entry names one
+   machine, and the lane's own target is what indexes it.
+3. **A process with no session key is narrowed all the same.** The narrowing
+   is the deployment's, so a bridge lane nobody stamped a session onto reads
+   the same record and is refused by it.
 
 The bridge's own startup guard (``bluesky_bridge.validation``) reads the same
 rule for the lane it IS, and is covered here too — same term, same store, and
@@ -30,7 +30,6 @@ refusal wording against the queue wire contract with no bridge process.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -40,6 +39,7 @@ import yaml
 from osprey.mcp_server.bluesky.server_context import initialize_server_context, reset_server_context
 from osprey.mcp_server.bluesky.tools import queue
 from osprey_connectors import session_store
+from tests._control_context_fixtures import write_control_context
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 pytestmark = pytest.mark.unit
@@ -47,10 +47,9 @@ pytestmark = pytest.mark.unit
 _MOD = "osprey.mcp_server.bluesky.tools.queue"
 
 _TOKEN = "genuinely-valid-token"
-_SESSION = "0b6f2f7c-3d1e-4a2b-9c8d-1f2e3a4b5c6d"
 
 #: A deployment that arms EVERY target at the ceiling, so the only thing that
-#: can refuse in these tests is the session store. Baseline is ``live``
+#: can refuse in these tests is the recorded narrowing. Baseline is ``live``
 #: (``type: epics``); the lane declares whichever target a test needs.
 _ARMED_SECTION = {
     "type": "epics",
@@ -108,22 +107,15 @@ def _configure(
     initialize_server_context()
 
 
-def _narrow(tmp_path, monkeypatch, entry, *, session_key: str | None = _SESSION) -> Path:
-    """Write the posture store and stamp the anchors a session child carries.
+def _narrow(tmp_path, monkeypatch, entry) -> Path:
+    """Write the deployment's narrowings and stamp the root a child carries.
 
-    *entry* is the store value for :data:`_SESSION` — the per-target object the
-    header chip writes. ``session_key=None`` stamps the root but no session,
-    which is the "nothing addressed this session" case.
+    *entry* is the record's ``posture`` map — the per-target object the header
+    chip writes.
     """
     root = tmp_path / "agent_data"
-    path = root / session_store.STATE_DIR_NAME / session_store.STORE_FILENAME
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({_SESSION: entry}), encoding="utf-8")
+    path = write_control_context(root, posture=entry)
     monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    if session_key is None:
-        monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
-    else:
-        monkeypatch.setenv("OSPREY_POSTURE_SESSION", session_key)
     session_store.invalidate_cache()
     return path
 
@@ -307,21 +299,23 @@ async def test_an_unarmed_ceiling_still_refuses_with_an_empty_store(tmp_path, mo
     )
 
 
-async def test_no_session_key_leaves_the_store_unconsulted(tmp_path, monkeypatch):
-    """A process nobody stamped is a process nothing narrowed.
+async def test_a_process_with_no_session_key_is_narrowed_all_the_same(tmp_path, monkeypatch):
+    """The narrowing is the deployment's, so nothing has to be addressed.
 
-    The store here holds a sandbox entry for the very target this lane serves,
-    and it must have no effect: without ``OSPREY_POSTURE_SESSION`` there is no
-    session this entry could be about.
+    The bridge lane, a dispatch worker and a bare agent carry no session of
+    their own. Each of them moves the machine an operator took away, so the
+    record refuses each of them.
     """
     _configure(tmp_path, monkeypatch, lane_target="standin")
-    _narrow(tmp_path, monkeypatch, {"standin": "sandbox"}, session_key=None)
+    monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
+    _narrow(tmp_path, monkeypatch, {"standin": "sandbox"})
 
-    with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True})) as m:
+    with patch(f"{_MOD}._http_post_json") as m:
         with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _start_fn()()
+            with assert_raises_error(error_type="writes_disabled"):
+                await _start_fn()()
 
-    assert m.call_args.kwargs["headers"] == {"X-Launch-Token": _TOKEN}
+    m.assert_not_called()
 
 
 async def test_the_store_narrows_the_halt_withdrawal_union_too(tmp_path, monkeypatch):

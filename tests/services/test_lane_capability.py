@@ -312,13 +312,13 @@ async def test_the_record_does_not_move_when_the_session_switches(
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
     deployment(control_system_type="epics", targets={"bluesky": "live"})
 
-    target_state.write_on_start(target_state.TARGET_LIVE)
+    target_state.write_server_record()
     before = await _capability()
 
     target_state.publish_switch(target_state.TARGET_VA, generation=1)
     after = await _capability()
 
     # The switch really did happen — otherwise this test proves nothing.
-    assert target_state.read()["target"] == target_state.TARGET_VA
+    assert target_state.read()["applied_target"] == target_state.TARGET_VA
     assert before == after
     assert after.lane_target == target_state.TARGET_LIVE

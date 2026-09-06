@@ -140,7 +140,6 @@ from typing import NoReturn
 import anyio
 from fastmcp.exceptions import ToolError
 
-from osprey.audit.posture import posture_session
 from osprey.bluesky_bridge_connection import unwrap_bridge_conflict_detail
 from osprey.mcp_server.bluesky.lanes import (
     LANE_ONE,
@@ -367,7 +366,7 @@ def _writes_enabled(lane_target: str | None) -> bool:
 
         section = get_config_value("control_system", {})
         target = lane_target or baseline_target(section)
-        return session_store.effective_writes(section, posture_session(), target)
+        return session_store.effective_writes(section, target)
     except Exception:
         return False
 
@@ -414,10 +413,7 @@ def _any_lane_writes_enabled() -> bool:
         # all this needs, and reading session state to answer a question about
         # halting would tie the two together for no reason.
         targets = {lane.target for lane in discover_lanes(baseline_target(section))}
-        session_key = posture_session()
-        return any(
-            session_store.effective_writes(section, session_key, target) for target in targets
-        )
+        return any(session_store.effective_writes(section, target) for target in targets)
     except Exception:
         return False
 
@@ -448,7 +444,6 @@ def _session_narrowed(lane_target: str | None) -> bool:
     is true of every refusal here.
     """
     try:
-        session_key = posture_session()
         if lane_target is not None:
             targets: list[str] = [lane_target]
         else:
@@ -457,7 +452,7 @@ def _session_narrowed(lane_target: str | None) -> bool:
             section = get_config_value("control_system", {})
             targets = [lane.target for lane in discover_lanes(baseline_target(section))]
         return bool(targets) and all(
-            session_store.target_posture(session_key, target) == session_store.POSTURE_SANDBOX
+            session_store.target_posture(target) == session_store.POSTURE_SANDBOX
             for target in targets
         )
     except Exception:

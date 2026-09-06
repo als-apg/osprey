@@ -128,7 +128,6 @@ def _assert_limits_readable_if_writable() -> None:
             whether the database path was configured/found/parseable) — never
             the database's file contents or any other secret value.
     """
-    from osprey.audit.posture import posture_session
     from osprey.utils.config import get_config_value
     from osprey_connectors import session_store
     from osprey_connectors.types import target_limits_posture, target_writes_enabled_key
@@ -142,7 +141,7 @@ def _assert_limits_readable_if_writable() -> None:
     except (FileNotFoundError, KeyError, RuntimeError):
         return
 
-    if not session_store.effective_writes(section, posture_session(), lane_target):
+    if not session_store.effective_writes(section, lane_target):
         return
     posture = target_limits_posture(section, lane_target)
     writes_key = target_writes_enabled_key(section, lane_target)

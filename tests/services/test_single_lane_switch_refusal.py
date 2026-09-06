@@ -29,6 +29,7 @@ Three things are pinned, and each is pinned at the layer that owns it:
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -42,6 +43,7 @@ from osprey.mcp_server.bluesky.server_context import (
 from osprey.mcp_server.bluesky.tools import queue
 from osprey.mcp_server.control_system import target_banner, target_state
 from osprey.services.bluesky_bridge import queue_backend as qb
+from tests._control_context_fixtures import write_payload
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
 pytestmark = pytest.mark.unit
@@ -106,19 +108,38 @@ def deployment(tmp_path, monkeypatch):
     return _stage
 
 
-def _session_on(target: str) -> None:
-    """Write the state file a controls server owned by this session would write."""
-    target_state.write_on_start(target)
+def _report_path() -> Path:
+    """This process's server report — the file the banner resolves through."""
+    return target_state.report_file_path()
+
+
+def _session_on(target: str, generation: int = 0) -> None:
+    """Write the report a controls server owned by this session would write.
+
+    The banner matches a report by ``owner_ppid`` and reads its ``target``, so
+    those are the keys the payload carries.
+    """
+    write_payload(
+        _report_path(),
+        {
+            "target": target,
+            "generation": generation,
+            "server_pid": os.getpid(),
+            "owner_ppid": os.getppid(),
+            "targets": {},
+            "children": [],
+        },
+    )
 
 
 def _switch_to(target: str) -> None:
     """Move an already-published session onto *target*, as a switch would."""
-    target_state.publish_switch(target, generation=1)
+    _session_on(target, generation=1)
 
 
 def _write_raw_state(body: str) -> Path:
-    """Drop a state file this process owns with arbitrary bytes in it."""
-    path = target_state.state_file_path()
+    """Drop a report file this process owns with arbitrary bytes in it."""
+    path = _report_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body, encoding="utf-8")
     return path
@@ -296,9 +317,9 @@ async def test_a_state_file_naming_an_unknown_target_reads_as_the_baseline(deplo
     """A record whose ``target`` is not one of the two names is not an answer."""
     deployment("live")
     _session_on("live")
-    record = json.loads(target_state.state_file_path().read_text(encoding="utf-8"))
+    record = json.loads(_report_path().read_text(encoding="utf-8"))
     record["target"] = "somewhere-else"
-    target_state.state_file_path().write_text(json.dumps(record), encoding="utf-8")
+    write_payload(_report_path(), record)
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as post:
         with patch(f"{_MOD}.notify_agent_activity_async"):
