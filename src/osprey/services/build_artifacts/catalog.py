@@ -282,6 +282,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             output_path=".claude/hooks/osprey_workspace_delta.py",
             description="UserPromptSubmit hook that reports web workspace changes since the agent's last turn",
         ),
+        BuildArtifact(
+            canonical_name="hooks/turn-state",
+            template_path="claude/hooks/osprey_turn_state.py",
+            output_path=".claude/hooks/osprey_turn_state.py",
+            description="Reports the agent's turn edges to the web terminal, so a view switch knows when the process is between turns",
+        ),
         # ── Skills ──────────────────────────────────────────────────
         BuildArtifact(
             canonical_name="skills/session-report",
