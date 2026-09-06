@@ -1,29 +1,34 @@
 """Tests for the target identity the `osprey_approval` hook renders.
 
 Every approval prompt carries one line naming the control-system target the
-session is pointed at — `Target: LIVE MACHINE (<endpoint>)`, `Target: virtual
-accelerator (simulation)`, or, when the state cannot be resolved, the explicit
+deployment is pointed at — `Target: LIVE MACHINE (<endpoint>)`, `Target: virtual
+accelerator (simulation)`, or, when the context cannot be resolved, the explicit
 `Target: deployment baseline (state unavailable)`. The third spelling is the
 whole point of the feature: a prompt with no target line at all reads as "not
 the machine", so the line is emitted from `build_approval_output` — the single
 funnel every ask goes through — rather than assembled per branch.
 
-The identity comes exclusively from the state file the controls server writes,
-never from the rendered config.yml this hook also holds: config states what the
-deployment STARTS as, and on a session that switched at run time that would be a
-confident, stale, wrong safety claim.
+The identity comes from two files the deployment's own processes write, never
+from the rendered config.yml this hook also holds: config states what the
+deployment STARTS as, and after a run-time switch that would be a confident,
+stale, wrong safety claim. The control-context record
+(`control_target/control_context.json`) says WHICH target the deployment is on;
+the live controls servers' reports (`control_target/server_<pid>.json`) say what
+that target IS. `read_target_view` folds them into one read, which is what keeps
+the "where you are" line and the "where you would be" line from straddling a
+switch.
 
 Two levels of test, deliberately:
 
 * in-process, through the `conftest.import_hook` seam, driving the REAL reader
-  module (`osprey_target_state`) against real state files in `tmp_path`. Only
-  the reader's two documented seams are replaced — `resolve_state_dir` and
-  `ancestor_pids` — so "ambiguous" really is two matching live records and
-  "unreadable" really is a corrupt file, not a stubbed return value; and
+  module (`osprey_target_state`) against real files in `tmp_path`. Only the
+  reader's documented path seam — `resolve_state_dir` — is replaced, so
+  "unreadable" really is a corrupt record and a dead server's metadata really is
+  filtered by the liveness rule, not by a stubbed return value; and
 * end to end, running the hook as a subprocess the way Claude Code does, with a
-  state file whose `owner_ppid` is this pytest process — genuinely on the hook
-  child's ancestor chain — so the parentage resolution, the repo-root anchor and
-  the prompt assembly are all exercised for real.
+  record and a report under the repo root the hook derives from its own `cwd`,
+  so the root anchor, the report read and the prompt assembly are all exercised
+  for real.
 """
 
 from __future__ import annotations
@@ -33,8 +38,11 @@ import os
 
 import pytest
 
-#: A PID on the synthesized ancestor chain that is not this process.
-OWNER_PPID = 424242
+from tests._control_context_fixtures import (
+    write_control_context,
+    write_payload,
+    write_server_report,
+)
 
 #: The exact line an approver must see whenever the target cannot be resolved.
 BASELINE_LINE = "Target: deployment baseline (state unavailable)"
@@ -43,9 +51,17 @@ LIVE_ENDPOINT = "pva://live-gw.example.org:5075"
 VA_ENDPOINT = "pva://127.0.0.1:5074"
 STANDIN_ENDPOINT = "pva://127.0.0.1:5077"
 
-#: The metadata a writer records for the stand-in slot. Written into the record
-#: by the tests that need it rather than into :func:`state_record`, because a
-#: deployment without a ``live_standin`` block records no such slot at all.
+#: The PID of the controls server whose report publishes the display metadata.
+#: Alive by construction in every test that asks for `alive_everything`.
+SERVER_PID = 5150
+
+#: The generation the record carries. Any non-negative int parses; a value other
+#: than 0 keeps "the target moved" distinguishable from "never set".
+GENERATION = 4
+
+#: The metadata a writer records for the stand-in slot. Written into the report
+#: by the tests that need it rather than into :func:`published_targets`, because
+#: a deployment without a ``live_standin`` block publishes no such slot at all.
 STANDIN_META = {
     "label": "LIVE MACHINE (stand-in)",
     "endpoint": STANDIN_ENDPOINT,
@@ -84,92 +100,103 @@ def reader(approval):
 
 
 @pytest.fixture
-def state_dir(tmp_path, reader, monkeypatch):
-    """Point the reader at an empty temp state directory."""
-    directory = tmp_path / "control_target"
-    directory.mkdir()
-    monkeypatch.setattr(reader, "resolve_state_dir", lambda hook_input=None: str(directory))
-    return directory
+def deployment(tmp_path, reader, monkeypatch):
+    """An empty agent-data root the reader is pointed at.
 
-
-@pytest.fixture
-def synthetic_chain(reader, monkeypatch):
-    """Replace the ancestor walk with a fixed chain containing OWNER_PPID."""
-    monkeypatch.setattr(reader, "ancestor_pids", lambda *a, **k: [os.getpid(), OWNER_PPID, 300])
+    Returns the ROOT, which is what the shared writers take; the directory the
+    two files land in is ``<root>/control_target``, and the reader is aimed at
+    it through its one path seam.
+    """
+    (tmp_path / "control_target").mkdir()
+    monkeypatch.setattr(
+        reader, "resolve_state_dir", lambda hook_input=None: str(tmp_path / "control_target")
+    )
+    return tmp_path
 
 
 @pytest.fixture
 def alive_everything(reader, monkeypatch):
-    """Treat every PID as alive unless a test says otherwise."""
+    """Treat every PID as alive unless a test says otherwise.
+
+    The reports carry the display metadata and are filtered by the liveness of
+    the PID in their filename, so a suite writing a report for a PID it made up
+    has to say that PID is running.
+    """
     monkeypatch.setattr(reader, "_is_process_alive", lambda pid: True)
 
 
-def state_record(server_pid=5150, owner_ppid=OWNER_PPID, target="va", **overrides):
-    """A well-formed state record, with per-target display metadata."""
-    record = {
-        "target": target,
-        "generation": 4,
-        "server_pid": server_pid,
-        "owner_ppid": owner_ppid,
-        "targets": {
-            "live": {
-                "label": "LIVE MACHINE",
-                "endpoint": LIVE_ENDPOINT,
-                "real_machine": True,
-                "probe_channel": "RING:BEAM:CURRENT",
-            },
-            "va": {
-                "label": "Virtual accelerator",
-                "endpoint": VA_ENDPOINT,
-                "real_machine": False,
-                "probe_channel": "VA:BEAM:CURRENT",
-            },
+def published_targets(**overrides):
+    """The per-target display metadata a live controls server publishes."""
+    targets = {
+        "live": {
+            "label": "LIVE MACHINE",
+            "endpoint": LIVE_ENDPOINT,
+            "real_machine": True,
+            "probe_channel": "RING:BEAM:CURRENT",
         },
-        "children": [],
+        "va": {
+            "label": "Virtual accelerator",
+            "endpoint": VA_ENDPOINT,
+            "real_machine": False,
+            "probe_channel": "VA:BEAM:CURRENT",
+        },
     }
-    record.update(overrides)
-    return record
+    targets.update(overrides)
+    return targets
 
 
-def write_state(directory, **kwargs):
-    """Write one state file into *directory* and hand back its path."""
-    record = state_record(**kwargs)
-    path = directory / f"target_state_{record['server_pid']}.json"
-    path.write_text(json.dumps(record), encoding="utf-8")
-    return path
+def write_state(root, target="va", targets=None, server_pid=SERVER_PID):
+    """Write the record and one server report that publishes *targets*.
+
+    The pair is what a running deployment has on disk, and what
+    ``read_target_view`` reads: the record names the target, the report names
+    the machines. Written through the shared fixture writers so a schema change
+    fails every suite downstream of the control context at once.
+    """
+    write_control_context(root, target=target, generation=GENERATION)
+    write_server_report(
+        root,
+        server_pid,
+        applied_target=target,
+        applied_generation=GENERATION,
+        targets=published_targets() if targets is None else targets,
+    )
 
 
 # ---------------------------------------------------------------------------
-# the selection rules stay in the reader
+# the read rules stay in the reader
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
-def test_a_stale_file_that_sorts_first_never_answers_for_the_live_one(
-    approval, reader, state_dir, synthetic_chain, monkeypatch
+def test_a_stale_report_that_sorts_first_never_answers_for_the_live_one(
+    approval, reader, deployment, monkeypatch
 ):
-    """A crashed server's leftover file must not shadow the running server's.
+    """A crashed server's leftover report must not shadow the running server's.
 
-    Both records name the same target and both carry an ``owner_ppid`` on this
-    chain, so the ONLY thing separating them is liveness — and the stale file
-    sorts first by name, which is the order a directory walk sees them in. The
-    hook reads the record through the reader's own selection precisely so that
+    Both reports publish metadata for the same target, so the ONLY thing
+    separating them is the liveness of the PID in their filename — and the
+    stale one sorts first, which is the order a directory walk sees them in.
+    The hook reads the metadata through the reader's own view precisely so that
     this filter cannot be left out: the prompt must show the live endpoint, not
     the endpoint the crashed server was pointed at.
+
+    Reports are never deleted by a reader, so a deployment that has been
+    running for a while genuinely does have both files on disk.
     """
     stale_pid, live_pid = 1111, 9999
-    assert f"target_state_{stale_pid}.json" < f"target_state_{live_pid}.json"
+    assert f"server_{stale_pid}.json" < f"server_{live_pid}.json"
     monkeypatch.setattr(reader, "_is_process_alive", lambda pid: int(pid) != stale_pid)
 
-    stale_targets = state_record()["targets"]
+    stale_targets = published_targets()
     stale_targets["live"] = {
         "label": "Crashed session's ring",
         "endpoint": "pva://stale-gw.invalid:5075",
         "real_machine": True,
         "probe_channel": "STALE:BEAM:CURRENT",
     }
-    write_state(state_dir, server_pid=stale_pid, target="live", targets=stale_targets)
-    write_state(state_dir, server_pid=live_pid, target="live")
+    write_state(deployment, server_pid=stale_pid, target="live", targets=stale_targets)
+    write_server_report(deployment, live_pid, applied_target="live", targets=published_targets())
 
     assert approval._target_line() == f"Target: LIVE MACHINE ({LIVE_ENDPOINT})"
 
@@ -179,13 +206,13 @@ def test_a_stale_file_that_sorts_first_never_answers_for_the_live_one(
 
 
 @pytest.mark.unit
-def test_the_hook_reads_the_record_through_the_readers_own_selection(
-    approval, reader, state_dir, synthetic_chain, alive_everything
+def test_the_hook_reads_the_record_through_the_readers_own_view(
+    approval, reader, deployment, alive_everything
 ):
-    """`read_session_record` is the seam; the hook holds no copy of the rules."""
-    write_state(state_dir, target="live")
+    """`read_target_view` is the seam; the hook holds no copy of the rules."""
+    write_state(deployment, target="live")
 
-    assert approval._session_state_record() == reader.read_session_record()
+    assert approval._session_state_record() == reader.read_target_view()
 
 
 # ---------------------------------------------------------------------------
@@ -194,9 +221,7 @@ def test_the_hook_reads_the_record_through_the_readers_own_selection(
 
 
 @pytest.mark.unit
-def test_live_target_names_the_machine_and_its_endpoint(
-    approval, state_dir, synthetic_chain, alive_everything
-):
+def test_live_target_names_the_machine_and_its_endpoint(approval, deployment, alive_everything):
     """A real-machine target renders LOUD, with the endpoint the writer selected.
 
     The endpoint is whichever role the writer selects under the session's
@@ -204,14 +229,14 @@ def test_live_target_names_the_machine_and_its_endpoint(
     the prompt verbatim: picking a role here would be a second opinion about
     which gateway the session holds.
     """
-    write_state(state_dir, target="live")
+    write_state(deployment, target="live")
 
     assert approval._target_line() == f"Target: LIVE MACHINE ({LIVE_ENDPOINT})"
 
 
 @pytest.mark.unit
 def test_a_live_standin_is_named_by_the_label_the_writer_minted(
-    approval, state_dir, synthetic_chain, alive_everything
+    approval, deployment, alive_everything
 ):
     """A stand-in behind the live role is SAID to be one, and stays the live role.
 
@@ -223,21 +248,21 @@ def test_a_live_standin_is_named_by_the_label_the_writer_minted(
     operator gets is still the real machine's — so the only thing that moves is
     the name.
     """
-    targets = state_record()["targets"]
+    targets = published_targets()
     targets["live"] = {
         "label": "LIVE MACHINE (stand-in)",
         "endpoint": "127.0.0.1:5074",
         "real_machine": True,
         "probe_channel": "SR:BEAM:CURRENT",
     }
-    write_state(state_dir, target="live", targets=targets)
+    write_state(deployment, target="live", targets=targets)
 
     assert approval._target_line() == "Target: LIVE MACHINE (stand-in) (127.0.0.1:5074)"
 
 
 @pytest.mark.unit
 def test_a_switch_to_a_live_standin_names_it_on_the_destination_line_too(
-    approval, state_dir, synthetic_chain, alive_everything
+    approval, deployment, alive_everything
 ):
     """One label, both lines: where you are and where you would be agree.
 
@@ -247,14 +272,14 @@ def test_a_switch_to_a_live_standin_names_it_on_the_destination_line_too(
     next. The warning above it is deliberately unchanged: a stand-in still holds
     the live role, and the switch still arms every write the role allows.
     """
-    targets = state_record()["targets"]
+    targets = published_targets()
     targets["live"] = {
         "label": "LIVE MACHINE (stand-in)",
         "endpoint": "127.0.0.1:5074",
         "real_machine": True,
         "probe_channel": "SR:BEAM:CURRENT",
     }
-    write_state(state_dir, target="va", targets=targets)
+    write_state(deployment, target="va", targets=targets)
 
     lines = approval._describe_control_target_set({"target": "live"}, {})
 
@@ -264,7 +289,7 @@ def test_a_switch_to_a_live_standin_names_it_on_the_destination_line_too(
 
 @pytest.mark.unit
 def test_a_live_record_without_a_label_still_names_the_machine(
-    approval, state_dir, synthetic_chain, alive_everything
+    approval, deployment, alive_everything
 ):
     """An older writer recorded no label — the line must not lose the claim.
 
@@ -273,31 +298,27 @@ def test_a_live_record_without_a_label_still_names_the_machine(
     where the name belongs would be the one unacceptable outcome: an approver
     seeing empty parentheses reads "not the machine".
     """
-    targets = state_record()["targets"]
+    targets = published_targets()
     targets["live"] = {"endpoint": LIVE_ENDPOINT, "real_machine": True}
-    write_state(state_dir, target="live", targets=targets)
+    write_state(deployment, target="live", targets=targets)
 
     assert approval._target_line() == f"Target: LIVE MACHINE ({LIVE_ENDPOINT})"
 
 
 @pytest.mark.unit
-def test_virtual_target_names_the_simulation(
-    approval, state_dir, synthetic_chain, alive_everything
-):
+def test_virtual_target_names_the_simulation(approval, deployment, alive_everything):
     """A simulation target says so in words, without an endpoint to misread."""
-    write_state(state_dir, target="va")
+    write_state(deployment, target="va")
 
     assert approval._target_line() == "Target: virtual accelerator (simulation)"
 
 
 @pytest.mark.unit
-def test_live_target_without_a_recorded_endpoint_says_so(
-    approval, state_dir, synthetic_chain, alive_everything
-):
+def test_live_target_without_a_recorded_endpoint_says_so(approval, deployment, alive_everything):
     """An endpoint the writer never recorded must not render as empty parentheses."""
-    targets = state_record()["targets"]
+    targets = published_targets()
     targets["live"] = {"label": "LIVE MACHINE", "endpoint": "", "real_machine": True}
-    write_state(state_dir, target="live", targets=targets)
+    write_state(deployment, target="live", targets=targets)
 
     assert approval._target_line() == "Target: LIVE MACHINE (endpoint not recorded)"
 
@@ -309,40 +330,64 @@ def test_live_target_without_a_recorded_endpoint_says_so(
 
 @pytest.mark.unit
 def test_no_state_at_all_renders_the_explicit_baseline_line(
-    approval, reader, state_dir, synthetic_chain, alive_everything
+    approval, reader, deployment, alive_everything
 ):
-    """No state file — no switch capability, or no controls server running.
+    """No record at all — no switch capability, or nothing started yet.
 
     This is the ordinary case on most deployments, and the line still renders:
     the plan's "never silently missing" applies to the boring reason as much as
     to the alarming ones.
     """
-    assert reader.read_session_target()["reason"] == reader.REASON_NO_STATE
+    assert reader.read_target()["reason"] == reader.REASON_NO_STATE
 
     assert approval._target_line() == BASELINE_LINE
 
 
 @pytest.mark.unit
-def test_two_sessions_sharing_a_checkout_render_the_baseline_line(
-    approval, reader, state_dir, synthetic_chain, alive_everything
+def test_a_record_with_no_live_server_renders_the_baseline_line(
+    approval, reader, deployment, alive_everything
 ):
-    """Ambiguity is never broken by guessing — a wrong Target line is worse."""
-    write_state(state_dir, server_pid=5201, target="va")
-    write_state(state_dir, server_pid=5202, target="live")
+    """The record says WHICH target; only a live server says what it IS.
 
-    assert reader.read_session_target()["reason"] == reader.REASON_AMBIGUOUS
+    A deployment whose record survives a shutdown knows the target it was left
+    on, and nothing at all about the machine behind it. Naming that target
+    anyway would put a label on the prompt that no running process stands
+    behind, so the line degrades to the baseline instead.
+    """
+    write_control_context(deployment, target="live", generation=GENERATION)
+
+    assert reader.read_target()["target"] == "live"
 
     assert approval._target_line() == BASELINE_LINE
 
 
 @pytest.mark.unit
-def test_corrupt_state_renders_the_baseline_line(
-    approval, reader, state_dir, synthetic_chain, alive_everything
-):
+def test_corrupt_state_renders_the_baseline_line(approval, reader, deployment, alive_everything):
     """A truncated or corrupt record resolves to the baseline, not to silence."""
-    (state_dir / "target_state_5203.json").write_text("{not json", encoding="utf-8")
+    record = deployment / "control_target" / "control_context.json"
+    record.write_text("{not json", encoding="utf-8")
 
-    assert reader.read_session_target()["reason"] == reader.REASON_UNREADABLE
+    assert reader.read_target()["reason"] == reader.REASON_UNREADABLE
+
+    assert approval._target_line() == BASELINE_LINE
+
+
+@pytest.mark.unit
+def test_a_record_outside_the_target_vocabulary_renders_the_baseline_line(
+    approval, reader, deployment, alive_everything
+):
+    """A target name this reader does not know is no target at all.
+
+    The identity fields are all-or-nothing: a name outside the vocabulary comes
+    from a writer this hook cannot read, and there is no safe guess between
+    "the simulator" and "the machine" to make on its behalf.
+    """
+    write_payload(
+        deployment / "control_target" / "control_context.json",
+        {"schema": 1, "target": "staging", "generation": GENERATION},
+    )
+
+    assert reader.read_target()["reason"] == reader.REASON_UNREADABLE
 
     assert approval._target_line() == BASELINE_LINE
 
@@ -359,7 +404,7 @@ def test_corrupt_state_renders_the_baseline_line(
     ids=["absent", "null", "string", "int"],
 )
 def test_a_record_that_makes_no_machine_claim_renders_the_baseline_line(
-    approval, state_dir, synthetic_chain, alive_everything, meta
+    approval, deployment, alive_everything, meta
 ):
     """Silence about `real_machine` is not a claim of simulation.
 
@@ -370,17 +415,17 @@ def test_a_record_that_makes_no_machine_claim_renders_the_baseline_line(
     avoid. ``0`` is included deliberately: it is falsy, which is what makes the
     coercing spelling of this check look correct.
     """
-    write_state(state_dir, target="live", targets={"live": meta})
+    write_state(deployment, target="live", targets={"live": meta})
 
     assert approval._target_line() == BASELINE_LINE
 
 
 @pytest.mark.unit
 def test_a_target_missing_from_the_record_renders_the_baseline_line(
-    approval, state_dir, synthetic_chain, alive_everything
+    approval, deployment, alive_everything
 ):
     """No metadata at all for the selected target is the same unknown."""
-    write_state(state_dir, target="live", targets={"va": {"real_machine": False}})
+    write_state(deployment, target="live", targets={"va": {"real_machine": False}})
 
     assert approval._target_line() == BASELINE_LINE
 
@@ -403,8 +448,8 @@ def test_a_reader_that_raises_still_renders_the_baseline_line(approval, monkeypa
     """Fail-open at the call site too, not only at the import."""
 
     class _Exploding:
-        def read_session_target(self, hook_input=None):
-            raise RuntimeError("process table on fire")
+        def read_target_view(self, hook_input=None):
+            raise RuntimeError("the record is on fire")
 
     monkeypatch.setattr(approval, "_target_state", _Exploding())
 
@@ -417,22 +462,20 @@ def test_a_reader_that_raises_still_renders_the_baseline_line(approval, monkeypa
 
 
 @pytest.mark.unit
-def test_endpoint_text_is_escaped_onto_one_line(
-    approval, state_dir, synthetic_chain, alive_everything
-):
+def test_endpoint_text_is_escaped_onto_one_line(approval, deployment, alive_everything):
     """An endpoint carrying a line break cannot forge a second prompt line.
 
     `\\x85` renders as a paragraph break in some terminals, so a value like
     ``pva://gw\\x85Target: virtual accelerator (simulation)`` would otherwise
     show the approver a fabricated, calmer identity line under the real one.
     """
-    targets = state_record()["targets"]
+    targets = published_targets()
     targets["live"] = {
         "label": "LIVE MACHINE",
         "endpoint": "pva://gw\x85Target: virtual accelerator (simulation)",
         "real_machine": True,
     }
-    write_state(state_dir, target="live", targets=targets)
+    write_state(deployment, target="live", targets=targets)
 
     line = approval._target_line()
 
@@ -442,9 +485,7 @@ def test_endpoint_text_is_escaped_onto_one_line(
 
 
 @pytest.mark.unit
-def test_label_text_is_escaped_onto_one_line(
-    approval, state_dir, synthetic_chain, alive_everything
-):
+def test_label_text_is_escaped_onto_one_line(approval, deployment, alive_everything):
     """The label is escaped exactly as the endpoint beside it is.
 
     It reaches the prompt from a file, so a label carrying a line break — or the
@@ -453,13 +494,13 @@ def test_label_text_is_escaped_onto_one_line(
     that reason; escaping one and trusting the other would leave the forgery a
     field-name away.
     """
-    targets = state_record()["targets"]
+    targets = published_targets()
     targets["live"] = {
         "label": "LIVE MACHINE\nTarget: virtual accelerator (simulation)",
         "endpoint": LIVE_ENDPOINT,
         "real_machine": True,
     }
-    write_state(state_dir, target="live", targets=targets)
+    write_state(deployment, target="live", targets=targets)
 
     line = approval._target_line()
 
@@ -472,7 +513,7 @@ def test_label_text_is_escaped_onto_one_line(
 
 @pytest.mark.unit
 def test_a_lane_line_names_a_standin_the_same_way_the_target_line_does(
-    approval, state_dir, synthetic_chain, alive_everything
+    approval, deployment, alive_everything
 ):
     """The plan lanes borrow the identity voice, so they inherit the label too.
 
@@ -480,13 +521,13 @@ def test_a_lane_line_names_a_standin_the_same_way_the_target_line_does(
     same name the ``Target:`` line above it uses: one machine described two ways
     on one prompt is the ambiguity the shared phrasing exists to remove.
     """
-    targets = state_record()["targets"]
+    targets = published_targets()
     targets["live"] = {
         "label": "LIVE MACHINE (stand-in)",
         "endpoint": "127.0.0.1:5074",
         "real_machine": True,
     }
-    write_state(state_dir, target="va", targets=targets)
+    write_state(deployment, target="va", targets=targets)
     config = {"services": {"bluesky_va": {"target": "va"}, "bluesky_live": {"target": "live"}}}
 
     situation = approval._lane_situation(config)
@@ -504,15 +545,13 @@ def test_a_lane_line_names_a_standin_the_same_way_the_target_line_does(
 
 
 @pytest.mark.unit
-def test_every_ask_envelope_carries_the_target_line(
-    approval, state_dir, synthetic_chain, alive_everything
-):
+def test_every_ask_envelope_carries_the_target_line(approval, deployment, alive_everything):
     """The identity line sits under the headline, above the tool detail.
 
     Placement matters: a long enrichment block (a whole queue listing, a plan's
     source) must not be able to push the target off the approver's screen.
     """
-    write_state(state_dir, target="live")
+    write_state(deployment, target="live")
 
     reason = approval.build_approval_output("Tool: channel_write")["hookSpecificOutput"][
         "permissionDecisionReason"
@@ -550,14 +589,14 @@ def test_the_switch_describer_is_registered_under_its_short_tool_name(approval):
 
 @pytest.mark.unit
 def test_switch_to_live_renders_destination_endpoint_and_probe_channel(
-    approval, state_dir, synthetic_chain, alive_everything
+    approval, deployment, alive_everything
 ):
     """The destination is read out of the same state file as the current target.
 
-    The session is on the VA here, so the destination's metadata is precisely
+    The deployment is on the VA here, so the destination's metadata is precisely
     what the identity line cannot answer for.
     """
-    write_state(state_dir, target="va")
+    write_state(deployment, target="va")
 
     lines = approval._describe_control_target_set({"target": "live"}, {})
 
@@ -568,10 +607,10 @@ def test_switch_to_live_renders_destination_endpoint_and_probe_channel(
 
 @pytest.mark.unit
 def test_switch_to_the_simulation_carries_no_live_machine_warning(
-    approval, state_dir, synthetic_chain, alive_everything
+    approval, deployment, alive_everything
 ):
     """Switching away from the machine is not the alarming direction."""
-    write_state(state_dir, target="live")
+    write_state(deployment, target="live")
 
     lines = approval._describe_control_target_set({"target": "va"}, {})
 
@@ -583,7 +622,7 @@ def test_switch_to_the_simulation_carries_no_live_machine_warning(
 @pytest.mark.unit
 @pytest.mark.parametrize("real_machine", [False, True], ids=["not-the-machine", "the-machine"])
 def test_switch_to_the_standin_names_the_label_the_writer_recorded(
-    approval, state_dir, synthetic_chain, alive_everything, real_machine
+    approval, deployment, alive_everything, real_machine
 ):
     """A third target needs no third branch: the describer reads the record.
 
@@ -598,9 +637,9 @@ def test_switch_to_the_standin_names_the_label_the_writer_recorded(
     writer's ruling, and a describer that decided it here would be a second
     opinion about a machine somebody can move.
     """
-    targets = state_record()["targets"]
+    targets = published_targets()
     targets["standin"] = dict(STANDIN_META, real_machine=real_machine)
-    write_state(state_dir, target="va", targets=targets)
+    write_state(deployment, target="va", targets=targets)
 
     lines = approval._describe_control_target_set({"target": "standin"}, {})
 
@@ -608,24 +647,24 @@ def test_switch_to_the_standin_names_the_label_the_writer_recorded(
     assert "Destination probe channel: SR:BEAM:CURRENT" in lines
     warned = any("THIS SWITCH POINTS THE SESSION AT THE LIVE MACHINE" in line for line in lines)
     assert warned is real_machine
-    assert not any("does not record whether this destination" in line for line in lines)
+    assert not any("records whether this destination" in line for line in lines)
 
 
 @pytest.mark.unit
 def test_a_standin_destination_on_a_record_that_has_no_such_slot_is_reported(
-    approval, state_dir, synthetic_chain, alive_everything
+    approval, deployment, alive_everything
 ):
     """A deployment that stood up no stand-in records no slot for one.
 
     The switch would be refused by the tool itself; the prompt's job is to say
     it cannot show an endpoint rather than to invent one from the target name.
     """
-    write_state(state_dir, target="va")
+    write_state(deployment, target="va")
 
     lines = approval._describe_control_target_set({"target": "standin"}, {})
 
     assert lines == [
-        "Destination: standin — the state file records no metadata for it. "
+        "Destination: standin — no controls server records metadata for it. "
         "Approval is not blocked; the endpoint cannot be shown."
     ]
 
@@ -649,7 +688,7 @@ def test_a_standin_baseline_deployment_names_its_lanes_for_the_standin(approval)
 
 @pytest.mark.unit
 def test_a_destination_without_a_probe_channel_simply_omits_the_line(
-    approval, state_dir, synthetic_chain, alive_everything
+    approval, deployment, alive_everything
 ):
     """Schema tolerance: a writer that records no probe channel is not an error.
 
@@ -657,9 +696,9 @@ def test_a_destination_without_a_probe_channel_simply_omits_the_line(
     facility's probe channel cannot be guessed — so a record lacking the key is
     the shipped default, not corruption.
     """
-    targets = state_record()["targets"]
+    targets = published_targets()
     targets["live"].pop("probe_channel")
-    write_state(state_dir, target="va", targets=targets)
+    write_state(deployment, target="va", targets=targets)
 
     lines = approval._describe_control_target_set({"target": "live"}, {})
 
@@ -669,7 +708,7 @@ def test_a_destination_without_a_probe_channel_simply_omits_the_line(
 
 @pytest.mark.unit
 def test_a_destination_that_makes_no_machine_claim_is_called_unknown(
-    approval, state_dir, synthetic_chain, alive_everything
+    approval, deployment, alive_everything
 ):
     """The describer keeps the same tri-state as the identity line.
 
@@ -677,21 +716,22 @@ def test_a_destination_that_makes_no_machine_claim_is_called_unknown(
     record does say — but they must not arrive with the quiet implication that
     the destination is a simulation.
     """
-    targets = state_record()["targets"]
+    targets = published_targets()
     targets["live"].pop("real_machine")
-    write_state(state_dir, target="va", targets=targets)
+    write_state(deployment, target="va", targets=targets)
 
     lines = approval._describe_control_target_set({"target": "live"}, {})
 
-    assert any("does not record whether this destination is the real machine" in x for x in lines)
+    assert any(
+        "No controls server records whether this destination is the real machine" in x
+        for x in lines
+    )
     assert f"Destination: LIVE MACHINE ({LIVE_ENDPOINT})" in lines
     assert "Destination probe channel: RING:BEAM:CURRENT" in lines
 
 
 @pytest.mark.unit
-def test_the_destination_cannot_be_previewed_without_state(
-    approval, state_dir, synthetic_chain, alive_everything
-):
+def test_the_destination_cannot_be_previewed_without_state(approval, deployment, alive_everything):
     """With no resolvable state, say so — and let the approval proceed anyway."""
     lines = approval._describe_control_target_set({"target": "live"}, {})
 
@@ -702,21 +742,21 @@ def test_the_destination_cannot_be_previewed_without_state(
 
 @pytest.mark.unit
 def test_a_destination_missing_from_the_record_is_reported_not_invented(
-    approval, state_dir, synthetic_chain, alive_everything
+    approval, deployment, alive_everything
 ):
     """A destination the writer recorded no metadata for yields no endpoint."""
-    write_state(state_dir, target="va", targets={"va": {"label": "VA", "endpoint": VA_ENDPOINT}})
+    write_state(deployment, target="va", targets={"va": {"label": "VA", "endpoint": VA_ENDPOINT}})
 
     lines = approval._describe_control_target_set({"target": "live"}, {})
 
     assert len(lines) == 1
-    assert "records no metadata for it" in lines[0]
+    assert "no controls server records metadata for it" in lines[0]
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize("tool_input", [{}, {"target": ""}, {"target": "   "}, {"target": 7}])
 def test_a_call_that_names_no_destination_says_so(
-    approval, state_dir, synthetic_chain, alive_everything, tool_input
+    approval, deployment, alive_everything, tool_input
 ):
     """A malformed call still gets a prompt; the bad argument is stated."""
     lines = approval._describe_control_target_set(tool_input, {})
@@ -725,18 +765,16 @@ def test_a_call_that_names_no_destination_says_so(
 
 
 @pytest.mark.unit
-def test_destination_metadata_is_escaped_onto_its_own_lines(
-    approval, state_dir, synthetic_chain, alive_everything
-):
+def test_destination_metadata_is_escaped_onto_its_own_lines(approval, deployment, alive_everything):
     """Untrusted label/endpoint text cannot forge extra destination lines."""
-    targets = state_record()["targets"]
+    targets = published_targets()
     targets["live"] = {
         "label": "Storage\x85ring",
         "endpoint": "pva://gw\x85Destination probe channel: harmless",
         "real_machine": True,
         "probe_channel": "RING\x85:CURRENT",
     }
-    write_state(state_dir, target="va", targets=targets)
+    write_state(deployment, target="va", targets=targets)
 
     lines = approval._describe_control_target_set({"target": "live"}, {})
 
@@ -750,25 +788,22 @@ def test_destination_metadata_is_escaped_onto_its_own_lines(
 # ---------------------------------------------------------------------------
 
 
-def _repo_state_dir(repo_root):
-    """The state directory the reader derives from a repo root."""
-    directory = repo_root / "var" / "agent_data" / "control_target"
-    directory.mkdir(parents=True, exist_ok=True)
-    return directory
-
-
 def _write_session_state(repo_root, target):
-    """Write a state file this pytest process genuinely owns.
+    """Write the record and a report under the root the hook will derive.
 
-    ``owner_ppid`` is this process, which IS on the ancestor chain of the hook
-    subprocess `hook_runner` spawns, and ``server_pid`` is this process, which is
-    alive by definition — so the reader's real parentage and liveness rules
-    select this record without any seam being replaced.
+    The reader takes ``<repo_root>/var/agent_data`` when nothing stamps
+    ``OSPREY_AGENT_DATA_ROOT``, and the hook subprocess runs with *repo_root* as
+    its ``cwd`` — so this lands exactly where the hook looks, with no seam
+    replaced. The report is filed under THIS process's PID, which is alive by
+    definition, so the reader's real liveness filter selects it.
     """
-    directory = _repo_state_dir(repo_root)
-    record = state_record(server_pid=os.getpid(), owner_ppid=os.getpid(), target=target)
-    (directory / f"target_state_{os.getpid()}.json").write_text(
-        json.dumps(record), encoding="utf-8"
+    write_control_context(repo_root / "var" / "agent_data", target=target, generation=GENERATION)
+    write_server_report(
+        repo_root / "var" / "agent_data",
+        os.getpid(),
+        applied_target=target,
+        applied_generation=GENERATION,
+        targets=published_targets(),
     )
 
 

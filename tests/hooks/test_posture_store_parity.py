@@ -1,6 +1,6 @@
 """The hook's restated posture rule against the module it restates.
 
-``osprey_connectors.session_store`` is the canonical reader of the control
+``osprey_connectors.posture_store`` is the canonical reader of the control
 context's recorded posture; the PreToolUse hooks cannot import it — they run
 outside the osprey venv — so ``osprey_target_state.effective_writes_for``
 restates its rules in stdlib terms. Two implementations of one safety rule
@@ -16,14 +16,14 @@ file's opinion of the rule.
 
 One difference between them is deliberate, stated in the hook's module
 docstring and expressed literally by :func:`expected_answer` below: with no
-resolvable target, ``session_store.effective_writes`` takes the UNION of the
+resolvable target, ``posture_store.effective_writes`` takes the UNION of the
 deployment's configured targets (right for a roster describing a deployment)
 while the hook takes the INTERSECTION (right for a gate, which must not be
 handed the more permissive of two answers it cannot choose between). The
 recorded half, the read-only half and every target-resolvable cell are
 identical, and the intersection implies the union, so the two are pinned as::
 
-    hook(None) == intersection AND session_store.effective_writes(..., None)
+    hook(None) == intersection AND posture_store.effective_writes(..., None)
 
 which is an equality, not a weakening: the only freedom it leaves the hook is
 the ceiling it is deliberately stricter about.
@@ -44,7 +44,7 @@ from pathlib import Path
 import pytest
 
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as reader
-from osprey_connectors import control_context, session_store
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.types import session_posture
 from tests._control_context_fixtures import write_control_context, write_payload
 
@@ -170,10 +170,10 @@ def stamped_root(tmp_path, monkeypatch):
     monkeypatch.setenv(reader.AGENT_DATA_ROOT_ENV_VAR, str(root))
     monkeypatch.delenv(reader.EXECUTION_MODE_ENV_VAR, raising=False)
     monkeypatch.delenv(reader.POSTURE_SESSION_ENV_VAR, raising=False)
-    monkeypatch.delenv(session_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
-    session_store.invalidate_cache()
+    monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+    posture_store.invalidate_cache()
     yield root
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
 
 
 def write_record(root, posture):
@@ -189,7 +189,7 @@ def expected_answer(section, target):
     difference (see the module docstring); it is applied only where the caller
     holds no target, which is the only place the two ceilings can differ.
     """
-    canonical = session_store.effective_writes(section, target)
+    canonical = posture_store.effective_writes(section, target)
     if target is not None:
         return canonical
     intersection = all(session_posture(section).values())
@@ -272,11 +272,11 @@ def test_a_corrupt_record_is_an_unnarrowed_record_on_both_sides(stamped_root):
     # Arrange
     path = control_context.record_path_under(stamped_root)
     path.write_text('{"schema": 1, "target": "live"', encoding="utf-8")  # truncated
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
 
     # Act / Assert
     assert reader.read_record({}) is None
-    assert reader.recorded_posture({}) == session_store.recorded_posture() == {}
+    assert reader.recorded_posture({}) == posture_store.recorded_posture() == {}
     assert reader.effective_writes_for({}, ARMED_BOTH, "live") is expected_answer(
         ARMED_BOTH, "live"
     )
@@ -353,11 +353,11 @@ def test_the_stamped_record_path_is_one_path(tmp_path, monkeypatch):
     # Arrange
     root = tmp_path / "elsewhere" / "agent_data"
     monkeypatch.setenv(reader.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
 
     # Act / Assert
     assert reader.record_path({}) == str(control_context.record_path())
-    assert reader.resolve_state_dir({}) == str(session_store.state_dir())
+    assert reader.resolve_state_dir({}) == str(posture_store.state_dir())
     assert os.path.basename(reader.record_path({})) == control_context.RECORD_FILENAME
 
 
@@ -378,7 +378,7 @@ def test_the_unstamped_record_path_is_one_path(tmp_path, monkeypatch):
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
     monkeypatch.setenv("CONFIG_FILE", str(config))
     reset_config_cache()
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
 
     # Act
     hook_answer = reader.record_path({})
@@ -390,7 +390,7 @@ def test_the_unstamped_record_path_is_one_path(tmp_path, monkeypatch):
         assert os.path.realpath(hook_answer) == os.path.realpath(str(canonical))
     finally:
         reset_config_cache()
-        session_store.invalidate_cache()
+        posture_store.invalidate_cache()
 
 
 def test_the_record_sits_beside_the_server_reports(tmp_path, monkeypatch):
@@ -406,14 +406,14 @@ def test_the_record_sits_beside_the_server_reports(tmp_path, monkeypatch):
 
     assert os.path.dirname(reader.record_path({})) == reader.resolve_state_dir({})
     assert reader.resolve_state_dir({}) == os.path.join(str(root), reader.STATE_DIR_NAME)
-    assert reader.STATE_DIR_NAME == session_store.STATE_DIR_NAME
+    assert reader.STATE_DIR_NAME == posture_store.STATE_DIR_NAME
     assert reader.RECORD_FILENAME == control_context.RECORD_FILENAME
     assert reader.REPORT_FILE_PREFIX == control_context.REPORT_FILE_PREFIX
     assert reader.REPORT_FILE_SUFFIX == control_context.REPORT_FILE_SUFFIX
-    assert reader.AGENT_DATA_ROOT_ENV_VAR == session_store.AGENT_DATA_ROOT_ENV_VAR
-    assert reader.POSTURE_SANDBOX == session_store.POSTURE_SANDBOX
-    assert reader.POSTURE_WRITES == session_store.POSTURE_WRITES
-    assert set(reader.VALID_POSTURES) == set(session_store.VALID_POSTURES)
+    assert reader.AGENT_DATA_ROOT_ENV_VAR == posture_store.AGENT_DATA_ROOT_ENV_VAR
+    assert reader.POSTURE_SANDBOX == posture_store.POSTURE_SANDBOX
+    assert reader.POSTURE_WRITES == posture_store.POSTURE_WRITES
+    assert set(reader.VALID_POSTURES) == set(posture_store.VALID_POSTURES)
 
 
 def test_the_retired_per_session_store_is_read_by_neither_side(stamped_root):
@@ -430,7 +430,7 @@ def test_the_retired_per_session_store_is_read_by_neither_side(stamped_root):
     write_record(stamped_root, {})
 
     # Act / Assert
-    assert reader.recorded_posture({}) == session_store.recorded_posture() == {}
+    assert reader.recorded_posture({}) == posture_store.recorded_posture() == {}
     assert reader.effective_writes_for({}, ARMED_BOTH, "live") is True
     assert reader.effective_writes_for({}, ARMED_BOTH, "va") is True
 
@@ -447,7 +447,7 @@ def test_a_narrowing_in_the_record_holds_with_nothing_at_the_retired_location(st
 
     # Act / Assert
     assert not (stamped_root / reader.STATE_DIR_NAME / "session-postures.json").exists()
-    assert reader.recorded_posture({}) == session_store.recorded_posture() == {"va": "sandbox"}
+    assert reader.recorded_posture({}) == posture_store.recorded_posture() == {"va": "sandbox"}
     assert reader.effective_writes_for({}, ARMED_BOTH, "va") is False
     assert reader.effective_writes_for({}, ARMED_BOTH, "live") is True
 
@@ -470,11 +470,11 @@ def test_the_target_blind_ceiling_is_deliberately_stricter(stamped_root):
     assert all(posture.values()) is False
 
     # Act / Assert — and the hook takes the stricter one
-    assert session_store.effective_writes(MIXED, None) is True
+    assert posture_store.effective_writes(MIXED, None) is True
     assert reader.effective_writes_for({}, MIXED, None) is False
 
     # Where both ceilings agree, so do the two implementations.
-    assert reader.effective_writes_for({}, ARMED_BOTH, None) is session_store.effective_writes(
+    assert reader.effective_writes_for({}, ARMED_BOTH, None) is posture_store.effective_writes(
         ARMED_BOTH, None
     )
 
@@ -537,7 +537,7 @@ def _names_a_target(call):
 def test_no_production_caller_takes_the_union_ceiling():
     """The one divergence is unreachable from any write path, and stays so.
 
-    ``session_store.effective_writes`` with no target answers the UNION over the
+    ``posture_store.effective_writes`` with no target answers the UNION over the
     deployment's configured targets; the hook answers the intersection. That is
     safe only because nothing on a write path asks the question without a target
     — the roster and the popover do, and they describe rather than decide. This
@@ -557,7 +557,7 @@ def test_no_production_caller_takes_the_union_ceiling():
 
     # Assert
     assert offenders == [], (
-        "these callers of session_store.effective_writes pass no target, so they "
+        "these callers of posture_store.effective_writes pass no target, so they "
         "take the UNION ceiling the hook deliberately does not: "
         + ", ".join(offenders)
         + ". Pass the target the write lands on, or move the call off the write path."
@@ -567,11 +567,11 @@ def test_no_production_caller_takes_the_union_ceiling():
 def test_the_guard_can_see_a_violation():
     """A guard is only worth having if it would actually catch one."""
     module = ast.parse(
-        "session_store.effective_writes(section)\n"
-        "session_store.effective_writes(section, target=None)\n"
-        "session_store.effective_writes(section, target)\n"
-        "session_store.effective_writes(section, target=t)\n"
-        "session_store.effective_writes(section, None, connector_type='epics')\n"
+        "posture_store.effective_writes(section)\n"
+        "posture_store.effective_writes(section, target=None)\n"
+        "posture_store.effective_writes(section, target)\n"
+        "posture_store.effective_writes(section, target=t)\n"
+        "posture_store.effective_writes(section, None, connector_type='epics')\n"
     )
     calls = [node for node in ast.walk(module) if isinstance(node, ast.Call)]
     assert [_names_a_target(call) for call in calls] == [False, False, True, True, True]
@@ -618,7 +618,7 @@ def test_an_unstamped_process_with_no_record_is_fail_closed(tmp_path, monkeypatc
         assert reader.posture_unknown({}) is True
     finally:
         reset_config_cache()
-        session_store.invalidate_cache()
+        posture_store.invalidate_cache()
 
 
 def test_an_unstamped_process_with_a_readable_record_is_answered_by_it(tmp_path, monkeypatch):
@@ -644,7 +644,7 @@ def test_an_unstamped_process_with_a_readable_record_is_answered_by_it(tmp_path,
         assert reader.effective_writes_for({}, ARMED_BOTH, "va") is True
     finally:
         reset_config_cache()
-        session_store.invalidate_cache()
+        posture_store.invalidate_cache()
 
 
 def test_a_stamped_process_is_never_posture_unknown(stamped_root):
@@ -674,17 +674,17 @@ def test_an_unreadable_record_is_an_unnarrowed_record_on_both_sides(stamped_root
     # Arrange
     path = write_record(stamped_root, {"va": "sandbox"})
     path.chmod(0o000)
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
 
     # Act / Assert
     try:
         if os.access(path, os.R_OK):  # pragma: no cover - root can read anything
             pytest.skip("this user can read a mode-000 file; the rule is untestable here")
-        assert reader.recorded_posture({}) == session_store.recorded_posture() == {}
+        assert reader.recorded_posture({}) == posture_store.recorded_posture() == {}
         assert reader.effective_writes_for({}, ARMED_BOTH, "va") is True
     finally:
         path.chmod(0o600)
-        session_store.invalidate_cache()
+        posture_store.invalidate_cache()
 
 
 def test_the_launch_pin_is_the_one_term_the_hook_does_not_restate(stamped_root, monkeypatch):
@@ -704,14 +704,14 @@ def test_the_launch_pin_is_the_one_term_the_hook_does_not_restate(stamped_root, 
     """
     # Arrange — nothing narrowed in the record at all; only the run is pinned.
     write_record(stamped_root, {})
-    monkeypatch.setenv(session_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
+    monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
 
     # Act / Assert — the canonical reader refuses, the hook permits.
-    assert session_store.effective_writes(ARMED_BOTH, "live") is False
+    assert posture_store.effective_writes(ARMED_BOTH, "live") is False
     assert reader.effective_writes_for({}, ARMED_BOTH, "live") is True
 
     # And the divergence is the STAMP, not the target: every other cell agrees.
-    assert session_store.effective_writes(ARMED_BOTH, "va") is True
+    assert posture_store.effective_writes(ARMED_BOTH, "va") is True
     assert reader.effective_writes_for({}, ARMED_BOTH, "va") is True
 
 
@@ -735,19 +735,19 @@ def test_an_undecodable_record_is_an_unnarrowed_record_on_both_sides(tmp_path, m
     # Cleared for the reason ``stamped_root`` clears it: this test builds its own
     # root rather than taking that fixture, and an inherited launch pin would
     # make the canonical reader refuse a cell that is about the file's encoding.
-    monkeypatch.delenv(session_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+    monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
     monkeypatch.delenv(reader.EXECUTION_MODE_ENV_VAR, raising=False)
     control_context.record_path_under(root).write_bytes(b"\xff\xfe{\x00schema\x00: 1}")
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
 
     # Act / Assert — both answer, and the deployment ceiling stays in charge
     assert reader.read_record({}) is None
-    assert reader.recorded_posture({}) == session_store.recorded_posture() == {}
+    assert reader.recorded_posture({}) == posture_store.recorded_posture() == {}
     assert reader.effective_writes_for({}, ARMED_BOTH, "live") is expected_answer(
         ARMED_BOTH, "live"
     )
     assert reader.effective_writes_for({}, ARMED_BOTH, "live") is True
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
 
 
 def test_the_degradation_hatch_writes_a_record_neither_side_honours(stamped_root):
@@ -755,4 +755,4 @@ def test_the_degradation_hatch_writes_a_record_neither_side_honours(stamped_root
     write_payload(control_context.record_path_under(stamped_root), {"posture": {"live": "sandbox"}})
 
     assert reader.read_record({}) is None
-    assert reader.recorded_posture({}) == session_store.recorded_posture() == {}
+    assert reader.recorded_posture({}) == posture_store.recorded_posture() == {}

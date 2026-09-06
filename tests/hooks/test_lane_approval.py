@@ -3,7 +3,7 @@
 A deployment that opted into a second Bluesky plan lane runs one whole plan
 stack per control-system target, and then two questions the old prompt never had
 to answer become safety questions: WHICH lane would this plan be queued on, and
-does the lane a start names still serve the target this session is on?
+does the lane a start names still serve the target the deployment is on?
 
 What these tests hold the hook to:
 
@@ -24,28 +24,26 @@ What these tests hold the hook to:
   targets between the enqueue and the start would otherwise be shown a queue
   listing with no hint that the start it is approving drives the machine the
   session has just left — and that the deployment will refuse it outright;
-* **every gap is explicit.** No state file, no lane serving the session's
-  target, a lane whose target the state file records nothing about, a second
-  lane with no published port: each has its own line, and none of them is a
-  guess or a missing line.
+* **every gap is explicit.** No control-context record, no lane serving the
+  deployment's target, a lane whose target no live server publishes anything
+  about, a second lane with no published port: each has its own line, and none
+  of them is a guess or a missing line.
 
 The lane map is read from the rendered config's ``services.<lane>`` blocks —
-render-time truth, the same key the host reads — while the session's target
-comes only from the state file, driven here through the REAL reader module
-against real state files in ``tmp_path``.
+render-time truth, the same key the host reads — while the target comes only
+from the control-context record, with the machines' identities from the live
+controls servers' reports beside it, driven here through the REAL reader module
+against real files in ``tmp_path``.
 """
 
 from __future__ import annotations
 
-import json
 import os
 
 import pytest
 
 from osprey.port_layout import default_port
-
-#: A PID on the synthesized ancestor chain that is not this process.
-OWNER_PPID = 515151
+from tests._control_context_fixtures import write_control_context, write_server_report
 
 LIVE_ENDPOINT = "pva://live-gw.example.org:5075"
 VA_ENDPOINT = "pva://127.0.0.1:5074"
@@ -108,46 +106,50 @@ def reader(approval):
 
 @pytest.fixture
 def state_dir(tmp_path, reader, monkeypatch):
-    """Point the real reader at an empty temp state directory."""
-    directory = tmp_path / "control_target"
-    directory.mkdir()
-    monkeypatch.setattr(reader, "resolve_state_dir", lambda hook_input=None: str(directory))
-    monkeypatch.setattr(reader, "ancestor_pids", lambda *a, **k: [os.getpid(), OWNER_PPID, 300])
+    """Point the real reader at an empty temp agent-data root.
+
+    Returns the ROOT the shared writers take. The two files land one hop below
+    it, in ``control_target/``, which is what the reader's single path seam is
+    aimed at here. Every report PID is treated as running, since the reports the
+    tests write name servers that do not exist.
+    """
+    (tmp_path / "control_target").mkdir()
+    monkeypatch.setattr(
+        reader, "resolve_state_dir", lambda hook_input=None: str(tmp_path / "control_target")
+    )
     monkeypatch.setattr(reader, "_is_process_alive", lambda pid: True)
-    return directory
+    return tmp_path
 
 
-def state_record(target="va", targets=None):
-    """A well-formed state record, with per-target display metadata."""
+#: The controls server whose report publishes the per-target display metadata.
+SERVER_PID = 6060
+
+
+def published_targets():
+    """The per-target display metadata a live controls server publishes."""
     return {
-        "target": target,
-        "generation": 2,
-        "server_pid": 6060,
-        "owner_ppid": OWNER_PPID,
-        "targets": (
-            {
-                "live": {
-                    "label": "LIVE MACHINE",
-                    "endpoint": LIVE_ENDPOINT,
-                    "real_machine": True,
-                },
-                "va": {
-                    "label": "Virtual accelerator",
-                    "endpoint": VA_ENDPOINT,
-                    "real_machine": False,
-                },
-            }
-            if targets is None
-            else targets
-        ),
+        "live": {
+            "label": "LIVE MACHINE",
+            "endpoint": LIVE_ENDPOINT,
+            "real_machine": True,
+        },
+        "va": {
+            "label": "Virtual accelerator",
+            "endpoint": VA_ENDPOINT,
+            "real_machine": False,
+        },
     }
 
 
-def write_state(directory, target="va", targets=None):
-    """Write the session's state file into *directory*."""
-    record = state_record(target=target, targets=targets)
-    (directory / f"target_state_{record['server_pid']}.json").write_text(
-        json.dumps(record), encoding="utf-8"
+def write_state(root, target="va", targets=None):
+    """Write the deployment's record and the one report that names the machines."""
+    write_control_context(root, target=target, generation=2)
+    write_server_report(
+        root,
+        SERVER_PID,
+        applied_target=target,
+        applied_generation=2,
+        targets=published_targets() if targets is None else targets,
     )
 
 
@@ -335,7 +337,7 @@ def test_one_prompt_describes_one_read_of_the_state_file(
 def test_two_lane_queue_add_names_the_simulation_lane_and_asks_its_bridge(
     approval, fake_bridge, bridge_calls, state_dir
 ):
-    """The session is on the VA, so the plan binds to the VA lane — and the
+    """The deployment is on the VA, so the plan binds to the VA lane — and the
     draft and queue shown below the line come from THAT lane's bridge."""
     fake_bridge({"/queue": QUEUE_ROUTE, "/draft": DRAFT_ROUTE, "/plans": []})
     write_state(state_dir, target="va")
@@ -343,8 +345,8 @@ def test_two_lane_queue_add_names_the_simulation_lane_and_asks_its_bridge(
     lines = approval._describe_queue_add({"draft_revision": 3}, two_lane_config(), None)
 
     assert lines[0] == (
-        f"Bluesky PLAN lane: bluesky_va (target: {VA_PHRASE}) — the lane serving this "
-        f"session's target, which is where this plan binds."
+        f"Bluesky PLAN lane: bluesky_va (target: {VA_PHRASE}) — the lane serving the "
+        f"deployment's target, which is where this plan binds."
     )
     assert {url for url, _ in bridge_calls} == {LANE_TWO_URL}
     assert "Plan: orbit_scan" in lines
@@ -378,17 +380,17 @@ def test_two_lane_queue_add_without_state_says_the_lane_is_unresolved(
     rendered = text(lines)
 
     assert "Bluesky PLAN lane: unresolved" in rendered
-    assert "the session's target state could not be read" in rendered
+    assert "the control target could not be read" in rendered
     assert "'bluesky' (live), 'bluesky_va' (va)" in rendered
     assert "NOT previewed" in rendered
     assert bridge_calls == []
 
 
 @pytest.mark.unit
-def test_two_lane_queue_add_says_so_when_no_lane_serves_the_session_target(
+def test_two_lane_queue_add_says_so_when_no_lane_serves_the_control_target(
     approval, fake_bridge, bridge_calls, state_dir
 ):
-    """A misrendered lane pair — two lanes, neither serving where the session
+    """A misrendered lane pair — two lanes, neither serving where the deployment
     is pointed — is a refusal, and the prompt states it as one."""
     fake_bridge({"/queue": QUEUE_ROUTE, "/draft": DRAFT_ROUTE})
     write_state(state_dir, target="live")
@@ -401,7 +403,7 @@ def test_two_lane_queue_add_says_so_when_no_lane_serves_the_session_target(
     rendered = text(lines)
 
     assert "NO ACTIVE BLUESKY PLAN LANE" in rendered
-    assert "this session is on target live" in rendered
+    assert "the deployment is on the live target" in rendered
     assert "REFUSED" in rendered
     assert bridge_calls == []
 
@@ -424,19 +426,17 @@ def test_a_second_lane_with_no_published_port_shows_no_queue_rather_than_lane_on
 
 
 @pytest.mark.unit
-def test_a_lane_target_the_state_file_says_nothing_about_is_called_unrecorded(
-    approval, fake_bridge, state_dir
-):
-    """Silence in the state file must not read as "simulation". A lane whose
-    target carries no `real_machine` claim is named with its target string and
-    an explicit statement that the identity is not recorded."""
+def test_a_lane_target_no_server_publishes_is_called_unpublished(approval, fake_bridge, state_dir):
+    """Silence in the reports must not read as "simulation". A lane whose target
+    carries no `real_machine` claim is named with its target string and an
+    explicit statement that no live server publishes an identity for it."""
     fake_bridge({"/queue": QUEUE_ROUTE, "/draft": DRAFT_ROUTE})
     write_state(state_dir, target="va", targets={"va": {"label": "Virtual accelerator"}})
 
     lines = approval._describe_queue_add({"draft_revision": 3}, two_lane_config(), None)
 
     assert lines[0].startswith(
-        "Bluesky PLAN lane: bluesky_va (target: va (identity not recorded in the state file))"
+        "Bluesky PLAN lane: bluesky_va (target: va (identity not published by any live server))"
     )
     assert VA_PHRASE not in lines[0]
 
@@ -458,7 +458,7 @@ def test_queue_start_renders_the_bound_lane_and_lists_its_queue(
     lines = approval._describe_queue_start({"lane": "bluesky_va"}, two_lane_config(), None)
 
     assert lines[0] == (
-        f"Bluesky PLAN lane: bluesky_va (target: {VA_PHRASE}) — the lane this session's "
+        f"Bluesky PLAN lane: bluesky_va (target: {VA_PHRASE}) — the lane the deployment's "
         f"target is on."
     )
     assert lines[1] == START_HEADLINE
@@ -473,7 +473,7 @@ def test_queue_start_on_a_lane_the_session_left_renders_the_mismatch(
     """The case the whole axis exists for: the item was queued on the live lane,
     the session has since switched to the simulation, and starting now would
     drive the machine the session left. The deployment refuses it — so the
-    prompt says which lane serves what, which target the session is on, and that
+    prompt says which lane serves what, which target the deployment is on, and that
     approving achieves nothing."""
     fake_bridge({"/queue": QUEUE_ROUTE, "/plans": []})
     write_state(state_dir, target="va")
@@ -483,10 +483,10 @@ def test_queue_start_on_a_lane_the_session_left_renders_the_mismatch(
     rendered = text(lines)
 
     assert lines[0] == (
-        f"⚠️  LANE MISMATCH — the 'bluesky_live' lane serves {LIVE_PHRASE}; this session's "
-        f"target is {VA_PHRASE}. Starting will be REFUSED."
+        f"⚠️  LANE MISMATCH — the 'bluesky_live' lane serves {LIVE_PHRASE}; the deployment "
+        f"is on the {VA_PHRASE} target. Starting will be REFUSED."
     )
-    assert "The lane serving this session's target is 'bluesky'" in rendered
+    assert "The lane serving the deployment's target is 'bluesky'" in rendered
     # The listing still belongs to the lane that was named, not to the active
     # one — and the line directly above it says so.
     assert (
@@ -512,7 +512,7 @@ def test_queue_start_naming_no_lane_on_a_two_lane_deployment_shows_no_queue(
 
     assert "NO LANE NAMED" in rendered
     assert "REFUSED" in rendered
-    assert f"The lane serving this session's target is 'bluesky_va' (target: {VA_PHRASE})" in (
+    assert f"The lane serving the deployment's target is 'bluesky_va' (target: {VA_PHRASE})" in (
         rendered
     )
     assert "Queue contents: not shown" in rendered
@@ -550,7 +550,7 @@ def test_queue_start_without_state_names_the_lane_but_claims_no_mismatch(
     rendered = text(lines)
 
     assert "Bluesky PLAN lane: bluesky_va" in rendered
-    assert "cannot say whether that is the lane this session is on" in rendered
+    assert "cannot say whether that is the lane the deployment is on" in rendered
     assert "MISMATCH" not in rendered
     assert {url for url, _ in bridge_calls} == {LANE_TWO_URL}
 
@@ -590,7 +590,7 @@ def test_a_lane_block_with_no_declared_target_serves_the_deployment_baseline(
     rendered = text(lines)
 
     assert lines[0] == (
-        f"Bluesky PLAN lane: bluesky (target: {VA_PHRASE}) — the lane this session's target is on."
+        f"Bluesky PLAN lane: bluesky (target: {VA_PHRASE}) — the lane the deployment's target is on."
     )
     assert "MISMATCH" not in rendered
     assert "REFUSED" not in rendered
@@ -695,7 +695,7 @@ def test_a_render_without_the_state_reader_still_names_the_lanes(
     approval, fake_bridge, monkeypatch
 ):
     """A project rendered before the switch capability existed has no reader
-    module. The lane map is config, so it survives; the session target does not,
+    module. The lane map is config, so it survives; the deployment's target does not,
     and the prompt falls back to the explicit unresolved line."""
     monkeypatch.setattr(approval, "_target_state", None)
     fake_bridge({"/queue": QUEUE_ROUTE, "/plans": []})
@@ -703,7 +703,7 @@ def test_a_render_without_the_state_reader_still_names_the_lanes(
     lines = approval._describe_queue_start({"lane": "bluesky_va"}, two_lane_config(), None)
 
     assert "Bluesky PLAN lane: bluesky_va" in text(lines)
-    assert "cannot say whether that is the lane this session is on" in text(lines)
+    assert "cannot say whether that is the lane the deployment is on" in text(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -712,19 +712,22 @@ def test_a_render_without_the_state_reader_still_names_the_lanes(
 
 
 def _write_session_state(repo_root, target):
-    """Write a state file this pytest process genuinely owns.
+    """Write the record and a report under the root the hook will derive.
 
-    ``owner_ppid`` is this process, which IS on the ancestor chain of the hook
-    subprocess `hook_runner` spawns, so the reader's real parentage and liveness
-    rules select this record with no seam replaced.
+    The reader takes ``<repo_root>/var/agent_data`` when nothing stamps
+    ``OSPREY_AGENT_DATA_ROOT``, and the hook subprocess runs with *repo_root* as
+    its ``cwd``. The report is filed under THIS process's PID, which is alive by
+    definition, so the reader's real liveness filter selects it with no seam
+    replaced.
     """
-    directory = repo_root / "var" / "agent_data" / "control_target"
-    directory.mkdir(parents=True, exist_ok=True)
-    record = state_record(target=target)
-    record["server_pid"] = os.getpid()
-    record["owner_ppid"] = os.getpid()
-    (directory / f"target_state_{os.getpid()}.json").write_text(
-        json.dumps(record), encoding="utf-8"
+    root = repo_root / "var" / "agent_data"
+    write_control_context(root, target=target, generation=2)
+    write_server_report(
+        root,
+        os.getpid(),
+        applied_target=target,
+        applied_generation=2,
+        targets=published_targets(),
     )
 
 
@@ -766,7 +769,7 @@ def test_end_to_end_a_mismatched_start_reaches_the_human(tmp_path, hook_runner, 
     reason = _reason(result)
     assert "LANE MISMATCH" in reason
     assert f"the 'bluesky_live' lane serves {LIVE_PHRASE}" in reason
-    assert f"this session's target is {VA_PHRASE}" in reason
+    assert f"the deployment is on the {VA_PHRASE} target" in reason
     assert "Starting will be REFUSED." in reason
     # The identity line above is the session's own, and still says simulation.
     assert f"Target: {VA_PHRASE}" in reason

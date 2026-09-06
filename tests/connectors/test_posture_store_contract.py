@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey_connectors import control_context, session_store
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.types import CONTROL_TARGETS
 from tests._control_context_fixtures import write_control_context
 
@@ -52,12 +52,12 @@ UNARMED = _section()
 @pytest.fixture
 def data_root(tmp_path, monkeypatch):
     """Stamp ``OSPREY_AGENT_DATA_ROOT`` at a scratch root, caches cleared."""
-    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    monkeypatch.delenv(session_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
-    session_store.invalidate_cache()
+    monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+    posture_store.invalidate_cache()
     yield tmp_path
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
 
 
 def _write_record(root: Path, posture, *, target: str = "live", generation: int = 3) -> Path:
@@ -69,7 +69,7 @@ def _write_record(root: Path, posture, *, target: str = "live", generation: int 
     path = write_control_context(
         root, target=target, generation=generation, posture=posture, owned_by=None
     )
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
     return path
 
 
@@ -77,155 +77,136 @@ def _write_record(root: Path, posture, *, target: str = "live", generation: int 
 
 
 def test_root_prefers_the_env_stamp(data_root):
-    assert session_store.agent_data_root() == data_root
-    assert session_store.state_dir() == data_root / "control_target"
+    assert posture_store.agent_data_root() == data_root
+    assert posture_store.state_dir() == data_root / "control_target"
 
 
 def test_root_falls_back_to_the_shared_data_root(tmp_path, monkeypatch):
-    monkeypatch.delenv(session_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
-    monkeypatch.setattr(session_store, "resolve_shared_data_root", lambda: tmp_path / "var")
-    session_store.invalidate_cache()
-    assert session_store.state_dir() == tmp_path / "var" / "control_target"
+    monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.setattr(posture_store, "resolve_shared_data_root", lambda: tmp_path / "var")
+    posture_store.invalidate_cache()
+    assert posture_store.state_dir() == tmp_path / "var" / "control_target"
 
 
 def test_blank_env_stamp_is_not_a_stamp(tmp_path, monkeypatch):
-    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, "   ")
-    monkeypatch.setattr(session_store, "resolve_shared_data_root", lambda: tmp_path / "var")
-    session_store.invalidate_cache()
-    assert session_store.state_dir() == tmp_path / "var" / "control_target"
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, "   ")
+    monkeypatch.setattr(posture_store, "resolve_shared_data_root", lambda: tmp_path / "var")
+    posture_store.invalidate_cache()
+    assert posture_store.state_dir() == tmp_path / "var" / "control_target"
 
 
 def test_unresolvable_root_answers_none(monkeypatch):
-    monkeypatch.delenv(session_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
 
     def _boom():
         raise OSError("no project root")
 
-    monkeypatch.setattr(session_store, "resolve_shared_data_root", _boom)
-    session_store.invalidate_cache()
-    assert session_store.agent_data_root() is None
-    assert session_store.state_dir() is None
+    monkeypatch.setattr(posture_store, "resolve_shared_data_root", _boom)
+    posture_store.invalidate_cache()
+    assert posture_store.agent_data_root() is None
+    assert posture_store.state_dir() is None
     # A caller that cannot resolve the root sees no narrowings, not a crash.
-    assert session_store.recorded_posture() == {}
+    assert posture_store.recorded_posture() == {}
 
 
 def test_the_posture_sits_beside_the_target_state_file(data_root):
     """FR9: co-sited with the state file — one directory, not two."""
     from osprey.mcp_server.control_system import target_state
 
-    assert session_store.STATE_DIR_NAME == target_state.STATE_DIR_NAME
-    assert control_context.record_path().parent == session_store.state_dir()
+    assert posture_store.STATE_DIR_NAME == target_state.STATE_DIR_NAME
+    assert control_context.record_path().parent == posture_store.state_dir()
 
 
 def test_the_retired_store_file_is_gone(data_root):
     """``session-postures.json`` is not written, not read, and not spelled here."""
-    assert not hasattr(session_store, "STORE_FILENAME")
+    assert not hasattr(posture_store, "STORE_FILENAME")
     for retired in ("store_path", "load_store", "session_map"):
-        assert not hasattr(session_store, retired), retired
+        assert not hasattr(posture_store, retired), retired
 
-    stale = data_root / session_store.STATE_DIR_NAME / "session-postures.json"
+    stale = data_root / posture_store.STATE_DIR_NAME / "session-postures.json"
     stale.parent.mkdir(parents=True, exist_ok=True)
     stale.write_text(json.dumps({"s1": {"live": "sandbox"}}), encoding="utf-8")
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
 
-    assert session_store.recorded_posture() == {}
-    assert session_store.store_permits("live") is True
+    assert posture_store.recorded_posture() == {}
+    assert posture_store.store_permits("live") is True
 
 
-# --- parse_store: the entry grammar ----------------------------------------
+# --- parse_posture_value: the entry grammar ----------------------------------------
 #
-# The record carries ONE entry of this grammar, under the key ``posture``, and
-# applies this filter to it (``control_context.parse_posture``). The filter is
-# unchanged by the move: what survives it decides whether a real machine is
-# written to.
+# The record carries ONE posture value of this grammar and applies this filter
+# to it (``control_context.parse_posture``). What survives it decides whether a
+# real machine is written to.
 
 
 def test_bare_sandbox_expands_to_every_target():
-    parsed = session_store.parse_store({"s1": "sandbox"})
-    assert parsed == {"s1": dict.fromkeys(CONTROL_TARGETS, "sandbox")}
+    assert posture_store.parse_posture_value("sandbox") == dict.fromkeys(CONTROL_TARGETS, "sandbox")
 
 
 def test_bare_writes_is_dropped():
-    assert session_store.parse_store({"s1": "writes"}) == {}
+    assert posture_store.parse_posture_value("writes") == {}
 
 
 def test_unknown_values_are_dropped():
-    assert session_store.parse_store({"s1": "readonly"}) == {}
-    assert session_store.parse_store({"s1": 7}) == {}
-    assert session_store.parse_store({"s1": None}) == {}
+    assert posture_store.parse_posture_value("readonly") == {}
+    assert posture_store.parse_posture_value(7) == {}
+    assert posture_store.parse_posture_value(None) == {}
 
 
 def test_per_target_values_are_validated_the_same_way():
-    parsed = session_store.parse_store(
-        {"s1": {"live": "sandbox", "va": "writes", "standin": "nonsense", 7: "sandbox"}}
+    parsed = posture_store.parse_posture_value(
+        {"live": "sandbox", "va": "writes", "standin": "nonsense", 7: "sandbox"}
     )
-    assert parsed == {"s1": {"live": "sandbox"}}
+    assert parsed == {"live": "sandbox"}
 
 
 def test_a_map_that_narrows_nothing_is_dropped():
-    assert session_store.parse_store({"s1": {"live": "writes"}}) == {}
-    assert session_store.parse_store({"s1": {}}) == {}
+    assert posture_store.parse_posture_value({"live": "writes"}) == {}
+    assert posture_store.parse_posture_value({}) == {}
 
 
-def test_operator_keys_are_retained():
-    """Their drop-on-restore rule belongs to the web server's startup load."""
-    parsed = session_store.parse_store({"operator-abc12345": {"live": "sandbox"}})
-    assert parsed == {"operator-abc12345": {"live": "sandbox"}}
-
-
-def test_non_mapping_and_bad_keys_are_tolerated():
-    assert session_store.parse_store([1, 2, 3]) == {}
-    assert session_store.parse_store(None) == {}
-    assert session_store.parse_store({7: "sandbox"}) == {}
-
-
-def test_parse_store_accepts_raw_json_text():
-    assert session_store.parse_store('{"s1": "sandbox"}') == {
-        "s1": dict.fromkeys(CONTROL_TARGETS, "sandbox")
-    }
-
-
-def test_corrupt_json_is_an_empty_result():
-    assert session_store.parse_store("{not json") == {}
+def test_a_shape_the_grammar_does_not_know_is_tolerated():
+    assert posture_store.parse_posture_value([1, 2, 3]) == {}
+    assert posture_store.parse_posture_value({7: "sandbox"}) == {}
 
 
 def test_the_record_applies_this_very_filter(data_root):
     """One grammar, one implementation: the record's field is filtered here."""
     _write_record(data_root, {"live": "sandbox", "va": "writes", "nonsense": "sandbox"})
-    assert session_store.recorded_posture() == {"live": "sandbox", "nonsense": "sandbox"}
+    assert posture_store.recorded_posture() == {"live": "sandbox", "nonsense": "sandbox"}
     record = control_context.read_record()
     assert record is not None
-    assert record.posture == session_store.recorded_posture()
+    assert record.posture == posture_store.recorded_posture()
 
 
 # --- lookups ---------------------------------------------------------------
 
 
 def test_no_record_is_no_narrowing(data_root):
-    assert session_store.recorded_posture() == {}
-    assert session_store.target_posture("live") is None
-    assert session_store.store_permits("live") is True
+    assert posture_store.recorded_posture() == {}
+    assert posture_store.target_posture("live") is None
+    assert posture_store.store_permits("live") is True
 
 
 def test_recorded_posture_and_target_posture(data_root):
     _write_record(data_root, {"live": "sandbox"})
-    assert session_store.recorded_posture() == {"live": "sandbox"}
-    assert session_store.target_posture("live") == "sandbox"
-    assert session_store.target_posture("va") is None
-    assert session_store.target_posture(None) is None
-    assert session_store.target_posture("") is None
+    assert posture_store.recorded_posture() == {"live": "sandbox"}
+    assert posture_store.target_posture("live") == "sandbox"
+    assert posture_store.target_posture("va") is None
+    assert posture_store.target_posture(None) is None
+    assert posture_store.target_posture("") is None
 
 
 def test_a_bare_sandbox_in_the_record_narrows_every_target(data_root):
     _write_record(data_root, "sandbox")
     for target in CONTROL_TARGETS:
-        assert session_store.target_posture(target) == "sandbox"
+        assert posture_store.target_posture(target) == "sandbox"
 
 
 def test_a_recorded_writes_narrows_nothing(data_root):
     _write_record(data_root, {"live": "writes"})
-    assert session_store.recorded_posture() == {}
-    assert session_store.store_permits("live") is True
+    assert posture_store.recorded_posture() == {}
+    assert posture_store.store_permits("live") is True
 
 
 def test_a_degraded_record_narrows_nothing(data_root):
@@ -240,9 +221,9 @@ def test_a_degraded_record_narrows_nothing(data_root):
         json.dumps({"schema": 1, "target": "live", "generation": -1, "posture": "sandbox"}),
     ):
         path.write_text(payload, encoding="utf-8")
-        session_store.invalidate_cache()
-        assert session_store.recorded_posture() == {}, payload
-        assert session_store.store_permits("live") is True, payload
+        posture_store.invalidate_cache()
+        assert posture_store.recorded_posture() == {}, payload
+        assert posture_store.store_permits("live") is True, payload
 
 
 def test_an_undecodable_record_is_no_narrowing_not_an_exception(data_root):
@@ -255,10 +236,10 @@ def test_an_undecodable_record_is_no_narrowing_not_an_exception(data_root):
     path = control_context.record_path_under(data_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"\xff\xfe{\x00k\x00: sandbox}")
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
 
-    assert session_store.recorded_posture() == {}
-    assert session_store.store_permits("live") is True
+    assert posture_store.recorded_posture() == {}
+    assert posture_store.store_permits("live") is True
 
 
 def test_a_raising_reader_leaves_the_ceiling_in_charge(data_root, monkeypatch):
@@ -269,9 +250,9 @@ def test_a_raising_reader_leaves_the_ceiling_in_charge(data_root, monkeypatch):
         raise RuntimeError("the state directory is on fire")
 
     monkeypatch.setattr(control_context, "read_record", _boom)
-    assert session_store.recorded_posture() == {}
-    assert session_store.store_permits("live") is True
-    assert session_store.effective_writes(ARMED, "live") is True
+    assert posture_store.recorded_posture() == {}
+    assert posture_store.store_permits("live") is True
+    assert posture_store.effective_writes(ARMED, "live") is True
 
 
 # --- cache -----------------------------------------------------------------
@@ -300,39 +281,39 @@ def test_two_narrowings_within_one_second_are_both_seen(data_root):
         os.replace(tmp, path)
 
     _atomic({"live": "sandbox"})
-    assert session_store.target_posture("live") == "sandbox"
+    assert posture_store.target_posture("live") == "sandbox"
     _atomic({"va": "sandbox"})
-    assert session_store.target_posture("live") is None
-    assert session_store.target_posture("va") == "sandbox"
+    assert posture_store.target_posture("live") is None
+    assert posture_store.target_posture("va") == "sandbox"
     _atomic({"live": "sandbox", "va": "sandbox"})
-    assert session_store.target_posture("live") == "sandbox"
+    assert posture_store.target_posture("live") == "sandbox"
 
 
 def test_the_record_appearing_and_disappearing_is_seen(data_root):
-    assert session_store.recorded_posture() == {}
+    assert posture_store.recorded_posture() == {}
     path = _write_record(data_root, "sandbox")
-    assert session_store.target_posture("live") == "sandbox"
+    assert posture_store.target_posture("live") == "sandbox"
     path.unlink()
-    assert session_store.recorded_posture() == {}
+    assert posture_store.recorded_posture() == {}
 
 
 def test_a_moved_root_is_seen(data_root, tmp_path, monkeypatch):
     _write_record(data_root, "sandbox")
-    assert session_store.target_posture("live") == "sandbox"
+    assert posture_store.target_posture("live") == "sandbox"
     other = tmp_path / "elsewhere"
     other.mkdir()
-    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(other))
-    assert session_store.recorded_posture() == {}
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(other))
+    assert posture_store.recorded_posture() == {}
 
 
 def test_invalidate_cache_forgets_the_records_cache(data_root, monkeypatch):
     """One cache, held by the record reader; this module's hook drops that one."""
     _write_record(data_root, {"live": "sandbox"})
-    assert session_store.target_posture("live") == "sandbox"
+    assert posture_store.target_posture("live") == "sandbox"
 
     dropped: list[bool] = []
     monkeypatch.setattr(control_context, "invalidate_cache", lambda: dropped.append(True))
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
     assert dropped == [True]
 
 
@@ -349,26 +330,26 @@ def test_effective_writes_truth_table(data_root, monkeypatch, armed, entry, read
     if readonly:
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
     expected = armed and not readonly and entry != "sandbox"
-    assert session_store.effective_writes(section, "live") is expected
+    assert posture_store.effective_writes(section, "live") is expected
 
 
 def test_effective_writes_uses_the_targets_own_ceiling(data_root):
     section = _section(live_writes=False, va_writes=True)
-    assert session_store.effective_writes(section, "live") is False
-    assert session_store.effective_writes(section, "va") is True
+    assert posture_store.effective_writes(section, "live") is False
+    assert posture_store.effective_writes(section, "va") is True
 
 
 def test_no_target_takes_the_most_restrictive_narrowing(data_root):
     _write_record(data_root, {"va": "sandbox"})
     # Any narrowing refuses when the caller holds no target of its own.
-    assert session_store.effective_writes(ARMED, None) is False
-    assert session_store.effective_writes(ARMED) is False
+    assert posture_store.effective_writes(ARMED, None) is False
+    assert posture_store.effective_writes(ARMED) is False
 
 
 def test_no_target_with_nothing_narrowed_leaves_the_ceiling_in_charge(data_root):
     _write_record(data_root, {})
-    assert session_store.effective_writes(ARMED, None) is True
-    assert session_store.effective_writes(UNARMED, None) is False
+    assert posture_store.effective_writes(ARMED, None) is True
+    assert posture_store.effective_writes(UNARMED, None) is False
 
 
 def test_connector_type_ceiling_beats_the_deployment_wide_key(data_root):
@@ -378,13 +359,13 @@ def test_connector_type_ceiling_beats_the_deployment_wide_key(data_root):
         "writes_enabled": True,
         "connector": {"epics": {"prefix": "X:", "writes_enabled": False}},
     }
-    assert session_store.effective_writes(section, None, connector_type="epics") is False
+    assert posture_store.effective_writes(section, None, connector_type="epics") is False
     armed = {
         "type": "epics",
         "writes_enabled": False,
         "connector": {"epics": {"prefix": "X:", "writes_enabled": True}},
     }
-    assert session_store.effective_writes(armed, None, connector_type="epics") is True
+    assert posture_store.effective_writes(armed, None, connector_type="epics") is True
 
 
 def test_connector_type_ceiling_with_a_target_indexes_the_posture(data_root):
@@ -392,29 +373,29 @@ def test_connector_type_ceiling_with_a_target_indexes_the_posture(data_root):
     section = _section(live_writes=True, va_writes=True)
     # The ceiling stays the connector TYPE's; the posture is indexed by target.
     assert (
-        session_store.effective_writes(section, "va", connector_type="virtual_accelerator") is False
+        posture_store.effective_writes(section, "va", connector_type="virtual_accelerator") is False
     )
-    assert session_store.effective_writes(section, "live", connector_type="epics") is True
+    assert posture_store.effective_writes(section, "live", connector_type="epics") is True
 
 
 def test_a_bare_sandbox_refuses_every_target(data_root):
     _write_record(data_root, "sandbox")
     for target in CONTROL_TARGETS:
-        assert session_store.effective_writes(ARMED, target) is False
-    assert session_store.effective_writes(ARMED, None) is False
+        assert posture_store.effective_writes(ARMED, target) is False
+    assert posture_store.effective_writes(ARMED, None) is False
 
 
 def test_an_unresolvable_root_leaves_the_ceiling_in_charge(monkeypatch):
-    monkeypatch.delenv(session_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    monkeypatch.delenv(session_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+    monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
 
     def _boom():
         raise OSError("no project root")
 
-    monkeypatch.setattr(session_store, "resolve_shared_data_root", _boom)
-    session_store.invalidate_cache()
-    assert session_store.effective_writes(ARMED, "live") is True
+    monkeypatch.setattr(posture_store, "resolve_shared_data_root", _boom)
+    posture_store.invalidate_cache()
+    assert posture_store.effective_writes(ARMED, "live") is True
 
 
 # --- store_permits: the clause on its own ----------------------------------
@@ -427,14 +408,14 @@ def test_an_unresolvable_root_leaves_the_ceiling_in_charge(monkeypatch):
 
 
 def test_store_permits_is_public_api():
-    assert "store_permits" in session_store.__all__
-    assert callable(session_store.store_permits)
+    assert "store_permits" in posture_store.__all__
+    assert callable(posture_store.store_permits)
 
 
 def test_store_permits_takes_only_a_target():
     """The posture is the deployment's now: no session key indexes it."""
-    assert list(inspect.signature(session_store.store_permits).parameters) == ["target"]
-    assert list(inspect.signature(session_store.target_posture).parameters) == ["target"]
+    assert list(inspect.signature(posture_store.store_permits).parameters) == ["target"]
+    assert list(inspect.signature(posture_store.target_posture).parameters) == ["target"]
 
 
 def test_store_permits_is_the_clause_effective_writes_uses(data_root):
@@ -442,21 +423,21 @@ def test_store_permits_is_the_clause_effective_writes_uses(data_root):
     _write_record(data_root, {"live": "sandbox"})
 
     # The clause alone refuses; the whole rule refuses for the same reason.
-    assert session_store.store_permits("live") is False
-    assert session_store.effective_writes(ARMED, "live") is False
+    assert posture_store.store_permits("live") is False
+    assert posture_store.effective_writes(ARMED, "live") is False
     # And where the clause permits, only the ceiling can still refuse.
-    assert session_store.store_permits("va") is True
-    assert session_store.effective_writes(ARMED, "va") is True
-    assert session_store.effective_writes(UNARMED, "va") is False
+    assert posture_store.store_permits("va") is True
+    assert posture_store.effective_writes(ARMED, "va") is True
+    assert posture_store.effective_writes(UNARMED, "va") is False
 
 
 def test_store_permits_carries_the_no_target_rule(data_root):
     """A caller that cannot name a machine gets the most restrictive answer."""
     _write_record(data_root, {"standin": "sandbox"})
 
-    assert session_store.store_permits(None) is False
-    assert session_store.store_permits("") is False
-    assert session_store.store_permits("va") is True
+    assert posture_store.store_permits(None) is False
+    assert posture_store.store_permits("") is False
+    assert posture_store.store_permits("va") is True
 
 
 def test_store_permits_never_consults_the_execution_mode(data_root, monkeypatch):
@@ -464,8 +445,8 @@ def test_store_permits_never_consults_the_execution_mode(data_root, monkeypatch)
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
     _write_record(data_root, {"standin": "sandbox"})
 
-    assert session_store.store_permits("live") is True
-    assert session_store.effective_writes(ARMED, "live") is False
+    assert posture_store.store_permits("live") is True
+    assert posture_store.effective_writes(ARMED, "live") is False
 
 
 # --- the launch pin --------------------------------------------------------
@@ -476,30 +457,30 @@ def test_store_permits_never_consults_the_execution_mode(data_root, monkeypatch)
 
 
 def test_the_launch_pin_refuses_ahead_of_the_record(data_root, monkeypatch):
-    monkeypatch.setenv(session_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
+    monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
 
     def _explode(**_kwargs):  # pragma: no cover - must not run
         raise AssertionError("the record was read behind a launch-pinned refusal")
 
     monkeypatch.setattr(control_context, "read_record", _explode)
-    assert session_store.store_permits("live") is False
-    assert session_store.effective_writes(ARMED, "live") is False
+    assert posture_store.store_permits("live") is False
+    assert posture_store.effective_writes(ARMED, "live") is False
 
 
 def test_the_launch_pin_leaves_other_targets_alone(data_root, monkeypatch):
-    monkeypatch.setenv(session_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
-    assert session_store.store_permits("va") is True
-    assert session_store.launch_narrowed_target() == "live"
+    monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
+    assert posture_store.store_permits("va") is True
+    assert posture_store.launch_narrowed_target() == "live"
 
 
 def test_a_launch_stamp_cannot_widen_a_recorded_narrowing(data_root, monkeypatch):
-    monkeypatch.setenv(session_store.LAUNCH_POSTURE_ENV_VAR, "live=writes")
+    monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "live=writes")
     _write_record(data_root, {"live": "sandbox"})
-    assert session_store.store_permits("live") is False
+    assert posture_store.store_permits("live") is False
 
 
 def test_an_unstamped_process_is_unaffected_by_the_launch_clause(data_root, monkeypatch):
-    monkeypatch.delenv(session_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
-    assert session_store.launch_permits("live") is True
-    assert session_store.launch_narrowed_target() is None
-    assert session_store.store_permits("live") is True
+    monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+    assert posture_store.launch_permits("live") is True
+    assert posture_store.launch_narrowed_target() is None
+    assert posture_store.store_permits("live") is True

@@ -164,7 +164,7 @@ class TestWriteRequest:
         path = target_state.write_request(record)
 
         assert json.loads(path.read_text(encoding="utf-8")) == record
-        assert target_state.read_request(4321) == record
+        assert target_state.read_file(target_state.request_file_path(4321)) == record
 
     def test_a_session_less_requester_writes_a_null_session(self, state_root):
         """A bare ``claude`` asks the same way every other process does."""
@@ -172,13 +172,13 @@ class TestWriteRequest:
             {"request_id": "r", "target": "va", "session": None, "requested_by_pid": 4321}
         )
 
-        assert target_state.read_request(4321)["session"] is None
+        assert target_state.read_file(target_state.request_file_path(4321))["session"] is None
 
     def test_requested_at_is_stamped_when_the_caller_omits_it(self, state_root):
         """A request that cannot be aged could never expire, so it is never written."""
         target_state.write_request({"request_id": "r", "target": "va", "requested_by_pid": 4321})
 
-        record = target_state.read_request(4321)
+        record = target_state.read_file(target_state.request_file_path(4321))
         assert target_state.is_request_fresh(record)
         datetime.fromisoformat(record["requested_at"])  # parseable, not just present
 
@@ -195,7 +195,7 @@ class TestWriteRequest:
             {"request_id": "two", "target": "live", "requested_by_pid": 4321}
         )
 
-        assert target_state.read_request(4321)["request_id"] == "two"
+        assert target_state.read_file(target_state.request_file_path(4321))["request_id"] == "two"
 
     @pytest.mark.parametrize(
         "record",
@@ -275,28 +275,28 @@ class TestRequestReadBack:
 
 class TestReadAndRemoveRequest:
     def test_absent_request_reads_as_none(self, state_root):
-        assert target_state.read_request(4321) is None
+        assert target_state.read_file(target_state.request_file_path(4321)) is None
 
     def test_corrupt_request_reads_as_none(self, state_root):
         directory = state_root / target_state.STATE_DIR_NAME
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "switch_request_4321.json").write_text("{not json", encoding="utf-8")
 
-        assert target_state.read_request(4321) is None
+        assert target_state.read_file(target_state.request_file_path(4321)) is None
 
     def test_read_defaults_to_this_process(self, state_root):
         target_state.write_request(
             {"request_id": "mine", "target": "va", "requested_by_pid": os.getpid()}
         )
 
-        assert target_state.read_request()["request_id"] == "mine"
+        assert target_state.read_file(target_state.request_file_path())["request_id"] == "mine"
 
     def test_remove_deletes_the_request(self, state_root):
         target_state.write_request({"request_id": "r", "target": "va", "requested_by_pid": 4321})
 
         target_state.remove_request(4321)
 
-        assert target_state.read_request(4321) is None
+        assert target_state.read_file(target_state.request_file_path(4321)) is None
 
     def test_remove_is_idempotent(self, state_root):
         target_state.remove_request(4321)
@@ -308,7 +308,7 @@ class TestReadAndRemoveRequest:
 
         target_state.remove_request(4321)
 
-        assert target_state.read_request(4322)["request_id"] == "b"
+        assert target_state.read_file(target_state.request_file_path(4322))["request_id"] == "b"
 
 
 class TestRequestFreshness:
@@ -321,7 +321,8 @@ class TestRequestFreshness:
     def test_a_just_written_request_is_fresh(self, state_root):
         target_state.write_request({"request_id": "r", "target": "va", "requested_by_pid": 4321})
 
-        assert target_state.is_request_fresh(target_state.read_request(4321)) is True
+        pending = target_state.read_file(target_state.request_file_path(4321))
+        assert target_state.is_request_fresh(pending) is True
 
     def test_a_request_older_than_the_ttl_is_not_fresh(self):
         asked = datetime.now(UTC) - timedelta(seconds=target_state.REQUEST_TTL_S + 1)
@@ -368,7 +369,7 @@ class TestRequestSweep:
 
         target_state.sweep_stale(server_pid=os.getpid())
 
-        assert target_state.read_request(4321) is None
+        assert target_state.read_file(target_state.request_file_path(4321)) is None
 
     def test_sweep_leaves_a_request_from_a_live_requester_alone(self, state_root, monkeypatch):
         target_state.write_request({"request_id": "r", "target": "va", "requested_by_pid": 4321})
@@ -376,7 +377,7 @@ class TestRequestSweep:
 
         target_state.sweep_stale(server_pid=os.getpid())
 
-        assert target_state.read_request(4321)["request_id"] == "r"
+        assert target_state.read_file(target_state.request_file_path(4321))["request_id"] == "r"
 
     def test_sweep_removes_a_request_whose_name_encodes_no_pid(self, state_root):
         directory = state_root / target_state.STATE_DIR_NAME
@@ -416,7 +417,7 @@ class TestRequestSweep:
 
         target_state.write_server_record(TARGETS_META, server_pid=os.getpid())
 
-        assert target_state.read_request() is None
+        assert target_state.read_file(target_state.request_file_path()) is None
 
 
 # ---------------------------------------------------------------------------

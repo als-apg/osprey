@@ -4,7 +4,7 @@ The queue surface has always re-read the DEPLOYMENT's write posture for the
 control target its bound lane serves, fresh from config, before anything
 reaches the network. This file pins the second term that now ANDs into that
 answer: the per-target narrowing an operator sets from the header chip, read
-through ``osprey_connectors.session_store.effective_writes``.
+through ``osprey_connectors.posture_store.effective_writes``.
 
 Three properties, all asserted directly:
 
@@ -38,7 +38,7 @@ import yaml
 
 from osprey.mcp_server.bluesky.server_context import initialize_server_context, reset_server_context
 from osprey.mcp_server.bluesky.tools import queue
-from osprey_connectors import session_store
+from osprey_connectors import posture_store
 from tests._control_context_fixtures import write_control_context
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
@@ -72,11 +72,11 @@ def _reset_bluesky_context():
 def _clean_posture_env(monkeypatch):
     """No ambient posture: every test states its own session key and root."""
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    monkeypatch.delenv(session_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
     yield
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
 
 
 def _configure(
@@ -115,8 +115,8 @@ def _narrow(tmp_path, monkeypatch, entry) -> Path:
     """
     root = tmp_path / "agent_data"
     path = write_control_context(root, posture=entry)
-    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    session_store.invalidate_cache()
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    posture_store.invalidate_cache()
     return path
 
 
@@ -416,7 +416,7 @@ def test_the_bridge_startup_guard_refuses_a_writable_lane_with_no_limits_db(tmp_
     assert "standin" in str(excinfo.value)
 
 
-def test_the_bridge_startup_guard_reads_the_session_store_too(tmp_path, monkeypatch):
+def test_the_bridge_startup_guard_reads_the_posture_store_too(tmp_path, monkeypatch):
     """A lane the session narrowed cannot write, so it needs no limits database.
 
     The guard is fail-OPEN by construction: it refuses only the one posture

@@ -777,7 +777,7 @@ class TestMostRestrictive:
     """The posture that holds across every target a session here can select.
 
     What a caller with no target of its own has to assume: the stdlib hook when
-    the session's target cannot be read, and any reader that must answer before
+    the recorded control target cannot be read, and any reader that must answer before
     a target is chosen. The reachable set is exactly the one
     :func:`~osprey_connectors.types.session_posture` walks — the configured
     targets when the deployment renders the switch, and otherwise the single

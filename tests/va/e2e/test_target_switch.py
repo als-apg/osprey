@@ -82,6 +82,7 @@ from osprey.mcp_server.control_system.server_context import (
 from osprey.mcp_server.control_system.tools import channel_write as channel_write_module
 from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.python_executor import executor as host_executor
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system.base import ChannelValue
 from tests.fixtures.control_context import context_for
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
@@ -395,16 +396,26 @@ def raw_config(
 
 @pytest.fixture(autouse=True)
 def state_root(tmp_path, monkeypatch):
-    """Anchor the target-state directory in ``tmp_path``, not a real deployment.
+    """Anchor the deployment's agent data in ``tmp_path``, not a real deployment.
 
     Returned as the shared data root, which is also what the on-disk config
     below resolves to — the executor scenario runs in another process and has to
-    find the same state file this one publishes.
+    find the same record and the same reports this one publishes.
+
+    Both anchors are set. The per-server reports resolve through
+    ``target_state``'s own root helper; the control-context record resolves
+    through the ``OSPREY_AGENT_DATA_ROOT`` stamp, which the sandbox subprocess
+    inherits along with the rest of this environment. Stamping one and not the
+    other leaves this process reading whatever record the developer's machine
+    was last left pointed at.
     """
     root = tmp_path / "var" / "agent_data"
     (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
-    return root
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    control_context.invalidate_cache()
+    yield root
+    control_context.invalidate_cache()
 
 
 @pytest.fixture(autouse=True)
@@ -1015,8 +1026,8 @@ def sandbox(tmp_path, endpoints, state_root):
     The deployment is written to ``config.yml`` in ``tmp_path`` so that the
     subprocess resolves the *same* project root, and therefore the same shared
     data root, that :func:`state_root` patched in this process — the pin is a
-    comparison against a state file, and a subprocess reading a different
-    directory would be comparing against nothing.
+    comparison against the control-context record, and a subprocess reading a
+    different directory would be comparing against nothing.
     """
     config_path = tmp_path / "config.yml"
     config_path.write_text(
@@ -1039,7 +1050,6 @@ def sandbox(tmp_path, endpoints, state_root):
             "OSPREY_CONFIG": str(config_path),
             host_executor.ENV_CONTROL_TARGET: target,
             host_executor.ENV_CONTROL_TARGET_GENERATION: str(generation),
-            host_executor.ENV_CONTROL_TARGET_STATE_PID: str(os.getpid()),
         }
         for stale in ("EPICS_CA_ADDR_LIST", "EPICS_CA_NAME_SERVERS", "EPICS_CA_SERVER_PORT"):
             environment.pop(stale, None)
@@ -1178,7 +1188,15 @@ class TestASwitchIsRefusedWhileAnExecutionIsInFlight:
             f"{control_target.INFLIGHT_FILE_SUFFIX}"
         )
         stale.write_text(
-            json.dumps({"pid": finished.pid, "owner_ppid": os.getpid(), "target": "va"}),
+            json.dumps(
+                {
+                    "pid": finished.pid,
+                    "session": None,
+                    "surface": "sandbox",
+                    "kernel_id": None,
+                    "target": "va",
+                }
+            ),
             encoding="utf-8",
         )
 
@@ -1189,7 +1207,7 @@ class TestASwitchIsRefusedWhileAnExecutionIsInFlight:
 
 
 # ---------------------------------------------------------------------------
-# 7. The single Bluesky lane, while the session is switched
+# 7. The single Bluesky lane, while the deployment is switched
 # ---------------------------------------------------------------------------
 
 
@@ -1198,7 +1216,7 @@ class TestASwitchIsRefusedWhileAnExecutionIsInFlight:
     reason=f"the Bluesky MCP tools are not importable here ({BLUESKY_IMPORT_ERROR})",
 )
 class TestTheSingleBlueskyLaneRefusesWhileTheSessionIsSwitched:
-    """OC-1, against a state file a real container switch published.
+    """OC-1, against a record a real container switch moved.
 
     A deployment renders exactly one plan lane, wired at build time to one
     control target, so a session that has switched away from it must not queue
@@ -1208,7 +1226,7 @@ class TestTheSingleBlueskyLaneRefusesWhileTheSessionIsSwitched:
     load-bearing one. What this adds over the in-process pin in
     ``tests/services/test_single_lane_switch_refusal.py`` is that the switch
     driving it is a real spawn-then-swap between two real machines rather than a
-    hand-written state record.
+    hand-written record.
     """
 
     @pytest.fixture
@@ -1238,13 +1256,13 @@ class TestTheSingleBlueskyLaneRefusesWhileTheSessionIsSwitched:
         with patch(f"{bluesky_queue.__name__}._http_post_json") as post:
             with patch(f"{bluesky_queue.__name__}.notify_agent_activity_async"):
                 with assert_raises_error(
-                    error_type=bluesky_backend.REASON_SESSION_TARGET_MISMATCH
+                    error_type=bluesky_backend.REASON_CONTROL_TARGET_MISMATCH
                 ) as captured:
                     await get_tool_fn(bluesky_queue.queue_add)(draft_revision=7)
 
         assert not post.called, "the refusal reached the bridge instead of stopping at the host"
         envelope = captured["envelope"]
-        assert envelope["details"]["session_target"] == "va"
+        assert envelope["details"]["control_target"] == "va"
         assert "va" in envelope["error_message"] and "live" in envelope["error_message"]
 
     async def test_the_lane_is_usable_again_once_the_session_comes_home(
@@ -1282,7 +1300,7 @@ def test_the_bluesky_lane_scenario_states_which_way_it_went() -> None:
             "the single-lane Bluesky refusal was NOT exercised: this deployment cannot "
             f"import the Bluesky MCP tools ({BLUESKY_IMPORT_ERROR})"
         )
-    assert bluesky_backend.REASON_SESSION_TARGET_MISMATCH == "session_target_mismatch"
+    assert bluesky_backend.REASON_CONTROL_TARGET_MISMATCH == "control_target_mismatch"
 
 
 # ---------------------------------------------------------------------------

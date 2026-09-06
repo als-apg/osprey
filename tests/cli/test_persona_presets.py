@@ -1066,15 +1066,15 @@ class TestControlAssistantPersonas:
 
 
 # ---------------------------------------------------------------------------
-# Write posture, per session target, across every shipped preset
+# Write posture, per control target, across every shipped preset
 # ---------------------------------------------------------------------------
 
-#: preset name -> the write posture it resolves to for each session target.
+#: preset name -> the write posture it resolves to for each control target.
 #:
 #: The matrix rather than the keys, because the keys are not the answer: write
 #: posture is per connector type, a target names a machine, and what an
 #: operator holds is whatever ``target_writes_enabled`` returns for the target
-#: their session is on. A preset can reach ``False`` three different ways —
+#: their deployment is on. A preset can reach ``False`` three different ways —
 #: a flat key that is not literally ``True``, a per-type block pinned off, or a
 #: target that resolves to no type at all — and a table of keys would not tell
 #: them apart. Stated literally and never derived from the resolver: a table
@@ -1192,7 +1192,7 @@ class TestWritePostureMatrix:
 
     def test_va_readwrite_is_armed_on_the_simulator_alone(self, tmp_path: Path) -> None:
         """The rung: the same tool call writes on one machine and refuses on the
-        other, decided by the session's target rather than by a rebuild."""
+        other, decided by the recorded control target rather than by a rebuild."""
         section = _rendered_control_system(tmp_path, "control-assistant-va-readwrite")
 
         assert target_writes_enabled(section, "va") is True

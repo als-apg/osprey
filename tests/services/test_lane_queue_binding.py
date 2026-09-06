@@ -3,8 +3,9 @@
 A **plan lane** is a whole Bluesky stack wired at render time to ONE control
 target. A deployment renders one lane, or — when its build profile opted in —
 two, one per target. The session, meanwhile, moves between targets at run time,
-and only the HOST can see where it is: the session target lives in a state file
-the controls MCP server writes, outside every bridge container.
+and only the HOST can see where it is: the target the deployment is pointed at
+lives in one control-context record on the host filesystem, outside every
+bridge container.
 
 So the host is what routes, and these tests pin the routing at the deployment
 shape that decides it. The lane COUNT is the only branch point:
@@ -14,13 +15,13 @@ shape that decides it. The lane COUNT is the only branch point:
   since the plan stack shipped (``test_single_lane_switch_refusal.py`` owns that
   contract in full; what is pinned here is that lanes did not change it).
 * **Two lanes** — the switch becomes an ADDRESS. ``queue_add`` goes to the lane
-  serving the session's target and reports which lane it bound the item to;
+  serving the recorded control target and reports which lane it bound the item to;
   ``queue_start`` must name that lane and is refused when it is no longer the
   active one — the mid-queue switch, which is the case this whole binding exists
   for. An item composed for one machine must never be started against the other.
 
 **Halting is the exception to all of it.** Every decision above asks where the
-SESSION is pointed. A halt asks where the HARDWARE is moving, which stops being
+DEPLOYMENT is pointed. A halt asks where the HARDWARE is moving, which stops being
 the same question the moment an operator switches targets mid-run — so
 ``stop_run`` and ``queue_stop`` are addressed to the lane that is actually
 running, found by asking the bridges rather than by requiring a parameter
@@ -38,7 +39,7 @@ The rest is pinned because nothing else pins it:
   whose session has since moved is refused rather than silently redirected;
 * the host composes ``active`` onto each lane's static capability record. The
   bridge publishes what a lane IS; the host is the only layer entitled to say
-  which one the session is on — and one unreachable lane degrades to an
+  which one the deployment is on — and one unreachable lane degrades to an
   ``error`` on its own entry rather than taking the board down with it.
 
 Requests are intercepted at the ``httpx`` boundary rather than at the tool's own
@@ -49,7 +50,6 @@ which is a URL and a launch token, and a mock one layer higher would hide both.
 from __future__ import annotations
 
 import json
-import os
 from types import SimpleNamespace
 from typing import Any
 
@@ -66,7 +66,8 @@ from osprey.mcp_server.bluesky.tools import draft as draft_tools
 from osprey.mcp_server.bluesky.tools import queue
 from osprey.mcp_server.control_system import target_banner, target_state
 from osprey.services.bluesky_bridge import queue_backend as qb
-from tests._control_context_fixtures import write_payload
+from osprey_connectors import control_context, posture_store
+from tests._control_context_fixtures import write_control_context
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
 pytestmark = pytest.mark.unit
@@ -253,7 +254,14 @@ def deployment(tmp_path, monkeypatch):
             }.get(key, default)
 
         monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
+        # The per-server reports and the control-context record have to land in
+        # the same scratch deployment: the reports resolve through
+        # ``target_state``'s own root helper, the record through the
+        # ``OSPREY_AGENT_DATA_ROOT`` stamp. Anchoring one and not the other is
+        # how a lane test reads whatever record this machine last left behind.
         monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
+        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+        control_context.invalidate_cache()
 
         monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", _LANE_ONE_TOKEN)
         monkeypatch.setenv("BLUESKY_VA_LAUNCH_TOKEN", _VA_LANE_TOKEN)
@@ -280,22 +288,16 @@ def deployment(tmp_path, monkeypatch):
 
 
 def _session_on(target: str, generation: int = 0) -> None:
-    """Write the report a controls server owned by this session would write.
+    """Point the deployment's control-context record at *target*.
 
-    The banner matches a report by ``owner_ppid`` and reads its ``target``, so
-    those are the keys the payload carries.
+    One record per deployment, written under the root the ``deployment``
+    fixture stamped. It is the whole of what "the deployment is on *target*" means
+    to the host: :func:`target_banner.resolve_control_target` reads this file
+    and nothing else.
     """
-    write_payload(
-        target_state.report_file_path(),
-        {
-            "target": target,
-            "generation": generation,
-            "server_pid": os.getpid(),
-            "owner_ppid": os.getppid(),
-            "targets": {},
-            "children": [],
-        },
-    )
+    root = posture_store.agent_data_root()
+    assert root is not None, "the deployment fixture stamps OSPREY_AGENT_DATA_ROOT"
+    write_control_context(root, target=target, generation=generation)
 
 
 def _switch_to(target: str, generation: int = 1) -> None:
@@ -356,11 +358,11 @@ async def test_a_single_lane_still_refuses_a_switched_session(deployment, baseli
     _session_on(baseline)
     _switch_to(session)
 
-    with assert_raises_error(error_type=qb.REASON_SESSION_TARGET_MISMATCH) as ctx:
+    with assert_raises_error(error_type=qb.REASON_CONTROL_TARGET_MISMATCH) as ctx:
         await _add(revision=7)
 
     assert bridges.calls == []
-    assert ctx["envelope"]["details"]["session_target"] == session
+    assert ctx["envelope"]["details"]["control_target"] == session
     assert ctx["envelope"]["details"]["baseline_target"] == baseline
 
 
@@ -473,7 +475,7 @@ async def test_queue_start_naming_the_inactive_lane_is_refused(deployment):
 
     assert bridges.calls == []
     message = ctx["envelope"]["error_message"]
-    # Both lanes are named: the one asked for and the one the session is on.
+    # Both lanes are named: the one asked for and the one the deployment is on.
     assert "bluesky" in message and "bluesky_va" in message
     assert ctx["envelope"]["details"]["active_lane"] == "bluesky_va"
 
@@ -499,7 +501,7 @@ async def test_a_switch_between_the_add_and_the_start_refuses_the_start(deployme
     assert bridges.urls("/queue/start") == []
     details = ctx["envelope"]["details"]
     assert details["active_lane"] == "bluesky"
-    assert details["session_target"] == "live"
+    assert details["control_target"] == "live"
 
 
 async def test_a_lane_refusal_carries_the_whole_lane_board(deployment):
@@ -537,7 +539,7 @@ async def test_naming_a_lane_no_deployment_renders_is_refused(deployment):
     assert "bluesky_live" in ctx["envelope"]["error_message"]
 
 
-async def test_no_lane_serving_the_session_target_refuses_rather_than_guesses(deployment):
+async def test_no_lane_serving_the_control_target_refuses_rather_than_guesses(deployment):
     """A misrendered pair — both lanes on one target — must not pick a machine."""
     bridges = deployment(
         "live",
@@ -547,7 +549,7 @@ async def test_no_lane_serving_the_session_target_refuses_rather_than_guesses(de
     _session_on("live")
     _switch_to("va")
 
-    with assert_raises_error(error_type=qb.REASON_SESSION_TARGET_MISMATCH) as ctx:
+    with assert_raises_error(error_type=qb.REASON_CONTROL_TARGET_MISMATCH) as ctx:
         await _add()
 
     assert bridges.calls == []
@@ -805,7 +807,7 @@ async def test_the_draft_the_agent_reads_is_the_active_lanes_own(deployment):
     """Two lanes hold two drafts, with independent revision counters.
 
     Revision 1 on one lane and revision 1 on the other are different plans, so
-    the draft tools have to address the lane the session is on — otherwise an
+    the draft tools have to address the lane the deployment is on — otherwise an
     agent could pin a revision on one machine's draft and queue it on the
     other's.
     """
@@ -889,13 +891,13 @@ async def test_queue_status_marks_exactly_one_lane_active(deployment):
     assert active["capability"]["can_execute"] is True
     assert active["capability"]["active"] is True
     # The top-level pair is the active lane's, so a reader that ignores the
-    # roster still sees the deployment this session is actually on.
+    # roster still sees the target this deployment is actually on.
     assert status["capability"] == active["capability"]
     assert set(bridges.urls("/health")) == {f"{_LANE_ONE_URL}/health", f"{_VA_LANE_URL}/health"}
 
 
 async def test_with_no_state_file_the_baselines_lane_is_the_active_one(deployment):
-    """No switch has happened, so the session is on the baseline — lane 1's target."""
+    """No switch has happened, so the deployment is on the baseline — lane 1's target."""
     deployment("live", "va")
 
     status = await _status()
@@ -904,7 +906,7 @@ async def test_with_no_state_file_the_baselines_lane_is_the_active_one(deploymen
     assert [lane["active"] for lane in status["lanes"]] == [True, False]
 
 
-async def test_no_lane_is_active_when_none_serves_the_session_target(deployment):
+async def test_no_lane_is_active_when_none_serves_the_control_target(deployment):
     """Zero active lanes is a legal answer, and it says can_execute false."""
     deployment(
         "live",
@@ -919,7 +921,7 @@ async def test_no_lane_is_active_when_none_serves_the_session_target(deployment)
     assert [lane["active"] for lane in status["lanes"]] == [False, False]
     assert status["active_lane"] is None
     assert status["capability"]["can_execute"] is False
-    assert status["capability"]["reason"] == qb.REASON_SESSION_TARGET_MISMATCH
+    assert status["capability"]["reason"] == qb.REASON_CONTROL_TARGET_MISMATCH
 
 
 async def test_a_downed_inactive_lane_does_not_hide_the_board(deployment):

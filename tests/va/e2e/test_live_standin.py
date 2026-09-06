@@ -733,7 +733,7 @@ class TestTheRosterNamesTheStandIn:
     """
 
     def test_the_standin_row_is_labelled_as_the_stand_in(self, deployment) -> None:
-        rows = target_rows(deployment, session_target=TARGET_VA, baseline=TARGET_VA)
+        rows = target_rows(deployment, control_target=TARGET_VA, baseline=TARGET_VA)
 
         assert rows[TARGET_STANDIN]["label"] == "LIVE MACHINE (stand-in)"
 
@@ -744,7 +744,7 @@ class TestTheRosterNamesTheStandIn:
         the wrong ritual: every strict limit, approval prompt and banner an
         operator meets on a real machine is gated on this flag.
         """
-        rows = target_rows(deployment, session_target=TARGET_VA, baseline=TARGET_VA)
+        rows = target_rows(deployment, control_target=TARGET_VA, baseline=TARGET_VA)
 
         assert rows[TARGET_STANDIN]["real_machine"] is True
         assert rows[TARGET_VA]["real_machine"] is False
@@ -759,7 +759,7 @@ class TestTheRosterNamesTheStandIn:
         readers render one per name; what it carries is the truthful
         "not configured", not the stand-in wearing the facility's name.
         """
-        rows = target_rows(deployment, session_target=TARGET_VA, baseline=TARGET_VA)
+        rows = target_rows(deployment, control_target=TARGET_VA, baseline=TARGET_VA)
 
         assert sorted(rows) == sorted([TARGET_STANDIN, TARGET_VA])
         assert TARGET_LIVE not in rows
@@ -777,14 +777,14 @@ class TestTheRosterNamesTheStandIn:
 
     def test_the_standin_target_is_available_now(self, deployment) -> None:
         """A stand-in nobody may switch to rehearses nothing."""
-        rows = target_rows(deployment, session_target=TARGET_VA, baseline=TARGET_VA)
+        rows = target_rows(deployment, control_target=TARGET_VA, baseline=TARGET_VA)
 
         assert rows[TARGET_STANDIN]["available_now"] is True
         assert rows[TARGET_STANDIN]["reason"] is None
         assert rows[TARGET_STANDIN]["connector_type"] == LIVE_STANDIN
 
     def test_the_sandbox_is_the_baseline_the_session_stands_on(self, deployment) -> None:
-        rows = target_rows(deployment, session_target=TARGET_VA, baseline=TARGET_VA)
+        rows = target_rows(deployment, control_target=TARGET_VA, baseline=TARGET_VA)
 
         assert rows[TARGET_VA]["is_baseline"] is True
         assert rows[TARGET_VA]["active"] is True
@@ -855,7 +855,7 @@ class TestTheRosterNamesTheStandIn:
             with_standin_service=False,
         )
 
-        rows = target_rows(plain, session_target=TARGET_VA, baseline=TARGET_VA)
+        rows = target_rows(plain, control_target=TARGET_VA, baseline=TARGET_VA)
 
         assert rows[TARGET_STANDIN]["label"] == "LIVE MACHINE"
         assert rows[TARGET_STANDIN]["real_machine"] is True
@@ -979,7 +979,7 @@ class TestTheStrictPostureRefusesAnUnlistedWrite:
         """
         assert round_trip.outbound["selected_role"] == "write_access"
 
-        rows = target_rows(deployment, session_target=TARGET_STANDIN, baseline=TARGET_VA)
+        rows = target_rows(deployment, control_target=TARGET_STANDIN, baseline=TARGET_VA)
         assert rows[TARGET_STANDIN]["writes_permitted"] is True
         assert rows[TARGET_VA]["writes_permitted"] is False
 

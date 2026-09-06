@@ -193,8 +193,8 @@ async def test_the_legacy_fallback_agrees_with_the_host_side_baseline(
 ) -> None:
     """Bridge and host must not hold two opinions about one lane's target.
 
-    The host refuses `queue_add` while the session target differs from the
-    lane's; if this module derived the baseline by its own rule, a deployment
+    The host refuses `queue_add` while the recorded control target differs from
+    the lane's; if this module derived the baseline by its own rule, a deployment
     could be refused for a mismatch neither side actually has.
     """
     deployment(control_system_type=control_system_type, targets=None)
@@ -303,8 +303,8 @@ async def test_the_record_does_not_move_when_the_session_switches(
 ) -> None:
     """The producer split, asserted end to end on a REAL state file.
 
-    A controls server publishes the session target to a state file on the host;
-    a bridge runs in a container that cannot see it. So the fabricated switch
+    A controls server publishes the recorded control target to a state file on
+    the host; a bridge runs in a container that cannot see it. So the fabricated switch
     below is invisible to the bridge by construction — and this test fails the
     moment the bridge grows a read of session state, which is the failure mode
     the split exists to prevent.

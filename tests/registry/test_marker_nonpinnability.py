@@ -129,10 +129,10 @@ class TestMarkerSpellings:
         """The directory the posture answer is READ OUT OF, not only the answer.
 
         The stamp is the pair-half of ``OSPREY_POSTURE_SESSION`` and decides
-        where the session-posture store and the control-target state file are
-        looked for. A spec that could pin it would aim the session at a
-        directory of its own — and an empty store reads as "nothing narrowed",
-        so pinning the root sheds a sandbox without touching the posture value.
+        where the control-context record is looked for. A spec that could pin it
+        would aim the session at a directory of its own — and a missing record
+        reads as "nothing narrowed", so pinning the root sheds a sandbox without
+        touching the posture value.
         Pinned by identity against the posture module, which owns the name.
         """
         assert posture.OSPREY_AGENT_DATA_ROOT == "OSPREY_AGENT_DATA_ROOT"

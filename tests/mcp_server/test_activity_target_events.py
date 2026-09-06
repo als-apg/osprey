@@ -6,7 +6,7 @@ looks:
 
 * the **web-terminal activity strip**, where a control-system activity event
   (``channel_write``, ``execute``, ``execute_file``) now names the target the
-  session is on, and a target switch itself is reported as its own event on
+  deployment is on, and a target switch itself is reported as its own event on
   success **and** on failure;
 * the **build-frozen safety rule** ``control-system-safety.md.j2``, which has to
   describe a switchable deployment as standing truth: which targets exist, that
@@ -22,42 +22,24 @@ to own the unswitched shape of that rule.
 
 Honest spelling, and why it matters
 -----------------------------------
-The target is stamped on an activity event **only when a controls server this
-session owns has published one**. There is no "baseline" fallback: the
+The target is stamped on an activity event **only when the deployment's
+control-context record names one**. There is no "baseline" fallback: the
 deployment baseline of a ``mock`` project resolves to ``live``, and stamping
 that on an activity event would tell the operator a mock write touched the real
 machine. An absent record therefore means an absent key — "unknown" and "live"
 are different claims.
 """
 
-import json
-import os
-
 import pytest
 
 from osprey.mcp_server import http
-from osprey.mcp_server.control_system import target_state
-
-#: A parent PID belonging to nobody — stands in for another session's server.
-_FOREIGN_PPID = 999_999
+from osprey_connectors import control_context
 
 #: The route bounds ``detail`` at 1024 characters (``agent_activity`` router).
 _MAX_DETAIL_LEN = 1024
 
 
 # ── fixtures / helpers ──────────────────────────────────────────────────────
-@pytest.fixture
-def state_root(tmp_path, monkeypatch):
-    """Redirect the target-state directory into ``tmp_path``.
-
-    Rebinding the one name ``target_state`` resolves the shared data root with
-    keeps a real deployment's ``var/agent_data`` invisible in both directions.
-    """
-    root = tmp_path / "agent_data"
-    monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
-    return root / target_state.STATE_DIR_NAME
-
-
 @pytest.fixture
 def posted(monkeypatch):
     """Capture every activity POST instead of talking to a web terminal."""
@@ -71,52 +53,32 @@ def posted(monkeypatch):
     return calls
 
 
-def write_state(state_dir, *, target, owner_ppid=None, server_pid=None):
-    """Write one published target-state record, the way the server writes it."""
-    state_dir.mkdir(parents=True, exist_ok=True)
-    server_pid = os.getpid() if server_pid is None else server_pid
-    owner_ppid = os.getppid() if owner_ppid is None else owner_ppid
-    path = state_dir / f"{target_state.REPORT_FILE_PREFIX}{server_pid}.json"
-    path.write_text(
-        json.dumps(
-            {
-                "target": target,
-                "generation": 1,
-                "server_pid": server_pid,
-                "owner_ppid": owner_ppid,
-                "targets": {
-                    "live": {"label": "live machine", "endpoint": "gw:5064"},
-                    "va": {"label": "virtual accelerator", "endpoint": "localhost:5074"},
-                },
-                "children": [],
-            }
-        )
-    )
-    return path
-
-
 def only_target(calls):
     """The ``target`` sub-dict of the single captured activity POST."""
     assert len(calls) == 1, f"expected exactly one activity POST, got {len(calls)}"
     return calls[0][1]["target"]
 
 
-# ── the session target on control-system activity ───────────────────────────
-def test_channel_activity_names_the_published_target(state_root, posted):
-    """A write reported while the session is on ``va`` says so, in the one
+# ── the deployment target on control-system activity ────────────────────────
+def test_channel_activity_names_the_recorded_target(
+    control_context_root, write_control_context, posted
+):
+    """A write reported while the deployment is on ``va`` says so, in the one
     field the activity route carries through to the browser."""
-    write_state(state_root, target="va")
+    write_control_context(control_context_root, target="va")
 
     http.notify_agent_activity("channel_write", "channel", detail="SR:MAG:QF:01:CURRENT:SP")
 
     assert only_target(posted)["detail"] == "[va] SR:MAG:QF:01:CURRENT:SP"
 
 
-def test_execute_activity_names_the_published_target(state_root, posted):
+def test_execute_activity_names_the_recorded_target(
+    control_context_root, write_control_context, posted
+):
     """The executor's write report is stamped by the same seam — the emitting
     tool passes nothing extra, so the two surfaces cannot describe the same
-    session differently."""
-    write_state(state_root, target="live")
+    deployment differently."""
+    write_control_context(control_context_root, target="live")
 
     http.notify_agent_activity(
         "execute", "channel", detail="ran a script with control-system writes"
@@ -125,58 +87,53 @@ def test_execute_activity_names_the_published_target(state_root, posted):
     assert only_target(posted)["detail"] == "[live] ran a script with control-system writes"
 
 
-def test_no_published_state_leaves_the_detail_alone(state_root, posted):
-    """No server has published a target: the key is absent rather than guessed.
-    A deployment baseline is not a claim about what this write touched."""
+def test_no_record_leaves_the_detail_alone(control_context_root, posted):
+    """There is no record: the key is absent rather than guessed. A deployment
+    baseline is not a claim about what this write touched."""
     http.notify_agent_activity("channel_write", "channel", detail="SR:MAG:QF:01:CURRENT:SP")
 
     assert only_target(posted)["detail"] == "SR:MAG:QF:01:CURRENT:SP"
     assert http.resolve_activity_target() is None
 
 
-def test_another_sessions_record_is_not_ours(state_root, posted):
-    """A live server owned by a different Claude Code process says nothing
-    about this session, so nothing is stamped."""
-    write_state(state_root, target="va", owner_ppid=_FOREIGN_PPID)
+def test_unknown_target_name_is_not_stamped(control_context_root, write_control_context, posted):
+    """A record naming a target this framework does not know is no record at
+    all — the identity fields are parsed strictly — so nothing is stamped."""
+    write_control_context(control_context_root, target="banana")
 
     http.notify_agent_activity("channel_write", "channel", detail="SR:MAG:QF:01:CURRENT:SP")
 
     assert only_target(posted)["detail"] == "SR:MAG:QF:01:CURRENT:SP"
 
 
-def test_unknown_target_name_is_not_stamped(state_root, posted):
-    """A record naming a target this framework does not know is no answer."""
-    write_state(state_root, target="banana")
-
-    http.notify_agent_activity("channel_write", "channel", detail="SR:MAG:QF:01:CURRENT:SP")
-
-    assert only_target(posted)["detail"] == "SR:MAG:QF:01:CURRENT:SP"
-
-
-def test_non_control_activity_is_never_stamped(state_root, posted):
+def test_non_control_activity_is_never_stamped(control_context_root, write_control_context, posted):
     """Only control-system activity is about a machine. A panel highlight is
     not, and prefixing it would put a target on an event that has none."""
-    write_state(state_root, target="va")
+    write_control_context(control_context_root, target="va")
 
     http.notify_agent_activity("entry_create", "panel", panel="ariel", detail="entry-7")
 
     assert only_target(posted)["detail"] == "entry-7"
 
 
-def test_detail_less_activity_still_names_the_target(state_root, posted):
+def test_detail_less_activity_still_names_the_target(
+    control_context_root, write_control_context, posted
+):
     """A control-system event with nothing to say about *what* it touched still
     says *where* it touched it."""
-    write_state(state_root, target="va")
+    write_control_context(control_context_root, target="va")
 
     http.notify_agent_activity("channel_write", "channel")
 
     assert only_target(posted)["detail"] == "[va]"
 
 
-def test_stamp_survives_the_routes_detail_bound(state_root, posted):
+def test_stamp_survives_the_routes_detail_bound(
+    control_context_root, write_control_context, posted
+):
     """The prefix goes on before truncation and sits at the front, so a bulk
     write long enough to be cut still names its target."""
-    write_state(state_root, target="va")
+    write_control_context(control_context_root, target="va")
 
     http.notify_agent_activity("channel_write", "channel", detail="X" * 4000)
 
@@ -185,14 +142,14 @@ def test_stamp_survives_the_routes_detail_bound(state_root, posted):
     assert len(detail) <= _MAX_DETAIL_LEN
 
 
-def test_an_unreadable_state_directory_never_breaks_an_emit(state_root, monkeypatch, posted):
+def test_a_raising_record_reader_never_breaks_an_emit(control_context_root, monkeypatch, posted):
     """Resolution is best-effort: a failure to answer must degrade to an
     unstamped event, never to an exception in a fire-and-forget notify."""
 
-    def _boom():
-        raise RuntimeError("state dir exploded")
+    def _boom(**kwargs):
+        raise RuntimeError("record read exploded")
 
-    monkeypatch.setattr(target_state, "state_dir", _boom)
+    monkeypatch.setattr(control_context, "read_record", _boom)
 
     http.notify_agent_activity("channel_write", "channel", detail="SR:MAG:QF:01:CURRENT:SP")
 
@@ -203,7 +160,7 @@ def test_an_unreadable_state_directory_never_breaks_an_emit(state_root, monkeypa
 # ── the switch event ────────────────────────────────────────────────────────
 def test_switch_success_event_shape(posted):
     """A completed switch reports both targets, the outcome and the generation
-    the session is now on."""
+    the deployment is now on."""
     http.notify_target_switch(
         from_target="live",
         to_target="va",
@@ -249,10 +206,10 @@ def test_switch_outcomes_are_two_distinct_spellings():
     assert {http.SWITCH_OUTCOME_SUCCESS, http.SWITCH_OUTCOME_FAILURE} == {"success", "failure"}
 
 
-def test_switch_event_is_not_target_stamped(state_root, posted):
-    """The event names both targets itself; a session-target prefix on top of
-    that would be a third opinion about where the session is."""
-    write_state(state_root, target="live")
+def test_switch_event_is_not_target_stamped(control_context_root, write_control_context, posted):
+    """The event names both targets itself; a record-target prefix on top of
+    that would be a third opinion about where the deployment is."""
+    write_control_context(control_context_root, target="live")
 
     http.notify_target_switch(
         from_target="live", to_target="va", outcome=http.SWITCH_OUTCOME_SUCCESS, generation=1

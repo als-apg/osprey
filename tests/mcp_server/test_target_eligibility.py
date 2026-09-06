@@ -723,7 +723,7 @@ def test_the_roster_on_a_standin_baseline(
         target: te.target_availability(
             config,
             target,
-            session_target=STANDIN,
+            control_target=STANDIN,
             baseline_target=STANDIN,
             writes_enabled=False,
             readonly_run=False,
@@ -749,7 +749,7 @@ def test_the_roster_reports_a_repointed_standin_block_as_not_deployed() -> None:
     row = te.target_availability(
         config,
         STANDIN,
-        session_target=VA,
+        control_target=VA,
         baseline_target=STANDIN,
         writes_enabled=False,
         readonly_run=False,
@@ -1101,10 +1101,10 @@ def test_the_roster_reads_each_targets_own_posture() -> None:
     )
 
     live = te.target_availability(
-        config, LIVE, session_target=VA, baseline_target=LIVE, readonly_run=False
+        config, LIVE, control_target=VA, baseline_target=LIVE, readonly_run=False
     )
     va = te.target_availability(
-        config, VA, session_target=VA, baseline_target=LIVE, readonly_run=False
+        config, VA, control_target=VA, baseline_target=LIVE, readonly_run=False
     )
 
     assert live.available_now is True
@@ -1202,7 +1202,7 @@ def test_the_active_target_reports_already_active() -> None:
     availability = te.target_availability(
         _config(),
         LIVE,
-        session_target=LIVE,
+        control_target=LIVE,
         baseline_target=LIVE,
         writes_enabled=False,
         readonly_run=False,
@@ -1223,7 +1223,7 @@ def test_already_active_does_not_hide_that_the_target_is_misconfigured() -> None
     availability = te.target_availability(
         config,
         LIVE,
-        session_target=LIVE,
+        control_target=LIVE,
         baseline_target=LIVE,
         writes_enabled=False,
         readonly_run=False,
@@ -1244,7 +1244,7 @@ def test_eligible_from_baseline_is_the_static_view_of_a_live_baseline() -> None:
     availability = te.target_availability(
         config,
         LIVE,
-        session_target=VA,
+        control_target=VA,
         baseline_target=LIVE,
         writes_enabled=False,
         readonly_run=False,
@@ -1255,7 +1255,7 @@ def test_eligible_from_baseline_is_the_static_view_of_a_live_baseline() -> None:
 
 
 @pytest.mark.parametrize(
-    ("target", "session_target", "baseline_target", "expected"),
+    ("target", "control_target", "baseline_target", "expected"),
     [
         (LIVE, VA, LIVE, te.DIRECTION_BACK),
         (VA, LIVE, VA, te.DIRECTION_BACK),
@@ -1273,9 +1273,9 @@ def test_eligible_from_baseline_is_the_static_view_of_a_live_baseline() -> None:
     ],
 )
 def test_switch_direction(
-    target: str, session_target: str, baseline_target: str, expected: str
+    target: str, control_target: str, baseline_target: str, expected: str
 ) -> None:
-    assert te.switch_direction(target, session_target, baseline_target) == expected
+    assert te.switch_direction(target, control_target, baseline_target) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -1363,7 +1363,7 @@ def test_availability_matrix(
 ) -> None:
     baseline_target = LIVE if baseline == "live" else VA
     other = VA if baseline_target == LIVE else LIVE
-    session_target = baseline_target if direction == "away" else other
+    control_target = baseline_target if direction == "away" else other
 
     config = _config(
         control_system_type=EPICS_TYPE if baseline_target == LIVE else VA_TYPE,
@@ -1374,7 +1374,7 @@ def test_availability_matrix(
     live = te.target_availability(
         config,
         LIVE,
-        session_target=session_target,
+        control_target=control_target,
         baseline_target=baseline_target,
         writes_enabled=False,
         readonly_run=False,
@@ -1382,7 +1382,7 @@ def test_availability_matrix(
     va = te.target_availability(
         config,
         VA,
-        session_target=session_target,
+        control_target=control_target,
         baseline_target=baseline_target,
         writes_enabled=False,
         readonly_run=False,
@@ -1549,3 +1549,136 @@ def test_an_executor_marker_written_without_a_session_carries_none(tmp_path, mon
 
     _, suggestions, _ = te.in_flight_detail(marker, LIVE)
     assert not any("this session" in line for line in suggestions)
+
+
+# ---------------------------------------------------------------------------
+# The busy client, when it is a notebook kernel
+# ---------------------------------------------------------------------------
+#
+# A kernel's session key is ``kernel:<id>``, which names no window an operator
+# can find. So a kernel marker is named by the notebook it is running, resolved
+# through a seam the caller supplies: the terminal holds the sidecar that can
+# answer, the controls server's tool holds none, and both render the same
+# sentence for the same answer.
+
+
+KERNEL_ID = "abcdef0123456789"
+NOTEBOOK = "demos/scan.ipynb"
+
+
+def _kernel_marker(**overrides: Any) -> dict[str, Any]:
+    """A marker as the kernel writes it: notebook surface, kernel id, no pid session."""
+    fields: dict[str, Any] = {
+        "surface": te.SURFACE_NOTEBOOK_KERNEL,
+        "kernel_id": KERNEL_ID,
+        "session": f"kernel:{KERNEL_ID}",
+    }
+    fields.update(overrides)
+    return _marker(**fields)
+
+
+def _raises(_kernel_id: str) -> str | None:
+    raise RuntimeError("the sidecar is gone")
+
+
+def test_a_busy_kernel_is_named_by_the_notebook_it_is_running() -> None:
+    """FR-4: the refusal names the window the operator has to go to."""
+    asked: list[str] = []
+
+    def resolve(kernel_id: str) -> str | None:
+        asked.append(kernel_id)
+        return NOTEBOOK
+
+    _, suggestions, _ = te.in_flight_detail(_kernel_marker(), LIVE, kernel_name=resolve)
+
+    named = " ".join(suggestions)
+    assert asked == [KERNEL_ID]
+    assert f"notebook {NOTEBOOK}" in named
+    assert "Interrupt that kernel to proceed." in suggestions
+
+
+def test_a_busy_kernel_without_a_resolver_is_named_by_its_kernel_id() -> None:
+    """The controls server's tool has no sidecar to ask, and still names a client."""
+    _, suggestions, _ = te.in_flight_detail(_kernel_marker(), LIVE)
+
+    named = " ".join(suggestions)
+    assert f"notebook kernel {KERNEL_ID[:8]}" in named
+    assert KERNEL_ID not in named  # the short key, not the whole id
+    assert "Interrupt that kernel to proceed." in suggestions
+
+
+@pytest.mark.parametrize("resolver", [lambda _id: None, lambda _id: "  ", _raises])
+def test_a_busy_kernel_the_resolver_cannot_name_falls_back_to_its_id(resolver: Any) -> None:
+    """No answer, a blank answer and a lookup that failed are one outcome."""
+    _, suggestions, _ = te.in_flight_detail(_kernel_marker(), LIVE, kernel_name=resolver)
+
+    assert f"notebook kernel {KERNEL_ID[:8]}" in " ".join(suggestions)
+
+
+def test_a_busy_kernel_marker_without_a_kernel_id_falls_back_to_the_session_naming(
+    monkeypatch,
+) -> None:
+    """A kernel id is what the notebook lookup and the fallback both need."""
+    monkeypatch.setenv("OSPREY_POSTURE_SESSION", THIS_SESSION)
+
+    _, suggestions, _ = te.in_flight_detail(
+        _kernel_marker(kernel_id=None, session=OTHER_SESSION), LIVE
+    )
+
+    named = " ".join(suggestions)
+    assert "notebook" not in named
+    assert te.session_short_key(OTHER_SESSION) in named
+
+
+def test_a_busy_sandbox_is_named_the_way_it_always_was(monkeypatch) -> None:
+    """The kernel branch is the notebook surface's alone; nothing else moved."""
+    monkeypatch.setenv("OSPREY_POSTURE_SESSION", THIS_SESSION)
+    asked: list[str] = []
+
+    _, suggestions, _ = te.in_flight_detail(
+        _marker(session=OTHER_SESSION), LIVE, kernel_name=asked.append
+    )
+
+    named = " ".join(suggestions)
+    assert asked == []
+    assert f"session {te.session_short_key(OTHER_SESSION)}" in named
+    assert MARKER_STARTED_AT in named
+    assert "Wait for it to finish, or stop it, then switch again." in suggestions
+
+
+def test_both_callers_name_a_busy_kernel_identically(monkeypatch) -> None:
+    """The gate quotes the same words the reader does, resolver or not.
+
+    The terminal route passes a resolver its sidecar can answer; the controls
+    server's tool passes none. Given the same answer the two produce the same
+    sentence, which is what FR-4's naming clause means by one refusal.
+    """
+    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
+    marker = _kernel_marker()
+
+    def resolve(_kernel_id: str) -> str | None:
+        return NOTEBOOK
+
+    for resolver in (resolve, None):
+        message, suggestions, details = te.in_flight_detail(marker, LIVE, kernel_name=resolver)
+        verdict = te.evaluate_switch(
+            {},
+            LIVE,
+            current_target=VA,
+            baseline=VA,
+            in_flight=(marker,),
+            kernel_name=resolver,
+        )
+
+        assert verdict.allowed is False
+        assert verdict.reason == te.REASON_EXECUTION_IN_FLIGHT
+        assert verdict.detail == message
+        assert verdict.suggestions == suggestions
+        assert verdict.details == details
+
+    resolved = te.evaluate_switch(
+        {}, LIVE, current_target=VA, baseline=VA, in_flight=(marker,), kernel_name=resolve
+    )
+    unresolved = te.evaluate_switch({}, LIVE, current_target=VA, baseline=VA, in_flight=(marker,))
+    assert NOTEBOOK in " ".join(resolved.suggestions)
+    assert f"notebook kernel {KERNEL_ID[:8]}" in " ".join(unresolved.suggestions)

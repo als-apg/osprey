@@ -12,7 +12,6 @@ a proper database file for validation to work.
 import importlib
 import io
 import json
-import os
 import sys
 import types
 
@@ -20,6 +19,7 @@ import pytest
 import yaml
 
 from osprey_connectors.types import most_restrictive_limits_posture, target_limits_posture
+from tests._control_context_fixtures import write_control_context
 
 
 def _make_limits_config(tmp_path, channels_db, enabled=True, allow_unlisted=False):
@@ -343,7 +343,7 @@ def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
 # the deployment as a whole: `control_system.connector.<type>.limits_checking`
 # overrides the deployment-wide `control_system.limits_checking` block whole, so
 # a facility can refuse unlisted channels on its ring and allow them on its
-# virtual accelerator. The hook therefore resolves the session's target before
+# virtual accelerator. The hook therefore resolves the recorded control target before
 # it builds a validator, and the tests below state that in the same shape
 # `test_writes_check_hook.py` states the write posture: the expected decision is
 # computed from the framework resolver rather than written out per config.
@@ -375,47 +375,19 @@ def _limits_config(tmp_path, section, channels_db=None):
     return config_path
 
 
-def _state_dir(repo_root):
-    """The state directory the reader derives from a repo root."""
-    directory = repo_root / "var" / "agent_data" / "control_target"
-    directory.mkdir(parents=True, exist_ok=True)
-    return directory
-
-
 def _write_session_state(repo_root, target):
-    """Write a state file this pytest process genuinely owns.
+    """Write the deployment's control-context record where the hook looks.
 
-    `owner_ppid` is this process, which IS on the ancestor chain of the hook
-    subprocess `hook_runner` spawns, and `server_pid` is this process, which is
-    alive by definition — so the reader's real parentage and liveness rules
-    select this record without any seam being replaced.
+    The reader takes ``<repo_root>/var/agent_data`` when nothing stamps
+    ``OSPREY_AGENT_DATA_ROOT``, and the hook subprocess runs with *repo_root* as
+    its ``cwd`` — so the record lands exactly where the hook derives, and the
+    root anchor and the read are both exercised with no seam replaced.
+
+    No server report is written beside it: this hook needs to know WHICH target
+    the deployment is on, never how that machine is spoken of, so the display
+    metadata the reports carry has no reader here.
     """
-    record = {
-        "target": target,
-        "generation": 3,
-        "server_pid": os.getpid(),
-        "owner_ppid": os.getpid(),
-        "targets": {
-            "live": {
-                "label": "Storage ring",
-                "endpoint": "pva://live-gw.example.org:5075",
-                "real_machine": True,
-            },
-            "va": {
-                "label": "Virtual accelerator",
-                "endpoint": "pva://127.0.0.1:5074",
-                "real_machine": False,
-            },
-            "standin": {
-                "label": "Live stand-in",
-                "endpoint": "pva://127.0.0.1:5076",
-                "real_machine": False,
-            },
-        },
-        "children": [],
-    }
-    path = _state_dir(repo_root) / f"target_state_{os.getpid()}.json"
-    path.write_text(json.dumps(record), encoding="utf-8")
+    write_control_context(repo_root / "var" / "agent_data", target=target, generation=3)
 
 
 def _unlisted_write(tmp_path, hook_runner, config):
@@ -487,7 +459,7 @@ UNREADABLE_DEPLOYMENT_WIDE = {
     "connector": {"epics": {"port_host": "live-gw.example.org"}},
 }
 
-#: `(section, session_target)` for every config shape the hook must answer.
+#: `(section, control_target)` for every config shape the hook must answer.
 #: `None` as the target means no state file is written at all, so the session
 #: target is unidentifiable and the posture every reachable target agrees on is
 #: the answer.
@@ -560,7 +532,7 @@ def test_hook_decision_matches_the_framework_resolver(tmp_path, hook_runner, sec
     The hook cannot resolve a posture itself — the rules live in
     `osprey_connectors.types` and the validator applies them — so what this pins
     is that the hook asks the right QUESTION for the identity it holds: the
-    session's target when the state file names one, and the fold across every
+    recorded control target when the state file names one, and the fold across every
     reachable target when it does not. Both expectations are computed from the
     resolvers rather than written out per shape, so a hook that asked the
     deployment-wide question instead fails on every row where a per-type block
@@ -675,19 +647,19 @@ def test_per_type_refusal_names_the_connector_block(tmp_path, hook_runner):
 
 @pytest.mark.unit
 def test_removed_state_directory_takes_the_most_restrictive_posture(tmp_path, hook_runner):
-    """A session whose target cannot be read is refused what any target refuses.
+    """A deployment whose target cannot be read is refused what any target refuses.
 
-    The state directory existed and is gone — a swept `var/`, a server that
-    never started, a deployment whose agent-data root was moved — so the hook
-    cannot say which machine this write would reach. The simulator would take
-    it and the ring would not, and a guess between them could be a guess in
-    favour of hardware, so the write is refused and the refusal names the
-    deployment-wide key: no per-type line decides a union.
+    The record existed and is gone — a swept `var/`, a server that never
+    started, a deployment whose agent-data root was moved — so the hook cannot
+    say which machine this write would reach. The simulator would take it and
+    the ring would not, and a guess between them could be a guess in favour of
+    hardware, so the write is refused and the refusal names the deployment-wide
+    key: no per-type line decides a union.
     """
     # Arrange
     config = _limits_config(tmp_path, VA_PERMISSIVE)
     _write_session_state(tmp_path, "va")
-    state_dir = _state_dir(tmp_path)
+    state_dir = tmp_path / "var" / "agent_data" / "control_target"
     for path in state_dir.iterdir():
         path.unlink()
     state_dir.rmdir()
@@ -901,16 +873,16 @@ def test_a_raising_state_reader_takes_the_most_restrictive_posture(
 
     Same branch as the missing reader, reached the other way. What it pins is
     that no failure of target IDENTITY can turn into a write nobody validated —
-    an exception escaping `_session_target` would exit the hook non-zero with no
+    an exception escaping `_control_target` would exit the hook non-zero with no
     decision, which the agent runtime reads as no opinion.
     """
     # Arrange
     hook = hook_module("osprey_limits")
 
     def _boom(hook_input=None):
-        raise RuntimeError("state directory vanished mid-read")
+        raise RuntimeError("the record vanished mid-read")
 
-    monkeypatch.setattr(hook._target_state, "read_session_target", _boom)
+    monkeypatch.setattr(hook._target_state, "read_target", _boom)
     calls = []
 
     # Act

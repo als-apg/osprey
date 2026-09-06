@@ -1,7 +1,7 @@
 """One sandbox run carries exactly one limits posture, on both write paths.
 
 A run resolves the posture twice, from different halves of the resolver family.
-The HOST resolves it for the session target and embeds it in the generated
+The HOST resolves it for the control target and embeds it in the generated
 script (``LimitsValidator.from_config(target=...)``, serialized into the
 wrapper's monkeypatch). A connector built through the runtime's own connector
 path resolves its own inside ``connect()``, from the type the stamp resolved to
@@ -30,7 +30,7 @@ either half deployment-wide, or either half per-type, fails one of the two
 scenarios rather than passing both.
 
 Both scenarios write the SAME unlisted channel, so the only thing that moves
-between them is the session's target record.
+between them is the recorded control target record.
 
 What is real here and what is not
 ---------------------------------

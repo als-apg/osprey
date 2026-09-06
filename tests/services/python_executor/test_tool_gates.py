@@ -12,12 +12,11 @@ execution.
 """
 
 import json
-import os
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from tests._control_context_fixtures import write_control_context, write_payload
+from tests._control_context_fixtures import write_control_context
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 pytestmark = pytest.mark.unit
@@ -58,6 +57,29 @@ def audit_zone(tmp_path, monkeypatch):
     zone = tmp_path / "audit"
     monkeypatch.setattr(writer, "audit_dir", lambda: zone)
     return zone
+
+
+@pytest.fixture(autouse=True)
+def _no_ambient_deployment(control_context_root, monkeypatch):
+    """Answer every gate here from a scratch deployment, never from the machine's.
+
+    ``enforce_posture_clamp`` runs ahead of every readwrite tool call and reads
+    the control-context record. ``read_record()`` with no
+    ``OSPREY_AGENT_DATA_ROOT`` falls back to ``<repo>/var/agent_data``, which on
+    a developer box holds whatever their own running stack put there — so a
+    narrowing an operator made by hand would refuse the tool calls below and
+    read as a regression in the path policy. Autouse for the same reason
+    ``audit_zone`` is: a case added here later must not have to rediscover it.
+
+    ``OSPREY_CONTROL_TARGET`` is cleared beside it because that stamp outranks
+    the record, and an inherited one names a target no test here wrote.
+    """
+    from osprey_connectors import posture_store
+
+    monkeypatch.delenv("OSPREY_CONTROL_TARGET", raising=False)
+    posture_store.invalidate_cache()
+    yield control_context_root
+    posture_store.invalidate_cache()
 
 
 @pytest.fixture
@@ -265,8 +287,8 @@ async def test_clean_read_still_executes(tmp_path, monkeypatch, audit_zone):
 # ``posture()`` answers ``sandbox`` for two different reasons, and the remedy
 # differs, so the refusal forks and the assertions below fork with it:
 # ``OSPREY_EXECUTION_MODE=readonly`` on this process is a DEPLOYMENT-wide
-# read-only run, which the header chip cannot lift; a store entry for the
-# session's control target is the operator's own narrowing, which is exactly
+# read-only run, which the header chip cannot lift; a recorded narrowing for the
+# deployment's control target is the operator's own, which is exactly
 # what the chip lifts. A refusal that names the wrong one sends the operator
 # somewhere that changes nothing.
 # ---------------------------------------------------------------------------
@@ -283,42 +305,27 @@ def readonly_run(monkeypatch):
 
 
 @pytest.fixture
-def narrowed_session(tmp_path, monkeypatch):
-    """The other source: this session narrowed its control target from the chip.
+def narrowed_session(control_context_root, monkeypatch):
+    """The other source: the operator narrowed this control target from the chip.
 
     No ``OSPREY_EXECUTION_MODE`` anywhere — narrowing one target must not
-    sandbox the process, which is the whole point of the store. ``posture()``
-    resolves the session's target from the controls-server state file and finds
-    the sandbox entry the chip wrote for it.
-    """
-    from osprey.audit import posture as posture_module
-    from osprey_connectors import control_context, session_store
+    sandbox the process, which is the whole point of the narrowing.
+    ``posture()`` reads the deployment's control-context record: the target it
+    is pointed at, and the sandbox entry the chip wrote against that target,
+    are two fields of that one file.
 
-    root = tmp_path / "agent_data"
-    directory = root / session_store.STATE_DIR_NAME
-    directory.mkdir(parents=True)
-    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    The session key is still stamped because the ledger joins on it; no reader
+    indexes the narrowing by it.
+    """
+    from osprey_connectors import posture_store
+
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", SESSION_KEY)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
 
-    pid = os.getpid()
-    write_payload(
-        control_context.report_path_under(root, pid),
-        {
-            "target": "live",
-            "generation": 0,
-            "server_pid": pid,
-            "owner_ppid": os.getppid(),
-            "targets": {},
-            "children": [],
-        },
-    )
-    write_control_context(root, posture={"live": "sandbox"})
-    session_store.invalidate_cache()
-    posture_module.invalidate_session_target_cache()
-    yield root
-    session_store.invalidate_cache()
-    posture_module.invalidate_session_target_cache()
+    write_control_context(control_context_root, target="live", posture={"live": "sandbox"})
+    posture_store.invalidate_cache()
+    yield control_context_root
+    posture_store.invalidate_cache()
 
 
 #: The remedy sentence each source must carry, and the one it must NOT.
@@ -423,7 +430,7 @@ async def test_a_narrowed_target_sends_the_operator_to_the_chip(narrowed_session
     envelope = ctx["envelope"]
     _assert_posture_envelope(envelope, source="store")
     assert "'live' control target" in envelope["error_message"]
-    assert "for this session only" in envelope["error_message"]
+    assert "applies deployment-wide" in envelope["error_message"]
     assert "This terminal session is in the sandbox posture" not in envelope["error_message"]
     assert "OSPREY_EXECUTION_MODE" not in " ".join(envelope["suggestions"])
 
@@ -562,7 +569,7 @@ def mixed_posture(monkeypatch):
 
 
 @pytest.fixture
-def session_target(monkeypatch):
+def control_target(monkeypatch):
     """Put the deployment on a control target, as its control-context record does."""
     from osprey_connectors import control_context
 
@@ -622,10 +629,10 @@ def _assert_refused_for_the_live_machine(envelope, expected_target):
 
 
 async def test_readwrite_runs_on_a_target_whose_block_arms_writes(
-    tmp_path, monkeypatch, mixed_posture, session_target
+    tmp_path, monkeypatch, mixed_posture, control_target
 ):
     """A global false does not disarm a VA block that says true."""
-    session_target("va")
+    control_target("va")
 
     data = extract_response_dict(await _run_readwrite(tmp_path, monkeypatch))
 
@@ -634,10 +641,10 @@ async def test_readwrite_runs_on_a_target_whose_block_arms_writes(
 
 
 async def test_readwrite_is_refused_on_the_live_target(
-    tmp_path, monkeypatch, mixed_posture, session_target
+    tmp_path, monkeypatch, mixed_posture, control_target
 ):
     """The same deployment, the other target: the machine's own block refuses."""
-    session_target("live")
+    control_target("live")
 
     with assert_raises_error(error_type="safety_error") as ctx:
         await _run_readwrite(tmp_path, monkeypatch)
@@ -646,10 +653,10 @@ async def test_readwrite_is_refused_on_the_live_target(
 
 
 async def test_an_unstamped_run_is_answered_for_the_baseline_target(
-    tmp_path, monkeypatch, mixed_posture, session_target
+    tmp_path, monkeypatch, mixed_posture, control_target
 ):
     """No session record means the baseline — which here is the live machine."""
-    session_target(None)
+    control_target(None)
 
     with assert_raises_error(error_type="safety_error") as ctx:
         await _run_readwrite(tmp_path, monkeypatch)

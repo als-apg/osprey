@@ -1,11 +1,11 @@
 """Eligibility, the roster and the switch, read through the session posture store.
 
 The deployment's ``writes_enabled`` keys are not the last word on whether a
-target is armed. An operator narrows one target for one session from the header
-chip, that narrowing lands in the per-(session, target) posture store, and the
+target is armed. An operator narrows one target from the header chip, that
+narrowing lands in the deployment's control-context record, and the
 connector-host child selects its gateway from it — so every parent-side answer
-about "which gateway will this session use" has to read the same store or stop
-being about this session.
+about "which gateway will this deployment use" has to read the same record or
+stop being about this deployment.
 
 Why this file exists at all is one bug: ``derive_endpoints`` defaults its
 ``writes_enabled`` to config alone. A parent that took that default derived
@@ -20,7 +20,7 @@ So the load-bearing test here is the one with real children and a target whose
 two gateway roles point at DIFFERENT ports: it is the only shape in which
 parent and child can disagree about where the session landed.
 
-``tests/connectors/test_session_store.py`` owns the store's own contract — where
+``tests/connectors/test_posture_store_contract.py`` owns the store's own contract — where
 the file is, what its shapes mean, how a lookup combines. Nothing here re-tests
 that; these tests write the file the way the store defines it and assert on what
 this stack derives from it.
@@ -40,7 +40,7 @@ from osprey.mcp_server.control_system.connector_host_manager import (
 )
 from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey.mcp_server.control_system.tools import control_target
-from osprey_connectors import session_store
+from osprey_connectors import posture_store
 from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
 from tests._control_context_fixtures import write_control_context
@@ -137,18 +137,18 @@ def store_root(tmp_path, monkeypatch):
     The root is the anchor: the record beneath it is what every process on this
     deployment reads its narrowings from.
     """
-    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", SESSION)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
     yield tmp_path
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
 
 
 def narrow(root, *targets: str) -> None:
     """Record the operator's narrowing of *targets* on this deployment."""
-    write_control_context(root, posture=dict.fromkeys(targets, session_store.POSTURE_SANDBOX))
-    session_store.invalidate_cache()
+    write_control_context(root, posture=dict.fromkeys(targets, posture_store.POSTURE_SANDBOX))
+    posture_store.invalidate_cache()
 
 
 # ---------------------------------------------------------------------------
@@ -221,8 +221,8 @@ class TestEligibilityFollowsTheStore:
         config = _config()
         narrow(store_root, VA)
 
-        toward = te.target_availability(config, VA, session_target=LIVE, baseline_target=LIVE)
-        away = te.target_availability(config, LIVE, session_target=VA, baseline_target=LIVE)
+        toward = te.target_availability(config, VA, control_target=LIVE, baseline_target=LIVE)
+        away = te.target_availability(config, LIVE, control_target=VA, baseline_target=LIVE)
 
         assert toward.available_now is True
         assert toward.reason is None
@@ -305,7 +305,7 @@ class TestRosterRows:
         config = _config()
         narrow(store_root, VA)
 
-        rows = control_target.target_rows(config, session_target=LIVE, baseline=LIVE)
+        rows = control_target.target_rows(config, control_target=LIVE, baseline=LIVE)
 
         assert rows[VA]["writes_permitted"] is False
         assert rows[VA]["selected_role"] == "read_only"
@@ -315,7 +315,7 @@ class TestRosterRows:
         assert rows[LIVE]["selected_role"] == "write_access"
 
     def test_an_unnarrowed_roster_is_the_deployments_own_picture(self, store_root):
-        rows = control_target.target_rows(_config(), session_target=LIVE, baseline=LIVE)
+        rows = control_target.target_rows(_config(), control_target=LIVE, baseline=LIVE)
 
         assert rows[VA]["writes_permitted"] is True
         assert rows[VA]["selected_role"] == "write_access"

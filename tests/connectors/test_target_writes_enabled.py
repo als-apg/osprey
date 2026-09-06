@@ -20,7 +20,7 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors import control_context, session_store
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system import base as connector_base
 from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
@@ -330,7 +330,7 @@ def test_asking_about_the_posture_does_not_mutate_the_section():
 
 
 # ---------------------------------------------------------------------------
-# target_writes_enabled — the same answer, reached from a session target
+# target_writes_enabled — the same answer, reached from a control target
 # ---------------------------------------------------------------------------
 
 
@@ -742,7 +742,7 @@ def test_a_live_that_does_not_resolve_is_not_a_configured_target():
 
 @pytest.mark.unit
 def test_the_baseline_is_configured_even_with_no_block_of_its_own():
-    """A session is on the connector ``control_system.type`` builds regardless."""
+    """A deployment is on the connector ``control_system.type`` builds regardless."""
     # Act / Assert
     assert configured_targets(_section(MOCK)) == [TARGET_LIVE]
     assert configured_targets(_section(MOCK, connector={})) == [TARGET_LIVE]
@@ -938,14 +938,14 @@ def store(tmp_path, monkeypatch):
     reach.
     """
     root = tmp_path / "agent_data"
-    (root / session_store.STATE_DIR_NAME).mkdir(parents=True)
-    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    (root / posture_store.STATE_DIR_NAME).mkdir(parents=True)
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     # The executor's run-level pin, cleared like the mode: it is ANDed into
     # every store answer, so a stamp inherited from the environment this suite
     # runs in would refuse writes in tests that are about the record alone.
-    monkeypatch.delenv(session_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
-    session_store.invalidate_cache()
+    monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+    posture_store.invalidate_cache()
 
     class _Store:
         path = control_context.record_path_under(root)
@@ -960,7 +960,7 @@ def store(tmp_path, monkeypatch):
             write_control_context(root, posture=posture)
 
     yield _Store
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
 
 
 class TestTheConnectorReferenceMonitor:
@@ -976,7 +976,7 @@ class TestTheConnectorReferenceMonitor:
         """
         # Arrange
         deployment(ARMED_SECTION)
-        store.narrow(standin=session_store.POSTURE_SANDBOX)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
         narrowed = _built(EPICS, TARGET_STANDIN)
         untouched = _built(EPICS, TARGET_VA)
 
@@ -1002,7 +1002,7 @@ class TestTheConnectorReferenceMonitor:
         """
         # Arrange
         deployment(ARMED_SECTION)
-        store.narrow(standin=session_store.POSTURE_SANDBOX)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
         connector = _built(EPICS, TARGET_STANDIN)
 
         # Act
@@ -1033,7 +1033,7 @@ class TestTheConnectorReferenceMonitor:
 
         # Act
         before = await connector.write_channel("S:CORR:1:SP", 0.5)
-        store.narrow(standin=session_store.POSTURE_SANDBOX)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
         after = await connector.write_channel("S:CORR:1:SP", 0.5)
 
         # Assert
@@ -1047,7 +1047,7 @@ class TestTheConnectorReferenceMonitor:
         """The multi-write guard forks the same four ways, per operation."""
         # Arrange
         deployment(ARMED_SECTION)
-        store.narrow(standin=session_store.POSTURE_SANDBOX)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
         connector = _built(EPICS, TARGET_STANDIN)
 
         # Act
@@ -1069,7 +1069,7 @@ class TestTheConnectorReferenceMonitor:
         """
         # Arrange
         deployment(ARMED_SECTION)
-        store.narrow(standin=session_store.POSTURE_SANDBOX, va=session_store.POSTURE_SANDBOX)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX, va=posture_store.POSTURE_SANDBOX)
         connector = _built(EPICS, TARGET_STANDIN)
 
         # Act
@@ -1093,7 +1093,7 @@ class TestTheConnectorReferenceMonitor:
         connector = _built(EPICS, None)
 
         # Act / Assert — one narrowed entry anywhere is enough
-        store.narrow(standin=session_store.POSTURE_SANDBOX)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
         assert (await connector.write_channel("A:SP", 1.0)).outcome is WriteOutcome.REFUSED
 
         # Act / Assert — and nothing narrowed leaves the deployment in charge
@@ -1106,7 +1106,7 @@ class TestTheConnectorReferenceMonitor:
         """Naming a target it does not have would be a lie an operator acts on."""
         # Arrange
         deployment(ARMED_SECTION)
-        store.narrow(standin=session_store.POSTURE_SANDBOX)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
         connector = _built(EPICS, None)
 
         # Act
@@ -1127,7 +1127,7 @@ class TestTheConnectorReferenceMonitor:
         """
         # Arrange
         deployment({"type": EPICS, "writes_enabled": False, "connector": {"epics": {}}})
-        store.narrow(standin=session_store.POSTURE_WRITES, va=session_store.POSTURE_WRITES)
+        store.narrow(standin=posture_store.POSTURE_WRITES, va=posture_store.POSTURE_WRITES)
         connector = _built(EPICS, TARGET_STANDIN)
 
         # Act
@@ -1150,7 +1150,7 @@ class TestTheConnectorReferenceMonitor:
         """
         # Arrange
         deployment({"type": EPICS, "writes_enabled": False, "connector": {"epics": {}}})
-        store.narrow(standin=session_store.POSTURE_SANDBOX)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
         connector = _built(EPICS, TARGET_STANDIN)
 
         # Act
@@ -1167,7 +1167,7 @@ class TestTheConnectorReferenceMonitor:
         from the chip is the one worth naming."""
         # Arrange
         deployment(ARMED_SECTION)
-        store.narrow(standin=session_store.POSTURE_SANDBOX)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
         connector = _built(EPICS, TARGET_STANDIN)
 
@@ -1182,11 +1182,11 @@ class TestTheConnectorReferenceMonitor:
 class TestTheMonitorAndTheStoreRuleAgree:
     """The connector restates the store clause; the two answers stay identical.
 
-    ``session_store.effective_writes`` is the canonical spelling of
+    ``posture_store.effective_writes`` is the canonical spelling of
     ``ceiling ∧ not readonly ∧ store``, but the connector cannot call it for the
     ceiling: its deployment half is keyed on the connector TYPE, which is not
     the ceiling that function derives for a caller holding only a target. The
-    store clause is therefore restated in ``base._session_store_permits``, and
+    store clause is therefore restated in ``base._posture_store_permits``, and
     this table is what keeps the restatement honest.
     """
 
@@ -1197,9 +1197,9 @@ class TestTheMonitorAndTheStoreRuleAgree:
         "narrowed",
         [
             {},
-            {TARGET_STANDIN: session_store.POSTURE_SANDBOX},
-            {TARGET_VA: session_store.POSTURE_SANDBOX},
-            dict.fromkeys((TARGET_LIVE, TARGET_VA, TARGET_STANDIN), session_store.POSTURE_SANDBOX),
+            {TARGET_STANDIN: posture_store.POSTURE_SANDBOX},
+            {TARGET_VA: posture_store.POSTURE_SANDBOX},
+            dict.fromkeys((TARGET_LIVE, TARGET_VA, TARGET_STANDIN), posture_store.POSTURE_SANDBOX),
         ],
         ids=["nothing", "standin", "va", "everything"],
     )
@@ -1210,7 +1210,7 @@ class TestTheMonitorAndTheStoreRuleAgree:
         connector = _built(EPICS, target)
 
         # Act
-        canonical = session_store.effective_writes(
+        canonical = posture_store.effective_writes(
             ARMED_SECTION,
             target,
             connector_type=EPICS,
@@ -1264,7 +1264,7 @@ class TestTheFactoryBuiltConnector:
         under, so an operator's flip and a connector's refusal meet."""
         # Arrange
         deployment(ARMED_SECTION)
-        store.narrow(standin=session_store.POSTURE_SANDBOX)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
 
         # Act
         with isolated_connector_registries(clear=True):
@@ -1293,13 +1293,13 @@ class TestOneStoreReadPerWrite:
     @staticmethod
     def _counted(monkeypatch) -> list[str | None]:
         calls: list[str | None] = []
-        real = session_store.store_permits
+        real = posture_store.store_permits
 
         def _counting(target):
             calls.append(target)
             return real(target)
 
-        monkeypatch.setattr(session_store, "store_permits", _counting)
+        monkeypatch.setattr(posture_store, "store_permits", _counting)
         return calls
 
     @pytest.mark.unit
@@ -1307,7 +1307,7 @@ class TestOneStoreReadPerWrite:
     async def test_a_refused_write_reads_the_store_once(self, deployment, store, monkeypatch):
         # Arrange
         deployment(ARMED_SECTION)
-        store.narrow(standin=session_store.POSTURE_SANDBOX)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
         calls = self._counted(monkeypatch)
         connector = _built(EPICS, TARGET_STANDIN)
 
@@ -1328,7 +1328,7 @@ class TestOneStoreReadPerWrite:
         result has to tell the same story about why."""
         # Arrange
         deployment(ARMED_SECTION)
-        store.narrow(standin=session_store.POSTURE_SANDBOX)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
         calls = self._counted(monkeypatch)
         connector = _built(EPICS, TARGET_STANDIN)
 
@@ -1349,7 +1349,7 @@ class TestOneStoreReadPerWrite:
         nothing, so a sandboxed run does no file work per write."""
         # Arrange
         deployment(ARMED_SECTION)
-        store.narrow(standin=session_store.POSTURE_SANDBOX)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
         calls = self._counted(monkeypatch)
         connector = _built(EPICS, TARGET_STANDIN)
@@ -1387,8 +1387,8 @@ class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:
         deployment(ARMED_SECTION)
         self._widened(store)
         monkeypatch.setenv(
-            session_store.LAUNCH_POSTURE_ENV_VAR,
-            session_store.launch_posture_stamp(TARGET_STANDIN, session_store.POSTURE_SANDBOX),
+            posture_store.LAUNCH_POSTURE_ENV_VAR,
+            posture_store.launch_posture_stamp(TARGET_STANDIN, posture_store.POSTURE_SANDBOX),
         )
         connector = _built(EPICS, TARGET_STANDIN)
 
@@ -1420,8 +1420,8 @@ class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:
         deployment(ARMED_SECTION)
         self._widened(store)
         monkeypatch.setenv(
-            session_store.LAUNCH_POSTURE_ENV_VAR,
-            session_store.launch_posture_stamp(None, session_store.POSTURE_SANDBOX),
+            posture_store.LAUNCH_POSTURE_ENV_VAR,
+            posture_store.launch_posture_stamp(None, posture_store.POSTURE_SANDBOX),
         )
         connector = _built(EPICS, TARGET_STANDIN)
 
@@ -1431,7 +1431,7 @@ class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:
         # Assert
         assert result.outcome is WriteOutcome.REFUSED
         assert "most restrictive write state" in result.error_message
-        assert "neither its control target nor this session's write state" in result.error_message
+        assert "neither its control target nor the recorded write state" in result.error_message
         assert "could be resolved" in result.error_message
         assert "Re-run the script" in result.error_message
         assert "chip" not in result.error_message
@@ -1448,10 +1448,10 @@ class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:
         """
         # Arrange
         deployment(ARMED_SECTION)
-        store.narrow(standin=session_store.POSTURE_SANDBOX)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
         monkeypatch.setenv(
-            session_store.LAUNCH_POSTURE_ENV_VAR,
-            session_store.launch_posture_stamp(TARGET_STANDIN, session_store.POSTURE_WRITES),
+            posture_store.LAUNCH_POSTURE_ENV_VAR,
+            posture_store.launch_posture_stamp(TARGET_STANDIN, posture_store.POSTURE_WRITES),
         )
         connector = _built(EPICS, TARGET_STANDIN)
 
@@ -1471,8 +1471,8 @@ class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:
         deployment(ARMED_SECTION)
         self._widened(store)
         monkeypatch.setenv(
-            session_store.LAUNCH_POSTURE_ENV_VAR,
-            session_store.launch_posture_stamp(TARGET_STANDIN, session_store.POSTURE_SANDBOX),
+            posture_store.LAUNCH_POSTURE_ENV_VAR,
+            posture_store.launch_posture_stamp(TARGET_STANDIN, posture_store.POSTURE_SANDBOX),
         )
         calls = TestOneStoreReadPerWrite._counted(monkeypatch)
         connector = _built(EPICS, TARGET_STANDIN)
@@ -1510,7 +1510,7 @@ class TestAnOverriddenPostureStillGates:
         subclass said yes, and the subclass owns the answer."""
         # Arrange
         deployment({"type": EPICS, "writes_enabled": False, "connector": {"epics": {}}})
-        store.narrow(standin=session_store.POSTURE_SANDBOX)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
         connector = _OverridingConnector()
         connector._connector_type = EPICS
         connector._control_target = TARGET_STANDIN
@@ -1532,7 +1532,7 @@ class TestAnOverriddenPostureStillGates:
         """
         # Arrange
         deployment(ARMED_SECTION)
-        store.narrow(standin=session_store.POSTURE_SANDBOX)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
         connector = _OverridingConnector()
         connector.armed = False
         connector._connector_type = EPICS

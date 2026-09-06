@@ -67,7 +67,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     Endpoint,
     TargetDerivation,
 )
-from osprey_connectors import session_store
+from osprey_connectors import posture_store
 from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
@@ -104,7 +104,7 @@ DEAD_WRITE_PORT = 5555
 VA_READ_GATEWAY_PORT = 5065
 VA_WRITE_GATEWAY_PORT = 5066
 
-#: The posture-store key the narrowing tests stamp this process with.
+#: The audit session id the narrowing tests stamp this process with.
 POSTURE_SESSION = "switch-lifecycle-session"
 
 FIXTURE_MODULE = '''\
@@ -958,7 +958,7 @@ class TestPerTargetPosture:
 
 
 @pytest.fixture
-def posture_store(tmp_path, monkeypatch):
+def posture_root(tmp_path, monkeypatch):
     """A scratch agent-data root this process and its children are stamped for.
 
     The stamp goes into the real environment rather than a patched lookup
@@ -966,18 +966,18 @@ def posture_store(tmp_path, monkeypatch):
     parent does.
     """
     root = tmp_path / "agent_data"
-    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", POSTURE_SESSION)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
     yield root
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
 
 
 def narrow(root, *targets):
     """Record the operator's narrowing of *targets* on this deployment."""
-    write_control_context(root, posture=dict.fromkeys(targets, session_store.POSTURE_SANDBOX))
-    session_store.invalidate_cache()
+    write_control_context(root, posture=dict.fromkeys(targets, posture_store.POSTURE_SANDBOX))
+    posture_store.invalidate_cache()
 
 
 class TestRepublishedDisplayMetadata:
@@ -1010,7 +1010,7 @@ class TestRepublishedDisplayMetadata:
         assert targets["live"]["endpoint"] == f"{GATEWAY_HOST}:{READ_GATEWAY_PORT}"
 
     async def test_a_narrowed_session_is_published_through_its_read_gateway(
-        self, make_manager, write_armed_project, posture_store
+        self, make_manager, write_armed_project, posture_root
     ):
         """The operator narrows the session; the published identity follows.
 
@@ -1027,7 +1027,7 @@ class TestRepublishedDisplayMetadata:
         assert armed["selected_role"] == "write_access"
         assert armed["endpoint"] == f"{GATEWAY_HOST}:{DEAD_WRITE_PORT}"
 
-        narrow(posture_store, "live")
+        narrow(posture_root, "live")
         await manager.respawn_same_target()
 
         narrowed = target_state.read()["targets"]["live"]

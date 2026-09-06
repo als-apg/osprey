@@ -469,12 +469,12 @@ def test_a_row_with_no_probed_at_still_counts_as_a_measurement() -> None:
 
 def test_the_gate_never_reads_the_posture_store(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every fact arrives as an argument; a store read here would be a file read."""
-    from osprey_connectors import session_store
+    from osprey_connectors import posture_store
 
     def _explode(*args: Any, **kwargs: Any) -> bool:
         raise AssertionError("evaluate_switch read the posture store")
 
-    monkeypatch.setattr(session_store, "effective_writes", _explode)
+    monkeypatch.setattr(posture_store, "effective_writes", _explode)
 
     assert _gate(writes_enabled=None).allowed is True
 

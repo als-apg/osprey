@@ -43,14 +43,14 @@ def test_two_target_roster_has_no_standin_row():
     switched to is a claim that there is one, and an operator reading the
     roster would go looking for the machine it names.
     """
-    rows = target_rows(_config(standin=False), session_target="va", baseline="va")
+    rows = target_rows(_config(standin=False), control_target="va", baseline="va")
 
     assert list(rows) == ["live", "va"]
 
 
 def test_three_target_roster_carries_the_standin_row():
     """The same config plus the block: the row appears, in vocabulary order."""
-    rows = target_rows(_config(standin=True), session_target="va", baseline="va")
+    rows = target_rows(_config(standin=True), control_target="va", baseline="va")
 
     assert list(rows) == ["live", "va", "standin"]
     assert rows["standin"]["is_baseline"] is False

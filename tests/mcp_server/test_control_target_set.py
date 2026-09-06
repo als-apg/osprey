@@ -93,10 +93,10 @@ def record_root(state_root, monkeypatch):
     here is what makes one directory hold the record, the reports and the
     requests — which is the thing under test, not an incidental of it.
     """
-    from osprey_connectors import session_store
+    from osprey_connectors import posture_store
 
-    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(state_root))
-    (state_root / session_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(state_root))
+    (state_root / posture_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
     control_context.invalidate_cache()
     yield state_root
     control_context.invalidate_cache()
@@ -298,7 +298,7 @@ def allow_every_target(monkeypatch):
     """
     from osprey.mcp_server.control_system.target_eligibility import TargetAvailability
 
-    def available(config, target, session_target, baseline_target, **kwargs):
+    def available(config, target, control_target, baseline_target, **kwargs):
         return TargetAvailability(
             target=target,
             eligible=True,
@@ -322,7 +322,7 @@ async def await_request(request_id: str | None = None) -> dict:
     """Wait for this process to have filed a switch request, and return it."""
     deadline = asyncio.get_running_loop().time() + OWNER_PATIENCE_S
     while asyncio.get_running_loop().time() < deadline:
-        body = target_state.read_request()
+        body = target_state.read_file(target_state.request_file_path())
         if isinstance(body, dict) and (request_id is None or body.get("request_id") == request_id):
             return body
         await asyncio.sleep(TICK_S / 2)
@@ -768,7 +768,7 @@ class TestTheNoMintAnswer:
         assert (record.target, record.generation) == ("live", 5)
         assert record.last_switch is None
         assert path.stat().st_ino == before, "the record was rewritten for a no-op"
-        assert target_state.read_request() is None
+        assert target_state.read_file(target_state.request_file_path()) is None
         assert emitted == []
 
     async def test_a_follower_answers_it_without_asking_the_owner(
@@ -787,7 +787,7 @@ class TestTheNoMintAnswer:
         payload = extract_response_dict(await TOOL(target="va"))
 
         assert payload["summary"]["generation"] == 2
-        assert target_state.read_request() is None
+        assert target_state.read_file(target_state.request_file_path()) is None
 
 
 # ------------------------------------------------------ the owner's own path
@@ -1028,7 +1028,7 @@ class TestAFollowerFilesARequest:
         assert body["request_id"]
         assert payload["summary"]["target"] == "va"
         # Consumed: the owner unlinks the slot once its write is read back.
-        assert target_state.read_request() is None
+        assert target_state.read_file(target_state.request_file_path()) is None
 
     async def test_an_applied_terminus_is_reported_as_the_switch(
         self, make_manager, monkeypatch, emitted, record_root
@@ -1109,7 +1109,7 @@ class TestAFollowerFilesARequest:
             await TOOL(target="va")
 
         assert ctx["envelope"]["details"]["reason"] == control_target.REASON_READONLY_RUN
-        assert target_state.read_request() is None
+        assert target_state.read_file(target_state.request_file_path()) is None
         # A follower writes nothing to the record, refusal included.
         assert control_context.read_record().last_switch is None
 
@@ -1139,7 +1139,7 @@ class TestAFollowerFilesARequest:
         envelope = ctx["envelope"]
         assert envelope["details"]["reason"] == control_target.REASON_SWITCH_IN_PROGRESS
         assert envelope["details"]["pids"] == [applying]
-        assert target_state.read_request() is None
+        assert target_state.read_file(target_state.request_file_path()) is None
         assert control_context.read_record().last_switch is None
 
     async def test_no_owner_consuming_it_withdraws_the_request_and_names_the_owner(
@@ -1166,7 +1166,9 @@ class TestAFollowerFilesARequest:
         assert envelope["details"]["owner_pid"] == wedged
         assert f"pid {wedged}" in envelope["error_message"]
         assert "no owner consumed the request" in envelope["error_message"]
-        assert target_state.read_request() is None, "the withdrawn request was left behind"
+        assert target_state.read_file(target_state.request_file_path()) is None, (
+            "the withdrawn request was left behind"
+        )
         assert [call["reason"] for call in emitted] == [control_target.REASON_REQUEST_NOT_CONSUMED]
 
 
@@ -1255,7 +1257,7 @@ class TestEveryDeclineIsVisible:
 
         assert ctx["envelope"]["details"]["reason"] == control_target.REASON_RECORD_UNAVAILABLE
         assert [call["reason"] for call in emitted] == [control_target.REASON_RECORD_UNAVAILABLE]
-        assert target_state.read_request() is None
+        assert target_state.read_file(target_state.request_file_path()) is None
 
 
 # ---------------------------------------------- the in-flight marker contract

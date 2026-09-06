@@ -340,7 +340,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # the two flat tiers, armed on the virtual accelerator alone. It pins the
     # flat key `false` — the posture a live machine's block inherits — and
     # `control_system.connector.virtual_accelerator.writes_enabled: true` over
-    # it, so which machine the session is pointed at decides whether its writes
+    # it, so which machine the deployment is pointed at decides whether its writes
     # land.
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.

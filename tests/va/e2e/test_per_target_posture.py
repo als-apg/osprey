@@ -35,7 +35,7 @@ Five claims, and this module is the acceptance gate for all five:
    with the request's own id. A second request for the target the session is
    already on comes back ``already_active`` with no child respawned.
 4. **A write follows the session, not the conversation.** An agent whose
-   session is on the virtual accelerator writes; the operator moves it to the
+   deployment is on the virtual accelerator writes; the operator moves it to the
    stand-in from the web surface; the agent's next ``channel_write`` is judged
    against the stand-in and refused, with nothing on either machine having
    moved.
@@ -112,7 +112,6 @@ from fastapi.testclient import TestClient
 from osprey.audit import posture as audit_posture
 from osprey.audit import writer as audit_writer
 from osprey.interfaces.web_terminal.app import create_app
-from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.mcp_server.control_system import server_context as server_context_mod
 from osprey.mcp_server.control_system import session_control, target_state
 from osprey.mcp_server.control_system.connector_host_manager import ConnectorHostManager
@@ -122,7 +121,7 @@ from osprey.mcp_server.control_system.tools import control_target as control_tar
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey.mcp_server.python_executor.tools import _execution_gates as execution_gates
 from osprey.mcp_server.python_executor.tools import python_execute as python_execute_module
-from osprey_connectors import session_store
+from osprey_connectors import posture_store
 from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.types import TARGET_LIVE, TARGET_STANDIN, TARGET_VA
 from tests.fixtures.control_context import context_for
@@ -180,7 +179,7 @@ REST_VALUE = 0.0
 
 # -- the session the operator is acting on ----------------------------------
 
-#: The posture-store key. A bare lowercase UUID, which is the closed grammar
+#: The audit session id. A bare lowercase UUID, which is the closed grammar
 #: both posture routes accept and the shape a PTY pool key really has.
 SESSION_ID = "5a17e600-1111-4222-8333-444444444444"
 
@@ -504,22 +503,18 @@ def module_environment(tmp_path_factory, endpoints):
     records: list[dict] = []
 
     with pytest.MonkeyPatch.context() as patch_env:
-        patch_env.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+        patch_env.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
         patch_env.setenv(audit_posture.POSTURE_SESSION_ENV_VAR, SESSION_ID)
         patch_env.setenv("PYTHONPATH", os.pathsep.join(REPO_PATHS))
         patch_env.setenv("CONFIG_FILE", str(written))
         patch_env.setenv("OSPREY_CONFIG", str(written))
         patch_env.delenv("OSPREY_EXECUTION_MODE", raising=False)
-        patch_env.delenv(session_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+        patch_env.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
         patch_env.setattr(target_state, "resolve_shared_data_root", lambda: root)
-        session_store.invalidate_cache()
-        audit_posture.invalidate_session_target_cache()
-        websocket_routes._reset_session_record_memo()
+        posture_store.invalidate_cache()
         with patch.object(audit_writer, "record", side_effect=lambda **f: records.append(f)):
             yield SimpleNamespace(root=root, config_path=written)
-    session_store.invalidate_cache()
-    audit_posture.invalidate_session_target_cache()
-    websocket_routes._reset_session_record_memo()
+    posture_store.invalidate_cache()
 
 
 @pytest.fixture(scope="module")
@@ -538,14 +533,15 @@ def config_path(module_environment) -> Path:
 def web(tmp_path_factory, config_path, module_environment):
     """The real web server, over the same stamped root, for the whole module.
 
-    Two seams are patched and nothing else. The PTY registry is made to report
-    this process's parent as the session's terminal, which is what lets the
-    routes resolve the state record this process really publishes: the record's
-    ``owner_ppid`` is ``os.getppid()``, and the resolver walks a record's
-    ancestors — itself included — looking for the PTY pid. Session discovery is
-    made to report the session as started, which on a real deployment is what
-    having sent one prompt means. Everything past those two seams — the refusal
-    ladder, the store write, the request file — is the shipped code.
+    Two seams are patched and nothing else, and both say the same thing: the
+    session id these tests post with names a terminal that exists and has been
+    prompted. The PTY registry answers to it, and session discovery reports it
+    as started — which on a real deployment is what having sent one prompt
+    means. Nothing about WHICH machine the deployment is on travels through
+    either: that is the control-context record the app claims on startup, over
+    the root ``module_environment`` stamped, and every route below reads it.
+    Everything past those two seams — the refusal ladder, the record mutation,
+    the switch request — is the shipped code.
     """
     watch_dir = tmp_path_factory.mktemp("per-target-posture-watch")
     with patch(
@@ -667,7 +663,7 @@ def gates_are_silent() -> bool:
     """Whether the two write gates ``execute`` runs would let a readwrite run by.
 
     The anti-vacuous control for the ``execute`` leg, asked of the very
-    functions the tool calls — the session-posture clamp and the per-target
+    functions the tool calls — the posture clamp and the per-target
     writes gate — rather than by launching a sandbox. Running the tool for real
     on the permitted target would spawn the executor subprocess, and a failure
     in *that* (a workspace, a virtualenv, a timeout) would be reported here as a
@@ -678,7 +674,7 @@ def gates_are_silent() -> bool:
     try:
         execution_gates.enforce_posture_clamp("readwrite", tool="execute")
         execution_gates.enforce_deployment_writes_gate(
-            "readwrite", execution_gates.session_control_target()
+            "readwrite", execution_gates.recorded_control_target()
         )
     except ToolError:
         return False
@@ -935,7 +931,7 @@ async def session(config_path, web, module_environment):
             await manager.switch(TARGET_VA)
             journal["va_write_while_narrowed"] = await write_via_tool(CORRECTOR_SP, ARMED_VALUE)
             journal["va_readback_while_narrowed"] = await reading(manager, CORRECTOR_SP)
-            journal["va_session_target"] = execution_gates.session_control_target()
+            journal["va_control_target"] = execution_gates.recorded_control_target()
             journal["va_gates_silent"] = gates_are_silent()
             await restore_machine()
 
@@ -973,7 +969,7 @@ async def session(config_path, web, module_environment):
             ).json()
             journal["rows_narrowed"] = control_target_module.target_rows(
                 context.config.raw,
-                session_target=manager.active_target(),
+                control_target=manager.active_target(),
                 baseline=manager.baseline,
             )
 
@@ -1162,7 +1158,7 @@ class TestTheNarrowingLandsWithoutARespawn:
         unnarrowed target: silent. Without this, "the tool refused" would be
         equally consistent with a gate that refuses everything.
         """
-        assert session["va_session_target"] == TARGET_VA
+        assert session["va_control_target"] == TARGET_VA
         assert session["va_gates_silent"] is True
 
 

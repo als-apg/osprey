@@ -1,7 +1,7 @@
 """One target read feeds both the sandbox stamp and the embedded limits policy.
 
 The executor used to answer the same question twice. ``execute_code`` built the
-limits validator up front, before anything about the session's control target
+limits validator up front, before anything about the deployment's control target
 was known, and ``_execute_via_local`` resolved the stamp that routes the sandbox
 later, from its own read of the deployment's control-context record. That was
 harmless while the limits posture was deployment-wide and the same for every

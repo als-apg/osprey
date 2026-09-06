@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey_connectors import control_context, session_store
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.types import CONTROL_TARGETS
 
 # --- fixtures --------------------------------------------------------------
@@ -25,7 +25,7 @@ from osprey_connectors.types import CONTROL_TARGETS
 @pytest.fixture
 def data_root(tmp_path, monkeypatch):
     """Stamp ``OSPREY_AGENT_DATA_ROOT`` at a scratch root, cache cleared."""
-    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
     control_context.invalidate_cache()
     yield tmp_path
     control_context.invalidate_cache()
@@ -34,9 +34,9 @@ def data_root(tmp_path, monkeypatch):
 @pytest.fixture
 def rootless(monkeypatch):
     """No stamp and no derivable root: the record has nowhere to live."""
-    monkeypatch.delenv(session_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.setattr(
-        session_store,
+        posture_store,
         "resolve_shared_data_root",
         lambda: (_ for _ in ()).throw(RuntimeError("no project root")),
     )
@@ -84,7 +84,7 @@ def test_record_lives_beside_the_posture_store(data_root):
     assert control_context.RECORD_FILENAME == "control_context.json"
     assert control_context.record_path() == data_root / "control_target" / "control_context.json"
     assert control_context.record_path() == control_context.record_path_under(data_root)
-    assert control_context.state_dir() == session_store.state_dir()
+    assert control_context.state_dir() == posture_store.state_dir()
 
 
 def test_record_path_is_none_without_a_root(rootless):
@@ -997,7 +997,7 @@ def test_the_record_fixture_round_trips_through_read_record(data_root):
         data_root,
         target="va",
         generation=7,
-        posture={"va": session_store.POSTURE_SANDBOX},
+        posture={"va": posture_store.POSTURE_SANDBOX},
         last_switch={"request_id": "req-1", "status": control_context.SWITCH_APPLIED},
     )
 
@@ -1006,7 +1006,7 @@ def test_the_record_fixture_round_trips_through_read_record(data_root):
     assert record is not None
     assert record.target == "va"
     assert record.generation == 7
-    assert record.posture == {"va": session_store.POSTURE_SANDBOX}
+    assert record.posture == {"va": posture_store.POSTURE_SANDBOX}
     assert record.last_switch == {"request_id": "req-1", "status": control_context.SWITCH_APPLIED}
 
 
@@ -1134,7 +1134,7 @@ def test_the_record_fixture_writes_a_non_mapping_posture_verbatim(data_root):
     assert json.loads(path.read_text(encoding="utf-8"))["posture"] == "sandbox"
     record = control_context.read_record()
     assert record is not None
-    assert record.posture == dict.fromkeys(CONTROL_TARGETS, session_store.POSTURE_SANDBOX)
+    assert record.posture == dict.fromkeys(CONTROL_TARGETS, posture_store.POSTURE_SANDBOX)
 
 
 def test_the_fixture_writes_a_degraded_record_through_the_raw_payload_hatch(data_root):

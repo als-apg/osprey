@@ -140,13 +140,13 @@ def session_posture_leak_guard(monkeypatch):
     """Run every test outside a web-terminal session's write posture.
 
         Three variables carry that posture: ``OSPREY_EXECUTION_MODE`` (a read-only
-        run), and the per-(session, target) store's two anchors
-        ``OSPREY_POSTURE_SESSION`` and ``OSPREY_AGENT_DATA_ROOT``, which the web
-        server always stamps as a pair. A developer running the suite from inside a
-        narrowed session would otherwise hand every store-touching test a session
-        key and an agent-data root no test asked for — and, worse, a test that
-        redirects the store by patching ``resolve_shared_data_root`` would be
-        silently inert, because ``session_store.agent_data_root()`` reads the
+        run), and the two anchors ``OSPREY_POSTURE_SESSION`` and
+        ``OSPREY_AGENT_DATA_ROOT``, which the web server always stamps as a pair.
+        A developer running the suite from inside a narrowed session would
+        otherwise hand every record-touching test a session id and an
+        agent-data root no test asked for — and, worse, a test that
+        redirects the record by patching ``resolve_shared_data_root`` would be
+        silently inert, because ``posture_store.agent_data_root()`` reads the
         variable FIRST and only falls back to the resolver.
 
     All three are CLEARED, not pointed elsewhere. Stamping a throwaway root here
@@ -1137,11 +1137,11 @@ def control_context_root(tmp_path, monkeypatch):
     directory is created, so a test can write a raw file into it without
     reaching for ``mkdir`` first.
     """
-    from osprey_connectors import control_context, session_store
+    from osprey_connectors import control_context, posture_store
 
     root = tmp_path / "agent_data"
-    (root / session_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    (root / posture_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
     control_context.invalidate_cache()
     yield root
     control_context.invalidate_cache()

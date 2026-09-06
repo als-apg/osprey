@@ -14,11 +14,15 @@ Three things are pinned, and each is pinned at the layer that owns it:
    tools, and lands BEFORE any HTTP call — asserted by the transport mock never
    being called, not merely by a status code. The bridge cannot make this call:
    it serves its lane's target and never learns the session's.
-2. **Which way it fails.** Only a *readable* state file naming a *different*
-   target refuses. Absent, corrupt, and dead-owner state all read as "on the
-   baseline" and permit the operation — no switch has happened, so the lane's
-   target is the session's target, and any other direction would break every
-   deployment that never switches (today, all of them).
+2. **Which way it fails.** Only a *readable* control-context record naming a
+   *different* target refuses. An absent record, a corrupt one, and one naming
+   a target this build has no name for all read as "on the baseline" and permit
+   the operation — nothing readable says a switch happened, so the lane's target
+   is the recorded control target, and any other direction would break every deployment
+   that never switches (today, all of them). A record whose OWNER is dead is not
+   in that set: one record describes the whole deployment, and the machine it
+   names is where the deployment is whether or not the process that last wrote
+   it is still running.
 3. **That the reason code is one vocabulary.** The MCP tool module cannot
    import ``queue_backend`` (it pulls in ``bluesky-queueserver-api``), so the
    code string is spelled in both layers; these tests pin them equal, and pin
@@ -28,8 +32,6 @@ Three things are pinned, and each is pinned at the layer that owns it:
 
 from __future__ import annotations
 
-import json
-import os
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -43,7 +45,8 @@ from osprey.mcp_server.bluesky.server_context import (
 from osprey.mcp_server.bluesky.tools import queue
 from osprey.mcp_server.control_system import target_banner, target_state
 from osprey.services.bluesky_bridge import queue_backend as qb
-from tests._control_context_fixtures import write_payload
+from osprey_connectors import control_context, posture_store
+from tests._control_context_fixtures import owner, write_control_context
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
 pytestmark = pytest.mark.unit
@@ -98,50 +101,41 @@ def deployment(tmp_path, monkeypatch):
 
         monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
 
-        # The state file lives under the shared data root; pointing that at
-        # tmp_path is what keeps one test's session out of another's.
+        # The control-context record lives under the agent-data root; stamping
+        # that at tmp_path is what keeps one test's deployment out of another's,
+        # and out of whatever record this machine happens to be carrying.
         monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
+        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+        control_context.invalidate_cache()
 
         monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", _TOKEN)
         initialize_server_context()
+        return tmp_path
 
-    return _stage
-
-
-def _report_path() -> Path:
-    """This process's server report — the file the banner resolves through."""
-    return target_state.report_file_path()
+    yield _stage
+    control_context.invalidate_cache()
 
 
-def _session_on(target: str, generation: int = 0) -> None:
-    """Write the report a controls server owned by this session would write.
+def _deployment_on(root: Path, target: str, generation: int = 0, **kwargs: Any) -> Path:
+    """Point the deployment's control-context record at *target*.
 
-    The banner matches a report by ``owner_ppid`` and reads its ``target``, so
-    those are the keys the payload carries.
+    One record per deployment, and the banner reads its ``target`` — so this is
+    the whole of what "the deployment is on X" means to every consumer below.
     """
-    write_payload(
-        _report_path(),
-        {
-            "target": target,
-            "generation": generation,
-            "server_pid": os.getpid(),
-            "owner_ppid": os.getppid(),
-            "targets": {},
-            "children": [],
-        },
-    )
+    return write_control_context(root, target=target, generation=generation, **kwargs)
 
 
-def _switch_to(target: str) -> None:
-    """Move an already-published session onto *target*, as a switch would."""
-    _session_on(target, generation=1)
+def _switch_to(root: Path, target: str) -> Path:
+    """Move an already-published deployment onto *target*, as a switch would."""
+    return _deployment_on(root, target, generation=1)
 
 
-def _write_raw_state(body: str) -> Path:
-    """Drop a report file this process owns with arbitrary bytes in it."""
-    path = _report_path()
+def _write_raw_record(root: Path, body: str) -> Path:
+    """Drop a control-context record with arbitrary bytes in it."""
+    path = control_context.record_path_under(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body, encoding="utf-8")
+    control_context.invalidate_cache()
     return path
 
 
@@ -163,7 +157,7 @@ async def _stop(cancel: bool = False):
 
 
 @pytest.mark.parametrize("baseline", ["live", "va"])
-async def test_queue_add_reaches_the_bridge_with_no_state_file(deployment, baseline):
+async def test_queue_add_reaches_the_bridge_with_no_record(deployment, baseline):
     """No switch has ever happened, which is every deployment today."""
     deployment(baseline)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as post:
@@ -174,7 +168,7 @@ async def test_queue_add_reaches_the_bridge_with_no_state_file(deployment, basel
 
 
 @pytest.mark.parametrize("baseline", ["live", "va"])
-async def test_queue_start_reaches_the_bridge_with_no_state_file(deployment, baseline):
+async def test_queue_start_reaches_the_bridge_with_no_record(deployment, baseline):
     deployment(baseline)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True})) as post:
         with patch(f"{_MOD}.notify_agent_activity_async"):
@@ -185,9 +179,9 @@ async def test_queue_start_reaches_the_bridge_with_no_state_file(deployment, bas
 
 @pytest.mark.parametrize("baseline", ["live", "va"])
 async def test_a_session_sitting_on_the_baseline_is_not_a_mismatch(deployment, baseline):
-    """A published state file is not itself a refusal — only a differing one is."""
-    deployment(baseline)
-    _session_on(baseline)
+    """A published record is not itself a refusal — only a differing one is."""
+    root = deployment(baseline)
+    _deployment_on(root, baseline)
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as post:
         with patch(f"{_MOD}.notify_agent_activity_async"):
@@ -208,12 +202,12 @@ _SWITCHED = [
 
 @pytest.mark.parametrize(("baseline", "session"), _SWITCHED)
 async def test_queue_add_refuses_while_the_session_is_switched(deployment, baseline, session):
-    deployment(baseline)
-    _session_on(baseline)
-    _switch_to(session)
+    root = deployment(baseline)
+    _deployment_on(root, baseline)
+    _switch_to(root, session)
 
     with patch(f"{_MOD}._http_post_json") as post:
-        with assert_raises_error(error_type=qb.REASON_SESSION_TARGET_MISMATCH) as ctx:
+        with assert_raises_error(error_type=qb.REASON_CONTROL_TARGET_MISMATCH) as ctx:
             await _add(revision=7)
 
     # The refusal is local: the bridge is never asked, so the pinned revision
@@ -225,18 +219,18 @@ async def test_queue_add_refuses_while_the_session_is_switched(deployment, basel
     # machine the lane serves or which one they switched to.
     assert session in envelope["error_message"]
     assert baseline in envelope["error_message"]
-    assert envelope["details"]["session_target"] == session
+    assert envelope["details"]["control_target"] == session
     assert envelope["details"]["baseline_target"] == baseline
 
 
 @pytest.mark.parametrize(("baseline", "session"), _SWITCHED)
 async def test_queue_start_refuses_while_the_session_is_switched(deployment, baseline, session):
-    deployment(baseline)
-    _session_on(baseline)
-    _switch_to(session)
+    root = deployment(baseline)
+    _deployment_on(root, baseline)
+    _switch_to(root, session)
 
     with patch(f"{_MOD}._http_post_json") as post:
-        with assert_raises_error(error_type=qb.REASON_SESSION_TARGET_MISMATCH) as ctx:
+        with assert_raises_error(error_type=qb.REASON_CONTROL_TARGET_MISMATCH) as ctx:
             await _start()
 
     assert not post.called
@@ -247,23 +241,23 @@ async def test_queue_start_refuses_while_the_session_is_switched(deployment, bas
 async def test_the_refusal_carries_a_capability_record_in_the_queue_wire_shape(deployment):
     """`{code, detail, capability}` — the shape every other queue refusal has.
 
-    The bridge cannot compose this record (it never learns the session target),
-    so the host-side server composes it. Consumers that branch on
+    The bridge cannot compose this record (it never learns the recorded control
+    target), so the host-side server composes it. Consumers that branch on
     ``details.code`` and render ``capability.detail`` must need no special case.
     """
-    deployment("live")
-    _session_on("live")
-    _switch_to("va")
+    root = deployment("live")
+    _deployment_on(root, "live")
+    _switch_to(root, "va")
 
     with patch(f"{_MOD}._http_post_json"):
-        with assert_raises_error(error_type=qb.REASON_SESSION_TARGET_MISMATCH) as ctx:
+        with assert_raises_error(error_type=qb.REASON_CONTROL_TARGET_MISMATCH) as ctx:
             await _add()
 
     details = ctx["envelope"]["details"]
-    assert details["code"] == qb.REASON_SESSION_TARGET_MISMATCH
+    assert details["code"] == qb.REASON_CONTROL_TARGET_MISMATCH
     assert details["capability"] == {
         "can_execute": False,
-        "reason": qb.REASON_SESSION_TARGET_MISMATCH,
+        "reason": qb.REASON_CONTROL_TARGET_MISMATCH,
         "detail": details["detail"],
     }
     assert details["detail"] == ctx["envelope"]["error_message"]
@@ -271,12 +265,12 @@ async def test_the_refusal_carries_a_capability_record_in_the_queue_wire_shape(d
 
 async def test_the_refusal_names_the_way_back(deployment):
     """The suggestions have to be actionable, not just accurate."""
-    deployment("live")
-    _session_on("live")
-    _switch_to("va")
+    root = deployment("live")
+    _deployment_on(root, "live")
+    _switch_to(root, "va")
 
     with patch(f"{_MOD}._http_post_json"):
-        with assert_raises_error(error_type=qb.REASON_SESSION_TARGET_MISMATCH) as ctx:
+        with assert_raises_error(error_type=qb.REASON_CONTROL_TARGET_MISMATCH) as ctx:
             await _start()
 
     suggestions = " ".join(ctx["envelope"]["suggestions"])
@@ -284,11 +278,11 @@ async def test_the_refusal_names_the_way_back(deployment):
     assert "control-system tools" in suggestions
 
 
-async def test_halting_is_never_gated_by_the_session_target(deployment):
+async def test_halting_is_never_gated_by_the_control_target(deployment):
     """`queue_stop` stays reachable while switched, like it does with writes off."""
-    deployment("live")
-    _session_on("live")
-    _switch_to("va")
+    root = deployment("live")
+    _deployment_on(root, "live")
+    _switch_to(root, "va")
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"stop_pending": True})) as post:
         with patch(f"{_MOD}.notify_agent_activity_async"):
@@ -298,13 +292,13 @@ async def test_halting_is_never_gated_by_the_session_target(deployment):
 
 
 # =========================================================================
-# Unreadable state is the baseline, never a refusal
+# An unreadable record is the baseline, never a refusal
 # =========================================================================
 
 
-async def test_a_corrupt_state_file_reads_as_the_baseline(deployment):
-    deployment("live")
-    _write_raw_state("{not json at all")
+async def test_a_corrupt_record_reads_as_the_baseline(deployment):
+    root = deployment("live")
+    _write_raw_record(root, "{not json at all")
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as post:
         with patch(f"{_MOD}.notify_agent_activity_async"):
@@ -313,13 +307,10 @@ async def test_a_corrupt_state_file_reads_as_the_baseline(deployment):
     assert post.called
 
 
-async def test_a_state_file_naming_an_unknown_target_reads_as_the_baseline(deployment):
-    """A record whose ``target`` is not one of the two names is not an answer."""
-    deployment("live")
-    _session_on("live")
-    record = json.loads(_report_path().read_text(encoding="utf-8"))
-    record["target"] = "somewhere-else"
-    write_payload(_report_path(), record)
+async def test_a_record_naming_an_unknown_target_reads_as_the_baseline(deployment):
+    """A record whose ``target`` is not one of the known names is not an answer."""
+    root = deployment("live")
+    _deployment_on(root, "somewhere-else")
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as post:
         with patch(f"{_MOD}.notify_agent_activity_async"):
@@ -328,35 +319,39 @@ async def test_a_state_file_naming_an_unknown_target_reads_as_the_baseline(deplo
     assert post.called
 
 
-async def test_a_state_file_left_by_a_dead_server_is_ignored(deployment, tmp_path):
-    """Nobody is on `va`; the file is the residue of a server that died."""
-    deployment("live")
-    stale = tmp_path / target_state.STATE_DIR_NAME / f"target_state_{_DEAD_PID}.json"
-    stale.parent.mkdir(parents=True, exist_ok=True)
-    stale.write_text(
-        json.dumps({"target": "va", "generation": 3, "server_pid": _DEAD_PID, "owner_ppid": 1}),
-        encoding="utf-8",
-    )
+async def test_a_record_whose_owner_is_dead_still_names_the_deployments_target(deployment):
+    """The one case in this section that is NOT read as the baseline.
 
-    with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as post:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
+    A per-server state file left by a dead server used to be residue, and
+    residue was ignored. There is one record now and it belongs to the
+    deployment rather than to any process: the machine it names is where this
+    deployment is pointed, and the death of whoever last held the pen does not
+    move the plan lane back onto a target nobody selected. So this refuses,
+    exactly as a live-owned record naming ``va`` does.
+    """
+    root = deployment("live")
+    _deployment_on(root, "va", generation=3, owned_by=owner(pid=_DEAD_PID))
+
+    with patch(f"{_MOD}._http_post_json") as post:
+        with assert_raises_error(error_type=qb.REASON_CONTROL_TARGET_MISMATCH) as ctx:
             await _add()
 
-    assert post.called
+    assert not post.called
+    assert ctx["envelope"]["details"]["control_target"] == "va"
 
 
 async def test_a_mock_deployment_resolves_to_live_and_still_compares(deployment):
     """The comparison must not crash on a deployment that cannot be switched.
 
-    `mock` is not a target; the baseline it implies is `live`, so a state file
+    `mock` is not a target; the baseline it implies is `live`, so a record
     naming `va` is a mismatch there like anywhere else.
     """
-    deployment("live-from-mock")
-    _session_on("live")
-    _switch_to("va")
+    root = deployment("live-from-mock")
+    _deployment_on(root, "live")
+    _switch_to(root, "va")
 
     with patch(f"{_MOD}._http_post_json") as post:
-        with assert_raises_error(error_type=qb.REASON_SESSION_TARGET_MISMATCH) as ctx:
+        with assert_raises_error(error_type=qb.REASON_CONTROL_TARGET_MISMATCH) as ctx:
             await _add()
 
     assert not post.called
@@ -370,12 +365,12 @@ async def test_a_mock_deployment_resolves_to_live_and_still_compares(deployment)
 
 def test_the_tool_modules_reason_code_is_the_queue_backend_constant():
     """The two spellings the import invariant forces apart, pinned together."""
-    assert queue.REASON_SESSION_TARGET_MISMATCH == qb.REASON_SESSION_TARGET_MISMATCH
+    assert queue.REASON_CONTROL_TARGET_MISMATCH == qb.REASON_CONTROL_TARGET_MISMATCH
 
 
 def test_the_reason_has_an_entry_in_the_shared_refusal_hint_table():
     """So a lane-aware bridge relaying the same code answers the same way."""
-    hints = queue._REFUSAL_HINTS[qb.REASON_SESSION_TARGET_MISMATCH]
+    hints = queue._REFUSAL_HINTS[qb.REASON_CONTROL_TARGET_MISMATCH]
     assert hints and all(isinstance(hint, str) and hint for hint in hints)
 
 
@@ -390,4 +385,4 @@ def test_the_reason_is_in_the_js_queue_clients_capability_vocabulary():
     _, _, after = source.partition("const DEPLOYMENT_CAPABILITY_CODES = new Set([")
     vocabulary, _, _ = after.partition("]);")
 
-    assert f"'{qb.REASON_SESSION_TARGET_MISMATCH}'" in vocabulary
+    assert f"'{qb.REASON_CONTROL_TARGET_MISMATCH}'" in vocabulary

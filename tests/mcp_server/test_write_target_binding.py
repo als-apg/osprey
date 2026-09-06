@@ -51,7 +51,7 @@ from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import ConnectorHostManager
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey.mcp_server.control_system.tools import channel_write as channel_write_module
-from osprey_connectors import control_context, session_store
+from osprey_connectors import control_context, posture_store
 from tests._control_context_fixtures import write_control_context, write_server_report
 from tests.mcp_server.conftest import (
     assert_raises_error,
@@ -122,7 +122,7 @@ def _prepare(tmp_path, monkeypatch, *, session=None):
     (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
     root = tmp_path / "var" / "agent_data"
     (root / control_context.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
     if session is None:
         monkeypatch.delenv(POSTURE_SESSION_ENV_VAR, raising=False)
     else:

@@ -4,22 +4,24 @@ The Phoebus bridge addresses one running Phoebus product whose PV context was
 fixed when that product started, so a session-level control-system target
 switch does not move it. Two behaviours follow, both covered here:
 
-* ``phoebus_drive`` refuses while the session target differs from the
+* ``phoebus_drive`` refuses while the control target differs from the
   deployment baseline — a write must never land on a target the session left;
 * the four read tools prepend one informational line naming both targets while
   switched, and change nothing at all while on the baseline.
 
-Both strings come from ``osprey.mcp_server.control_system.target_banner``,
-whose resolution rules (owner-ppid ownership, ambiguity, corrupt state) are
-unit-tested here as well because the HealthRuntime row will reuse them.
+Both strings come from ``osprey.mcp_server.control_system.target_banner``. Its
+reader's base cases — no record, a record, a corrupt one — belong to
+``test_resolve_control_target.py`` and are not restated here; what this file
+adds is the pair of rejections that fall out of the guard's own inputs and the
+``TargetSituation`` the two strings are rendered from.
 
 No Phoebus product, bridge, or network: the HTTP boundary is patched the way
-``test_phoebus_tools`` does. The target-state directory is redirected into
-``tmp_path`` so no test can see (or write) real session state.
+``test_phoebus_tools`` does. The agent-data root is stamped into ``tmp_path``
+by the ``control_context_root`` fixture, so no test can see (or write) a real
+deployment's control-context record.
 """
 
 import json
-import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -27,6 +29,7 @@ import yaml
 
 from osprey.mcp_server.control_system import target_banner, target_state
 from osprey.mcp_server.phoebus.tools import bridge_tools, databrowser_tools
+from osprey_connectors import control_context
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
 _BRIDGE_MOD = "osprey.mcp_server.phoebus.tools.bridge_tools"
@@ -37,63 +40,15 @@ _DB_MOD = "osprey.mcp_server.phoebus.tools.databrowser_tools"
 #: ProcessLookupError, so ``is_process_alive`` reports it dead.
 _DEAD_PID = 2_147_483_646
 
-#: A parent PID belonging to nobody — stands in for another session's server.
-_FOREIGN_PPID = 999_999
-
 
 # ── fixtures / helpers ──────────────────────────────────────────────────────
-@pytest.fixture
-def state_root(tmp_path, monkeypatch):
-    """Redirect the target-state directory into ``tmp_path``.
-
-    ``target_state.state_dir()`` resolves through
-    ``resolve_shared_data_root``; rebinding that one name keeps the real
-    deployment's ``var/agent_data`` invisible to these tests in both
-    directions.
-    """
-    root = tmp_path / "agent_data"
-    monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
-    return root / target_state.STATE_DIR_NAME
-
-
-def write_state(state_dir, *, target, owner_ppid, server_pid, raw=None):
-    """Write one state file. ``raw`` replaces the record wholesale (corruption)."""
-    state_dir.mkdir(parents=True, exist_ok=True)
-    path = state_dir / f"{target_state.REPORT_FILE_PREFIX}{server_pid}.json"
-    if raw is not None:
-        path.write_text(raw)
-        return path
-    path.write_text(
-        json.dumps(
-            {
-                "target": target,
-                "generation": 1,
-                "server_pid": server_pid,
-                "owner_ppid": owner_ppid,
-                "targets": {
-                    "live": {"label": "live machine", "endpoint": "gw:5064", "real_machine": True},
-                    "va": {"label": "virtual accelerator", "endpoint": "localhost:5074"},
-                },
-                "children": [],
-            }
-        )
-    )
+def write_corrupt_record(root, raw):
+    """Put *raw* where the record belongs, bypassing the schema writer."""
+    path = control_context.record_path_under(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(raw, encoding="utf-8")
+    control_context.invalidate_cache()
     return path
-
-
-def own_ppid():
-    """This process's parent — the Claude Code process a real server records.
-
-    Used instead of monkeypatching ``os.getppid``: the resolver's whole job is
-    to match a record against the *real* parent of the process reading it, and
-    a test that patches that lookup away stops testing the match.
-    """
-    return os.getppid()
-
-
-def own_pid():
-    """A PID that is certainly alive: this test process."""
-    return os.getpid()
 
 
 def set_config(tmp_path, monkeypatch, control_system=None):
@@ -113,15 +68,15 @@ def set_config(tmp_path, monkeypatch, control_system=None):
 
 
 @pytest.fixture
-def switched(tmp_path, monkeypatch, state_root):
-    """Baseline ``live`` (EPICS deployment) with the session switched to ``va``."""
+def switched(tmp_path, monkeypatch, control_context_root, write_control_context):
+    """Baseline ``live`` (EPICS deployment) with the record pointed at ``va``."""
     set_config(tmp_path, monkeypatch, {"type": "epics"})
-    write_state(state_root, target="va", owner_ppid=own_ppid(), server_pid=own_pid())
+    write_control_context(control_context_root, target="va")
 
 
 @pytest.fixture
-def on_baseline(tmp_path, monkeypatch, state_root):
-    """Baseline ``live`` with no session state at all — nothing to announce."""
+def on_baseline(tmp_path, monkeypatch, control_context_root):
+    """Baseline ``live`` with no record at all — nothing to announce."""
     set_config(tmp_path, monkeypatch, {"type": "epics"})
 
 
@@ -148,89 +103,92 @@ def test_baseline_target_follows_the_shared_resolver(
     assert target_banner.resolve_baseline_target() == expected
 
 
-# ── helper: session resolution ──────────────────────────────────────────────
-def test_session_target_absent_state_is_baseline(state_root):
-    """No state directory at all — the switch has never run."""
-    assert target_banner.resolve_session_target("live") == "live"
+# ── target resolution: only what the reader's own suite does not cover ──────
+# ``resolve_control_target``'s three base cases — no record, a record, a corrupt
+# record — are pinned once in ``test_resolve_control_target.py``. What is left
+# here is what that file does not reach: the two rejections specific to this
+# guard's inputs, and the situation pair the Phoebus and HealthRuntime strings
+# are actually rendered from.
+
+
+def test_situation_is_not_switched_without_a_record(control_context_root):
+    """No record at all — the switch has never run, so nothing is announced."""
     assert not target_banner.resolve_target_situation().switched
 
 
-def test_session_target_matching_owner_is_read(state_root):
-    write_state(state_root, target="va", owner_ppid=own_ppid(), server_pid=own_pid())
-    assert target_banner.resolve_session_target("live") == "va"
+def test_control_target_stands_while_the_owner_is_dead(control_context_root, write_control_context):
+    """A dead owner makes the record CLAIMABLE, not void.
+
+    Ownership says who may mutate the record next; it says nothing about which
+    target the deployment is pointed at. Reading a dead-owner record as "on the
+    baseline" would tell an operator a switch had been undone by the owning
+    process exiting, which is not what happens: the target outlives its owner.
+    """
+    write_control_context(
+        control_context_root,
+        target="va",
+        owned_by=control_context.Owner(
+            kind=control_context.OWNER_WEB_TERMINAL, pid=_DEAD_PID, port=None
+        ),
+    )
+    assert target_banner.resolve_control_target("live") == "va"
 
 
-def test_session_target_ignores_another_sessions_record(state_root):
-    """A live server owned by a different Claude Code process is not ours."""
-    write_state(state_root, target="va", owner_ppid=_FOREIGN_PPID, server_pid=own_pid())
-    assert target_banner.resolve_session_target("live") == "live"
+def test_control_target_unknown_target_name_is_baseline(
+    control_context_root, write_control_context
+):
+    """A target this framework does not know is not a usable record at all.
+
+    Distinct from the corrupt-file case: these are well-formed JSON that parses
+    cleanly and is then rejected on the roster check, so it exercises a
+    different arm of ``parse_record`` than a truncated file does.
+    """
+    write_control_context(control_context_root, target="banana")
+    assert target_banner.resolve_control_target("live") == "live"
 
 
-def test_session_target_ambiguous_ownership_is_baseline(state_root):
-    """Two live records claiming the same parent: no answer, not a guess."""
-    write_state(state_root, target="va", owner_ppid=own_ppid(), server_pid=own_pid())
-    # PID 1 always exists; os.kill(1, 0) raises PermissionError, which
-    # is_process_alive deliberately counts as ALIVE.
-    write_state(state_root, target="va", owner_ppid=own_ppid(), server_pid=1)
-    assert target_banner.resolve_session_target("live") == "live"
-
-
-def test_session_target_ignores_dead_server(state_root):
-    """Residue of a server that died is not a target anyone is on."""
-    write_state(state_root, target="va", owner_ppid=own_ppid(), server_pid=_DEAD_PID)
-    assert target_banner.resolve_session_target("live") == "live"
-
-
-def test_session_target_corrupt_state_is_baseline(state_root):
-    write_state(state_root, target=None, owner_ppid=None, server_pid=own_pid(), raw="{not json")
-    assert target_banner.resolve_session_target("live") == "live"
-
-
-def test_session_target_unknown_target_name_is_baseline(state_root):
-    write_state(state_root, target="banana", owner_ppid=own_ppid(), server_pid=own_pid())
-    assert target_banner.resolve_session_target("live") == "live"
-
-
-def test_situation_reports_both_targets(tmp_path, monkeypatch, state_root):
+def test_situation_reports_both_targets(
+    tmp_path, monkeypatch, control_context_root, write_control_context
+):
     set_config(tmp_path, monkeypatch, {"type": "virtual_accelerator"})
-    write_state(state_root, target="live", owner_ppid=own_ppid(), server_pid=own_pid())
+    write_control_context(control_context_root, target="live")
     situation = target_banner.resolve_target_situation()
-    assert (situation.baseline_target, situation.session_target) == ("va", "live")
+    assert (situation.baseline_target, situation.control_target) == ("va", "live")
     assert situation.switched is True
 
 
 # ── helper: rendering ───────────────────────────────────────────────────────
 def test_pinned_line_is_none_on_baseline():
-    situation = target_banner.TargetSituation(session_target="live", baseline_target="live")
+    situation = target_banner.TargetSituation(control_target="live", baseline_target="live")
     assert target_banner.baseline_pinned_line("Phoebus", situation) is None
 
 
 def test_pinned_line_names_baseline_then_session():
-    situation = target_banner.TargetSituation(session_target="va", baseline_target="live")
+    situation = target_banner.TargetSituation(control_target="va", baseline_target="live")
     assert target_banner.baseline_pinned_line("Phoebus", situation) == (
-        "Phoebus is pinned to the deployment baseline (live); the session target is va"
+        "Phoebus is pinned to the deployment baseline (live); the deployment is on the va target"
     )
 
 
 def test_pinned_line_takes_the_subject_from_the_caller():
     """HealthRuntime renders its own row from the same helper."""
-    situation = target_banner.TargetSituation(session_target="live", baseline_target="va")
+    situation = target_banner.TargetSituation(control_target="live", baseline_target="va")
     line = target_banner.baseline_pinned_line("HealthRuntime", situation)
     assert line.startswith("HealthRuntime is pinned to the deployment baseline (va)")
 
 
 def test_refusal_is_none_on_baseline():
-    situation = target_banner.TargetSituation(session_target="va", baseline_target="va")
+    situation = target_banner.TargetSituation(control_target="va", baseline_target="va")
     assert target_banner.baseline_refusal("Phoebus", "Driving a widget", situation) is None
 
 
 def test_refusal_names_both_targets_and_the_way_back():
-    situation = target_banner.TargetSituation(session_target="va", baseline_target="live")
+    situation = target_banner.TargetSituation(control_target="va", baseline_target="live")
     message, suggestions = target_banner.baseline_refusal(
         "Phoebus", "Driving a Phoebus widget", situation
     )
     assert "deployment baseline (live)" in message
-    assert "session target is va" in message
+    assert "the deployment is on the va target" in message
     assert "Driving a Phoebus widget" in message
     assert any("control_target_set(target='live')" in s for s in suggestions)
 
@@ -252,7 +210,9 @@ async def test_drive_refuses_while_switched(switched):
     # The refusal is a decision, not a failed round trip: nothing was sent.
     post.assert_not_called()
     message = ctx["envelope"]["error_message"]
-    assert "deployment baseline (live)" in message and "session target is va" in message
+    assert (
+        "deployment baseline (live)" in message and "the deployment is on the va target" in message
+    )
     assert any("control_target_set(target='live')" in s for s in ctx["envelope"]["suggestions"])
 
 
@@ -271,20 +231,12 @@ async def test_drive_proceeds_on_baseline(on_baseline):
     assert json.loads(result)["fired"] is True
 
 
-async def test_drive_proceeds_when_state_is_corrupt(tmp_path, monkeypatch, state_root):
-    """Unreadable state means "unknown", and unknown must not block an operator."""
+async def test_drive_proceeds_when_the_record_is_corrupt(
+    tmp_path, monkeypatch, control_context_root
+):
+    """An unreadable record means "unknown", and unknown must not block an operator."""
     set_config(tmp_path, monkeypatch, {"type": "epics"})
-    write_state(state_root, target=None, owner_ppid=None, server_pid=own_pid(), raw="}{")
-    with patch(
-        f"{_BRIDGE_MOD}._http_post_drive", return_value=(200, {"fired": True, "detail": "ok"})
-    ):
-        result = await bridge_fn("phoebus_drive")(widget="SetButton", verb="click")
-    assert json.loads(result)["status"] == "success"
-
-
-async def test_drive_proceeds_when_another_session_switched(tmp_path, monkeypatch, state_root):
-    set_config(tmp_path, monkeypatch, {"type": "epics"})
-    write_state(state_root, target="va", owner_ppid=_FOREIGN_PPID, server_pid=own_pid())
+    write_corrupt_record(control_context_root, "}{")
     with patch(
         f"{_BRIDGE_MOD}._http_post_drive", return_value=(200, {"fired": True, "detail": "ok"})
     ):
@@ -293,7 +245,9 @@ async def test_drive_proceeds_when_another_session_switched(tmp_path, monkeypatc
 
 
 # ── read tools: the informational line ──────────────────────────────────────
-_EXPECTED_LINE = "Phoebus is pinned to the deployment baseline (live); the session target is va"
+_EXPECTED_LINE = (
+    "Phoebus is pinned to the deployment baseline (live); the deployment is on the va target"
+)
 
 
 def _split_label(result):

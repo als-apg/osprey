@@ -710,7 +710,7 @@ async def test_a_single_refusal_envelope_says_what_the_refusal_said(tmp_path, mo
     """The raised envelope replaces the results, so it must carry their reason.
 
     A refusal's ``error`` field is the only place the monitor names WHICH
-    posture refused and where it lifts — this session's read-only setting for
+    posture refused and where it lifts — the deployment's read-only setting for
     one control target and the header chip that set it, or the config key for a
     deployment refusal. Naming the channel and stopping there is a dead end,
     and the single-channel write is exactly the common case where the agent
@@ -720,8 +720,8 @@ async def test_a_single_refusal_envelope_says_what_the_refusal_said(tmp_path, mo
 
     refusal = (
         "Write to 'PV:A' blocked: writes are off for the 'standin' control target "
-        "in this session — turned off from the control-target chip in the header, "
-        "and in force for this session only."
+        "— turned off from the control-target chip in the header; applies "
+        "deployment-wide."
     )
     result = _make_write_result(
         channel="PV:A",
@@ -1108,7 +1108,7 @@ async def test_emitted_key_is_the_constant_the_rules_name(tmp_path, monkeypatch)
 
 
 # ---------------------------------------------------------------------------
-# the limits posture is the one the session's target runs under
+# the limits posture is the one the recorded control target runs under
 # ---------------------------------------------------------------------------
 
 #: A deployment that relaxed unlisted channels for its simulator alone: the

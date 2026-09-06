@@ -31,7 +31,7 @@ import pytest
 
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey.runtime import ControlTargetChangedError
-from osprey_connectors import control_context, session_store
+from osprey_connectors import control_context, posture_store
 
 # ---------------------------------------------------------------------------
 # Fixtures and helpers
@@ -49,8 +49,8 @@ def state_root(tmp_path, monkeypatch):
     """
     root = tmp_path / "var" / "agent_data"
     (root / control_context.STATE_DIR_NAME).mkdir(parents=True)
-    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    monkeypatch.delenv(session_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
     control_context.invalidate_cache()
     yield root
@@ -183,14 +183,18 @@ def deployment_config(monkeypatch):
 
 @pytest.fixture
 def clear_runtime_state():
-    """Drop the runtime's cached connector around each test."""
+    """Drop the runtime's cached connector, and the stamp it was built for."""
     import osprey.runtime as runtime
 
-    runtime._runtime_connector = None
-    runtime._limits_validator = None
+    def reset():
+        runtime._runtime_connector = None
+        runtime._connector_stamp = None
+        runtime._cell_marker = None
+        runtime._limits_validator = None
+
+    reset()
     yield
-    runtime._runtime_connector = None
-    runtime._limits_validator = None
+    reset()
 
 
 def test_env_names_agree_across_the_process_boundary():
@@ -263,7 +267,7 @@ class TestDeploymentRecordLookup:
         assert host_executor._deployment_record() is None
 
     def test_an_unresolvable_root_is_not_an_error(self, tmp_path, monkeypatch):
-        monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path / "never-created"))
+        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path / "never-created"))
         control_context.invalidate_cache()
 
         assert host_executor._deployment_record() is None
@@ -283,16 +287,18 @@ class TestStampApplication:
     def test_the_retired_state_pid_stamp_is_cleared_not_written(
         self, state_root, deployment_config
     ):
-        """A stamped run carries no state-file identity, and strips an inherited one.
+        """A stamped run carries no state-file identity.
 
-        The sandbox pins against the record now. Leaving a PID from an ancestor
-        in place would hand it an identity that means nothing here.
+        The sandbox pins against the record now. The name the stamp used to
+        occupy is gone from the writer as well as from the reader, so there is
+        nothing left to hand a sandbox an identity that means nothing here.
         """
         write_record(state_root, target="va", generation=7)
-        env = {host_executor.ENV_CONTROL_TARGET_STATE_PID: "4321"}
+        env: dict[str, str] = {}
 
         assert host_executor._apply_target_stamp(env) == "va"
-        assert host_executor.ENV_CONTROL_TARGET_STATE_PID not in env
+        assert not hasattr(host_executor, "ENV_CONTROL_TARGET_STATE_PID")
+        assert "OSPREY_CONTROL_TARGET_STATE_PID" not in env
 
     def test_no_record_omits_every_name(self, state_root, deployment_config):
         env: dict[str, str] = {}
@@ -311,7 +317,6 @@ class TestStampApplication:
         env = {
             host_executor.ENV_CONTROL_TARGET: "live",
             host_executor.ENV_CONTROL_TARGET_GENERATION: "2",
-            host_executor.ENV_CONTROL_TARGET_STATE_PID: "4321",
         }
 
         assert host_executor._apply_target_stamp(env) == host_executor.CONTROL_TARGET_BASELINE
@@ -627,7 +632,7 @@ class TestExecuteViaLocalStamping:
 
         assert env[host_executor.ENV_CONTROL_TARGET] == "va"
         assert env[host_executor.ENV_CONTROL_TARGET_GENERATION] == "5"
-        assert host_executor.ENV_CONTROL_TARGET_STATE_PID not in env
+        assert "OSPREY_CONTROL_TARGET_STATE_PID" not in env
         # The mode injection this stamp sits beside must survive untouched.
         assert env["OSPREY_EXECUTION_MODE"] == "readonly"
         assert result.control_target == "va"
@@ -638,7 +643,7 @@ class TestExecuteViaLocalStamping:
         """The pin reaches the child, and the marker states the same thing.
 
         Both halves of FR15 through the real launch path: the sandbox reads the
-        stamp back through ``session_store``, and the in-flight marker is what
+        stamp back through ``posture_store``, and the in-flight marker is what
         the posture route consults before it agrees to widen anything.
         """
         # Arrange
@@ -705,15 +710,17 @@ class TestExecuteViaLocalStamping:
 
 
 class _FakeConnector:
-    """Records the type-specific config block the factory handed ``connect()``."""
+    """Records the config block the factory handed ``connect()``, and its end."""
 
     last_config: dict[str, Any] | None = None
+    #: Every instance that was disconnected, in the order it happened.
+    disconnected: list["_FakeConnector"] = []
 
     async def connect(self, config: dict[str, Any]) -> None:
         type(self).last_config = config
 
-    async def disconnect(self) -> None:  # pragma: no cover - cleanup path
-        pass
+    async def disconnect(self) -> None:
+        type(self).disconnected.append(self)
 
 
 @pytest.fixture
@@ -725,8 +732,10 @@ def fake_registry(deployment_config):
         for name in ("mock", "epics", "virtual_accelerator"):
             ConnectorFactory.register_control_system(name, _FakeConnector)
         _FakeConnector.last_config = None
+        _FakeConnector.disconnected = []
         yield
         _FakeConnector.last_config = None
+        _FakeConnector.disconnected = []
 
 
 class TestSandboxRouting:
@@ -793,6 +802,81 @@ class TestSandboxRouting:
 
         with pytest.raises(ValueError, match="no control system on this deployment"):
             runtime._target_connector_config()
+
+
+class TestConnectorRebuild:
+    """A kernel is re-stamped every cell, so the connector follows the stamp.
+
+    A sandbox never reaches these: it is stamped once and dies with the run.
+    The kernel outlives every switch made under it, and a connector built for
+    the old target would keep talking to the old machine's gateways.
+    """
+
+    def test_the_same_stamp_reuses_the_connector(
+        self, monkeypatch, fake_registry, clear_runtime_state
+    ):
+        """Building once is what makes the write pin, and not a reconnect, the rule."""
+        stamp_env(monkeypatch, target="va", generation="3")
+
+        import osprey.runtime as runtime
+
+        first = asyncio.run(runtime._get_connector())
+        second = asyncio.run(runtime._get_connector())
+
+        assert first is second
+        assert _FakeConnector.disconnected == []
+
+    def test_a_moved_target_rebuilds_on_the_new_one(
+        self, monkeypatch, fake_registry, clear_runtime_state
+    ):
+        """One disconnect of the old connector, and the new block is read."""
+        stamp_env(monkeypatch, target="va", generation="3")
+
+        import osprey.runtime as runtime
+
+        first = asyncio.run(runtime._get_connector())
+        stamp_env(monkeypatch, target="live", generation="4")
+        second = asyncio.run(runtime._get_connector())
+
+        assert second is not first
+        assert _FakeConnector.disconnected == [first]
+        # 1.0 is the real machine's block; 9.0 would be the VA's.
+        assert _FakeConnector.last_config == {"timeout": 1.0}
+
+    def test_a_moved_generation_alone_rebuilds_too(
+        self, monkeypatch, fake_registry, clear_runtime_state
+    ):
+        """The same machine at a new generation is still a switch that landed."""
+        stamp_env(monkeypatch, target="va", generation="3")
+
+        import osprey.runtime as runtime
+
+        first = asyncio.run(runtime._get_connector())
+        stamp_env(monkeypatch, target="va", generation="4")
+        second = asyncio.run(runtime._get_connector())
+
+        assert second is not first
+        assert _FakeConnector.disconnected == [first]
+
+    def test_the_rebuild_does_not_wait_on_its_own_lock(
+        self, monkeypatch, fake_registry, clear_runtime_state
+    ):
+        """``_connector_lock`` is not reentrant, so the rebuild disconnects locked.
+
+        A rebuild routed through ``cleanup_runtime`` would take the lock it is
+        already holding and never return, which is a hang rather than a failure
+        — hence the bound.
+        """
+        stamp_env(monkeypatch, target="va", generation="3")
+
+        import osprey.runtime as runtime
+
+        asyncio.run(runtime._get_connector())
+        stamp_env(monkeypatch, target="live", generation="4")
+
+        connector = asyncio.run(asyncio.wait_for(runtime._get_connector(), timeout=10))
+
+        assert connector is runtime._runtime_connector
 
 
 # ---------------------------------------------------------------------------
@@ -922,5 +1006,8 @@ class TestWritePin:
                 return _Value()
 
         runtime._runtime_connector = _Reader()
+        # The stamp this stand-in stands for: a connector whose stamp does not
+        # match the environment is one the ground moved under, and is rebuilt.
+        runtime._connector_stamp = ("va", 3)
 
         assert runtime.read_channel("TEST:PV") == 42.0

@@ -39,7 +39,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey_connectors import session_store
+from osprey_connectors import posture_store
 from osprey_connectors.control_system.base import (
     ChannelValue,
     ChannelWriteResult,
@@ -749,11 +749,11 @@ def narrowed_va(tmp_path, monkeypatch):
     and the connector-host child it spawns — reads the same one.
     """
     root = tmp_path / "agent-data"
-    write_control_context(root, posture={"va": session_store.POSTURE_SANDBOX})
-    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    session_store.invalidate_cache()
+    write_control_context(root, posture={"va": posture_store.POSTURE_SANDBOX})
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    posture_store.invalidate_cache()
     yield root
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
 
 
 def _install_name_server(monkeypatch, address, port):

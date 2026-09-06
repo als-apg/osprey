@@ -617,7 +617,7 @@ class TestASwitchToTheBenchMachine:
         # bench IOC serves.
         assert (await reading(manager, PROBE_CHANNEL)).value == pytest.approx(BENCH_PROBE_VALUE)
         assert manager.active_target() == "live"
-        assert target_state.read()["target"] == "live"
+        assert target_state.read()["applied_target"] == "live"
 
     async def test_the_two_machines_answer_the_shared_channels_differently(
         self, make_manager, deployment
@@ -669,7 +669,7 @@ class TestTheOperatorAcknowledgmentGatesTheLiveMachine:
 
     def rows(self, config: dict[str, Any]) -> dict[str, Any]:
         """The roster's own rows, from config alone: no manager, no child."""
-        return control_target.target_rows(config, session_target="va", baseline="va")
+        return control_target.target_rows(config, control_target="va", baseline="va")
 
     async def test_without_the_acknowledgment_the_live_machine_is_refused_by_name(
         self, bench_endpoint, va_endpoint, limits_database
@@ -986,7 +986,7 @@ class TestWhenTheBenchMachineGoesAway:
             manager = await started_on(make_manager, config, "live")
             served_context(manager)
             assert (await reading(manager, PROBE_CHANNEL)).value == pytest.approx(BENCH_PROBE_VALUE)
-            # The generation the session is standing on. It is 1 rather than 0
+            # The generation the deployment is standing on. It is 1 rather than 0
             # because this deployment's baseline is the virtual accelerator, so
             # coming up on `live` is itself a move; what the outage must not do
             # is move it again.
@@ -1015,7 +1015,7 @@ class TestWhenTheBenchMachineGoesAway:
             assert "timeout after" in message, message
             # The envelope names the MACHINE, not only the channel (#697): a
             # dead-IOC timeout on the live machine must be attributable from
-            # the payload alone, without reconstructing the session's target
+            # the payload alone, without reconstructing the recorded control target
             # from memory. Label and endpoint come from config the same way the
             # roster renders them; the name from the supervisor's own record.
             assert "active target: LIVE MACHINE" in message, message
@@ -1027,7 +1027,7 @@ class TestWhenTheBenchMachineGoesAway:
             # A dead machine is not a switch.
             assert manager.active_target() == "live"
             assert manager.active_generation() == generation
-            assert target_state.read()["target"] == "live"
+            assert target_state.read()["applied_target"] == "live"
 
     async def test_the_endpoint_probe_and_the_roster_report_the_gateway_down(
         self, make_manager, va_endpoint, limits_database, served_context, monkeypatch

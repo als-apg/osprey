@@ -16,7 +16,7 @@ for:
   first over a port, a Redis keyspace, a network or a container name;
 * does a queued PLAN land in -- and drain on -- the lane ``queue_add`` bound it
   to, with the OTHER lane's manager untouched;
-* is each lane's ``Capability`` really static across a session target switch,
+* is each lane's ``Capability`` really static across a control target switch,
   with only the host's composed ``active`` field moving;
 * is the per-lane secret material that ``osprey up`` mints genuinely separate,
   so neither lane's bridge holds anything that would authenticate it to the
@@ -90,6 +90,8 @@ from osprey.mcp_server.bluesky.server_context import (
 from osprey.mcp_server.bluesky.tools import queue as queue_tools
 from osprey.mcp_server.control_system import target_state
 from osprey.utils.workspace import reset_config_cache
+from osprey_connectors import control_context, posture_store
+from tests._control_context_fixtures import write_control_context
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 from tests.va.e2e import conftest as e2e_conftest
 
@@ -624,24 +626,31 @@ def stack(tmp_path_factory: pytest.TempPathFactory, live_endpoint: int):
 # ---------------------------------------------------------------------------
 @pytest.fixture(autouse=True)
 def session_state(tmp_path, monkeypatch):
-    """Anchor the target-state directory in ``tmp_path``, not a real deployment.
+    """Anchor the deployment's agent data in ``tmp_path``, not a real deployment.
 
-    The session target is host state: it lives in a file the controls MCP server
-    writes, outside every bridge container. This module is not that server, so
-    it writes the record itself -- with ``owner_ppid`` set to this process's own
-    parent, which is what ``target_banner.resolve_session_target`` matches on.
+    Which machine the deployment is pointed at is host state: it lives in one
+    control-context record on the host filesystem, outside every bridge
+    container, and ``target_banner.resolve_control_target`` reads it and
+    nothing else. This module is not the process that owns that record, so it
+    writes it directly.
+
+    Two anchors, because two readers: the per-server reports resolve through
+    ``target_state``'s own root helper, the record through the
+    ``OSPREY_AGENT_DATA_ROOT`` stamp. Stamping one and not the other leaves the
+    lane tools reading whatever record this machine was last left pointed at.
     """
     root = tmp_path / "var" / "agent_data"
     (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    control_context.invalidate_cache()
 
     def switch_session_to(target: str, *, generation: int = 0) -> None:
-        target_state.write_on_start("va", server_pid=os.getpid(), owner_ppid=os.getppid())
-        if target != "va":
-            target_state.publish_switch(target, generation + 1, server_pid=os.getpid())
+        write_control_context(root, target=target, generation=generation)
 
     yield switch_session_to
     target_state.delete_on_shutdown(server_pid=os.getpid())
+    control_context.invalidate_cache()
 
 
 @pytest.fixture
@@ -804,7 +813,7 @@ def test_each_lane_publishes_its_own_static_identity(stack: LaneStack) -> None:
 
     This is the producer half of the split the lane axis is built on: a bridge
     knows its own lane and the target that lane was rendered for, and can know
-    nothing else -- the session target lives on the host. Two lanes that
+    nothing else -- the recorded control target lives on the host. Two lanes that
     published the same identity would make every downstream routing decision
     meaningless, so the values are asserted concretely AND against each other.
     """
@@ -852,7 +861,7 @@ def test_lane_capability_is_static_across_a_session_switch(
     """A bridge's record does not move when the session does. LAYER: containers.
 
     The whole producer split rests on this: if a lane's published capability
-    tracked the session target, the host would be composing an active/inactive
+    tracked the recorded control target, the host would be composing an active/inactive
     view on top of an answer that had already guessed. Both lanes are read with
     the session on ``va`` and again with it on ``live``, and the records must be
     identical -- not merely still truthful.
@@ -864,8 +873,8 @@ def test_lane_capability_is_static_across_a_session_switch(
     after = {lane: _capability(lane) for lane in BRIDGE_URLS}
 
     assert before == after, (
-        "a lane's capability changed when the session target moved; the bridge "
-        f"cannot see the session and must not appear to: {before} -> {after}"
+        "a lane's capability changed when the recorded control target moved; the "
+        f"bridge cannot see the session and must not appear to: {before} -> {after}"
     )
     for lane, capability in after.items():
         assert "active" not in capability, (
@@ -888,7 +897,7 @@ async def test_the_host_composes_the_active_lane_and_moves_it_on_a_switch(
     session_state("va")
     on_va = _tool_result(await status_fn())
     assert on_va["active_lane"] == LANE_VA, f"session on va did not activate lane 1: {on_va}"
-    assert on_va["session_target"] == "va" and on_va["baseline_target"] == "va", on_va
+    assert on_va["control_target"] == "va" and on_va["baseline_target"] == "va", on_va
 
     session_state("live")
     on_live = _tool_result(await status_fn())
@@ -948,7 +957,7 @@ async def test_queue_start_refuses_the_lane_the_session_left(
 
     The mid-queue switch, which is the case the whole binding exists for: the
     item is bound to the lane it was queued on, and starting it after a switch
-    would arm the machine the session is no longer pointed at. The refusal is
+    would arm the machine the deployment is no longer pointed at. The refusal is
     asserted on its machine-readable code, and on both managers staying idle --
     a refusal that had already started something would be worthless.
 

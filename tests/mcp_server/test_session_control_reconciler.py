@@ -54,7 +54,7 @@ from osprey.mcp_server.control_system import session_control, target_eligibility
 from osprey.mcp_server.control_system.connector_host_manager import SwitchError
 from osprey.mcp_server.control_system.server_context import ControlSystemContext
 from osprey.mcp_server.control_system.tools import control_target
-from osprey_connectors import control_context, session_store
+from osprey_connectors import control_context, posture_store
 from tests import _control_context_fixtures as fixtures
 
 pytestmark = pytest.mark.unit
@@ -204,7 +204,7 @@ def deployment(control_context_root, monkeypatch):
     """
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", SESSION_KEY)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
     target_state.write_server_record({"live": {"label": "Live"}, "va": {"label": "VA"}})
     target_state.publish_reachability(
         {
@@ -220,7 +220,7 @@ def deployment(control_context_root, monkeypatch):
     )
     write_record()
     yield control_context_root
-    session_store.invalidate_cache()
+    posture_store.invalidate_cache()
 
 
 @pytest.fixture
@@ -253,7 +253,7 @@ def allow_every_target(monkeypatch):
     """Stub eligibility open, so the gate's third rung is not the subject."""
     from osprey.mcp_server.control_system.target_eligibility import TargetAvailability
 
-    def available(config, target, session_target, baseline_target, **kwargs):
+    def available(config, target, control_target, baseline_target, **kwargs):
         return TargetAvailability(
             target=target,
             eligible=True,
