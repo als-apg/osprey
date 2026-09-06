@@ -49,14 +49,16 @@ def get_framework_standard_patterns() -> dict[str, list[str]]:
         Dictionary with 'write' and 'read' pattern lists
 
     Security Note:
-        These patterns cover the libraries OSPREY supports: pyepics (Channel
-        Access), p4p (PVAccess), PyTango, and LabVIEW bindings, plus the
-        osprey.runtime API itself. A library outside that list is not detected
-        - add facility-specific spellings under control_system.patterns in
-        config.yml. Detection here is best-effort text matching; the layers
-        that do not depend on spelling are the readonly runtime guard, the
-        readonly import denylist (``check_readonly_imports``), and the
-        always-ask approval policy for readwrite runs.
+        This is best-effort TEXT MATCHING, not a list of what OSPREY can
+        enforce. It names the spellings the framework happens to know -
+        osprey.runtime, pyepics (Channel Access), p4p (PVAccess), PyTango,
+        doocs4py and LabVIEW bindings - and a library or an idiom outside that
+        list is simply not detected. Extend it with facility-specific
+        spellings under control_system.patterns in config.yml. The layers that
+        do NOT depend on spelling are the ones to rely on: the readonly
+        runtime guard, the readonly import denylist
+        (``check_readonly_imports``), and the always-ask approval policy for
+        readwrite runs.
     """
     return {
         "write": [
@@ -93,6 +95,13 @@ def get_framework_standard_patterns() -> dict[str, list[str]]:
             r"\.write_attribute\s*\(",  # device.write_attribute(...)
             r"\.write_attribute_asynch\s*\(",  # device.write_attribute_asynch(...)
             r"tango\.DeviceProxy\([^)]*\)\.write",  # tango.DeviceProxy(...).write_attribute(...)
+            # ============================================================
+            # CIRCUMVENTION DETECTION: DOOCS (doocs4py library)
+            # ============================================================
+            # Anchored to doocs4py for the same reason the p4p entries are
+            # anchored: a bare r"\.set\s*\(" would flag every set() call in
+            # ordinary analysis code.
+            r"\bdoocs4py\b[\s\S]*?\.set\s*\(",  # doocs4py.set('ADDRESS', value)
             # ============================================================
             # CIRCUMVENTION DETECTION: LabVIEW (potential patterns)
             # ============================================================
