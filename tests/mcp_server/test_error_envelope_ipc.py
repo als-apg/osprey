@@ -50,6 +50,7 @@ from tests.mcp_server._raising_connector import (
     BLOCKED_CHANNEL,
     BLOCKED_MESSAGE,
     BLOCKED_REASON,
+    HANG_CHANNEL,
     LIMITS_CHANNEL,
     LIMITS_FIELDS,
     READ_VALUE,
@@ -373,8 +374,11 @@ async def test_a_dead_child_routes_through_the_invalidate_seam(tmp_path, monkeyp
     try:
         # A call already on the wire when the child is killed outright: no
         # refusal frame, no goodbye — the failure mode a respawn has to answer
-        # for, rather than a clean disconnect.
-        call = asyncio.ensure_future(proxy.read_channel("TEST:ANY:CHANNEL"))
+        # for, rather than a clean disconnect. The channel is one whose read
+        # never completes: an answerable channel races the kill, and a reply
+        # that wins lands in the pipe buffer and resolves the call with a
+        # value, so the ConnectionError this test exists for never happens.
+        call = asyncio.ensure_future(proxy.read_channel(HANG_CHANNEL))
         await asyncio.sleep(0)
         process.kill()
         await asyncio.wait_for(process.wait(), TIMEOUT_S)
