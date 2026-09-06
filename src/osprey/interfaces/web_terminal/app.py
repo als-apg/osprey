@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 import os
+import shlex
 from collections import deque
 from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
@@ -46,6 +48,7 @@ from osprey.interfaces.web_terminal.ownership import OwnershipStoreError
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
+from osprey.interfaces.web_terminal.transcript_map import load as load_transcript_map
 from osprey.port_layout import default_port
 from osprey.profiles.web_panels import (
     BUILTIN_PANELS,
@@ -1753,6 +1756,155 @@ def _load_claude_code_config(config_path: str | Path | None = None) -> dict:
     return _load_config_section("claude_code", config_path)
 
 
+def _log_claude_cli_versions(argv: list[str]) -> None:
+    """Say which Claude Code binary each of the two views will run.
+
+    The expert view spawns the CLI named by ``argv`` in a PTY. The simple view
+    goes through the Agent SDK, which prefers the binary bundled inside its own
+    package over anything on ``PATH``. Those are the same program only by
+    coincidence: a project that pins ``claude_code.cli_version`` runs one build
+    in the terminal and another in the chat, and the difference surfaces much
+    later as a capability or a flag that only one view has.
+
+    So both are named at startup. The pin is read straight out of the argv; the
+    bundle is asked once per process and every failure to ask reads as unknown,
+    because this is diagnostic output and nothing here may hold up a boot. The
+    warning fires only when both versions are known and disagree — an unpinned
+    launch resolves ``claude`` from ``PATH``, whose version this does not probe.
+
+    Args:
+        argv: The argv prefix the PTY will spawn.
+    """
+    from osprey.utils.claude_launcher import argv_cli_version, bundled_cli_version
+
+    bundled = bundled_cli_version()
+    logger.info(
+        "Claude Code CLI — terminal spawns %s; chat uses the Agent SDK bundle (%s)",
+        shlex.join(argv),
+        bundled or "version unknown",
+    )
+    pinned = argv_cli_version(argv)
+    if pinned and bundled and pinned != bundled:
+        logger.warning(
+            "The two views run different Claude Code versions: the terminal is "
+            "pinned to %s by claude_code.cli_version, the chat runs the Agent "
+            "SDK's bundled %s. Behaviour that differs between the views is "
+            "expected until the pin matches the bundle.",
+            pinned,
+            bundled,
+        )
+
+
+#: Basename of the hook that reports the terminal agent's turn edges. The
+#: rendered settings name it inside a shell command, so it is matched as a
+#: substring rather than as a whole command: the interpreter, the project-dir
+#: variable and the fail-open suffix all vary between deployments.
+TURN_STATE_HOOK = "osprey_turn_state.py"
+
+#: The ``SessionStart`` sources the turn hook must be registered for. An entry
+#: without this matcher also runs on ``compact``, which fires inside a running
+#: turn — its idle report would say the process is between turns while it is
+#: mid-answer, so a registration missing the matcher is not turn reporting we
+#: can act on.
+TURN_HOOK_SESSION_START_MATCHER = "startup|resume|clear"
+
+
+def _turn_hook_matchers(settings: dict) -> dict[str, list[str | None]]:
+    """Map each hook event that runs the turn-state hook to its matchers.
+
+    Args:
+        settings: A parsed ``.claude/settings.json``.
+
+    Returns:
+        One entry per event whose registered commands name the turn-state hook,
+        holding the ``matcher`` of each registration — ``None`` for one that
+        carries none, which is how Claude Code spells "every source". Every
+        level is shape-checked: these settings are a rendered artifact a
+        deployment may have edited, and a malformed one must read as "no hook"
+        rather than raise during a boot.
+    """
+    found: dict[str, list[str | None]] = {}
+    hooks = settings.get("hooks")
+    if not isinstance(hooks, dict):
+        return found
+    for event, entries in hooks.items():
+        for entry in entries if isinstance(entries, list) else []:
+            if not isinstance(entry, dict):
+                continue
+            registered = entry.get("hooks")
+            for hook in registered if isinstance(registered, list) else []:
+                if isinstance(hook, dict) and TURN_STATE_HOOK in str(hook.get("command", "")):
+                    found.setdefault(event, []).append(entry.get("matcher"))
+    return found
+
+
+def _detect_turn_hook(app: FastAPI) -> None:
+    """Decide whether this project's settings install turn reporting.
+
+    The answer lands on ``app.state.turn_hook_present`` and it is a permission,
+    not a prediction: readers of ``app.state.turn_state`` may wait for an idle
+    edge only where one can actually arrive. A deployment whose settings carry
+    no turn hook — an older render, or a hand-edited one — never sends an edge,
+    and a reader that waited for one would hang instead of falling back to the
+    evidence it can gather itself.
+
+    Two registrations are required. ``Stop`` is the edge that ends a turn, and
+    ``SessionStart`` must carry the matcher that keeps ``compact`` out. A
+    missing ``StopFailure`` is warned about rather than disqualifying: it only
+    reports a turn that errored out, and a CLI build that never emits the event
+    would otherwise make every deployment look broken.
+
+    Args:
+        app: The application, carrying ``state.project_cwd``.
+    """
+    # Established here, not inherited: every early return below documents a
+    # False result, and this function must produce it on its own rather than
+    # leaving whatever a caller happened to set beforehand.
+    app.state.turn_hook_present = False
+
+    settings_path = Path(app.state.project_cwd) / ".claude" / "settings.json"
+    try:
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        logger.debug("No %s — the terminal reports no turn edges", settings_path)
+        return
+    except (OSError, ValueError):
+        logger.warning(
+            "Could not read %s; assuming the terminal reports no turn edges",
+            settings_path,
+            exc_info=True,
+        )
+        return
+    if not isinstance(settings, dict):
+        return
+
+    events = _turn_hook_matchers(settings)
+    has_stop = "Stop" in events
+    has_session_start = TURN_HOOK_SESSION_START_MATCHER in events.get("SessionStart", [])
+    app.state.turn_hook_present = has_stop and has_session_start
+
+    if not app.state.turn_hook_present:
+        missing = [
+            name for name, ok in (("Stop", has_stop), ("SessionStart", has_session_start)) if not ok
+        ]
+        logger.info(
+            "%s is not wired for %s in %s; view switching will fall back to its "
+            "own idleness evidence",
+            TURN_STATE_HOOK,
+            ", ".join(missing),
+            settings_path,
+        )
+        return
+
+    if "StopFailure" not in events:
+        logger.warning(
+            "%s is wired for Stop but not StopFailure in %s; a turn that ends in "
+            "a failure reports no idle edge",
+            TURN_STATE_HOOK,
+            settings_path,
+        )
+
+
 def _create_lifespan(
     config_path: str | Path | None = None,
     shell_command: list[str] | None = None,
@@ -1782,8 +1934,29 @@ def _create_lifespan(
             app.state.shell_command = build_claude_launch_argv(
                 _load_claude_code_config(config_path)
             )
+        # Which Claude Code build each view runs, named once at startup. Off
+        # the event loop: the probe spawns a large binary, and a boot must not
+        # stall on a diagnostic.
+        await asyncio.to_thread(_log_claude_cli_versions, app.state.shell_command)
+
         max_bg = int(config.get("max_background_sessions", 5))
         app.state.pty_registry = PtyRegistry(max_background=max_bg)
+
+        # Which transcript each session key currently points at, read once so a
+        # recreated container resumes a cleared-and-continued conversation
+        # rather than starting a fresh one under the same key.
+        load_transcript_map(app)
+
+        # What the expert view's Claude Code process last reported it was
+        # doing, keyed by session key (routes/agent_turn.py). Empty at
+        # startup: no report is not a claim of idleness, and every reader
+        # treats a missing entry as "unknown" rather than "free to take over".
+        app.state.turn_state = {}
+        # Whether that reporting is actually installed. Left False here and
+        # decided by the rendered hook settings, so a deployment whose
+        # settings carry no turn-state hook never waits for an edge that
+        # cannot arrive.
+        app.state.turn_hook_present = False
 
         # ── Simple-mode chat pool bounds ──
         # Three knobs bound the operator-chat pool; each fails open to its
@@ -1815,6 +1988,10 @@ def _create_lifespan(
         app.state.project_cwd = str(
             Path(project_dir).resolve() if project_dir else Path.cwd().resolve()
         )
+        # Read once, now that the project the terminal serves is known: the
+        # answer is a property of that project's rendered settings, and nothing
+        # rewrites them while the server runs.
+        _detect_turn_hook(app)
         app.state.broadcaster = FileEventBroadcaster()
         app.state.active_panel = None
         # Bounded history of agent-activity events. The SSE stream only reaches

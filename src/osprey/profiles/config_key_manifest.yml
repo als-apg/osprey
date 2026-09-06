@@ -351,6 +351,18 @@ keys:
       — resolving it against the process cwd would give a deploy and a CLI verb
       two different files from one config value.
     default: null
+  services.graphdb.index_path:
+    rendered: false
+    evidence: 'block\.get\("index_path"\)'
+    note: >-
+      DuckDB search index derived from `ttl_path` at build time, read by the
+      channel explorer's search, the channel roster and the agent's keyword
+      tool instead of querying the store. Resolved against the config file's
+      directory like `ttl_path`, and for the same reason: the build writes it
+      into the `data/` tree it assembled there. Left unset it resolves to the
+      default below, so a deployment moves the index by naming this key once
+      and every consumer follows.
+    default: ./data/channel_databases/graph.duckdb
   services.graphdb.heap_initial_size:
     evidence: 'block\.get\("heap_initial_size"\)'
     note: >-

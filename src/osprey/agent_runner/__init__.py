@@ -24,12 +24,15 @@ Public surface::
 """
 
 from osprey.agent_runner.primitives import (
+    MCP_READY_TIMEOUT_S,
     SDKWorkflowResult,
     ToolTrace,
     await_mcp_ready,
     build_agent_options,
     combined_text,
     expected_mcp_servers,
+    mcp_servers_connected,
+    mcp_snapshot_summary,
     resolve_default_model,
     sdk_env,
 )
@@ -59,6 +62,9 @@ __all__ = [
     "sdk_env",
     "expected_mcp_servers",
     "await_mcp_ready",
+    "mcp_servers_connected",
+    "mcp_snapshot_summary",
+    "MCP_READY_TIMEOUT_S",
     # runner (single-turn)
     "run_query",
     # session (multi-turn)

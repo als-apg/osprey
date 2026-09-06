@@ -78,8 +78,9 @@ class FakeResultMessage:
 class FakeSystemMessage:
     """Mimics ``claude_agent_sdk.SystemMessage``."""
 
-    def __init__(self, subtype: str = "init"):
+    def __init__(self, subtype: str = "init", data: dict | None = None):
         self.subtype = subtype
+        self.data = data or {}
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +237,35 @@ class TestMessageToEvents:
         events = _message_to_events(msg)
         assert len(events) == 3
         assert [e["type"] for e in events] == ["thinking", "text", "tool_use"]
+
+
+class TestSystemEventCarriesResumeIdentity:
+    """The init message is where the child names the transcript it writes to.
+
+    A resume can be answered with a different id than the one asked for, so the
+    id the child reports is the only authoritative one — it has to reach the
+    consumer, not stop at the SDK boundary.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _patch_system_message(self):
+        """Replace the SDK type reference so ``isinstance()`` sees our fake."""
+        with patch(
+            "osprey.interfaces.web_terminal.operator_session.SystemMessage",
+            FakeSystemMessage,
+        ):
+            yield
+
+    def test_the_init_session_id_reaches_the_system_event(self):
+        msg = FakeSystemMessage("init", data={"session_id": "abc-123"})
+        events = _message_to_events(msg)
+        assert events == [{"type": "system", "subtype": "init", "session_id": "abc-123"}]
+
+    def test_a_system_message_without_one_carries_no_key(self):
+        """Absent, not ``None``: a message that says nothing about identity
+        must not read as one reporting a missing id."""
+        events = _message_to_events(FakeSystemMessage("compact_boundary"))
+        assert events == [{"type": "system", "subtype": "compact_boundary"}]
 
 
 # ---------------------------------------------------------------------------
@@ -476,6 +506,150 @@ class TestOperatorSession:
             assert events[1]["type"] == "result"
 
             await session.stop()
+
+
+# ---------------------------------------------------------------------------
+# OperatorSession start identity: resume a transcript, or open one
+# ---------------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def _capture_start_options(captured: dict):
+    """Patch the SDK seam and record the ``ClaudeAgentOptions`` kwargs.
+
+    Same patch set as the two start tests above, hoisted so the identity tests
+    read as the one assertion each is making.
+    """
+
+    def capture_options(**kwargs):
+        captured.update(kwargs)
+        return MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    seam = "osprey.interfaces.web_terminal.operator_session."
+    with (
+        patch(seam + "CLAUDE_SDK_AVAILABLE", True),
+        patch(seam + "ClaudeAgentOptions", side_effect=capture_options),
+        patch(seam + "ClaudeSDKClient", return_value=mock_client),
+        patch(seam + "validate_project_directory", return_value=[]),
+        patch(
+            seam + "build_system_prompt",
+            return_value={"type": "preset", "preset": "claude_code"},
+        ),
+        patch(seam + "get_facility_timezone", return_value=None),
+    ):
+        yield
+
+
+class TestOperatorSessionResumeOptions:
+    """The shapes a chat child can be started in.
+
+    Either it continues a transcript that already exists (``resume``) or it
+    opens one under the session key (``session_id``). Never both: a resume
+    names the transcript, and a session id alongside it would ask the SDK to
+    write one conversation under two identities. A pool key outside the
+    session-key grammar names neither, because the CLI would refuse it.
+    """
+
+    KEY = "11111111-2222-3333-4444-555555555555"
+
+    @pytest.mark.asyncio
+    async def test_a_resume_names_the_transcript_and_nothing_else(self):
+        session = OperatorSession(cwd="/tmp", env={"PATH": "/usr/bin"}, session_key=self.KEY)
+        captured: dict = {}
+
+        with _capture_start_options(captured):
+            await session.start(resume_id="transcript-9")
+
+        assert captured["resume"] == "transcript-9"
+        assert "session_id" not in captured
+        # Everything else about the launch is unchanged by the resume.
+        assert captured["setting_sources"] == ["project"]
+        assert captured["env"]["OSPREY_WEB_UX"] == "simple"
+
+    @pytest.mark.asyncio
+    async def test_without_a_resume_the_child_opens_one_under_the_session_key(self):
+        session = OperatorSession(cwd="/tmp", env={"PATH": "/usr/bin"}, session_key=self.KEY)
+        captured: dict = {}
+
+        with _capture_start_options(captured):
+            await session.start()
+
+        assert captured["session_id"] == self.KEY
+        assert "resume" not in captured
+
+    @pytest.mark.asyncio
+    async def test_a_pool_key_the_cli_would_reject_names_no_session_id(self):
+        """An embedder's own chat key never reaches the CLI as an identity.
+
+        ``POST /api/chat`` accepts any string as ``chat_id`` and pools the chat
+        under it, so the key can be ``"e2e"`` or ``"user-42-chat-3"``.
+        ``--session-id`` takes a canonical UUID and the CLI exits non-zero on
+        anything else, so naming the key there would fail the child on its
+        first prompt. It mints its own id instead.
+        """
+        session = OperatorSession(cwd="/tmp", env={"PATH": "/usr/bin"}, session_key="e2e")
+        captured: dict = {}
+
+        with _capture_start_options(captured):
+            await session.start()
+
+        # None, not the key: the SDK omits the flag entirely for a falsy id.
+        assert captured["session_id"] is None
+        assert "resume" not in captured
+        # The key still names the session everywhere it is ours to spend.
+        assert captured["env"]["OSPREY_TELEMETRY_SESSION_ID"] == "e2e"
+
+    @pytest.mark.asyncio
+    async def test_the_telemetry_id_is_the_session_key_in_both_shapes(self):
+        """Never a fresh uuid: an id re-drawn per start would split one
+        conversation's traces across as many ids as it had surfaces."""
+        fresh: dict = {}
+        resumed: dict = {}
+
+        with _capture_start_options(fresh):
+            await OperatorSession(
+                cwd="/tmp", env={"PATH": "/usr/bin"}, session_key=self.KEY
+            ).start()
+        with _capture_start_options(resumed):
+            await OperatorSession(cwd="/tmp", env={"PATH": "/usr/bin"}, session_key=self.KEY).start(
+                resume_id="transcript-9"
+            )
+
+        assert fresh["env"]["OSPREY_TELEMETRY_SESSION_ID"] == self.KEY
+        assert resumed["env"]["OSPREY_TELEMETRY_SESSION_ID"] == self.KEY
+
+    @pytest.mark.asyncio
+    async def test_a_session_given_no_key_holds_one_stable_across_starts(self):
+        """The key belongs to the session object, not to a single start."""
+        session = OperatorSession(cwd="/tmp", env={"PATH": "/usr/bin"})
+        first: dict = {}
+        second: dict = {}
+
+        with _capture_start_options(first):
+            await session.start()
+        with _capture_start_options(second):
+            await session.start()
+
+        minted = first["env"]["OSPREY_TELEMETRY_SESSION_ID"]
+        assert minted
+        assert second["env"]["OSPREY_TELEMETRY_SESSION_ID"] == minted
+        assert second["session_id"] == minted
+
+    @pytest.mark.asyncio
+    async def test_two_keyless_sessions_do_not_share_an_identity(self):
+        first: dict = {}
+        second: dict = {}
+
+        with _capture_start_options(first):
+            await OperatorSession(cwd="/tmp", env={"PATH": "/usr/bin"}).start()
+        with _capture_start_options(second):
+            await OperatorSession(cwd="/tmp", env={"PATH": "/usr/bin"}).start()
+
+        assert first["session_id"] != second["session_id"]
 
 
 # ---------------------------------------------------------------------------
@@ -895,9 +1069,11 @@ class FakeTask:
 class FakeChatSession:
     """Lightweight OperatorSession double for registry pool tests."""
 
-    def __init__(self, cwd: str = "/tmp", env=None):
+    def __init__(self, cwd: str = "/tmp", env=None, session_key=None):
         self.cwd = cwd
         self.env = env
+        self.session_key = session_key
+        self.resume_id = None
         self.is_active = True
         self.last_activity = time.monotonic()
         self.in_flight = False
@@ -908,7 +1084,8 @@ class FakeChatSession:
         self.start_delay = 0.0
         self.start_error: Exception | None = None
 
-    async def start(self):
+    async def start(self, *, resume_id=None):
+        self.resume_id = resume_id
         if self.start_delay:
             await asyncio.sleep(self.start_delay)
         if self.start_error is not None:
@@ -975,12 +1152,129 @@ class TestOperatorSessionBusyAndTeardown:
         assert session.is_active is False
 
 
+class FakeChildProcess:
+    """The slice of the SDK transport's process handle ``stop`` reads and signals."""
+
+    def __init__(self, returncode: int | None = None, *, gone: bool = False, pid: int = 4242):
+        self.returncode = returncode
+        self.gone = gone
+        self.pid = pid
+        self.kills = 0
+
+    def kill(self) -> None:
+        if self.gone:
+            raise ProcessLookupError
+        self.kills += 1
+
+
+def _client_over(process: FakeChildProcess) -> AsyncMock:
+    client = AsyncMock()
+    client._transport = SimpleNamespace(_process=process)
+    client.__aexit__ = AsyncMock(return_value=None)
+    return client
+
+
+class TestOperatorSessionStopKillsALingeringChild:
+    """``stop`` sends SIGKILL to a retained child that has no return code yet.
+
+    The SDK's own close escalates through SIGTERM to SIGKILL with bounded
+    waits; this covers the child that outlived it, and — the case a hand-off
+    relies on — the second ``stop`` on a session whose client is already gone.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_child_still_running_after_the_client_closed_is_killed(self):
+        process = FakeChildProcess(returncode=None)
+        session = OperatorSession(cwd="/tmp")
+        session._client = _client_over(process)
+        session._started = True
+
+        await session.stop()
+
+        assert process.kills == 1
+        assert session._last_process is process
+        assert session.process_exited is False
+        assert session.is_active is False
+
+    @pytest.mark.asyncio
+    async def test_a_child_that_exited_is_not_signalled(self):
+        process = FakeChildProcess(returncode=0)
+        session = OperatorSession(cwd="/tmp")
+        session._client = _client_over(process)
+        session._started = True
+
+        await session.stop()
+
+        assert process.kills == 0
+        assert session.process_exited is True
+
+    @pytest.mark.asyncio
+    async def test_a_second_stop_with_no_client_signals_the_retained_child_again(self):
+        process = FakeChildProcess(returncode=None)
+        session = OperatorSession(cwd="/tmp")
+        session._client = _client_over(process)
+        session._started = True
+        await session.stop()
+        assert process.kills == 1
+
+        await session.teardown()
+
+        assert process.kills == 2
+        assert session._last_process is process
+        assert session.process_exited is False
+
+    @pytest.mark.asyncio
+    async def test_a_child_gone_between_looks_is_tolerated(self):
+        process = FakeChildProcess(returncode=None, gone=True)
+        session = OperatorSession(cwd="/tmp")
+        session._last_process = process
+
+        await session.stop()
+
+        assert process.kills == 0
+        assert session.is_active is False
+
+    @pytest.mark.asyncio
+    async def test_a_session_with_no_handle_signals_nothing(self):
+        session = OperatorSession(cwd="/tmp")
+        await session.stop()
+        assert session._last_process is None
+        assert session.process_exited is None
+
+
+def test_the_pid_names_the_running_child_and_nothing_else():
+    """``pid`` is the chat child's pid while it runs, and ``None`` when it is not.
+
+    The Simple view holds a session in this child, so anything addressed to
+    the process behind a session key — a controls-server record, a
+    diagnostic — has to be able to ask which process that is. A session that
+    never started has no handle, and a handle carrying a return code names a
+    process that is gone; both answer ``None`` rather than a pid nothing is
+    running under. A client already closed still answers from the handle the
+    session retained, which is what makes the question survive a teardown.
+    """
+    session = OperatorSession(cwd="/tmp")
+    assert session.pid is None
+
+    process = FakeChildProcess(returncode=None, pid=31337)
+    session._client = _client_over(process)
+    session._started = True
+    assert session.pid == 31337
+
+    session._client = None
+    session._last_process = process
+    assert session.pid == 31337
+
+    process.returncode = 0
+    assert session.pid is None
+
+
 def _session_factory(start_delay: float = 0.0):
     """Return a side_effect callable that builds FakeChatSessions and records them."""
     created: list[FakeChatSession] = []
 
-    def factory(cwd=None, env=None):
-        s = FakeChatSession(cwd=cwd, env=env)
+    def factory(cwd=None, env=None, session_key=None):
+        s = FakeChatSession(cwd=cwd, env=env, session_key=session_key)
         s.start_delay = start_delay
         created.append(s)
         return s
@@ -1184,8 +1478,8 @@ class TestOperatorRegistryChatPool:
 
         created: list[FakeChatSession] = []
 
-        def factory(cwd=None, env=None):
-            s = FakeChatSession(cwd=cwd, env=env)
+        def factory(cwd=None, env=None, session_key=None):
+            s = FakeChatSession(cwd=cwd, env=env, session_key=session_key)
             # First construction fails during start; later ones succeed.
             if not created:
                 s.start_error = RuntimeError("boom")

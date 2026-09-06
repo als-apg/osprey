@@ -155,6 +155,23 @@
             "timeout": 5
           }
         ]
+      },
+{#- The only framework entry here that carries a matcher, and it has to. A
+    SessionStart fires for four sources and `compact` is not a turn edge:
+    auto-compaction happens INSIDE a running turn, so an idle report for it
+    would tell the server the process is between turns at the moment it is
+    busiest, and a view flip would tear down a turn in flight. Naming the three
+    real starts is what keeps `compact` out; the hook refuses a compact payload
+    as well, for a settings.json someone edited by hand. #}
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_turn_state.py" 2>/dev/null || true') | tojson }},
+            "timeout": 3
+          }
+        ]
       }{% for rule in declared.get('SessionStart', []) %},{{ declared_entry(rule, current_python_env) }}{% endfor %}
     ],
     "UserPromptSubmit": [
@@ -168,6 +185,11 @@
           {
             "type": "command",
             "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_workspace_delta.py" 2>/dev/null || true') | tojson }},
+            "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_turn_state.py" 2>/dev/null || true') | tojson }},
             "timeout": 3
           }
         ]
@@ -231,9 +253,42 @@
         ]
       }{% if not loop.last %},{% endif %}
 {%- endfor %}
+    ],
+{#- The closing edge of a turn, reported by the same hook that reports the
+    opening one. `Stop` ends a turn that completed and `StopFailure` one that
+    errored out; both leave the process between turns, which is the only state
+    in which the web terminal may move the conversation to its other surface.
+    A CLI build that emits no `StopFailure` simply never runs that entry. -#}
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_turn_state.py" 2>/dev/null || true') | tojson }},
+            "timeout": 3
+          }
+        ]
+      }{% for rule in declared.get('Stop', []) %},{{ declared_entry(rule, current_python_env) }}{% endfor %}
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_turn_state.py" 2>/dev/null || true') | tojson }},
+            "timeout": 3
+          }
+        ]
+      }{% for rule in declared.get('StopFailure', []) %},{{ declared_entry(rule, current_python_env) }}{% endfor %}
     ]
-{#- Events the framework wires nothing on exist as keys only when declared. -#}
-{%- for event in declared_extra_events | default([]) %},
+{#- Events the framework wires nothing on exist as keys only when declared. The
+    two above are now framework-wired and take their declared entries inline,
+    so they are filtered out here: a second key of the same name would be legal
+    JSON whose earlier copy — the framework's — silently loses.
+    `FRAMEWORK_WIRED_EVENTS` in cli/templates/claude_code.py lists both, so this
+    filter normally has nothing left to remove; it stays because the render
+    must not depend on that constant staying in step with this file. -#}
+{%- for event in declared_extra_events | default([]) if event not in ('Stop', 'StopFailure') %},
     "{{ event }}": [
 {%- for rule in declared[event] %}{{ declared_entry(rule, current_python_env) }}{% if not loop.last %},{% endif %}{% endfor %}
     ]

@@ -207,7 +207,9 @@ class TestTheShippedDemoRoster:
         channel_roster._roster_cache.clear()
 
     @pytest.fixture
-    def demo_config(self) -> Iterator[dict[str, Any]]:
+    def demo_config(self, tmp_path: Path) -> Iterator[dict[str, Any]]:
+        from tests._graph_index import build_demo_index
+
         resource = (
             files("osprey.templates")
             .joinpath("apps")
@@ -215,11 +217,15 @@ class TestTheShippedDemoRoster:
             .joinpath("data")
             .joinpath("demo_machine.ttl")
         )
+        # The roster reads the search index, not the corpus. The packaged
+        # template directory is not a render, so the index goes to tmp_path
+        # and the config names it rather than deriving one beside the source.
+        index = build_demo_index(tmp_path / "graph.duckdb")
         with as_file(resource) as path:
             yield {
                 "config_dir": str(path.parent),
                 "channel_finder": {"pipeline_mode": "graph"},
-                "services": {"graphdb": {"ttl_path": path.name}},
+                "services": {"graphdb": {"ttl_path": path.name, "index_path": str(index)}},
             }
 
     def test_the_demo_machine_yields_a_device_per_channel(self, demo_config) -> None:

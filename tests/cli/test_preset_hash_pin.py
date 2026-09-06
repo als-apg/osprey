@@ -14,9 +14,9 @@ here in the same commit, knowingly.
 from __future__ import annotations
 
 from osprey.cli.build_profile import list_presets
-from osprey.cli.build_profile_merge import _hash_resolved_profile
+from osprey.cli.build_profile_merge import _hash_resolved_profile, compute_preset_hash
 
-# preset name -> resolved-content hash, pre-rename.
+# preset name -> resolved-content hash.
 PINNED_PRESET_HASHES: dict[str, str] = {
     # Every digest moved together when the app templates were converted into the
     # presets. A preset now carries the whole declarative config a deployment
@@ -26,42 +26,62 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # before hashing now, so it contributes nothing to a digest. Every already
     # deployed project therefore reads stale exactly once, which is the correct
     # signal: its rebuilt config really is written from a different source.
-    "ariel-standalone": ("sha256:878eda90042c8b8f7cf510eb8ce36fdd34c5643dab99b0654b6488d78e4be4f3"),
+    #
+    # Merging main moved them all a second time, and for a separate reason:
+    # `turn-state` joined every preset's `hooks:`, shipping the reporter that
+    # tells the web terminal when a turn starts and ends. A rebuilt project
+    # gains the hook file in `.claude/hooks/` and four settings.json
+    # registrations (UserPromptSubmit, Stop, StopFailure, and a SessionStart
+    # entry matched to `startup|resume|clear`). Deploy-visible, so the
+    # staleness advisory firing on already-deployed projects is correct.
+    "ariel-standalone": ("sha256:eede725ef001ae4a81569d2dc11bf0cda189de2bf748854191f50c90701be4b6"),
     "channel-finder-standalone": (
-        "sha256:3ad01aea92de1be203ccd6252c58892b32e8c8ad3643ffdca96f8bf6b9ac624f"
+        "sha256:7485126a38c7d8282d12c952930969a728d7b68d0228abbb3788f15d5754490e"
     ),
     "control-assistant": (
-        "sha256:ce44817a8f321f3ba6e860c01939844177df8bc2ec9b303de53b331c51e04787"
+        "sha256:64ce952375e4899364cdecb3b1f0718428476f205b8ee5fc1c7199d5222b58bd"
     ),
     "control-assistant-admin": (
-        "sha256:e6faada8065b009f7bdf42086b22401d1034c605085e4dd12e29d8c2283443a6"
+        "sha256:fb939cd02c7618020be32b5c9918031867d1cb0c3b11c506b51ec1ac4781046c"
     ),
     "control-assistant-knowledge": (
-        "sha256:12d1f17757121b22ef14d9d0c7d0cddab07ca74ef9c80b6a5e6ac38a8332c3dc"
+        "sha256:552538d9966725f18e63a17d065b08e2ceaf4319508870d87eba0306807adb3c"
     ),
     "control-assistant-logbook": (
-        "sha256:dbba58b25a2ea53414a1dea4a834168d06cb69dafe002a4a9888036edc74a1c2"
+        "sha256:cd88a1a9f6a7d0e68a2d46a76924dd256eebb845a6b6d302d50d4f8dbb0b4822"
     ),
     "control-assistant-readonly": (
-        "sha256:3ba73e914a0df9681d83f9a2d0480baace62cbe7e6ef501f5dcd289bc109e015"
+        "sha256:1089443113d8b249703936635059a302c41946ed4be5b793d5234fb7ed009336"
     ),
     "control-assistant-readwrite": (
-        "sha256:f4c9e8ead30574fedabba09fb4db636fd277cd3502f5f2f2ba9dc97e0a90af9d"
+        "sha256:4d63a4075534e9284bf20fb6cd72ce370f2a3bcf3b2ebf42233d6063d8418875"
     ),
     "control-assistant-va-readwrite": (
-        "sha256:fa502a4de7d556148c76d4cbf902346096069aa26ce47431d68e36a5a1fd9359"
+        "sha256:53da90b4a2a90d1c6926c0b0a7dc59867f9ea98c22c49b7977d527bd0132e852"
     ),
-    "hello-world": ("sha256:6ed67c73be15b1a24a4b1a05a7e095cd2769b4332fb5697bdcfe34a07ed3eaad"),
+    "hello-world": ("sha256:d5a177599044c7f1ba4c8c67ead8d6e8f684a87c95d2f03d703f6f98c3ae233e"),
 }
 
 
 def test_bundled_preset_set_is_pinned():
     """A new preset must be classified here before it ships.
 
-    Without this the per-preset loop below would silently skip an unpinned
+    Without this the digest comparison below would silently skip an unpinned
     preset, and the pin would degrade as presets are added.
     """
     assert list_presets() == sorted(PINNED_PRESET_HASHES)
+
+
+def test_every_bundled_preset_hash_is_unchanged():
+    """Every preset resolves to its pinned digest.
+
+    This is what gives the values above their meaning: without it the dict is
+    dead data, and a preset's resolved content could move — a deploy-visible
+    event every already-deployed project reads as stale — with nothing saying
+    so.
+    """
+    actual = {name: compute_preset_hash(name) for name in list_presets()}
+    assert actual == PINNED_PRESET_HASHES
 
 
 def test_hashing_does_not_mutate_the_callers_dict(tmp_path):

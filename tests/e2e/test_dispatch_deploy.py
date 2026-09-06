@@ -482,6 +482,13 @@ def _worker_mcp_surface() -> str:
     tool (model behaviour, which is why this module is marked flaky). An empty
     list alone cannot tell them apart, so probe the container and let the failure
     report the cause it actually hit rather than asserting the likelier guess.
+
+    A third cause — the server was provisioned but not yet connected when the
+    agent's first turn went out, so the tool was never in its toolset — no
+    longer reaches this assertion: the worker refuses such a run as an
+    ``infrastructure`` error (see ``sdk_runner._stream_with_ready_mcp``), which
+    the status assertion above reports with the server named. The persisted run
+    record's ``mcp_servers`` snapshot shows what the barrier saw either way.
     """
     proc = subprocess.run(
         [

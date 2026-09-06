@@ -109,7 +109,8 @@ lookups and validation.
 Package: ``osprey.mcp_server.channel_finder_graph``
 
 Finds channels by searching the facility knowledge graph. Instead of drilling
-through a database file, the agent writes read-only Cypher against the seeded
+through a database file, the agent looks a phrase up in the search index the
+build derives from the corpus, or writes read-only Cypher against the seeded
 ``graphdb`` store, so a question can start from a description, an alternate name
 or a system just as easily as from an address. Selected with
 ``channel_finder.pipeline_mode: graph``, and needs a ``services.graphdb`` store
@@ -125,6 +126,8 @@ operators ask about channels rather than around general graph exploration. See
 
 **Tools:**
 
+- ``search_channels`` -- Look addresses up by keyword and facet in the search
+  index built from the corpus, a page of rows at a time.
 - ``read_cypher`` -- Run one read-only Cypher query and return the matching rows,
   bounded by ``services.graphdb.query_max_rows`` and
   ``services.graphdb.query_timeout_s``.

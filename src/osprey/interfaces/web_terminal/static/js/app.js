@@ -1,6 +1,14 @@
 /* OSPREY Web Terminal — Application Entry Point */
 
-import { initTerminal, focusTerminal, pasteToTerminal, getCurrentSessionId, getTerminalInstance } from './terminal.js';
+import {
+  initTerminal,
+  focusTerminal,
+  pasteToTerminal,
+  getCurrentSessionId,
+  getTerminalInstance,
+  startExpert,
+  stopTerminal,
+} from './terminal.js';
 import { logout } from './logout.js';
 import { initPanelManager, broadcastMode, handleUiModeFlip, navigateAndActivatePanel } from './panel-manager.js';
 import '/design-system/js/components/osprey-drawer.js';
@@ -13,7 +21,7 @@ import { initCommandPalette } from './palette-boot.js';
 import { getFamily, initTheme, subscribe as subscribeTheme } from '/design-system/js/theme-manager.js';
 import { onModeChange } from '/design-system/js/frame-params.js';
 import '/design-system/js/components/osprey-display-menu.js';
-import { initChat } from './chat.js';
+import { initChat, enterFromExpert } from './chat.js';
 import { initDockWorkspace, applyDockMode } from './dock-workspace.js';
 import { initHeaderContrib } from './tile-header-contrib.js';
 import { initIdentityMenu } from './identity-menu.js';
@@ -154,10 +162,15 @@ export function initLogoutButton() {
  * `osprey-mode-change` message to this window — and frame-params.js's shared
  * receive side stamps html[data-ui-mode] before handing the mode here. What
  * follows is what only the hub has to do with it: broadcast to the panels,
- * then the dock and panel follow-ups. mode-boot.js already resolved the
- * initial mode pre-paint, so this only ever handles the runtime flip.
+ * the dock and panel follow-ups, then hand the session to the view the
+ * operator flipped to. mode-boot.js already resolved the initial mode
+ * pre-paint, so this only ever handles the runtime flip.
+ *
+ * Exported for testability (see app-mode-flip.test.mjs) — the module's
+ * DOMContentLoaded bootstrap never fires on its own once that event has
+ * already passed, e.g. in a test environment.
  */
-function initUiModeFollowUps() {
+export function initUiModeFollowUps() {
   onModeChange((mode) => {
     // Panels read the current mode off <html>, so broadcast only after the
     // swap (onModeChange stamped it before calling back).
@@ -171,7 +184,61 @@ function initUiModeFollowUps() {
     // and lets the default panel claim a still-empty workspace slot. Runs
     // after applyDockMode so the activation docks into the target layout.
     handleUiModeFlip(mode);
+    // Session half, last: the target view's layout is on screen by now, so
+    // whichever surface has to show a transitional state is the one the
+    // operator is looking at.
+    handOffSession(mode);
   });
+}
+
+/**
+ * The hand-offs of successive flips, chained.
+ *
+ * Both views are windows onto ONE session key, and the server lets exactly one
+ * of them hold it — a second acquire arriving while the first is still pending
+ * is refused outright. A flip is one gesture, so an operator who flips twice
+ * quickly would produce exactly that. Chaining makes the second flip wait for
+ * the first hand-off to settle instead, which is also why the teardown belongs
+ * in here: dropping the terminal ahead of the queue would strand a connection
+ * a queued flip to Expert is about to open.
+ *
+ * The chain covers flips and nothing else. The overlay's own retry and the
+ * session picker take the key over through terminal.js directly, so a flip
+ * that lands between one of those and its answer is still two acquires; both
+ * paths already show the server's refusal where the operator can see it.
+ *
+ * @type {Promise<void>}
+ */
+let sessionHandoff = Promise.resolve();
+
+/**
+ * Move the live agent to *mode*'s view.
+ *
+ * Flipping to Expert resumes the key the tab is pointed at over the terminal
+ * socket, which shows its own overlay while the server tears the chat down.
+ * Flipping to Simple drops that socket first — the server reads the closed
+ * connection as the Expert view letting go — and the console then asks for the
+ * key and replays the transcript into itself. Neither direction reloads.
+ *
+ * Every step answers with a promise and every one of them is awaited. A flip
+ * queued behind an Expert acquire that is still in flight would otherwise drop
+ * the socket before the server had seen it open; and the console would ask for
+ * the key before the dropped socket's close had reached the server, which
+ * reads that close as the Expert view letting go.
+ *
+ * @param {'expert'|'simple'} mode
+ * @returns {void}
+ */
+function handOffSession(mode) {
+  sessionHandoff = sessionHandoff
+    .then(async () => {
+      if (mode === 'expert') return startExpert();
+      await stopTerminal();
+      return enterFromExpert();
+    })
+    .catch((err) => {
+      console.error('Failed to hand the session over:', err);
+    });
 }
 
 /**

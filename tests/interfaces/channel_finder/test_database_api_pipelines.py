@@ -9,18 +9,21 @@ non-default ``pipeline_type``.
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import sys
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from osprey.mcp_server.graph.server_context import GraphUnreachable
+from osprey.deployment.graphdb_service import GRAPHDB_BUILD_INDEX_COMMAND
+from osprey.services.channel_finder.graph_index.reader import GraphIndexAbsence
 from tests.interfaces.channel_finder.graph_fixture import (
-    DEMO_STATISTICS,
     DEMO_STORE_URI,
     demo_context,
     install_graph_paradigm,
+    open_demo_index,
 )
 
 _DB_PATCH = "osprey.interfaces.channel_finder.database_api._get_database"
@@ -425,57 +428,75 @@ class TestGraphParadigmRoutes:
         assert resp.status_code == 200
         assert resp.json()["graph_backed"] is False
 
-    def test_statistics_counts_the_store(self, client):
+    def test_statistics_answers_the_populations_the_build_counted(self, client):
         install_graph_paradigm(client, demo_context())
+        meta = client.app.state.graph_index.meta
 
         resp = client.get("/api/statistics")
 
         assert resp.status_code == 200
+        # The five badge numbers are the ``meta`` row the build wrote, not a
+        # census run now — so the badges, the tree and the search cannot
+        # report different populations of one index.
         assert resp.json() == {
-            "total_devices": DEMO_STATISTICS["devices"],
-            "total_channels": DEMO_STATISTICS["channels"],
-            # The class count is the taxonomy the explorer draws, not the raw
-            # class tree: the store's non-device classes are pruned out first.
-            "total_classes": DEMO_STATISTICS["classes"],
-            "total_signals": DEMO_STATISTICS["signals"],
-            "total_sections": DEMO_STATISTICS["sections"],
+            "total_devices": meta.device_count,
+            "total_channels": meta.binding_count,
+            "total_classes": meta.class_count,
+            "total_signals": meta.signal_count,
+            "total_sections": meta.section_count,
         }
+        assert meta.binding_count > 0
 
-    def test_statistics_asks_the_store_once_per_population(self, client):
+    def test_statistics_never_touches_the_store(self, client):
         ctx = demo_context()
         install_graph_paradigm(client, ctx)
 
-        client.get("/api/statistics")
+        assert client.get("/api/statistics").status_code == 200
 
-        # Four censuses plus the class tree, each asked exactly once.
-        assert len(ctx.calls) == 5
-        assert len({cypher for cypher, _ in ctx.calls}) == 5
-        # Every read carries an explicit bound rather than the store's default.
-        assert all(max_rows is not None for _, max_rows in ctx.calls)
-        # Statistics never needs to tell an empty store from a broken one: a
-        # store that answers zero has answered.
+        # No census and no emptiness probe: the index already knows.
+        assert ctx.calls == []
         assert ctx.empty_checks == 0
 
     def test_statistics_reads_run_off_the_event_loop(self, client):
-        # The store's driver is synchronous; awaiting it inline would stall
-        # every other request the app is serving.
-        ctx = demo_context()
-        install_graph_paradigm(client, ctx)
+        # DuckDB's driver is synchronous; the read is dispatched to a worker
+        # even though this one only reads the meta row the open already loaded.
+        install_graph_paradigm(client, demo_context())
+        index = client.app.state.graph_index
+        seen: list[tuple[int, bool]] = []
+        original = index.statistics
 
-        client.get("/api/statistics")
+        def statistics():
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                running = False
+            else:
+                running = True
+            seen.append((threading.get_ident(), running))
+            return original()
 
-        assert ctx.saw_running_loop == [False] * 5
+        index.statistics = statistics
+        loop_thread_ids: list[int] = []
 
-    def test_statistics_503_when_the_store_is_unreachable(self, client):
-        install_graph_paradigm(
-            client,
-            demo_context(
-                raises=GraphUnreachable(
-                    "Graph store at bolt://localhost:7687 is unreachable.",
-                    ["Start the graphdb service."],
-                )
-            ),
+        @client.app.get("/api/_loop_thread_probe")
+        async def _loop_thread_probe():  # pragma: no cover - trivial probe
+            loop_thread_ids.append(threading.get_ident())
+            return {"ok": True}
+
+        assert client.get("/api/_loop_thread_probe").status_code == 200
+        assert client.get("/api/statistics").status_code == 200
+
+        assert len(seen) == 1
+        assert seen[0][0] != loop_thread_ids[0]
+        assert seen[0][1] is False
+
+    def test_statistics_503_when_the_index_is_absent(self, client, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "osprey.utils.workspace.load_osprey_config",
+            lambda: {"services": {"graphdb": {"ttl_path": "./data/facility.ttl"}}},
         )
+        absence = GraphIndexAbsence("missing", tmp_path / "graph.duckdb", "No search index at g.")
+        install_graph_paradigm(client, demo_context(), index=absence)
 
         resp = client.get("/api/statistics")
 
@@ -483,19 +504,35 @@ class TestGraphParadigmRoutes:
         body = resp.json()
         # Not nested under FastAPI's "detail" envelope: the web UI reads all
         # three keys off the body it is handed.
-        assert "unreachable" in body["detail"]
+        assert body["detail"] == "No search index at g."
         assert body["error_type"] == "service_unavailable"
-        assert body["suggestions"] == ["Start the graphdb service."]
+        assert any(GRAPHDB_BUILD_INDEX_COMMAND in line for line in body["suggestions"])
 
-    def test_statistics_503_when_the_app_has_no_store_at_all(self, client):
-        install_graph_paradigm(client)
+    def test_statistics_503_when_the_app_holds_no_index_at_all(self, client, monkeypatch):
+        monkeypatch.setattr(
+            "osprey.utils.workspace.load_osprey_config",
+            lambda: {"services": {"graphdb": {"ttl_path": "./data/facility.ttl"}}},
+        )
+        install_graph_paradigm(client, index=None)
 
         resp = client.get("/api/statistics")
 
         assert resp.status_code == 503
         body = resp.json()
+        assert body["detail"] == "The search index is not open."
         assert body["error_type"] == "service_unavailable"
-        assert "graphdb" in " ".join(body["suggestions"])
+        assert any(GRAPHDB_BUILD_INDEX_COMMAND in line for line in body["suggestions"])
+
+    def test_statistics_answers_without_a_store_context(self, client):
+        # The badges come from the index; an app whose store context could not
+        # be built still shows them.
+        install_graph_paradigm(client)
+
+        resp = client.get("/api/statistics")
+
+        assert resp.status_code == 200
+        with open_demo_index() as demo:
+            assert resp.json()["total_channels"] == demo.meta.binding_count
 
     @pytest.mark.parametrize(
         ("method", "path", "body"),
@@ -554,20 +591,23 @@ class TestGraphParadigmRoutes:
 class TestGraphImportClosure:
     """What the web app pays to import its own routes.
 
-    The graph routes share their Cypher with tooling that is far heavier than a
-    web app — the benchmark harness runs an agent, the seeder opens a driver.
-    Sharing a constant must not drag either of those into the app's startup, so
-    the closure is asserted in a fresh interpreter rather than in this one,
-    where the test session has already imported half the framework.
+    The device route shares its Cypher with tooling that is far heavier than a
+    web app — the benchmark harness runs an agent, the seeder opens a driver —
+    and the index routes read a file through a driver of their own. Neither
+    the shared constant nor the index handle must drag any of that into the
+    app's startup, so the closure is asserted in a fresh interpreter rather
+    than in this one, where the test session has already imported half the
+    framework.
     """
 
     def test_importing_the_routes_loads_neither_the_agent_sdk_nor_a_driver(self) -> None:
         source = (
             "import sys\n"
             "from osprey.interfaces.channel_finder import database_api\n"
-            "assert database_api.GRAPH_CHANNEL_COUNT_CYPHER\n"
+            "assert database_api.GRAPH_DEVICE_CYPHER\n"
             "assert 'claude_agent_sdk' not in sys.modules, 'agent SDK in the web import closure'\n"
             "assert 'neo4j' not in sys.modules, 'neo4j imported at module scope'\n"
+            "assert 'duckdb' not in sys.modules, 'duckdb imported at module scope'\n"
         )
         result = subprocess.run([sys.executable, "-c", source], capture_output=True, text=True)
         assert result.returncode == 0, result.stderr

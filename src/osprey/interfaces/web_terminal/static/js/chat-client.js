@@ -1,10 +1,11 @@
 // @ts-check
 /* OSPREY Web Terminal — Chat SSE Transport
  *
- * Browser-side transport for the chat endpoint. Pure networking: it POSTs a
- * prompt, parses the streaming Server-Sent-Events response, and forwards each
- * decoded event to caller-supplied callbacks. It touches no DOM and holds no
- * rendering state, so the whole surface is unit-testable with a mocked `fetch`.
+ * Browser-side transport for the chat endpoint, the session hand-off request,
+ * and the transcript history fetch. Pure networking: it POSTs a prompt, parses
+ * the streaming Server-Sent-Events response, and forwards each decoded event
+ * to caller-supplied callbacks. It touches no DOM and holds no rendering
+ * state, so the whole surface is unit-testable with a mocked `fetch`.
  *
  * SSE wire format (see routes/chat.py `_sse`): each event is one frame
  * `data: {json}\n\n`; heartbeat comments arrive as `: heartbeat` lines. A frame
@@ -17,6 +18,12 @@ import { withPrefix } from './api.js';
 /** Base path for the chat REST + streaming endpoint (prefixed per-call via
  * `withPrefix` so multi-user `/u/<user>/` deployments reach this container). */
 const CHAT_ENDPOINT = '/api/chat';
+
+/** Base path for the per-session routes; `/{key}/handoff` hangs off it. */
+const SESSION_ENDPOINT = '/api/session';
+
+/** Read-only transcript endpoint backing the Simple view's replay. */
+const SESSION_CHAT_ENDPOINT = '/api/session-chat';
 
 /**
  * A single decoded server event. Every event carries a `type`; the remaining
@@ -181,7 +188,9 @@ function reportError(callbacks, err) {
  * POSTs `{prompt, chat_id}` to `/api/chat?stream=true` and parses the SSE body,
  * forwarding events to *callbacks*. Returns synchronously with an abort handle
  * so the caller can cancel before the fetch resolves. The turn always ends with
- * exactly one `onClose()`; a user abort is silent (no `onError`).
+ * exactly one `onClose()`; a user abort is silent (no `onError`). A 204 means
+ * the request was abandoned server-side and carries no events, so the turn ends
+ * the same silent way.
  * @param {string} chatId
  * @param {string} prompt
  * @param {ChatCallbacks} [callbacks]
@@ -207,6 +216,9 @@ export function sendPrompt(chatId, prompt, callbacks = {}) {
         signal: controller.signal,
       });
       if (!res.ok) throw await transportError(res);
+      // 204: the server abandoned the request because this client's channel
+      // closed mid-turn. There is no body to stream, so end quietly.
+      if (res.status === 204) return;
       if (!res.body) throw new Error('Chat response has no readable body');
       reader = res.body.getReader();
       await pump(reader, callbacks);
@@ -249,15 +261,68 @@ export async function interrupt(chatId) {
 }
 
 /**
- * Delete the conversation for *chatId*. Uses `keepalive` so it survives a
- * `pagehide`/`beforeunload` teardown; fire-and-forget by design (the returned
- * promise need not be awaited and is not error-checked).
- * @param {string} chatId
- * @returns {Promise<Response>}
+ * One conversation turn as served by `GET /api/session-chat`. The same shape
+ * the renderer takes, so turns pass straight from here to the replay.
+ *
+ * @typedef {object} ChatTurn
+ * @property {string} role - `user` or `assistant`
+ * @property {string} content - the turn's text; markdown for an agent turn
+ * @property {string} [timestamp] - transcript timestamp
  */
-export function deleteChat(chatId) {
-  return fetch(withPrefix(`${CHAT_ENDPOINT}/${encodeURIComponent(chatId)}`), {
-    method: 'DELETE',
-    keepalive: true,
+
+/**
+ * Ask the server to hand session *key* to the Simple view.
+ *
+ * POSTs to `/api/session/{key}/handoff`. The server tears the outgoing surface
+ * down, waits for it to be observed dead, and answers `{state, session_id}`
+ * once the Simple view may resume the key's transcript. `interrupt` says the
+ * operator chose to cut a turn that was still running rather than wait for it.
+ *
+ * The request is long-lived by design — a busy Expert turn can take minutes to
+ * reach idle — so this adds no timeout of its own; *signal* is the only way to
+ * end it. A rejection carries the endpoint's reason the same way `sendPrompt`'s
+ * does: `err.status` plus `err.slug` from the body's `detail.error` (409 the
+ * key is held elsewhere, 429 `chat_capacity`, 503 the server is shutting down),
+ * so the caller branches on the slug and falls back to the status when a body
+ * carried none.
+ *
+ * Resolves `null` on a 204: the request was abandoned server-side because this
+ * client's channel closed, so no surface was handed over and there is nothing
+ * to resume.
+ * @param {string} key
+ * @param {{ interrupt?: boolean, signal?: AbortSignal }} [options]
+ * @returns {Promise<{ state: string, session_id: string } | null>}
+ */
+export async function requestHandoff(key, options = {}) {
+  const { interrupt: cutRunningTurn = false, signal } = options;
+  const res = await fetch(withPrefix(`${SESSION_ENDPOINT}/${encodeURIComponent(key)}/handoff`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    // `to` is fixed: this module is the Simple view's transport, and the
+    // Expert view acquires its surface over `/ws/terminal` instead.
+    body: JSON.stringify({ to: 'simple', interrupt: cutRunningTurn }),
+    signal,
   });
+  if (!res.ok) throw await transportError(res);
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+/**
+ * Read the conversation behind *key* so the Simple view can replay it.
+ *
+ * `full=1` asks for the whole transcript rather than the trailing window the
+ * session page shows. The response is `{turns, count}`; only the turns are
+ * returned, and a body without them yields an empty list — a key whose
+ * transcript has no turns yet is a normal first flip, not a failure.
+ * `no-store` keeps a flip from replaying a copy cached before the last turn.
+ * @param {string} key
+ * @returns {Promise<ChatTurn[]>}
+ */
+export async function fetchHistory(key) {
+  const url = `${SESSION_CHAT_ENDPOINT}?session_id=${encodeURIComponent(key)}&full=1`;
+  const res = await fetch(withPrefix(url), { cache: 'no-store' });
+  if (!res.ok) throw await transportError(res);
+  const data = await res.json();
+  return Array.isArray(data?.turns) ? data.turns : [];
 }

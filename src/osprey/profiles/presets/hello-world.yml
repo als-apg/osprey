@@ -52,6 +52,7 @@ hooks:
   - focus-validate # Strip stale artifact IDs from focus_state.txt on each prompt
   - panels-context # Tell the agent which web terminal panels exist
   - workspace-delta # Report web workspace changes since the agent's last turn
+  - turn-state     # Tell the web terminal when a turn starts and ends
 
 rules:
   - safety          # Core safety rules: never write without approval

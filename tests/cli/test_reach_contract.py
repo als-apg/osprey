@@ -60,6 +60,8 @@ def _host_reading(profile: BuildProfile) -> dict[str, Any]:
             manager=TemplateManager(),
             va_manifests={},
             va_reported=set(),
+            graph_indexes={},
+            graph_facts_reported=set(),
         )
         return build_cmd._template_host_config(
             shared,

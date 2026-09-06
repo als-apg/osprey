@@ -21,6 +21,7 @@ from osprey.agent_runner.sdk_context import build_system_prompt
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
+from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey.utils.config import get_facility_timezone
 
 logger = logging.getLogger(__name__)
@@ -186,6 +187,18 @@ def build_operator_child_env(
     answer. The two are one fact split in half, so they are set together or
     not at all, and a test pins that.
 
+    The same key is also stamped as ``OSPREY_SESSION_ID``, which is what
+    :func:`osprey_connectors.workspace.resolve_agent_data_root` reads to scope
+    a child's execution root to ``sessions/<key>`` — where the python and
+    sandbox executors put their run directories. One key, one root: a
+    conversation is one session whichever view is showing it, so the chat
+    child and the PTY child spawned under the same key work out of the same
+    directory rather than each in a room of its own. Its PTY counterpart
+    stamps the same name from the pool key
+    (:func:`osprey.interfaces.web_terminal.routes.websocket._build_extra_env`).
+    It rides with the audit pair for the same reason the root does — all three
+    describe one session — and never appears without a key to name.
+
     Keeping the stamps here — instead of handing each call site a rule to
     compose — is what stops the two SDK surfaces drifting on what a child is
     told about its own posture, which is the same reason this function exists
@@ -198,9 +211,10 @@ def build_operator_child_env(
         session_key: The identity this session is pooled under — the chat
             pool's ``chat_id`` for ``POST /api/chat``, the minted
             ``operator-<hex8>`` key for ``/ws/operator``. It is the key the
-            posture store is read under. Omitted, the child gets the render's
-            baseline environment and no marker is added — nothing names a
-            session for a reader to look up.
+            posture store is read under and the name the child's execution
+            root is scoped by. Omitted, the child gets the render's baseline
+            environment and no marker is added — nothing names a session for a
+            reader to look up.
         app: The FastAPI app whose agent-data root the child is pointed at
             (:func:`resolve_agent_data_root`). Stamped alongside *session_key*;
             without an app the root falls back to the deployment derivation.
@@ -240,6 +254,7 @@ def build_operator_child_env(
         env[POSTURE_SOURCE_ENV] = posture_source
         env[POSTURE_SESSION_ENV] = session_key
         env[OSPREY_AGENT_DATA_ROOT] = resolve_agent_data_root(app)
+        env["OSPREY_SESSION_ID"] = session_key
 
     return env
 
@@ -330,7 +345,17 @@ def _message_to_events(message: Any) -> list[dict[str, Any]]:
         )
 
     elif isinstance(message, SystemMessage):
-        events.append({"type": "system", "subtype": message.subtype})
+        event: dict[str, Any] = {"type": "system", "subtype": message.subtype}
+        # The init message carries the id of the transcript the child is
+        # actually writing to, which is the only place a resume's real
+        # transcript id can be read back from — a resume may be answered with a
+        # different id than the one asked for. Carried only when the message
+        # has one, so a system message that says nothing about identity does
+        # not look like one reporting a missing id.
+        session_id = (getattr(message, "data", None) or {}).get("session_id")
+        if session_id:
+            event["session_id"] = session_id
+        events.append(event)
 
     # StreamEvent and other unknown types are silently ignored.
     return events
@@ -390,14 +415,39 @@ def is_terminal_event(event: dict[str, Any]) -> bool:
 class OperatorSession:
     """Wraps a ``ClaudeSDKClient`` for operator-mode conversation."""
 
-    def __init__(self, cwd: str, env: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        cwd: str,
+        env: dict[str, str] | None = None,
+        *,
+        session_key: str | None = None,
+    ) -> None:
+        """Build an unstarted session.
+
+        Args:
+            cwd: The project directory the child runs in.
+            env: The child's environment, or ``None`` to inherit the process
+                environment. Fixed at spawn; see
+                :func:`build_operator_child_env`.
+            session_key: The identity this session is pooled and audited
+                under — the shared session key, not a per-child id. It is the
+                telemetry session id, and the SDK session id for a child that
+                starts a conversation of its own. Omitted, one is minted here,
+                so the key is stable for the life of the object rather than
+                re-drawn on every :meth:`start`.
+        """
         self._cwd = cwd
         self._env = env
+        self._session_key = session_key or str(uuid.uuid4())
         self._client: ClaudeSDKClient | None = None
         self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=256)
         self._response_task: asyncio.Task | None = None
         self._quiesce_task: asyncio.Task | None = None
         self._started = False
+        # The child process handle, kept from just before the client is closed
+        # so its death stays observable after teardown has dropped the client.
+        # See :meth:`stop` and :attr:`process_exited`.
+        self._last_process: Any = None
         # Per-turn one-in-flight guard. ``_turn_epoch`` only ever increments and
         # names each turn ever started; ``_active_token`` holds the current
         # turn's epoch or None when idle. Manipulated only by the synchronous,
@@ -461,8 +511,21 @@ class OperatorSession:
         quiesce_running = quiesce is not None and not quiesce.done()
         return handler_running or quiesce_running
 
-    async def start(self) -> None:
-        """Create and connect the SDK client."""
+    async def start(self, *, resume_id: str | None = None) -> None:
+        """Create and connect the SDK client.
+
+        Args:
+            resume_id: The transcript to continue. Given, the child resumes
+                that conversation (``resume``) and the SDK keeps writing to it;
+                omitted, the child starts a conversation of its own under the
+                session key (``session_id``), or under an id it mints itself
+                when the key is not one the CLI would accept. Resume and
+                session id are mutually exclusive — a resume names the
+                transcript, and naming a session id alongside it would ask the
+                SDK to write one conversation under two identities. Which
+                applies is the caller's decision, taken from the session's
+                transcript state; this seam only offers the shapes.
+        """
         if not CLAUDE_SDK_AVAILABLE:
             raise RuntimeError("claude-agent-sdk is not installed")
 
@@ -470,16 +533,16 @@ class OperatorSession:
         for warning in validate_project_directory(self._cwd):
             logger.warning("Operator session: %s (cwd=%s)", warning, self._cwd)
 
-        # Force a known session UUID and hand it to the workspace
-        # provenance_locator tool via env, so a filed issue can point back to
-        # this session's telemetry. The same value is forced onto the SDK
-        # session (session_id below) so the OTEL emitter's session.id matches
-        # what the locator returns. env is a build_clean_env dict in production
-        # (which strips the harness's own CLAUDE_CODE_* id); inject into a copy.
-        telemetry_session_id = str(uuid.uuid4())
+        # Hand the session key to the workspace provenance_locator tool via env,
+        # so a filed issue can point back to this session's telemetry. It is the
+        # key the session is pooled and audited under, never a value minted
+        # here: a telemetry id that changed every time a surface re-acquired the
+        # session would split one conversation's traces across several ids. env
+        # is a build_clean_env dict in production (which strips the harness's own
+        # CLAUDE_CODE_* id); inject into a copy.
         session_env = dict(self._env) if self._env is not None else None
         if session_env is not None:
-            session_env["OSPREY_TELEMETRY_SESSION_ID"] = telemetry_session_id
+            session_env["OSPREY_TELEMETRY_SESSION_ID"] = self._session_key
             session_env["OSPREY_TELEMETRY_SESSION_START"] = datetime.now(UTC).isoformat()
             # Mark the web surface this session serves: the operator chat IS the
             # simple UX. The panels-context SessionStart hook reads this to tell
@@ -487,13 +550,36 @@ class OperatorSession:
             # sets "expert" — see routes/websocket.py's _build_extra_env).
             session_env["OSPREY_WEB_UX"] = "simple"
 
-        options = ClaudeAgentOptions(
-            system_prompt=build_system_prompt(get_facility_timezone()),
-            cwd=self._cwd,
-            env=session_env,
-            setting_sources=["project"],
-            session_id=telemetry_session_id,
-        )
+        # The identity half is spelled out twice rather than assembled, because
+        # the two shapes are mutually exclusive and the SDK's options are a
+        # typed dataclass — an unpacked mapping would hide which of the two a
+        # launch chose behind a name the type checker cannot follow.
+        if resume_id is not None:
+            options = ClaudeAgentOptions(
+                system_prompt=build_system_prompt(get_facility_timezone()),
+                cwd=self._cwd,
+                env=session_env,
+                setting_sources=["project"],
+                resume=resume_id,
+            )
+        else:
+            # The key names the conversation only where the CLI would accept it
+            # as one. POST /api/chat takes any string for chat_id — an embedder
+            # keying its chats "user-42-chat-3" is a supported caller, and the
+            # posture surface already treats such a key as unaddressable — but
+            # here the key reaches the CLI as `--session-id`, which takes a
+            # canonical UUID and exits non-zero on anything else. The SDK
+            # imposes no format of its own, so an unchecked key would fail the
+            # child on its first prompt rather than at a seam anyone can see.
+            # None omits the flag and the child mints its own id, which is what
+            # this surface did before it could resume at all.
+            options = ClaudeAgentOptions(
+                system_prompt=build_system_prompt(get_facility_timezone()),
+                cwd=self._cwd,
+                env=session_env,
+                setting_sources=["project"],
+                session_id=(self._session_key if is_posture_key(self._session_key) else None),
+            )
         self._client = ClaudeSDKClient(options=options)
         await self._client.__aenter__()
         self._started = True
@@ -693,7 +779,26 @@ class OperatorSession:
         await self.stop()
 
     async def stop(self) -> None:
-        """Disconnect the SDK client and cancel any in-flight response."""
+        """Disconnect the SDK client and cancel any in-flight response.
+
+        Keeps the child's process handle before the client goes away, so a
+        caller that has to wait for the child to be *gone* — not merely asked
+        to leave — can still read :attr:`process_exited` afterwards. Closing
+        the client drops the transport, and with it the only route to that
+        handle. A handle already captured is never overwritten with nothing, so
+        a second ``stop()`` does not erase the first one's answer.
+
+        A child still running once the client is closed is sent SIGKILL
+        (:meth:`_kill_lingering_child`). Closing the client already escalates
+        from stdin EOF through SIGTERM to SIGKILL, each with a bounded wait, so
+        this only matters for a child that outlived that escalation — and it
+        is what makes a second ``stop()`` on a session whose client is already
+        gone kill the child again rather than merely re-read its status.
+        """
+        process = getattr(getattr(self._client, "_transport", None), "_process", None)
+        if process is not None:
+            self._last_process = process
+
         await self.cancel()
 
         if self._client is not None:
@@ -703,12 +808,74 @@ class OperatorSession:
                 pass
             self._client = None
 
+        self._kill_lingering_child()
         self._started = False
         logger.info("OperatorSession stopped")
+
+    def _kill_lingering_child(self) -> None:
+        """Send SIGKILL to the retained child when it has no return code yet.
+
+        Nothing is waited for: :attr:`process_exited` is how a caller sees the
+        signal land. A child that is already gone raises
+        ``ProcessLookupError``, which is the answer wanted.
+        """
+        process = self._last_process
+        if process is None or process.returncode is not None:
+            return
+        try:
+            process.kill()
+        except ProcessLookupError:
+            return
+        except Exception:
+            logger.warning("OperatorSession could not signal its lingering child", exc_info=True)
+            return
+        logger.warning("OperatorSession child outlived its client; sent SIGKILL")
 
     @property
     def is_active(self) -> bool:
         return self._started and self._client is not None
+
+    @property
+    def pid(self) -> int | None:
+        """The pid of this session's child process, or ``None`` when none is running.
+
+        The chat child is what holds a session on the Simple surface, the way
+        a PTY holds one on the Expert surface, so a caller addressing
+        something *to* the process behind a session key has to be able to ask
+        which process that is. The handle is reached through the transport
+        exactly as :meth:`stop` reaches it, falling back to one already
+        retained so a session whose client has been closed still answers
+        while its child is alive.
+
+        ``None`` once the child has a return code, and ``None`` for a session
+        that never started: a pid nothing is running under names no process,
+        and returning one would invite a caller to address it.
+        """
+        process = getattr(getattr(self._client, "_transport", None), "_process", None)
+        if process is None:
+            process = self._last_process
+        if process is None or process.returncode is not None:
+            return None
+        pid = getattr(process, "pid", None)
+        return pid if isinstance(pid, int) and pid > 0 else None
+
+    @property
+    def process_exited(self) -> bool | None:
+        """Whether this session's child process has actually exited.
+
+        ``True`` once the child has a return code, ``False`` while it is still
+        running, and ``None`` when no process handle was ever captured — the
+        session was never started, was closed before :meth:`stop` could reach
+        the transport, or runs against a client that exposes none.
+
+        ``None`` is deliberately not ``False``: a caller sequencing a handover
+        on "the outgoing child is gone" must be able to tell *not exited* from
+        *nothing to observe*, and collapsing the two would make an unanswerable
+        session look like a live one forever.
+        """
+        if self._last_process is None:
+            return None
+        return self._last_process.returncode is not None
 
 
 class OperatorRegistry:
@@ -724,9 +891,15 @@ class OperatorRegistry:
     def __init__(self, chat_max_sessions: int = 5, chat_idle_seconds: float = 900.0) -> None:
         self._sessions: dict[str, OperatorSession] = {}
         # The factory resolves OperatorSession by name at call time, so tests
-        # patching this module's OperatorSession still intercept creation.
+        # patching this module's OperatorSession still intercept creation. The
+        # pool's key IS the session key: a chat child is pooled, audited and
+        # given telemetry under the shared session key, never under an id of
+        # its own. The transcript to resume is not bound here — it is decided
+        # per launch and reaches the child through ``start``.
         self.chats = ChatSessionPool(
-            factory=lambda cwd, env: OperatorSession(cwd=cwd, env=env),
+            factory=lambda cwd, env, session_key: OperatorSession(
+                cwd=cwd, env=env, session_key=session_key
+            ),
             max_sessions=chat_max_sessions,
             idle_seconds=chat_idle_seconds,
         )
@@ -781,6 +954,8 @@ class OperatorRegistry:
         chat_id: str,
         cwd: str,
         env: dict[str, str] | Callable[[], dict[str, str] | None] | None = None,
+        *,
+        resume_id: str | None = None,
     ) -> tuple[OperatorSession, bool]:
         """Pass-through to :meth:`ChatSessionPool.get_or_create`.
 
@@ -788,8 +963,15 @@ class OperatorRegistry:
         keeps a caller's environment read atomic with the pool's registration
         of the creation (``routes/chat.py`` relies on it for the runtime
         posture).
+
+        *resume_id* is the transcript the child should continue — the caller's
+        answer to "what is this key's conversation right now", not something
+        the pool can work out for itself. Omitted, the child starts a
+        conversation of its own under *chat_id*. A live child built from a
+        different transcript is rebuilt, exactly as an environment change
+        rebuilds it.
         """
-        return await self.chats.get_or_create(chat_id, cwd, env)
+        return await self.chats.get_or_create(chat_id, cwd, env, resume_id=resume_id)
 
     def get_chat_session(self, chat_id: str) -> OperatorSession | None:
         return self.chats.get(chat_id)
@@ -804,8 +986,14 @@ class OperatorRegistry:
         """
         return self.chats.has_key(chat_id)
 
-    async def terminate_chat_session(self, chat_id: str) -> None:
-        await self.chats.terminate(chat_id)
+    async def terminate_chat_session(self, chat_id: str) -> OperatorSession | None:
+        """Pass-through to :meth:`ChatSessionPool.terminate`.
+
+        Hands back the torn-down session so a caller can read
+        :attr:`OperatorSession.process_exited` on it; ``None`` when the key held
+        nothing poppable.
+        """
+        return await self.chats.terminate(chat_id)
 
     async def reap_idle_chat_sessions(self) -> int:
         return await self.chats.reap_idle()

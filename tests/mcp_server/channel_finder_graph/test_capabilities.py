@@ -36,7 +36,13 @@ capabilities_fn = get_tool_fn(mod.capabilities)
 
 #: The full tool vocabulary the paradigm advertises. A literal, so a renamed or
 #: dropped tool fails here rather than silently shrinking the manifest.
-_EXPECTED_TOOLS = {"example_queries", "get_schema", "read_cypher", "capabilities"}
+_EXPECTED_TOOLS = {
+    "example_queries",
+    "get_schema",
+    "read_cypher",
+    "capabilities",
+    "search_channels",
+}
 
 #: Independent marker list (do not import the production constant) mirroring the
 #: registry-wide destructive-name scan in tests/agent_runner/test_write_tools.py.
@@ -137,9 +143,24 @@ class TestManifestShape:
                 "server's tools must never be auto-allowed under such a name"
             )
 
+    def test_the_first_step_routes_between_the_index_and_cypher(self, payload):
+        """Two search surfaces now, so the manifest has to say which is which.
+
+        Without this step an agent reads a Cypher workflow and never learns
+        that a keyword lookup is one tool call rather than a query it writes.
+        """
+        routing = payload["workflow"][0]
+
+        assert "search_channels" in routing
+        assert "read_cypher" in routing
+
     def test_workflow_runs_examples_then_schema_then_the_query(self, payload):
-        """The order is the instruction: learn the shapes before writing Cypher."""
-        steps = payload["workflow"]
+        """The order is the instruction: learn the shapes before writing Cypher.
+
+        Read over the Cypher steps only. The routing step above names
+        ``read_cypher`` while choosing a surface, not while running a query.
+        """
+        steps = payload["workflow"][1:]
         assert len(steps) >= 3
 
         positions = {

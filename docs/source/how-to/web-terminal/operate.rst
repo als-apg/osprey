@@ -96,6 +96,53 @@ plain Ctrl+C always interrupts the agent. Serve the terminal over HTTPS for
 this to work in every browser — on a plain ``http://`` page copying falls
 back to an older browser mechanism that Safari may refuse.
 
+.. _web-terminal-one-session:
+
+One session, both views
+-----------------------
+
+Expert and Simple are two windows onto the same conversation. Pick the other
+one from the display menu and the agent you were talking to comes with you: the
+terminal and the chat share one session, one write state and one transcript,
+and only the view you are looking at runs the agent.
+
+Handing it over waits for the work in flight. Switch while the agent is
+mid-turn and the view you arrive in reads *Finishing in the other view* with
+the time you have been waiting, and offers **Stop and switch now**. Let it
+finish and the conversation reappears where it left off, with everything said
+so far already in the log. Nothing is ended on a clock: only the turn
+finishing, closing the page, or that button ends it. The button interrupts the
+agent, and stops it outright if it has not yielded within five seconds.
+
+A refusal can meet you instead of the wait. *This session is in use in
+another tab or view.* means another browser tab holds it, so close that tab or
+work there instead. *The previous agent is still shutting down.* is the one
+worth retrying, and the card offers **Retry**.
+
+Running ``/clear`` in the terminal starts a new conversation without starting a
+new session: the write state and the machine you are standing on carry over,
+and the chat shows the cleared conversation too. A prompt you send in the chat
+while a turn is still running waits for that turn rather than being refused,
+and goes as soon as the agent is free.
+
+.. note::
+
+   **Deployments built before this release.** The wait needs the
+   ``turn-state`` hook, which tells the web terminal when a turn starts and
+   ends, and a deployment scaffolded earlier does not have it: add
+   ``turn-state`` to the profile's ``hooks:`` list and run ``osprey build``.
+   Without it, switching away from a terminal that might be working never
+   waits. It says *The other view may still be working.* and offers only
+   **Stop and switch now**, and a terminal that was idle all along can still
+   take the full five seconds to hand over.
+
+One version pin is worth keeping current now that the two views share a
+conversation. The terminal runs the exact agent CLI version
+``claude_code.cli_version`` names, and the chat runs the one the Agent SDK
+bundles, so a pin that has drifted from the bundle makes the same conversation
+behave differently either side of a switch. The server names both versions in
+its log at startup, and warns when they disagree.
+
 .. _web-terminal-session-posture:
 
 The control-target chip
@@ -333,11 +380,15 @@ says nothing about the chip.
    a terminal session. Where they differ is in what the chip can do for them.
 
    A **chat session's write controls work** --- its writes meet the same ceiling
-   and the same locks a terminal's do --- but it is offered no **Switch to**: a
-   chat has no machine connection of its own to move. Know one thing before
-   relying on a chat's write state: the chat page starts a fresh chat every
-   time it loads, so a state you set for it lasts as long as that page does
-   rather than following the conversation.
+   and the same locks a terminal's do --- but **Switch to** comes and goes with
+   the view. While the Expert view holds the session there is a terminal with a
+   machine connection to move, and a row you can switch to offers the button;
+   while Simple holds it there is no such connection, so the button's place on
+   every row is empty. Switch back to Expert and it is there again.
+
+   The write state itself does not come and go. Both views are one session
+   (:ref:`web-terminal-one-session`), so a state you set in either is the state
+   the other finds, and it follows the conversation across the switch.
 
    An **operator websocket session's write controls govern nothing**: the chip
    has no way to hand a write state to that kind of session, so what you set
@@ -426,6 +477,10 @@ you set them in, so a different browser or a different machine starts those
 from the deployment's own defaults. The panel layout is remembered once per
 view: Simple starts from a single panel beside the console and Expert from the
 full workspace, and each keeps the arrangement you make of it.
+
+The view is a preference; the conversation is not tied to it. Switching between
+Expert and Simple hands the same session over rather than starting a second
+one. See :ref:`web-terminal-one-session`.
 
 With nothing saved yet you get the deployment's arrangement, which an operator
 sets with ``web.bar_items``. The keys, and what each one does, are in

@@ -2120,3 +2120,89 @@ html[data-ui-mode="simple"] #terminal-container {
   cursor: progress;
   opacity: 0.6;
 }
+
+/* ---- Hand-off overlay ----
+   The transitional state on the terminal card while the session is being
+   handed over from the other view, and where a refused connection says why.
+   Built on demand by terminal.js and removed when it clears, so nothing here
+   applies in the ordinary case. */
+
+.terminal-handoff {
+  position: absolute;
+  inset: 0;
+  /* Above the CRT scanline and bezel layers, which sit at 2 on
+     .terminal-body's own pseudo-elements. */
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  box-sizing: border-box;
+  background: var(--overlay-black-70);
+}
+
+/* The Simple view shows the chat in this same body. Its transitional state is
+   the chat's own; this one would cover it. */
+html[data-ui-mode="simple"] .terminal-handoff {
+  display: none;
+}
+
+.terminal-handoff-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: 320px;
+  padding: var(--space-4);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-dialog);
+  text-align: center;
+}
+
+.terminal-handoff-message {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--text-secondary);
+}
+
+/* The elapsed wait. Tabular figures so a ticking counter does not reflow the
+   line it sits in. */
+.terminal-handoff-elapsed {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.terminal-handoff-action {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-primary);
+  background: var(--accent-tint-08);
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-sm);
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: all var(--wt-transition-fast);
+}
+
+.terminal-handoff-action:hover:not(:disabled) {
+  background: var(--accent-tint-12);
+  border-color: var(--color-accent);
+}
+
+.terminal-handoff-action:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+/* A refusal with nothing to retry states the fact alone. Spelled out because
+   the rule above sets no `display` of its own for the UA default to win with. */
+.terminal-handoff-action[hidden] {
+  display: none;
+}

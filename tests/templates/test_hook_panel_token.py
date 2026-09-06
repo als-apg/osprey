@@ -1,10 +1,13 @@
 """Shipped hooks authenticate their terminal-API calls with the panel token.
 
-Three template hooks talk to an app the web terminal serves — the SessionStart
+Four template hooks talk to an app the web terminal serves — the SessionStart
 panels-context hook and the UserPromptSubmit workspace-delta hook both
-``GET /api/panels``, and the approval hook ``POST``s ``/api/focus`` at the
-artifact gallery. Once those endpoints require a bearer token, an unauthenticated
-hook goes quietly blind: it keeps exiting 0 and simply stops reporting anything.
+``GET /api/panels``, the approval hook ``POST``s ``/api/focus`` at the artifact
+gallery, and the turn-state hook ``POST``s ``/api/agent-turn`` at the terminal
+(covered in ``tests/templates/test_turn_state_hook.py``, which owns that hook's
+whole contract including this one). Once those endpoints require a bearer token,
+an unauthenticated hook goes quietly blind: it keeps exiting 0 and simply stops
+reporting anything.
 
 So these tests pin the contract from the hook side:
 

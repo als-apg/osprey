@@ -7,6 +7,7 @@ This module provides shared fixtures and utilities for all Osprey tests.
 import logging
 import os
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
@@ -1083,3 +1084,117 @@ def graphdb_plugin_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     from tests._graphdb_container import resolve_plugin_dir
 
     return resolve_plugin_dir(tmp_path_factory)
+
+
+# ===================================================================
+# Graph search index
+# ===================================================================
+
+
+@dataclass(slots=True)
+class GraphIndexCache:
+    """Every graph search index this session has built, keyed by corpus digest.
+
+    Held for the whole session because the thing being cached is not a
+    render's file but the *parse* behind it: two builds of the same corpus,
+    in two tests, in two directories, derive byte-identical rows from
+    byte-identical text.
+    """
+
+    directory: Path
+    """Where the cached indexes live — one ``<digest>.duckdb`` per corpus."""
+
+    entries: dict[str, Path] = field(default_factory=dict)
+    """Digest of the corpus TEXT -> the index built from it, inside :attr:`directory`."""
+
+
+@pytest.fixture(scope="session")
+def graph_index_cache(tmp_path_factory: pytest.TempPathFactory) -> GraphIndexCache:
+    """The session's built indexes, shared by every render the suite performs.
+
+    Requested by the autouse stub below, and by the tests that assert on the
+    caching itself: a test that needs a corpus to be built for real can drop
+    its entry here first, and get a deterministic builder count whatever ran
+    before it.
+    """
+    return GraphIndexCache(directory=tmp_path_factory.mktemp("graph-index-cache"))
+
+
+@pytest.fixture(autouse=True, scope="function")
+def _stub_graph_index_builds(request, monkeypatch, graph_index_cache: GraphIndexCache):
+    """Build each corpus the suite renders once per session, not once per render.
+
+    ``osprey build`` derives a graph-mode project's channel search index from
+    the Turtle corpus the render staged, which is an rdflib parse of the whole
+    file — about a second and a half for the corpus the control-assistant
+    preset ships. The suite renders that preset over and over, in the build
+    tests, the deployment tests and every exemplar render, and each of those
+    renders parses the identical bytes again.
+
+    So the parse is memoized across the whole session on the digest of the
+    corpus TEXT, the same key the build's own per-build memo uses
+    (:attr:`osprey.cli.build_cmd._SharedRenderInputs.graph_indexes`), and for
+    the same reason: every render re-copies the profile's ``data/`` tree, so
+    the staged corpus is a different file with a fresh mtime every time and a
+    path or stat key would miss on every pass.
+
+    What is stubbed is only :func:`osprey.cli.build_cmd._build_graph_index` —
+    the step that turns a corpus into a file. ``_graph_index_target`` still
+    resolves the corpus and the index path out of the rendered config, and the
+    index that lands in the render is the real builder's output for that exact
+    corpus, so a test can still read it, query it, or hand it to the roster.
+    A corpus that cannot be read or parsed is handed straight to the real hook,
+    which owns the warning and the decision that a failure costs the index
+    rather than the build — one copy of that fact, not two.
+
+    Opt out with ``@pytest.mark.real_graph_index`` when the derivation itself
+    is what a test is about.
+    """
+    if request.node.get_closest_marker("real_graph_index"):
+        return
+
+    import shutil
+
+    from osprey.cli import build_cmd
+
+    real_hook = build_cmd._build_graph_index
+
+    def _cached_build_graph_index(shared, target, progress):
+        # Imported here, at call time, for two reasons: the fixture stays
+        # import-light for the tests that never render anything, and a test
+        # that counts builder calls by patching the package attribute still
+        # sees this path go through it.
+        from osprey.services.channel_finder.graph_index import build_graph_index
+        from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
+
+        try:
+            digest = ttl_sha256(target.corpus_path.read_text(encoding="utf-8"))
+            cached = graph_index_cache.entries.get(digest)
+            if cached is None:
+                cached = graph_index_cache.directory / f"{digest}.duckdb"
+                build_graph_index(target.corpus_path, cached)
+                if not cached.is_file():
+                    raise FileNotFoundError(cached)
+                # Recorded only once the file exists, so a build that wrote
+                # nothing cannot poison every later render of this corpus for
+                # the rest of the session.
+                graph_index_cache.entries[digest] = cached
+            target.index_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(cached, target.index_path)
+        except Exception:  # noqa: BLE001 - the real hook decides what a failure costs
+            return real_hook(shared, target, progress)
+
+        # The build's own memo, kept consistent: a later render pass of the
+        # same build reads it before asking for an index at all.
+        shared.graph_indexes.setdefault(digest, target.index_path)
+        progress(
+            "  ✓ Reused the session-cached channel search index built from %s",
+            target.corpus_path.name,
+        )
+        return target.index_path
+
+    #: Marks this as the stub, so a test can assert which hook it is running
+    #: against without inspecting where the function was defined.
+    _cached_build_graph_index.stubbed_by_conftest = True
+
+    monkeypatch.setattr(build_cmd, "_build_graph_index", _cached_build_graph_index)
