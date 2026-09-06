@@ -108,8 +108,10 @@ Nine safety layers are applied in sequence:
 
 3. **Readonly import denylist** (``check_readonly_imports``)---a
    ``readonly`` run may not import control-system client libraries
-   (``epics``, ``p4p``, ``caproto``, ``pvaccess``, ``tango``) at all.
-   Reads go through ``read_channel()``.
+   (``epics``, ``aioca``, ``p4p``, ``caproto``, ``pvaccess``, ``tango``,
+   ``doocs4py``) at all. Reads go through ``read_channel()``. The list is
+   derived from the client half of the write surface below, so a client
+   added there is denied at import in the same change.
 
 4. **Control-system pattern detection**
    (``detect_control_system_operations``)---identifies read and write
@@ -151,9 +153,9 @@ What counts as a control-system write
 -------------------------------------
 
 A ``readonly`` run refuses all of the following. The list is generated from
-one table in the code (``_READONLY_WRITE_TARGETS`` in
-``services/python_executor/execution/wrapper.py``), so adding a library there
-is all it takes to enforce it.
+one table in the code (``services/python_executor/write_surface.py``), so
+adding a library there is all it takes to enforce it --- the runtime guard,
+the import denylist and this page all read that one table.
 
 **Approved API** --- the path everything should use:
 
@@ -164,15 +166,26 @@ is all it takes to enforce it.
 resolved dynamically:
 
 - **pyepics** --- ``caput``, ``caput_many``, ``PV.put``, ``ca.put``
+- **aioca** --- ``caput``, ``caput_many``. Every OSPREY environment carries
+  it: it is the Channel Access backend of ``ophyd-async[ca]``
 - **p4p** --- ``Context.put``/``rpc`` for the thread, asyncio and cothread
   clients; ``SharedPV.post``/``open`` on the server side
 - **caproto** --- ``sync.client.write``, ``threading.client.PV.write``,
   ``Batch.write``, ``asyncio.client.PV.write``
 - **pvaPy** --- every ``Channel.put*`` method, including the typed setters
   such as ``putDouble`` and ``putScalarArray``
+- **doocs4py** --- ``set``, the call the DOOCS connector writes through
 - **Tango** --- ``DeviceProxy.write_attribute`` and its variants,
   ``AttributeProxy.write``, and ``command_inout`` (a Tango command acts on
   the device rather than reading it)
+
+**Acquisition frameworks.** These drive hardware through a client below them,
+so their write entry points refuse --- but they are also ordinary document and
+analysis libraries, so *importing* them stays allowed in a ``readonly`` run:
+
+- **ophyd-async** --- ``SignalW.set`` / ``SignalRW.set``, and ``SignalX``
+  execution
+- **Bluesky** --- ``RunEngine.__call__``, which is how a plan is run
 
 **Routes out of Python.** These reach a control system without importing a
 client at all, so they are refused in ``readonly`` runs too:

@@ -1,9 +1,11 @@
-"""Standalone code safety checks — no framework dependencies.
+"""Standalone code safety checks — no third-party dependencies.
 
 Usable by the MCP execute tool for pre-execution validation.
 """
 
 import ast
+
+from osprey.services.python_executor.write_surface import READONLY_DENIED_IMPORTS
 
 
 def check_syntax(code: str) -> list[str]:
@@ -67,7 +69,13 @@ def check_imports(code: str) -> list[str]:
 # import statement is immune to the aliasing that defeats call-site regexes
 # (``from epics import caput as _w``), and an import never appears inside a
 # comment or string, so it has none of the regex false positives either.
-_READONLY_DENIED_IMPORTS = frozenset({"epics", "p4p", "caproto", "pvaccess", "tango", "PyTango"})
+#
+# Derived from the client half of the write surface rather than spelled again
+# here: one producer means a client added to the runtime guard is denied at
+# import in the same change. Acquisition frameworks (ophyd-async, Bluesky) are
+# deliberately NOT in it — they are document and analysis libraries too, so
+# only their write entry points refuse, and that happens at runtime.
+_READONLY_DENIED_IMPORTS = READONLY_DENIED_IMPORTS
 
 
 def check_readonly_imports(code: str) -> list[str]:
