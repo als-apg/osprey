@@ -1,8 +1,13 @@
 /* OSPREY Web Terminal — Terminal Module */
 
 import { createWebSocket, wsUrl, withPrefix } from './api.js';
+import { clearPointer, getPointer, setPointer } from './session-pointer.js';
+import {
+  hideHandoffOverlay,
+  showHandoffPending,
+  showHandoffRefused,
+} from './terminal-handoff.js';
 import { subscribe, xtermPalette } from '/design-system/js/theme-manager.js';
-import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 
 /** @type {any} */
 let term = null;
@@ -13,28 +18,6 @@ let wsConnection = null;
 let hasConnectedBefore = false;
 /** @type {string|null} */
 let currentSessionId = null;
-
-// localStorage key for persisting the active PTY session ID across page
-// loads, so a kept-warm session survives a logout -> landing page ->
-// return round trip.
-//
-// Per persona, not per origin. localStorage is origin-scoped, so on a
-// multi-user mount (`/u/alice/`, `/u/bob/`) a bare key would be one shared
-// pointer — and a session id is not a preference that can be shared: replaying
-// one persona's id would attach another persona's terminal to a PTY that is
-// not theirs. Every read, write and clear resolves the key through
-// ptySessionStorageKey() below.
-const PTY_SESSION_STORAGE_KEY_BASE = 'osprey-pty-session';
-
-/**
- * This document's PTY-pointer key. Resolved per call rather than once at
- * module load: the scope lives on the served document, and reading it at the
- * point of use is what keeps the key honest.
- * @returns {string}
- */
-function ptySessionStorageKey() {
-  return scopedStorageKey(PTY_SESSION_STORAGE_KEY_BASE);
-}
 
 // Every connection gets a 'session_info' confirmation from
 // routes/websocket.py carrying the id ACTUALLY attached. A resume of an id
@@ -77,43 +60,30 @@ let autoResumeFailoverId = null;
 let freshStartArmed = false;
 
 /**
- * Read the persisted PTY session ID. Returns null if none is stored or if
- * localStorage is unavailable (e.g. private browsing).
+ * Read the tab's session pointer. Returns null if none is stored.
  * @returns {string|null}
  */
 function loadStoredSessionId() {
-  try {
-    return localStorage.getItem(ptySessionStorageKey());
-  } catch {
-    return null;
-  }
+  return getPointer();
 }
 
 /**
- * Persist the active PTY session ID so a later page load can resume it.
+ * Point the tab at the session this terminal is on, so a later page load —
+ * and the chat, which reads the same pointer — resumes it.
  * @param {string} sessionId
  */
 function storeSessionId(sessionId) {
-  try {
-    localStorage.setItem(ptySessionStorageKey(), sessionId);
-  } catch {
-    // Ignore — private browsing / storage disabled. Persistence is a
-    // convenience; the terminal still works without it.
-  }
+  setPointer(sessionId);
 }
 
 /**
- * Clear the persisted PTY session ID (e.g. once a resume attempt turns out
- * to target a dead/expired session, or on logout — see app.js's
+ * Clear the tab's session pointer (e.g. once a resume attempt turns out to
+ * target a dead/expired session, or on logout — see app.js's
  * initLogoutButton, which clears the client's pointer before navigating so
  * the next page load's initTerminal() has nothing to auto-resume).
  */
 export function clearStoredSessionId() {
-  try {
-    localStorage.removeItem(ptySessionStorageKey());
-  } catch {
-    // Ignore — see storeSessionId().
-  }
+  clearPointer();
 }
 
 /**
@@ -304,6 +274,13 @@ export function initTerminal(containerId) {
   });
   resizeObserver.observe(/** @type {Element} */ (container.parentElement));
 
+  // In the Simple view the chat holds the session and the terminal is not on
+  // screen. Only one surface may run the session's agent at a time, so a
+  // hidden terminal that connected here would take the conversation away from
+  // the view the operator is actually looking at. The flip to Expert starts
+  // it instead — see startExpert().
+  if (isSimpleView()) return;
+
   // Start the PTY WebSocket connection. If a session was kept warm from a
   // previous page load (e.g. a logout -> landing page -> return round
   // trip), resume it via the existing server mode=resume path instead of
@@ -323,11 +300,26 @@ export function initTerminal(containerId) {
  *
  * @param {string|null} sessionId - Session UUID to resume. Null for new session.
  * @param {'new'|'resume'} mode - Whether to start a new session or resume.
+ * @param {{ interrupt?: boolean }} [options] - `interrupt` ends the other
+ *   view's running turn instead of waiting for it ("Stop and switch now").
+ *   Only meaningful on a resume.
+ * @returns {Promise<void>} Settles once this attempt has an answer — attached
+ *   (`session_info`), refused, errored, or closed without one — and never
+ *   rejects; a caller sequencing a hand-off awaits it so the next surface
+ *   cannot ask for the session before the server has seen this one let go.
  */
-export function startTerminal(sessionId = null, mode = 'new') {
-  if (wsConnection) return;
-  if (!term) return;
+export function startTerminal(sessionId = null, mode = 'new', { interrupt = false } = {}) {
+  if (wsConnection) return Promise.resolve();
+  if (!term) return Promise.resolve();
   freshStartArmed = false;
+
+  // Resolved by whichever answer arrives first. Resolving is idempotent, so
+  // every settling point below can call it without checking the others.
+  let settle = () => {};
+  /** @type {Promise<void>} */
+  const settled = new Promise((resolve) => {
+    settle = resolve;
+  });
 
   let url = wsUrl('/ws/terminal'); // wsUrl prefixes this internally
   // Is this specifically the page-load auto-resume attempt (as opposed to
@@ -336,6 +328,7 @@ export function startTerminal(sessionId = null, mode = 'new') {
   const isAutoResumeAttempt = mode === 'resume' && sessionId != null && sessionId === autoResumeFailoverId;
   if (mode === 'resume' && sessionId) {
     url += `?session_id=${encodeURIComponent(sessionId)}&mode=resume`;
+    if (interrupt) url += '&interrupt=1';
     currentSessionId = sessionId;
     // Persist optimistically so a reload mid-connect resumes the same id;
     // the server's answer corrects it — 'session_info' with another id, or
@@ -343,7 +336,11 @@ export function startTerminal(sessionId = null, mode = 'new') {
     storeSessionId(sessionId);
   }
 
-  const socket = createWebSocket(url, {
+  // Declared before the call so the handlers below can compare against it;
+  // they only ever run once `createWebSocket` has returned.
+  /** @type {ReturnType<typeof createWebSocket>|null} */
+  let socket = null;
+  socket = createWebSocket(url, {
     onOpen() {
       // On reconnection (server restart), reset terminal to avoid
       // garbled output from old session mixed with new.
@@ -389,6 +386,22 @@ export function startTerminal(sessionId = null, mode = 'new') {
               stopTerminal();
               startTerminal();
             }
+          } else if (msg.type === 'handoff_pending') {
+            // The key is alive in the other view — the server just said so by
+            // negotiating for it — so the page-load failover has its answer
+            // and must not fire. Left armed, the exit that ends the outgoing
+            // agent (or the one an interrupt forces) would read as a dead id
+            // and drop the key both views are on.
+            autoResumeFailoverId = null;
+            // The other view still holds the session and its agent is mid-turn.
+            // The server waits for that turn to end rather than killing it, so
+            // this connection has no bound on how long it sits here — show the
+            // wait, and the way to end it: ask for the same session again with
+            // `interrupt=1`, which ends that turn instead of waiting it out.
+            showHandoffPending(() => {
+              dropConnection();
+              startExpert({ interrupt: true });
+            });
           } else if (msg.type === 'session_info') {
             // On resume, msg.session_id is the id ACTUALLY attached, which
             // may differ from the stale id we asked for (the server
@@ -404,6 +417,10 @@ export function startTerminal(sessionId = null, mode = 'new') {
               mode === 'resume' && sessionId != null && msg.session_id !== sessionId;
             currentSessionId = msg.session_id;
             autoResumeFailoverId = null;
+            // Whatever the connection was waiting on is over: this terminal is
+            // attached to the session.
+            hideHandoffOverlay();
+            settle();
             if (isStaleResumeMismatch) {
               clearStoredSessionId();
             } else {
@@ -420,23 +437,27 @@ export function startTerminal(sessionId = null, mode = 'new') {
             // theirs.
             autoResumeFailoverId = null;
             if (msg.session_id === currentSessionId) {
-              // This connection's own resume. Drop the pointer so no reload
-              // asks for it again, and drop the socket so the wrapper does not
-              // reconnect to the same refused URL.
-              clearStoredSessionId();
+              // This connection's own resume. The pointer is the session key
+              // BOTH views run on, so clearing it says "this conversation is
+              // gone" to the chat as well. Say that only about the key the
+              // pointer actually holds, and only when the chat is not the view
+              // bound to it: in Simple view the terminal is hidden and the chat
+              // is the surface on that key. Drop the socket either way, so the
+              // wrapper does not reconnect to the same refused URL.
+              if (getPointer() === msg.session_id && !isSimpleView()) {
+                clearStoredSessionId();
+              }
+              currentSessionId = null;
               stopTerminal();
               setSessionLabel(null);
-              if (document.documentElement.getAttribute('data-ui-mode') === 'simple') {
-                // Simple view hides the terminal, so writing the state into it
-                // and waiting for Enter asks for a keystroke in a window the
-                // operator cannot see or reach: the chat sits silent until
-                // someone thinks to reload. Nothing about the refusal is
-                // theirs to decide here — the id is already gone from storage
-                // — so make the only remaining move for them.
-                startTerminal();
-              } else {
-                // Expert view can show what happened, so it does, and arms
-                // Enter to make the next move the operator's.
+              // Expert view can show what happened, so it does, and arms Enter
+              // to make the next move the operator's. Simple view hides the
+              // terminal, so both halves of that answer would land in a window
+              // nobody can see or reach — and nothing is started in its place
+              // either: the chat is the surface there, and a hidden terminal
+              // spawning the session's agent would take the conversation away
+              // from it.
+              if (!isSimpleView()) {
                 term.write(
                   `\r\n\x1b[33mThe transcript for session ${msg.session_id} is missing, so it cannot be resumed.\x1b[0m\r\n` +
                   'Press Enter to start a new session.\r\n'
@@ -454,6 +475,10 @@ export function startTerminal(sessionId = null, mode = 'new') {
             term.reset();
             currentSessionId = msg.session_id;
             autoResumeFailoverId = null;
+            // A switch onto a key the chat holds is negotiated like any other
+            // hand-off, and this frame — not `session_info` — is how a switch
+            // reports success. It is the end of the wait either way.
+            hideHandoffOverlay();
             storeSessionId(msg.session_id);
             setSessionLabel(msg.session_id);
             notifySessionChange(msg.session_id);
@@ -464,6 +489,12 @@ export function startTerminal(sessionId = null, mode = 'new') {
               );
             }
           } else if (msg.type === 'error') {
+            // Whatever the connection was waiting on has resolved into this,
+            // so the transitional state goes before the message that replaces
+            // it — an error under a "finishing in the other view" overlay is
+            // unreadable and untrue.
+            hideHandoffOverlay();
+            settle();
             term.write(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m\r\n`);
           }
           return;
@@ -477,6 +508,27 @@ export function startTerminal(sessionId = null, mode = 'new') {
     },
     onClose() {
       setConnectionIndicator(false);
+      // A close before any answer is itself the answer: this attempt is over,
+      // whatever the wrapper does about reconnecting.
+      settle();
+      notifyClosed();
+    },
+    onRefused(code) {
+      // The server declined to hand the session over. A refusal that lands
+      // after this socket was abandoned — the operator pressed "Stop and
+      // switch now", and the reconnect is already waiting on its own
+      // hand-off — says nothing about the connection now in place, so it is
+      // dropped rather than allowed to paint over that one's state.
+      if (wsConnection !== socket) return;
+      // This wrapper is spent: it will not reconnect, so the module must stop
+      // holding it or the next start would see a live-looking connection and
+      // return early. Every retry builds a new one — the button below, and
+      // the one the `handoff_pending` branch above wires into startExpert().
+      wsConnection = null;
+      // Stated here rather than left to the close above, so the contract does
+      // not depend on the order api.js fires the two in.
+      settle();
+      showHandoffRefused(code, () => startExpert());
     },
   });
   wsConnection = socket;
@@ -518,6 +570,33 @@ export function startTerminal(sessionId = null, mode = 'new') {
       }
     }, RESUME_FAILOVER_WINDOW_MS);
   }
+
+  return settled;
+}
+
+/**
+ * Take the session over for the Expert view.
+ *
+ * The flip to Expert calls this, and so does everything that retries a
+ * hand-off. It resumes the key the tab is pointed at — the same key the
+ * Simple view was on — so the conversation continues in the terminal rather
+ * than a second one starting beside it. With no key stored there is nothing
+ * to take over, so it starts a session the ordinary way.
+ *
+ * Deliberately not armed for auto-resume failover: the key is shared with the
+ * chat, and an early exit here is a hand-off that did not complete, not a
+ * dead session id to drop.
+ *
+ * @param {{ interrupt?: boolean }} [options] - `interrupt` ends the other
+ *   view's running turn instead of waiting for it.
+ * @returns {Promise<void>} Settles once the Expert acquire has an answer —
+ *   attached, refused, errored, or closed without one — and never rejects.
+ *   A flip chain awaits it so a Simple → Expert → Simple round trip cannot
+ *   ask for the session again before the server has seen this channel go.
+ */
+export function startExpert({ interrupt = false } = {}) {
+  const key = loadStoredSessionId();
+  return key ? startTerminal(key, 'resume', { interrupt }) : startTerminal();
 }
 
 /**
@@ -539,17 +618,80 @@ export async function restartTerminal() {
 }
 
 /**
- * Stop the PTY WebSocket connection.
+ * Drop the PTY WebSocket connection and dim the indicators, leaving any
+ * hand-off overlay standing.
+ *
+ * Split out of {@link stopTerminal} for the one caller that stops the socket
+ * *because* a hand-off is under way ("Stop and switch now"): it reconnects
+ * immediately and the overlay it is watching must not blink out and restart
+ * its clock in between.
  */
-export function stopTerminal() {
+function dropConnection() {
   if (wsConnection) {
     wsConnection.stop();
     wsConnection = null;
   }
 
-  currentSessionId = null;
-
   setConnectionIndicator(false);
+}
+
+// How long a caller sequencing a flip waits for the dropped socket's close
+// event before going on without it. The server holds a short grace for an
+// attached channel to let go, and the next surface asking for the session
+// inside that window is refused with no retry — so waiting for the close is
+// worth doing, and waiting forever on a socket that never reports one is not.
+const CLOSE_ACK_TIMEOUT_MS = 2000;
+
+/** Resolvers waiting for a dropped socket's close event. */
+/** @type {(() => void)[]} */
+let closeWaiters = [];
+
+/** Release everything waiting on a close. */
+function notifyClosed() {
+  const waiting = closeWaiters;
+  closeWaiters = [];
+  for (const resolve of waiting) resolve();
+}
+
+/**
+ * Stop the PTY WebSocket connection.
+ *
+ * This is also the teardown half of a view flip: the session key survives it
+ * (see {@link getCurrentSessionId}), so nothing here touches the pointer.
+ *
+ * The socket is dropped synchronously, as it always was — callers that do not
+ * care may ignore the return value.
+ *
+ * @returns {Promise<void>} Settles when the dropped socket's close event has
+ *   fired, at once when there was nothing open to drop, and after a short
+ *   timeout when the close never arrives; never rejects.
+ */
+export function stopTerminal() {
+  const socket = wsConnection?.ws;
+  // Registered before the drop, because a close can be reported synchronously.
+  const closed = socket && socket.readyState !== WebSocket.CLOSED
+    ? /** @type {Promise<void>} */ (new Promise((resolve) => {
+      const timer = setTimeout(resolve, CLOSE_ACK_TIMEOUT_MS);
+      closeWaiters.push(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    }))
+    : Promise.resolve();
+
+  dropConnection();
+  hideHandoffOverlay();
+  return closed;
+}
+
+/**
+ * Whether this page is currently showing the Simple view. The server stamps
+ * the mode on `<html>` and app.js flips it live, so this is the one question
+ * every "may the terminal act on its own here?" decision asks.
+ * @returns {boolean}
+ */
+function isSimpleView() {
+  return document.documentElement.getAttribute('data-ui-mode') === 'simple';
 }
 
 /**
@@ -595,10 +737,15 @@ export function switchSession(sessionId) {
 }
 
 /**
- * Get the current Claude Code session ID.
+ * The session key this card is on. Tearing the socket down no longer forgets
+ * it: a view flip stops this terminal so the other surface can take the
+ * session over, and the key has to outlive the process that was serving it.
+ * Falls back to the stored pointer for the window between page load and the
+ * first connect, where the chat may ask before any confirmation has arrived.
+ * @returns {string|null}
  */
 export function getCurrentSessionId() {
-  return currentSessionId;
+  return currentSessionId ?? loadStoredSessionId();
 }
 
 /**

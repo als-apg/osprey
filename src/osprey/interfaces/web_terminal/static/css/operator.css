@@ -96,6 +96,116 @@ html[data-ui-mode="simple"] #operator-container {
   opacity: 0.7;
 }
 
+/* Starts a conversation on a new session key. Pinned to the bar's right edge
+   (`margin-left: auto`) and quiet at rest — it is the one destructive-looking
+   control in the console's chrome, and the log below is where the operator's
+   attention belongs. */
+.op-session-new {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: all var(--wt-transition-fast);
+}
+
+.op-session-new:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--border-accent);
+}
+
+.op-session-new:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* ---- Session hand-off overlay ---- */
+
+/* Shown while the session is being handed over from the Expert view, and
+   where a refused hand-off says why. Covers the whole console — including the
+   input row, which takes nothing while the session is still the other view's
+   — and sits above the streaming edge (z-index 3 on .operator-container::after). */
+.op-handoff {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  box-sizing: border-box;
+  background: var(--overlay-black-70);
+}
+
+/* Spelled out because the rule above sets `display` for the UA default to
+   lose against. */
+.op-handoff[hidden] {
+  display: none;
+}
+
+.op-handoff-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: 320px;
+  padding: var(--space-4);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-dialog);
+  text-align: center;
+}
+
+.op-handoff-message {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--text-secondary);
+}
+
+/* The elapsed wait. Tabular figures so a ticking counter does not reflow the
+   line it sits in. */
+.op-handoff-elapsed {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.op-handoff-action {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-primary);
+  background: var(--accent-tint-08);
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-sm);
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: all var(--wt-transition-fast);
+}
+
+.op-handoff-action:hover:not(:disabled) {
+  background: var(--accent-tint-12);
+  border-color: var(--color-accent);
+}
+
+.op-handoff-action:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+/* A refusal with nothing to retry states the fact alone. */
+.op-handoff-action[hidden] {
+  display: none;
+}
+
 /* ---- Messages area (log console) ---- */
 
 .op-messages {

@@ -41,6 +41,17 @@
  */
 
 /**
+ * One conversation turn as served by `GET /api/session-chat` (see
+ * workspace/transcript_reader.py `read_chat_history`, which emits text turns
+ * only — tool calls and their results never appear).
+ *
+ * @typedef {object} ChatTurn
+ * @property {string} role - `user` or `assistant`
+ * @property {string} content - the turn's text; markdown for an agent turn
+ * @property {string} [timestamp] - transcript timestamp; not rendered here
+ */
+
+/**
  * @returns {{ DOMPurify: any, hljs: any }} the vendored sanitiser/highlighter
  *   globals, each possibly `undefined`. (`marked` is reached via
  *   {@link chatMarkedParse}, which isolates chat from the shared singleton.)
@@ -433,6 +444,11 @@ export function buildActivityLine(label) {
  * @typedef {object} ChatRenderer
  * @property {(text: string) => HTMLElement} addUserMessage - append an
  *   operator entry and return it
+ * @property {(markdown: string) => HTMLElement} addAgentMessage - append a
+ *   finished agent entry rendered from markdown and return it
+ * @property {(turns: ChatTurn[] | null | undefined) => number} replay - render
+ *   prior conversation turns, leaving the session-reset divider state
+ *   untouched; returns the number of entries rendered
  * @property {(event: ChatEvent) => void} handleEvent - dispatch one SSE event
  * @property {() => void} reset - clear the list and all per-conversation state
  * @property {() => number} messageCount - rendered message entries so far
@@ -542,6 +558,54 @@ export function createChatRenderer(container) {
     return entry;
   }
 
+  /**
+   * Append a finished agent entry rendered from `markdown` in one go — the
+   * whole-message counterpart to the streamed {@link appendAgentText} path,
+   * and through the same sanitising {@link renderMarkdownInto} boundary. Any
+   * in-progress stream is abandoned, so the next `text` event opens a fresh
+   * entry.
+   * @param {string} markdown
+   * @returns {HTMLElement}
+   */
+  function addAgentMessage(markdown) {
+    clearActivity();
+    agentBody = null;
+    agentText = '';
+    const { entry, body } = buildAgentEntry();
+    renderMarkdownInto(body, markdown);
+    count += 1;
+    hasPriorExchange = true;
+    append(entry);
+    return entry;
+  }
+
+  /**
+   * Render prior conversation turns into the log, oldest first.
+   *
+   * Replayed turns are the same conversation continued in another window, not
+   * a completed exchange in this one, so the divider bookkeeping is restored
+   * afterwards: the next stream's frame-0 `session_reset` still draws no
+   * divider above replayed history. Entries are appended — a caller wanting a
+   * clean log calls {@link reset} first.
+   *
+   * @param {ChatTurn[] | null | undefined} turns - as served by
+   *   `GET /api/session-chat`; a missing list renders nothing
+   * @returns {number} entries rendered; a turn with no content is skipped
+   */
+  function replay(turns) {
+    const priorExchange = hasPriorExchange;
+    let rendered = 0;
+    for (const turn of turns ?? []) {
+      const content = turn?.content ?? '';
+      if (!content) continue;
+      if ((turn.role ?? '').toLowerCase() === 'user') addUserMessage(content);
+      else addAgentMessage(content);
+      rendered += 1;
+    }
+    hasPriorExchange = priorExchange;
+    return rendered;
+  }
+
   /** @param {ChatEvent} event */
   function handleEvent(event) {
     switch (event.type) {
@@ -601,6 +665,8 @@ export function createChatRenderer(container) {
 
   return {
     addUserMessage,
+    addAgentMessage,
+    replay,
     handleEvent,
     reset,
     messageCount: () => count,

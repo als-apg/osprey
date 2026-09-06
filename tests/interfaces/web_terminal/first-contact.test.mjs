@@ -36,6 +36,12 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () 
   onSessionChange: (fn) => term.listeners.push(fn),
   pasteToTerminal: term.paste,
   focusTerminal: term.focus,
+  // The Simple console tells the panels which session they are on when it
+  // binds in simple mode. Stubbed rather than omitted: a missing export on a
+  // mock throws at the point of use, so leaving it out would make the first
+  // test that mounts the console under data-ui-mode="simple" fail on the mock
+  // rather than on what it is asserting.
+  notifySessionChange: vi.fn(),
 }));
 
 /** Mutable stand-in for the control-target chip, which owns the machine kind. */
@@ -59,7 +65,12 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/control-target-ch
 const transport = vi.hoisted(() => ({
   sendPrompt: vi.fn(() => ({ abort: vi.fn() })),
   interrupt: vi.fn(),
-  deleteChat: vi.fn(),
+  // The console replays the session pointer's transcript when it binds and
+  // negotiates the hand-off when it is entered from the Expert view. Neither
+  // is reached by the mounts below, but both are named imports: see the note
+  // on notifySessionChange above.
+  fetchHistory: vi.fn(() => Promise.resolve([])),
+  requestHandoff: vi.fn(),
 }));
 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js', () => transport);

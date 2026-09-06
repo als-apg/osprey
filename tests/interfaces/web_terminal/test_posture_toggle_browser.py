@@ -47,6 +47,10 @@ no session discovery involved. The id the card settled on is then read back
 from ``localStorage['osprey-pty-session']``, which ``terminal.js`` writes on
 that same frame. The PTY command is a long-lived ``sleep`` because the route
 appends ``--session-id``/``--resume`` arguments that ``echo`` would choke on.
+In the Simple view the terminal deliberately does not connect — the console
+holds that view's session — so the id on the pointer is one the console minted
+and no process is running under it yet. Both are ordinary states of the same
+one key, and the chip speaks for it either way.
 
 Two more facts have to be true before any toggle in the popover can move, and
 both are arranged in :func:`_settled_chip`:
@@ -55,12 +59,15 @@ both are arranged in :func:`_settled_chip`:
   (the same seam ``test_posture_routes.py`` uses): "this session exists on
   disk" is otherwise only true after a real model turn has written a
   ``.jsonl``, and it is exactly the distinction case (e) turns on.
-* a controls-server state record is published for the PTY's own pid. Without
-  one the route answers ``enforceable: false`` — a PTY that resolves no record
-  is a session whose toggles would govern nothing — and every toggle in the
-  popover is locked. The record is written *after* the page has settled,
-  because it is addressed to a pid only the running PTY can supply; the chip
-  picks it up on its 5 s idle poll.
+* a controls-server state record is published for the pid of whatever process
+  holds the session (:func:`_holder_pid`). Without one a PTY session answers
+  ``enforceable: false`` — a PTY that resolves no record is a session whose
+  toggles would govern nothing — and every toggle in the popover is locked.
+  The record is written *after* the page has settled, because it is addressed
+  to a pid only the running process can supply; the chip picks it up on its
+  5 s idle poll. A key no process holds is enforceable without one: the route
+  withholds enforceability from an unmatched PTY, not from a session that has
+  yet to start.
 
 The agent-data root is stamped with ``OSPREY_AGENT_DATA_ROOT``, which is the
 one seam ``target_state`` and ``session_store`` both prefer — patching
@@ -421,6 +428,29 @@ def _pty_pid(app: Any, session_id: str) -> int:
     return pid
 
 
+def _holder_pid(app: Any, session_id: str) -> int | None:
+    """The pid of whatever process holds this session, or ``None`` for none.
+
+    A session key names one conversation and at most one live process, but
+    which process depends on the view holding it: a PTY in the Expert view, the
+    chat pool's SDK child in the Simple view. A controls-server record is
+    addressed to a process — the resolver walks its ancestry looking for the
+    session's own — so it has to be addressed to whichever one is really there.
+
+    ``None`` is an ordinary answer, not a failure: a tab pointed at a key whose
+    agent has not been started holds no process at all, and the route reads
+    that state the same way — enforceability is only ever withheld from a *PTY*
+    session that resolves no record, so a key with no PTY needs none.
+    """
+    pty = app.state.pty_registry.get_session(session_id)
+    if pty is not None:
+        pid = pty.pid
+        assert isinstance(pid, int) and pid > 0, f"the PTY reported no usable pid: {pid!r}"
+        return pid
+    chat = app.state.operator_registry.get_chat_session(session_id)
+    return chat.pid if chat is not None else None
+
+
 #: Seeded into every page before load: marks the onboarding tour as already
 #: dismissed. Under the default `once` policy the invite card (scrim + modal)
 #: would otherwise overlay the shell on the fresh profile these tests run
@@ -449,24 +479,30 @@ def _settled_chip(
     base_url: str,
     app: Any,
     known_ids: set[str],
-) -> tuple[Page, str, int]:
+) -> tuple[Page, str, int | None]:
     """Open the hub and wait until the chip speaks for an enforceable session.
 
-    A visible chip already means the whole chain ran: the terminal connected,
-    the route confirmed a session id, and ``GET /api/terminal/posture``
-    answered for it (the chip stays hidden until a read succeeds). Chip
-    visibility is what badge visibility used to be — the "this session has
-    settled" signal every test here starts from.
+    A visible chip already means the whole chain ran: the view took a session
+    id (the terminal socket's confirmation in the Expert view, the console's
+    own pointer in the Simple one) and ``GET /api/terminal/posture`` answered
+    for it — the chip stays hidden until a read succeeds. Chip visibility is
+    what badge visibility used to be — the "this session has settled" signal
+    every test here starts from.
 
     Two things are then arranged that only a settled session can supply: the id
     is added to the discovery set (POST refuses an id that names no session
-    file), and a controls-server record is published against the PTY's pid.
-    ``data-enforceable="true"`` is the observable proof both landed — until the
-    record resolves, the route says the toggles would govern nothing and the
-    popover locks every one of them.
+    file), and a controls-server record is published against the process
+    holding the session — the PTY in the Expert view, the chat child in the
+    Simple view (:func:`_holder_pid`). A key held by neither gets no record,
+    because none would resolve for it and none is asked for: only a PTY
+    session that resolves no record is refused enforceability.
+    ``data-enforceable="true"`` is the observable proof the arrangement landed
+    — while the route says the toggles would govern nothing, the popover locks
+    every one of them.
 
     Returns:
-        (page, session_id, pty_pid).
+        (page, session_id, holder_pid) — the pid is ``None`` when no process
+        holds the session yet.
     """
     page = browser.new_page()
     page.add_init_script(_DISMISS_TOUR)
@@ -478,11 +514,12 @@ def _settled_chip(
     assert session_id, "the terminal card never settled on a session id"
 
     known_ids.add(session_id)
-    pty_pid = _pty_pid(app, session_id)
-    _publish_record(owner_ppid=pty_pid)
+    holder_pid = _holder_pid(app, session_id)
+    if holder_pid is not None:
+        _publish_record(owner_ppid=holder_pid)
 
     expect(page.locator(CHIP)).to_have_attribute("data-enforceable", "true", timeout=TIMEOUT)
-    return page, session_id, pty_pid
+    return page, session_id, holder_pid
 
 
 def _open_popover(page: Page) -> None:
