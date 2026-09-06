@@ -65,7 +65,7 @@ async def _capture_user_message(monkeypatch, prompt: str, seam: list[dict], run_
     monkeypatch.setattr(dispatch_api, "_run_input_seam", {run_id: seam})
     captured: dict = {}
 
-    async def fake_query(options, project_dir, prompt):  # noqa: A002 - matches SDK signature
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: A002 - matches SDK signature
         messages = []
         async for m in prompt:
             messages.append(m)
@@ -286,7 +286,7 @@ def test_prompt_stream_no_run_id_leaves_content_plain(monkeypatch):
     """A run without a run_id has no seam — content is the untouched prompt."""
     captured: dict = {}
 
-    async def fake_query(options, project_dir, prompt):  # noqa: A002
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: A002
         async for m in prompt:
             captured.setdefault("messages", []).append(m)
         yield AssistantMessage(content=[TextBlock(text="ok")], model="m")

@@ -117,7 +117,7 @@ def _result_message(cost_usd: float, num_turns: int) -> ResultMessage:
 
 @pytest.mark.asyncio
 async def test_run_dispatch_increments_per_tool_use(monkeypatch, _stub_osprey_helpers):
-    async def fake_query(options, project_dir, prompt):
+    async def fake_query(options, project_dir, prompt, **_kw):
         yield AssistantMessage(
             content=[
                 ToolUseBlock(id="t1", name="Read", input={}),
@@ -145,7 +145,7 @@ async def test_run_dispatch_counts_beyond_retained_cap(monkeypatch, _stub_osprey
     """num_tool_calls stays truthful past the retained tool_calls cap."""
     monkeypatch.setattr(sdk_runner, "_MAX_TOOL_CALLS", 2)
 
-    async def fake_query(options, project_dir, prompt):
+    async def fake_query(options, project_dir, prompt, **_kw):
         for i in range(5):
             yield AssistantMessage(
                 content=[ToolUseBlock(id=f"t{i}", name="Read", input={})], model="m"
@@ -165,7 +165,7 @@ async def test_run_dispatch_counts_beyond_retained_cap(monkeypatch, _stub_osprey
 
 @pytest.mark.asyncio
 async def test_run_dispatch_without_run_id_creates_no_entry(monkeypatch, _stub_osprey_helpers):
-    async def fake_query(options, project_dir, prompt):
+    async def fake_query(options, project_dir, prompt, **_kw):
         yield AssistantMessage(content=[ToolUseBlock(id="t1", name="Read", input={})], model="m")
         yield _result_message(cost_usd=0.1, num_turns=1)
 
