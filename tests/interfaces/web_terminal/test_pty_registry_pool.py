@@ -10,6 +10,11 @@ from unittest.mock import MagicMock, patch
 
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 
+#: Stand-in for a consumer's attachment token. Attachment is owned by a token,
+#: not by a key, so every attach/detach in these tests names one; the
+#: ownership rules themselves are covered in ``test_pty_attach_owner.py``.
+OWNER = object()
+
 
 def _mock_session(alive: bool = True) -> MagicMock:
     """Create a mock PtySession with configurable is_alive."""
@@ -97,7 +102,7 @@ class TestPtyRegistryPool:
         s2 = _mock_session()
         registry._sessions["a"] = s1
         registry._sessions["b"] = s2
-        registry.attach_session("a")  # protect s1
+        registry.attach_session("a", OWNER)  # protect s1
 
         with patch.object(registry, "_spawn_session") as mock_spawn:
             s3 = _mock_session()
@@ -116,9 +121,9 @@ class TestPtyRegistryPool:
         registry = PtyRegistry(max_background=3)
         s = _mock_session()
         registry._sessions["x"] = s
-        registry.attach_session("x")
+        registry.attach_session("x", OWNER)
 
-        registry.detach_session("x")
+        registry.detach_session("x", OWNER)
 
         s.terminate.assert_not_called()
         assert "x" not in registry._attached
@@ -129,7 +134,7 @@ class TestPtyRegistryPool:
         registry = PtyRegistry(max_background=3)
         s = _mock_session()
         registry._sessions["temp-key"] = s
-        registry.attach_session("temp-key")
+        registry.attach_session("temp-key", OWNER)
 
         registry.rekey_session("temp-key", "real-uuid")
 
@@ -154,7 +159,7 @@ class TestPtyRegistryPool:
         registry._sessions["a"] = s1
         registry._sessions["b"] = s2
         registry._sessions["c"] = s3
-        registry.attach_session("a")
+        registry.attach_session("a", OWNER)
 
         registry.cleanup_all()
 
@@ -165,23 +170,23 @@ class TestPtyRegistryPool:
         assert len(registry._attached) == 0
 
     def test_attach_returns_false_if_already_attached(self):
-        """attach_session rejects double-attach (prevents concurrent fd reads)."""
+        """attach_session rejects a second attach, whichever token asks."""
         registry = PtyRegistry(max_background=3)
         s = _mock_session()
         registry._sessions["x"] = s
 
-        assert registry.attach_session("x") is True
-        assert registry.attach_session("x") is False
+        assert registry.attach_session("x", OWNER) is True
+        assert registry.attach_session("x", object()) is False
 
     def test_attach_returns_false_if_not_in_pool(self):
         """attach_session returns False for unknown session keys."""
         registry = PtyRegistry(max_background=3)
-        assert registry.attach_session("unknown") is False
+        assert registry.attach_session("unknown", OWNER) is False
 
     def test_detach_noop_for_unknown_key(self):
         """detach_session is safe to call with unknown keys."""
         registry = PtyRegistry(max_background=3)
-        registry.detach_session("nonexistent")  # should not raise
+        registry.detach_session("nonexistent", OWNER)  # should not raise
 
     def test_lru_ordering_after_reuse(self):
         """Reusing a session LRU-bumps it (moves to end)."""
