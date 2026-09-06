@@ -74,9 +74,11 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
     Args:
         profile_file: An existing profile file — a repo's ``profile.yml`` or a
             persona delta.
-        drift: ``error`` refuses a profile that differs from its preset in a
-            place no marker comment claims; ``warn`` prints those places and
-            passes.
+        drift: ``error`` refuses a profile that differs STRUCTURALLY from its
+            preset in a place no marker comment claims — a key, block or list
+            member one document has and the other has not; ``warn`` prints
+            those places and passes. A value difference on a key both carry is
+            printed either way and refuses under neither.
 
     Raises:
         click.UsageError: With every accumulated problem, so the caller exits 2.
@@ -152,11 +154,16 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
 
     # A materialized profile against the preset it was written from. Only a
     # profile `osprey init` stamped has a preset to be compared with; a
-    # hand-written one has nothing to drift from. The findings refuse by
-    # default because the failure they name is the silent kind — a line the
-    # preset gained and this copy never did builds green forever — while a
-    # facility fact is claimed once, with a marker comment, and never asked
-    # about again.
+    # hand-written one has nothing to drift from.
+    #
+    # Only the STRUCTURAL findings refuse, because only they name the silent
+    # kind of failure — a key, a block or a member the preset gained and this
+    # copy never did builds green forever, and nothing says so. A value
+    # difference on a key both documents carry is the operator doing what the
+    # emitted profile invites, so it is printed and never refused; the cost of
+    # that ruling is that a preset changing a default in a newer OSPREY arrives
+    # as a note. Either way a facility fact is claimed once, with a marker
+    # comment, and never asked about again.
     if build_profile.provenance is not None:
         try:
             report_card = preset_drift_report(profile_file, build_profile.provenance)
@@ -166,19 +173,21 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
             note(report_card.note)
         for stale in report_card.stale_markers:
             note(f"⚠ {stale}")
-        unmarked = report_card.unmarked
-        if unmarked and drift == "error":
+        for finding in report_card.notes:
+            note(f"⚠ preset drift: {finding.render()}")
+        refusals = report_card.refusals
+        if refusals and drift == "error":
             tag = build_profile.provenance.deviation_marker
             raise click.UsageError(
-                f"Profile differs from preset {report_card.preset} in {len(unmarked)} "
+                f"Profile differs from preset {report_card.preset} in {len(refusals)} "
                 f"place(s) no marker claims:\n  - "
-                + "\n  - ".join(finding.render() for finding in unmarked)
+                + "\n  - ".join(finding.render() for finding in refusals)
                 + f"\nA deliberate difference is marked with a `# {tag}: <why>` comment "
                 f"within {MARKER_REACH} lines above its line, or one naming the key or "
                 f"member when the profile has no line for it. `--drift=warn` reports "
                 f"without refusing."
             )
-        for finding in unmarked:
+        for finding in refusals:
             note(f"⚠ preset drift: {finding.render()}")
 
     # Before the verdict, and worded as `osprey build` words it: the reader has
@@ -213,7 +222,10 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
     type=click.Choice(["error", "warn"]),
     default="error",
     show_default=True,
-    help="What an unmarked difference from the profile's preset does: refuse, or warn.",
+    help=(
+        "What an unmarked structural difference from the profile's preset does: "
+        "refuse, or warn. A value difference is always reported."
+    ),
 )
 @repo_option
 def validate(target: Path | None, drift: str, repo: Path | None) -> None:
@@ -229,9 +241,10 @@ def validate(target: Path | None, drift: str, repo: Path | None) -> None:
     Every problem found is reported, not just the first.
 
     A profile `osprey init` wrote is also compared with the preset it came from,
-    persona deltas included. Every difference is refused unless a marker comment
-    (`# DEVIATION: <why>`, tag set by provenance.deviation_marker) claims it;
-    --drift=warn reports them and passes.
+    persona deltas included. A key, block or list member one of them has and the
+    other has not is refused unless a marker comment (`# DEVIATION: <why>`, tag
+    set by provenance.deviation_marker) claims it; --drift=warn reports those
+    and passes. A key both carry with different values is always just reported.
 
     Judges what this host builds: when .env.variant selects an overlay under
     profiles/, that overlay is merged in first, and named in the output.

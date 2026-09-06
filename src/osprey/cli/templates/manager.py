@@ -159,12 +159,12 @@ class TemplateManager:
         self,
         project_name: str,
         output_dir: Path,
-        data_bundle: str = "control_assistant",
+        data_root: Path,
+        data_bundle: str,
         context: dict[str, Any] | None = None,
         force: bool = False,
         artifacts: dict[str, list[str]] | None = None,
         tier: int | None = None,
-        data_root: Path | None = None,
     ) -> Path:
         """Create complete project from template.
 
@@ -178,7 +178,18 @@ class TemplateManager:
         Args:
             project_name: Name of the project (e.g., "my-assistant")
             output_dir: Parent directory where project will be created
-            data_bundle: Data bundle (app template) to use (default: "control_assistant")
+            data_root: Facility data tree to copy, already resolved by
+                ``BuildProfile.resolved_data_root``. Copied verbatim, with no
+                Jinja rendering. Required: every profile declares ``data:``
+                and there is no packaged tree to fall back to, so a render
+                without one would produce a project with no data at all.
+            data_bundle: Data bundle — the ``apps/`` directory this render
+                takes its artifact defaults from, along with the optional
+                ``services/`` and ``machine_data/`` trees a bundle may ship.
+                Required, with no fallback: which bundle a build renders is
+                settled once, from the profile's preset lineage, by
+                ``_render_project``. Not the source of the project's ``data/``:
+                that is *data_root*.
             context: Additional template context variables
             force: If True, skip existence check (used when caller already handled deletion)
             artifacts: Profile-driven artifact selection (hooks, rules, skills, agents, etc.)
@@ -188,10 +199,6 @@ class TemplateManager:
                 ``BuildProfile.resolved_tier``. An explicit tier is honored but
                 validated against the paradigm, so a tier/mode mismatch raises a
                 legible rule error instead of an opaque FileNotFoundError.
-            data_root: Facility data tree to copy instead of the bundle's
-                ``apps/<data_bundle>/data/``, already resolved by
-                ``BuildProfile.resolved_data_root``. A full replacement copied
-                verbatim (no Jinja rendering); ``None`` keeps the bundle tree.
 
         Returns:
             Path to created project directory
@@ -238,36 +245,25 @@ class TemplateManager:
             self.template_root,
             self.jinja_env,
             project_dir,
-            data_bundle,
             ctx,
         )
 
-        # 5. Copy services: bundle-level services/ dir takes priority, then
-        #    fall back to matching names from the top-level services/ dir.
-        #    Skipped for an attached project (deploy_services: false), which
-        #    scaffolds no services/ tree of its own — it connects to a stack
-        #    another OSPREY project deployed on the same host.
+        # 5. Copy a bundle-level services/ tree, if the bundle ships one.
+        #    The framework's own service templates are copied by the build
+        #    from the rendered config's `services.*` blocks instead
+        #    (build_injectors._copy_service_templates), so nothing here reads
+        #    what the project deploys. Skipped for an attached project
+        #    (deploy_services: false), which scaffolds no services/ tree of its
+        #    own — it connects to a stack another OSPREY project deployed on
+        #    the same host.
         if ctx.get("deploy_services", True):
             bundle_services_dir = bundle_dir / "services"
-            top_level_services_dir = self.template_root / "services"
             if bundle_services_dir.is_dir():
                 service_names = [d.name for d in bundle_services_dir.iterdir() if d.is_dir()]
                 if service_names:
                     scaffolding.copy_services_selective(
                         self.template_root, project_dir, service_names
                     )
-            elif top_level_services_dir.is_dir():
-                # Copy top-level services whose names match subdirs declared in bundle config
-                # (e.g., control_assistant's config.yml.j2 references postgresql)
-                available = [d.name for d in top_level_services_dir.iterdir() if d.is_dir()]
-                bundle_config = bundle_dir / "config.yml.j2"
-                if bundle_config.exists():
-                    config_text = bundle_config.read_text(encoding="utf-8")
-                    to_copy = [name for name in available if name in config_text]
-                    if to_copy:
-                        scaffolding.copy_services_selective(
-                            self.template_root, project_dir, to_copy
-                        )
 
         # 6. Copy data files from template (no src/ package), or from the
         # profile's own data tree when one was resolved. Either way this lands
@@ -462,42 +458,34 @@ class TemplateManager:
         project_name: str,
         project_dir: Path,
         output_path: Path,
-        data_bundle: str = "control_assistant",
         context: dict[str, Any] | None = None,
         artifacts: dict[str, list[str]] | None = None,
     ) -> None:
         """Render only the ``config.yml`` that :meth:`create_project` would.
 
-        Same template, same context — what the project says it deploys and
-        where, without the rest of the render. ``osprey build`` uses it to
-        read what an app template deploys at its defaults: the hosting
-        deployment an attached profile built alone is told about.
+        Same framework template, same context — the derived keys of a render,
+        before the profile's ``config:`` block is laid over them. ``osprey
+        build`` uses it to read the deploying shape of an attached profile
+        built alone: the hosting deployment such a profile is told about.
+
+        No data bundle is involved: the framework template is the only
+        ``config.yml.j2``, and the caller's *artifacts* is the whole artifact
+        selection (there is no bundle manifest to fall back to).
 
         Args:
             project_name: Name of the project the context is built for.
             project_dir: Where the project would render (``project_root``
                 in the context).
             output_path: Where the rendered ``config.yml`` is written.
-            data_bundle: Data bundle (app template) to render.
             context: Additional template context variables.
             artifacts: Profile-driven artifact selection, as for
                 :meth:`create_project`.
 
         Raises:
-            ValueError: If the data bundle does not exist or renders no
-                ``config.yml``.
+            ValueError: If the framework ships no ``config.yml.j2``.
         """
-        bundle_dir = self.template_root / "apps" / data_bundle
-        if not bundle_dir.is_dir():
-            raise ValueError(
-                f"Template '{data_bundle}' not found. "
-                f"Available templates: {', '.join(self.list_app_templates())}"
-            )
-        artifacts = self._effective_artifacts(data_bundle, artifacts)
-        ctx = self._project_context(project_name, project_dir, data_bundle, context, artifacts)
-        scaffolding.render_project_config(
-            self.template_root, self.jinja_env, output_path, data_bundle, ctx
-        )
+        ctx = self._project_context(project_name, project_dir, None, context, artifacts)
+        scaffolding.render_project_config(self.template_root, self.jinja_env, output_path, ctx)
 
     def _effective_artifacts(
         self, data_bundle: str, artifacts: dict[str, list[str]] | None
@@ -513,7 +501,7 @@ class TemplateManager:
         """
         if artifacts is not None:
             return artifacts
-        tmpl_manifest = manifest.load_template_manifest(self.template_root, data_bundle)
+        tmpl_manifest = manifest.load_template_manifest(data_bundle)
         if tmpl_manifest:
             return tmpl_manifest.get("artifacts", {})
         return None
@@ -522,16 +510,21 @@ class TemplateManager:
         self,
         project_name: str,
         project_dir: Path,
-        data_bundle: str,
+        data_bundle: str | None,
         context: dict[str, Any] | None,
         artifacts: dict[str, list[str]] | None,
     ) -> dict[str, Any]:
-        """The template context a project render of *data_bundle* is made with.
+        """The template context a project render is made with.
 
         The defaults every template may read, the caller's *context* over
         them, the ``osprey_ports`` table derived from whichever ``port_base``
         survives that merge, and the channel-finder flags derived from the
-        artifact selection.
+        artifact selection. *data_bundle* names the ``apps/`` directory whose
+        data tree the render copies (``None`` for a config-only render,
+        :meth:`render_config`, which copies nothing); no template reads the
+        bundle name any more, so it reaches no context key — what a rendered
+        project records about where it came from is the PRESET, which the
+        caller passes in *context*.
 
         Raises:
             BuildProfileError: If the channel-finder agent is selected with no
@@ -565,8 +558,12 @@ class TemplateManager:
             "project_root": str(project_dir.absolute()),
             "venv_path": "${LOCAL_PYTHON_VENV}",
             "current_python_env": current_python,  # Default; overridden by caller context
-            "template_name": data_bundle,  # Make bundle name available in config.yml
-            "data_bundle": data_bundle,
+            # The preset the built profile records, for the templates that print
+            # it. Defaulted to None — "this project is hand-written" — because a
+            # programmatic caller has no profile to record one; `osprey build`
+            # passes the profile's own answer in *context*, which overrides this
+            # on the merge below and matches what the manifest is stamped with.
+            "preset": None,
             "selected_hooks": selected_hooks,
             "selected_web_panels": selected_web_panels,
             # Enable-able builtin panel registry (single source of truth in
@@ -780,7 +777,7 @@ class TemplateManager:
         self,
         project_dir: Path,
         project_name: str,
-        data_bundle: str | None = None,
+        recorded_preset: str | None = None,
         context: dict[str, Any] | None = None,
         artifacts: dict[str, list[str]] | None = None,
         preset_name: str | None = None,
@@ -791,7 +788,10 @@ class TemplateManager:
         Args:
             project_dir: Root directory of the created project.
             project_name: Name of the project.
-            data_bundle: Underlying app bundle (default: "control_assistant").
+            recorded_preset: Preset the built profile records; ``None`` for a
+                hand-written profile that records none. Handed through
+                untouched — a default applied here would be indistinguishable,
+                to every later reader, from a preset the operator chose.
             context: Full context dict used during template rendering.
             artifacts: Profile-driven artifact selection.
             preset_name: Hyphenated preset name (if --preset was used).
@@ -800,8 +800,6 @@ class TemplateManager:
         Returns:
             Dictionary containing the manifest data that was written to file.
         """
-        if data_bundle is None:
-            data_bundle = "control_assistant"
         if context is None:
             context = {}
         return manifest.generate_manifest(
@@ -809,7 +807,7 @@ class TemplateManager:
             self.jinja_env,
             project_dir,
             project_name,
-            data_bundle,
+            recorded_preset,
             context,
             artifacts=artifacts,
             preset_name=preset_name,

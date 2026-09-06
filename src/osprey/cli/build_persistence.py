@@ -35,7 +35,16 @@ logger = get_logger("build")
 
 
 def _apply_config_overrides(project_path: Path, config_dict: dict[str, Any]) -> None:
-    """Apply dot-notation config overrides to the project's config.yml."""
+    """Apply dot-notation config overrides to the project's config.yml.
+
+    Whatever the profile's ``config:`` block says the render carries, and
+    nothing else. There is no longer a subtraction step here: a deployment that
+    wants no graph store deletes its ``services.graphdb.*`` keys and the
+    ``graphdb`` entry from ``deployed_services`` in ``profile.yml``, so the
+    store never enters the render in the first place. Undoing a template's
+    injection after the fact — what the bare ``services.graphdb:`` override
+    used to mean — has no injection left to undo.
+    """
     from osprey.utils.config_writer import config_update_fields
 
     config_path = project_path / "config.yml"
@@ -43,37 +52,6 @@ def _apply_config_overrides(project_path: Path, config_dict: dict[str, Any]) -> 
         logger.warning("config.yml not found at %s. Skipping the config overrides.", config_path)
         return
     config_update_fields(config_path, config_dict)
-    _finish_graphdb_removal(project_path, config_dict)
-
-
-def _finish_graphdb_removal(project_path: Path, config_dict: dict[str, Any]) -> None:
-    """Honor the bare ``services.graphdb:`` override as removal of the store.
-
-    A whole-block override replaces what the app template rendered, and the
-    bare key-with-no-value (YAML ``None``) replaces it with nothing — the
-    documented spelling for a deployment that wants no graph store. The write
-    above leaves a literal ``graphdb:`` null under ``services:``, which every
-    resolver already reads as "no store"; but the template also put
-    ``graphdb`` in ``deployed_services``, and that entry is what the
-    service-template copy and the compose render key off — the first crashed
-    on the null block, the second aborted on a service with no block. Removal
-    therefore has to be finished here: delete the null key, withdraw the
-    ``deployed_services`` entry, and drop the service-template directory the
-    base render copied in by name, so the render carries no trace of a store —
-    no compose fragment, and (through the ``graphdb_configured`` gate at the
-    Claude Code render) no ``graph`` MCP server.
-    """
-    from osprey.deployment.graphdb_service import GRAPHDB_SERVICE_NAME
-    from osprey.utils.config_writer import config_delete_field, config_remove_from_list
-
-    key = f"services.{GRAPHDB_SERVICE_NAME}"
-    if key not in config_dict or config_dict[key] is not None:
-        return
-    config_delete_field(project_path / "config.yml", key)
-    config_remove_from_list(
-        project_path / "config.yml", ["deployed_services"], GRAPHDB_SERVICE_NAME, prune_empty=False
-    )
-    shutil.rmtree(project_path / "services" / GRAPHDB_SERVICE_NAME, ignore_errors=True)
 
 
 @dataclass

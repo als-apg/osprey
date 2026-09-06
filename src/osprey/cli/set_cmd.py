@@ -32,6 +32,7 @@ from typing import Any
 import click
 
 from .output import note, report, warn
+from .profile_expand import RETIRED_TEMPLATE_KEY
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 from .styles import Styles
 
@@ -188,6 +189,15 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
         note(key)
 
     unrecognized = _unrecognized_top_level_keys(expanded)
+    # The retired app-template key is unknown for a REASON the generic advice
+    # gets wrong: prefixing it with `config.` writes a key nothing reads, and
+    # what the operator actually wants is the verb that fills the profile in.
+    # Its own message says so, and it is the same one the loader refuses with.
+    if RETIRED_TEMPLATE_KEY in unrecognized:
+        from .build_profile_load import _RETIRED_APP_TEMPLATE_REFUSAL
+
+        unrecognized.remove(RETIRED_TEMPLATE_KEY)
+        warn(f"Not a profile key: {RETIRED_TEMPLATE_KEY}", _RETIRED_APP_TEMPLATE_REFUSAL)
     if unrecognized:
         warn(
             f"Not a profile key: {', '.join(unrecognized)}",

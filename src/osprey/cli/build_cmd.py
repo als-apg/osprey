@@ -50,7 +50,7 @@ import click
 
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
 from osprey.errors import BuildProfileError
-from osprey.port_layout import resolve_port_base
+from osprey.profiles.providers import PROVIDERS_FILENAME, load_provider_catalog
 from osprey.utils.config_writer import (
     config_edit_session,
     flush_config_edits,
@@ -97,7 +97,6 @@ from .build_persistence import (
     _register_convention_artifacts,
     _resolve_context_roster,
 )
-from .build_profile_emit import effective_config_subtree
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 from .templates.manager import TemplateManager
 
@@ -1237,8 +1236,8 @@ class _SharedRenderInputs(NamedTuple):
     the ports it publishes, the panel URLs its injectors derived. ``None``
     until the deployment's render is done — it is the first render of every
     build — and ``None`` throughout a build whose profile is itself attached,
-    which has no host in this repo and is told the app template's defaults
-    instead (:func:`_template_host_config`).
+    which has no host in this repo and is told its own profile rendered as a
+    deployment instead (:func:`_template_host_config`).
     """
 
 
@@ -1372,8 +1371,8 @@ def _incomplete_limits_errors(render_dir: Path) -> list[str]:
     every write path fall back to refusing unlisted channels — a deployment
     whose limits posture quietly stopped doing what its author wrote.
     ``osprey validate`` catches the ones a ``config:`` block spelled; this
-    reads the config a deployment actually runs, so a block an injector or an
-    app template assembled is caught too.
+    reads the config a deployment actually runs, so a block an injector
+    assembled or a preset's ``config:`` wrote is caught too.
 
     Args:
         render_dir: The rendered project directory, read after the injectors.
@@ -1402,22 +1401,31 @@ def _template_host_config(
     context: Mapping[str, Any],
     artifacts: dict[str, list[str]] | None,
 ) -> dict[str, Any]:
-    """What the app template deploys at its defaults — the host an attached
-    profile built with no deployment in its repo is told about.
+    """What this profile's deployment publishes — the host an attached profile
+    built with no deployment in its repo is told about.
 
-    The template rendered AS a deployment (``deploy_services: true``) with
-    this render's own context, the profile's ``config:`` laid over it (the
-    same overlay the render itself gets, because a host that differs from
-    the template's defaults is named there), and then the service injectors
-    run over it exactly as for a deploying profile: an attached profile
-    inherits the blocks they read (``dispatch:``, ``bluesky_web:``, …) from
-    the deployment profile it extends, and what they derive — the EVENTS and
-    BLUESKY tab entries above all — is what a persona beside a real host is
-    told from that host's render. Rendered into a scratch directory the build
-    zone never sees — it is a reading, not a render.
+    The framework's ``config.yml`` template rendered AS a deployment
+    (``deploy_services: true``) with this render's own context, the profile's
+    ``config:`` laid over it — that overlay is where the deployment's services
+    are actually spelled, so it is what makes this reading the host's rather
+    than the framework's — and then the service injectors run over it exactly
+    as for a deploying profile: an attached profile inherits the blocks they
+    read (``dispatch:``, ``bluesky_web:``, …) from the deployment profile it
+    extends, and what they derive — the EVENTS and BLUESKY tab entries above
+    all — is what a persona beside a real host is told from that host's render.
+
+    The overlay carries the layout's ports for the service blocks the profile
+    deploys without naming one, exactly as the deploying build's own overlay
+    does, so a persona is told the ports its host actually publishes and not
+    the layout default of a base its host has moved off.
+
+    Rendered into a scratch directory the build zone never sees — it is a
+    reading, not a render.
     """
     import tempfile
     from dataclasses import replace
+
+    from .build_profile_ports import layout_port_fill
 
     with tempfile.TemporaryDirectory() as scratch:
         scratch_dir = Path(scratch)
@@ -1425,12 +1433,18 @@ def _template_host_config(
             project_name,
             render_dir,
             scratch_dir / "config.yml",
-            data_bundle=build_profile.data_bundle,
             context={**context, "deploy_services": True},
             artifacts=artifacts,
         )
-        if build_profile.config:
-            _apply_config_overrides(scratch_dir, build_profile.config)
+        # Fill-if-absent, under the profile's own entries: `layout_port_fill`
+        # skips every leaf the profile spells, so the two are disjoint and one
+        # pass applies both.
+        overlay = {
+            **layout_port_fill(build_profile.config, _profile_port_base(build_profile)),
+            **build_profile.config,
+        }
+        if overlay:
+            _apply_config_overrides(scratch_dir, overlay)
         # A view of the profile as the deployment it extends: the injectors
         # skip an attached profile wholesale, and this reading is of the host.
         _inject_services(replace(build_profile, deploy_services=True), profile_dir, scratch_dir)
@@ -1676,9 +1690,11 @@ def _render_project(
         write_project_manifest,
     )
 
+    from .build_posture_check import missing_posture_errors
     from .build_profile_archiver import va_archiver_config_overrides
     from .build_profile_deploy import deploy_config_overrides
     from .build_profile_panels import panel_selection_overrides
+    from .build_profile_ports import layout_port_fill
     from .build_profile_reach import (
         attached_render_overrides,
         reach_override_errors,
@@ -1699,6 +1715,22 @@ def _render_project(
     if build_profile.web_panels:
         artifacts["web_panels"] = list(build_profile.web_panels)
 
+    data_bundle = _profile_data_bundle(build_profile)
+    recorded_preset = _profile_preset(build_profile)
+    # The selection this render is actually made with, resolved ONCE. A profile
+    # that names no artifacts of its own (`artifacts == {}`) renders with the
+    # bundle's own declared selection, and the manifest has to record that same
+    # answer: the regen reads the manifest, and a manifest that recorded
+    # "nothing" for a render that wired hooks would regenerate a project with no
+    # hooks at all — which `_lint_write_tools_are_gated` then refuses. Resolving
+    # it here rather than letting each call resolve its own is what makes the
+    # two agree for a profile that records no preset, where there is no preset
+    # name for the manifest reader to re-resolve the selection from.
+    # `_effective_artifacts` rather than a public twin on purpose: this must be
+    # the very resolver `create_project` applies, not a second implementation of
+    # the same rule that can drift from it.
+    effective_artifacts = manager._effective_artifacts(data_bundle, artifacts or None)
+
     context = _repo_render_context(
         build_profile,
         repo_root=repo_root,
@@ -1708,13 +1740,31 @@ def _render_project(
         skip_deps=shared.skip_deps,
         runtime_interpreter=shared.runtime_interpreter,
     )
+    # `api.providers`, rendered verbatim from the catalog beside `profile.yml`.
+    # It is a file rather than a profile field because it is a list of
+    # endpoints, not a facility decision, and it is read here rather than
+    # carried in `shared` because a persona render reads the same repo root:
+    # a persona talks to its deployment's gateways, so the two render one
+    # catalog. A `config:` spelling of the same key is refused in
+    # `BuildProfile.validate`, so this is the only writer of the block.
+    context["provider_catalog"] = load_provider_catalog(repo_root).entries
+    # The preset the built profile records, for the templates that print it —
+    # the same value the manifest is stamped with below, and the same one the
+    # Claude Code regen reads back out of that stamp. Passing it here is what
+    # makes the initial render and the regen say the same thing about a
+    # project's provenance; without it the first render says "hand-written" for
+    # every project until the regen overwrites the file.
+    context["preset"] = recorded_preset
 
     # Prepared before the render (which prunes the tiers/ subtree the paradigm
     # databases live in) and written after it, so the decision is settled before
     # anything is written.
-    va_data_root = build_profile.resolved_data_root(repo_root) or (
-        manager.template_root / "apps" / build_profile.data_bundle / "data"
-    )
+    #
+    # The profile's own tree is the only one there is: `data:` is required of
+    # every profile file, so nothing falls back to a packaged bundle here and
+    # the manifest describes the facility's databases or the build refuses.
+    va_data_root = build_profile.resolved_data_root(repo_root)
+    assert va_data_root is not None  # `data:` required; narrows for type-checkers
     va_key = (str(va_data_root), build_profile.resolved_tier())
     if va_key not in shared.va_manifests:
         shared.va_manifests[va_key] = prepare_project_manifest(va_data_root, va_key[1])
@@ -1773,12 +1823,12 @@ def _render_project(
         manager.create_project(
             project_name=project_name,
             output_dir=output_dir,
-            data_bundle=build_profile.data_bundle,
+            data_bundle=data_bundle,
             context=context,
             force=True,
-            artifacts=artifacts or None,
+            artifacts=effective_artifacts,
             tier=pinned_tier,
-            data_root=build_profile.resolved_data_root(repo_root),
+            data_root=va_data_root,
         )
         progress("  ✓ Base template rendered")
 
@@ -1795,11 +1845,21 @@ def _render_project(
                 "Profile validation failed:\n  " + "\n  ".join(standin_duplicates)
             )
 
-        # What the deploy, va_archiver and virtual_accelerator blocks contribute to
-        # the rendered config, applied with the profile's own `config:` entries in
-        # one pass. Derived keys the profile also spells are rejected at validation,
-        # so winning here can never silently overwrite a facility's own value.
+        # What the deploy, va_archiver, virtual_accelerator and layout blocks
+        # contribute to the rendered config, applied with the profile's own
+        # `config:` entries in one pass. Derived keys the profile also spells are
+        # rejected at validation, so winning here can never silently overwrite a
+        # facility's own value.
+        #
+        # `layout` is the one exception, and it is the opposite rule: it is
+        # FILL-IF-ABSENT, not refuse-if-spelled. A host port is the facility's to
+        # move — `services.<name>.port` is the documented override — so the fill
+        # only supplies the layout's number for a service block the profile
+        # deploys and left without one, and a spelled port is skipped rather than
+        # refused. It is listed first so that a block below, which does own its
+        # keys, still wins if the two ever name one key.
         derived_by_block = {
+            "layout": layout_port_fill(build_profile.config, _profile_port_base(build_profile)),
             "deploy": deploy_config_overrides(build_profile.deploy, build_profile.config),
             "va_archiver": va_archiver_config_overrides(build_profile.va_archiver),
             # Reads the render because the stand-in's probe channel is the sandbox
@@ -1815,11 +1875,18 @@ def _render_project(
             key: value for block in derived_by_block.values() for key, value in block.items()
         }
         config_overrides = {**build_profile.config, **derived}
+        if not build_profile.deploy_services:
+            # An attached render deploys nothing of its own, so it states no
+            # services either — whatever the preset's `config:` says about the
+            # deploying shape. See _attached_service_overrides.
+            config_overrides = _attached_service_overrides(config_overrides)
         if config_overrides:
             _apply_config_overrides(render_dir, config_overrides)
             progress("  ✓ Applied %d config override(s)", len(config_overrides))
             for block, entries in derived_by_block.items():
                 for key, value in entries.items():
+                    if key not in config_overrides:
+                        continue
                     progress("      %s: %s (from the profile's %s block)", key, value, block)
 
         # What an attached render is told about the services its host deploys —
@@ -1835,10 +1902,11 @@ def _render_project(
                 host_config, told_by = shared.host_config, "the hosting deployment's render"
             else:
                 # Built alone, with no deployment in this repo: the profile extends
-                # a deployment of the same app template, so that template rendered
-                # AS a deployment is what the host says at the shipped defaults —
-                # and the profile's own `config:` is where a host that differs is
-                # named, so it is laid over those defaults first.
+                # a deployment spelled by the same `config:` block, so this profile
+                # rendered AS a deployment — the framework template's derived keys
+                # with the profile's own `config:` laid over them, and the layout's
+                # ports filled in for the service blocks it names — is what the
+                # host says.
                 host_config = _template_host_config(
                     shared,
                     build_profile,
@@ -1846,9 +1914,9 @@ def _render_project(
                     render_dir=render_dir,
                     profile_dir=repo_root,
                     context=context,
-                    artifacts=artifacts or None,
+                    artifacts=effective_artifacts,
                 )
-                told_by = "the app template's defaults"
+                told_by = "the profile's own config rendered as a deployment"
             projected = attached_render_overrides(
                 host_config,
                 _rendered_config(render_dir),
@@ -1907,7 +1975,7 @@ def _render_project(
         # The ground truth every client loads is the rendered config, so this is
         # where a consumer switched on with nothing to dial is refused — for a
         # deployment that dropped a block its modules still use, and for an
-        # attached render that was told nothing (a host, or an app template, that
+        # attached render that was told nothing (a host, or a profile, that
         # deploys no such service) alike. AFTER the injectors: a deploying profile
         # that pins only `web.panels.events.path` has its `url` written by the
         # dispatch injector, and refusing before that would name a key the build
@@ -1917,6 +1985,11 @@ def _render_project(
             *_resolve_rendered_execution_method(render_dir),
             *reach_errors(_rendered_config(render_dir), repo_root=repo_root),
             *_incomplete_limits_errors(render_dir),
+            # The posture floor, for the third time the same reason: with the
+            # app templates gone, a key the profile does not state is not a
+            # template default any more — it is silence, and each of these six
+            # has a reader that answers something regardless.
+            *missing_posture_errors(_rendered_config(render_dir), build_profile.hooks),
         ]
         if unrunnable:
             raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(unrunnable))
@@ -2006,9 +2079,9 @@ def _render_project(
     manager.generate_manifest(
         project_dir=render_dir,
         project_name=project_name,
-        data_bundle=build_profile.data_bundle,
+        recorded_preset=recorded_preset,
         context=manifest_context,
-        artifacts=artifacts or None,
+        artifacts=effective_artifacts,
         profile_path=str(profile_path),
     )
     _stamp_repo_manifest(render_dir, repo_root, profile_path, key_digests=deployment)
@@ -2902,12 +2975,28 @@ def _build_repo(
             *web_warnings,
             *bar_items_selection_warnings(build_profile.config, build_profile.web_panels),
         ]
+        # The catalog is what `provider:` may name: the build renders its
+        # entries into `api.providers`, so a name absent from it reaches a
+        # block with no endpoint behind it. Resolved here, before the render,
+        # because the fix is an edit to a file the operator holds.
+        catalog = load_provider_catalog(repo_root)
+        catalog_named = (
+            PROVIDERS_FILENAME if catalog.source == "repo" else f"the packaged {PROVIDERS_FILENAME}"
+        )
+        catalog_names = ", ".join(sorted(catalog.entries))
         if not build_profile.provider:
             raise click.UsageError(
-                f"{PROFILE_FILENAME} names no provider. Add `provider: "
-                "<als-apg|cborg|anthropic|amsc-i2|argo>` — or any custom "
-                "provider you declare under `config:` api.providers — or run "
-                "`osprey set provider=<...>`."
+                f"{PROFILE_FILENAME} names no provider. Add `provider: <name>` naming "
+                f"one of {catalog_names}, or run `osprey set provider=<name>`. Those "
+                f"are the entries of {catalog_named}; add your own there for a gateway "
+                "it does not list."
+            )
+        if build_profile.provider not in catalog.entries:
+            raise click.UsageError(
+                f"{PROFILE_FILENAME} names provider `{build_profile.provider}`, which "
+                f"{catalog_named} does not declare. Name one of {catalog_names}, or add "
+                f"`{build_profile.provider}` to {PROVIDERS_FILENAME} beside "
+                f"{PROFILE_FILENAME}."
             )
         _check_osprey_version_requirement(build_profile)
 
@@ -2920,7 +3009,7 @@ def _build_repo(
         from . import output
 
         output.note(
-            f"profile {build_profile.name} (bundle {build_profile.data_bundle}, "
+            f"profile {build_profile.name} (bundle {_profile_data_bundle(build_profile)}, "
             f"tier {build_profile.resolved_tier()})"
         )
         # Said out loud whenever a variant is in force: the same repo builds
@@ -2931,6 +3020,15 @@ def _build_repo(
                 f"host variant {variant.name} "
                 f"({VARIANT_DIRNAME}/{variant.name}.yml over {PROFILE_FILENAME})"
             )
+        # Which catalog `api.providers` is rendered from. Same altitude as the
+        # profile identity: the repo's own file and the packaged fallback
+        # answer to different edits, and only this line says which one the
+        # render read.
+        output.note(
+            f"provider catalog {PROVIDERS_FILENAME}"
+            if catalog.source == "repo"
+            else f"provider catalog packaged with OSPREY (no {PROVIDERS_FILENAME} here)"
+        )
 
         # Advisory lint findings — real exposures that are deliberately not
         # build-failing (a privileged terminal with no login wall — `auth.method:
@@ -2943,9 +3041,10 @@ def _build_repo(
 
         # The comparison the `provenance:` stamp promises: a note whenever the
         # preset has moved on since this profile was materialized, and — under
-        # `-v`, since a build is not the verb that refuses — the places the
-        # profile differs from it that no marker comment claims. `osprey
-        # validate` is where those become a refusal.
+        # `-v`, since a build is not the verb that refuses — every place the
+        # profile differs from it that no marker comment claims. Both kinds are
+        # printed together: a build reports what it sees, and the split between
+        # what refuses and what only reports belongs to `osprey validate`.
         if build_profile.provenance is not None:
             from .build_profile_drift import preset_drift_report
             from .phase_reporter import is_verbose
@@ -2956,8 +3055,8 @@ def _build_repo(
             if is_verbose() and drift.unmarked:
                 output.warn(
                     f"preset drift: {PROFILE_FILENAME} differs from preset {drift.preset} in "
-                    f"{len(drift.unmarked)} place(s) no marker claims (osprey validate refuses "
-                    f"these)",
+                    f"{len(drift.unmarked)} place(s) no marker claims, "
+                    f"{len(drift.refusals)} of which osprey validate refuses",
                     "\n".join(finding.render() for finding in drift.unmarked),
                 )
 
@@ -3295,17 +3394,91 @@ def _profile_setup_patch_capable(build_profile: Any) -> bool:
     return is_setup_patch_capable(persona_capability_document(overrides))
 
 
+def _profile_preset(build_profile: Any) -> str | None:
+    """The preset this profile records, or ``None`` for a hand-written one.
+
+    Two records can name that preset, and they are asked in this order:
+
+    1. ``provenance.preset`` — what ``osprey init`` materialized this profile
+       from. Every profile OSPREY emits carries it.
+    2. ``inherited_preset`` — the bundled preset the profile's ``extends:``
+       chain reached, stamped on by resolution. This is what answers for a
+       hand-written profile that says ``extends: hello-world`` and records no
+       ``provenance:`` block: the deep merge used to hand it the preset's
+       ``app_template:`` directly, and without this it would silently build on
+       the framework default instead of the preset it inherited.
+
+    One rule, asked in one place: the packaged trees the build copies and the
+    preset the project's manifest is stamped with must name the same preset, or
+    a reader of the manifest would be told a different story than the render
+    followed.
+
+    Args:
+        build_profile: The resolved profile being rendered.
+
+    Returns:
+        The recorded preset's name, or ``None`` when the profile records none.
+    """
+    provenance = getattr(build_profile, "provenance", None)
+    recorded = getattr(provenance, "preset", None)
+    if recorded is not None:
+        return recorded
+    return getattr(build_profile, "inherited_preset", None)
+
+
+def _profile_data_bundle(build_profile: Any) -> str:
+    """The packaged app bundle whose non-config trees this build copies.
+
+    The bundle names a directory under ``templates/apps/`` holding a ``data/``
+    tree, an optional ``services/`` tree and the per-user context baseline. It
+    is NOT a profile key: what a deployment configures is stated by its own
+    ``config:`` block, and the packaged tree its ``data/`` was seeded from is a
+    fact about the preset ``osprey init`` materialized. So it is read back from
+    the preset the profile records — see :func:`_profile_preset` for which
+    record answers — not from the profile's own keys.
+
+    Args:
+        build_profile: The resolved profile being rendered.
+
+    Returns:
+        The bundle the recorded preset names; the bundle the profile's
+        ``extends:`` chain reached when that record names a preset this
+        installation does not ship; the framework default for a profile with
+        neither — which is the value the loader used to default this to anyway.
+    """
+    from .build_profile_presets import _preset_exists, preset_data_bundle
+
+    named = getattr(getattr(build_profile, "provenance", None), "preset", None)
+    if named is not None and _preset_exists(named) is None:
+        # The profile names a preset this installation does not ship — renamed,
+        # removed, or from another OSPREY. The `extends:` chain still resolved,
+        # so the preset it reached answers instead: a profile that says
+        # `extends: hello-world` and records a stale provenance preset builds on
+        # the bundle it actually inherits rather than on the framework default.
+        # Either way, name the bundle the build ends up copying — it decides
+        # which packaged `services/` and `machine_data/` trees it takes.
+        bundle = preset_data_bundle(getattr(build_profile, "inherited_preset", None))
+        logger.warning(
+            "Profile provenance names preset %r, which this OSPREY does not ship. "
+            "Falling back to the %r data bundle for the packaged trees this build "
+            "copies. Re-materialize the profile from a preset this release carries, "
+            "or check the OSPREY version it was created with.",
+            named,
+            bundle,
+        )
+        return bundle
+    return preset_data_bundle(_profile_preset(build_profile))
+
+
 def _profile_port_base(build_profile: Any) -> int:
     """The first port of the block this profile's deployment publishes into.
 
-    The profile's ``config:`` is a flat bag of dotted keys, so the deployment
-    block is read through :func:`effective_config_subtree` — which folds
-    ``deployment:``, ``deployment.port_base`` and any nesting of the two into
-    one subtree in the right order — and then re-wrapped as
-    ``{"deployment": ...}`` for :func:`resolve_port_base`. The re-wrap is what
-    keeps the resolver on its single rendered-config-shaped input, so a base
-    that arrives through a profile is range-checked by exactly the same code
-    that checks one read from a rendered ``config.yml``.
+    The reading itself is
+    :func:`~osprey.cli.build_profile_load.config_port_base`, which the profile
+    parse runs too. One implementation on purpose: a base the parse and the
+    build could disagree about is a deployment published at one set of ports
+    and addressed at another. This is the build's way in, taking the resolved
+    profile rather than the merged document.
 
     Args:
         build_profile: The resolved profile being rendered.
@@ -3319,8 +3492,72 @@ def _profile_port_base(build_profile: Any) -> int:
             deployment at the default base, which would silently publish
             somewhere the author did not ask for.
     """
-    deployment = effective_config_subtree(build_profile.config, ("deployment",))
-    return resolve_port_base({"deployment": deployment})
+    from .build_profile_load import config_port_base
+
+    return config_port_base(build_profile.config)
+
+
+_ARIEL_SERVER_ENABLED_KEY = "claude_code.servers.ariel.enabled"
+"""The one ``config:`` leaf that overrides the ARIEL server's shipped default."""
+
+
+def _ariel_server_enabled(build_profile: Any) -> bool:
+    """Whether the ARIEL MCP server resolves enabled for *build_profile*.
+
+    The framework template gates two derived blocks on this —
+    ``logbook.composition.provider`` and the ARIEL semantic processor's
+    ``provider``/``model.model_id`` — because both configure a surface that
+    only exists when that server runs. Rendering them for a deployment with no
+    logbook would put a provider name against a module nothing loads.
+
+    The rule is the one :func:`osprey.registry.mcp.resolve_servers` applies to a
+    framework server: an explicit ``claude_code.servers.ariel.enabled`` boolean
+    wins, and with none the server's own ``default_enabled`` decides. It is
+    re-derived here rather than resolved, because ``resolve_servers`` wants the
+    RENDERED config — which is what this context is being built to produce.
+    ARIEL declares no ``condition``, so no third branch applies.
+
+    Two spellings that DISAGREE are refused rather than resolved. ``config:``
+    may write the leaf dotted, as a dotted prefix over a mapping, nested, or
+    any mix, and the two readers of this one fact walk those spellings in
+    opposite orders: :func:`~osprey.cli.build_profile_reach.spelled_values`
+    reports every split outermost-first, while
+    ``build_profile_model._config_lookup`` — which
+    :func:`osprey.registry.mcp.resolve_servers` ultimately reads through — takes
+    the longest dotted match at each step. A profile spelling the leaf twice
+    with different answers would gate this template one way and start the server
+    the other, so the build stops and names both lines instead of picking.
+
+    Args:
+        build_profile: The resolved profile being rendered.
+
+    Returns:
+        ``True`` when the render should carry the ARIEL-dependent blocks.
+
+    Raises:
+        BuildProfileError: If the profile spells
+            ``claude_code.servers.ariel.enabled`` more than once with
+            contradicting booleans.
+    """
+    from osprey.registry.mcp import FRAMEWORK_SERVERS
+
+    from .build_profile_reach import spelled_values
+
+    stated = [
+        (spelling, value)
+        for spelling, value in spelled_values(build_profile.config, _ARIEL_SERVER_ENABLED_KEY)
+        if isinstance(value, bool)
+    ]
+    if len({value for _spelling, value in stated}) > 1:
+        lines = ", ".join(f"{spelling}: {value!r}" for spelling, value in stated)
+        raise BuildProfileError(
+            f"{_ARIEL_SERVER_ENABLED_KEY} is spelled more than once with different "
+            f"answers ({lines}). One fact, one line — keep the spelling you mean and "
+            f"drop the other from profile.yml."
+        )
+    if stated:
+        return stated[0][1]
+    return FRAMEWORK_SERVERS["ariel"].default_enabled
 
 
 def _repo_render_context(
@@ -3360,6 +3597,9 @@ def _repo_render_context(
     project render, the persona renders and the reading of what the app
     template deploys at its defaults all take their ports from this value.
 
+    ``ariel_server_on`` is the flag the framework template gates its two
+    ARIEL-dependent blocks on; see :func:`_ariel_server_enabled`.
+
     Raises:
         ValueError: If the profile's ``deployment.port_base`` is out of range;
             see :func:`_profile_port_base`.
@@ -3396,6 +3636,7 @@ def _repo_render_context(
         context["panel_presets"] = build_profile.panel_presets
     if build_profile.claude_md_template:
         context["claude_md_template"] = build_profile.claude_md_template
+    context["ariel_server_on"] = _ariel_server_enabled(build_profile)
 
     python_env = build_profile.python_env or "project"
     if runtime_interpreter:
@@ -3425,14 +3666,80 @@ def _repo_render_context(
     return context
 
 
+def _attached_service_overrides(config_overrides: Mapping[str, Any]) -> dict[str, Any]:
+    """The override set an ATTACHED render applies, with the services stripped.
+
+    The other half of :func:`_inject_services`: what fills a deploying render's
+    ``services:``/``deployed_services:`` is the injectors, and what fills an
+    attached one's is nothing at all. An attached project
+    (``deploy_services: false``) deploys none of its own — it connects to the
+    stack another OSPREY deployment runs on the same host — and what it may
+    dial is copied in from that host's render afterwards, gated key by gated
+    key, by the Reach Contract (:func:`attached_render_overrides`).
+
+    What it says about the stack it CLAIMS TO DEPLOY therefore says nothing
+    true. A preset's ``config:`` spells ``services.*`` and
+    ``deployed_services`` because a preset describes the deploying shape; a
+    profile flips ``deploy_services`` independently of the preset it extends,
+    so the suppression belongs here on the override path rather than in a
+    template that cannot see the flip.
+
+    Carrying that through goes wrong in two ways. A non-empty
+    ``deployed_services`` is exactly what tells
+    :func:`osprey.deployment.reach.reach_errors` it is reading a DEPLOYING
+    render, so every consumer switched on for a service the preset's list
+    omits — the ones the injectors would have appended — is refused, on the
+    one render whose whole point is that it dials someone else's ports. And
+    each inherited ``services.<name>`` block is an address with nothing
+    published behind it.
+
+    So the drop is scoped to the claim: a ``services.<name>`` key goes only
+    when ``<name>`` is in the inherited ``deployed_services``. A block for a
+    service the profile never claims to run is the opposite statement — an
+    EXTERNAL endpoint the facility already operates, which is how an attached
+    render reaches a store its host does not deploy (``services.graphdb.uri``
+    beside its ``port_host``, the spelling ``reach_errors`` itself prescribes
+    when a consumer has nothing to dial). Dropping those would delete the only
+    answer to the refusal they prevent. The profile's spelling is not
+    unexamined either way: :func:`reach_override_errors` has already refused it
+    if it contradicts what the host's render projects.
+
+    The bare ``services`` key goes unconditionally: a whole-mapping override
+    restates the deploying shape wholesale, which is the statement an attached
+    render must not make.
+
+    Args:
+        config_overrides: The merged override set — the profile's ``config:``
+            under the derived blocks — as a deploying render would apply it.
+
+    Returns:
+        The same overrides without the claimed stack's service keys, and with
+        ``deployed_services`` emptied.
+    """
+    claimed = {str(name) for name in (config_overrides.get("deployed_services") or [])}
+    kept: dict[str, Any] = {}
+    for key, value in config_overrides.items():
+        if key in ("services", "deployed_services"):
+            continue
+        if key.startswith("services.") and key.split(".")[1] in claimed:
+            continue
+        kept[key] = value
+    kept["deployed_services"] = []
+    return kept
+
+
 def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) -> list[str]:
     """Scaffold the service tree and inject every service the profile declares.
 
     Skipped wholesale for an attached project (``deploy_services: false``): its
     service sections were parsed and validated, but it deploys nothing of its
     own and connects to a services stack another OSPREY deployment runs on the
-    same host. The rendered config already carries an empty
-    ``deployed_services: []``, so nothing here needs to run.
+    same host. Its render carries an empty ``deployed_services: []`` — written
+    by :func:`_attached_service_overrides`, which strips the claimed stack the
+    profile's own ``config:`` inherited — so nothing here needs to run. What a
+    profile spells is examined before it is dropped, not instead of:
+    :func:`reach_override_errors` has already refused any spelling that
+    contradicts what the hosting deployment's render projects.
 
     Order is load-bearing. The two chat bridges gate their ``depends_on`` and
     their in-network dispatcher URLs on ``event_dispatcher``/``dispatch_worker``

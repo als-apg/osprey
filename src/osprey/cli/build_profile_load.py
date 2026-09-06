@@ -31,11 +31,11 @@ from .build_profile_archiver import parse_va_archiver_block
 from .build_profile_deploy import parse_deploy_block
 from .build_profile_document import (
     _normalize_empty_collections,
-    _normalize_profile_aliases,
     _read_profile_document,
 )
 from .build_profile_merge import resolve_profile_document
 from .build_profile_model import BuildProfile
+from .build_profile_presets import PRESET_DATA_BUNDLE_KEY
 from .build_profile_schema import (
     DEFAULT_DEVIATION_MARKER,
     BlueskyConfig,
@@ -123,6 +123,11 @@ def load_profile_document(path: Path) -> LoadedProfile:
     document = resolve_profile_document(raw, path)
 
     profile = _parse_profile(document.raw)
+    # Resolution consumed the preset-side `app_template:` on the way through, so
+    # the preset it passed through is the only remaining answer to which
+    # packaged data bundle this profile's tree came from. Stamped here rather
+    # than parsed, because no key of the resolved document says it.
+    profile.inherited_preset = document.inherited_preset
     profile.validate(document.root_dir)
     return LoadedProfile(
         profile=profile,
@@ -133,7 +138,8 @@ def load_profile_document(path: Path) -> LoadedProfile:
 
 
 # Minimum OSPREY release that understands the current profile schema — the one
-# that ships ``app_template:`` and ``data:``. Emitted profiles stamp
+# whose ``config:`` block is the deployment's whole declarative statement and
+# whose ``data:`` tree is required. Emitted profiles stamp
 # ``requires_osprey_version`` from this constant (as ``>=<value>``) rather than
 # from the running ``__version__``: the stamp must name the floor a *reader*
 # needs, and a dynamic stamp would let the emitting release satisfy its own
@@ -149,13 +155,6 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "name",
         "extends",
         "exclude",
-        "data_bundle",
-        # YAML-surface spelling of data_bundle, never reached by the check
-        # itself: _parse_profile normalizes it away before _reject_unknown_keys
-        # runs. It is a member because this frozenset is also the "valid keys
-        # are:" list in that check's error, where dropping the spelling users
-        # are told to write would name it invalid.
-        "app_template",
         "data",
         "deploy",
         "deploy_services",
@@ -206,7 +205,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
 # Keys recognized inside the ``provenance:`` block. Closed like the others: a
 # misspelled `deviation_marker:` would silently leave the default tag in force
 # and every `# ALS-DEVIATION:` comment unread.
-_KNOWN_PROVENANCE_KEYS = frozenset({"preset", "preset_hash", "deviation_marker"})
+_KNOWN_PROVENANCE_KEYS = frozenset({"preset", "preset_hash", "providers_hash", "deviation_marker"})
 
 
 # Keys recognized inside the ``environment:`` block. Rejected outright like the
@@ -254,12 +253,8 @@ def _profile_port_base(raw: dict[str, Any]) -> int:
     The one rule the port layout runs on is that a port is derived from the base
     the deployment actually resolved, never from the layout's own default — so a
     loader that places a service by slot has to read the profile's own
-    ``deployment.port_base`` first. A ``config:`` block is a flat bag of dotted
-    keys that may spell that path at any depth, which is what
-    :func:`~osprey.cli.build_profile_emit.effective_config_subtree` folds into
-    one subtree; re-wrapping the result under ``deployment`` keeps
-    :func:`~osprey.port_layout.resolve_port_base` on its single input shape, so
-    the range refusal fires here too.
+    ``deployment.port_base`` first. :func:`config_port_base` is that reading;
+    this is the loader's way in, taking the whole merged document.
 
     Args:
         raw: The fully-merged raw profile mapping — presets, ``extends``
@@ -273,18 +268,42 @@ def _profile_port_base(raw: dict[str, Any]) -> int:
         ValueError: If the profile names a base whose thousand-port block could
             not exist (below 1024, or running past port 65535).
     """
+    return config_port_base(raw.get("config"))
+
+
+def config_port_base(config: Any) -> int:
+    """The port base a profile's flat ``config:`` block resolves to.
+
+    The rule itself, taken by the block rather than by the document that
+    carries it, so the profile parse above and the build (which holds a
+    resolved profile and no raw document) read one implementation. A second
+    one, however faithfully copied, is a base the two could disagree about —
+    and the whole layout hangs off this number.
+
+    Args:
+        config: A profile's ``config:`` block, or anything else; a
+            non-mapping resolves to the layout default the way an absent block
+            does.
+
+    Returns:
+        The base the block configures, or
+        :data:`~osprey.port_layout.DEFAULT_PORT_BASE` when it configures none.
+
+    Raises:
+        ValueError: If the block names a base whose thousand-port block could
+            not exist (below 1024, or running past port 65535).
+    """
     # Imported inside the function on purpose: build_profile_emit imports this
     # module at import time, so a module-level import would close the cycle.
     from .build_profile_emit import effective_config_subtree
 
-    config = raw.get("config")
     if not isinstance(config, Mapping):
         return DEFAULT_PORT_BASE
     # Only the keys that address `deployment` are folded. Handing the whole
     # block to the folder would make a prefix conflict anywhere in it — a
-    # scalar `env:` beside an `env.required:`, say — a refusal raised here, at
-    # profile parse, on behalf of a key this function never reads. Those
-    # conflicts belong to the axis that owns the key and are reported there.
+    # scalar `env:` beside an `env.required:`, say — a refusal raised here, on
+    # behalf of a key this function never reads. Those conflicts belong to the
+    # axis that owns the key and are reported there.
     deployment_keys = {
         key: value
         for key, value in config.items()
@@ -391,8 +410,14 @@ def _parse_environment(raw: dict[str, Any]) -> EnvironmentConfig:
 def _reject_unknown_block_keys(keys: Iterable[str], known_keys: frozenset[str], label: str) -> None:
     """Reject unrecognized keys in a closed profile block, naming every one at once.
 
-    The shared body behind every closed-schema check, so an operator meets one
-    wording whichever block they mistyped.
+    The shared body behind the closed-schema blocks this module parses — the
+    top level, ``environment``, ``dispatch``, ``bluesky``, ``provenance`` and
+    the virtual-accelerator blocks — so an operator meets one wording whichever
+    of them they mistyped. Two closed blocks parsed elsewhere answer in their
+    own words instead, because they COLLECT problems rather than raise on the
+    first: ``va_archiver``
+    (:func:`~osprey.cli.build_profile_archiver._reject_unknown_keys`) and the
+    ``deploy`` block. A caller that can raise belongs here.
 
     Args:
         keys: The keys present in the block being checked.
@@ -419,6 +444,20 @@ def _reject_unknown_block_keys(keys: Iterable[str], known_keys: frozenset[str], 
     )
 
 
+#: What a profile that still carries the retired ``app_template:`` key is told.
+#: It gets its own message rather than the generic unknown-key one because the
+#: key was valid in every profile emitted before this schema: the build no
+#: longer renders an app template, so the config the template used to supply
+#: has to be written into the profile's own ``config:`` block, and
+#: ``osprey profile expand`` is what writes it.
+_RETIRED_APP_TEMPLATE_REFUSAL = (
+    "app_template is no longer a profile key — the config an app template used "
+    "to supply is now written out in this profile's own `config:` block. Run "
+    "`osprey profile expand` to fill in every key this profile is missing and "
+    "drop the key."
+)
+
+
 def _reject_unknown_keys(raw: dict[str, Any]) -> None:
     """Reject unknown top-level profile keys, naming every one at once.
 
@@ -433,6 +472,8 @@ def _reject_unknown_keys(raw: dict[str, Any]) -> None:
     Raises:
         BuildProfileError: If any key is unrecognized.
     """
+    if PRESET_DATA_BUNDLE_KEY in raw:
+        raise BuildProfileError(_RETIRED_APP_TEMPLATE_REFUSAL)
     _reject_unknown_block_keys(raw.keys(), _KNOWN_PROFILE_KEYS, "profile")
 
 
@@ -596,10 +637,13 @@ def _reject_mixed_claude_code_spellings(config: Any) -> None:
     the same hazard — measured, it renders whichever of the two comes last —
     and the guard that only looked for the bare key let it through.
 
-    That is the same hazard :func:`~osprey.cli.build_profile_resolve._reject_set_config_collisions`
-    refuses for a ``--set config.*`` path, raised to the whole ``config:`` block:
-    that guard only sees paths ``--set`` addressed, so a nested mapping arriving
-    from a preset, an ``-O`` overlay or an ``extends`` parent went unrefused.
+    That is the same hazard
+    :func:`~osprey.cli.build_profile_resolve._drop_shadowed_config_keys` handles
+    for a key the command line states — same hazard, opposite remedy. There the
+    later layer is the operator, whose key simply outranks the inherited ones
+    beneath it, so the pair is resolved rather than refused. Here both spellings
+    come from inside the profile, and nothing says which of them the author
+    meant to win, so the shape is refused.
 
     It is a privilege question and not only a tidiness one. The container's
     setup-capability check reads BOTH spellings and unions them, which is exact
@@ -812,15 +856,10 @@ def _block(raw: Mapping[str, Any], key: str) -> dict[str, Any]:
 def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     """Parse raw YAML dict into a BuildProfile.
 
-    Callers that read documents have already normalized their YAML-surface
-    spellings; normalizing again here covers the hand-assembled dicts that
-    reach the parser directly, where an ``app_template`` key would otherwise
-    be allowlisted, ignored, and silently replaced by the loader default. The
-    same goes for a present-but-empty selection key: the document pass
-    flattens it before the merge, and this pass flattens it for a mapping that
-    never went through one.
+    A present-but-empty selection key is flattened here as well as in the
+    document pass: the document pass flattens it before the merge, and this
+    pass flattens it for a hand-assembled mapping that never went through one.
     """
-    _normalize_profile_aliases(raw, "profile")
     _normalize_empty_collections(raw)
     _reject_unknown_keys(raw)
     _apply_connector_shorthand(raw)
@@ -1078,6 +1117,10 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         provenance = ProfileProvenance(
             preset=str(provenance_raw["preset"]),
             preset_hash=str(provenance_raw["preset_hash"]),
+            # Not in the required set above: a profile emitted before the
+            # provider catalog became a sibling file has no stamp for it, and
+            # the reader of an absent stamp simply draws no catalog note.
+            providers_hash=str(provenance_raw.get("providers_hash") or ""),
             deviation_marker=marker.strip(),
         )
 
@@ -1097,7 +1140,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
 
     return BuildProfile(
         name=raw.get("name", ""),
-        data_bundle=raw.get("data_bundle", "control_assistant"),
         data=raw.get("data"),
         deploy=parse_deploy_block(raw),
         deploy_services=raw.get("deploy_services", True),

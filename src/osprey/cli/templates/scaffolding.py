@@ -45,19 +45,19 @@ def _default_cli_version(ctx: dict) -> None:
         )
 
 
-def project_template_for(template_root: Path, data_bundle: str, template_file: str) -> str | None:
-    """The template that renders project file *template_file* for *data_bundle*.
+def project_template_for(template_root: Path, template_file: str) -> str | None:
+    """The template that renders project file *template_file*.
 
-    An app template's own copy wins over the shared ``project/`` default
-    (``apps/control_assistant/config.yml.j2`` over ``project/config.yml.j2``).
+    Every project file renders from the shared ``project/`` directory: the
+    framework template is the only ``config.yml.j2``, and what a project
+    deploys is spelled by its profile's ``config:`` block, not by a per-app
+    copy of the template.
 
     Returns:
         The template's path relative to the templates root, in the spelling the
-        Jinja environment loads by, or ``None`` when neither ships the file.
+        Jinja environment loads by, or ``None`` when ``project/`` does not ship
+        the file.
     """
-    name = template_file if template_file.endswith(".j2") else template_file + ".j2"
-    if (template_root / "apps" / data_bundle / name).exists():
-        return f"apps/{data_bundle}/{name}"
     if (template_root / "project" / template_file).exists():
         return f"project/{template_file}"
     return None
@@ -67,28 +67,25 @@ def render_project_config(
     template_root: Path,
     jinja_env,
     output_path: Path,
-    data_bundle: str,
     ctx: dict,
 ) -> None:
     """Render ``config.yml`` alone — the one file of a project render that
-    says what the project deploys and where — with the template
-    :func:`create_project_structure` would pick for *data_bundle* and the
-    same context.
+    says what the project deploys and where — with the same template and
+    context :func:`create_project_structure` uses.
 
     Args:
         template_root: Path to osprey's bundled templates directory
         jinja_env: Jinja2 environment for template rendering
         output_path: Where the rendered ``config.yml`` is written
-        data_bundle: Name of the data bundle (apps/ subdirectory) to use
         ctx: Template context variables
 
     Raises:
-        ValueError: If neither the bundle nor ``project/`` ships the template.
+        ValueError: If ``project/`` ships no ``config.yml.j2``.
     """
     _default_cli_version(ctx)
-    template_path = project_template_for(template_root, data_bundle, CONFIG_TEMPLATE)
+    template_path = project_template_for(template_root, CONFIG_TEMPLATE)
     if template_path is None:
-        raise ValueError(f"App template {data_bundle!r} renders no config.yml")
+        raise ValueError(f"{template_root / 'project'} renders no config.yml")
     render_template(jinja_env, template_path, ctx, output_path)
 
 
@@ -183,7 +180,6 @@ def create_project_structure(
     template_root: Path,
     jinja_env,
     project_dir: Path,
-    data_bundle: str,
     ctx: dict,
 ):
     """Create base project files (config, README, Dockerfile, etc.).
@@ -208,7 +204,6 @@ def create_project_structure(
         template_root: Path to osprey's bundled templates directory
         jinja_env: Jinja2 environment for template rendering
         project_dir: Root directory of the rendered project
-        data_bundle: Name of the data bundle (apps/ subdirectory) to use
         ctx: Template context variables
     """
     project_template_dir = template_root / "project"
@@ -239,7 +234,7 @@ def create_project_structure(
     ]
 
     for template_file, output_file in files_to_render:
-        template_path = project_template_for(template_root, data_bundle, template_file)
+        template_path = project_template_for(template_root, template_file)
         if template_path is not None:
             render_template(jinja_env, template_path, ctx, project_dir / output_file)
 
@@ -316,25 +311,6 @@ def copy_services_selective(template_root: Path, project_dir: Path, service_name
                 shutil.copy(item, dst_services / item.name)
 
 
-def _copy_data_tree(src_dir: Path, dst_dir: Path, template_root: Path, jinja_env, ctx: dict):
-    """Copy a data directory, rendering .j2 files and copying the rest as-is.
-
-    Files ending in .j2 are rendered through Jinja2 (with the extension stripped).
-    All other files are copied verbatim.
-    """
-    for item in src_dir.iterdir():
-        if item.is_dir():
-            _copy_data_tree(item, dst_dir / item.name, template_root, jinja_env, ctx)
-        elif item.suffix == ".j2":
-            # Render through Jinja2 and strip the .j2 extension
-            dst_file = dst_dir / item.stem  # e.g. foo.json.j2 → foo.json
-            template_path = str(item.relative_to(template_root))
-            render_template(jinja_env, template_path, ctx, dst_file)
-        else:
-            dst_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(item, dst_dir / item.name)
-
-
 def copy_template_data(
     template_root: Path,
     project_dir: Path,
@@ -344,91 +320,62 @@ def copy_template_data(
     jinja_env=None,
     data_root: Path | None = None,
 ):
-    """Copy data files from template to project root (no src/ package).
+    """Copy the profile's data tree to the project root (no src/ package).
 
     Data files (channel databases, channel_limits.json, logbook seeds,
-    benchmark datasets) are placed at project_dir/data/.  Files with a
-    ``.j2`` extension are rendered through Jinja2 (extension stripped);
-    all other files are copied as-is.
+    benchmark datasets) are placed at ``project_dir/data/``. The profile's
+    ``data:`` tree is the only source: it is copied verbatim, so a stray
+    ``.j2`` file lands byte-identical rather than being rendered.
 
     Args:
         template_root: Path to osprey's bundled templates directory
         project_dir: Root directory of the project
-        package_name: Python package name (used to locate template data dirs)
-        data_bundle: Name of the data bundle (apps/ subdirectory) to use
+        package_name: Python package name (unused; kept for the caller's shape)
+        data_bundle: Name of the data bundle the project's other packaged
+            trees come from (unused here)
         ctx: Template context variables
-        jinja_env: Optional Jinja2 environment for rendering .j2 data files
-        data_root: Resolved data tree carried by the build profile (its ``data:``
-            key). When given it fully replaces the bundle's data tree — see the
-            profile-mode branch below. Symlinks inside the tree are
-            dereferenced into real files, matching the bundle branch: a built
-            project is self-contained and must not depend on paths under the
-            profile directory surviving.
+        jinja_env: Optional Jinja2 environment (unused here)
+        data_root: Resolved data tree carried by the build profile (its
+            ``data:`` key), required. Symlinks inside the tree are
+            dereferenced into real files: a built project is self-contained
+            and must not depend on paths under the profile directory
+            surviving.
+
+    Raises:
+        ValueError: If ``data_root`` is None. Every profile declares ``data:``
+            (``BuildProfile.validate`` requires it), so there is no packaged
+            tree to fall back to.
     """
-    # Profile-sourced data is a full replacement, not a layer: neither the
-    # apps/<bundle>/data derivation nor the rglob fallback below runs, so no
-    # bundle file can leak into the project alongside the facility's own tree.
-    # It is content, not templates — a plain copytree, so a stray ``.j2`` lands
-    # byte-identical. Rendering is not merely skipped but impossible here:
-    # _copy_data_tree addresses templates by their path relative to
-    # ``template_root`` through a package-rooted Jinja loader, which cannot
-    # reach a tree outside the osprey package at all.
-    if data_root is not None:
-        from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME
+    # The facility's tree is the whole of the project's data/: nothing reads
+    # `apps/<bundle>/data` here any more, so no packaged file can land beside
+    # what the profile ships. It is content, not templates — a plain copytree,
+    # so a stray `.j2` lands byte-identical. Rendering is not merely skipped
+    # but impossible: the package-rooted Jinja loader addresses templates by
+    # their path relative to ``template_root`` and cannot reach a tree outside
+    # the osprey package at all.
+    if data_root is None:
+        raise ValueError(
+            "copy_template_data requires the profile's resolved `data:` tree; "
+            "there is no packaged data bundle to fall back to. Pass "
+            "data_root=BuildProfile.resolved_data_root(profile_dir)."
+        )
 
-        dst_data = project_dir / "data"
+    from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME
 
-        def _drop_runtime_output(directory: str, names: list[str]) -> set[str]:
-            # data/.runtime/ is runtime-minted material (`osprey up`'s CURVE
-            # certificates) — private keys that must not be staged into
-            # build/ or into the images built from it. Top level only, the
-            # same anchoring the fingerprint fold applies to the same name.
-            if Path(directory) == Path(data_root) and RUNTIME_DATA_DIR_NAME in names:
-                return {RUNTIME_DATA_DIR_NAME}
-            return set()
+    dst_data = project_dir / "data"
 
-        # dirs_exist_ok is defensive — no build path reaches here with data/ present.
-        shutil.copytree(data_root, dst_data, dirs_exist_ok=True, ignore=_drop_runtime_output)
-        logger.debug("Copied profile data files from %s to %s", data_root, dst_data)
-        return
+    def _drop_runtime_output(directory: str, names: list[str]) -> set[str]:
+        # data/.runtime/ is runtime-minted material (`osprey up`'s CURVE
+        # certificates) — private keys that must not be staged into
+        # build/ or into the images built from it. Top level only, the
+        # same anchoring the fingerprint fold applies to the same name.
+        if Path(directory) == Path(data_root) and RUNTIME_DATA_DIR_NAME in names:
+            return {RUNTIME_DATA_DIR_NAME}
+        return set()
 
-    app_template_dir = template_root / "apps" / data_bundle
-
-    # Look for data/ subdirectory in the template
-    template_data_dir = app_template_dir / "data"
-    if template_data_dir.exists() and template_data_dir.is_dir():
-        dst_data = project_dir / "data"
-        if jinja_env is not None:
-            _copy_data_tree(template_data_dir, dst_data, template_root, jinja_env, ctx)
-        else:
-            shutil.copytree(template_data_dir, dst_data, dirs_exist_ok=True)
-        logger.debug("Copied template data files to %s", dst_data)
-        return
-
-    # Fallback: scan for data/ directories inside template subdirectories
-    # (some templates put data inside package-level dirs)
-    for template_file in app_template_dir.rglob("*"):
-        if not template_file.is_dir():
-            continue
-        if template_file.name == "data":
-            # Copy to project root data/ (flatten from template structure)
-            dst_data = project_dir / "data"
-            if jinja_env is not None:
-                _copy_data_tree(template_file, dst_data, template_root, jinja_env, ctx)
-            else:
-                if not dst_data.exists():
-                    shutil.copytree(template_file, dst_data, dirs_exist_ok=True)
-                else:
-                    # Merge into existing data/
-                    for item in template_file.iterdir():
-                        dst_item = dst_data / item.name
-                        if item.is_dir():
-                            shutil.copytree(item, dst_item, dirs_exist_ok=True)
-                        elif item.is_file():
-                            dst_item.parent.mkdir(parents=True, exist_ok=True)
-                            shutil.copy2(item, dst_item)
-            logger.debug("Copied template data files to %s", dst_data)
-            return
+    # dirs_exist_ok is defensive — no build path reaches here with data/ present.
+    shutil.copytree(data_root, dst_data, dirs_exist_ok=True, ignore=_drop_runtime_output)
+    logger.debug("Copied profile data files from %s to %s", data_root, dst_data)
 
 
 #: Alias of the paradigm registry in :mod:`osprey.build.build_tiers`, kept

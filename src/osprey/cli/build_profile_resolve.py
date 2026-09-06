@@ -6,9 +6,9 @@ Picks the base layer
 values over it, then hands the assembled raw dict to ``extends`` resolution and
 :func:`osprey.cli.build_profile_load._parse_profile`. Also owns the ``--set``
 mini-parser, the top-level shorthand keys (model selection plus ``connector``)
-whose explicit use is recorded in the build manifest, and the guard that keeps
-a ``--set config.*`` path from quietly losing to — or quietly clobbering — the
-literal dotted key some other layer spells for the same place.
+whose explicit use is recorded in the build manifest, and the rule that lets a
+``config.*`` key stated on the command line outrank the deeper keys some other
+layer spells beneath it, instead of losing to them by key order.
 
 The profile is the source of truth, so an explicit override *is* a profile edit:
 :func:`write_back_cli_overrides` turns ``osprey set``'s pairs into a
@@ -31,7 +31,7 @@ import yaml
 from osprey.errors import BuildProfileError
 from osprey.utils.logger import get_logger
 
-from .build_profile_document import _normalize_profile_aliases, _read_profile_document
+from .build_profile_document import _read_profile_document
 from .build_profile_load import (
     CONNECTOR_CONFIG_KEY,
     CONNECTOR_PROFILE_KEY,
@@ -65,6 +65,15 @@ def _parse_set_pairs(pairs: tuple[str, ...]) -> dict[str, Any]:
     The right-hand side is parsed with ``yaml.safe_load`` so callers get
     type coercion for free: ``true``/``false`` -> bool, ``[a,b]`` -> list,
     bare ints/floats -> numeric, anything else -> string.
+
+    ``config.`` is the one prefix that stops the nesting. A profile's
+    ``config:`` block is a flat bag of LITERAL DOTTED KEYS, each applied
+    verbatim to the one rendered-config leaf it addresses, so
+    ``--set config.a.b=1`` becomes ``{"config": {"a.b": 1}}`` — the same
+    spelling :func:`write_back_cli_overrides` writes into ``profile.yml``, and
+    the same one the presets ship. Nesting it instead would put a second,
+    differently-shaped statement of the same path beside the preset's, where
+    which of the two reaches ``config.yml`` depends on key order.
     """
     result: dict[str, Any] = {}
     for pair in pairs:
@@ -80,6 +89,9 @@ def _parse_set_pairs(pairs: tuple[str, ...]) -> dict[str, Any]:
             raise BuildProfileError(f"--set value for {key!r} is not valid YAML: {e}") from e
         target: dict[str, Any] = result
         parts = key.split(".")
+        if parts[0] == _CONFIG_SET_PREFIX and len(parts) > 1:
+            # Everything after `config.` is ONE key, dots and all.
+            parts = [_CONFIG_SET_PREFIX, ".".join(parts[1:])]
         for part in parts[:-1]:
             existing = target.get(part)
             if existing is None:
@@ -91,9 +103,10 @@ def _parse_set_pairs(pairs: tuple[str, ...]) -> dict[str, Any]:
                 )
             target = existing
         target[parts[-1]] = value
-    # ``--set`` is its own authored layer, so it normalizes like a document —
-    # but the value loads above are scalar, not document, reads.
-    return _normalize_profile_aliases(result, "--set")
+    # Returned as the layer it is: the value loads above are scalar reads, and
+    # a `--set` pair names a profile key directly, so there is nothing between
+    # what was typed and what the merge sees.
+    return result
 
 
 # The model-selection shorthand keys a user can override via `--set`, whose
@@ -137,25 +150,78 @@ _CONFIG_SET_PREFIX = "config"
 _CONNECTOR_CONFIG_SEGMENTS = tuple(CONNECTOR_CONFIG_KEY.split("."))
 
 
-def _set_config_paths(set_pairs: tuple[str, ...]) -> list[tuple[str, ...]]:
-    """The ``config:`` paths ``--set`` pairs address as nested mapping keys.
+def _stated_config_paths(layer: dict[str, Any]) -> list[tuple[str, ...]]:
+    """The rendered-config paths one CLI layer states outright.
 
-    ``--set config.control_system.type=epics`` states the path it means
-    verbatim in its key, so the segments after ``config`` are recorded exactly
-    as written. That provenance is what makes the collision check downstream
-    decidable: an authored ``config:`` block cannot be read the same way,
-    because a nested mapping there is an ordinary *value* (``modules.web_terminals:``
-    carries one) and nothing distinguishes it from a path a writer had in mind.
-
-    Duplicate and prefix-related pairs are kept as written — each one is a
-    spelling the user typed, and the check reports what it was given.
+    A ``config:`` block's own keys ARE paths — the literal dotted key
+    ``approval.tools.channel_read`` addresses one leaf, the plain key
+    ``approval`` holding a mapping addresses that whole subtree — so a layer
+    states exactly what its top-level ``config`` keys spell. That is the
+    provenance :func:`_drop_shadowed_config_keys` needs, and it exists only for
+    the layers the command line supplied: a key the base or an ``extends``
+    parent contributes is inherited content, not a statement made now.
     """
-    paths: list[tuple[str, ...]] = []
-    for pair in set_pairs:
-        parts = pair.partition("=")[0].strip().split(".")
-        if len(parts) > 1 and parts[0] == _CONFIG_SET_PREFIX:
-            paths.append(tuple(parts[1:]))
-    return paths
+    config = layer.get(_CONFIG_SET_PREFIX)
+    if not isinstance(config, dict):
+        return []
+    return [tuple(key.split(".")) for key in config if isinstance(key, str)]
+
+
+def _drop_shadowed_config_keys(
+    raw: dict[str, Any], stated: list[tuple[str, ...]]
+) -> dict[str, Any]:
+    """Drop inherited ``config:`` keys that a CLI-stated key sits above.
+
+    ``config_update_fields`` applies dotted keys in iteration order and sets
+    each addressed path verbatim, so a key and a deeper key beneath it are two
+    different dict keys that both survive every merge — and then one of the two
+    values is discarded, by an order nobody wrote down. ``--set
+    config.approval.tools='{…}'`` beside a preset's
+    ``approval.tools.channel_read`` is exactly that pair.
+
+    A command line is the last word, so the CLI's key wins the whole subtree it
+    names: every inherited key BENEATH it (segment-prefix match, so
+    ``approval.tools`` claims ``approval.tools.channel_read`` and not
+    ``approval.tools_extra``) is dropped, and the value the operator just gave
+    is the one that renders. A key the CLI states itself is never dropped —
+    ``--set config.a=… --set config.a.b=…`` is one layer refining its own key,
+    which the emitter's prefix collapse folds deeper-key-wins.
+
+    Run on the FULLY resolved raw, after ``extends``: a parent's literal dotted
+    key is inherited content just as surely as the base preset's, and the paths
+    the CLI stated are carried across resolution to meet it here.
+
+    Args:
+        raw: Resolved raw profile dict.
+        stated: Paths the CLI layers stated, from :func:`_stated_config_paths`.
+
+    Returns:
+        ``raw`` when nothing is shadowed, else a copy with a pruned ``config``.
+    """
+    config = raw.get(_CONFIG_SET_PREFIX)
+    if not stated or not isinstance(config, dict):
+        return raw
+    claimed = set(stated)
+    shadowed: set[str] = set()
+    for key in config:
+        if not isinstance(key, str):
+            continue
+        path = tuple(key.split("."))
+        if path in claimed:
+            continue
+        if any(len(above) < len(path) and path[: len(above)] == above for above in claimed):
+            shadowed.add(key)
+    if not shadowed:
+        return raw
+    logger.debug(
+        "Dropped %d config key(s) shadowed by a CLI override: %s",
+        len(shadowed),
+        ", ".join(sorted(shadowed)),
+    )
+    return {
+        **raw,
+        _CONFIG_SET_PREFIX: {key: value for key, value in config.items() if key not in shadowed},
+    }
 
 
 def _literal_control_system_type(layer: dict[str, Any]) -> Any:
@@ -214,82 +280,12 @@ def _reject_connector_type_conflict(layers: list[dict[str, Any]]) -> None:
     )
 
 
-def _reject_set_config_collisions(
-    raw: dict[str, Any], set_config_paths: list[tuple[str, ...]]
-) -> None:
-    """Reject ``--set config.*`` paths that collide with a literal dotted key.
-
-    A ``config:`` block is a flat bag of dotted keys applied verbatim, one
-    addressed leaf each, while ``--set config.a.b=1`` merges a nested ``a:``
-    mapping in beside them. The two spellings never collide in the deep merge —
-    ``'a.b'`` and ``'a'`` are different dict keys — so both survive, and which
-    one reaches the rendered ``config.yml`` depends on key order: the nested
-    mapping is written verbatim at ``a``, replacing that whole subtree
-    (``config_update_fields``), while
-    :func:`~osprey.cli.build_profile_emit._collapse_config_prefixes` folds the
-    pair the other way, deeper-key-wins. Either way one of the two values the
-    user gave is silently discarded, so the pair is refused instead.
-
-    Runs on the fully-merged raw profile, after ``extends`` resolution, so no
-    source of the literal key escapes: the preset, an ``-O`` file, an
-    ``extends`` parent, or the top-level ``connector`` shorthand a parent
-    carries (which resolves to the literal key at parse time).
-
-    Args:
-        raw: Resolved raw profile dict, post-``extends``.
-        set_config_paths: Paths recorded by :func:`merge_cli_overrides`.
-
-    Raises:
-        BuildProfileError: naming every colliding pair at once, each with the
-            literal spelling that already sets it and how to write it instead.
-    """
-    if not set_config_paths:
-        return
-    config = raw.get("config")
-    literal_keys = (
-        [key for key in config if isinstance(key, str) and "." in key]
-        if isinstance(config, dict)
-        else []
-    )
-    # A parent's `connector:` has not been folded yet at this point; it names
-    # the literal key just as surely as spelling it out.
-    if CONNECTOR_PROFILE_KEY in raw and CONNECTOR_CONFIG_KEY not in literal_keys:
-        literal_keys.append(CONNECTOR_CONFIG_KEY)
-
-    problems: list[str] = []
-    for path in set_config_paths:
-        # Root-segment match is the whole test: the nested mapping enters the
-        # config under its first segment alone, so every dotted key beginning
-        # there is in its blast radius, not only the one addressing the same leaf.
-        colliding = sorted(key for key in literal_keys if key.split(".")[0] == path[0])
-        if not colliding:
-            continue
-        dotted = ".".join(path)
-        remedy = (
-            f"Use the connector shorthand instead: --set {CONNECTOR_PROFILE_KEY}=<type>."
-            if path == _CONNECTOR_CONFIG_SEGMENTS
-            else (
-                "Write the literal dotted key in a -O override file instead:\n"
-                f"  config:\n    {dotted}: <value>"
-            )
-        )
-        problems.append(
-            f"--set {_CONFIG_SET_PREFIX}.{dotted}=... merges a nested {path[0]!r} mapping "
-            f"into config:, but the resolved profile already spells that subtree with "
-            f"literal dotted key(s): {', '.join(repr(key) for key in colliding)}. Both "
-            f"survive the merge and which one reaches config.yml depends on key order, "
-            f"so one of the two values would be discarded silently. {remedy}"
-        )
-    if problems:
-        raise BuildProfileError("\n\n".join(problems))
-
-
 def merge_cli_overrides(
     base: dict[str, Any],
     overrides: tuple[Path, ...],
     set_pairs: tuple[str, ...],
     *,
-    set_config_paths: list[tuple[str, ...]] | None = None,
+    stated_config_paths: list[tuple[str, ...]] | None = None,
 ) -> dict[str, Any]:
     """Layer ``-O`` override files and ``--set`` pairs over ``base``.
 
@@ -309,12 +305,13 @@ def merge_cli_overrides(
         base: The base layer — bundled preset raw or profile-file raw.
         overrides: ``-O`` override files, deep-merged in declaration order.
         set_pairs: ``--set KEY=VALUE`` pairs, merged last.
-        set_config_paths: Optional collector, extended with every ``config:``
-            path the ``--set`` pairs address (:func:`_set_config_paths`). The
-            layering step is where that provenance exists, but the collision it
-            feeds can only be judged against the fully-merged raw — so
-            :func:`resolve_build_profile` carries the list across ``extends``
-            resolution and checks there, once.
+        stated_config_paths: Optional collector, extended with every
+            rendered-config path the CLI layers state
+            (:func:`_stated_config_paths`). The layering step is where that
+            provenance exists — afterwards a CLI key is indistinguishable from
+            an inherited one — but what it shadows can only be judged against
+            the fully-merged raw, so the caller carries the list across
+            ``extends`` resolution and prunes there, once.
 
     Raises:
         BuildProfileError: On a missing or non-mapping override file, an
@@ -342,8 +339,9 @@ def merge_cli_overrides(
         raw = _deep_merge(raw, set_raw)
 
     _reject_connector_type_conflict(cli_layers)
-    if set_config_paths is not None:
-        set_config_paths.extend(_set_config_paths(set_pairs))
+    if stated_config_paths is not None:
+        for layer in cli_layers:
+            stated_config_paths.extend(_stated_config_paths(layer))
     return _apply_port_base_shorthand(_apply_connector_shorthand(raw))
 
 
@@ -404,8 +402,7 @@ def resolve_build_document(
 
     Raises:
         BuildProfileError: For mutual-exclusion violations, missing files,
-        invalid YAML, a ``--set config.*`` path colliding with a literal dotted
-        key, a ``data:`` tree in preset mode, or validation failures.
+        invalid YAML, a ``data:`` tree in preset mode, or validation failures.
     """
     if profile_path is not None and preset is not None:
         raise BuildProfileError("Pass either a profile path or --preset, not both.")
@@ -417,16 +414,23 @@ def resolve_build_document(
     # folds none either, for the same reason).
     is_persona_delta = False
     excluded_artifacts: frozenset[str] = frozenset()
+    # Which bundled preset the resolved document came through — the one thing
+    # that still says which packaged data bundle its tree is from, now that the
+    # preset-side `app_template:` is consumed during resolution.
+    inherited_preset: str | None = None
 
     if preset is not None:
         raw, base_anchor = _load_preset_raw(preset)
         profile_dir = base_anchor.parent
-        set_config_paths: list[tuple[str, ...]] = []
-        raw = merge_cli_overrides(raw, overrides, set_pairs, set_config_paths=set_config_paths)
+        stated: list[tuple[str, ...]] = []
+        raw = merge_cli_overrides(raw, overrides, set_pairs, stated_config_paths=stated)
         raw = _resolve_extends(raw, base_anchor)
-        # Same collision guard as the profile-file branch below, run after
-        # extends resolution so a parent's literal dotted key is visible too.
-        _reject_set_config_collisions(raw, set_config_paths)
+        # In preset mode the named preset IS the nearest one; what it extends is
+        # followed from there by `preset_data_bundle`.
+        inherited_preset = preset
+        # Same pruning as the profile-file branch below, run after extends
+        # resolution so a parent's literal dotted key is shadowed too.
+        raw = _drop_shadowed_config_keys(raw, stated)
 
         # Checked after extends resolution so no injection path escapes: the
         # preset itself, a -O file, a --set pair, or an extends parent. A preset
@@ -446,8 +450,8 @@ def resolve_build_document(
         raw = _read_profile_document(profile_path)
         if not isinstance(raw, dict):
             raise BuildProfileError(f"Profile must be a YAML mapping, got {type(raw).__name__}")
-        set_config_paths_file: list[tuple[str, ...]] = []
-        raw = merge_cli_overrides(raw, overrides, set_pairs, set_config_paths=set_config_paths_file)
+        stated_file: list[tuple[str, ...]] = []
+        raw = merge_cli_overrides(raw, overrides, set_pairs, stated_config_paths=stated_file)
         # Resolution goes through the one call that decides what a profile file
         # *means* — the same one the loader and the content hash make. A file
         # under `personas/` is a delta merged over the `profile.yml` beside it
@@ -458,13 +462,15 @@ def resolve_build_document(
         raw, profile_dir = document.raw, document.root_dir
         is_persona_delta = document.is_persona_delta
         excluded_artifacts = document.excluded_artifacts
-        # One check, after full resolution, because only here does the whole
-        # picture exist: the paths ``--set`` addressed (provenance, from before
-        # the merge) and every literal dotted key any layer — the file, a -O
+        inherited_preset = document.inherited_preset
+        # One prune, after full resolution, because only here does the whole
+        # picture exist: the paths the CLI stated (provenance, from before the
+        # merge) and every literal dotted key any layer — the file, a -O
         # overlay, an extends parent, a persona base — contributes (after it).
-        _reject_set_config_collisions(raw, set_config_paths_file)
+        raw = _drop_shadowed_config_keys(raw, stated_file)
 
     profile = _parse_profile(raw)
+    profile.inherited_preset = inherited_preset
     profile.validate(profile_dir)
     return LoadedProfile(
         profile=profile,

@@ -35,28 +35,19 @@ from ruamel.yaml.error import CommentMark
 from ruamel.yaml.tokens import CommentToken
 
 from osprey import __version__
+from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.errors import BuildProfileError
-from osprey.port_layout import CA_DEFAULT_PORT, default_port
+from osprey.port_layout import CA_DEFAULT_PORT
+from osprey.profiles.providers import compute_providers_hash, packaged_catalog_path
 
 from .build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
 from .build_profile_merge import _deep_merge, _resolve_extends, compute_preset_hash
-from .build_profile_presets import _load_preset_raw
-from .build_profile_resolve import merge_cli_overrides
+from .build_profile_presets import PRESET_DATA_BUNDLE_KEY, _load_preset_raw
+from .build_profile_resolve import _drop_shadowed_config_keys, merge_cli_overrides
 from .profile_conventions import BUILD_OUTPUT_DIR, PROFILE_TRIGGERS_FILENAME
 from .profile_root import PERSONA_DIRNAME
 
-# YAML-surface spellings that differ from the canonical resolved-content field
-# name (D2: the rename is confined to the profile-YAML surface, so the
-# resolved dict still keys off the Python identifier). `_sync_to_resolved`
-# diffs `resolved` against the raw preset doc, which is genuinely YAML-spelled
-# — re-spell the resolved side to match before diffing, or the doc's key
-# looks "removed" and its ca entry (holding the NEXT key's comment block, per
-# ruamel's trailing-comment packing) gets deleted along with it.
-_FIELD_TO_YAML: dict[str, str] = {"data_bundle": "app_template"}
-
-
-# Every BuildProfile field belongs to exactly one of the three sets below, keyed
-# by FIELD name (the YAML spelling is applied later via _FIELD_TO_YAML). The
+# Every BuildProfile field belongs to exactly one of the three sets below. The
 # sets differ in *synthesis* policy, not in whether a carried value survives —
 # a value the resolved profile carries is always emitted, whatever its set.
 #
@@ -77,7 +68,6 @@ _FIELD_TO_YAML: dict[str, str] = {"data_bundle": "app_template"}
 _EXPLICIT_KEYS: frozenset[str] = frozenset(
     {
         "name",  # identifies the deployment; the emitter always sets it
-        "data_bundle",  # app template selector — emitted as `app_template`
         "deploy_services",  # self-contained vs attached project
         "config",  # config.yml overrides: the facility's main dial
         "services",  # container services the profile declares
@@ -139,7 +129,6 @@ _BUILD_MECHANICS_KEYS: frozenset[str] = frozenset(
 # one. `name`, `requires_osprey_version` and `provenance` are always set by the
 # emitter, so they need no fallback.
 _EXPLICIT_DEFAULTS: dict[str, Any] = {
-    "data_bundle": "control_assistant",
     "deploy_services": True,
     "config": {},
     "services": {},
@@ -156,7 +145,6 @@ _EXPLICIT_DEFAULTS: dict[str, Any] = {
 # Why a synthesized key is present at all — written above it so the emitted
 # profile explains its own completeness rather than looking padded.
 _SYNTHESIS_RATIONALE: dict[str, str] = {
-    "data_bundle": "App template this deployment renders from.",
     "deploy_services": "true builds its own services stack; false attaches to another project's.",
     "config": "config.yml overrides, as dotted keys. Empty means template defaults stand.",
     "services": "Services this profile declares. Injected ones are added at build time.",
@@ -220,6 +208,8 @@ _PROVENANCE_COMMENT = [
     "# preset has moved on; `osprey validate` refuses every difference from the",
     "# preset that no `# DEVIATION: <why>` comment above the line claims (tag set",
     "# by `deviation_marker:`). This profile is the source of truth either way.",
+    "# `providers_hash` is the same record for providers.yml beside this file;",
+    "# `osprey profile expand --providers` refreshes the packaged entries in it.",
 ]
 
 # Round-trip mode preserves comments, key order, and quoting style (same
@@ -284,40 +274,56 @@ _CATEGORIES_APPENDIX = """
 """
 
 
+#: The channel-finder paradigms this release accepts, rendered into the emitted
+#: profile's comment for that key. Read from the constant rather than typed out,
+#: for the same reason no comment below carries a port number: a literal here
+#: would keep describing the release it was written in.
+_CHANNEL_FINDER_MODE_LIST = ", ".join(VALID_CHANNEL_FINDER_MODES)
+
+
 # Commented templates for the remaining COMMENTED_TEMPLATE_KEYS. Keyed by FIELD
 # name; appended (in _COMMENTED_TEMPLATE_ORDER) whenever the resolved profile
 # does not carry the key, so every opt-in knob is visible and documented in
 # every emitted profile rather than being discoverable only from the docs.
+#
+# NOTHING HERE SPELLS A HOST PORT. Every framework port is a slot of the
+# deployment's own port block (`config: deployment.port_base` moves all of
+# them at once), so a number written into a comment is wrong for every
+# deployment that moved its base — the comments name the slot instead.
 _COMMENTED_TEMPLATES: dict[str, str] = {
     "data": """
 # --- Facility data tree ------------------------------------------------------
-# Path (relative to this profile) of the data tree the build copies in place of
-# the bundled apps/<app_template>/data/. `osprey init` materializes one
-# and sets this key; a persona delta under personas/ inherits it and resolves it
-# against this profile's directory. Full replacement, not a fallback.
+# Path (relative to this profile) of the data tree the build copies. `osprey
+# init` materializes one from the preset's packaged tree and sets this key; a
+# persona delta under personas/ inherits it and resolves it against this
+# profile's directory. Full replacement, not a fallback.
 #
 # data: data
 """,
     "provider": """
 # --- LLM provider ------------------------------------------------------------
-# Provider the deployment's agents talk to: a built-in name (anthropic, cborg,
-# als-apg, ...) or any custom gateway described under `config:` api.providers.
-# A custom gateway's key goes in this repo's .env — the variable name derives
-# from the provider name, <NAME>_API_KEY. Worked example:
+# Provider the deployment's agents talk to. The name must be an entry in
+# providers.yml, the catalog beside this file; `osprey build` renders that whole
+# file into api.providers, and a `config:` key under api.providers is refused.
 #
-# provider: my-gateway
-# config:
-#   api.providers.my-gateway.api_key: ${MY_GATEWAY_API_KEY}
-#   api.providers.my-gateway.base_url: https://my-gateway.example.com/v1
-#   # Optional — the gateway speaks Anthropic natively (e.g. a LiteLLM proxy
-#   # in Anthropic mode), so the local translation proxy is skipped:
-#   api.providers.my-gateway.api_protocol: anthropic
-#   # Optional tier map, model IDs as the gateway names them. Unmapped tiers
-#   # fall back to `model:`, with a build-time warning:
-#   api.providers.my-gateway.models:
-#     haiku: claude-haiku-4-5
-#     sonnet: claude-sonnet-4-6
-#     opus: claude-opus-4-6
+# To reach a gateway the catalog does not list yet, add it there:
+#
+#   providers:
+#     my-gateway:
+#       api_key: ${MY_GATEWAY_API_KEY}
+#       base_url: https://my-gateway.example.com/v1
+#       # Optional — the gateway speaks Anthropic natively (e.g. a LiteLLM
+#       # proxy in Anthropic mode), so the local translation proxy is skipped:
+#       api_protocol: anthropic
+#       # Optional tier map, model IDs as the gateway names them. Unmapped
+#       # tiers fall back to `model:`, with a build-time warning:
+#       models:
+#         haiku: claude-haiku-4-5
+#         sonnet: claude-sonnet-4-6
+#         opus: claude-opus-4-6
+#
+# then name it here. Its key goes in this repo's .env under the variable the
+# entry's `api_key:` references.
 #
 # provider: anthropic
 """,
@@ -327,22 +333,22 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #
 # model: sonnet
 """,
-    "channel_finder_mode": """
+    "channel_finder_mode": f"""
 # --- Channel-finder paradigm -------------------------------------------------
-# How the agent looks up channels: in_context (whole DB in the prompt),
-# hierarchical (system/device drill-down), middle_layer, or graph (read-only
-# Cypher over the facility knowledge graph). The first three pick which channel
-# database the build writes; graph reads the store named by services.graphdb
-# and writes no database.
+# How the agent looks up the facility's channels. One of:
+# {_CHANNEL_FINDER_MODE_LIST}.
+# Most of them build a channel database into the project at the tier below;
+# one reads the store named by services.graphdb instead and writes no database
+# of its own. The channel-finder guide compares what each one costs and answers.
 #
-# channel_finder_mode: hierarchical
+# channel_finder_mode: <paradigm>
 """,
     "tier": """
 # --- Channel-database tier ---------------------------------------------------
 # Build-time only (1 or 3), selecting which bundled tier DB is materialized.
 # Left unset the build picks a paradigm-aware default, which is why it stays
 # commented: pinning it here would override that default on every rebuild.
-# Tier 1 ships the in_context paradigm only.
+# Tier 1 is the flat whole-database view, so it serves one paradigm only.
 #
 # tier: 3
 """,
@@ -366,15 +372,17 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #   workspace_mode: isolated
 #   facility_name: ALS
 """,
-    "bluesky": f"""
+    "bluesky": """
 # --- Bluesky bridge -----------------------------------------------------
 # Exposes Bluesky plans to the agent. tiled_enabled adds the data-access
 # service; excluded_plans removes shipped plans from the catalog. The bridge
-# and the Tiled catalog publish inside this deployment's port block, so the
-# port below is an override rather than a number you have to write.
+# and the Tiled catalog take the bluesky and tiled slots of this deployment's
+# port block, so neither is a number you write here: move the whole block with
+# `config: deployment.port_base`, or pin this one service outside it with the
+# override below.
 #
 # bluesky:
-#   port: {default_port("bluesky")}
+#   port: <host port>
 #   tiled_enabled: false
 #   excluded_plans: []
 """,
@@ -393,7 +401,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #   port: {CA_DEFAULT_PORT}
 #   live_standin: true
 """,
-    "va_archiver": f"""
+    "va_archiver": """
 # --- Stored archive ----------------------------------------------------------
 # Where a simulated deployment keeps its history: a MongoDB store the build
 # seeds with a deterministic base series, a recorder samples the running
@@ -408,7 +416,9 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # `archiver.type: mongodb_archiver` in `config:` to read from this store.
 #
 # The password is never written here: `osprey up` mints it into the
-# deployment's .env under the name password_env gives.
+# deployment's .env under the name password_env gives. The store takes the
+# mongo slot of this deployment's port block; port_host below pins it outside
+# that block instead of moving the block with `config: deployment.port_base`.
 #
 # An attached project (deploy_services: false) deploys no store of its own and
 # must set `host` to the machine whose archive it reads.
@@ -421,7 +431,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #   recorder_cadence_sec: 10    # how often the live machine is sampled
 #   recorder_tail_cadence_sec: 60
 #   recorder_poll_sec: 30       # how often the recorder re-reads config.yml
-#   port_host: {default_port("mongo")}
+#   port_host: <host port>
 #   database: osprey_archiver
 #   collection: pv_history
 #   compression: zstd           # zstd | snappy | zlib | none
@@ -431,14 +441,14 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #   timeout_sec: 5
 #   host: archive.example.org   # only for an attached project
 """,
-    "bluesky_web": f"""
+    "bluesky_web": """
 # --- Bluesky web panels ------------------------------------------------------
 # Scan-monitoring panels for the web terminal (requires the bluesky block). The
-# sidecar publishes inside this deployment's port block; the port below is an
-# override.
+# sidecar takes the bluesky_web slot of this deployment's port block; the
+# override below pins it outside that block.
 #
 # bluesky_web:
-#   port: {default_port("bluesky_web")}
+#   port: <host port>
 """,
     "nextcloud_bridge": """
 # --- Nextcloud bridge --------------------------------------------------------
@@ -924,6 +934,39 @@ def _append_trailing(cm: CommentedMap, key: Any, block: str) -> None:
         entry[2].value += block
 
 
+def _drop_key_and_pre_comment(cm: CommentedMap, key: Any) -> None:
+    """Delete ``key`` from ``cm`` together with the comment block above it.
+
+    :func:`_sync_to_resolved` deletes a key the resolved profile does not carry
+    but deliberately KEEPS the block above it, because for a preset-authored
+    key that block is usually a section header introducing what follows. For a
+    key the emitted profile must not document at all — one the preset consumes
+    on its own behalf — the block is the key's own explanation and has to go
+    with it, or the emitted file explains a key it does not contain.
+
+    The block the key holds for its SUCCESSOR still survives, moved onto the
+    predecessor exactly as the sync would have moved it.
+
+    Args:
+        cm: The document to edit, in place.
+        key: The key to remove. A no-op when it is absent.
+    """
+    keys = list(cm.keys())
+    if key not in keys:
+        return
+    index = keys.index(key)
+    successor_block = _take_trailing(cm, key)
+    if index > 0:
+        predecessor = keys[index - 1]
+        # Whatever the predecessor holds IS this key's introduction, so it is
+        # taken and discarded before the successor's block is put back.
+        _take_trailing(cm, predecessor)
+        if successor_block is not None:
+            _append_trailing(cm, predecessor, successor_block)
+    del cm[key]
+    cm.ca.items.pop(key, None)
+
+
 def _relocate_trailing(cm: CommentedMap, old_last_key: Any, new_last_key: Any) -> None:
     """Move ``old_last_key``'s trailing comment block behind ``new_last_key``.
 
@@ -1235,9 +1278,8 @@ def materialized_profile(preset_name: str, *, repo_name: str, profile_name: str)
         *((triggers_layer(),) if isinstance(resolved.get("dispatch"), Mapping) else ()),
     )
     text = emit_standalone_profile_yaml(preset_name, (), (), profile_name, extra_layers=layers)
-    # Parsed the way the profile on disk is, aliases canonicalized, so the
-    # emitted ``app_template`` is never compared with the loader's ``data_bundle``
-    # spelling as if they were two keys.
+    # Parsed the way the profile on disk is, so the comparison downstream sees
+    # exactly the keys a build would load from this text.
     document = _parse_profile_document(text, f"materialized preset {preset_name!r}")
     return document if isinstance(document, dict) else {}
 
@@ -1249,6 +1291,7 @@ def emit_standalone_profile_yaml(
     profile_name: str,
     extra_layers: tuple[Mapping[str, Any], ...] = (),
     include_flow_diagram: bool = False,
+    providers_hash: str | None = None,
 ) -> str:
     """Render the standalone ``profile.yml`` text for ``osprey init``.
 
@@ -1267,6 +1310,13 @@ def emit_standalone_profile_yaml(
         include_flow_diagram: Embed the four-zone map and the edit → build → up
             loop in the generated header. Set for the main ``profile.yml``
             only; persona siblings keep the compact header.
+        providers_hash: Content hash of the ``providers.yml`` the caller is
+            about to write beside this profile. ``osprey init`` passes the hash
+            of the catalog it materialized — which on a ``--force`` re-init
+            still carries the operator's own entries, so the stamp describes
+            the file that ends up in the repo rather than the packaged copy.
+            ``None`` stamps the packaged catalog, the right answer for every
+            caller that emits a profile without writing a catalog beside it.
 
     Returns:
         Complete ``profile.yml`` content: fully explicit (no ``extends:``),
@@ -1276,11 +1326,16 @@ def emit_standalone_profile_yaml(
     # -O files, --set pairs, then extends resolution (which also applies any
     # exclude: subtractions and consumes the extends/exclude keys).
     raw, base_anchor = _load_preset_raw(preset_name)
-    raw = merge_cli_overrides(raw, overrides, set_pairs)
+    stated: list[tuple[str, ...]] = []
+    raw = merge_cli_overrides(raw, overrides, set_pairs, stated_config_paths=stated)
     for layer in extra_layers:
         raw = _deep_merge(raw, dict(layer))
     chain: list[Path] = []
     resolved = _resolve_extends(raw, base_anchor, chain)
+    # What the command line stated outranks the deeper keys the preset (or a
+    # parent) spells beneath it — the same prune the render path makes, so the
+    # profile this bakes says what building the same arguments would deploy.
+    resolved = _drop_shadowed_config_keys(resolved, stated)
     resolved["name"] = profile_name
 
     # The schema floor a *reader* of this profile needs — pinned, never the
@@ -1294,7 +1349,19 @@ def emit_standalone_profile_yaml(
     # they cannot disagree.
     normalized = base_anchor.stem
     preset_hash = compute_preset_hash(preset_name) or "(unavailable)"
-    resolved["provenance"] = {"preset": normalized, "preset_hash": preset_hash}
+    # The catalog stamp is the same kind of fact about a second file: what
+    # `providers.yml` held when this profile was written, so a later build can
+    # say the packaged catalog has moved on without guessing.
+    catalog_hash = (
+        providers_hash
+        if providers_hash is not None
+        else compute_providers_hash(packaged_catalog_path())
+    )
+    resolved["provenance"] = {
+        "preset": normalized,
+        "preset_hash": preset_hash,
+        "providers_hash": catalog_hash,
+    }
 
     # Defaults-synthesis: every EXPLICIT member the preset left unset is written
     # out at its loader default, so the emitted profile shows the whole
@@ -1326,9 +1393,11 @@ def emit_standalone_profile_yaml(
     if doc is None:  # pragma: no cover - _load_preset_raw already validated
         doc = CommentedMap()
 
-    for field, yaml_key in _FIELD_TO_YAML.items():
-        if field in resolved:
-            resolved[yaml_key] = resolved.pop(field)
+    # `app_template:` is preset-side only: it names the packaged data tree
+    # `osprey init` copies, and is not a profile key (a profile spelling it is
+    # refused). Its comment goes with it — left behind, it would read as the
+    # introduction to whichever key followed.
+    _drop_key_and_pre_comment(doc, PRESET_DATA_BUNDLE_KEY)
 
     _sync_to_resolved(doc, resolved)
 
@@ -1337,9 +1406,8 @@ def emit_standalone_profile_yaml(
     # what appends resolved-only keys to the document.
     for field in synthesized:
         rationale = _SYNTHESIS_RATIONALE.get(field)
-        key = _FIELD_TO_YAML.get(field, field)
-        if rationale and key in doc and field not in _ANNOTATIONS:
-            _set_pre_comment(doc, key, [f"# {rationale}"], 0)
+        if rationale and field in doc and field not in _ANNOTATIONS:
+            _set_pre_comment(doc, field, [f"# {rationale}"], 0)
 
     # Annotated keys carry a worked example instead of a rationale line, and get
     # it whether or not the preset left them unset: the shape of a custom panel
@@ -1348,9 +1416,8 @@ def emit_standalone_profile_yaml(
     # first, and column 0 keeps the block out of the artifact menus, which are
     # inserted into the dumped text further down.
     for field, annotation in _ANNOTATIONS.items():
-        key = _FIELD_TO_YAML.get(field, field)
-        if key in doc:
-            _set_pre_comment(doc, key, list(annotation), 0)
+        if field in doc:
+            _set_pre_comment(doc, field, list(annotation), 0)
     if "requires_osprey_version" in doc:
         _set_pre_comment(doc, "requires_osprey_version", [_REQUIRES_VERSION_COMMENT], 0)
     if "provenance" in doc:
@@ -1378,11 +1445,8 @@ def emit_standalone_profile_yaml(
     text = _insert_artifact_menus(text)
 
     # Opt-in knobs the resolved profile does not carry appear as documented
-    # commented templates, so no configurable surface is invisible. Look the key
-    # up under its YAML spelling: the re-spell above rewrote _FIELD_TO_YAML
-    # members in place, so a field-name probe would miss a carried value and
-    # append a template beside the active key.
+    # commented templates, so no configurable surface is invisible.
     for field in _COMMENTED_TEMPLATE_ORDER:
-        if _FIELD_TO_YAML.get(field, field) not in resolved:
+        if field not in resolved:
             text += _COMMENTED_TEMPLATES[field]
     return text
