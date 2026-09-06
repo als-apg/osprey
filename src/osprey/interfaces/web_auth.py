@@ -1121,9 +1121,10 @@ class Tier(Enum):
 #: The exact ``(method, path)`` pairs an in-process companion may drive with the
 #: panel token alone.
 #:
-#: Every entry is a real route in this tree: the first six live in
-#: :mod:`osprey.interfaces.web_terminal.routes.panels` and
-#: :mod:`osprey.interfaces.web_terminal.routes.agent_activity`, and
+#: Every entry is a real route in this tree: the first seven live in
+#: :mod:`osprey.interfaces.web_terminal.routes.panels`,
+#: :mod:`osprey.interfaces.web_terminal.routes.agent_activity` and
+#: :mod:`osprey.interfaces.web_terminal.routes.agent_turn`, and
 #: ``POST /api/focus`` is the artifacts app's focus setter
 #: (:mod:`osprey.interfaces.artifacts.app`). Because one process serves several
 #: apps and the table is shared by all of them, ``POST /api/focus`` is
@@ -1142,6 +1143,7 @@ PANEL_TIER_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/api/panel-close"),
         ("POST", "/api/panel-arrange"),
         ("POST", "/api/agent-activity"),
+        ("POST", "/api/agent-turn"),
         ("POST", "/api/focus"),
     }
 )
