@@ -155,29 +155,102 @@ def _coerce_feedback_tracker(entry: object) -> dict[str, str] | None:
     return tracker
 
 
-def resolve_feedback_trackers(
-    trackers: list[dict[str, str]], github_repo: str
-) -> list[dict[str, str]]:
-    """The tracker list the dialog offers: the configured list plus the sugar.
+def coerce_feedback_owner(value: object) -> tuple[str, str | None, dict[str, str] | None]:
+    """Read ``web.feedback.owner`` into ``(name, email, tracker)``.
 
-    ``web.feedback.github_repo`` keeps its meaning as a single GitHub tracker,
-    appended after the facility-authored list (blank retires it — that is the
-    posture :func:`coerce_config_str` preserves). Two entries naming the same
-    target collapse to the first, so a facility that lists the upstream repo
-    under its own label does not get it rendered twice by the sugar.
+    The block exists because a facility redirecting feedback has to move both
+    the address and the tracker, and moving one is precisely the mistake it
+    prevents. It is one block so that the two cannot be edited apart.
+
+    ``email`` is returned as ``None`` when the block names none, which the
+    caller feeds to :func:`coerce_config_str` as an *absent* value — that is
+    what makes the leaf ``web.feedback.email`` outrank it without either key
+    knowing about the other.
+
+    The tracker is spelled ``{kind, target}`` rather than the internal
+    ``{kind, repo}`` / ``{kind, url}`` pair: a facility writing this block is
+    naming one destination and should not have to know which field name its
+    forge happens to use. ``label`` is optional and defaults to the kind's own
+    caption, exactly as in ``web.feedback.trackers``.
+
+    Every field degrades on its own. A malformed tracker must not take the
+    owner's address down with it — half a redirect is the failure mode, and
+    silently reverting a facility's address to the upstream maintainers is the
+    worst half to lose.
+
+    Args:
+        value: Whatever the config reader returned for ``web.feedback.owner``.
+
+    Returns:
+        The owner's name (``""`` when unnamed), the owner's address (``None``
+        when unnamed) and the owner's tracker as one normalised entry
+        (``None`` when unnamed or unusable).
+    """
+    if value is None:
+        return "", None, None
+    if not isinstance(value, dict):
+        logger.warning("web.feedback.owner is %r, not a mapping; ignoring it", value)
+        return "", None, None
+
+    raw_name = value.get("name")
+    name = raw_name.strip() if isinstance(raw_name, str) else ""
+
+    raw_email = value.get("email")
+    email = raw_email if isinstance(raw_email, str) or raw_email is None else None
+    if raw_email is not None and email is None:
+        logger.warning("web.feedback.owner.email is %r, not a string; ignoring it", raw_email)
+
+    tracker = None
+    raw_tracker = value.get("tracker")
+    if raw_tracker is not None:
+        tracker = _coerce_owner_tracker(raw_tracker)
+        if tracker is None:
+            logger.warning("web.feedback.owner.tracker is %r; ignoring it", raw_tracker)
+    return name, email, tracker
+
+
+def _coerce_owner_tracker(entry: object) -> dict[str, str] | None:
+    """``{kind, target}`` as one normalised tracker entry, or ``None``.
+
+    Translates the owner block's forge-agnostic ``target`` into the field name
+    :func:`_coerce_feedback_tracker` expects for that kind, then validates
+    through it — so the owner tracker and a ``web.feedback.trackers`` entry are
+    held to exactly the same rules and cannot drift apart.
+    """
+    if not isinstance(entry, dict):
+        return None
+    kind = entry.get("kind")
+    if not isinstance(kind, str):
+        return None
+    target_field = "repo" if kind.strip() == "github" else "url"
+    return _coerce_feedback_tracker(
+        {"kind": kind, "label": entry.get("label"), target_field: entry.get("target")}
+    )
+
+
+def resolve_feedback_trackers(
+    trackers: list[dict[str, str]], owner_tracker: dict[str, str] | None
+) -> list[dict[str, str]]:
+    """The tracker list the dialog offers: the configured list, then the owner's.
+
+    The deployment owner's own tracker is appended after the facility-authored
+    ``web.feedback.trackers`` list, so a facility that also curates channels
+    keeps its order and the owner's is the last resort. ``None`` retires it —
+    that is the posture a blank ``web.feedback.github_repo`` reaches. Two
+    entries naming the same target collapse to the first, so a facility that
+    lists its own tracker explicitly does not get it rendered twice.
 
     Args:
         trackers: Output of :func:`coerce_feedback_trackers`.
-        github_repo: Resolved ``web.feedback.github_repo`` (``""`` when blank).
+        owner_tracker: The owner's tracker as one normalised entry, or ``None``
+            when the deployment has no owner tracker at all.
 
     Returns:
         The de-duplicated list, in render order.
     """
     candidates = list(trackers)
-    if github_repo:
-        candidates.append(
-            {"kind": "github", "label": FEEDBACK_TRACKER_LABELS["github"], "repo": github_repo}
-        )
+    if owner_tracker:
+        candidates.append(owner_tracker)
     seen: set[tuple[str, str]] = set()
     resolved: list[dict[str, str]] = []
     for tracker in candidates:
@@ -252,6 +325,12 @@ class FeedbackDestination:
     max_store_bytes: int = DEFAULT_FEEDBACK_MAX_STORE_BYTES
     """Ceiling on the on-disk record store. Server-side only."""
 
+    owner_name: str = ""
+    """``web.feedback.owner.name`` — how this deployment's owner is written in a
+    report. ``""`` when no owner block names one, including the unconfigured
+    deployment: the OSPREY project is not a facility and does not caption
+    itself as one."""
+
 
 def resolve_feedback_destination(
     *,
@@ -260,6 +339,7 @@ def resolve_feedback_destination(
     github_repo: object = None,
     trackers: object = None,
     max_store_bytes: object = None,
+    owner: object = None,
 ) -> FeedbackDestination:
     """Resolve the raw config values into one coherent destination.
 
@@ -284,24 +364,53 @@ def resolve_feedback_destination(
     feedback address to the upstream maintainers because its store ceiling was
     written ``256MB`` is exactly the failure a fail-open path must not produce.
 
+    ``web.feedback.owner`` names the destination as one block. The two leaf
+    keys still outrank it wherever they are spelled, which is what keeps every
+    already-deployed profile meaning exactly what it meant before this key
+    existed. The precedence falls out of :func:`coerce_config_str` rather than
+    being written as a branch: the owner's value is passed as the *default* for
+    the leaf key, so "leaf if spelled, else owner, else the project" is one
+    expression and cannot be half-applied. A blank leaf key still retires its
+    channel, because blank is a posture and outranks an owner that named one.
+
     Args:
         docs_url: Raw ``web.docs_url``.
         email: Raw ``web.feedback.email``.
         github_repo: Raw ``web.feedback.github_repo``.
         trackers: Raw ``web.feedback.trackers``.
         max_store_bytes: Raw ``web.feedback.max_store_bytes``.
+        owner: Raw ``web.feedback.owner``.
 
     Returns:
         A freshly built :class:`FeedbackDestination`; nothing is shared between
         calls, so no caller can mutate the next one's tracker list.
     """
-    resolved_repo = coerce_config_str(
-        "web.feedback.github_repo", github_repo, DEFAULT_FEEDBACK_GITHUB_REPO
-    )
+    owner_name, owner_email, owner_tracker = coerce_feedback_owner(owner)
+
+    # The leaf repo, when spelled, replaces the owner's tracker outright — it
+    # is the older way of saying the same thing, so honouring both would
+    # render the destination twice.
+    if github_repo is None and owner_tracker is not None:
+        resolved_repo = owner_tracker.get("repo", "")
+    else:
+        resolved_repo = coerce_config_str(
+            "web.feedback.github_repo", github_repo, DEFAULT_FEEDBACK_GITHUB_REPO
+        )
+        owner_tracker = (
+            {"kind": "github", "label": FEEDBACK_TRACKER_LABELS["github"], "repo": resolved_repo}
+            if resolved_repo
+            else None
+        )
+
     return FeedbackDestination(
         docs_url=coerce_config_str("web.docs_url", docs_url, DEFAULT_DOCS_URL),
-        email=coerce_config_str("web.feedback.email", email, DEFAULT_FEEDBACK_EMAIL),
+        email=coerce_config_str(
+            "web.feedback.email",
+            email,
+            coerce_config_str("web.feedback.owner.email", owner_email, DEFAULT_FEEDBACK_EMAIL),
+        ),
         github_repo=resolved_repo,
-        trackers=resolve_feedback_trackers(coerce_feedback_trackers(trackers), resolved_repo),
+        trackers=resolve_feedback_trackers(coerce_feedback_trackers(trackers), owner_tracker),
         max_store_bytes=coerce_store_ceiling(max_store_bytes),
+        owner_name=owner_name,
     )

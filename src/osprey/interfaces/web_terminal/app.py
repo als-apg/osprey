@@ -40,8 +40,6 @@ from osprey.interfaces.web_terminal.bar_items_store import (
 )
 from osprey.interfaces.web_terminal.feedback_destination import (
     DEFAULT_DOCS_URL,
-    DEFAULT_FEEDBACK_EMAIL,
-    DEFAULT_FEEDBACK_GITHUB_REPO,
     DEFAULT_FEEDBACK_MAX_STORE_BYTES,
     resolve_feedback_destination,
 )
@@ -2200,22 +2198,27 @@ def _create_lifespan(
         # facility with no config.yml still gets working Documentation and
         # Feedback controls pointed at the project defaults.
         #
-        # The four raw values are read together — a failure here means the
-        # config is unreadable, which really does concern all four — but each
-        # is validated SEPARATELY below. A single unusable value (a hand-written
-        # "256MB" ceiling, say) must not drag the others back to project
-        # defaults: silently redirecting a facility's feedback address to the
-        # upstream maintainer is exactly the failure a fail-open path must not
-        # produce.
+        # The raw values are read together — a failure here means the config is
+        # unreadable, which really does concern all of them — but each is
+        # validated SEPARATELY by the resolver. A single unusable value (a
+        # hand-written "256MB" ceiling, say) must not drag the others back to
+        # project defaults: silently redirecting a facility's feedback address
+        # to the upstream maintainer is exactly the failure a fail-open path
+        # must not produce.
+        #
+        # The two keys `web.feedback.owner` can stand in for are read with a
+        # None sentinel rather than their own default, because the resolver has
+        # to tell "absent" from "spelled, and equal to the default" to know
+        # whether the leaf outranks the owner block. Every other key reads with
+        # its default, as before.
         try:
             from osprey.utils.config import get_config_value
 
             raw_docs_url = get_config_value("web.docs_url", DEFAULT_DOCS_URL)
-            raw_github_repo = get_config_value(
-                "web.feedback.github_repo", DEFAULT_FEEDBACK_GITHUB_REPO
-            )
-            raw_email = get_config_value("web.feedback.email", DEFAULT_FEEDBACK_EMAIL)
+            raw_github_repo = get_config_value("web.feedback.github_repo", None)
+            raw_email = get_config_value("web.feedback.email", None)
             raw_trackers = get_config_value("web.feedback.trackers", None)
+            raw_owner = get_config_value("web.feedback.owner", None)
             raw_max_store_bytes = get_config_value(
                 "web.feedback.max_store_bytes", DEFAULT_FEEDBACK_MAX_STORE_BYTES
             )
@@ -2224,21 +2227,24 @@ def _create_lifespan(
                 "Could not read web.docs_url / web.feedback.* config keys; using defaults",
                 exc_info=True,
             )
-            raw_docs_url = raw_github_repo = raw_email = raw_trackers = raw_max_store_bytes = None
+            raw_docs_url = raw_github_repo = raw_email = raw_trackers = None
+            raw_owner = raw_max_store_bytes = None
         # One resolver, so this block and the `GET /api/panels` fallback cannot
-        # disagree: `trackers` is derived from `github_repo`, and two copies of
-        # that derivation are two chances to drift.
+        # disagree: `trackers` is derived from `github_repo` and the owner
+        # block, and two copies of that derivation are two chances to drift.
         destination = resolve_feedback_destination(
             docs_url=raw_docs_url,
             email=raw_email,
             github_repo=raw_github_repo,
             trackers=raw_trackers,
             max_store_bytes=raw_max_store_bytes,
+            owner=raw_owner,
         )
         app.state.docs_url = destination.docs_url
         app.state.feedback_github_repo = destination.github_repo
         app.state.feedback_trackers = destination.trackers
         app.state.feedback_email = destination.email
+        app.state.feedback_owner_name = destination.owner_name
         app.state.feedback_max_store_bytes = destination.max_store_bytes
 
         # The server-side stores are sited on the CONFIGURED agent-data root

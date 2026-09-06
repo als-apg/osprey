@@ -1366,7 +1366,13 @@ keys:
       anchors on the prefix those readers share, so this entry dies with the
       last of them rather than outliving them all.
   web.feedback.github_repo:
-    evidence: 'get_config_value\(\s*"web\.feedback\.github_repo",\s*DEFAULT_FEEDBACK_GITHUB_REPO\s*\)'
+    evidence: 'get_config_value\("web\.feedback\.github_repo", None\)'
+    note: >-
+      Read with a None sentinel rather than its own default, unlike its
+      neighbours: `web.feedback.owner` can stand in for this key, and the
+      resolver has to tell "absent" from "spelled, and equal to the default"
+      to know which of the two wins. The default lives in
+      interfaces/web_terminal/feedback_destination.py and is applied there.
   web.feedback.trackers:
     # Documented in every template as a commented example beside github_repo,
     # never rendered as a live key: the shipped posture is the github_repo
@@ -1374,7 +1380,35 @@ keys:
     rendered: false
     evidence: 'get_config_value\(\s*"web\.feedback\.trackers",\s*None\s*\)'
   web.feedback.email:
-    evidence: 'get_config_value\(\s*"web\.feedback\.email",\s*DEFAULT_FEEDBACK_EMAIL\s*\)'
+    evidence: 'get_config_value\("web\.feedback\.email", None\)'
+    note: >-
+      Read with a None sentinel for the same reason as
+      `web.feedback.github_repo` — see that entry.
+  web.feedback.owner:
+    # Documented in every template that carries a `web:` block as a commented
+    # example, never rendered as a live key: the shipped destination is the
+    # OSPREY project, and a facility that redirects feedback writes the block
+    # by hand. Rendering it live would force `osprey profile expand` on every
+    # already-deployed profile to clear a drift report.
+    rendered: false
+    evidence: 'get_config_value\("web\.feedback\.owner", None\)'
+    note: >-
+      One block naming who owns this deployment: `name`, `email` and a
+      forge-agnostic `tracker`. The leaf keys `web.feedback.email` and
+      `web.feedback.github_repo` still outrank it wherever they are spelled,
+      so no already-deployed profile changes meaning. The three leaves below
+      have no dotted lookup of their own — the block is read whole and taken
+      apart by `coerce_feedback_owner`, so they are covered-by rather than
+      evidenced.
+  web.feedback.owner.name: {rendered: false, covered-by: web.feedback.owner}
+  web.feedback.owner.email: {rendered: false, covered-by: web.feedback.owner}
+  web.feedback.owner.tracker: {rendered: false, covered-by: web.feedback.owner}
+  web.feedback.owner.tracker.kind:
+    {rendered: false, covered-by: web.feedback.owner.tracker}
+  web.feedback.owner.tracker.target:
+    {rendered: false, covered-by: web.feedback.owner.tracker}
+  web.feedback.owner.tracker.label:
+    {rendered: false, covered-by: web.feedback.owner.tracker}
   web.feedback.max_store_bytes:
     evidence: 'get_config_value\(\s*"web\.feedback\.max_store_bytes",\s*DEFAULT_FEEDBACK_MAX_STORE_BYTES\s*\)'
   web.channel_suggestions: {evidence: 'web\.get\("channel_suggestions"\)'}
