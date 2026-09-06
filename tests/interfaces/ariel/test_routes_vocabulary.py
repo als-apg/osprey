@@ -116,6 +116,7 @@ def test_capabilities_configuration_invalid_payload_is_service_independent():
         "default_mode": None,
         "shared_parameters": [],
         "vocabulary": {"enabled": False, "concepts": 0, "expand_by_default": False},
+        "config_panel_enabled": True,
     }
     assert "ariel.vocabulary.path" in response.json()["remedy"]
 
@@ -169,7 +170,13 @@ def test_capabilities_without_config_state_returns_the_normal_payload():
 
     assert response.status_code == 200
     payload = response.json()
-    assert set(payload) == {"categories", "default_mode", "shared_parameters", "vocabulary"}
+    assert set(payload) == {
+        "categories",
+        "default_mode",
+        "shared_parameters",
+        "vocabulary",
+        "config_panel_enabled",
+    }
     assert "status" not in payload
 
 

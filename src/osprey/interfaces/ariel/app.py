@@ -190,6 +190,8 @@ class _ConfigState:
         errors: Every error to report, in the order they were collected.
         status: One of the ``CONFIG_STATUS_*`` values.
         remedy: The class-derived operator action, None when ok.
+        config_panel_enabled: Whether ``web.config_panel.enabled`` leaves the
+            Config panel reachable on this deployment.
     """
 
     config: Any
@@ -197,6 +199,43 @@ class _ConfigState:
     errors: list[str]
     status: str
     remedy: str | None
+    config_panel_enabled: bool = True
+
+
+def _resolve_config_panel_enabled(config_path: Path | None) -> bool:
+    """Whether this deployment lets its operators reach the Config panel.
+
+    ``web.config_panel.enabled`` is one key with one meaning across both
+    surfaces, so this reads the same file the panel edits — the config.yml the
+    loader actually resolved — and coerces it with the Web Terminal's own
+    :func:`coerce_config_flag`. Two readers of one key, never two keys.
+
+    Fails OPEN, exactly as the terminal's lifespan does: an unreadable or
+    unparseable config leaves the panel at the shipped posture rather than
+    silently taking an operator's config editor away.
+
+    Args:
+        config_path: The config.yml that was read, or None when none was found.
+
+    Returns:
+        The configured boolean, or True when the key is absent or unreadable.
+    """
+    from osprey.interfaces.web_terminal.app import coerce_config_flag
+
+    raw: object = None
+    if config_path is not None:
+        try:
+            document = yaml.safe_load(config_path.read_text()) or {}
+            web = document.get("web") if isinstance(document, dict) else None
+            panel = web.get("config_panel") if isinstance(web, dict) else None
+            raw = panel.get("enabled") if isinstance(panel, dict) else None
+        except Exception:  # noqa: BLE001 — never let config load block startup
+            logger.warning(
+                "Could not read web.config_panel.enabled; leaving the Config panel enabled",
+                exc_info=True,
+            )
+            raw = None
+    return coerce_config_flag("web.config_panel.enabled", raw, True)
 
 
 def _resolve_config_state(config_path: str | Path | None) -> _ConfigState:
@@ -249,6 +288,7 @@ def _resolve_config_state(config_path: str | Path | None) -> _ConfigState:
         errors=config_errors,
         status=status,
         remedy=remedy,
+        config_panel_enabled=_resolve_config_panel_enabled(resolved_path),
     )
 
 
@@ -330,6 +370,13 @@ def _create_lifespan(config_path: str | Path | None = None):
         app.state.config_errors = state.errors
         app.state.config_status = state.status
         app.state.config_remedy = state.remedy
+
+        # `web.config_panel.enabled: false` takes the settings editor's SERVER
+        # surface away, not just its entry in the display menu: GET and PUT
+        # /api/config both refuse with 403. GET is gated too — the document it
+        # returns carries the provider base_urls and every path the safety
+        # layers derive their allow and deny areas from.
+        app.state.config_panel_enabled = state.config_panel_enabled
 
         if state.errors:
             logger.warning(_config_banner(state.status, state.errors, state.remedy))

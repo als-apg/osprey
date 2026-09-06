@@ -263,11 +263,16 @@ async def get_capabilities(request: Request) -> dict:
     remedy = getattr(request.app.state, "config_remedy", None)
     service = getattr(request.app.state, "ariel_service", None)
 
+    # The Config panel's server gate, reported so the frontend can take the
+    # Settings entry out of the display menu. The server refusal is the real
+    # gate; this is its other half, never the only half.
+    panel_enabled = bool(getattr(request.app.state, "config_panel_enabled", True))
+
     if status == CONFIG_STATUS_INVALID or (errors and status is None and service is None):
-        return _invalid_capabilities(errors, remedy)
+        return {**_invalid_capabilities(errors, remedy), "config_panel_enabled": panel_enabled}
 
     service = _require_service(request)
-    payload = _get_caps(service.config)
+    payload = {**_get_caps(service.config), "config_panel_enabled": panel_enabled}
     if errors:
         payload = {
             **payload,
@@ -925,7 +930,17 @@ def _config_path(request: Request) -> Path:
 
 @router.get("/config")
 async def get_config(request: Request) -> dict:
-    """Return the current config.yml as a dict and raw YAML."""
+    """Return the current config.yml as a dict and raw YAML.
+
+    Gated on ``web.config_panel.enabled`` before anything else, reads
+    included: the document this returns carries every provider ``base_url``
+    and the paths the safety layers derive their allow and deny areas from, so
+    a tier that may not edit the file may not read it out either.
+    """
+    from osprey.interfaces.web_terminal.routes.config import _require_config_panel
+
+    _require_config_panel(request)
+
     path = _config_path(request)
     if not path.exists():
         raise HTTPException(status_code=404, detail="config.yml not found")
@@ -971,7 +986,14 @@ async def update_config(request: Request, req: ConfigUpdateRequest) -> dict:
         _changed_protected_keys,
         _current_document,
         _refuse_protected_keys,
+        _require_config_panel,
     )
+
+    # The tier gate runs FIRST, ahead of the path check and ahead of the
+    # protected-set logic, exactly as it does on the terminal: a deployment
+    # that has taken this panel away never gets as far as having a key to
+    # judge, so it never reports a protected-key refusal instead.
+    _require_config_panel(request)
 
     path = _config_path(request)
     if not path.exists():

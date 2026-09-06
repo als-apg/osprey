@@ -14,9 +14,36 @@ let configDirty = false;
 let originalRaw = '';
 
 /**
- * Initialize settings module.
+ * Take the Settings entry out of the display menu and drop the drawer.
+ *
+ * The server refusal is the gate — `GET` and `PUT /api/config` answer 403
+ * when `web.config_panel.enabled` is false — and this is its other half: a
+ * control an operator cannot use should not be on screen offering itself.
+ * Removing the drawer too means a stale `#settings-drawer` trigger elsewhere
+ * has nothing left to open.
  */
-export function initSettings() {
+function removeConfigPanel() {
+  document.querySelectorAll('.display-menu-settings').forEach(btn => btn.remove());
+  document.querySelectorAll('osprey-display-menu[settings-drawer]')
+    .forEach(menu => menu.removeAttribute('settings-drawer'));
+  const drawer = document.getElementById('settings-drawer');
+  if (drawer) drawer.remove();
+}
+
+/**
+ * Initialize settings module.
+ *
+ * @param {{config_panel_enabled?: boolean} | null} [capabilities] The
+ *   `/api/capabilities` payload. Only an explicit `false` closes the panel —
+ *   a payload that never arrived (backend down) leaves it where the server's
+ *   own default leaves it, which is open.
+ */
+export function initSettings(capabilities) {
+  if (capabilities && capabilities.config_panel_enabled === false) {
+    removeConfigPanel();
+    return;
+  }
+
   // Mode bar (Form / Raw)
   const modeBtns = /** @type {NodeListOf<HTMLElement>} */ (
     document.querySelectorAll('.settings-mode-btn')
