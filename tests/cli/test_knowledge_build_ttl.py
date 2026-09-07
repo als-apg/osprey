@@ -277,6 +277,17 @@ def _config_channel_db(monkeypatch: pytest.MonkeyPatch, value: object) -> None:
     monkeypatch.setattr("osprey.utils.config.get_config_value", _lookup)
 
 
+def _config_facility_prefix(monkeypatch: pytest.MonkeyPatch, value: object) -> None:
+    """Make ``facility.prefix`` read as *value* for the token resolution."""
+
+    def _lookup(path: str, default: object = None, config_path: object = None) -> object:
+        if path == "facility.prefix":
+            return value
+        return default
+
+    monkeypatch.setattr("osprey.utils.config.get_config_value", _lookup)
+
+
 def _config_graph_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make the project read as a graph-paradigm one.
 
@@ -433,6 +444,132 @@ def test_build_ttl_facility_option_mints_the_given_token(
     assert "narad:device:xyz:SR:DIPOLE01" in text
     # A mixed-token corpus is the failure this flag exists to make impossible.
     assert "demo" not in text
+
+
+def test_build_ttl_takes_the_facility_token_from_the_project_config(
+    channel_db: Path,
+    descriptions_db: Path,
+    readonly_limits: Path,
+    ontology_table: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A project that already names its facility does not have to name it twice."""
+    _config_facility_prefix(monkeypatch, "ex")
+    output = tmp_path / "ex.ttl"
+    result = _build_ttl(
+        output,
+        channel_db=channel_db,
+        descriptions_db=descriptions_db,
+        readonly_limits=readonly_limits,
+        ontology_table=ontology_table,
+    )
+
+    assert result.exit_code == 0, result.output
+    text = output.read_text(encoding="utf-8")
+    assert 'narad_p:facility "ex"' in text
+    assert "ex_SR_DIPOLE01" in text
+    assert "demo" not in text
+
+
+def test_build_ttl_flag_wins_over_the_configured_facility_token(
+    channel_db: Path,
+    descriptions_db: Path,
+    readonly_limits: Path,
+    ontology_table: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The flag is the operator's override, so it outranks the config key."""
+    _config_facility_prefix(monkeypatch, "ex")
+    output = tmp_path / "xyz.ttl"
+    result = _build_ttl(
+        output,
+        "--facility",
+        "xyz",
+        channel_db=channel_db,
+        descriptions_db=descriptions_db,
+        readonly_limits=readonly_limits,
+        ontology_table=ontology_table,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert 'narad_p:facility "xyz"' in output.read_text(encoding="utf-8")
+
+
+def test_build_ttl_refuses_a_facility_token_no_identifier_can_hold(
+    channel_db: Path,
+    descriptions_db: Path,
+    readonly_limits: Path,
+    ontology_table: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nothing enforces the key's shape upstream, so this verb checks it itself."""
+    _config_facility_prefix(monkeypatch, "example facility")
+    output = tmp_path / "bad.ttl"
+    result = _build_ttl(
+        output,
+        channel_db=channel_db,
+        descriptions_db=descriptions_db,
+        readonly_limits=readonly_limits,
+        ontology_table=ontology_table,
+    )
+
+    assert result.exit_code != 0
+    flat = _flat(result)
+    assert "facility.prefix" in flat
+    assert "example facility" in flat
+    assert not output.exists()
+
+
+def test_build_ttl_reports_the_facility_token_and_the_ontology(
+    channel_db: Path,
+    descriptions_db: Path,
+    readonly_limits: Path,
+    ontology_table: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A corpus is identified by both, so both are on the run's closing report."""
+    _config_facility_prefix(monkeypatch, "ex")
+    output = tmp_path / "ex.ttl"
+    result = _build_ttl(
+        output,
+        channel_db=channel_db,
+        descriptions_db=descriptions_db,
+        readonly_limits=readonly_limits,
+        ontology_table=ontology_table,
+    )
+
+    assert result.exit_code == 0, result.output
+    flat = _flat(result)
+    assert "Facility token: ex" in flat
+    assert "facility.prefix" in flat
+    assert str(ontology_table) in flat
+
+
+def test_build_ttl_says_when_a_foreign_machine_gets_the_demo_token(
+    channel_db: Path,
+    descriptions_db: Path,
+    readonly_limits: Path,
+    ontology_table: Path,
+    tmp_path: Path,
+) -> None:
+    """The mislabelled corpus is written, but the run does not stay quiet about it."""
+    output = tmp_path / "demo.ttl"
+    result = _build_ttl(
+        output,
+        channel_db=channel_db,
+        descriptions_db=descriptions_db,
+        readonly_limits=readonly_limits,
+        ontology_table=ontology_table,
+    )
+
+    assert result.exit_code == 0, result.output
+    flat = _flat(result)
+    assert "Facility token: demo" in flat
+    assert "not the packaged demo one" in flat
 
 
 def test_build_ttl_reports_the_limits_direction_source(

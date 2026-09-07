@@ -937,12 +937,15 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
       they do, alphabetically.
 
    ``--facility``
-      The facility token, ``demo`` by default. Every IRI and identifier the
-      corpus mints embeds it, and each device carries it as
-      ``narad_p:facility``, so name your own facility when the corpus is not
-      the demo machine's. The token is written once, from this flag: there is
-      no second place for it to come from and therefore no way for the
-      identifiers and the property to disagree.
+      The facility token. Every IRI and identifier the corpus mints embeds it,
+      and each device carries it as ``narad_p:facility``. Unnamed, it is the
+      project's own ``facility.prefix`` --- the key the rest of the deployment
+      already reads --- and ``demo`` only when no config names one, which is
+      what the shipped demo corpus carries. The token has to be usable inside
+      an identifier: a letter or underscore, then letters, digits and
+      underscores. Every run reports the token it minted with and the ontology
+      table it emitted against, and a run that falls back to ``demo`` against a
+      database that is not the packaged demo one says so.
 
    The neighbour rule for ``--descriptions`` is a convenience of the OSPREY
    source tree. A rendered project keeps only the paradigm it runs, as a flat

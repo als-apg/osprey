@@ -37,8 +37,22 @@ from .output import fail, note, report, warn
 #: Default token for ``build-ttl --facility``.  Spelled out rather than imported
 #: so that ``osprey knowledge`` does not pull the TTL generator into its import
 #: graph for every verb; ``tests/cli/test_knowledge_build_ttl.py`` pins it to
-#: ``ttl_generator.model.FACILITY`` so the two cannot drift apart.
+#: ``ttl_generator.model.FACILITY`` so the two cannot drift apart.  It is the
+#: last resort: a project that names its own facility is read first.
 DEFAULT_FACILITY = "demo"
+
+#: Config key holding the deployment's own facility token.  The corpus reads it
+#: rather than minting its own, so the identifiers a project's graph carries and
+#: the ones the rest of the deployment uses cannot say two different things.
+FACILITY_PREFIX_CONFIG_KEY = "facility.prefix"
+
+#: The demo machine's own hierarchical database, as it ships inside the package.
+#: A run against any other database that still mints ``demo`` identifiers is
+#: labelling one machine's corpus with another's name, which is worth saying.
+DEMO_CHANNEL_DB = (
+    Path(__file__).resolve().parents[1]
+    / "templates/apps/control_assistant/data/channel_databases/tiers/tier3/hierarchical.json"
+)
 
 
 @click.group()
@@ -880,6 +894,59 @@ def _resolve_section_order(explicit: str | None, raw: Mapping[str, Any]) -> tupl
     return tuple(token for token in tree if not token.startswith("_"))
 
 
+def _resolve_facility(explicit: str | None) -> tuple[str, str]:
+    """Return the facility token to mint with, and where it came from.
+
+    The token is the deployment's, not this verb's: a project that sets
+    ``facility.prefix`` already names its facility once, and reading it here is
+    what keeps the corpus's identifiers and the rest of the deployment from
+    saying two different things. An explicit flag still wins, and the built-in
+    ``demo`` is only reached when neither names anything.
+
+    ``facility.name`` is deliberately not consulted: it is a display string,
+    and a facility whose name has a space in it would mint identifiers no
+    Turtle prefixed name can hold.
+
+    Run outside any project the key cannot be read at all; that is the same
+    answer as a config that leaves it unset, so it falls through to the
+    default rather than failing.
+
+    Args:
+        explicit: The ``--facility`` value, or ``None``.
+
+    Returns:
+        Tuple of (token, the source to name in the run's report).
+
+    Raises:
+        click.ClickException: When the token cannot be part of an identifier.
+    """
+    from osprey.services.facility_knowledge.ttl_generator.model import PN_LOCAL
+    from osprey.utils.config import get_config_value
+
+    if explicit is not None:
+        token, source = explicit, "--facility"
+    else:
+        try:
+            configured = get_config_value(FACILITY_PREFIX_CONFIG_KEY, None)
+        except OSError:
+            # No config in scope at all, which names a facility exactly as
+            # loudly as a config that leaves the key unset.
+            configured = None
+        if isinstance(configured, str) and configured.strip():
+            token, source = configured.strip(), FACILITY_PREFIX_CONFIG_KEY
+        else:
+            token, source = DEFAULT_FACILITY, "the built-in default"
+
+    if PN_LOCAL.fullmatch(token) is None:
+        raise click.ClickException(
+            f"The facility token {token!r}, from {source}, cannot go into an identifier: "
+            "every IRI and id literal the corpus mints embeds it, so it must start with "
+            "a letter or an underscore and hold only letters, digits and underscores.\n"
+            f"Set {FACILITY_PREFIX_CONFIG_KEY} to such a token, or name one with --facility."
+        )
+    return token, source
+
+
 def _load_ontology_table(ontology: Path | None) -> Any:
     """Return the FAMILY-to-class table to emit against.
 
@@ -997,11 +1064,10 @@ def _assign_directions(graph_model: Any, limits: Path | None) -> tuple[Any, Any]
 )
 @click.option(
     "--facility",
-    default=DEFAULT_FACILITY,
-    show_default=True,
+    default=None,
     help="Facility token embedded in every IRI and identifier the corpus mints, "
-    "and written onto each device as narad_p:facility. Name your own facility "
-    "when the corpus is not the demo machine's.",
+    "and written onto each device as narad_p:facility. Defaults to the project's "
+    f"{FACILITY_PREFIX_CONFIG_KEY}, and to '{DEFAULT_FACILITY}' when no config names one.",
 )
 def build_ttl(
     output: Path,
@@ -1010,7 +1076,7 @@ def build_ttl(
     limits: Path | None,
     ontology: Path | None,
     section_order: str | None,
-    facility: str,
+    facility: str | None,
 ) -> None:
     """Derive a NARAD-convention TTL corpus from the channel database.
 
@@ -1055,10 +1121,11 @@ def build_ttl(
                     when your device families are not the demo machine's --
                     authored as a LinkML schema and turned into the table this
                     flag reads by 'osprey knowledge compile-ontology'.
-      --facility    The token 'demo', which is what the shipped demo corpus
-                    carries. Every IRI and identifier in the file embeds it,
-                    so name your own facility when the corpus is not the demo
-                    machine's.
+      --facility    The project's own facility.prefix, and the token 'demo'
+                    when no config names one -- which is what the shipped demo
+                    corpus carries. Every IRI and identifier in the file embeds
+                    it, so name your own facility when the corpus is not the
+                    demo machine's. Every run reports the token it used.
 
     Then load the file into the store:
 
@@ -1080,11 +1147,12 @@ def build_ttl(
     binding_descriptions = _load_binding_descriptions(descriptions_path)
     hierarchy_descriptions = _resolve_hierarchy_descriptions(raw_database, db_path)
     sections = _resolve_section_order(section_order, raw_database)
+    facility_token, facility_source = _resolve_facility(facility)
 
     try:
         graph_model = build_model(
             channel_map,
-            facility=facility,
+            facility=facility_token,
             section_order=sections,
             hierarchy_descriptions=hierarchy_descriptions,
             binding_descriptions=binding_descriptions,
@@ -1097,6 +1165,7 @@ def build_ttl(
         ) from exc
 
     ontology_table = _load_ontology_table(ontology)
+    ontology_source = "the packaged demo table" if ontology is None else str(ontology)
 
     # Directions first: the emitter refuses a model whose signals have none,
     # rather than writing a corpus that reads every setpoint as a readback.
@@ -1126,6 +1195,14 @@ def build_ttl(
         f"{len(graph_model.signal_groups)} signals."
     )
     note(direction_report.message)
+    note(f"Facility token: {facility_token} (from {facility_source}); ontology: {ontology_source}")
+    if facility_token == DEFAULT_FACILITY and db_path.resolve() != DEMO_CHANNEL_DB.resolve():
+        warn(
+            f"Every IRI and identifier in this corpus carries the token "
+            f"'{DEFAULT_FACILITY}', but the channel database is not the packaged demo one. "
+            f"Set {FACILITY_PREFIX_CONFIG_KEY} in the project's config, or pass --facility, "
+            "so the corpus is named for the machine it describes."
+        )
     note(f"Load it with: osprey knowledge seed-graph {written}")
 
 
