@@ -1539,10 +1539,12 @@ class TestBuildSSLContext:
         """A named bundle produces a context that still verifies."""
         import ssl
 
+        import certifi
+
         from osprey.services.ariel_search.ingestion.http import build_ssl_context
 
         bundle = tmp_path / "site-ca.pem"
-        bundle.write_bytes(Path(ssl.get_default_verify_paths().openssl_cafile).read_bytes())
+        bundle.write_bytes(Path(certifi.where()).read_bytes())
 
         context = build_ssl_context(True, str(bundle))
 

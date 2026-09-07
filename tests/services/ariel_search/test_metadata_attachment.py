@@ -294,8 +294,10 @@ class TestSidecarFetchHonoursIngestionSettings:
         """A site CA configured for ingestion verifies the sidecar fetch too."""
         import ssl
 
+        import certifi
+
         bundle = tmp_path / "site-ca.pem"
-        bundle.write_bytes(Path(ssl.get_default_verify_paths().openssl_cafile).read_bytes())
+        bundle.write_bytes(Path(certifi.where()).read_bytes())
 
         entry = _make_entry(
             attachments=[{"url": "https://example.com/metadata.json", "filename": "metadata.json"}],
