@@ -1554,6 +1554,21 @@ keys:
   artifact_server.host: {all-templates: true, covered-by: artifact_server, default: 127.0.0.1}
   artifact_server.port: {covered-by: artifact_server, default: derived, default_note: the layout's artifact slot at this deployment's port base}
   artifact_server.auto_launch: {all-templates: true, evidence: 'auto_launch', default: derived, default_note: the artifact server's registry auto_launch_default}
+  artifact_server.categories:
+    rendered: false
+    data-map: true
+    evidence: 'block\.get\("categories", \{\}\) if isinstance\(block, dict\) else \{\}'
+    note: >-
+      Extra artifact-gallery categories a facility declares for itself, each
+      leaf a `{label, color}` pair. The CATEGORY NAMES are the operator's own
+      vocabulary, so this is a data map: the guard checks that the block is
+      read, never which categories a deployment declares. Commented in all four
+      presets — a shipped value would be one facility's vocabulary imposed on
+      every other. Read once at startup by
+      `stores/type_registry.load_categories_from_config`, from the MCP server's
+      startup and from the artifact gallery's app factory; a malformed leaf is
+      skipped with a warning rather than failing the launch.
+    default: {}
   artifact_server.example_artifact:
     evidence: 'get_config_value\("artifact_server\.example_artifact"'
 
