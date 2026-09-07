@@ -174,6 +174,7 @@ channel finder does. Inside a rendered project:
    Wrote data/demo_machine.ttl.
      512 devices, 2908 channel bindings, 113 signals.
      direction from channel limits: data/channel_limits.json
+     Facility token: ca (from facility.prefix); ontology: the packaged demo table
      Load it with: osprey knowledge seed-graph data/demo_machine.ttl
 
 The shipped demo corpus is regenerated from
@@ -187,9 +188,14 @@ the first example names both:
    $ osprey knowledge build-ttl data/demo_machine.ttl \
        --channel-db data/channel_databases/tiers/tier3/hierarchical.json
 
-A corpus that is not the demo machine's wants its own facility token as well:
-``--facility <token>`` decides the token every IRI, every identifier and every
-``narad_p:facility`` value in the file carries, and it defaults to ``demo``.
+A corpus that is not the demo machine's wants its own facility token as well.
+The token every IRI, every identifier and every ``narad_p:facility`` value in
+the file carries is the project's own ``facility.prefix``, so a project that
+already names its facility does not name it twice; ``--facility <token>``
+overrides that for one run, and with neither in scope the token is ``demo``.
+The closing report names the token it minted with, and a run that falls back to
+``demo`` against a database that is not the packaged demo one says so, because
+a corpus labelled for the wrong machine is not visible from the file itself.
 
 A facility whose device database carries attributes the convention has no slot
 for — engineering units on a channel, a crate or serial identity on a device —
