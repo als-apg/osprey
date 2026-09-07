@@ -7,7 +7,7 @@ with no validation between them — and documenting the trap ("MUST stay 5064 ..
 changing this here would desync the connector from the deployed container") is
 not a fix.
 
-The template leaves the port out: with it unset the connector default-fills
+The preset leaves the port out: with it unset the connector default-fills
 from ``services.virtual_accelerator.port`` at config-load time, so moving the
 deployed VA's port moves the connector with it.  An explicit gateway ``port``
 still wins verbatim — that is how a project reaches a VA it does not deploy,
@@ -23,48 +23,30 @@ from typing import Any
 import pytest
 import yaml
 
-import osprey.templates
+import osprey.profiles
+from osprey.cli.build_profile_archiver import _expand_dotted
+from osprey.cli.build_profile_resolve import resolve_build_profile
 from osprey.connectors.control_system import va_connector
 from osprey.connectors.control_system.va_connector import (
     DEFAULT_VA_PORT,
     VirtualAcceleratorConnector,
     fill_gateway_ports,
 )
-from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 
-TEMPLATE_ROOT = Path(osprey.templates.__file__).parent
-CONTROL_ASSISTANT_TEMPLATE = "apps/control_assistant/config.yml.j2"
+CONTROL_ASSISTANT_PRESET = "control-assistant"
 PRESET_PATH = "profiles/presets/control-assistant.yml"
 
 
-def _render_template(relative_path: str) -> str:
-    """Render a shipped app config template with a representative context."""
-    from jinja2 import ChainableUndefined, Environment, FileSystemLoader
-
-    env = Environment(
-        loader=FileSystemLoader(str(TEMPLATE_ROOT)),
-        undefined=ChainableUndefined,
-        keep_trailing_newline=True,
-    )
-    return env.get_template(relative_path).render(
-        port_base=DEFAULT_PORT_BASE,
-        osprey_ports=layout_ports(DEFAULT_PORT_BASE),
-        project_name="demo",
-        facility_name="Demo Facility",
-        default_provider="anthropic",
-        default_model="claude-haiku-4-5-20251001",
-        channel_finder_mode="in_context",
-        default_pipeline="in_context",
-        enable_in_context=True,
-        enable_hierarchical=False,
-        enable_middle_layer=False,
-        channel_finder_tools=[],
-        project_root="/tmp/demo",
+def _preset_source(preset: str) -> str:
+    return (Path(osprey.profiles.__file__).parent / "presets" / f"{preset}.yml").read_text(
+        encoding="utf-8"
     )
 
 
 def _rendered_va_block() -> dict[str, Any]:
-    config = yaml.safe_load(_render_template(CONTROL_ASSISTANT_TEMPLATE))
+    """The preset's resolved virtual_accelerator connector block."""
+    profile, _profile_dir = resolve_build_profile(None, CONTROL_ASSISTANT_PRESET)
+    config = _expand_dotted(profile.config)
     return config["control_system"]["connector"]["virtual_accelerator"]
 
 
@@ -89,12 +71,12 @@ def deployed_va_port(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# The shipped template and preset
+# The shipped preset
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
-def test_template_renders_no_hardcoded_va_gateway_port() -> None:
+def test_preset_writes_no_hardcoded_va_gateway_port() -> None:
     """No gateway writes the port out — there is nothing to drift."""
     gateways = _rendered_va_block()["gateways"]
 
@@ -109,19 +91,17 @@ def test_template_renders_no_hardcoded_va_gateway_port() -> None:
 
 
 @pytest.mark.unit
-def test_template_keeps_a_commented_port_override_example() -> None:
+def test_preset_documents_the_port_override() -> None:
     """A project reaching a VA it does not deploy needs to see how."""
-    text = _render_template(CONTROL_ASSISTANT_TEMPLATE)
+    text = _preset_source(CONTROL_ASSISTANT_PRESET)
 
-    # The example is one above the layout's VA-band first port — the port the
-    # shipped build-profile example gives the live stand-in — so uncommenting
-    # it verbatim cannot land on a running service.
-    example_port = default_port("va_standin", base=DEFAULT_PORT_BASE) + 1
-    assert f"# port: {example_port}" in text, (
-        "the commented gateway port override example is gone — a split "
-        "host/container setup has no way to see that `port:` still works"
+    assert "services.virtual_accelerator.port" in text, (
+        "the preset no longer names where the gateway port comes from"
     )
-    assert "services.virtual_accelerator.port" in text
+    assert "Set a port on a" in text, (
+        "the gateway port override is undocumented — a split host/container "
+        "setup has no way to see that `port:` still works"
+    )
 
 
 @pytest.mark.unit
@@ -161,7 +141,7 @@ def test_unset_gateway_port_follows_the_deployed_va_port(deployed_va_port) -> No
 
 
 @pytest.mark.unit
-def test_rendered_template_follows_a_post_render_port_edit(deployed_va_port) -> None:
+def test_rendered_preset_follows_a_post_render_port_edit(deployed_va_port) -> None:
     """The as-shipped config, fed the edited service port, follows it."""
     deployed_va_port(15064)
 

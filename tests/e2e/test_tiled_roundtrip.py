@@ -77,6 +77,7 @@ from osprey.deployment.compose_generator import resolve_project_name
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._volumes import remove_project_volumes
+from tests.e2e.profile_edits import set_pairs
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -194,28 +195,23 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # nothing in this proof touches persona routing, and the deploy-up
     # credential preflight would otherwise abort for the personas' missing
     # LLM key. Persona coverage lives in the dedicated web-terminals lanes.
-    # One dotted LEAF key on purpose -- overriding just `.enabled` leaves
-    # the preset's `modules.web_terminals` siblings intact, whereas a nested
-    # `modules:` mapping would wholesale-replace the subtree (same
+    # One dotted LEAF key on purpose -- stating just `.enabled` leaves
+    # the preset's `modules.web_terminals` siblings intact, whereas stating
+    # the `modules.web_terminals` key itself would replace the subtree (same
     # convention as tests/e2e/_orm_stack.py).
     #
     # control_system.type is deliberately NOT set: the shipped preset already
     # baselines on the live stand-in, an executable connector this proof can
     # run on, and pinning it here would hide a regression in that baseline.
-    override_path = base / "override.yml"
-    override_path.write_text(
-        "dispatch: null\n"
-        "config:\n"
-        f"  services.postgresql.port_host: {POSTGRES_PORT}\n"
-        f"  services.openobserve.port: {OPENOBSERVE_PORT}\n"
-        "  modules.web_terminals.enabled: false\n",
-        encoding="utf-8",
-    )
+    edits = {
+        "dispatch": None,
+        "config": {
+            "services.postgresql.port_host": POSTGRES_PORT,
+            "services.openobserve.port": OPENOBSERVE_PORT,
+            "modules.web_terminals.enabled": False,
+        },
+    }
 
-    # bluesky.port/tiled_port/tiled_enabled and virtual_accelerator.port are
-    # leaf scalars under top-level profile keys, so plain --set works (a dotted
-    # --set is only unsafe for keys nested under an existing block you don't
-    # want replaced wholesale, e.g. control_system.type -- not the case here).
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset, `build` renders build/ from it. The repo directory
     # name IS the deployment name, so the container names above still hold.
@@ -227,8 +223,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             "--preset",
             "control-assistant",
             "--no-git",
-            "--override",
-            str(override_path),
+            *set_pairs(edits),
             "--set",
             f"bluesky.port={BRIDGE_PORT}",
             "--set",

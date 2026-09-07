@@ -99,7 +99,10 @@ def test_each_user_row_carries_rights_auth_and_port(exemplar_lines: list[str]) -
     band rather than at whatever the profile happened to spell.
     """
     alice = line_with(exemplar_lines, "alice")
-    assert "readwrite · va rights approval-gated · standin rights approval-gated" in alice
+    assert (
+        "readwrite · live rights approval-gated · va rights approval-gated"
+        " · standin rights approval-gated"
+    ) in alice
     assert "password" in alice
     assert alice.rstrip().endswith(f":{_PORTS['web']}")
 

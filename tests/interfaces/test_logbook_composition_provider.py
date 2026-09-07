@@ -8,8 +8,8 @@ a literal ``"haiku"`` upstream. Both built-ins are gone: the provider comes from
 model ID comes from the provider's tier mapping, and every gap raises naming the
 key to fill in.
 
-The shipped templates are pinned here too — they carry no ``model_id``, because
-``default_tier`` plus ``api.providers[provider].models`` already determines it.
+The shipped presets are pinned here too — they carry no ``model_id``, because
+``default_tier`` plus the provider catalog's tier mapping already determines it.
 """
 
 from __future__ import annotations
@@ -18,12 +18,12 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-import yaml
 from fastapi import HTTPException
 
-from osprey.cli.templates.manager import TemplateManager
+from osprey.cli.build_profile_archiver import _expand_dotted
+from osprey.cli.build_profile_resolve import resolve_build_profile
 from osprey.interfaces.artifacts.logbook import _resolve_composition_model
-from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
+from osprey.profiles.providers import load_provider_catalog
 
 _PROVIDER_WITH_TIERS = {
     "api_key": "test-key",
@@ -171,60 +171,47 @@ class TestModelIdResolution:
         assert "api.providers.cborg.models" in exc.value.detail
 
 
-_CTX = {
-    # The port table the real render builds in
-    # TemplateManager._project_context; these tests reach the template
-    # environment directly, so they carry it themselves.
-    "port_base": DEFAULT_PORT_BASE,
-    "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
-    "project_name": "demo",
-    "facility_name": "Demo",
-    "default_provider": "cborg",
-    "default_model": "haiku",
-    "current_python_env": "/usr/bin/python3",
-    "selected_web_panels": [],
-    "builtin_panels": [],
-    "channel_finder_mode": "in_context",
-    "default_pipeline": "in_context",
-    "enable_in_context": False,
-    "enable_hierarchical": False,
-    "enable_middle_layer": False,
-    "system": {"timezone": "UTC"},
-    "osprey_labels": {"project_name": "demo", "project_root": "/tmp/demo"},
-}
-
-_TEMPLATES_WITH_LOGBOOK = [
-    "apps/control_assistant/config.yml.j2",
-    "apps/ariel_standalone/config.yml.j2",
-]
+#: The bundled presets that ship a logbook, and so a composition block.
+_PRESETS_WITH_LOGBOOK = ["control-assistant", "ariel-standalone"]
 
 
-def _composition_block(template: str) -> dict[str, Any]:
-    rendered = TemplateManager().jinja_env.get_template(template).render(**_CTX)
-    return yaml.safe_load(rendered)["logbook"]["composition"]
+def _profile(preset: str):
+    profile, _profile_dir = resolve_build_profile(None, preset)
+    return profile
 
 
-class TestShippedTemplates:
+def _composition_block(preset: str) -> dict[str, Any]:
+    return _expand_dotted(_profile(preset).config)["logbook"]["composition"]
+
+
+class TestShippedPresets:
     @pytest.mark.unit
-    @pytest.mark.parametrize("template", _TEMPLATES_WITH_LOGBOOK, ids=lambda p: p.split("/")[1])
-    def test_render_carries_no_model_id(self, template: str):
-        assert "model_id" not in _composition_block(template)
+    @pytest.mark.parametrize("preset", _PRESETS_WITH_LOGBOOK)
+    def test_preset_carries_no_model_id(self, preset: str):
+        assert "model_id" not in _composition_block(preset)
 
     @pytest.mark.unit
-    @pytest.mark.parametrize("template", _TEMPLATES_WITH_LOGBOOK, ids=lambda p: p.split("/")[1])
-    def test_render_states_provider_and_tier(self, template: str):
-        block = _composition_block(template)
+    @pytest.mark.parametrize("preset", _PRESETS_WITH_LOGBOOK)
+    def test_preset_states_a_tier_and_the_profile_states_the_provider(self, preset: str):
+        """The composition block names a tier; the provider is the profile's.
 
-        assert block["provider"] == _CTX["default_provider"]
+        A preset that pinned ``logbook.composition.provider`` would state the
+        provider twice, and ``osprey set provider=...`` would move only one of
+        them.
+        """
+        block = _composition_block(preset)
+
         assert block["default_tier"] == "haiku"
+        assert "provider" not in block
+        assert _profile(preset).provider == "anthropic"
 
     @pytest.mark.unit
-    @pytest.mark.parametrize("template", _TEMPLATES_WITH_LOGBOOK, ids=lambda p: p.split("/")[1])
-    def test_shipped_tier_is_mapped_by_the_shipped_provider(self, template: str):
-        # A template that ships a tier its own provider cannot map would fail at
-        # compose time; the render is only honest if the pair resolves.
-        block = _composition_block(template)
-        config = yaml.safe_load(TemplateManager().jinja_env.get_template(template).render(**_CTX))
-        providers = config.get("api", {}).get("providers", {})
+    @pytest.mark.parametrize("preset", _PRESETS_WITH_LOGBOOK)
+    def test_shipped_tier_is_mapped_by_the_shipped_provider(self, preset: str):
+        # A preset that ships a tier its own provider cannot map would fail at
+        # compose time; the pairing is only honest if it resolves.
+        profile = _profile(preset)
+        tier = _composition_block(preset)["default_tier"]
+        entry = load_provider_catalog(None).entries[profile.provider]
 
-        assert block["default_tier"] in providers.get(block["provider"], {}).get("models", {})
+        assert tier in entry.get("models", {})

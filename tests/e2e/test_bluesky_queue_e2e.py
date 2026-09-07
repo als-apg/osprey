@@ -140,6 +140,7 @@ from osprey.services.bluesky_bridge.queue_backend import (
 from osprey.services.bluesky_bridge.session_upload import REASON_UNVALIDATED
 from tests.e2e import _orm_stack
 from tests.e2e._volumes import remove_project_volumes
+from tests.e2e.profile_edits import set_pairs
 
 # The nine keys every pre-flight answer carries, success or not: the approval
 # gate reads `ok` and never a status code, so the shape cannot vary with the
@@ -669,13 +670,13 @@ def _wait_for_worker_environment(timeout: float) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _override_yaml() -> str:
+def _profile_edits() -> dict[str, Any]:
     """Host hygiene and CI sizing ONLY -- never ``control_system.type``.
 
     ``dispatch: null`` drops the event-dispatcher stack (Node + Claude CLI
     image) and ``modules.web_terminals.enabled: false`` drops the per-persona
     web-terminal stack: neither is touched by this proof and both are slow to
-    build (same convention as ``_orm_stack.override_yaml``). The two config port
+    build (same convention as ``_orm_stack.profile_edits``). The two config port
     keys move ariel-postgres and OpenObserve -- services the preset deploys
     unconditionally, with no profile knob -- off 5432/5080, which a locally
     running tutorial deploy routinely holds.
@@ -689,7 +690,7 @@ def _override_yaml() -> str:
     the store in-network as ``archiver-mongodb:27017`` regardless.
 
     ``_orm_stack.VA_ARCHIVER_CI_KNOBS`` shrinks the archive the preset's
-    ``va_archiver:`` block declares (see the constant). It is a sizing override,
+    ``va_archiver:`` block declares (see the constant). It is a sizing edit,
     not a behavioral one: the store and its recorder still deploy, still record,
     and still hold both tiers -- there is just far less seeded history to write
     first, none of which this proof reads. Nothing here touches what the stack
@@ -699,18 +700,22 @@ def _override_yaml() -> str:
     than be papered over here.
 
     Written as flat dotted-string keys under ``config:`` (the preset's own
-    convention): a ``--set`` would build a NESTED dict for every dotted segment
-    and replace the whole ``services:`` block.
+    convention): everything after ``config.`` is one key naming one leaf of
+    the rendered config, so the rest of the ``services:`` block stays as the
+    preset wrote it.
     """
-    return (
-        "dispatch: null\n"
-        "config:\n"
-        f"  services.postgresql.port_host: {POSTGRES_PORT}\n"
-        f"  services.openobserve.port: {OPENOBSERVE_PORT}\n"
-        "  modules.web_terminals.enabled: false\n"
-        + _orm_stack.VA_ARCHIVER_CI_KNOBS
-        + f"  port_host: {MONGODB_PORT}\n"
-    )
+    return {
+        "dispatch": None,
+        "config": {
+            "services.postgresql.port_host": POSTGRES_PORT,
+            "services.openobserve.port": OPENOBSERVE_PORT,
+            "modules.web_terminals.enabled": False,
+        },
+        "va_archiver": {
+            **_orm_stack.VA_ARCHIVER_CI_KNOBS["va_archiver"],
+            "port_host": MONGODB_PORT,
+        },
+    }
 
 
 def _drain_leftover_queue_items() -> None:
@@ -765,11 +770,8 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
     # container/image names derived above still hold.
     repo = base / PROJECT_NAME
 
-    override_path = base / "override.yml"
-    override_path.write_text(_override_yaml(), encoding="utf-8")
-
     # Two steps, because the surface has two: `init` writes the repo's source
-    # zone from the preset plus these overrides, `build` renders build/ from it.
+    # zone from the preset plus these edits, `build` renders build/ from it.
     init = _run(
         [
             str(osprey_bin),
@@ -778,8 +780,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
             "--preset",
             "control-assistant",
             "--no-git",
-            "--override",
-            str(override_path),
+            *set_pairs(_profile_edits()),
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",
             "--set",

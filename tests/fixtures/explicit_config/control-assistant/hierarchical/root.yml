@@ -1,0 +1,382 @@
+agent_data:
+  base_dir: var/agent_data
+api:
+  providers:
+  - als-apg
+  - amsc-i2
+  - anthropic
+  - argo
+  - cborg
+  - ds4
+  - google
+  - ollama
+  - openai
+  - stanford
+approval:
+  default_policy: always
+  enabled: true
+  tools:
+    archiver_read: skip
+    channel_read: skip
+    channel_write: always
+    entry_create: always
+    execute: selective
+    setup_patch: always
+archiver:
+  auto_bin_points: 10000
+  mongodb_archiver:
+    auth: admin
+    collection: pv_history
+    host: localhost
+    name: osprey_archiver
+    password_env: MONGO_ROOT_PASSWORD
+    port: 10801
+    timeout: 5
+    username: osprey
+  type: mongodb_archiver
+ariel:
+  default_search_mode: hybrid
+  embedding:
+    provider: ollama
+  enhancement_modules:
+    qmd_export:
+      enabled: true
+      settings:
+        mirror_path: var/ariel_mirror
+    semantic_processor:
+      enabled: false
+      model:
+        max_tokens: 256
+        model_id: haiku
+      provider: anthropic
+    text_embedding:
+      enabled: true
+      models:
+      - dimension: 768
+        name: nomic-embed-text
+      provider: ollama
+  search_modules:
+    hybrid:
+      enabled: true
+      settings:
+        candidate_limit: 40
+        rerank: true
+    keyword:
+      enabled: true
+      settings:
+        pattern_timeout_seconds: 10.0
+        patterns_enabled: true
+    semantic:
+      enabled: true
+      model: nomic-embed-text
+      provider: ollama
+  vocabulary:
+    canonical_to_acronym: true
+    canonical_to_shorthand: false
+    enabled: true
+    expand_by_default: true
+    path: data/ariel/vocabulary.yml
+artifact_server:
+  auto_launch: true
+  example_artifact: true
+  host: 127.0.0.1
+  port: 10200
+bluesky:
+  queue_autostart: true
+build_dir: ./build
+channel_finder:
+  benchmark:
+    dataset_path: data/benchmarks/queries.json
+  pipeline_mode: hierarchical
+  pipelines:
+    hierarchical:
+      database:
+        path: data/channel_databases/hierarchical.json
+        type: hierarchical
+      feedback:
+        enabled: true
+        store_path: var/agent_data/feedback/hierarchical_feedback.json
+claude_code:
+  default_model: haiku
+  permissions:
+    deny:
+    - mcp__osprey_workspace__setup_patch
+  provider: anthropic
+  servers:
+    bluesky:
+      enabled: true
+    health:
+      enabled: true
+  telemetry:
+    backend: openobserve
+    enabled: true
+    log_assistant_responses: true
+    log_raw_api_bodies: true
+    log_tool_details: true
+    log_user_prompts: true
+    openobserve:
+      org: default
+      password: ${ZO_INGEST_SA_TOKEN}
+      user: ${ZO_INGEST_USER_EMAIL:-ingest@example.com}
+    protocol: http/protobuf
+cli:
+  theme: default
+container_runtime: docker
+control_system:
+  channel_read_artifact_retention: 20
+  connector:
+    epics:
+      timeout: 5.0
+    live_standin:
+      gateways:
+        read_only:
+          address: localhost
+          port: 10090
+          use_name_server: true
+        write_access:
+          address: localhost
+          port: 10090
+          use_name_server: true
+      probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
+    mock:
+      simulation_file: data/simulation/machine.json
+    virtual_accelerator:
+      gateways:
+        read_only:
+          address: localhost
+          use_name_server: true
+        write_access:
+          address: localhost
+          use_name_server: true
+      limits_checking:
+        allow_unlisted_channels: true
+        enabled: true
+      probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
+      simulation_file: data/simulation/machine.json
+      timeout: 5.0
+  limits_checking:
+    allow_unlisted_channels: false
+    database_path: data/channel_limits.json
+    enabled: true
+  read_inline_max_elements: 2000
+  target_switch:
+    drain_timeout_s: 5
+    probe_interval_s: 30
+  type: live_standin
+  writes_enabled: true
+deploy:
+  fqdn: 127.0.0.1
+deployed_services:
+- postgresql
+- openobserve
+- qmd
+- graphdb
+- event_dispatcher
+- dispatch_worker
+- bluesky
+- bluesky_web
+- virtual_accelerator
+- live_standin
+- mongodb
+- archiver_recorder
+execution:
+  execution_method: subprocess
+facility:
+  ontology: data/facility_ontology.json
+  prefix: ca
+facility_knowledge:
+  bundle_path: data/facility_knowledge
+file_paths:
+  api_calls_dir: api_calls
+  registry_exports_dir: registry_exports
+health:
+  categories:
+    archiver:
+      checks:
+      - channel: SR:DIAG:DCCT:01:CURRENT:RB
+        max_age_s: 60
+        name: archiver_freshness
+        type: archiver_freshness
+hooks:
+  debug: true
+logbook:
+  composition:
+    default_tier: haiku
+    provider: anthropic
+modules:
+  web_terminals:
+    auth:
+      allow_insecure_http: true
+      method: password
+      session_lifetime: 43200
+    default_persona: readonly
+    enabled: true
+    image_source: local
+    landing:
+      footer: OSPREY multi-user web terminal stack. Experimental system. Proceed with
+        caution.
+      groups:
+      - label: Users
+        type: users
+      notices:
+      - data/landing/working-safely.md
+    personas:
+      admin:
+        build_profile: personas/admin.yml
+        project: osprey-freeze-admin
+        project_path: build/osprey-freeze-admin
+      knowledge:
+        build_profile: personas/knowledge.yml
+        landing_group: Standalone deployments
+        project: osprey-freeze-knowledge
+        project_path: build/osprey-freeze-knowledge
+      logbook:
+        build_profile: personas/logbook.yml
+        landing_group: Standalone deployments
+        project: osprey-freeze-logbook
+        project_path: build/osprey-freeze-logbook
+      readonly:
+        build_profile: personas/readonly.yml
+        project: osprey-freeze-readonly
+        project_path: build/osprey-freeze-readonly
+      readwrite:
+        build_profile: personas/readwrite.yml
+        project: osprey-freeze-readwrite
+        project_path: build/osprey-freeze-readwrite
+    users:
+    - display_name: Control Room (Alice)
+      index: 0
+      name: alice
+      persona: readwrite
+    - display_name: Read-Only View (Bob)
+      index: 1
+      name: bob
+      persona: readonly
+    - access: any
+      display_name: Logbook Research
+      index: 2
+      name: logbook
+      persona: logbook
+    - access: any
+      display_name: Facility Knowledge
+      index: 4
+      name: knowledge
+      persona: knowledge
+    - display_name: Deployment Admin (Carol)
+      index: 3
+      name: carol
+      persona: admin
+project_name: osprey-freeze
+scaffold:
+  user_owned:
+  - rules/facility
+services:
+  archiver_recorder:
+    path: ./services/archiver_recorder
+  bluesky:
+    ca_name_servers: live-standin:10090
+    devices_file: data/bluesky_devices.yml
+    path: ./services/bluesky
+    port: 10080
+    target: standin
+    tiled_enabled: true
+    tiled_port: 10070
+  bluesky_web:
+    path: ./services/bluesky_web
+    port: 10071
+  dispatch_worker:
+    inactivity_sec: 120
+    path: ./services/dispatch_worker
+    timeout_sec: 300
+    worker_count: 1
+    worker_port_base: 10011
+    workspace_mode: isolated
+  event_dispatcher:
+    additional_dirs:
+    - dst: triggers.yml
+      src: triggers.yml
+    facility_name: ''
+    path: ./services/event_dispatcher
+    port: 10010
+    pv_strip_prefix: ''
+  graphdb:
+    heap_initial_size: 512m
+    heap_max_size: 1G
+    http_port_host: 10803
+    image: neo4j:5.26-community
+    pagecache_size: 512m
+    path: ./services/graphdb
+    port_host: 10802
+    query_max_rows: 200
+    query_timeout_s: 15
+    ttl_path: ./data/demo_machine.ttl
+  live_standin:
+    path: ./services/virtual_accelerator
+    port: 10090
+  mongodb:
+    compression: zstd
+    path: ./services/mongodb
+    port_host: 10801
+    username: osprey
+  openobserve:
+    path: ./services/openobserve
+    port: 10050
+    retention_days: 14
+  postgresql:
+    database_name: ariel
+    path: ./services/postgresql
+    port_host: 10800
+    username: ariel
+  qmd:
+    interval: 30
+    path: ./services/qmd
+    port: 10060
+  virtual_accelerator:
+    path: ./services/virtual_accelerator
+    port: 5064
+system:
+  timezone: UTC
+va_archiver:
+  hot_cadence_sec: 10
+  hot_span_hours: 48
+  recorder_cadence_sec: 10
+  recorder_poll_sec: 30
+  recorder_tail_cadence_sec: 60
+  retention_days: 30
+  tail_cadence_sec: 60
+web:
+  channel_suggestions:
+    enabled: true
+    max_channels: 50000
+  config_panel:
+    enabled: false
+  docs_url: https://als-apg.github.io/osprey
+  feedback:
+    email: thellert@lbl.gov
+    github_repo: als-apg/osprey
+    max_store_bytes: 268435456
+  panels:
+    ariel:
+      enabled: true
+    bluesky:
+      enabled: false
+      label: BLUESKY
+      path: /bluesky/
+      url: ${BLUESKY_WEB_URL:-http://localhost:10071}
+    channel-finder:
+      enabled: true
+    events:
+      enabled: false
+      health_endpoint: /health
+      label: EVENTS
+      path: /dashboard
+      url: http://localhost:10010
+    jupyter:
+      enabled: true
+    okf:
+      enabled: true
+    system-health:
+      enabled: true
+  scaffold_gallery:
+    write_enabled: false
+  theme: light

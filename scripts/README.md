@@ -110,15 +110,20 @@ This directory contains testing and validation scripts for the Osprey Framework 
 **Purpose**: Stop deleted config keys from coming back, and stop live keys from
 quietly losing their reader.
 
-**What it does**: Renders the shipped `config.yml.j2` templates, collects every
-dotted key they produce, and checks each one against
-`scripts/config_key_manifest.yml` — which records either the code fragment that
-reads the key or the structural reason it has none. It also re-checks the keys
-that were deliberately deleted (they must not reappear in a rendered template,
-a preset `config:` override, or the loader's synthesized defaults), the code
-sites that went with them, cross-template parity, and the manifest's own
-internal consistency. The script's module docstring is the authoritative list
-of failure modes.
+**What it does**: Renders the framework `config.yml.j2` template over its branch
+matrix, resolves each shipped preset's `config:` block, collects every dotted key
+the two produce, and checks each one against
+`src/osprey/profiles/config_key_manifest.yml` — which records either the code
+fragment that reads the key or the structural reason it has none. It also
+re-checks the keys that were deliberately deleted (they must not reappear in the
+rendered union, a preset `config:` override, or the loader's synthesized
+defaults), the code sites that went with them, cross-preset parity, and the
+manifest's own internal consistency. The script's module docstring is the
+authoritative list of failure modes.
+
+The manifest lives inside the package rather than beside this script because
+`osprey config --defaults` renders its `default:` column at run time, and a
+wheel ships only `src/osprey`.
 
 **Usage**:
 ```bash

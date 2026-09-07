@@ -79,6 +79,7 @@ from osprey.services.bluesky_bridge.queue_backend import (
 )
 from tests.e2e import _orm_stack
 from tests.e2e._volumes import remove_project_volumes
+from tests.e2e.profile_edits import set_pairs
 
 # Every word the pre-flight is allowed to answer with. Imported rather than
 # spelled, because the approval prompt branches on these exact literals.
@@ -317,17 +318,13 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
     # image tag derived below (``proj-bluesky-bridge:local``) still holds.
     repo = base / PROJECT_NAME
 
-    # Host hygiene only. Written as a flat dotted-string key under `config:`
-    # (the preset's own convention) and passed as an override file rather than
-    # a `--set`: a `--set` would build a NESTED dict for every dotted segment
-    # and replace the whole `services:` block.
-    override_path = base / "override.yml"
-    override_path.write_text(
-        f"config:\n  services.openobserve.port: {OPENOBSERVE_PORT}\n", encoding="utf-8"
-    )
+    # Host hygiene only, stated as a flat dotted key under `config:` (the
+    # preset's own convention): everything after `config.` is one key naming
+    # one leaf of the rendered config, so the rest of the `services:` block
+    # stays as the preset wrote it.
 
     # Two steps, because the surface has two: `init` writes the repo's source
-    # zone from the preset plus these overrides, `build` renders build/ from it.
+    # zone from the preset plus these edits, `build` renders build/ from it.
     init = _run(
         [
             str(osprey_bin),
@@ -336,8 +333,7 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
             "--preset",
             "hello-world",
             "--no-git",
-            "--override",
-            str(override_path),
+            *set_pairs({"config": {"services.openobserve.port": OPENOBSERVE_PORT}}),
             "--set",
             f"bluesky.port={BRIDGE_PORT}",
             "--set",

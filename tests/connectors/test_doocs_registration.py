@@ -119,7 +119,7 @@ class TestCliSurface:
         repo = tmp_path / "doocs-deployment"
         repo.mkdir()
         (repo / "profile.yml").write_text(
-            "name: DOOCS Test\ndata_bundle: hello_world\nprovider: anthropic\n",
+            "name: DOOCS Test\ndata: data\nprovider: anthropic\n",
             encoding="utf-8",
         )
 

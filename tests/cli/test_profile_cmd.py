@@ -21,7 +21,7 @@ from osprey.cli.build_profile import list_presets
 from osprey.cli.main import LazyGroup
 from osprey.cli.profile_cmd import _materialize_profile_directory, profile
 
-MINIMAL_PROFILE = "name: Minimal\ndata_bundle: hello_world\n"
+MINIMAL_PROFILE = "name: Minimal\nextends: hello-world\ndata: data\n"
 
 
 @pytest.fixture
@@ -30,7 +30,14 @@ def runner() -> CliRunner:
 
 
 def _write_profile(directory: Path, text: str) -> Path:
+    """Write a profile and the ``data:`` tree every profile must name.
+
+    ``data:`` is required of a repo profile and has to resolve to a real
+    directory, so the tree is part of writing a valid profile rather than a
+    detail of any one test.
+    """
     directory.mkdir(parents=True, exist_ok=True)
+    (directory / "data").mkdir(exist_ok=True)
     path = directory / "profile.yml"
     path.write_text(text, encoding="utf-8")
     return path
@@ -124,7 +131,7 @@ def test_validate_reports_all_errors_and_exits_2(runner: CliRunner, tmp_path: Pa
     """Every problem is reported at once, not just the first (SC7)."""
     _write_profile(
         tmp_path / "p",
-        "name: Broken\ndata_bundle: hello_world\ndata: ./nowhere\ntier: 5\n",
+        "name: Broken\nextends: hello-world\ndata: data\ndata: ./nowhere\ntier: 5\n",
     )
     result = runner.invoke(profile, ["validate", str(tmp_path / "p")])
 
@@ -158,7 +165,7 @@ def test_validate_does_not_build_a_project(runner: CliRunner, tmp_path: Path) ->
 
     assert result.exit_code == 0, result.output
     assert sorted(p.name for p in tmp_path.iterdir()) == before
-    assert [p.name for p in target.iterdir()] == ["profile.yml"]
+    assert sorted(p.name for p in target.iterdir()) == ["data", "profile.yml"]
 
 
 #: A profile whose web stack does not lint: it stands up the persona catalog,
@@ -167,7 +174,8 @@ def test_validate_does_not_build_a_project(runner: CliRunner, tmp_path: Path) ->
 #: branch both spellings of the verb run last.
 LINT_FAILING_PROFILE = """\
 name: Lint Fail
-data_bundle: hello_world
+extends: hello-world
+data: data
 config:
   facility.prefix: demo
   modules.web_terminals:

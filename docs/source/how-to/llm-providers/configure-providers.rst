@@ -115,26 +115,40 @@ Ollama and vLLM run locally and do not require an API key.
 Provider Configuration
 ----------------------
 
-Providers are configured in the deployment repository's ``profile.yml``. Its
-top-level ``provider:`` and ``model:`` keys select the provider the Osprey
-agent uses and its default model tier (``osprey set provider=… model=…``
-writes them for you), and a gateway that is not built in is described with
-dotted overrides in the profile's ``config:`` block:
+Two files in the deployment repository configure providers, and they answer
+different questions. ``providers.yml`` is the catalog: every provider this
+deployment can name, with its endpoint and model IDs. ``profile.yml`` selects
+one of them, with its top-level ``provider:`` and ``model:`` keys
+(``osprey set provider=… model=…`` writes them for you).
+
+A gateway that OSPREY does not ship is an entry appended to ``providers.yml``:
+
+.. code-block:: yaml
+
+   providers:
+     my-gateway:
+       api_key: ${MY_GATEWAY_API_KEY}
+       base_url: https://my-gateway.example.com/v1
+       models:
+         haiku: claude-haiku-4-5
+         sonnet: claude-sonnet-4-6
+         opus: claude-opus-4-6
+
+and one line in ``profile.yml`` naming it:
 
 .. code-block:: yaml
 
    provider: my-gateway
-   config:
-     api.providers.my-gateway.api_key: ${MY_GATEWAY_API_KEY}
-     api.providers.my-gateway.base_url: https://my-gateway.example.com/v1
-     api.providers.my-gateway.models:
-       haiku: claude-haiku-4-5
-       sonnet: claude-sonnet-4-6
-       opus: claude-opus-4-6
 
-``osprey build`` renders the profile into ``build/config.yml``, which every
-build wipes and re-renders; edit the profile, never the rendered file. The
-rendered file has two relevant sections:
+The catalog is the one home for these facts, so a ``config: api.providers.*``
+key in ``profile.yml`` is refused, naming ``providers.yml`` as the place to put
+it; and a ``provider:`` the catalog does not declare is refused with the list of
+names it does declare. ``osprey profile expand --providers`` refreshes the
+entries OSPREY ships and keeps yours.
+
+``osprey build`` renders the profile and the catalog into ``build/config.yml``,
+which every build wipes and re-renders; edit the two source files, never the
+rendered one. The rendered file has two relevant sections:
 
 1. ``api.providers`` — declares available providers with their endpoints and
    model IDs.
@@ -142,7 +156,7 @@ rendered file has two relevant sections:
    model tier.
 
 The YAML blocks below show that **rendered** ``build/config.yml``, so you can
-see what the profile's overrides become. **Declared providers** appear under
+see what the two source files become. The whole catalog appears under
 ``api.providers``:
 
 .. note::
@@ -184,7 +198,7 @@ see what the profile's overrides become. **Declared providers** appear under
            sonnet: gpt-4o
            opus: o3-mini
 
-Each provider entry needs ``api_key``, ``base_url``, and a ``models`` mapping
+Each entry in ``providers.yml`` takes ``api_key``, ``base_url``, and a ``models`` mapping
 that assigns provider-specific model IDs to tiers (``haiku``, ``sonnet``,
 ``opus``). A full tier map is recommended — subagent tier routing uses it —
 but it is not required: a tier that no source maps falls back to the default
@@ -199,7 +213,14 @@ Anthropic's own API. Keep the trailing
 ``/v1`` on OpenAI-compatible gateways — the translation proxy needs it, and the
 agent's own requests have it stripped automatically.
 
-**Select the active provider** under ``claude_code``:
+**Select the active provider** with the profile's two top-level fields:
+
+.. code-block:: yaml
+
+   provider: cborg
+   model: sonnet
+
+which render as ``claude_code.provider`` and ``claude_code.default_model``:
 
 .. code-block:: yaml
 
@@ -207,14 +228,17 @@ agent's own requests have it stripped automatically.
      provider: cborg
      default_model: sonnet
 
-``provider`` picks one of the entries in ``api.providers``.
-``default_model`` selects the model for the main conversation. Give it a tier
+Both rendered keys are the build's to write, so spelling either under
+``config:`` is refused, naming the field to set instead.
+
+``provider`` picks one of the entries in ``providers.yml``.
+``model`` selects the model for the main conversation. Give it a tier
 name, or any model ID the selected provider serves. An ID found in the
 provider's ``models`` block resolves to that tier; any other ID is passed
 through verbatim to the provider — a newly released model or a gateway-only
 alias works without waiting for the tier map to catch up, and a misspelt ID
 fails at the provider (an error naming the ID), not at resolution. If omitted,
-``default_model`` falls back to the provider's own default tier — ``sonnet``
+the default model falls back to the provider's own default tier — ``sonnet``
 for ``anthropic``, ``haiku`` for ``cborg`` and ``als-apg``, and ``opus`` for
 custom providers.
 
@@ -223,12 +247,12 @@ Model Tier Mapping
 
 The Osprey agent uses three model tiers — ``haiku`` (fast/cheap), ``sonnet``
 (balanced), and ``opus`` (most capable). Each provider maps these to its own model
-IDs via the ``models`` block in ``api.providers``.
+IDs via the ``models`` block in its ``providers.yml`` entry.
 
 The resolver applies model IDs in this priority order:
 
 1. ``claude_code.models`` — explicit per-tier overrides (highest priority).
-2. ``api.providers.<name>.models`` — the provider's own model naming.
+2. The selected provider's own ``models`` block, from ``providers.yml``.
 3. Built-in defaults — the bundled fallback model IDs the framework ships for
    ``anthropic``, ``cborg``, and ``als-apg``.
 
@@ -238,24 +262,24 @@ the default model, not a tier-appropriate one, so a full map is recommended.
 No provider ever inherits another provider's model IDs; only a provider with
 no models and no ``default_model`` at all is refused.
 
-For example, to override the opus tier for a specific project:
+For example, to override the opus tier for a specific deployment, in that
+deployment's ``profile.yml``:
 
 .. code-block:: yaml
 
-   claude_code:
-     provider: cborg
-     default_model: sonnet
-     models:
-       opus: claude-sonnet-4-6   # use sonnet even for opus-tier agents
+   provider: cborg
+   model: sonnet
+   config:
+     # use sonnet even for opus-tier agents
+     claude_code.models.opus: claude-sonnet-4-6
 
 Agents can also be pinned to specific tiers:
 
 .. code-block:: yaml
 
-   claude_code:
-     agent_models:
-       channel-finder: haiku
-       logbook-search: sonnet
+   config:
+     claude_code.agent_models.channel-finder: haiku
+     claude_code.agent_models.logbook-search: sonnet
 
 Protocol Translation
 --------------------
@@ -273,20 +297,19 @@ The path is identical whether the endpoint is self-hosted (``ollama``, ``vllm``
 protocol.
 
 If you run a custom gateway that speaks Anthropic natively (e.g., a LiteLLM
-proxy in Anthropic mode), add ``api_protocol: anthropic`` to skip the
-translation proxy:
+proxy in Anthropic mode), add ``api_protocol: anthropic`` to its
+``providers.yml`` entry to skip the translation proxy:
 
 .. code-block:: yaml
 
-   api:
-     providers:
-       my-litellm-gateway:
-         api_key: ${MY_GATEWAY_KEY}
-         base_url: https://my-gateway.example.com/v1
-         api_protocol: anthropic
-         models:
-           haiku: claude-haiku-4-5-20251001
-           sonnet: claude-sonnet-4-5-20250929
+   providers:
+     my-litellm-gateway:
+       api_key: ${MY_GATEWAY_KEY}
+       base_url: https://my-gateway.example.com/v1
+       api_protocol: anthropic
+       models:
+         haiku: claude-haiku-4-5-20251001
+         sonnet: claude-sonnet-4-5-20250929
 
 (The unmapped ``opus`` tier here falls back to the default model at build
 time, with a warning — map it to silence the substitution.)
@@ -317,17 +340,17 @@ LiteLLM SDK path used by MCP servers sets the same identity as the OpenAI
 ``user`` field. Nothing is sent to a direct vendor.
 
 The built-in ``als-apg`` and ``cborg`` providers are LiteLLM proxies and get
-this automatically. A custom gateway declares it:
+this automatically. A custom gateway declares it in its ``providers.yml``
+entry:
 
 .. code-block:: yaml
 
-   api:
-     providers:
-       my-litellm-gateway:
-         api_key: ${MY_GATEWAY_KEY}
-         base_url: https://my-gateway.example.com/v1
-         api_protocol: anthropic   # or omit it for the OpenAI route
-         gateway: litellm
+   providers:
+     my-litellm-gateway:
+       api_key: ${MY_GATEWAY_KEY}
+       base_url: https://my-gateway.example.com/v1
+       api_protocol: anthropic   # or omit it for the OpenAI route
+       gateway: litellm
 
 On the gateway, read the result per person with ``/customer/info?end_user_id=``
 or from the ``end_user`` and ``request_tags`` columns of ``/spend/logs``. Both
@@ -346,8 +369,8 @@ After configuring a provider, check that the API key and endpoint work:
 Adding a New Provider
 ---------------------
 
-To add a new OpenAI-compatible provider, add the dotted ``api.providers``
-overrides to ``profile.yml``'s ``config:`` block (see
+To add a new OpenAI-compatible provider, append an entry to ``providers.yml``
+beside ``profile.yml`` (see
 :ref:`Provider Configuration <provider-configuration>` above) and run
 ``osprey build`` — no code changes required. The rendered result in
 ``build/config.yml``:

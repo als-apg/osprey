@@ -294,7 +294,7 @@ def test_a_persona_that_will_not_resolve_leaves_the_previous_build_untouched(bui
     assert before, "fixture produced no build to protect"
 
     (built_repo / "personas" / "broken.yml").write_text(
-        "name: Broken\ndata_bundle: [this is not a bundle name]\n", encoding="utf-8"
+        "name: Broken\ndata: [this is not a path]\n", encoding="utf-8"
     )
 
     previous = Path.cwd()

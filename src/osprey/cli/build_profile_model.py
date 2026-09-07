@@ -34,6 +34,7 @@ from osprey.deployment.qmd_service import (
 )
 from osprey.errors import BuildProfileError
 from osprey.port_layout import LAYOUT, WORKER_MAX, PortSlot, default_port, resolve_port_base
+from osprey.profiles.providers import PROVIDERS_FILENAME
 from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
 
 from .build_profile_archiver import (
@@ -43,7 +44,7 @@ from .build_profile_archiver import (
     va_mock_archiver_errors,
 )
 from .build_profile_deploy import DeployConfig
-from .build_profile_presets import _triggers_dir
+from .build_profile_presets import _triggers_dir, is_bundled_preset_dir
 from .build_profile_schema import (
     _ENV_VAR_RE,
     SECOND_LANE_PORT_STRIDE,
@@ -67,6 +68,7 @@ from .build_profile_va_faults import (
     standin_archive_errors,
     standin_baseline_errors,
 )
+from .derived_keys import derived_key_errors
 from .profile_conventions import validate_convention_sources
 
 DISPATCH_PAIR_SERVICES = ("event_dispatcher", "dispatch_worker")
@@ -79,9 +81,6 @@ _GRAPH_MODE = "graph"
 channel-database file, and so the one with a service prerequisite. A member name
 of :data:`VALID_CHANNEL_FINDER_MODES`, not a second enumeration — the rule below
 is about this paradigm alone, exactly as ``tier_mode_conflict`` is."""
-
-_APP_TEMPLATE_ROOT = Path(__file__).resolve().parent.parent / "templates" / "apps"
-"""Where the bundled app templates live; ``app_template:`` names one by directory."""
 
 _GRAPHDB_CONFIG_PREFIX = f"services.{GRAPHDB_SERVICE_NAME}"
 """Dotted-key spelling of the graph-store block on a profile's ``config:`` surface."""
@@ -97,6 +96,13 @@ _HYBRID_SEARCH_BLOCK_KEY = "ariel.search_modules.hybrid"
 
 _HYBRID_SEARCH_ENABLED_KEY = f"{_HYBRID_SEARCH_BLOCK_KEY}.enabled"
 """The switch that takes hybrid logbook search out of a render."""
+
+_PROVIDER_CATALOG_LEAF = "providers"
+"""The ``api:`` member the provider catalog is rendered into."""
+
+_PROVIDER_CATALOG_KEY = f"api.{_PROVIDER_CATALOG_LEAF}"
+"""Dotted-key spelling of the block ``providers.yml`` owns. A profile that
+spells it is refused by :func:`provider_catalog_key_errors`."""
 
 _MISSING = object()
 """Sentinel for "this profile says nothing about that key"."""
@@ -169,114 +175,65 @@ def _config_lookup(config: Any, dotted_key: str) -> Any:
     return node
 
 
-def _app_template_lookup(data_bundle: str, dotted_path: str) -> Any:
-    """Read what app template *data_bundle* declares at *dotted_path*.
+def _config_service_block(config: Any, service: str) -> Any:
+    """Read the ``services.<service>`` block a profile's ``config:`` spells.
 
-    Read off the template source rather than off a render: this validator runs
-    before anything reaches disk, and what a template declares is a fixed part
-    of it — what varies per profile is the ``config:`` overlay applied after
-    the render, which the ``BuildProfile`` readers below consult themselves.
-
-    The file is walked by indentation rather than parsed: it is a Jinja
-    template, not YAML, until it is rendered. Each mapping key is pushed onto a
-    stack as its line is met and popped when a shallower line arrives, so the
-    stack at any line spells the dotted path that line sits under. Comments,
-    blank lines, Jinja statements and list items are stepped over, and the
-    body of a block scalar (``key: |``) is skipped wholesale so its prose
-    cannot pose as keys. A template that spells a section twice under
-    different Jinja branches — ``services:`` with a block, ``services: {}``
-    without — answers with the first spelling, which is the declaring one.
+    The resolved profile is the only surface that decides which service blocks a
+    build renders, so this reads the ``config:`` overlay through
+    :func:`~osprey.cli.build_profile_archiver._expand_dotted` — the same path
+    tree the renderer writes into, so ``services.graphdb.uri`` as a dotted key,
+    a nested ``services:`` mapping, and any mixture of the two all answer alike.
 
     Args:
-        data_bundle: App template directory name (the ``app_template:`` key).
-        dotted_path: The path to read, in the dotted spelling.
+        config: A profile's ``config:`` block, whatever shape it parsed as.
+        service: The service's key in the rendered ``services:`` section
+            (``openobserve``, ``graphdb``, …), not its compose name.
 
     Returns:
-        :data:`_MISSING` when no line of the template sits at that path — also
-        how a bundle that ships no ``config.yml.j2`` reads, and so how an
-        unknown bundle name reads: the build names that fault itself, and
-        reporting it twice would not help. ``None`` when the path heads a
-        nested mapping and so carries no scalar of its own. Otherwise the
-        scalar's source text, inline comment removed, exactly as the template
-        spells it — ``true``, ``{{ osprey_ports.qmd }}``, ``{{ default_model }}``.
-        A framework port reads as the second of those, not as a number: the
-        templates derive every one of them from the layout at render time, so
-        what is on the line is the derivation and not its result.
+        :data:`_MISSING` when no spelling addresses that service; ``None`` when
+        the profile spells the block with no value, which is how a block is
+        removed; otherwise the block itself.
     """
-    template = _APP_TEMPLATE_ROOT / data_bundle / "config.yml.j2"
-    try:
-        text = template.read_text(encoding="utf-8")
-    except OSError:
+    services = _expand_dotted(config).get("services")
+    if not isinstance(services, dict) or service not in services:
         return _MISSING
-    target = dotted_path.split(".")
-    stack: list[tuple[int, str]] = []  # (indent, key) per enclosing mapping
-    block_scalar_indent: int | None = None
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        indent = len(line) - len(line.lstrip())
-        if block_scalar_indent is not None:
-            if indent > block_scalar_indent:
-                continue
-            block_scalar_indent = None
-        if stripped.startswith(("#", "{%", "{{", "-")):
-            continue
-        key, separator, rest = stripped.partition(":")
-        if not separator or (rest and not rest[0].isspace()):
-            # `http://host` is a scalar with a colon in it, not a key.
-            continue
-        while stack and stack[-1][0] >= indent:
-            stack.pop()
-        stack.append((indent, key.strip()))
-        value = rest.split(" #", 1)[0].strip()
-        if value[:1] in ("|", ">") and value[1:2] in ("", "-", "+"):
-            block_scalar_indent = indent
-        if [name for _, name in stack] == target:
-            return value or None
-    return _MISSING
+    return services[service]
 
 
-def _app_template_declares_graphdb(data_bundle: str) -> bool:
-    """Whether app template *data_bundle* renders a ``services.graphdb`` block.
+def provider_catalog_key_errors(config: Any) -> list[str]:
+    """Refuse a ``config:`` block that declares a provider.
+
+    ``api.providers`` is rendered from :data:`~osprey.profiles.providers`'s
+    ``providers.yml`` — the catalog beside ``profile.yml`` — so a ``config:``
+    entry beneath that key is a second catalog, and the render is the copy that
+    wins. Kept out of :data:`~osprey.cli.derived_keys.DERIVED_KEYS` because the
+    fix differs in kind: a derived key is removed and its profile FIELD set,
+    while a provider is moved into a sibling file the operator keeps.
+
+    Read through :func:`~osprey.cli.build_profile_archiver._expand_dotted`, so
+    the whole dotted key, a dotted prefix over a mapping, and a fully nested
+    ``api:`` block are all seen — they address the same rendered leaves.
 
     Args:
-        data_bundle: App template directory name (the ``app_template:`` key).
+        config: A profile's ``config:`` block, whatever shape it parsed as. A
+            non-mapping is somebody else's refusal and yields nothing here.
 
     Returns:
-        Whether that template's ``services:`` section carries a ``graphdb``
-        key; see :func:`_app_template_lookup` for how that is read.
+        One error per declared provider, naming the key and the file to declare
+        it in; one naming the bare branch when it is spelled with no entries.
+        Empty when the block declares none.
     """
-    return _app_template_lookup(data_bundle, _GRAPHDB_CONFIG_PREFIX) is not _MISSING
-
-
-def _app_template_declares_qmd(data_bundle: str) -> bool:
-    """Whether app template *data_bundle* renders a ``services.qmd`` block.
-
-    Args:
-        data_bundle: App template directory name (the ``app_template:`` key).
-
-    Returns:
-        Whether that template's ``services:`` section carries a ``qmd`` key;
-        see :func:`_app_template_lookup` for how that is read.
-    """
-    return _app_template_lookup(data_bundle, _QMD_CONFIG_PREFIX) is not _MISSING
-
-
-def _app_template_enables_hybrid_search(data_bundle: str) -> bool:
-    """Whether app template *data_bundle* switches hybrid logbook search on.
-
-    Args:
-        data_bundle: App template directory name (the ``app_template:`` key).
-
-    Returns:
-        Whether the template spells ``enabled: true`` under
-        ``ariel.search_modules.hybrid``. A template with no ``ariel:`` section
-        at all — the channel-finder one — reads as off, which is what it
-        renders.
-    """
-    value = _app_template_lookup(data_bundle, _HYBRID_SEARCH_ENABLED_KEY)
-    return isinstance(value, str) and value.lower() == "true"
+    api = _expand_dotted(config).get("api")
+    if not isinstance(api, dict) or _PROVIDER_CATALOG_LEAF not in api:
+        return []
+    entries = api[_PROVIDER_CATALOG_LEAF]
+    named = sorted(str(name) for name in entries) if isinstance(entries, dict) else []
+    keys = [f"{_PROVIDER_CATALOG_KEY}.{name}" for name in named] or [_PROVIDER_CATALOG_KEY]
+    return [
+        f"config: {key} is rendered by the build from {PROVIDERS_FILENAME}. "
+        f"Declare the provider there and remove it from profile.yml."
+        for key in keys
+    ]
 
 
 # VALID_CHANNEL_FINDER_MODES / default_tier_for_mode / tier_mode_conflict are
@@ -289,16 +246,17 @@ class BuildProfile:
     """Complete build profile parsed from YAML."""
 
     name: str
-    data_bundle: str = "control_assistant"
     data: str | None = None
     """Facility data tree this profile carries, as a path relative to the
     profile directory (``data`` for a materialized profile, ``../data`` for a
     sibling persona profile that shares its parent's tree; may therefore
-    resolve above the profile dir). When set, the build copies this tree
-    instead of the bundled ``apps/<data_bundle>/data/`` — a full replacement,
-    not a layered fallback. Meaningless for ``--preset`` builds, which have no
-    profile directory to anchor it against; the resolution point for both the
-    validator and the build is :meth:`resolved_data_root`.
+    resolve above the profile dir). The build copies this tree and no other:
+    it is the whole source of the project's ``data/``, with no packaged
+    fallback behind it, so :meth:`validate` requires it of every profile file.
+    ``None`` only for a bundled preset, which has no profile directory to
+    anchor it against (``--preset`` refuses the key outright) and whose tree
+    ``osprey init`` materializes. The resolution point for both the validator
+    and the build is :meth:`resolved_data_root`.
     """
     deploy: DeployConfig | None = None
     """Where this project is built, pushed, and run (``deploy:``).
@@ -409,6 +367,35 @@ class BuildProfile:
     the build reads it to compare against the installed preset, and never
     rewrites it — the profile records its own origin, not the last build's.
     """
+
+    def __post_init__(self) -> None:
+        """Declare the derived attributes resolution stamps on afterwards.
+
+        ``inherited_preset`` is the bundled preset this profile's ``extends:``
+        chain reached, or ``None`` when it reached none. Deliberately NOT a
+        dataclass field: every field of this class is a YAML profile key, and
+        ``tests/cli/test_emit_partition.py`` holds the emitter to that by
+        classifying each one. This is the opposite — something *resolution*
+        derived, carried beside what the profile says the way
+        ``excluded_artifacts`` is, and stamped on by whoever resolved the
+        document (:func:`~osprey.cli.build_profile_load.load_profile_document`
+        and :func:`~osprey.cli.build_profile_resolve.resolve_build_document`).
+
+        Being a non-field attribute has a cost worth knowing: the dataclass
+        machinery does not see it, so ``dataclasses.replace`` returns a copy
+        with the stamp reset to ``None``, ``dataclasses.asdict`` omits it, and
+        ``==`` ignores it. A caller that copies a resolved profile and still
+        needs the stamp has to carry it across itself.
+
+        It exists because the preset-side ``app_template:`` key is consumed
+        during resolution. A profile that names a preset in ``provenance:`` can
+        be asked again; a hand-written profile that only ``extends:`` a bundled
+        preset has no other record of which packaged data bundle its tree came
+        from. Initialized here rather than as a class attribute so each instance
+        owns it, and so a profile nothing stamped reads as "no preset" instead
+        of raising.
+        """
+        self.inherited_preset: str | None = None
 
     def resolved_tier(self) -> int:
         """Resolve the build-time tier, applying a paradigm-aware default.
@@ -750,12 +737,13 @@ class BuildProfile:
     def _renders_graphdb_block(self) -> bool:
         """Whether this profile's build renders a ``services.graphdb`` block.
 
-        Assembled from the two surfaces that decide it. The app template carries
-        the block for a deployment that runs its own store; the profile's
-        ``config:`` overlay, applied after the render, is how a store the
-        facility already runs is named instead (``services.graphdb.uri``) and
-        how a template's block is dropped. Whether what those produce counts as
-        a store is
+        Read off the resolved profile alone: the ``config:`` overlay spells the
+        block — as dotted keys (``services.graphdb.uri``) or as a nested
+        mapping — and the ``services:`` section is the other place a profile
+        declares one. A profile that wants no store spells neither, which is
+        why the whole-block ``services.graphdb:`` spelling is refused rather
+        than read as a removal. Whether
+        what those produce counts as a store is
         :func:`~osprey.deployment.graphdb_service.resolve_graphdb_service_config`'s
         own decision, borrowed rather than re-implemented so this validator and
         the render-time ``graphdb_configured`` gate that ships the graph MCP
@@ -764,32 +752,17 @@ class BuildProfile:
         Returns:
             Whether the rendered ``config.yml`` will carry a graph store to dial.
         """
-        overrides = self.config if isinstance(self.config, dict) else {}
-        sub_keys = [
-            key
-            for key in overrides
-            if isinstance(key, str) and key.startswith(f"{_GRAPHDB_CONFIG_PREFIX}.")
-        ]
-        if sub_keys:
-            # `services.graphdb.uri:` and its siblings write into the block,
-            # creating it when the app template carries none.
-            block: Any = {key.split(".", 2)[2]: overrides[key] for key in sub_keys}
-        elif _GRAPHDB_CONFIG_PREFIX in overrides:
-            # A whole-block override replaces what the template rendered —
-            # including the bare `services.graphdb:` that removes it.
-            block = overrides[_GRAPHDB_CONFIG_PREFIX]
-        else:
-            # An attached project renders `services: {}` whatever its app
-            # template says — but it is built beside the deployment it
-            # narrows, whose render carries the block, and the build projects
-            # the store's address into it (osprey.deployment.reach). Its
-            # profile IS that deployment's profile plus a delta, so the same
-            # question answers for both. An attached profile built with no
-            # host in its repo is caught by the build's post-render refusal,
-            # which reads the rendered config and finds nothing projected.
-            return GRAPHDB_SERVICE_NAME in self.services or _app_template_declares_graphdb(
-                self.data_bundle
-            )
+        block = _config_service_block(self.config, GRAPHDB_SERVICE_NAME)
+        if block is _MISSING:
+            # An attached project renders `services: {}` of its own — but it is
+            # built beside the deployment it narrows, whose render carries the
+            # block, and the build projects the store's address into it
+            # (osprey.deployment.reach). Its profile IS that deployment's
+            # profile plus a delta, so the same question answers for both. An
+            # attached profile built with no host in its repo is caught by the
+            # build's post-render refusal, which reads the rendered config and
+            # finds nothing projected.
+            return GRAPHDB_SERVICE_NAME in self.services
 
         try:
             resolved = resolve_graphdb_service_config({"services": {GRAPHDB_SERVICE_NAME: block}})
@@ -805,12 +778,11 @@ class BuildProfile:
     def _renders_qmd_block(self) -> bool:
         """Whether this profile's build renders a ``services.qmd`` block.
 
-        The same two surfaces as :meth:`_renders_graphdb_block`, read the same
-        way. The app template carries the block for a deployment that runs its
-        own sidecar; the profile's ``config:`` overlay is how an attached
-        render names the sidecar of the deployment it shares a host with
-        (``services.qmd.port``) and how a template's block is dropped. Whether
-        what those produce counts as a sidecar is
+        The same surfaces as :meth:`_renders_graphdb_block`, read the same way.
+        The profile's ``config:`` overlay is how a deployment declares its own
+        sidecar, how an attached render names the sidecar of the deployment it
+        shares a host with (``services.qmd.port``), and how a block is dropped.
+        Whether what those produce counts as a sidecar is
         :func:`~osprey.deployment.qmd_service.resolve_qmd_service_config`'s
         own decision, borrowed rather than re-implemented so this validator and
         the hybrid search module that resolves its endpoint through the same
@@ -819,26 +791,13 @@ class BuildProfile:
         Returns:
             Whether the rendered ``config.yml`` will carry a sidecar to dial.
         """
-        overrides = self.config if isinstance(self.config, dict) else {}
-        sub_keys = [
-            key
-            for key in overrides
-            if isinstance(key, str) and key.startswith(f"{_QMD_CONFIG_PREFIX}.")
-        ]
-        if sub_keys:
-            # `services.qmd.port:` and its siblings write into the block,
-            # creating it when the app template carries none.
-            block: Any = {key.split(".", 2)[2]: overrides[key] for key in sub_keys}
-        elif _QMD_CONFIG_PREFIX in overrides:
-            # A whole-block override replaces what the template rendered —
-            # including the bare `services.qmd:` that removes it.
-            block = overrides[_QMD_CONFIG_PREFIX]
-        else:
+        block = _config_service_block(self.config, QMD_SERVICE_NAME)
+        if block is _MISSING:
             # Same reasoning as the graph store above: an attached project is
             # told the sidecar's port by the build, from the hosting
             # deployment's render, and the profile that decides whether that
             # render carries a sidecar is the one this profile extends.
-            return QMD_SERVICE_NAME in self.services or _app_template_declares_qmd(self.data_bundle)
+            return QMD_SERVICE_NAME in self.services
 
         try:
             resolved = resolve_qmd_service_config({"services": {QMD_SERVICE_NAME: block}})
@@ -854,24 +813,20 @@ class BuildProfile:
     def _enables_hybrid_search(self) -> bool:
         """Whether this profile's build switches hybrid logbook search on.
 
-        The switch lives in the rendered ``config.yml``, so it is read from the
-        two places that write it: the ``config:`` overlay first, because it is
-        applied last, and the app template for a profile whose overlay says
-        nothing — the common case, since the key is absent from every profile
-        that keeps the template's default. On the overlay only an explicit
-        ``false`` counts, the same way the channel-finder switch reads for the
-        graph rule; a bare ``ariel.search_modules.hybrid:`` that removes the
-        whole module counts as off too, since there is then no module to answer.
+        The switch lives in the rendered ``config.yml`` and the ``config:``
+        overlay is the only surface that writes it, so a profile that says
+        nothing offers no hybrid mode — the module is on exactly when the
+        profile spells ``ariel.search_modules.hybrid.enabled: true``, in either
+        the dotted or the nested spelling. A bare
+        ``ariel.search_modules.hybrid:`` that removes the whole module counts as
+        off whatever sits beneath it, since there is then no module to answer.
 
         Returns:
             Whether the rendered project offers the ``hybrid`` search mode.
         """
         if _config_lookup(self.config, _HYBRID_SEARCH_BLOCK_KEY) is None:
             return False
-        switch = _config_lookup(self.config, _HYBRID_SEARCH_ENABLED_KEY)
-        if switch is _MISSING:
-            return _app_template_enables_hybrid_search(self.data_bundle)
-        return switch is not False
+        return _config_lookup(self.config, _HYBRID_SEARCH_ENABLED_KEY) is True
 
     def _claimed_ports(self) -> dict[str, int]:
         """Every port this profile already spends, keyed by the line that moves it.
@@ -981,7 +936,10 @@ class BuildProfile:
             for name, block in services.items():
                 if not isinstance(block, dict):
                     continue
-                for field_name in ("port", "port_host"):
+                # `http_port_host` is graphdb's second published port. It is a
+                # host port like the other two, so a collision on it is as real
+                # as one on `port_host` and belongs in the same ledger.
+                for field_name in ("port", "port_host", "http_port_host"):
                     port = block.get(field_name)
                     if isinstance(port, int) and not isinstance(port, bool):
                         claimed[f"services.{name}.{field_name}"] = port
@@ -1029,8 +987,9 @@ class BuildProfile:
         Asked of the two surfaces that write one, in the order they are
         applied: the profile's ``config:`` overlay, which lands last and so
         answers outright — including the bare ``services.<name>:`` that removes
-        the block — and the app template underneath it, which is what a profile
-        that says nothing about the service gets.
+        the block — and the ``services:`` section, which is where a profile
+        declares a service of its own. A profile that spells the service on
+        neither renders no block: nothing else in the build adds one.
 
         Args:
             service: The service's key in the rendered ``services:`` section
@@ -1039,12 +998,10 @@ class BuildProfile:
         Returns:
             Whether the rendered ``config.yml`` will carry that block.
         """
-        declared = _config_lookup(self.config, f"services.{service}")
+        declared = _config_service_block(self.config, service)
         if declared is not _MISSING:
             return declared is not None
-        if service in self.services:
-            return True
-        return _app_template_lookup(self.data_bundle, f"services.{service}") is not _MISSING
+        return service in self.services
 
     def _deploys_slot(self, entry: PortSlot) -> bool:
         """Whether this profile publishes the host port of one layout slot.
@@ -1281,21 +1238,36 @@ class BuildProfile:
                 f"(got {type(self.config).__name__})"
             )
 
-        # The empty whole-block override is refused by name. `{}` is not the
-        # removal spelling — an empty mapping reads as "a store at the
-        # defaults" everywhere the block is resolved — but as a replacement it
-        # drops the `path` the compose render locates the service's fragment
-        # by, so the deploy it describes can only fail. Both working spellings
-        # are handed back instead of letting that failure surface as a missing
-        # compose file three phases later.
-        if isinstance(self.config, dict) and self.config.get(_GRAPHDB_CONFIG_PREFIX) == {}:
-            errors.append(
-                f"config: `{_GRAPHDB_CONFIG_PREFIX}: {{}}` replaces the rendered block "
-                f"with an empty mapping, which keeps the store but drops the `path` its "
-                f"compose fragment is rendered from. Write the bare "
-                f"`{_GRAPHDB_CONFIG_PREFIX}:` (no value) to remove the graph store, or "
-                f"set `{_GRAPHDB_CONFIG_PREFIX}.<key>:` entries to re-point it."
-            )
+        # A whole-block `services.graphdb:` spelling is refused by name, empty
+        # mapping and bare null alike. Neither removes the store any more:
+        # nothing injects one, so there is nothing to subtract. `{}` reads as
+        # "a store at the defaults" everywhere the block is resolved but drops
+        # the `path` its compose fragment is located by, and a null block is
+        # what every resolver downstream then trips over. A deployment that
+        # wants no graph store deletes the keys — the whole spelling, so it is
+        # what the message says.
+        if isinstance(self.config, dict) and _GRAPHDB_CONFIG_PREFIX in self.config:
+            spelled = self.config[_GRAPHDB_CONFIG_PREFIX]
+            if spelled is None or spelled == {}:
+                written = "{}" if spelled == {} else "(no value)"
+                errors.append(
+                    f"config: `{_GRAPHDB_CONFIG_PREFIX}: {written}` replaces the block "
+                    f"with something no resolver can read. It is not the way to remove "
+                    f"the graph store: delete the `{_GRAPHDB_CONFIG_PREFIX}.*` keys and "
+                    f"the `{GRAPHDB_SERVICE_NAME}` entry from `deployed_services` "
+                    f"instead. To dial a store this deployment does not run, set "
+                    f"`{_GRAPHDB_CONFIG_PREFIX}.uri:` and leave "
+                    f"`{GRAPHDB_SERVICE_NAME}` out of `deployed_services`."
+                )
+
+        # A `config:` spelling of a key the framework template renders — the
+        # project layout, the port layout, or a profile field. Two homes for
+        # one fact, and the render wins silently, so the second spelling is
+        # refused here naming the field that supplies it.
+        errors.extend(derived_key_errors(self.config))
+        # And the one derived branch whose source is a sibling FILE rather than
+        # a field or the build's own layout.
+        errors.extend(provider_catalog_key_errors(self.config))
 
         if self.tier is not None and self.tier not in (1, 3):
             errors.append(f"tier must be 1 or 3 (got {self.tier!r})")
@@ -1340,9 +1312,10 @@ class BuildProfile:
             errors.append(
                 f"channel_finder_mode: {_GRAPH_MODE} needs a "
                 f"services.{GRAPHDB_SERVICE_NAME} block and this build renders none "
-                f"(app_template: {self.data_bundle}{attached}). Build on an app "
-                f"template that deploys a graph store, or name one the facility "
-                f"already runs with `config: services.{GRAPHDB_SERVICE_NAME}.uri: "
+                f"(no services.{GRAPHDB_SERVICE_NAME} keys under `config:`{attached}). "
+                f"Spell the store this profile deploys under `config: "
+                f"services.{GRAPHDB_SERVICE_NAME}.*`, or name one the facility already "
+                f"runs with `config: services.{GRAPHDB_SERVICE_NAME}.uri: "
                 f"bolt://host:7687` plus GRAPHDB_PASSWORD in the project .env."
             )
 
@@ -1367,8 +1340,9 @@ class BuildProfile:
             errors.append(
                 f"{_HYBRID_SEARCH_BLOCK_KEY} is enabled and needs a "
                 f"{_QMD_CONFIG_PREFIX} block, and this build renders none "
-                f"(app_template: {self.data_bundle}{attached}). Name the sidecar of "
-                f"the deployment this profile shares a host with using `config: "
+                f"(no {_QMD_CONFIG_PREFIX} keys under `config:`{attached}). Spell the "
+                f"sidecar this profile deploys, or name the one of the deployment it "
+                f"shares a host with, using `config: "
                 f"{_QMD_CONFIG_PREFIX}.port: {QMD_DEFAULT_PORT}`, or switch the "
                 f"module off with `config: {_HYBRID_SEARCH_ENABLED_KEY}: false`."
             )
@@ -1376,16 +1350,35 @@ class BuildProfile:
         # The data tree may legitimately sit above the profile dir (persona
         # profiles share their parent's tree via ``data: ../data``), so only
         # existence and shape are checked, never containment.
-        if self.data is not None:
-            if not isinstance(self.data, str) or not self.data.strip():
-                errors.append(f"data must be a non-empty directory path (got {self.data!r})")
-            else:
-                data_root = self.resolved_data_root(profile_dir)
-                assert data_root is not None  # narrows for type-checkers
-                if not data_root.exists():
-                    errors.append(f"data directory not found: {self.data} (resolved: {data_root})")
-                elif not data_root.is_dir():
-                    errors.append(f"data must be a directory: {self.data} (resolved: {data_root})")
+        #
+        # It is also required. ``data:`` is the ONLY source of the project's
+        # ``data/`` tree — the build copies it and nothing else — so a profile
+        # that names none states a deployment with no channel databases, drive
+        # limits or seeds to build from. A bundled preset is exempt: it is
+        # resolved out of the packaged presets directory and has no profile
+        # directory to anchor a tree against (``--preset`` refuses ``data:``
+        # outright), and it is ``osprey init`` that materializes the tree and
+        # writes the key into the profile it emits. A persona delta needs no
+        # exemption: it resolves over the ``profile.yml`` it lives under, and
+        # inherits that file's ``data:`` before this runs.
+        if self.data is None:
+            if not is_bundled_preset_dir(profile_dir):
+                errors.append(
+                    "data is required: it names the facility data tree this deployment "
+                    "builds from, as a path relative to profile.yml (a materialized "
+                    "profile says `data: data`). Run `osprey init <dir> --preset <name>` "
+                    "to materialize a profile and its tree, or add `data: <dir>` naming "
+                    "the tree this profile already carries."
+                )
+        elif not isinstance(self.data, str) or not self.data.strip():
+            errors.append(f"data must be a non-empty directory path (got {self.data!r})")
+        else:
+            data_root = self.resolved_data_root(profile_dir)
+            assert data_root is not None  # narrows for type-checkers
+            if not data_root.exists():
+                errors.append(f"data directory not found: {self.data} (resolved: {data_root})")
+            elif not data_root.is_dir():
+                errors.append(f"data must be a directory: {self.data} (resolved: {data_root})")
 
         # Validate the profile's convention directories (shape of each source,
         # plus the reserved paths the project/ mirror may not write). Reported

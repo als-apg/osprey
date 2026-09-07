@@ -36,6 +36,12 @@ from ruamel.yaml import YAML, CommentedMap, CommentedSeq
 
 from osprey import __version__
 from osprey.errors import BuildProfileError
+from osprey.profiles.providers import (
+    PROVIDERS_FILENAME,
+    compute_providers_hash,
+    load_provider_catalog,
+    packaged_catalog_path,
+)
 
 from .build_profile_document import _read_profile_document
 from .build_profile_emit import materialized_profile, persona_catalog
@@ -46,11 +52,66 @@ from .build_profile_merge import (
     resolve_profile_document,
 )
 from .build_profile_presets import _load_preset_raw, _normalize_preset_name, _preset_exists
+from .build_profile_resolve import _dotted_leaves
 from .build_profile_schema import ProfileProvenance
 from .profile_root import ROOT_PROFILE_FILENAME, resolve_profile_root
 
 #: How far above a profile line a marker comment reaches.
 MARKER_REACH = 3
+
+#: The finding kinds ``osprey validate --drift=error`` refuses: one document
+#: has a key, a block or a list member the other has not. These are the
+#: silent failure the lint was written for — a profile that never picked up a
+#: line its preset gained builds green forever, and nothing says so.
+REFUSAL_KINDS: frozenset[str] = frozenset(
+    {"missing", "missing_member", "extra", "extra_member", "exclude"}
+)
+
+#: The finding kind that is reported and never refused: both documents carry
+#: the key and disagree on its value. That is a knob a facility turned — the
+#: thing the emitted profile invites — so a preset changing a default in a
+#: newer OSPREY surfaces as a note rather than as a refusal to build.
+NOTE_KINDS: frozenset[str] = frozenset({"value"})
+
+#: What joins two advisories into :attr:`DriftReport.note`. The printer indents
+#: the note it is handed by one step and no more, so a second line carries that
+#: indent itself rather than starting at the margin under the first.
+_NOTE_SEPARATOR = "\n  "
+
+
+def _catalog_note(root_dir: Path) -> str | None:
+    """One line when this repo's ``providers.yml`` is no longer the shipped one.
+
+    A NOTE and never a finding: the catalog is a file the operator owns and is
+    invited to add gateways to, so a difference from the packaged copy is
+    normally the feature working. What is worth saying is that the two have
+    parted, because the entries OSPREY ships stop reaching this repo the moment
+    it has a catalog of its own — and there is a verb that refreshes them
+    without touching the operator's.
+
+    Silent for a repo with no catalog: the packaged copy IS what it resolves,
+    so nothing has drifted from anything.
+
+    Args:
+        root_dir: The deployment repo root, where a ``providers.yml`` sits
+            beside ``profile.yml``.
+
+    Raises:
+        BuildProfileError: The repo's catalog does not parse. Left to surface
+            rather than swallowed — every other reader of that file refuses
+            too, and a lint that quietly said nothing would be the one place
+            the broken file looked fine.
+    """
+    catalog = load_provider_catalog(root_dir)
+    if catalog.source != "repo":
+        return None
+    if compute_providers_hash(catalog.path) == compute_providers_hash(packaged_catalog_path()):
+        return None
+    return (
+        f"{PROVIDERS_FILENAME} is not the provider catalog OSPREY {__version__} ships — "
+        f"`osprey profile expand --providers` refreshes the entries it ships and keeps yours"
+    )
+
 
 # Top-level keys `osprey init` writes for the repo rather than copies from the
 # preset: the display name, the materialized data tree, the schema floor, and
@@ -75,6 +136,12 @@ class DriftFinding:
             value is one the emitter synthesizes.
         token: What a marker comment must name to silence this finding.
         line: The profile line the finding sits on, or ``None`` for an absence.
+        kind: Which sort of difference this is, and so what it costs:
+            ``value`` when both documents carry the key and give it different
+            values, or one of the structural kinds — ``missing``,
+            ``missing_member``, ``extra``, ``extra_member``, ``exclude`` — when
+            one document has something the other has not. See
+            :data:`REFUSAL_KINDS` and :data:`NOTE_KINDS`.
         marked: Whether a marker comment claims it.
     """
 
@@ -84,6 +151,7 @@ class DriftFinding:
     preset_ref: str
     token: str
     line: int | None
+    kind: str
     marked: bool = False
 
     def render(self) -> str:
@@ -97,8 +165,11 @@ class DriftReport:
 
     Attributes:
         preset: The bundled preset the profile's provenance names.
-        note: The one-line advisory that does not depend on the diff — the
-            preset has moved on since materialization, or is not bundled here.
+        note: The advisories about the comparison itself rather than about any
+            one key — distinct from :attr:`notes`, which are findings. The preset has
+            moved on since materialization, is not bundled here, or the repo's
+            ``providers.yml`` is no longer the catalog OSPREY ships. One line
+            each, joined with the printer's own indent when both apply.
         findings: Every difference found, marked or not.
         stale_markers: Marker comments that silence nothing.
     """
@@ -110,8 +181,23 @@ class DriftReport:
 
     @property
     def unmarked(self) -> list[DriftFinding]:
-        """The differences nobody has claimed as deliberate."""
+        """The differences nobody has claimed as deliberate.
+
+        The union of :attr:`refusals` and :attr:`notes`, in the order the
+        comparison found them — what a surface prints when it prints
+        everything.
+        """
         return [finding for finding in self.findings if not finding.marked]
+
+    @property
+    def refusals(self) -> list[DriftFinding]:
+        """The unclaimed structural differences — what ``osprey validate`` refuses."""
+        return [finding for finding in self.unmarked if finding.kind in REFUSAL_KINDS]
+
+    @property
+    def notes(self) -> list[DriftFinding]:
+        """The unclaimed value differences — reported by every surface, refused by none."""
+        return [finding for finding in self.unmarked if finding.kind in NOTE_KINDS]
 
 
 def preset_drift_report(profile_file: Path, provenance: ProfileProvenance) -> DriftReport:
@@ -132,7 +218,8 @@ def preset_drift_report(profile_file: Path, provenance: ProfileProvenance) -> Dr
 
     Raises:
         BuildProfileError: When a document the lint has to read is not a YAML
-            mapping, or the preset will not emit.
+            mapping, the preset will not emit, or the repo's ``providers.yml``
+            does not parse.
     """
     root_dir, is_delta = resolve_profile_root(profile_file)
     root_path = root_dir / ROOT_PROFILE_FILENAME
@@ -147,15 +234,19 @@ def preset_drift_report(profile_file: Path, provenance: ProfileProvenance) -> Dr
             [],
             [],
         )
-    note = None
+    notes: list[str] = []
     if installed_hash != provenance.preset_hash:
         emitted = _emitted_version(root_path)
         by = f" by OSPREY {emitted}" if emitted else ""
-        note = (
+        notes.append(
             f"{ROOT_PROFILE_FILENAME} was materialized from preset {preset} at "
             f"{_short_hash(provenance.preset_hash)}{by}; the preset bundled with OSPREY "
             f"{__version__} is {_short_hash(installed_hash)} — it has moved on since"
         )
+    catalog_note = _catalog_note(root_dir)
+    if catalog_note is not None:
+        notes.append(catalog_note)
+    note = _NOTE_SEPARATOR.join(notes) or None
 
     root_raw = _read_profile_document(root_path)
     if not isinstance(root_raw, dict):
@@ -168,20 +259,13 @@ def preset_drift_report(profile_file: Path, provenance: ProfileProvenance) -> Dr
     expected = materialized_profile(
         preset, repo_name=root_dir.name, profile_name=str(profile.get("name", ""))
     )
-    template = _template_defaults(
-        str(profile.get("data_bundle", "control_assistant")), profile.get("channel_finder_mode")
-    )
     tag = provenance.deviation_marker
 
     findings: list[DriftFinding] = []
     stale: list[str] = []
     if not is_delta:
         comparison = _Comparison(
-            ROOT_PROFILE_FILENAME,
-            _Lines(root_path),
-            preset,
-            [_Lines(path) for path in chain],
-            template,
+            ROOT_PROFILE_FILENAME, _Lines(root_path), preset, [_Lines(path) for path in chain]
         )
         comparison.compare(profile, expected)
         claimed, unclaimed = _apply_markers(comparison.findings, root_path, root_dir, tag)
@@ -197,9 +281,7 @@ def preset_drift_report(profile_file: Path, provenance: ProfileProvenance) -> Dr
         layer, layer_path = _load_preset_raw(persona_preset)
         layer.pop("extends", None)
         relative = delta_path.relative_to(root_dir).as_posix()
-        comparison = _Comparison(
-            relative, _Lines(delta_path), persona_preset, [_Lines(layer_path)], template
-        )
+        comparison = _Comparison(relative, _Lines(delta_path), persona_preset, [_Lines(layer_path)])
         # The delta enters the merge as the build feeds it — unresolved, so its
         # `exclude:` is consumed against the root rather than its own layer.
         comparison.compare(
@@ -262,19 +344,11 @@ def _persona_pairs(
 class _Comparison:
     """Key-level diff of one document against its reference, collecting findings."""
 
-    def __init__(
-        self,
-        label: str,
-        lines: _Lines,
-        preset: str,
-        preset_lines: list[_Lines],
-        template: Mapping[str, Any],
-    ) -> None:
+    def __init__(self, label: str, lines: _Lines, preset: str, preset_lines: list[_Lines]) -> None:
         self.label = label
         self.lines = lines
         self.preset = preset
         self.preset_lines = preset_lines
-        self.template = template
         self.findings: list[DriftFinding] = []
 
     def compare(self, actual: Mapping[str, Any], expected: Mapping[str, Any]) -> None:
@@ -286,7 +360,7 @@ class _Comparison:
                 continue
             path = (str(key),)
             if key not in expected:
-                self._extra(path, actual[key])
+                self._extra(path)
             elif key not in actual:
                 self._missing(path)
             elif key == "config":
@@ -304,7 +378,7 @@ class _Comparison:
             for key in sorted(set(actual) | set(expected), key=str):
                 sub = (*path, str(key))
                 if key not in expected:
-                    self._extra(sub, actual[key])
+                    self._extra(sub)
                 elif key not in actual:
                     self._missing(sub)
                 else:
@@ -326,28 +400,27 @@ class _Comparison:
                     self._preset_ref(path),
                     _token(path),
                     self.lines.line(path),
+                    kind="value",
                 )
             )
 
-    def _extra(self, path: tuple[str, ...], value: Any) -> None:
+    def _extra(self, path: tuple[str, ...]) -> None:
         """A key the profile sets and the preset does not.
 
-        Under ``config:`` a key the app template renders a default for is a
-        facility tuning a knob the preset left alone, not a departure from the
-        preset, and is not reported.
+        Reported under ``config:`` exactly as anywhere else: the preset carries
+        the whole configuration a deployment renders, so a key it does not
+        carry is one nothing documents — a typo, or a knob that has been
+        retired — rather than a layer beneath the preset answering for it.
         """
-        in_config = path[0] == "config" and len(path) > 1
-        if in_config and _template_knows(self.template, path[1:]):
-            return
-        unknown_to = "the preset and the app template" if in_config else "the preset"
         self.findings.append(
             DriftFinding(
                 _dotted(path),
-                f"set by {self.label}, unknown to {unknown_to}",
+                f"set by {self.label}, unknown to the preset",
                 self._profile_ref(path),
                 f"preset {self.preset}",
                 _token(path),
                 self.lines.line(path),
+                kind="extra",
             )
         )
 
@@ -360,6 +433,7 @@ class _Comparison:
                 self._preset_ref(path),
                 _token(path),
                 None,
+                kind="missing",
             )
         )
 
@@ -375,6 +449,10 @@ class _Comparison:
                 self._preset_ref((*path, member)),
                 member,
                 line,
+                # An `exclude:` line is a subtraction the profile spells out;
+                # without one the member is simply not there. Both are the
+                # preset selecting something this document does not.
+                kind="exclude" if line else "missing_member",
             )
         )
 
@@ -387,6 +465,7 @@ class _Comparison:
                 f"preset {self.preset}",
                 member,
                 self.lines.line((*path, member)),
+                kind="extra_member",
             )
         )
 
@@ -483,45 +562,50 @@ def _covers(marker_line: int, text: str, finding: DriftFinding) -> bool:
     return re.search(rf"(?<![\w.-]){re.escape(finding.token)}(?![\w.-])", text) is not None
 
 
-def _template_defaults(data_bundle: str, channel_finder_mode: Any) -> dict[str, Any]:
-    """The config the app template renders at its defaults, or ``{}`` if it will not."""
-    import tempfile
+def lacking_config_keys(profile_raw: Mapping[str, Any], preset: str) -> list[str]:
+    """Every ``config:`` leaf *preset* carries that *profile_raw* does not spell.
 
-    import yaml
+    The missing half of the comparison :class:`_Comparison` reports, asked the
+    way ``osprey profile expand`` needs it: not which branches differ but which
+    leaves are absent, flattened, because expand writes one dotted key per leaf
+    with the preset's own comment above it. A branch the profile lacks whole —
+    an entire ``approval`` section — comes back as its leaves rather than as
+    its root, so what lands in the profile is what the preset documents rather
+    than one opaque mapping.
 
-    from .templates.manager import TemplateManager
+    Both sides are flattened to the dotted keys they address, so any split
+    between dotted and nested counts as present: a leaf the preset spells
+    ``a.b.c``, a profile nesting it whole and a profile spelling it ``{a:
+    {"b.c": ...}}`` are one rendered key, and the profile already has it.
 
-    context: dict[str, Any] = {"deploy_services": True}
-    artifacts: dict[str, list[str]] | None = {}
-    if isinstance(channel_finder_mode, str) and channel_finder_mode:
-        # With a mode in hand the template's own artifact selection renders in
-        # full; without one the channel-finder sections are the only loss.
-        context["channel_finder_mode"] = channel_finder_mode
-        artifacts = None
-    with tempfile.TemporaryDirectory() as scratch:
-        output = Path(scratch) / "config.yml"
-        try:
-            TemplateManager().render_config(
-                "example",
-                Path(scratch),
-                output,
-                data_bundle=data_bundle,
-                context=context,
-                artifacts=artifacts,
-            )
-            rendered = yaml.safe_load(output.read_text(encoding="utf-8"))
-        except (ValueError, OSError, BuildProfileError, yaml.YAMLError):
-            return {}
-    return rendered if isinstance(rendered, dict) else {}
+    Args:
+        profile_raw: The profile document as it sits on disk, unresolved — a
+            profile old enough to need expanding is one that may not resolve.
+        preset: A bundled preset, in any CLI spelling.
 
+    Returns:
+        Dotted keys into the rendered config, in the preset's own order, so a
+        caller writing them out follows the document it copies from.
 
-def _template_knows(template: Mapping[str, Any], path: tuple[str, ...]) -> bool:
-    node: Any = template
-    for part in path:
-        if not isinstance(node, Mapping) or part not in node:
-            return False
-        node = node[part]
-    return True
+    Raises:
+        BuildProfileError: When the preset is unknown or will not emit.
+    """
+    name = str(profile_raw.get("name", ""))
+    # Only which keys the reference carries is read here, never their values,
+    # so the repo name the persona catalog derives from cannot reach the answer.
+    expected = materialized_profile(
+        _normalize_preset_name(preset), repo_name=name or preset, profile_name=name
+    )
+    # Flattening each side to its dotted leaves normalizes every spelling at
+    # once, which nesting the dots does not: a mapping only ever splits the
+    # dotted keys it holds directly, so a dot inside a nested key survives it
+    # and the same rendered leaf reads as two different ones.
+    present = {_dotted(path) for path, _ in _dotted_leaves(_mapping(profile_raw.get("config")))}
+    return [
+        key
+        for key in (_dotted(path) for path, _ in _dotted_leaves(_mapping(expected.get("config"))))
+        if key not in present
+    ]
 
 
 def _emitted_version(profile_path: Path) -> str | None:

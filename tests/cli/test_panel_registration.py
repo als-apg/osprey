@@ -25,6 +25,17 @@ from osprey.cli.build_profile import BlueskyWebConfig, BuildProfile
 from osprey.port_layout import default_port
 
 
+@pytest.fixture(autouse=True)
+def _facility_data_tree(tmp_path: Path) -> None:
+    """The tree every profile's ``data:`` key names, beside the profile.
+
+    ``data:`` is required of a repo profile and must resolve to a real
+    directory, so without this each profile below would report one extra
+    failure about a key none of these tests is about.
+    """
+    (tmp_path / "data").mkdir(exist_ok=True)
+
+
 def _write_config(project_path: Path, *, panels: dict | None = None) -> None:
     """Write a minimal config.yml, optionally pre-seeded with web.panels entries."""
     yaml = YAML()
@@ -79,6 +90,7 @@ def test_profile_listing_bluesky_validates_without_warning(tmp_path: Path) -> No
     """``bluesky`` is url-less-legal (its URL is derived post-build) — and silent."""
     profile = BuildProfile(
         name="modern",
+        data="data",
         web_panels=["bluesky"],
         bluesky_web=BlueskyWebConfig(),
     )

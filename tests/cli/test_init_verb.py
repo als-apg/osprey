@@ -24,6 +24,7 @@ different kinds of thing:
 from __future__ import annotations
 
 import io
+import re
 import stat
 import subprocess
 import sys
@@ -217,13 +218,33 @@ def test_every_source_path_the_exemplar_names_is_emitted(exemplar_repo: Path) ->
 #: that does not exist.
 RETIRED_VERB_STRINGS = (
     "osprey deploy ",
-    "osprey profile ",
     "osprey build <",
     "config set-control-system",
     "set-epics-gateway",
     "claude regen",
     "profile try",
 )
+
+#: How an emitted artifact spells a verb of the ``profile`` group.
+#:
+#: ``"osprey profile "`` used to sit in the tuple above, back when every verb
+#: an emitted artifact could name under that group was retired. It cannot stay:
+#: the packaged provider catalog and the retired-key refusal both name
+#: ``osprey profile expand``, which is a live verb. So the group literal is
+#: replaced with a live-command check, which trades one axis for another: it no
+#: longer refuses the group outright, and in exchange it refuses any verb the
+#: group does not actually answer to — including one retired or renamed later,
+#: the day it goes rather than whenever someone remembers to add its string.
+#: The pattern reads lowercase verbs only, so an uppercase spelling or an
+#: ``osprey profile --flag`` mention is not matched and not judged.
+PROFILE_VERB_MENTION = re.compile(r"osprey profile ([a-z][a-z0-9-]*)")
+
+
+def _live_profile_verbs() -> frozenset[str]:
+    """Every subcommand ``osprey profile`` currently answers to."""
+    from osprey.cli.profile_cmd import profile
+
+    return frozenset(profile.commands)
 
 
 def _emitted_source_files(repo: Path) -> list[Path]:
@@ -251,6 +272,22 @@ def test_no_emitted_artifact_names_a_retired_verb(exemplar_repo: Path) -> None:
         for verb in RETIRED_VERB_STRINGS
         if verb in path.read_text(encoding="utf-8", errors="ignore")
     ]
+    assert offenders == []
+
+
+def test_every_profile_verb_an_emitted_artifact_names_exists(exemplar_repo: Path) -> None:
+    """The same rule for the ``profile`` group, checked against the live group."""
+    live = _live_profile_verbs()
+    offenders = sorted(
+        {
+            f"{path.relative_to(exemplar_repo)}: 'osprey profile {verb}'"
+            for path in _emitted_source_files(exemplar_repo)
+            for verb in PROFILE_VERB_MENTION.findall(
+                path.read_text(encoding="utf-8", errors="ignore")
+            )
+            if verb not in live
+        }
+    )
     assert offenders == []
 
 
@@ -600,11 +637,9 @@ def test_every_file_a_rendered_repo_ships_is_in_a_named_category(
     """
     from osprey.cli.profile_cmd import MATERIALIZED_SOURCE_ENTRIES
 
-    override = tmp_path / "deploy.yml"
-    override.write_text(DEPLOY_COORDINATES, encoding="utf-8")
     target = tmp_path / "categorised"
     assert (
-        run_init(runner, str(target), "--preset", "hello-world", "-O", str(override)).exit_code == 0
+        run_init(runner, str(target), "--preset", "hello-world", *DEPLOY_COORDINATES).exit_code == 0
     )
 
     top_level = {*MATERIALIZED_SOURCE_ENTRIES, *WRITE_ONCE_FILES, *WRITE_ONCE_DIRS, ".env"}
@@ -730,18 +765,16 @@ def test_force_never_regenerates_a_hand_written_pipeline(runner: CliRunner, tmp_
     runs — the survival test above covers a repo whose profile declares none,
     where there is nothing to emit and nothing to overwrite.
     """
-    override = tmp_path / "deploy.yml"
-    override.write_text(DEPLOY_COORDINATES, encoding="utf-8")
     target = tmp_path / "ci-deployment"
     assert (
-        run_init(runner, str(target), "--preset", "hello-world", "-O", str(override)).exit_code == 0
+        run_init(runner, str(target), "--preset", "hello-world", *DEPLOY_COORDINATES).exit_code == 0
     )
 
     hand_written = target / ".gitlab-ci.yml"
     hand_written.write_text("# mine, no marker\nbuild-it: {}\n", encoding="utf-8")
 
     result = run_init(
-        runner, str(target), "--preset", "hello-world", "-O", str(override), "--force"
+        runner, str(target), "--preset", "hello-world", *DEPLOY_COORDINATES, "--force"
     )
 
     assert result.exit_code == 0, result.output
@@ -937,7 +970,7 @@ def test_the_report_is_written_through_the_reporters_console(
 
 
 # ---------------------------------------------------------------------------
-# Baked overrides, presets, CI
+# Baked --set edits, presets, CI
 # ---------------------------------------------------------------------------
 
 
@@ -948,20 +981,6 @@ def test_set_pairs_are_baked_into_the_emitted_profile(runner: CliRunner, tmp_pat
     assert result.exit_code == 0, result.output
     profile = yaml.safe_load((target / "profile.yml").read_text(encoding="utf-8"))
     assert profile["model"] == "sonnet"
-
-
-def test_override_files_are_baked_into_the_emitted_profile(
-    runner: CliRunner, tmp_path: Path
-) -> None:
-    override = tmp_path / "overlay.yml"
-    override.write_text("provider: openai\n", encoding="utf-8")
-    target = tmp_path / EXEMPLAR_DIRNAME
-
-    result = init_exemplar(runner, target, "-O", str(override))
-
-    assert result.exit_code == 0, result.output
-    profile = yaml.safe_load((target / "profile.yml").read_text(encoding="utf-8"))
-    assert profile["provider"] == "openai"
 
 
 def test_list_presets_needs_no_target(runner: CliRunner) -> None:
@@ -978,27 +997,33 @@ def test_missing_preset_points_at_the_list(runner: CliRunner, tmp_path: Path) ->
     assert "--list-presets" in result.output
 
 
-DEPLOY_COORDINATES = """\
-deploy:
-  ci: gitlab
-  image_source: local
-  host:
-    name: appsdev2
-    fqdn: appsdev2.example.org
-    user: operator
-    project_path: /home/operator/deployments/als-exemplar
-"""
+#: Deploy coordinates as the command line states them, ready to splice into an
+#: ``osprey init`` invocation. A preset ships the ``deploy:`` block commented
+#: out, so a test that needs the CI pair on disk has to state the block itself;
+#: ``--set`` is the one way in, and each pair edits the key it names.
+DEPLOY_COORDINATES = (
+    "--set",
+    "deploy.ci=gitlab",
+    "--set",
+    "deploy.image_source=local",
+    "--set",
+    "deploy.host.name=appsdev2",
+    "--set",
+    "deploy.host.fqdn=appsdev2.example.org",
+    "--set",
+    "deploy.host.user=operator",
+    "--set",
+    "deploy.host.project_path=/home/operator/deployments/als-exemplar",
+)
 
 
 def test_ci_pipeline_and_health_check_are_emitted_together(
     runner: CliRunner, tmp_path: Path
 ) -> None:
     """A pipeline that invokes a health check that was never written is worse than neither."""
-    override = tmp_path / "deploy.yml"
-    override.write_text(DEPLOY_COORDINATES, encoding="utf-8")
     target = tmp_path / "ci-deployment"
 
-    result = run_init(runner, str(target), "--preset", "hello-world", "-O", str(override))
+    result = run_init(runner, str(target), "--preset", "hello-world", *DEPLOY_COORDINATES)
 
     assert result.exit_code == 0, result.output
     assert (target / ".gitlab-ci.yml").is_file()
@@ -1531,11 +1556,11 @@ class TestSetShorthandMistakenForAFlag:
     """`--provider cborg` is a natural guess, and it is not an option.
 
     The profile's own shorthands are spelled `--set provider=cborg`, and Click
-    answers an unknown option by naming the closest one it has by edit
-    distance — which for `--provider` is `--override`, a different feature with
-    a different argument. So the operator's first contact with the verb is a
-    suggestion that would not have worked either. These four keys are the ones
-    `--set` documents, so they are the ones worth catching by name.
+    answers an unknown option by naming whichever one it has that is closest by
+    edit distance — a different flag taking a different argument, so the
+    operator's first contact with the verb would be a suggestion that does not
+    work either. These four keys are the ones `--set` documents, so they are
+    the ones worth catching by name.
     """
 
     @staticmethod
@@ -1571,7 +1596,7 @@ class TestSetShorthandMistakenForAFlag:
         `test_importing_the_module_stays_off_the_heavy_chain`), so the list is
         spelled out there. This is what stops the copy from drifting: a
         shorthand added to `--set` and not to the guard fails here instead of
-        quietly going back to `Did you mean --override?`.
+        quietly going back to Click's nearest-flag guess.
         """
         from osprey.cli.build_profile_resolve import SHORTHAND_OVERRIDE_KEYS
         from osprey.cli.init_cmd import _SHORTHAND_FLAG_KEYS

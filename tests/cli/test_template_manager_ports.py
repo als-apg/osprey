@@ -21,6 +21,50 @@ import yaml
 from osprey.cli.templates.manager import TemplateManager
 from osprey.port_layout import DEFAULT_PORT_BASE, LAYOUT, layout_ports
 
+
+def _bundle_data_root(bundle: str = "control_assistant") -> Path:
+    """The tree these fixtures hand the render as the profile's ``data:``.
+
+    A build copies the tree its profile's ``data:`` key names, and that key is
+    required — nothing falls back to a packaged tree any more. These fixtures
+    render straight from a bundle rather than from a profile, so they name the
+    tree that bundle packages, which is the content the render used to reach
+    for on its own.
+    """
+    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+
+
+def _create_project(manager: TemplateManager, **kwargs) -> Path:
+    """``create_project`` plus the three steps a real build takes next.
+
+    A build renders the framework template, overlays the resolved profile's
+    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
+    regenerates ``.claude/`` from the finished config. The template carries
+    only derived and profile-field-derived keys, so a fixture that stops after
+    the render holds half a config — the declarative half is the preset's, and
+    the artifacts rendered before it landed do not know about the deployment's
+    control system, services or servers. These fixtures render from a bundle
+    rather than from a profile, so they overlay the preset ``osprey init``
+    pairs with that bundle.
+    """
+    from osprey.cli.build_profile import resolve_build_profile
+    from osprey.utils.config_writer import config_update_fields
+
+    bundle = kwargs.setdefault("data_bundle", "control_assistant")
+    preset = bundle.replace("_", "-")
+    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    project = manager.create_project(**kwargs)
+    profile, _preset_dir = resolve_build_profile(None, preset=preset)
+    config_update_fields(project / "config.yml", profile.config)
+    manager.generate_manifest(
+        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
+    )
+    # The build's last render, and the one that ships: `create_project` wrote
+    # `.claude/` from a config.yml that did not yet carry the preset's block.
+    manager.regenerate_claude_code(project)
+    return project
+
+
 # A base far from the default, so a port that came from the default instead of
 # from the caller cannot pass by coincidence.
 MOVED_BASE = 20000
@@ -68,13 +112,30 @@ def test_bare_render_writes_integer_ports(tmp_path: Path) -> None:
     string, an empty value or an unrendered Jinja expression would only fail
     later, at the point something tried to bind it.
     """
-    render = TemplateManager().create_project(
+    from osprey.cli.build_profile import resolve_build_profile
+    from osprey.cli.build_profile_ports import layout_port_fill
+    from osprey.port_layout import DEFAULT_PORT_BASE
+
+    render = _create_project(
+        TemplateManager(),
         project_name="build",
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
     )
     config = yaml.safe_load((render / "config.yml").read_text(encoding="utf-8"))
+
+    # A port is derived, not declared: the preset spells the service blocks and
+    # the build fills each block's port from the layout at the deployment's own
+    # base. The render alone therefore writes none, and what this pins is the
+    # shape of what the fill produces.
+    profile, _profile_dir = resolve_build_profile(None, preset="control-assistant")
+    for key, value in layout_port_fill(profile.config, DEFAULT_PORT_BASE).items():
+        node = config
+        parts = key.split(".")
+        for part in parts[:-1]:
+            node = node.setdefault(part, {})
+        node[parts[-1]] = value
 
     written = {}
     for slot in LAYOUT:

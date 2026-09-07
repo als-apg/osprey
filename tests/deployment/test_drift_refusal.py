@@ -37,7 +37,7 @@ def _write(path: Path, text: str) -> Path:
 PROFILE_YAML = """\
 # The facility's build profile.
 name: Exemplar
-app_template: hello_world
+provider: anthropic
 data: data
 """
 
@@ -89,7 +89,7 @@ def test_comment_only_profile_edit_is_clean(repo):
         "# The facility's build profile.\n"
         "# Reviewed 2026-08-10 — no functional change.\n"
         "name: Exemplar\n"
-        "app_template: hello_world   # the bundle\n"
+        "provider: anthropic   # which model answers\n"
         "data: data\n",
         encoding="utf-8",
     )
@@ -143,24 +143,16 @@ def test_runtime_minted_material_is_not_drift(repo):
 def test_profile_key_edit_names_the_changed_key(repo):
     """Named with the spelling the file uses.
 
-    ``app_template:`` is stored canonically as ``data_bundle``; a refusal that
-    printed the canonical name would send the operator looking for a key their
-    profile does not contain.
+    A refusal that printed some canonical or internal name would send the
+    operator looking for a key their profile does not contain.
     """
-    _write(repo / "profile.yml", PROFILE_YAML.replace("hello_world", "control_assistant"))
+    _write(repo / "profile.yml", PROFILE_YAML.replace("anthropic", "cborg"))
 
     report = staleness.check_drift(repo)
 
     assert report.state is DriftState.DRIFT
-    assert report.changed_keys == ("app_template",)
-    assert "app_template" in report.message
-
-
-def test_alias_spelling_change_alone_is_clean(repo):
-    """Rewriting a key in its other sanctioned spelling changes nothing real."""
-    _write(repo / "profile.yml", PROFILE_YAML.replace("app_template:", "data_bundle:"))
-
-    assert staleness.check_drift(repo).state is DriftState.CLEAN
+    assert report.changed_keys == ("provider",)
+    assert "provider" in report.message
 
 
 def test_added_profile_key_is_named(repo):
@@ -243,7 +235,7 @@ def test_an_empty_stamp_names_nothing_rather_than_everything(repo):
     as unknowable, which the caller then states plainly.
     """
     _write_manifest(repo, **{staleness.KEY_DIGESTS_MANIFEST_KEY: {}})
-    _write(repo / "profile.yml", PROFILE_YAML.replace("hello_world", "control_assistant"))
+    _write(repo / "profile.yml", PROFILE_YAML.replace("anthropic", "cborg"))
 
     report = staleness.check_drift(repo)
 
@@ -261,7 +253,7 @@ def test_drift_without_stamped_digests_still_refuses(repo):
     correct, degrading to CLEAN would be a silent deploy of edited source.
     """
     _write_manifest(repo, **{staleness.KEY_DIGESTS_MANIFEST_KEY: None})
-    _write(repo / "profile.yml", PROFILE_YAML.replace("hello_world", "control_assistant"))
+    _write(repo / "profile.yml", PROFILE_YAML.replace("anthropic", "cborg"))
 
     report = staleness.check_drift(repo)
 
@@ -359,7 +351,7 @@ def test_version_skew_warns_but_never_refuses(repo):
 def test_version_skew_reported_alongside_drift(repo):
     """The two signals are independent; drift must not swallow the skew line."""
     _write_manifest(repo, osprey_version="1999.1.1")
-    _write(repo / "profile.yml", PROFILE_YAML.replace("hello_world", "control_assistant"))
+    _write(repo / "profile.yml", PROFILE_YAML.replace("anthropic", "cborg"))
 
     report = staleness.check_drift(repo)
 
@@ -385,10 +377,10 @@ def test_status_line_distinguishes_every_state(repo):
     clean = staleness.check_drift(repo).status_line
     assert "in sync" in clean
 
-    _write(repo / "profile.yml", PROFILE_YAML.replace("hello_world", "control_assistant"))
+    _write(repo / "profile.yml", PROFILE_YAML.replace("anthropic", "cborg"))
     drifted = staleness.check_drift(repo)
     assert "OUT OF DATE" in drifted.status_line
-    assert "app_template" in drifted.status_line
+    assert "provider" in drifted.status_line
 
     staleness.build_manifest_path(repo).unlink()
     assert "run `osprey build`" in staleness.check_drift(repo).status_line

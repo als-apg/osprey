@@ -81,6 +81,7 @@ from typing import Any
 import pytest
 
 from osprey.simulation.procedural import DEFAULT_NOISE_LEVEL, deviation_bound
+from tests.e2e.profile_edits import set_pairs
 
 pytestmark = [
     pytest.mark.e2e,
@@ -122,7 +123,7 @@ HEALTH_TIMEOUT_SEC = 120.0
 
 #: Canary channel the derived ``archiver_freshness`` check reads. Named here
 #: rather than picked from the deployed manifest the way the write test picks
-#: its setpoint, because it has to travel into the build's `--override` before
+#: its setpoint, because it has to travel into the build's profile edits before
 #: any project exists to read a manifest from. The test asserts it really is a
 #: channel this machine model serves, so a model that drops it fails loudly
 #: instead of reporting a mystery "no samples in the window".
@@ -184,8 +185,8 @@ def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", _ANSI_RE.sub("", text))
 
 
-def _override_yaml() -> str:
-    """The ``--override`` content that opts this project into the stored archive.
+def _profile_edits() -> dict[str, Any]:
+    """The profile edits that opt this project into the stored archive.
 
     Four decisions, each load-bearing:
 
@@ -205,14 +206,15 @@ def _override_yaml() -> str:
     real store sat empty beside it.
 
     ``deployed_services: []`` plus the nulled blocks trims the stack to exactly
-    the archiver world. Config overrides are applied BEFORE the build's service
+    the archiver world. Config edits are applied BEFORE the build's service
     injectors run, so emptying the list and letting the VA and archiver
     injectors append leaves precisely ``[virtual_accelerator, mongodb,
     archiver_recorder]`` — verified in the built config, not assumed.
 
     ``virtual_accelerator.live_standin: null`` switches the preset's live
     stand-in off — the delete-the-line escape the profile documents, spelled as
-    a null because an override cannot remove a key. The preset ships a second
+    a null because an edit states a value rather than removing a key. The
+    preset ships a second
     simulator as the ``live`` target, and the recorder follows the machine the
     deployment calls live: with the stand-in deployed, the setpoints this lane
     writes to the sandbox VA would never reach the archive it then reads.
@@ -237,25 +239,26 @@ def _override_yaml() -> str:
     archiving. Deploying only what is under test makes this lane runnable
     beside a live demo, and cuts several image builds out of a 45-minute cap.
     """
-    return (
-        "config:\n"
-        "  control_system.type: virtual_accelerator\n"
-        "  archiver.type: mongodb_archiver\n"
-        "  modules.web_terminals.enabled: false\n"
-        "  deployed_services: []\n"
-        "  ariel:\n"
-        "  claude_code.telemetry.enabled: false\n"
-        "  claude_code.servers.bluesky.enabled: false\n"
-        "channel_finder_mode: hierarchical\n"
-        "va_archiver:\n"
-        f"  port_host: {MONGO_PORT_HOST}\n"
-        f"  freshness_channel: {FRESHNESS_CANARY}\n"
-        "virtual_accelerator:\n"
-        "  live_standin: null\n"
-        "bluesky: null\n"
-        "bluesky_web: null\n"
-        "dispatch: null\n"
-    )
+    return {
+        "config": {
+            "control_system.type": "virtual_accelerator",
+            "archiver.type": "mongodb_archiver",
+            "modules.web_terminals.enabled": False,
+            "deployed_services": [],
+            "ariel": None,
+            "claude_code.telemetry.enabled": False,
+            "claude_code.servers.bluesky.enabled": False,
+        },
+        "channel_finder_mode": "hierarchical",
+        "va_archiver": {
+            "port_host": MONGO_PORT_HOST,
+            "freshness_channel": FRESHNESS_CANARY,
+        },
+        "virtual_accelerator": {"live_standin": None},
+        "bluesky": None,
+        "bluesky_web": None,
+        "dispatch": None,
+    }
 
 
 def _build_project(output_dir: Path) -> Path:
@@ -273,8 +276,6 @@ def _build_project(output_dir: Path) -> Path:
     """
     from tests.e2e import _orm_stack
 
-    override_path = output_dir / "archiver-override.yml"
-    override_path.write_text(_override_yaml(), encoding="utf-8")
     osprey_bin = _orm_stack.find_osprey_console_script()
 
     repo = output_dir / PROJECT_NAME
@@ -288,8 +289,7 @@ def _build_project(output_dir: Path) -> Path:
                 "--preset",
                 "control-assistant",
                 "--no-git",
-                "--override",
-                str(override_path),
+                *set_pairs(_profile_edits()),
                 "--set",
                 f"virtual_accelerator.port={VA_CA_PORT}",
             ],
@@ -384,7 +384,7 @@ def archiver_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     base = tmp_path_factory.mktemp("archiver_world_build")
     repo = _build_project(base)
 
-    # The trim `_override_yaml` describes, checked in the BUILT config before
+    # The trim `_profile_edits` describes, checked in the BUILT config before
     # anything is deployed rather than taken on trust. The essential members are
     # pinned indirectly — a missing mongodb or recorder reds several tests below
     # — but an EXTRA service is what this catches, and an extra service is the
@@ -394,7 +394,7 @@ def archiver_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     built_services = sorted(_load_config(repo).get("deployed_services") or [])
     assert built_services == ["archiver_recorder", "mongodb", "virtual_accelerator"], (
         f"the built project deploys {built_services}, not the archiver world this lane "
-        "trims to; config overrides run BEFORE the service injectors, so an emptied "
+        "trims to; config edits run BEFORE the service injectors, so an emptied "
         "deployed_services plus the VA and archiver injectors must leave exactly these three"
     )
 

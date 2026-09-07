@@ -20,10 +20,56 @@ The block belongs to the EPICS-family branch only: ``epics`` and
 other control-system type is left untouched.
 """
 
+from pathlib import Path
+
 import yaml
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
+
+
+def _bundle_data_root(bundle: str = "control_assistant") -> Path:
+    """The tree these fixtures hand the render as the profile's ``data:``.
+
+    A build copies the tree its profile's ``data:`` key names, and that key is
+    required — nothing falls back to a packaged tree any more. These fixtures
+    render straight from a bundle rather than from a profile, so they name the
+    tree that bundle packages, which is the content the render used to reach
+    for on its own.
+    """
+    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+
+
+def _create_project(manager: TemplateManager, **kwargs) -> Path:
+    """``create_project`` plus the three steps a real build takes next.
+
+    A build renders the framework template, overlays the resolved profile's
+    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
+    regenerates ``.claude/`` from the finished config. The template carries
+    only derived and profile-field-derived keys, so a fixture that stops after
+    the render holds half a config — the declarative half is the preset's, and
+    the artifacts rendered before it landed do not know about the deployment's
+    control system, services or servers. These fixtures render from a bundle
+    rather than from a profile, so they overlay the preset ``osprey init``
+    pairs with that bundle.
+    """
+    from osprey.cli.build_profile import resolve_build_profile
+    from osprey.utils.config_writer import config_update_fields
+
+    bundle = kwargs.setdefault("data_bundle", "control_assistant")
+    preset = bundle.replace("_", "-")
+    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    project = manager.create_project(**kwargs)
+    profile, _preset_dir = resolve_build_profile(None, preset=preset)
+    config_update_fields(project / "config.yml", profile.config)
+    manager.generate_manifest(
+        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
+    )
+    # The build's last render, and the one that ships: `create_project` wrote
+    # `.claude/` from a config.yml that did not yet carry the preset's block.
+    manager.regenerate_claude_code(project)
+    return project
+
 
 #: Lines the p4p block must contain, verbatim.
 P4P_LINES = (
@@ -59,9 +105,10 @@ WRITE_PATH_SENTENCE = (
 def _render_template_directly(control_system_type: str, enabled_servers: set[str]) -> str:
     """Render the rule straight from Jinja with an explicit ``enabled_servers``.
 
-    The scaffolded projects the other helper builds never enable ``bluesky``,
-    so the queue branch is unreachable through them. Rendering the template
-    directly is the only way to exercise both sides of that conditional.
+    Which servers a scaffolded project enables is its preset's statement, so a
+    project can only exercise whichever arm its preset happens to arm. Rendering
+    the template directly is how both sides of the conditional are reached from
+    one control-system type.
     """
     manager = TemplateManager()
     template = manager.jinja_env.get_template(
@@ -70,14 +117,20 @@ def _render_template_directly(control_system_type: str, enabled_servers: set[str
     return template.render(control_system_type=control_system_type, enabled_servers=enabled_servers)
 
 
-def _render_safety_rule(tmp_path, project_name: str, control_system_type: str | None) -> str:
+def _render_safety_rule(
+    tmp_path,
+    project_name: str,
+    control_system_type: str | None,
+    bundle: str = "control_assistant",
+) -> str:
     """Scaffold a project, set ``control_system.type``, render the Claude Code
     integration files, and return the rendered safety-rule content."""
     manager = TemplateManager()
-    project_dir = manager.create_project(
+    project_dir = _create_project(
+        manager,
         project_name=project_name,
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle=bundle,
         context={"channel_finder_mode": "hierarchical"},
     )
 
@@ -273,10 +326,15 @@ def test_routing_section_states_the_write_path_asymmetry(tmp_path):
 
 
 def test_routing_section_without_bluesky_refuses_the_write_loop(tmp_path):
-    """The scaffolded control_assistant project runs no ``bluesky`` server, so
+    """The scaffolded hello_world project runs only the ``controls`` server, so
     this is the shape a real queue-less deployment renders: the multi-setting
-    case still appears, and it forbids substituting a loop of writes."""
-    content = _render_safety_rule(tmp_path, "route-no-queue", "epics")
+    case still appears, and it forbids substituting a loop of writes.
+
+    hello-world rather than control-assistant: the latter's preset arms the
+    Bluesky lane, so a project built from it has a queue and cannot reach this
+    branch.
+    """
+    content = _render_safety_rule(tmp_path, "route-no-queue", "epics", bundle="hello_world")
 
     prose = " ".join(content.split())
     assert "**Multi-setting measurements** — no queue is configured in this deployment." in prose

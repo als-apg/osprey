@@ -4,8 +4,13 @@
 read it back: a profile could lack a line the preset gained, and every build
 stayed green. These tests pin the comparison
 (:func:`~osprey.cli.build_profile_drift.preset_drift_report`) and the two
-surfaces that print it — ``osprey validate`` refuses unmarked differences,
-``osprey build`` names them under ``-v``.
+surfaces that print it — ``osprey validate`` refuses the unmarked STRUCTURAL
+differences and only reports the value ones, ``osprey build`` names both under
+``-v``. Which kind a finding is, and so what it costs, is
+:attr:`~osprey.cli.build_profile_drift.DriftFinding.kind`; the policy that maps
+kinds to costs is :data:`~osprey.cli.build_profile_drift.REFUSAL_KINDS` and
+:data:`~osprey.cli.build_profile_drift.NOTE_KINDS`, exercised end to end in
+tests/cli/test_drift_refusal.py.
 
 The fixture is a real ``osprey init`` of the ``control-assistant`` preset,
 made once per module and copied per test: the first assertion of the suite is
@@ -27,6 +32,7 @@ from osprey.cli.build_profile_merge import compute_preset_hash
 from osprey.cli.build_profile_presets import _presets_dir
 from osprey.cli.init_cmd import init
 from osprey.cli.main import cli
+from osprey.cli.set_cmd import set as set_cmd
 from osprey.cli.validate_cmd import validate
 
 PROFILE = "profile.yml"
@@ -132,7 +138,8 @@ def test_member_the_preset_selects_and_the_profile_lacks(repo: Path) -> None:
 
     report = _report(profile)
 
-    assert [f.subject for f in report.unmarked] == ["web_panels: system-health"]
+    assert [f.subject for f in report.refusals] == ["web_panels: system-health"]
+    assert report.unmarked[0].kind == "missing_member"
     rendered = report.unmarked[0].render()
     assert "profile.yml" in rendered
     preset_line = _line_of(_presets_dir() / "control-assistant.yml", "- system-health")
@@ -145,7 +152,9 @@ def test_scalar_that_differs_names_both_values_and_both_lines(repo: Path) -> Non
 
     report = _report(profile)
 
-    assert [f.subject for f in report.unmarked] == ["config.web.theme"]
+    assert [f.subject for f in report.notes] == ["config.web.theme"]
+    assert report.refusals == []
+    assert report.unmarked[0].kind == "value"
     rendered = report.unmarked[0].render()
     assert "'dark'" in rendered and "'light'" in rendered
     assert f"profile.yml:{_line_of(profile, 'web.theme: dark')}" in rendered
@@ -159,20 +168,25 @@ def test_member_the_profile_adds(repo: Path) -> None:
 
     report = _report(profile)
 
-    assert [f.subject for f in report.unmarked] == ["web_panels: artifacts"]
+    assert [f.subject for f in report.refusals] == ["web_panels: artifacts"]
+    assert report.unmarked[0].kind == "extra_member"
 
 
-def test_config_key_the_app_template_knows_is_not_drift(repo: Path) -> None:
-    """A facility tuning a template knob the preset leaves alone is ordinary
-    business, not a deviation from the preset."""
+def test_config_knob_a_facility_turns_is_a_note_not_a_refusal(repo: Path) -> None:
+    """The preset carries the whole configuration, so a facility changing a
+    documented value differs from it on a key both documents have — the kind of
+    difference the emitted profile invites, and the one that does not refuse."""
     profile = repo / PROFILE
     _edit(
         profile,
-        "  web.theme: light",
-        "  web.theme: light\n  web.docs_url: https://docs.facility.example",
+        "  web.docs_url: https://als-apg.github.io/osprey",
+        "  web.docs_url: https://docs.facility.example",
     )
 
-    assert _report(profile).unmarked == []
+    report = _report(profile)
+
+    assert [f.subject for f in report.notes] == ["config.web.docs_url"]
+    assert report.refusals == []
 
 
 def test_config_key_nothing_knows_is_reported_once_at_its_root(repo: Path) -> None:
@@ -185,7 +199,8 @@ def test_config_key_nothing_knows_is_reported_once_at_its_root(repo: Path) -> No
 
     report = _report(profile)
 
-    assert [f.subject for f in report.unmarked] == ["config.web.no_such_block"]
+    assert [f.subject for f in report.refusals] == ["config.web.no_such_block"]
+    assert report.unmarked[0].kind == "extra"
 
 
 def test_top_level_block_the_profile_dropped(repo: Path) -> None:
@@ -197,7 +212,8 @@ def test_top_level_block_the_profile_dropped(repo: Path) -> None:
 
     report = _report(profile)
 
-    assert [f.subject for f in report.unmarked] == ["bluesky"]
+    assert [f.subject for f in report.refusals] == ["bluesky"]
+    assert report.unmarked[0].kind == "missing"
 
 
 # ---------------------------------------------------------------------------
@@ -356,7 +372,8 @@ def test_persona_exclude_of_something_the_preset_keeps(repo: Path) -> None:
 
     report = _report(repo / PROFILE)
 
-    assert [f.subject for f in report.unmarked] == ["skills: diagnose"]
+    assert [f.subject for f in report.refusals] == ["skills: diagnose"]
+    assert report.unmarked[0].kind == "exclude"
     assert f"personas/readonly.yml:{_line_of(delta, '- diagnose')}" in report.unmarked[0].render()
 
     _edit(
@@ -410,6 +427,39 @@ def test_validate_drift_warn_demotes_to_a_warning(repo: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "web_panels: system-health" in result.output
     assert "Profile is valid" in result.output
+
+
+def test_set_knob_then_validate_green(repo: Path) -> None:
+    """Turning a documented knob with `osprey set` leaves the repo valid.
+
+    The whole point of the value/structure split: a facility changing a value
+    the preset documents is what the emitted profile is for, so the verb that
+    gates CI must report it and pass rather than demand a marker comment for
+    every edit.
+    """
+    setting = CliRunner().invoke(set_cmd, ["--repo", str(repo), "config.web.theme=dark"])
+    assert setting.exit_code == 0, setting.output
+
+    result = CliRunner().invoke(validate, ["--repo", str(repo)])
+
+    assert result.exit_code == 0, result.output
+    assert "preset drift: config.web.theme" in result.output
+    assert "Profile is valid" in result.output
+
+
+def test_preset_gained_key_still_refused(repo: Path) -> None:
+    """The failure the lint exists for is untouched by that split.
+
+    A key the preset carries and this copy does not is the silent kind — it
+    builds green forever — so it still refuses, and the refusal names the key.
+    """
+    _edit(repo / PROFILE, "  web.theme: light\n", "")
+
+    result = CliRunner().invoke(validate, ["--repo", str(repo)])
+
+    assert result.exit_code == 2, result.output
+    assert "config.web.theme" in result.output
+    assert "# DEVIATION:" in result.output
 
 
 def test_validate_passes_a_fresh_materialization(repo: Path) -> None:

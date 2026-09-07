@@ -13,12 +13,56 @@ and a build with no plan directory configured at all still succeeds.
 """
 
 import logging
+from pathlib import Path
 
 import pytest
 import yaml
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
+
+
+def _bundle_data_root(bundle: str = "control_assistant") -> Path:
+    """The tree these fixtures hand the render as the profile's ``data:``.
+
+    A build copies the tree its profile's ``data:`` key names, and that key is
+    required — nothing falls back to a packaged tree any more. These fixtures
+    render straight from a bundle rather than from a profile, so they name the
+    tree that bundle packages, which is the content the render used to reach
+    for on its own.
+    """
+    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+
+
+def _create_project(manager: TemplateManager, **kwargs) -> Path:
+    """``create_project`` plus the three steps a real build takes next.
+
+    A build renders the framework template, overlays the resolved profile's
+    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
+    regenerates ``.claude/`` from the finished config. The template carries
+    only derived and profile-field-derived keys, so a fixture that stops after
+    the render holds half a config — the declarative half is the preset's, and
+    the artifacts rendered before it landed do not know about the deployment's
+    control system, services or servers. These fixtures render from a bundle
+    rather than from a profile, so they overlay the preset ``osprey init``
+    pairs with that bundle.
+    """
+    from osprey.cli.build_profile import resolve_build_profile
+    from osprey.utils.config_writer import config_update_fields
+
+    bundle = kwargs.setdefault("data_bundle", "control_assistant")
+    preset = bundle.replace("_", "-")
+    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    project = manager.create_project(**kwargs)
+    profile, _preset_dir = resolve_build_profile(None, preset=preset)
+    config_update_fields(project / "config.yml", profile.config)
+    manager.generate_manifest(
+        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
+    )
+    # The build's last render, and the one that ships: `create_project` wrote
+    # `.claude/` from a config.yml that did not yet carry the preset's block.
+    manager.regenerate_claude_code(project)
+    return project
 
 
 def _plan_source(name, description, writes):
@@ -41,7 +85,8 @@ def _make_project(tmp_path, name="plan-index-wiring", *, bluesky_enabled=True, c
     what a build would have left behind.
     """
     manager = TemplateManager()
-    project_dir = manager.create_project(
+    project_dir = _create_project(
+        manager,
         project_name=name,
         output_dir=tmp_path,
         data_bundle="control_assistant",
@@ -49,10 +94,11 @@ def _make_project(tmp_path, name="plan-index-wiring", *, bluesky_enabled=True, c
     )
     config_path = project_dir / "config.yml"
     config = yaml.safe_load(config_path.read_text())
-    if bluesky_enabled:
-        config.setdefault("claude_code", {}).setdefault("servers", {}).setdefault("bluesky", {})[
-            "enabled"
-        ] = True
+    # Stated either way: the preset this project builds on enables the server,
+    # so the off case has to say so rather than simply not saying anything.
+    config.setdefault("claude_code", {}).setdefault("servers", {}).setdefault("bluesky", {})[
+        "enabled"
+    ] = bluesky_enabled
     if config_edits is not None:
         config_edits(config)
     config_path.write_text(yaml.dump(config))

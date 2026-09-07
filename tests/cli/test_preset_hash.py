@@ -102,7 +102,7 @@ def test_generate_manifest_stamps_preset_hash(presets_dir, tmp_path):
         jinja_env=None,
         project_dir=project_dir,
         project_name="proj",
-        template_name="demo_bundle",
+        recorded_preset="demo",
         context={},
         preset_name="demo",
     )
@@ -134,7 +134,7 @@ def test_generate_manifest_records_both_profile_path_forms(tmp_path, monkeypatch
         jinja_env=None,
         project_dir=project_dir,
         project_name="proj",
-        template_name="demo_bundle",
+        recorded_preset="demo",
         context={"profile_path_abs": str(profile)},
         profile_path="profiles/facility.yml",
     )
@@ -166,7 +166,7 @@ def test_generate_manifest_omits_absolute_path_when_build_gave_none(tmp_path):
         jinja_env=None,
         project_dir=project_dir,
         project_name="proj",
-        template_name="demo_bundle",
+        recorded_preset="demo",
         context={},
         preset_name="demo",
     )
@@ -190,7 +190,7 @@ def test_generate_manifest_survives_unhashable_preset(tmp_path, monkeypatch):
         jinja_env=None,
         project_dir=project_dir,
         project_name="proj",
-        template_name="demo_bundle",
+        recorded_preset="demo",
         context={},
         preset_name="demo",
     )

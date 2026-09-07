@@ -1,0 +1,2536 @@
+# Config-key resurrection guard manifest (ledger P7).
+#
+# Consumed by the guard tool (task 7.2). Four required top-level sections —
+# `keys`, `deleted`, `orphan_sites`, `render_contexts` — plus three advisory
+# ones (`governed_sets`, `keeps`, `notes`).
+#
+# Parity marks (`all-templates: true`) come from scripts/config_key_parity.md.
+# The mark kept its name and changed its meaning when the app templates were
+# deleted: it now means "present in all FOUR shipped presets' resolved
+# `config:`". A derived key can never carry it — no preset spells one.
+# READ THAT DOCUMENT'S SCOPE CAVEAT BEFORE ADDING RULES: presence in all four
+# presets and value-equality across them are separate properties, and neither
+# may be inferred from the other.
+#
+# Each key carries exactly one disposition:
+#
+#   evidence: <regex>   A regex that MUST match at least once under src/osprey/.
+#                       Every one was verified against the tree while authoring;
+#                       the guard re-verifies on every run (failure mode 2).
+#   covered-by: <path>  This leaf has NO independent reader — it is consumed by
+#                       unpacking its parent block, so the parent carries the
+#                       real anchored evidence. See the note below.
+#   data-map: true      The key's leaves are user-extensible data, not a fixed
+#                       schema — the guard checks shape, not membership.
+#   forward-declared    Written by the templates, read by nothing today, and
+#                       deliberately so (documented hidden-key stanzas).
+#
+# WHY `covered-by` EXISTS — this matters for anyone extending the manifest.
+# A first draft gave every key an `evidence` regex, and every regex "passed".
+# Measuring them exposed the problem: 62 of them were bare words like `port`
+# (840 files), `path` (519), `type` (475) or `enabled` (169). Those match
+# whether or not the key is still read, so they prove nothing — a passing guard
+# built on them is theatre. Nested leaves genuinely have no per-leaf reader to
+# cite: code does `services.get("openobserve")` and then `.get("port")`, so the
+# only honest citation is at the parent. `covered-by` records that structural
+# fact instead of manufacturing evidence. Do NOT "improve" a `covered-by` entry
+# into a bare-word `evidence` regex; if you add one, it must be an anchored
+# fragment of a real reader.
+#
+# Distinctive leaf names (`retention_days`, `port_host`, `subagent_model`,
+# `allow_unlisted_channels`, …) DO keep a bare-name `evidence` regex: those
+# identifiers exist nowhere else, so their disappearance is a real signal.
+#
+# THE THRESHOLD, and what is left under it. A bare-name `evidence` regex is
+# accepted only if it appears in <= 25 files under src/osprey (check B3 fails
+# the manifest otherwise). The bare entries are domain identifiers, not English
+# words, so deleting the reader really would drop the count toward zero. Where
+# an obvious anchored form existed it was preferred instead — e.g.
+# claude_code.telemetry.backend cites `telemetry_cfg.get("backend") ==
+# "openobserve"` rather than the bare word, and services.postgresql.path cites
+# the compose generator's `service_config["path"]` read after the bare word
+# crossed the ceiling. The rest have no clean single reader to anchor on (the
+# value is unpacked from a block, or read in several places with different
+# shapes), and forcing an anchor would mean inventing one.
+#
+# THE `default:` COLUMN — what a reader sees when the profile omits the key.
+# Every key carries one, and it answers a question the presets cannot: a preset
+# shows you a key's VALUE, not what happens when you delete that line. The
+# answer lives in the reader the key's `evidence` cites, so every entry below
+# was read out of that reader rather than guessed at, and `osprey config
+# --defaults` renders this column verbatim. A literal is therefore a YAML value
+# that round-trips, never prose about one. Four words are reserved:
+#
+#   required       No fallback exists and none may be invented. Exactly the
+#                  posture floor — control_system.type, archiver.type,
+#                  approval.enabled, approval.default_policy,
+#                  claude_code.telemetry.enabled, hooks.debug — plus
+#                  facility_knowledge.bundle_path. The guard checks this set
+#                  in BOTH directions.
+#   n/a            The leaf has no independent reader, so the parent block's
+#                  own default covers it. The `covered-by` / `data-map` case,
+#                  and only where the parent really does carry the answer: a
+#                  covered-by leaf whose own reader supplies a fallback records
+#                  that fallback instead (services.postgresql.username is
+#                  `ariel`, not `n/a`).
+#   derived        The fallback is computed at read time: a port from the
+#                  layout at this deployment's base, an image from the
+#                  registry/tag axes, a server's registry default_enabled, or
+#                  another config key this one falls through to.
+#   no-fallback    The reader supplies none — it raises (the services.*.path
+#                  keys index `service_config["path"]`), or nothing reads the
+#                  key yet (the forward-declared ones), or the value is
+#                  deliberately three-state and "unstated" is not "false".
+#                  The nine limits_checking keys are the last kind, and the
+#                  distinction is load-bearing: an unstated leaf makes every
+#                  write path refuse unlisted channels, so recording `false`
+#                  there would misdescribe a safety gate.
+#
+# `derived` and `no-fallback` say nothing on their own, so each carries a
+# `default_note:` naming the derivation or the consequence. That is what stops
+# the two from becoming an escape hatch from reading the code.
+
+# ---------------------------------------------------------------------------
+# keys — every dotted path the framework template renders or a preset's
+# `config:` block carries, with its evidence
+# ---------------------------------------------------------------------------
+keys:
+  # ── Identity / roots ────────────────────────────────────────────────
+  project_name:
+    evidence: 'config\.get\("project_name", project_dir\.name\)'
+    default: derived
+    default_note: the project directory's own name
+  build_dir:
+    evidence: 'config\.get\("build_dir", "\./build"\)'
+    default: ./build
+  project_root:
+    evidence: 'config\.get\("project_root"\)'
+    default: derived
+    default_note: the repo root the loaded config.yml sits in
+  facility:
+    evidence: 'config\.get\("facility"\)'
+    note: >-
+      Live in ariel_standalone and channel_finder_standalone (name), in
+      channel_finder_standalone and control_assistant (ontology); commented
+      in hello_world. Canonical spelling.
+    default: {}
+  facility.name:
+    evidence: 'facility\.get\("name"\)'
+    default: derived
+    default_note: the project name
+  facility.ontology:
+    evidence: 'as_dict\(config\.get\("facility"\)\)\.get\("ontology"\)'
+    note: >-
+      Live in control_assistant and channel_finder_standalone, which ship the
+      compiled demo table at data/facility_ontology.json; a commented example
+      in ariel_standalone (its agents read the vocabulary out of the seeded
+      store, not the file); absent from hello_world. The sole reader is
+      cli/templates/claude_code.py `_facility_vocabulary`, and it is the sole
+      source of the device rows in the channel-finder terminology tables. A
+      declared path that will not load is a hard build error — never a silent
+      skip and never a fallback to the packaged demo ontology.
+    default: null
+  facility.prefix:
+    evidence: 'as_dict\(config\.get\("facility"\)\)\.get\("prefix"\)'
+    note: >-
+      Only the multi-user web-terminal stack reads it. `control-assistant`
+      ships it live (`facility.prefix: ca`) because that preset is the one that
+      deploys the web-terminal stack; `ariel-standalone` and
+      `channel-finder-standalone` carry it commented, and `hello-world` omits
+      it. The ONLY enforcement anywhere is a non-emptiness lint
+      (deployment/web_terminals/lint.py `_check_empty_facility_prefix`); no
+      charset or length rule exists in code. See notes.prefix_rule_drift.
+
+  # ── Container runtime / deployment ──────────────────────────────────
+    default: ''
+  container_runtime:
+    all-templates: true
+    evidence: 'config\.get\("container_runtime", "auto"\) if config else None'
+    note: >-
+      An absent key behaves identically to "auto" (runtime_helper `_runtimes_to_try`),
+      so parity here is a documentation guarantee, not a behavioural one.
+    default: auto
+  deployed_services:
+    all-templates: true
+    evidence: 'config\.get\("deployed_services", \[\]\)'
+    note: >-
+      PRESENCE is all-templates; VALUES deliberately diverge ([] /
+      [openobserve] / [postgresql, openobserve, qmd, graphdb]). The guard must
+      not assert value equality here.
+    default: []
+  deployment.port_base:
+    rendered: false
+    evidence: 'deployment\.get\("port_base"\)'
+    note: >-
+      Hidden key, unset in the framework template and the four presets.
+      First port of the thousand-port
+      block a deployment publishes into: every framework host port is this base
+      plus a fixed offset from `osprey.port_layout.LAYOUT`, so two deployments
+      coexist on one host by setting two bases and renumbering nothing else.
+      Unset means the layout's own default base, which is why nothing
+      ships the key — a rendered value would be a second place the number
+      lives. The evidence anchors on `resolve_port_base`, the one resolver;
+      everything else takes the base from a caller that read it there.
+    default: 10000
+  images.registry:
+    rendered: false
+    evidence: 'images\.get\("registry"\)'
+    note: >-
+      Hidden key, unset in the framework template and the four presets.
+      One of the two stack-wide image
+      axes (`compose_generator.resolve_image_axes`): the registry every
+      OSPREY-built image's DEFAULT reference is prefixed with, so the images CI
+      pushes and the images a deploy pulls are the same images. Overridden by
+      OSPREY_IMAGE_REGISTRY in the environment, and outranked in the other
+      direction by a `services.<svc>.image` pin or an
+      `OSPREY_<SVC>_IMAGE` compose override. Never applied to the third-party
+      pins beside them — prefixing an upstream name yields no image at all.
+    default: ''
+  images.tag:
+    rendered: false
+    evidence: 'images\.get\("tag"\)'
+    note: >-
+      The other axis, same layering. Defaults to `local` — the tag `osprey up`
+      builds on the host — so a deployment that sets neither key renders
+      byte-for-byte what it rendered before the axes existed.
+    default: local
+  services:
+    evidence: 'get_config_value\("services\.postgresql", \{\}\)'
+  # The bluesky bridge's plan-lane blocks are INJECTOR-written, not template-
+  # rendered: `_inject_bluesky` writes `services.bluesky` (and, on a two-lane
+  # deploy, its `bluesky_va`/`bluesky_live` sibling) into an already-rendered
+  # project config, so no shipped preset carries them and they
+  # are outside the rendered union this manifest is otherwise derived from.
+  # Only `devices_file` is recorded, because only it is written UNCONDITIONALLY
+  # on every lane of every bluesky deploy — its disappearance is therefore a
+  # real signal, where the omit-when-unset neighbours (`plan_dir`,
+  # `excluded_plans`) would go silent for a configuration reason.
+    default: {}
+  services.bluesky.devices_file:
+    rendered: false
+    evidence: '\{"devices_file": bluesky\.devices_file\}'
+    note: >-
+      Names where the Bluesky plan device file is AUTHORED, replacing the
+      per-deployment env-var channel. Written by `_inject_bluesky` via
+      `_facility_plan_keys` in cli/build_injectors.py, from `bluesky.devices_file`
+      in the build profile; defaults to `data/bluesky_devices.yml`. A relative
+      path resolves against the rendered config's own directory (so it travels
+      with the built project); an absolute path is operator-owned and read
+      as-is. `rendered: false` because no shipped config.yml.j2 renders it —
+      the injector does — which is what would otherwise trip the phantom-key
+      check.
+    default: data/bluesky_devices.yml
+  services.openobserve: {evidence: 'get\("openobserve", \{\}\)', default: {}}
+  services.openobserve.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the build injector writes ./services/openobserve"}
+  services.openobserve.port: {evidence: 'services\.openobserve\.port', default: derived, default_note: the layout's openobserve slot at this deployment's port base}
+  services.openobserve.retention_days: {evidence: 'retention_days', default: 14}
+  services.postgresql: {evidence: 'get_config_value\("services\.postgresql", \{\}\)', default: {}}
+  services.postgresql.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the build injector writes ./services/postgresql"}
+  services.postgresql.database_name: {evidence: 'database_name', default: ariel}
+  services.postgresql.username: {covered-by: services.postgresql, default: ariel}
+  services.postgresql.port_host: {evidence: 'port_host', default: derived, default_note: the layout's postgres slot at this deployment's port base}
+  # The qmd semantic-search sidecar, shipped LIVE in the ariel-standalone and
+  # control-assistant templates (it backs the default-on `hybrid` search mode
+  # and ranked OKF search). Every regex below anchors on qmd_service.py and
+  # matches exactly one file, so deleting the resolver fails the guard rather
+  # than rotting quietly.
+  services.qmd:
+    evidence: 'QMD_SERVICE_NAME = "qmd"'
+    note: >-
+      The block's name is spelled once, as `qmd_service.QMD_SERVICE_NAME`, and
+      every reader goes through that constant — the resolver, the two dotted
+      keys below that build their own paths from it, and the reach contract
+      asking whether there is a block to dial. Pinning the constant rather
+      than one reader's `services.get(...)` keeps the guard on the spelling
+      itself, which is the thing a config file has to match.
+    default: null
+  services.qmd.path:
+    evidence: 'service_config\["path"\]'
+    note: >-
+      Same generic compose-generator read as the openobserve/postgresql `path`
+      keys — it resolves any service's fragment directory, qmd included.
+    default: no-fallback
+    default_note: >-
+      the compose generator indexes service_config['path'] and raises when absent; the build injector writes ./services/qmd
+  services.qmd.port:
+    evidence: '_positive_int\(\s*block\.get\("port"\)'
+    note: >-
+      Defaults to the layout's `qmd` slot on the deployment's base, and
+      deliberately NOT qmd's own 8181: the daemon hardcodes an IPv6-loopback
+      bind, so the container fronts it with a forwarder that owns the routable
+      port. `deployment/host_ports.py` cites this key from the same module, so
+      the port-conflict remedy cannot drift from it.
+    default: derived
+    default_note: the layout's qmd slot at this deployment's port base
+  services.qmd.interval:
+    evidence: 'block\.get\("interval"\)'
+    note: >-
+      Fallback corpus-sweep period, not the freshness lag — `.qmd-touch` is the
+      primary trigger. Default 30 s; a no-op sweep costs ~12.5 s at 135k
+      documents, so a large corpus should raise it.
+    default: 30
+  services.qmd.models_dir:
+    rendered: false
+    evidence: '_absolute_path\(block\.get\("models_dir"\)'
+    note: >-
+      Hidden key, unset in the framework template and the four presets.
+      Names a host directory holding
+      the three GGUF models the sidecar image otherwise downloads at build
+      time; setting it skips the downloads and delivers them over a read-only
+      mount instead, which is what makes the sidecar buildable on a network
+      with no route to huggingface.co. Subject-named after what the directory
+      holds, like `path`/`mirror_path`, not after the mount that carries it.
+      `preflight_qmd_models_dir` refuses the deploy when the directory is
+      missing or lacks a model under its exact `hf_<org>_<basename>` cache
+      name — the one operator error that would otherwise surface only as an
+      unhealthy container an hour later.
+  # `services.qmd.bind_address` is deliberately absent: the sidecar publishes on
+  # the project-wide `deployment.bind_address` like every other service. See
+  # deployment/qmd_service.py for why a per-service key would be a hazard.
+
+  # The graph store, shipped LIVE in the ariel-standalone and control-assistant
+  # templates (block and `deployed_services` entry always emitted together — a
+  # deployed graphdb without a block is refused pre-compose). Every regex below
+  # — except `path`, which cites the generic compose-generator read shared with
+  # its three neighbours, and the two query bounds at the end of the block —
+  # anchors on deployment/graphdb_service.py, the single resolver the compose
+  # render, the port-conflict sweep, the health category and the seeder all
+  # read through, so deleting it fails the guard rather than rotting quietly.
+  # The query bounds are the one pair the deploy path never sees: they shape a
+  # single agent query, so the graph MCP server reads them at query time and
+  # their evidence anchors there instead.
+    default: null
+  services.graphdb:
+    evidence: '_graphdb_block\(config\)'
+    default: null
+  services.graphdb.path:
+    evidence: 'service_config\["path"\]'
+    note: >-
+      Same generic compose-generator read as the openobserve/postgresql/qmd
+      `path` keys — it resolves any service's fragment directory, graphdb
+      included.
+    default: no-fallback
+    default_note: >-
+      the compose generator indexes service_config['path'] and raises when absent; the build injector writes ./services/graphdb
+  services.graphdb.image:
+    evidence: '_text\(block\.get\("image"\)'
+    note: >-
+      Pinned to neo4j:5.26-community by DEFAULT_IMAGE, and the pin is about the
+      neosemantics (n10s) plugin's release cadence rather than Neo4j's: without
+      n10s the store cannot import the RDF corpus at all, and 5.26 is the
+      newest server line its plugin manifest covers. Overridable per project
+      for a mirror or a pre-baked image; the compose fragment layers
+      ${OSPREY_GRAPHDB_IMAGE} over it.
+    default: neo4j:5.26-community
+  services.graphdb.port_host:
+    evidence: '_port\(\s*block\.get\("port_host"\)'
+    note: >-
+      Published bolt port (7687), the only protocol the neo4j driver speaks.
+      `deployment/host_ports.py` cites GRAPHDB_PORT_CONFIG_KEY from this same
+      module, so the port-conflict remedy cannot drift from the schema.
+    default: derived
+    default_note: the layout's graphdb_bolt slot at this deployment's port base
+  services.graphdb.http_port_host:
+    evidence: 'block\.get\("http_port_host"\)'
+    note: >-
+      Published HTTP port (7474) for the Neo4j Browser and the container
+      healthcheck. NOT the health category, which dials the store over bolt on
+      `port_host` (or an explicit `uri`). Graphdb is the first single compose
+      service publishing two host ports, which is why the port-conflict remedy
+      resolves per container port — a conflict on 7474 that named `port_host`
+      would send the operator to edit the wrong number.
+    default: derived
+    default_note: the layout's graphdb_http slot at this deployment's port base
+  services.graphdb.ttl_path:
+    evidence: '_optional_text\(block\.get\("ttl_path"\)'
+    note: >-
+      Optional RDF/Turtle corpus the store is seeded from; unset brings the
+      store up bootstrapped but empty. Kept verbatim by
+      GraphdbServiceConfig.ttl_path and resolved against the config file's
+      directory by its consumers, per the `facility_knowledge.bundle_path` rule
+      — resolving it against the process cwd would give a deploy and a CLI verb
+      two different files from one config value.
+    default: null
+  services.graphdb.index_path:
+    rendered: false
+    evidence: 'block\.get\("index_path"\)'
+    note: >-
+      DuckDB search index derived from `ttl_path` at build time, read by the
+      channel explorer's search, the channel roster and the agent's keyword
+      tool instead of querying the store. Resolved against the config file's
+      directory like `ttl_path`, and for the same reason: the build writes it
+      into the `data/` tree it assembled there. Left unset it resolves to the
+      default below, so a deployment moves the index by naming this key once
+      and every consumer follows.
+    default: ./data/channel_databases/graph.duckdb
+  services.graphdb.heap_initial_size:
+    evidence: 'block\.get\("heap_initial_size"\)'
+    note: >-
+      JVM heap the server starts with. Spelled explicitly because Neo4j sizes
+      nothing automatically inside a container: left unset it reads the host's
+      memory and picks numbers the container's own limit will not honour.
+    default: 512m
+  services.graphdb.heap_max_size:
+    evidence: 'block\.get\("heap_max_size"\)'
+    note: Ceiling the JVM heap may grow to. Same container-sizing reason as above.
+    default: 1G
+  services.graphdb.pagecache_size:
+    evidence: 'block\.get\("pagecache_size"\)'
+    note: >-
+      Off-heap cache for graph data and indexes. Separate from the heap and not
+      taken out of it: the container's memory budget is roughly heap max plus
+      this plus about half a gigabyte of JVM overhead.
+    default: 512m
+  services.graphdb.query_timeout_s:
+    evidence: '_setting\(QUERY_TIMEOUT_CONFIG_KEY'
+    note: >-
+      Transaction timeout the graph MCP server hands to the store for one
+      `read_cypher` call, so a runaway traversal is cancelled server-side
+      instead of being held open by a client that has already given up. Read in
+      mcp_server/graph/server_context.py rather than by the deploy resolver —
+      the value never reaches compose, so this is the first graphdb key whose
+      evidence sits outside deployment/graphdb_service.py.
+    default: 15
+  services.graphdb.query_max_rows:
+    evidence: '_setting\(QUERY_MAX_ROWS_CONFIG_KEY'
+    note: >-
+      Rows one `read_cypher` call returns before the result is truncated; the
+      tool reports the truncation, so a partial answer is never mistaken for a
+      complete one. Bounds what a question costs the AGENT's context window
+      rather than what it costs the store, which is why it is a query-time key
+      and not a container one.
+  # `services.graphdb.bind_address` is deliberately absent for the same reason
+  # qmd's is — every service publishes on the project-wide
+  # `deployment.bind_address`, and graphdb reuses that one reading.
+    default: 200
+  services.graphdb.uri:
+    rendered: false
+    evidence: '_optional_text\(section\.get\("uri"\), "services\.graphdb\.uri"\)'
+    note: >-
+      Hidden key, unset in the framework template and the four presets:
+      it names an EXTERNAL Neo4j this
+      deployment connects to but does not run, so a shipped default would be a
+      guess. Read by `resolve_graphdb_connection`; when set it wins outright and
+      the derived bolt address from `port_host` is never built. Carried here
+      rather than left undeclared because the configuration reference documents
+      it, and a documented key with no evidence behind it is a promise the guard
+      cannot keep. Its sibling `services.graphdb.username` stays absent — it is
+      read from the same block but named on no page. There is deliberately no
+      `password` key at any layer — the credential lives in the project .env as
+      GRAPHDB_PASSWORD.
+  # `services.graphdb.username` is read beside `uri` but documented nowhere, so
+  # it stays out of the ledger.
+
+  # ── Service image pins ──────────────────────────────────────────────
+  # The per-service half of the image chain the two `images.*` axes complete:
+  # an `OSPREY_<SVC>_IMAGE` environment variable wins, then one of these keys,
+  # then the packaged default. Every one is read from a service's compose
+  # template rather than from Python, and none is written by a shipped
+  # config.yml — hence `rendered: false` on all of them, exactly as on
+  # `images.registry`/`images.tag`. `services.graphdb.image` is the one member
+  # of the family a template does render, so it keeps its entry above.
+    default: null
+  services.postgresql.image:
+    rendered: false
+    evidence: '\(services\.postgresql \| default\(\{\}\)\)\.image'
+    note: >-
+      Upstream pin (pgvector). Point it at an internal mirror or a digest on a
+      host that cannot pull from public registries.
+    default: pgvector/pgvector:pg16
+  services.openobserve.image:
+    rendered: false
+    evidence: '\(services\.openobserve \| default\(\{\}\)\)\.image'
+    note: Upstream pin (openobserve). Same three-layer chain as the rest.
+    default: public.ecr.aws/zinclabs/openobserve:v0.14.4
+  services.mongodb.image:
+    rendered: false
+    evidence: '\(services\.mongodb \| default\(\{\}\)\)\.image'
+    note: Upstream pin (mongo). Same three-layer chain as the rest.
+    default: mongo:7
+  services.event_dispatcher.image:
+    rendered: false
+    evidence: 'OSPREY_DISPATCH_IMAGE:-\{\{ services\.event_dispatcher\.image'
+    note: >-
+      OSPREY-built image, so its packaged default is assembled from the two
+      `images.*` axes; this pin replaces the assembled name outright.
+    default: derived
+    default_note: osprey_images.dispatch — <registry><project>-dispatch:<images.tag>
+  services.dispatch_worker.worker_port_stride:
+    rendered: false
+    evidence: 'worker\.get\("worker_port_stride"\)'
+    note: >-
+      Hidden key, unset in the framework template and the four presets,
+      written by the dispatch
+      injector rather than rendered — and only in host-network mode, where the
+      workers share the host's namespace and so need their host ports to fan
+      out. Worker `i` publishes `worker_port_base + (i - 1) * stride`; the
+      value comes from the profile's `dispatch.worker_port_stride`, and it is
+      recorded here so the compose render and the host-port preflight derive
+      the same ports from one declared rule. Absent means the layout's own
+      spacing of one.
+    default: 1
+  services.dispatch_worker.image:
+    rendered: false
+    evidence: 'OSPREY_WORKER_IMAGE:-\{\{ services\.dispatch_worker\.image'
+    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+    default: derived
+    default_note: osprey_images.worker — <registry><project>-worker:<images.tag>
+  services.nextcloud_bridge.image:
+    rendered: false
+    evidence: 'OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-\{\{ services\.nextcloud_bridge\.image'
+    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+    default: derived
+    default_note: osprey_images.nextcloud_bridge
+  services.gchat_bridge.image:
+    rendered: false
+    evidence: 'OSPREY_GCHAT_BRIDGE_IMAGE:-\{\{ services\.gchat_bridge\.image'
+    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+    default: derived
+    default_note: osprey_images.gchat_bridge
+  services.ariel_sync.image:
+    rendered: false
+    evidence: 'OSPREY_WORKER_IMAGE:-\{\{ svc\.image \| default\(osprey_images\.worker\)'
+    note: >-
+      OSPREY-built image, same layering as `services.event_dispatcher.image`.
+      Runs the bare project image, so it shares `OSPREY_WORKER_IMAGE` with
+      `services.dispatch_worker.image` by design. The compose template reads
+      it through `svc = services.ariel_sync | default({}, true)` — the block
+      may be absent on a deploy that selects the service without authoring
+      it — so the evidence anchors on that alias plus the worker default,
+      which is what distinguishes it from the dispatch worker's line.
+    default: derived
+    default_note: osprey_images.worker — the mirror runs the worker image
+  services.bluesky.image:
+    rendered: false
+    evidence: 'OSPREY_BLUESKY_BRIDGE_IMAGE:-\{\{ svc\.image'
+    note: >-
+      OSPREY-built bridge image. The compose template reaches it through
+      `svc = services[lane_key]` because both Bluesky lanes render from the one
+      fragment, so the evidence anchors on that alias rather than on the dotted
+      path — the alias is what a rename would have to touch.
+    default: derived
+    default_note: osprey_images.bluesky_bridge
+  services.bluesky.tiled_image:
+    rendered: false
+    evidence: 'services\.bluesky\.tiled_image'
+    note: Upstream pin for the Tiled sidecar the Bluesky stack runs beside the bridge.
+    default: ghcr.io/bluesky/tiled:0.2.12
+  services.bluesky.redis_image:
+    rendered: false
+    evidence: 'OSPREY_BLUESKY_REDIS_IMAGE:-\{\{ svc\.redis_image'
+    note: >-
+      Upstream pin for the Redis sidecar. Reached through the same per-lane
+      `svc` alias as `services.bluesky.image`.
+    default: redis:7.4-alpine
+  services.bluesky_web.image:
+    rendered: false
+    evidence: 'OSPREY_BLUESKY_WEB_IMAGE:-\{\{ services\.bluesky_web\.image'
+    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+    default: derived
+    default_note: osprey_images.bluesky_web
+  services.virtual_accelerator.image:
+    rendered: false
+    evidence: 'OSPREY_VA_IMAGE:-\{\{ svc\.image'
+    note: >-
+      OSPREY-built image. The VA image is large and platform-sensitive, so a
+      published multi-arch pin here is the usual way to skip the local build.
+      The compose template reaches it through `svc = services[instance_key]`
+      because the baseline VA and the live stand-in render from the one
+      fragment, so the evidence anchors on that alias rather than on the dotted
+      path — the alias is what a rename would have to touch. Same shape as
+      `services.bluesky.image`.
+  # The live stand-in is a SECOND INSTANCE of the virtual accelerator, not a
+  # service of its own. `_inject_va` writes `services.live_standin` beside
+  # `services.virtual_accelerator` — same `path`, same template directory, same
+  # image, its own Channel Access port — whenever a build profile sets
+  # `virtual_accelerator.live_standin`, and appends the key to
+  # `deployed_services` so the VA compose fragment renders a second container
+  # off it. Both blocks are INJECTOR-written, so neither reaches the rendered
+  # union and every entry below carries `rendered: false` — the same standing
+  # as the `services.bluesky_va` / `services.bluesky_live` lane blocks noted at
+  # the head of this section.
+  #
+  # The stand-in is recorded where its baseline twin is not, because
+  # `services.live_standin.port` is not a deployment detail: it is the whole
+  # evidence that a deployment's `live` target is a stand-in rather than a
+  # machine. The honesty predicate, the roster label, the archiver recorder's
+  # enablement gate, the reach contract and the host-port remedy all decide on
+  # that one key, so its disappearance is a real signal in a way the baseline
+  # VA's port — read only by the generic compose machinery, and recorded here
+  # no more than `services.virtual_accelerator.port` is — would not be.
+    default: derived
+    default_note: osprey_images.va
+  services.live_standin:
+    rendered: false
+    evidence: '_LIVE_STANDIN_SERVICE_KEY = LIVE_STANDIN_PORT_KEY\.split\("\."\)\[1\]'
+    note: >-
+      Evidence anchors on the injector deriving the block's name FROM the
+      dotted path its readers walk, rather than on a reader of the block: that
+      one line is what keeps the writer and the honesty predicate from ending
+      up at two different spellings of one service, so it is the line a rename
+      cannot avoid. The compose fragment reaches the block as
+      `services[instance_key]`, which names no service and would prove nothing.
+    default: null
+  services.live_standin.path:
+    rendered: false
+    covered-by: services.live_standin
+    note: >-
+      Always `./services/virtual_accelerator`, the same fragment directory the
+      baseline instance declares — one template, two containers. No stand-in
+      specific reader exists: the compose generator resolves it through the
+      generic `service_config["path"]` read shared by every service, so the
+      block above carries the anchored evidence.
+    default: no-fallback
+    default_note: >-
+      the compose generator indexes service_config['path'] and raises when absent
+  services.live_standin.port:
+    rendered: false
+    evidence: 'LIVE_STANDIN_PORT_KEY = "services\.live_standin\.port"'
+    note: >-
+      The stand-in's Channel Access port, and the one fact four independent
+      readers decide the stand-in's existence from. Evidence anchors on
+      `osprey_connectors.standin`, where the dotted path is spelled ONCE and
+      every other site imports it — the build injector that writes the block,
+      the archiver recorder's enablement gate, `deployment/reach.py`'s
+      projected key and `deployment/host_ports.py`'s port-conflict remedy all
+      go through that constant, so the guard watches the spelling itself rather
+      than whichever consumer happens to be looked at.
+    default: null
+  services.live_standin.image:
+    rendered: false
+    evidence: 'OSPREY_VA_IMAGE:-\{\{ svc\.image'
+    note: >-
+      Hidden per-instance image pin. The SAME site as
+      `services.virtual_accelerator.image` above and cited the same way on
+      purpose: one compose fragment renders both instances through
+      `svc = services[instance_key]`, so there is one `svc.image` read and no
+      per-instance reader to anchor on separately. Both instances also share
+      the OSPREY_VA_IMAGE override, and instance 1 alone owns the `build:`
+      stanza — two services building one tag would race.
+    default: derived
+    default_note: osprey_images.va — the stand-in runs the VA image
+  services.qmd.image:
+    rendered: false
+    evidence: 'OSPREY_QMD_IMAGE:-\{\{ services\.qmd\.image'
+    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+
+  # ── Safety / approval ───────────────────────────────────────────────
+    default: derived
+    default_note: osprey_images.qmd
+  approval:
+    all-templates: true
+    evidence: 'config\.get\("approval", \{\}\)'
+    default: {}
+  approval.enabled:
+    all-templates: true
+    covered-by: approval
+    default: required
+  approval.default_policy:
+    all-templates: true
+    evidence: 'default_policy'
+    default: required
+  approval.tools:
+    covered-by: approval
+    note: >-
+      Absent from channel_finder_standalone by design — its only
+      approval-governed tool (setup_patch) is covered by default_policy.
+      See governed_sets.
+    default: {}
+  approval.tools.channel_write:
+    evidence: 'approval\.tools\.channel_write'
+    note: >-
+      Anchored for the same reason as channel_read below: `channel_write`
+      names the MCP tool as well as the policy key, and the literal has now
+      spread past the vacuity ceiling -- a bare match no longer proves a
+      reader exists. The anchored form cites the settings-panel schema and
+      the config-writer default that actually serve this key.
+    default: derived
+    default_note: falls through to approval.default_policy
+  approval.tools.channel_read:
+    evidence: 'approval\.tools\.channel_read'
+    note: >-
+      Anchored on the settings-panel schema that serves this key rather than
+      on the bare word. `channel_read` names the MCP tool as well as the
+      policy, so the literal spread across enough modules to trip the
+      vacuity guard -- a match that no longer proved a reader existed.
+    default: derived
+    default_note: falls through to approval.default_policy
+  approval.tools.archiver_read: {evidence: 'archiver_read', default: derived, default_note: falls through to approval.default_policy}
+  approval.tools.execute: {covered-by: approval.tools, default: derived, default_note: falls through to approval.default_policy}
+  approval.tools.setup_patch: {evidence: 'setup_patch', default: derived, default_note: falls through to approval.default_policy}
+  approval.tools.entry_create:
+    evidence: 'entry_create'
+    note: >-
+      Inert in hello_world: that template disables the ariel server, so the
+      tool never exists. Harmless (fail-closed either way); recorded so it is
+      not mistaken for drift.
+    default: derived
+    default_note: falls through to approval.default_policy
+  approval.tools.entry_publish:
+    evidence: 'entry_publish'
+    note: >-
+      The second half of the logbook write: entry_create drafts, entry_publish
+      writes the entry through to the facility's logbook. Both carry the
+      approval hook, so both belong here. Inert in hello-world for the same
+      reason entry_create is.
+    default: derived
+    default_note: falls through to approval.default_policy
+  hooks:
+    all-templates: true
+    evidence: 'full_config\.get\("hooks", \{\}\)'
+    default: {}
+  hooks.debug:
+    all-templates: true
+    evidence: 'cfg\.get\("hooks", \{\}\)\.get\("debug"\)'
+    note: >-
+      Present in all four presets, with deliberately different values: live
+      true in control-assistant / ariel-standalone / channel-finder-standalone,
+      live false in hello-world. It is a posture-floor key, so every preset has
+      to state it either way — which is what makes it parity-required now,
+      where under the templates it was a per-template divergence.
+
+  # ── Control system ──────────────────────────────────────────────────
+    default: required
+  control_system: {evidence: 'get_config_value\("control_system", \{\}\)', default: {}}
+  control_system.type: {evidence: 'get_config_value\("control_system\.type", "mock"\)', default: required}
+  control_system.writes_enabled:
+    evidence: '"control_system\.writes_enabled"'
+    note: >-
+      Deployment-wide write posture. The reader is the per-connector-type
+      resolver `type_writes_enabled` in `osprey_connectors.types`: with no
+      `control_system.connector.<type>.writes_enabled` key present, its inherit
+      branch falls back to this global key, so every call site reaches this key
+      through the resolver rather than reading it directly. The anchor is the
+      dotted spelling itself, which that module names as the constant
+      `WRITES_ENABLED_KEY` and every refusal quotes back to the operator.
+      Escaped, so the vacuity cap does not apply.
+    default: false
+  control_system.limits_checking: {evidence: 'limits_checking', default: no-fallback, default_note: "an absent block states no posture; both leaves read as unstated and every write path then refuses unlisted channels"}
+  control_system.limits_checking.enabled:
+    evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
+    note: >-
+      Deployment-wide limits posture, and no longer read by a dotted
+      `get_config_value` call: every reader now goes through the per-type
+      resolver family in `osprey_connectors.types`, whose inherit branch falls
+      back to this deployment-wide block when the acting connector type wrote
+      no block of its own. Both scopes read their leaves through the one
+      shared helper `_block_limits_posture`, so this anchor is shared with the
+      per-type entries below; the per-type branch stays covered by the parent
+      entries' `limits = block[LIMITS_CHECKING_LEAF]` anchor. A leaf
+      absent here is unset; one PRESENT but not literally `true`/`false` makes
+      the block incomplete in either scope, so the posture answers neither
+      leaf, `_from_posture` returns the blocking failsafe and `osprey build`
+      refuses it via `incomplete_limits_blocks`.
+    default: no-fallback
+    default_note: >-
+      an unstated leaf is not False — it means the deployment configured no limits checking, and the write paths fail closed
+  control_system.limits_checking.database_path:
+    evidence: 'config_lookup\(LIMITS_DATABASE_CONFIG_KEY, None\)'
+    note: >-
+      Deliberately NOT per connector type: a deployment mounts one limits
+      database (`compose_generator.py`), so the path stays deployment-wide and
+      a per-type block that omits it is complete rather than half-written. The
+      one reader is `LimitsValidator.configured_database_path`, which every
+      other consumer (the compose mount, the build's parse, the bridge's
+      startup gate, the roster, the knowledge graph) resolves through; the key
+      is spelled once, as `LIMITS_DATABASE_CONFIG_KEY` beside it in
+      `limits_validator.py`, and that call is the anchor.
+    default: null
+  control_system.limits_checking.allow_unlisted_channels:
+    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    note: >-
+      Anchored on the leaf read in `_block_limits_posture` rather than on the
+      bare word: `allow_unlisted_channels` now travels as a policy field and as
+      an answering key through the validator, the tool layer and the roster, so
+      a bare match no longer proves a config reader exists. That one reader
+      serves the per-type entries below too. Same absent/unreadable reading as
+      `enabled` above, and only literal `true` lets a write reach a channel the
+      limits database does not list.
+    default: no-fallback
+    default_note: >-
+      an unstated leaf is not False — the write paths fail closed and refuse unlisted channels
+  control_system.write_tools:
+    rendered: false
+    evidence: 'control_system\.get\("write_tools", \[\]\)'
+    note: >-
+      Extra tool names a project folds into the writes kill switch, commented
+      in the two presets that carry the stanza, so no preset's resolved
+      config carries it. The reader is the claude_code renderer, which hands the list
+      to `hook_config.json` as `control_system_write_tools`; the writes-check
+      hook reads it from there. Tools named here are refused per call and never
+      enter `permissions.deny`, which is why a mixed-posture render can gate
+      them at all.
+    default: []
+  control_system.target_display_names:
+    rendered: false
+    evidence: 'section\.get\("target_display_names"\)'
+    note: >-
+      Operator-facing display names for the web terminal's control-target chip,
+      commented in the three templates that carry a control_system block. The
+      one reader is `_display_name` in connector_host_manager, which folds a
+      non-empty per-target string over the derived default at the
+      display-metadata mint point; state-file and roster readers render the
+      name they are handed and never read this key again.
+    default: {}
+  control_system.target_display_names.live: {covered-by: control_system.target_display_names, rendered: false, default: derived, default_note: "'Real machine', or 'Demo' when the resolved connector type is simulated"}
+  control_system.target_display_names.standin: {covered-by: control_system.target_display_names, rendered: false, default: derived, default_note: "'Rehearsal' when a stand-in is deployed, else the machine name"}
+  control_system.target_display_names.va: {covered-by: control_system.target_display_names, rendered: false, default: derived, default_note: "'Simulator'"}
+  control_system.read_inline_max_elements:
+    evidence: '"control_system\.read_inline_max_elements"'
+    default: 2000
+  control_system.channel_read_artifact_retention:
+    evidence: '"control_system\.channel_read_artifact_retention"'
+    default: 20
+  control_system.connector: {covered-by: control_system, default: n/a}
+  control_system.connector.mock: {covered-by: control_system.connector, default: n/a}
+  control_system.connector.mock.simulation_file: {evidence: 'simulation_file', default: null}
+  # The mock connector's two tuning knobs. `rendered: false` since the app
+  # templates went: the presets ship the mock connector at the connector's own
+  # defaults and state neither knob, so a deployment that wants a slower or
+  # noisier machine authors them itself.
+  control_system.connector.mock.response_delay_ms: {rendered: false, evidence: 'response_delay_ms', default: 10}
+  control_system.connector.mock.noise_level: {rendered: false, evidence: 'noise_level', default: 0.01}
+  control_system.connector.epics: {covered-by: control_system.connector, default: n/a}
+  control_system.connector.epics.timeout: {covered-by: control_system.connector.epics, default: 5.0}
+  # The nine EPICS gateway keys are `rendered: false` together, for one reason:
+  # a facility's Channel Access gateways cannot be guessed and shipping someone
+  # else's would point a control system at a stranger's machine. control-
+  # assistant documents the whole block as commented examples and the operator
+  # authors it at go-live, so the keys have real readers and real spellings
+  # while nothing OSPREY ships writes one.
+  control_system.connector.epics.gateways:
+    rendered: false
+    evidence: 'gateways = config\.get\("gateways", \{\}\)'
+    note: >-
+      Anchored on the EPICS connector's read of the block: the bare word
+      `gateways` is past the vacuity cap (31 files under the evidence roots)
+      and would have kept the entry green with no reader left — the same
+      reason the `read_only` entry below is anchored.
+    default: {}
+  control_system.connector.epics.gateways.read_only:
+    rendered: false
+    evidence: 'gateways\.get\("read_only", \{\}\)'
+    note: >-
+      Anchored on the gateway SELECTION in epics_connector, not on the bare
+      word: `read_only` now appears in 31 files under the evidence roots (the
+      claude-setup file service and the scaffold gallery both use it for their
+      own read-only flags), which is past the vacuity cap and would have kept
+      the entry green with no reader left. The virtual-accelerator entry below
+      cites the same site on purpose — the VA connector subclasses the EPICS
+      one and inherits this selection rather than repeating it.
+    default: {}
+  control_system.connector.epics.gateways.read_only.address: {rendered: false, covered-by: control_system.connector.epics.gateways.read_only, default: ''}
+  control_system.connector.epics.gateways.read_only.port: {rendered: false, covered-by: control_system.connector.epics.gateways.read_only, default: 5064}
+  control_system.connector.epics.gateways.read_only.use_name_server: {rendered: false, evidence: 'use_name_server', default: false}
+  control_system.connector.epics.gateways.write_access: {rendered: false, evidence: 'write_access', default: derived, default_note: the read_only gateway; a run with no write gateway stays on it}
+  control_system.connector.epics.gateways.write_access.address: {rendered: false, covered-by: control_system.connector.epics.gateways.write_access, default: ''}
+  control_system.connector.epics.gateways.write_access.port: {rendered: false, covered-by: control_system.connector.epics.gateways.write_access, default: 5064}
+  control_system.connector.epics.gateways.write_access.use_name_server: {rendered: false, evidence: 'use_name_server', default: false}
+  control_system.connector.virtual_accelerator: {covered-by: control_system.connector, default: n/a}
+  control_system.connector.virtual_accelerator.timeout: {covered-by: control_system.connector.virtual_accelerator, default: 5.0}
+  control_system.connector.virtual_accelerator.simulation_file: {evidence: 'simulation_file', default: derived, default_note: falls through to control_system.connector.mock.simulation_file}
+  control_system.connector.virtual_accelerator.gateways:
+    evidence: 'gateways = config\.get\("gateways"\)'
+    note: >-
+      Anchored on the VA connector's own read of the block — no default in the
+      call, so the pattern is disjoint from the EPICS site above and each dies
+      with exactly its own reader. Same vacuity-cap reason as the EPICS entry.
+    default: {}
+  control_system.connector.virtual_accelerator.gateways.read_only:
+    evidence: 'gateways\.get\("read_only", \{\}\)'
+    note: >-
+      The VA connector subclasses the EPICS one and reaches its read-only
+      gateway through the inherited selection, so the evidence cites that one
+      site. Same anchoring reason as the EPICS entry above.
+    default: {}
+  control_system.connector.virtual_accelerator.gateways.read_only.address: {covered-by: control_system.connector.virtual_accelerator.gateways.read_only, default: ''}
+  control_system.connector.virtual_accelerator.gateways.read_only.use_name_server:
+    evidence: 'use_name_server'
+    default: false
+  control_system.connector.virtual_accelerator.gateways.write_access: {evidence: 'write_access', default: derived, default_note: the read_only gateway; a run with no write gateway stays on it}
+  control_system.connector.virtual_accelerator.gateways.write_access.address: {covered-by: control_system.connector.virtual_accelerator.gateways.write_access, default: ''}
+  control_system.connector.virtual_accelerator.gateways.write_access.use_name_server:
+    evidence: 'use_name_server'
+    default: false
+  control_system.connector.virtual_accelerator.probe_channel:
+    forward-declared: true
+    note: >-
+      The channel the target switch reads to prove this target is reachable
+      before it becomes the active one. Written by the presets ahead of the
+      switch's own reader (this branch); a target without one is ineligible,
+      which is why the VA block ships it set and the epics block does not.
+    default: ''
+  control_system.connector.live_standin:
+    rendered: false
+    covered-by: control_system.connector
+    note: >-
+      The live stand-in's own connector block. Never authored and never
+      rendered by a template: the build derives it from
+      `virtual_accelerator.live_standin` (see `services.live_standin.*` above,
+      which carries the same `rendered: false` standing), and the factory reads
+      it exactly as it reads any other `control_system.connector.<type>` block,
+      so the parent carries the evidence the same way the `epics` and
+      `virtual_accelerator` entries do.
+    default: n/a
+  control_system.connector.live_standin.writes_enabled:
+    rendered: false
+    evidence: 'block\[TYPE_WRITES_ENABLED_LEAF\] is True'
+    note: >-
+      The one leaf of the derived block a profile is free to write. Anchored on
+      the per-type resolver's read in `osprey_connectors.types`
+      (`type_writes_enabled`), which is the single reader of every
+      `control_system.connector.<type>.writes_enabled` leaf — the same site
+      `control_system.writes_enabled` above names as its inherit fallback.
+    default: derived
+    default_note: falls through to control_system.writes_enabled
+  control_system.connector.epics.probe_channel:
+    rendered: false
+    evidence: '"probe_channel": str\(block\.get\(PROBE_CHANNEL_KEY\)'
+    note: >-
+      Same key, commented in both templates that carry an epics block. A live
+      probe channel is facility-specific and cannot be guessed, and an unset
+      one leaves the live target un-switchable-to rather than falsely
+      eligible — the fail-closed direction. A build that sets
+      `virtual_accelerator.live_standin` fills it in: the derivation in
+      `cli/build_profile_standin.py` copies the channel the VA block proves
+      into this one, because the stand-in serves that same simulated machine
+      and a `live` target that refuses itself is the one thing a rehearsal
+      deployment cannot ship. With the VA block naming none, none is written
+      and the fail-closed direction is unchanged.
+      No longer forward-declared: the switch's host manager reads it out of the
+      resolved connector block, which is where the evidence anchors.
+    default: ''
+  control_system.connector.virtual_accelerator.writes_enabled:
+    rendered: false
+    evidence: 'block\[TYPE_WRITES_ENABLED_LEAF\] is True'
+    note: >-
+      Per-connector-type override of `control_system.writes_enabled`. The
+      presets that carry a virtual_accelerator block write it commented, so no
+      preset's resolved config carries it and `rendered` stays false;
+      the shipped presets `control-assistant-va-readwrite` (true) and
+      `control-assistant-readonly` (false) DO write it into a project's real
+      config.yml when applied, so an audit of a built deployment will find it.
+      Tri-state: absent inherits the global key, literally `true` arms writes
+      for this type, and any other value leaves them unarmed without
+      inheriting. The reader is `type_writes_enabled` in
+      `osprey_connectors.types`, and the evidence is the line in it that takes
+      the leaf out of the resolved connector block -- the one expression that
+      cannot outlive the reader. The epics entry below cites the same site on
+      purpose: one type-keyed resolver serves every connector type, a custom
+      connector's dotted module path included.
+    default: derived
+    default_note: falls through to control_system.writes_enabled
+  control_system.connector.epics.writes_enabled:
+    rendered: false
+    evidence: 'block\[TYPE_WRITES_ENABLED_LEAF\] is True'
+    note: >-
+      Same key, same tri-state semantics and the same single reader for the
+      epics block, likewise written commented in `control-assistant` so no
+      preset's resolved config carries it. Arming writes against a live machine is a facility
+      decision that cannot ship pre-made, so no shipped preset ever sets this
+      one true; `control-assistant-readonly` writes it false into an applied
+      project's config.yml, which is the one way a build produces it.
+    default: derived
+    default_note: falls through to control_system.writes_enabled
+  control_system.connector.virtual_accelerator.limits_checking:
+    evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
+    note: >-
+      Per-connector-type override of the deployment-wide
+      `control_system.limits_checking` block above, and the reason that block
+      grew a per-type shape at all: a deployment running a live machine beside
+      a virtual accelerator holds one limits posture per machine, not one per
+      deployment. It overrides WHOLE -- a block that is present states both
+      leaves below and then answers alone, inheriting nothing -- so a global
+      relaxation meant for a simulator can never complete a half-written block
+      into permission on hardware. Only the two leaves below: `database_path`
+      stays deployment-wide because a deployment mounts one limits database.
+      `control-assistant` is the one shipped preset that writes this block, and
+      it writes both leaves LIVE, so the path is in the rendered union and an
+      audit of a built deployment finds them. The permissive pair it ships is
+      about the simulator only, which is why the per-type shape exists.
+      The reader is `type_limits_posture` in `osprey_connectors.types`, and the
+      evidence is the line in it that takes this block out of the resolved
+      connector block -- disjoint from the deployment-wide read in
+      `_global_limits_posture` (`section[...]`), so each entry dies with exactly
+      its own reader. The epics and live_standin entries below cite the same
+      site on purpose: one type-keyed resolver serves every connector type, a
+      custom connector's dotted module path included. No `mock` or `doocs`
+      entry, because no shipped preset writes either block.
+    default: derived
+    default_note: falls through to control_system.limits_checking
+  control_system.connector.virtual_accelerator.limits_checking.enabled:
+    evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
+    note: >-
+      Whether limits checking runs for this connector type. Literal `true` or
+      `false` states a posture. A leaf PRESENT but spelled otherwise (a quoted
+      `'true'`, a `1`, the `None` a bare `enabled:` gives, an unexpanded
+      `${VAR}`) is unreadable, and a per-type block missing this leaf is
+      half-written: either way the block is incomplete, the posture answers
+      neither leaf, `_from_posture` returns the blocking failsafe and `osprey
+      build` refuses it by name via `incomplete_limits_blocks`. Reading an
+      unreadable leaf as merely unset would instead mean "no limits checking
+      configured" and wave every write through. The evidence is the shared leaf
+      read in `_block_limits_posture`, which answers for the deployment-wide
+      entry above too; the per-type branch is pinned by the parent entry's
+      block lookup. `control-assistant` ships this leaf live as `true`, so it
+      is in the rendered union; the epics and live_standin siblings below stay
+      commented and keep `rendered: false`.
+    default: no-fallback
+    default_note: an unstated leaf is not False — the write paths fail closed
+  control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels:
+    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    note: >-
+      Whether channels the limits database does not list may be written for
+      this connector type. Same reading and the same shared reader as
+      `enabled` above, and write paths allow only on literal `true`.
+      This is the leaf the per-type block was added for: a facility running a
+      live machine beside a simulator could not hold `false` for the machine
+      and `true` for the simulator, and carried the relaxation deployment-wide
+      as a marked deviation instead. `control-assistant` ships it live as
+      `true` — the simulator-only relaxation the block exists for — so it is in
+      the rendered union.
+    default: no-fallback
+    default_note: an unstated leaf is not False — the write paths fail closed
+  control_system.connector.epics.limits_checking:
+    rendered: false
+    evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
+    note: >-
+      Same block, same whole-block override semantics and the same single
+      type-keyed reader for the epics block, written commented in
+      `control-assistant` so no preset's resolved config carries it.
+      Relaxing limits against a live machine is a facility decision that cannot
+      ship pre-made, so no shipped preset writes this one.
+    default: derived
+    default_note: falls through to control_system.limits_checking
+  control_system.connector.epics.limits_checking.enabled:
+    rendered: false
+    evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
+    note: >-
+      Same leaf, same absent/unreadable reading and the same shared reader
+      for the epics block.
+    default: no-fallback
+    default_note: an unstated leaf is not False — the write paths fail closed
+  control_system.connector.epics.limits_checking.allow_unlisted_channels:
+    rendered: false
+    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    note: >-
+      Same leaf, same absent/unreadable reading and the same shared reader
+      for the epics block. Setting it `true` is what makes a live target stop
+      counting
+      as strict, which the target-switch gate refuses by naming this key.
+    default: no-fallback
+    default_note: an unstated leaf is not False — the write paths fail closed
+  control_system.connector.live_standin.limits_checking:
+    rendered: false
+    evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
+    note: >-
+      The live stand-in's own limits block. Never authored in a preset and
+      never rendered: the build derives the stand-in's connector block from
+      `virtual_accelerator.live_standin` (see the parent entry above), and the
+      resolver reads a `limits_checking` block inside it exactly as it reads
+      one inside any other `control_system.connector.<type>` block. The
+      stand-in is a connector type of its own, so it does NOT inherit the
+      virtual_accelerator block a deployment wrote -- a rehearsal target that
+      silently took the simulator's relaxation would be the one deployment
+      where the posture an operator reads is not the posture that runs.
+    default: derived
+    default_note: falls through to control_system.limits_checking
+  control_system.connector.live_standin.limits_checking.enabled:
+    rendered: false
+    evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
+    note: >-
+      One of the two leaves of the derived block a profile is free to write.
+      Same absent/unreadable reading and the same shared reader as the other
+      types.
+    default: no-fallback
+    default_note: an unstated leaf is not False — the write paths fail closed
+  control_system.connector.live_standin.limits_checking.allow_unlisted_channels:
+    rendered: false
+    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    note: >-
+      The other leaf of the derived block. Same absent/unreadable reading and
+      the same shared reader; the shipped `control-assistant` preset writes no
+      live_standin block, so a stand-in target there answers the
+      deployment-wide posture and stays strict where the deployment is.
+
+  # ── Control-system target switch ────────────────────────────────────
+    default: no-fallback
+    default_note: an unstated leaf is not False — the write paths fail closed
+  control_system.target_switch:
+    forward-declared: true
+    note: >-
+      Tuning + acknowledgment block for the running-session control-system
+      target switch. Rendered ahead of its readers on this branch.
+    default: no-fallback
+    default_note: 'forward-declared: written by the presets, read by nothing today'
+  control_system.target_switch.drain_timeout_s: {forward-declared: true, default: no-fallback, default_note: 'forward-declared: written by the presets, read by nothing today'}
+  control_system.target_switch.probe_interval_s: {forward-declared: true, default: no-fallback, default_note: 'forward-declared: written by the presets, read by nothing today'}
+  control_system.target_switch.live_gateway_acknowledged:
+    rendered: false
+    evidence: 'ACK_KEY = "control_system\.target_switch\.live_gateway_acknowledged"'
+    note: >-
+      Commented in every template that renders an epics block, so no render
+      carries it. The operator sets it to their OWN live gateway hostname; the
+      shipped example is a real-hostname-SHAPED string on purpose (an
+      actually-real one in the control_assistant template, a neutral one in the
+      project template), so nothing can string-test a value for "still the
+      default". Only set-and-non-empty is ever checked. A build that sets
+      `virtual_accelerator.live_standin` WRITES it —
+      `_acknowledge_standin_as_live` puts the loopback endpoint it pointed the
+      `epics` gateways at, because a gateway table aimed at a container this
+      same build deployed has no hardware behind it and nothing left for an
+      operator to confirm; an acknowledgment naming anything else was written
+      about a real machine and is never clobbered. No longer forward-declared:
+      the eligibility gate reads it, and the evidence anchors on that gate's
+      own spelling of the key rather than on the leaf the CLI writes it
+      through, because the gate is what a rename would have to keep in step.
+
+  # ── Archiver ────────────────────────────────────────────────────────
+    default: derived
+    default_note: >-
+      absent or empty means unacknowledged; presence alone is the acknowledgement, never a value comparison
+  archiver: {evidence: 'get_config_value\("archiver", \{\}\)', default: {}}
+  # Evidenced by the factory's own diagnostic for an unset type, not by the name
+  # of whichever connector happens to be the default. The literal 'mock_archiver'
+  # used to serve here and stopped describing the key the moment the
+  # control-assistant default became mongodb_archiver — a matcher that tracks a
+  # default is a matcher that goes quiet on the change it should have caught.
+  archiver.type: {evidence: 'archiver\.type is not set', default: required}
+  # Point budget behind archiver_read's span-derived default bin (issue #117).
+  archiver.auto_bin_points: {evidence: 'archiver\.auto_bin_points', default: 10000}
+  archiver.epics_archiver:
+    rendered: false
+    evidence: 'epics_archiver'
+    note: >-
+      Commented placeholder since the ALS-URL strip: a facility's Archiver
+      Appliance cannot be guessed, so authoring the block travels with the
+      flip to `type: epics_archiver`. The connector refuses to start without
+      a `url`, which keeps the unauthored state honest.
+    default: {}
+  archiver.epics_archiver.url: {covered-by: archiver.epics_archiver, rendered: false, default: 'no-fallback', default_note: "the connector raises ValueError('archiver URL is required for EPICS archiver')"}
+  archiver.epics_archiver.timeout: {covered-by: archiver.epics_archiver, rendered: false, default: 60}
+  # The stored archive's connection block, rendered by the control_assistant
+  # template and written from the profile's `va_archiver:` block at build time.
+  # The mongodb_archiver connection block is `rendered: false` as a set: the
+  # build's archiver injector derives it from the deployment's own
+  # `services.postgresql`/`va_archiver:` declaration, so no preset spells one
+  # and an external store names its own coordinates. control-assistant states
+  # only `archiver.type: mongodb_archiver`, and says so on that line.
+  archiver.mongodb_archiver: {rendered: false, evidence: 'mongodb_archiver', default: {}}
+  archiver.mongodb_archiver.host: {rendered: false, covered-by: archiver.mongodb_archiver, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
+  archiver.mongodb_archiver.port: {rendered: false, covered-by: archiver.mongodb_archiver, default: no-fallback, default_note: "deliberately none: osprey-connectors cannot compute the mongo layout slot, so a missing key is an authoring error rather than a number to guess"}
+  archiver.mongodb_archiver.name: {rendered: false, covered-by: archiver.mongodb_archiver, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
+  archiver.mongodb_archiver.collection: {rendered: false, covered-by: archiver.mongodb_archiver, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
+  archiver.mongodb_archiver.auth: {rendered: false, covered-by: archiver.mongodb_archiver, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
+  archiver.mongodb_archiver.username: {rendered: false, covered-by: archiver.mongodb_archiver, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
+  archiver.mongodb_archiver.password_env: {rendered: false, covered-by: archiver.mongodb_archiver, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
+  archiver.mongodb_archiver.timeout: {rendered: false, covered-by: archiver.mongodb_archiver, default: 60}
+
+  # ── Execution ───────────────────────────────────────────────────────
+  execution: {all-templates: true, evidence: 'execution = config\.get\("execution"\) if isinstance\(config, dict\) else None', default: null}
+  execution.execution_method:
+    all-templates: true
+    evidence: 'execution\.get\("execution_method"\) if isinstance\(execution, dict\) else None'
+    default: subprocess
+  execution.environment:
+    forward-declared: true
+    note: >-
+      Build provenance. Nothing reads it at run time by design — the template
+      comment says so explicitly. Recorded so the guard does not demand a reader.
+    default: no-fallback
+    default_note: >-
+      the build derives the block from the deployment's Python environment; no runtime reader
+  execution.environment.python: {forward-declared: true, default: no-fallback, default_note: "the build derives it from the deployment's Python environment; no runtime reader"}
+  execution.environment.packages: {forward-declared: true, default: no-fallback, default_note: "the build derives it from the deployment's Python environment; no runtime reader"}
+  execution.environment.inherit_exclude: {forward-declared: true, default: no-fallback, default_note: "the build derives it from the deployment's Python environment; no runtime reader"}
+
+  # ── System / paths ──────────────────────────────────────────────────
+  system:
+    all-templates: true
+    evidence: 'config\.get\("system", \{\}\)\.get\("timezone", "UTC"\)'
+    default: {}
+  system.timezone:
+    all-templates: true
+    evidence: '"facility_timezone": self\.get\("system\.timezone", "UTC"\)'
+    note: >-
+      Anchored on the read that SUPPLIES the value (the loader's configurable
+      payload, which is where `facility_timezone` comes from), not on the
+      container-TZ drift warning that also names the key. The warning reads it
+      with a `None` default to detect "unstated", so citing that site would have
+      documented a fallback of None beside a column that says UTC.
+    default: UTC
+  agent_data:
+    evidence: '\(config or \{\}\)\.get\("agent_data"\) or \{\}'
+    default: {}
+  agent_data.base_dir:
+    evidence: 'section\.get\("base_dir"\) or DEFAULT_AGENT_DATA_BASE_DIR'
+    note: >-
+      The only key naming this directory. Anchored on the resolver's return
+      expression (utils/workspace.agent_data_base_dir); the previous
+      'agent_data\.base_dir' regex matched only PROSE — docstrings and comments —
+      so it would have stayed green if the reader itself were deleted.
+    default: var/agent_data
+  file_paths:
+    evidence: 'config\.get\("file_paths", \{\}\)'
+    default: {}
+  file_paths.api_calls_dir:
+    evidence: 'get_agent_dir\("api_calls_dir"\)'
+    note: >-
+      Absent from file_paths, the subdirectory falls back to the KEY'S OWN NAME
+      (utils/config.get_agent_dir), so a missing entry silently renames the
+      directory rather than failing.
+    default: derived
+    default_note: >-
+      the key's own name, api_calls_dir, as a directory under agent_data.base_dir
+  file_paths.registry_exports_dir:
+    evidence: 'get_agent_dir\("registry_exports_dir"\)'
+
+  # ── API providers ───────────────────────────────────────────────────
+    default: derived
+    default_note: >-
+      the key's own name, registry_exports_dir, as a directory under agent_data.base_dir
+  api:
+    evidence: 'api_providers'
+    default: {}
+  api.providers:
+    data-map: true
+    key-shape:
+      required: [base_url, models]
+      models-tiers: [haiku, sonnet, opus]
+    evidence: 'defines no models mapping'
+    note: >-
+      Provider NAMES are user-extensible data, not schema — membership
+      deliberately differs (10 providers in project/control_assistant/
+      hello_world, a 6-provider subset in the two standalone bundles). The
+      guard checks SHAPE per provider (base_url present, all three tiers
+      mapped), never membership. At runtime a tier no source maps falls back
+      to the default model with a warning; only a provider with no models map
+      AND no default model to fall back on hard-errors in
+      build/claude_code_resolver.py, which is the quoted evidence. The guard
+      stays stricter than the runtime on purpose — a shipped template should
+      map every tier rather than lean on that fallback.
+
+  # ── Claude Code ─────────────────────────────────────────────────────
+    default: {}
+  claude_code:
+    all-templates: true
+    evidence: 'get_config_value\("claude_code", \{\}\)'
+    default: {}
+  claude_code.provider:
+    evidence: 'get_config_value\("claude_code\.provider", ""\)'
+    default: ''
+  claude_code.default_model:
+    evidence: 'claude_code_config\.get\("default_model"\)'
+    default: derived
+    default_note: the provider entry's own default_model_tier
+  claude_code.servers:
+    all-templates: true
+    evidence: 'claude_code_config\.get\("servers", \{\}\)'
+    note: >-
+      Server enable/disable overrides, consumed by registry.mcp.resolve_servers.
+      Anchored because EIGHT covered-by children terminate here — a weak regex
+      at this node would silently hollow out all of them.
+    default: {}
+  claude_code.servers.controls: {covered-by: claude_code.servers, default: n/a}
+  claude_code.servers.controls.enabled: {covered-by: claude_code.servers.controls, default: derived, default_note: the controls server's FRAMEWORK_SERVERS default_enabled}
+  claude_code.servers.python: {covered-by: claude_code.servers, default: n/a}
+  claude_code.servers.python.enabled: {covered-by: claude_code.servers.python, default: derived, default_note: the python server's FRAMEWORK_SERVERS default_enabled}
+  claude_code.servers.ariel: {covered-by: claude_code.servers, default: n/a}
+  claude_code.servers.ariel.enabled: {covered-by: claude_code.servers.ariel, default: derived, default_note: the ariel server's FRAMEWORK_SERVERS default_enabled}
+  claude_code.servers.channel-finder: {covered-by: claude_code.servers, default: n/a}
+  claude_code.servers.channel-finder.enabled: {covered-by: claude_code.servers.channel-finder, default: derived, default_note: the channel-finder server's FRAMEWORK_SERVERS default_enabled}
+  claude_code.servers.osprey_facility_knowledge: {evidence: 'osprey_facility_knowledge', default: n/a}
+  claude_code.servers.osprey_facility_knowledge.enabled: {covered-by: claude_code.servers.osprey_facility_knowledge, default: derived, default_note: "the osprey_facility_knowledge server's FRAMEWORK_SERVERS default_enabled"}
+  claude_code.servers.bluesky: {covered-by: claude_code.servers, default: n/a}
+  claude_code.servers.bluesky.enabled: {covered-by: claude_code.servers.bluesky, default: derived, default_note: the bluesky server's FRAMEWORK_SERVERS default_enabled}
+  claude_code.servers.health: {covered-by: claude_code.servers, default: n/a}
+  claude_code.servers.health.enabled: {covered-by: claude_code.servers.health, default: derived, default_note: the health server's FRAMEWORK_SERVERS default_enabled}
+  claude_code.permissions:
+    evidence: 'claude_code_config\.get\("permissions", \{\}\)'
+    note: >-
+      The facility's own additions to the settings.json permissions layer,
+      merged with the framework's DENY_DEFAULTS by settings.json.j2. Only
+      control-assistant ships one; it is the tier floor every persona inherits.
+    default: {}
+  claude_code.permissions.deny: {covered-by: claude_code.permissions, default: []}
+  claude_code.agents: {evidence: 'resolve_agents', default: {}}
+  claude_code.agents.logbook-search: {evidence: 'logbook-search', default: n/a}
+  claude_code.agents.logbook-search.enabled: {covered-by: claude_code.agents.logbook-search, default: derived, default_note: the logbook-search agent's FRAMEWORK_AGENTS default_enabled}
+  claude_code.agents.logbook-deep-research: {evidence: 'logbook-deep-research', default: n/a}
+  claude_code.agents.logbook-deep-research.enabled: {covered-by: claude_code.agents.logbook-deep-research, default: derived, default_note: the logbook-deep-research agent's FRAMEWORK_AGENTS default_enabled}
+  claude_code.telemetry:
+    all-templates: true
+    covered-by: claude_code
+    default: {}
+  claude_code.telemetry.enabled:
+    all-templates: true
+    covered-by: claude_code.telemetry
+    default: required
+  claude_code.telemetry.backend:
+    evidence: 'telemetry_cfg\.get\("backend"\) == "openobserve"'
+    default: null
+  claude_code.telemetry.protocol: {evidence: 'http/protobuf', default: http/protobuf}
+  claude_code.telemetry.openobserve: {evidence: 'telemetry_cfg\.get\("openobserve"\)', default: {}}
+  claude_code.telemetry.openobserve.user: {covered-by: claude_code.telemetry.openobserve, default: null}
+  claude_code.telemetry.openobserve.password: {covered-by: claude_code.telemetry.openobserve, default: null}
+  claude_code.telemetry.openobserve.org: {covered-by: claude_code.telemetry.openobserve, default: default}
+  claude_code.telemetry.log_user_prompts: {evidence: 'log_user_prompts', default: true}
+  claude_code.telemetry.log_assistant_responses: {evidence: 'log_assistant_responses', default: true}
+  claude_code.telemetry.log_tool_details: {evidence: 'log_tool_details', default: true}
+  claude_code.telemetry.log_raw_api_bodies: {evidence: 'log_raw_api_bodies', default: true}
+
+  # ── Channel finder ──────────────────────────────────────────────────
+  channel_finder: {evidence: 'channel_finder = config\.get\("channel_finder"', default: null}
+  channel_finder.pipeline_mode: {evidence: 'pipeline_mode', default: derived, default_note: "the paradigm implied by whichever pipeline database paths are configured"}
+  channel_finder.pipelines: {covered-by: channel_finder, default: {}}
+  channel_finder.pipelines.in_context: {covered-by: channel_finder.pipelines, default: {}}
+  channel_finder.pipelines.in_context.database: {covered-by: channel_finder.pipelines.in_context, default: {}}
+  channel_finder.pipelines.in_context.database.type: {covered-by: channel_finder.pipelines.in_context.database, default: template}
+  channel_finder.pipelines.in_context.database.path: {covered-by: channel_finder.pipelines.in_context.database, default: ''}
+  channel_finder.pipelines.in_context.database.presentation_mode:
+    evidence: 'presentation_mode'
+    note: >-
+      Preview rendering only — honoured by the preview/validate paths; the MCP
+      server and web UI build their own prompt text and never consult it.
+    default: template
+  channel_finder.pipelines.in_context.subagent_model: {evidence: 'subagent_model', default: derived, default_note: the outer agent's claude_code.provider and default_model}
+  channel_finder.pipelines.hierarchical: {covered-by: channel_finder.pipelines, default: {}}
+  channel_finder.pipelines.hierarchical.database: {covered-by: channel_finder.pipelines.hierarchical, default: {}}
+  channel_finder.pipelines.hierarchical.database.type: {covered-by: channel_finder.pipelines.hierarchical.database, default: template}
+  channel_finder.pipelines.hierarchical.database.path: {covered-by: channel_finder.pipelines.hierarchical.database, default: ''}
+  channel_finder.pipelines.hierarchical.feedback: {covered-by: channel_finder.pipelines.hierarchical, default: {}}
+  channel_finder.pipelines.hierarchical.feedback.enabled: {covered-by: channel_finder.pipelines.hierarchical.feedback, default: false}
+  channel_finder.pipelines.hierarchical.feedback.store_path: {evidence: 'store_path', default: var/agent_data/feedback/hierarchical_feedback.json}
+  channel_finder.pipelines.middle_layer: {covered-by: channel_finder.pipelines, default: {}}
+  channel_finder.pipelines.middle_layer.database: {covered-by: channel_finder.pipelines.middle_layer, default: {}}
+  channel_finder.pipelines.middle_layer.database.type: {covered-by: channel_finder.pipelines.middle_layer.database, default: template}
+  channel_finder.pipelines.middle_layer.database.path: {covered-by: channel_finder.pipelines.middle_layer.database, default: ''}
+  channel_finder.benchmark:
+    evidence: 'channel_finder\.benchmark\.dataset_path'
+    note: >-
+      control_assistant ONLY, deliberately. It is the only bundle shipping the
+      query corpus; materialize_tier_artifacts no-ops for bundles with no
+      data/channel_databases/tiers/ subtree, so a dataset_path in the other
+      templates would name a phantom. The channel-finder app runs the command
+      via --queries-path instead.
+    default: {}
+  channel_finder.benchmark.dataset_path:
+    evidence: 'No benchmark query set configured'
+
+  # ── ARIEL ───────────────────────────────────────────────────────────
+    default: no-fallback
+    default_note: >-
+      the runner refuses a benchmark with no query set, naming this key and --queries-path
+  ariel: {evidence: 'get_config_value\("ariel", \{\}\)', default: {}}
+  ariel.ingestion: {covered-by: ariel, default: n/a}
+  ariel.ingestion.adapter:
+    covered-by: ariel.ingestion
+    default: no-fallback
+    default_note: >-
+      config load refuses an ingestion block that names no adapter -- there is no
+      adapter registered under a generic name to fall back to
+  ariel.ingestion.source_url: {evidence: 'source_url', default: null}
+  ariel.ingestion.verify_ssl:
+    rendered: false
+    evidence: 'data\.get\("verify_ssl", True\)'
+    note: >-
+      The default is spelled in the evidence because it is the safe posture: an
+      ingest that cannot verify the logbook's certificate must fail rather than
+      trust whatever answered, so a silent flip back to False has to red this
+      guard.
+    default: true
+  ariel.ingestion.ca_bundle:
+    rendered: false
+    evidence: 'data\.get\("ca_bundle"\)'
+    note: >-
+      Named only in the commented `ingestion:` guidance the presets and the
+      ingestion how-to carry: a site CA path is facility content, and the
+      shipped default (the image trust store) is the right answer for a
+      deployment that has none.
+    default: null
+  ariel.default_search_mode: {evidence: 'default_search_mode', default: derived, default_note: the implicit mode for whichever search modules are enabled}
+  # The facility vocabulary: shorthand the operators type, mapped to the words
+  # the logbook prose actually uses. Read ONCE at config parse — the file is
+  # loaded by ARIELConfig.from_dict, not lazily on first search — so each leaf
+  # anchors on its own reader in config.py rather than a covered-by chain. That
+  # matters here for the same reason it does for the hybrid knobs above: a
+  # present-but-malformed knob is refused, never defaulted, and the refusal
+  # message IS the reader, so the regex dies with it.
+  ariel.vocabulary:
+    evidence: 'config_dict\.get\("vocabulary"\)'
+    default: {}
+  ariel.vocabulary.enabled:
+    evidence: '_vocab_bool\(data, "enabled"'
+    note: >-
+      The off switch. Shipped false everywhere except the control_assistant
+      bundle, which ships the example vocabulary as the format tutorial. False
+      means nothing is read at all, so a stale `path` left behind is inert
+      rather than a startup failure.
+    default: false
+  ariel.vocabulary.path:
+    evidence: '_VOCABULARY_PREFIX\}\.path must be a non-empty string'
+    note: >-
+      Config-relative, resolved against the directory holding config.yml — the
+      same rule as `facility_knowledge.bundle_path` and the qmd mirror. Enabled
+      with no value here is a validate() error rather than a silent no-op, and
+      a file that fails to load is stored as a keyed error, never swallowed.
+    default: null
+  ariel.vocabulary.expand_by_default:
+    evidence: '_vocab_bool\(data, "expand_by_default"'
+    note: >-
+      Whether a request that expresses no preference gets expansion. Shipped
+      explicitly as true beside `enabled`, because the per-request
+      `expand_query` argument overrides it and an operator reading the config
+      should be able to see which way the default falls.
+    default: true
+  ariel.vocabulary.canonical_to_acronym:
+    evidence: '_vocab_bool\(data, "canonical_to_acronym"'
+    note: >-
+      Default true: a query that spells a phrase out should still reach entries
+      that wrote the acronym.
+    default: true
+  ariel.vocabulary.canonical_to_shorthand:
+    evidence: '_vocab_bool\(data, "canonical_to_shorthand"'
+    note: >-
+      Default false, the opposite of its acronym sibling: expanding prose into
+      operator shorthand adds noise far more often than recall.
+    default: false
+  ariel.vocabulary.expand_modes:
+    rendered: false
+    evidence: '_VOCABULARY_PREFIX\}\.expand_modes names no enabled search'
+    note: >-
+      Unset — the shipped state — means "all enabled modes"; the key exists so a
+      facility whose hybrid reranking degrades under expansion can drop `hybrid`
+      without giving up keyword expansion. An entry naming a module that is
+      unknown or not enabled is a validate() error, so no shipped preset states
+      the key rather than shipping a list that would rot as modules are toggled —
+      hence `rendered: false`: the omission is the design, and the default "every
+      enabled search module" can never go stale because nothing restates it.
+    default: null
+  ariel.search_modules:
+    evidence: 'config_dict\.get\("search_modules", \{\}\)\.items\(\)'
+    default: {}
+  ariel.search_modules.keyword: {covered-by: ariel.search_modules, default: n/a}
+  ariel.search_modules.keyword.enabled: {covered-by: ariel.search_modules.keyword, default: false}
+  # The keyword module's pattern knobs. Same rule as the hybrid stanza below,
+  # for the same reason: SearchModuleConfig.from_dict keeps only `enabled`,
+  # `provider`, `model` and `settings`, so a knob written as a sibling of
+  # `enabled` is inert forever with no error. Each leaf therefore anchors on the
+  # type refusal that proves the nested spelling is the one being read — the
+  # refusal message IS the reader, so the regex dies with it.
+  ariel.search_modules.keyword.settings:
+    evidence: '_SETTINGS_PREFIX = "search_modules\.keyword\.settings"'
+    default: {}
+  ariel.search_modules.keyword.settings.patterns_enabled:
+    evidence: '_SETTINGS_PREFIX\}\.patterns_enabled must be a boolean'
+    note: >-
+      Shipped as `true`, matching DEFAULT_PATTERNS_ENABLED: `/regex/` spans and
+      `*` globs are what an operator reaches for first. False makes both forms
+      ordinary full-text tokens — the escape hatch for a facility whose entry
+      text is full of literal asterisks. A present-but-malformed value is
+      refused, never defaulted, because defaulting it would leave the
+      deployment on the behaviour it explicitly asked to leave.
+    default: true
+  ariel.search_modules.keyword.settings.pattern_timeout_seconds:
+    evidence: '_SETTINGS_PREFIX\}\.pattern_timeout_seconds must be a number'
+    note: >-
+      Shipped as `10.0`, matching DEFAULT_PATTERN_TIMEOUT_SECONDS. The envelope
+      is applied only to a search that actually emitted a `~*` predicate, so a
+      pattern-free query is untouched by it. Never clamped up into range: a
+      configured `0` means the deployment believes it disabled the envelope,
+      and answering that with a silent ten seconds is worse than naming the key.
+    default: 10.0
+  ariel.search_modules.semantic: {covered-by: ariel.search_modules, default: n/a}
+  ariel.search_modules.semantic.enabled: {covered-by: ariel.search_modules.semantic, default: false}
+  ariel.search_modules.semantic.provider: {covered-by: ariel.search_modules.semantic, default: null}
+  ariel.search_modules.semantic.model: {covered-by: ariel.search_modules.semantic, default: null}
+  # The hybrid search mode, answered by the qmd sidecar. Unlike its
+  # keyword/semantic siblings the knobs
+  # get their OWN evidence rather than a covered-by chain, because the loader
+  # they pass through is the one place this block can silently evaporate:
+  # SearchModuleConfig.from_dict keeps `enabled`, `provider`, `model` and
+  # `settings` and DROPS every other key without a word (unlike the enhancement
+  # loader beside it, which folds extras into settings). A knob written as a
+  # sibling of `enabled` is therefore inert forever — no error, just defaults —
+  # so each regex below anchors on the reader that proves the nested spelling
+  # is the one being read.
+  ariel.search_modules.hybrid:
+    evidence: 'config\.search_modules\.get\("hybrid"\)'
+    default: null
+  ariel.search_modules.hybrid.enabled: {covered-by: ariel.search_modules.hybrid, default: false}
+  ariel.search_modules.hybrid.settings:
+    evidence: '_SETTINGS_PREFIX = "search_modules\.hybrid\.settings"'
+    default: {}
+  ariel.search_modules.hybrid.settings.rerank:
+    evidence: '_SETTINGS_PREFIX\}\.rerank must be a boolean'
+    note: >-
+      Shipped as `true`, matching DEFAULT_RERANK and qmd's own default. One
+      key, both surfaces: the agent-facing hybrid_search tool and the ARIEL
+      search panel read it, and each can override it without changing the
+      deployment — the tool per call, the panel per session until Reset. The
+      reranker dominates query latency — an LLM reviews each candidate — but
+      it is not load-bearing: a reranked query that fails is
+      retried once without it. The OKF side is a separate key and defaults the
+      other way. The evidence anchors on the type refusal rather than the read:
+      a present-but-malformed knob is rejected, never defaulted, because
+      defaulting it would strand a deployment on the path it asked to leave.
+    default: true
+  ariel.search_modules.hybrid.settings.candidate_limit:
+    evidence: '_SETTINGS_PREFIX\}\.candidate_limit must be a positive integer'
+    note: >-
+      Shipped as `40`, matching DEFAULT_CANDIDATE_LIMIT and qmd's own
+      `candidateLimit`. One key for both surfaces, like `rerank` above. The
+      other documented latency lever: lowering it trades recall for speed.
+    default: 40
+  ariel.enhancement_modules:
+    evidence: 'get\("enhancement_modules", \{\}\)'
+    note: >-
+      Pinned to the loader that reads the block rather than to the bare word,
+      which by now appears in enough modules and tests to pass the vacuity
+      check on mentions alone.
+    default: {}
+  ariel.enhancement_modules.semantic_processor: {evidence: 'semantic_processor', default: {}}
+  ariel.enhancement_modules.semantic_processor.enabled: {covered-by: ariel.enhancement_modules.semantic_processor, default: false}
+  ariel.enhancement_modules.semantic_processor.provider: {covered-by: ariel.enhancement_modules.semantic_processor, default: null}
+  ariel.enhancement_modules.semantic_processor.model: {covered-by: ariel.enhancement_modules.semantic_processor, default: {}}
+  ariel.enhancement_modules.semantic_processor.model.model_id: {covered-by: ariel.enhancement_modules.semantic_processor.model, default: n/a}
+  ariel.enhancement_modules.semantic_processor.model.max_tokens: {evidence: 'max_tokens', default: n/a}
+  ariel.enhancement_modules.text_embedding: {evidence: 'text_embedding', default: {}}
+  ariel.enhancement_modules.text_embedding.enabled: {covered-by: ariel.enhancement_modules.text_embedding, default: false}
+  ariel.enhancement_modules.text_embedding.provider: {covered-by: ariel.enhancement_modules.text_embedding, default: null}
+  ariel.enhancement_modules.text_embedding.models: {covered-by: ariel.enhancement_modules.text_embedding, default: null}
+  # The markdown mirror the qmd sidecar indexes — one file per logbook entry,
+  # written during ingestion. Paired with `ariel.search_modules.hybrid` above: the
+  # export without the search mode indexes a corpus nobody queries, and the
+  # search mode without the export queries a corpus nobody wrote.
+  ariel.enhancement_modules.qmd_export:
+    evidence: 'get_enhancement_module_config\("qmd_export"\)'
+    default: {}
+  ariel.enhancement_modules.qmd_export.enabled: {covered-by: ariel.enhancement_modules.qmd_export, default: false}
+  ariel.enhancement_modules.qmd_export.settings:
+    evidence: 'export\.get\("settings"\)'
+    note: >-
+      Evidence is the compose generator, not the ARIEL loader, and that is the
+      point. EnhancementModuleConfig.from_dict folds unknown top-level keys
+      into `settings`, so both spellings reach the exporter identically — but
+      the compose generator reads the raw config.yml, where they are still
+      distinct, and prefers the nested one. The presets ship the nested
+      spelling so the bind mount and the exporter cannot disagree about which
+      directory the mirror is.
+    default: {}
+  ariel.enhancement_modules.qmd_export.settings.mirror_path:
+    evidence: 'config\.get\("mirror_path"\)'
+    note: >-
+      Config-relative, resolved against the directory holding config.yml — the
+      same rule as `facility_knowledge.bundle_path`. Shipped under var/, the
+      gitignored STATE zone: the mirror is machine-written from Postgres and is
+      as large as the logbook, so a path under the tracked data/ zone would
+      commit a generated corpus. An enabled export with no value here is
+      refused at configure() time rather than skipped.
+    default: no-fallback
+    default_note: the exporter refuses to mirror with no path
+  ariel.embedding: {covered-by: ariel, default: n/a}
+  ariel.embedding.provider: {covered-by: ariel.embedding, default: ollama}
+
+  # ── Logbook / facility knowledge / panels ───────────────────────────
+  logbook: {evidence: 'get_config_value\("logbook\.composition", \{\}\)', default: {}}
+  logbook.composition: {evidence: 'get_config_value\("logbook\.composition", \{\}\)', default: {}}
+  logbook.composition.provider: {covered-by: logbook.composition, default: derived, default_note: claude_code.provider}
+  logbook.composition.default_tier: {evidence: 'default_tier', default: haiku}
+  facility_knowledge:
+    evidence: 'config_key="facility_knowledge"'
+    note: >-
+      The section is read through the companion-server registry, not by a
+      literal config.get at the reading site: registry/web.py declares
+      config_key="facility_knowledge" on the okf WebServerDefinition, and both
+      readers (web_server_config_section and the auto-launch checker) go through
+      that field. The declaration is therefore the only place the key name
+      appears, and the evidence anchors on it.
+    default: null
+  facility_knowledge.bundle_path:
+    evidence: 'get_config_value\("facility_knowledge\.bundle_path", None\)'
+    default: required
+  artifact_server: {all-templates: true, evidence: 'config\.get\("artifact_server"\) or \{\}', default: {}}
+  artifact_server.host: {all-templates: true, covered-by: artifact_server, default: 127.0.0.1}
+  artifact_server.port: {covered-by: artifact_server, default: derived, default_note: the layout's artifact slot at this deployment's port base}
+  artifact_server.auto_launch: {all-templates: true, evidence: 'auto_launch', default: derived, default_note: the artifact server's registry auto_launch_default}
+  artifact_server.example_artifact:
+    evidence: 'get_config_value\("artifact_server\.example_artifact"'
+
+  # ── Health suite ────────────────────────────────────────────────────
+  # The `health:` section is unset in all five templates — the built-in checks
+  # have usable defaults, so a facility writes a block only to ADD its own
+  # checks or retune the timing. Only the two sub-blocks the configuration
+  # reference names as dotted paths are carried here; the scalar suite settings
+  # (`suite_timeout_s`, `on_demand_timeout_s`, `interval_s`) are documented as
+  # bare leaf names and read straight off the same mapping.
+    default: false
+  health.categories:
+    rendered: false
+    evidence: 'categories_raw = health\.get\("categories"\) or \{\}'
+    note: >-
+      Declarative probe categories, plus metadata-only overrides of built-in
+      ones. Parsed by `osprey.health.config.parse_health_config`, which is
+      handed the whole `health:` mapping by `osprey.health.records.load_config`.
+      A `checks:` list under a built-in category name is refused at load time,
+      so the same key spelling carries two distinct shapes and the guard's
+      anchor sits on the read rather than on either of them.
+    default: {}
+  health.categories.archiver:
+    rendered: false
+    evidence: 'FRESHNESS_CATEGORY = "archiver"'
+    note: >-
+      The one category name under `health.categories` that is not free-form: it
+      is the archive-freshness category `osprey build` DERIVES when a profile's
+      `va_archiver:` block names a `freshness_channel`, written out as
+      `health.categories.archiver.checks`. Declaring it by hand while
+      `freshness_channel` is set is refused at build time, so the name is
+      effectively reserved and the reference documents it as such. Evidence
+      anchors on the constant the injector spells it from rather than on the
+      derived dotted string, which is assembled at runtime.
+    default: n/a
+  health.auto:
+    rendered: false
+    evidence: 'auto = _parse_auto\(health\.get\("auto"\)\)'
+    note: >-
+      Gates and aims the auto-derived `mcp_servers` category, which the
+      framework synthesizes from `claude_code.servers` so no facility has to
+      re-declare its MCP servers as probes. Only `auto.mcp.enabled` and
+      `auto.mcp.url_key` are read; anything else under it is ignored by design,
+      which is why the leaves carry no entries of their own.
+
+  # ── Web UI / CLI ────────────────────────────────────────────────────
+    default: derived
+    default_note: >-
+      the default AutoMcpSettings: mcp.enabled true, url_key host_url, not explicit
+  web: {evidence: 'config\.get\("web", \{\}\)', default: {}}
+  web.theme:
+    evidence: 'get_config_value\("web\.theme", DEFAULT_WEB_THEME\)'
+    note: >-
+      Live in project only; commented in control_assistant; absent from the
+      three others. The default is "main" whether the key is live or absent,
+      so no behaviour depends on the form. Deliberately per-template.
+      Read in one place — theme_config.configured_web_theme(), the shared
+      resolver the web terminal and the artifact gallery both call — where
+      the shipped default family lives as the DEFAULT_WEB_THEME constant
+      the evidence cites, so it survives a future rename of the family.
+    default: main
+  web.panels: {evidence: 'web\.panels', default: {}}
+  # One pair per BUILTIN_PANELS entry. The framework template renders the block
+  # for every builtin the profile's `web_panels:` selects, so the enumeration
+  # here is the panel registry's, not a template's — a new builtin arrives as a
+  # pair of unmapped keys rather than silently.
+  web.panels.ariel: {covered-by: web.panels, default: n/a}
+  web.panels.ariel.enabled: {covered-by: web.panels.ariel, default: derived, default_note: "the ariel panel's registry default; a panel absent from the block is off"}
+  web.panels.channel-finder: {covered-by: web.panels, default: n/a}
+  web.panels.channel-finder.enabled: {covered-by: web.panels.channel-finder, default: derived, default_note: "the channel-finder panel's registry default; a panel absent from the block is off"}
+  web.panels.artifacts: {covered-by: web.panels, default: n/a}
+  web.panels.artifacts.enabled: {covered-by: web.panels.artifacts, default: derived, default_note: "the artifacts panel's registry default; a panel absent from the block is off"}
+  web.panels.jupyter: {covered-by: web.panels, default: n/a}
+  web.panels.jupyter.enabled: {covered-by: web.panels.jupyter, default: derived, default_note: "the jupyter panel's registry default; a panel absent from the block is off"}
+  web.panels.lattice: {covered-by: web.panels, default: n/a}
+  web.panels.lattice.enabled: {covered-by: web.panels.lattice, default: derived, default_note: "the lattice panel's registry default; a panel absent from the block is off"}
+  web.panels.okf: {covered-by: web.panels, default: n/a}
+  web.panels.okf.enabled: {covered-by: web.panels.okf, default: derived, default_note: "the okf panel's registry default; a panel absent from the block is off"}
+  web.panels.system-health: {covered-by: web.panels, default: n/a}
+  web.panels.system-health.enabled: {covered-by: web.panels.system-health, default: derived, default_note: "the system-health panel's registry default; a panel absent from the block is off"}
+  web.default_panel:
+    evidence: 'web_config\.get\("default_panel"\)'
+    note: >-
+      Derived: the profile's `default_panel:` field writes it, and a `config:`
+      spelling is refused. The tab focused on cold load.
+    default: derived
+    default_note: '"artifacts" — the Workspace tab, which every deployment serves'
+  web.presets:
+    data-map: true
+    evidence: 'load_osprey_config\(\)\.get\("web", \{\}\)\.get\("presets", \{\}\)'
+    note: >-
+      Named panel layouts, applied in one click from the workspace's "+"
+      popover. Derived from the profile's `panel_presets:` field. The LAYOUT
+      NAMES are the operator's own labels, so this is a data map: the guard
+      checks that the block exists, never which layouts a deployment declares.
+    default: {}
+  web.docs_url:
+    evidence: 'get_config_value\(\s*"web\.docs_url",\s*DEFAULT_DOCS_URL\s*\)'
+    note: >-
+      Rendered live in the four templates that carry a `web:` block;
+      hello_world has none, so this is deliberately not all-templates.
+      The `\s*` between the call's parts is load-bearing: these four reads sit
+      in one lifespan block, and the formatter wraps a call across lines purely
+      on line length, so a single-line pattern reds the guard when a rename
+      pushes an unrelated call past the margin.
+    default: https://als-apg.github.io/osprey
+  web.config_panel:
+    evidence: '(?:get_config_value|resolve_config_flag|coerce_config_flag)\(\s*"web\.config_panel\.'
+    note: >-
+      The block is never read as a mapping — its single leaf below carries the
+      whole read, so the evidence anchors on the prefix they share and this
+      entry dies with that reader rather than outliving it. Rendered live in
+      the four templates that carry a `web:` block; hello_world has none, so
+      this is deliberately not all-templates, same as `web.docs_url`.
+    default: {}
+  web.config_panel.enabled:
+    evidence: '(?:get_config_value|resolve_config_flag|coerce_config_flag)\(\s*"web\.config_panel\.enabled",\s*(?:[^,)]+,\s*)?True'
+    note: >-
+      Tier gate for the Config panel, and a SERVER-side one: false makes
+      /api/config and /api/claude-setup refuse every verb with 403 and takes
+      the panel out of the GET /api/panels payload. config.yml and .claude/
+      are what the agent's permission surface is rendered from, so a
+      client-only gate would be undone by typing the route's URL. Shipped
+      true — the panel every single-user deployment has always had — and
+      pinned false by the multi-user persona presets that are not the admin
+      tier. The default is spelled in the evidence because it is the
+      fail-open posture: an unreadable config must not silently take an
+      operator's own config editor away.
+    default: true
+  web.scaffold_gallery:
+    evidence: '(?:get_config_value|resolve_config_flag)\(\s*"web\.scaffold_gallery\.'
+    note: >-
+      The block is never read as a mapping — its single leaf below carries the
+      whole read, so the evidence anchors on the prefix they share and this
+      entry dies with that reader rather than outliving it. Rendered live in
+      the four templates that carry a `web:` block; hello_world has none, so
+      this is deliberately not all-templates, same as `web.config_panel`.
+    default: {}
+  web.scaffold_gallery.write_enabled:
+    evidence: '(?:get_config_value|resolve_config_flag)\(\s*"web\.scaffold_gallery\.write_enabled",\s*True'
+    note: >-
+      Tier gate for the Scaffold gallery, and a SERVER-side one: false makes
+      every write and delete verb under /api/scaffold refuse with 403 (create,
+      claim, save, unoverride, register, delete-untracked) while the read
+      routes stay open. The gallery authors `.claude/rules|skills|agents`
+      content, which the agent loads at PROJECT scope, so a client-only gate
+      would be undone by curl — the same cosmetic-gate failure `ui_mode:
+      simple` was. Shipped true — the gallery every single-user deployment has
+      always had — and pinned false by the multi-user persona presets that are
+      not the admin tier. The default is spelled in the evidence because it is
+      the fail-open posture: a config-read error must not silently revoke an
+      operator's own gallery. The `\s*` between the call's parts is
+      load-bearing for the same reason `web.docs_url` carries it: the formatter
+      wraps this call across lines on length alone.
+    default: true
+  web.feedback:
+    evidence: 'get_config_value\("web\.feedback\.'
+    note: >-
+      The block is never read as a mapping — each of the three leaves below
+      has its own dotted lookup in the web terminal's lifespan. The evidence
+      anchors on the prefix those readers share, so this entry dies with the
+      last of them rather than outliving them all.
+    default: {}
+  web.feedback.github_repo:
+    evidence: 'get_config_value\("web\.feedback\.github_repo", None\)'
+    note: >-
+      Read with a None sentinel rather than its own default, unlike its
+      neighbours: `web.feedback.owner` can stand in for this key, and the
+      resolver has to tell "absent" from "spelled, and equal to the default"
+      to know which of the two wins. The default lives in
+      interfaces/web_terminal/feedback_destination.py and is applied there.
+    default: als-apg/osprey
+  web.feedback.trackers:
+    # Documented in every template as a commented example beside github_repo,
+    # never rendered as a live key: the shipped posture is the github_repo
+    # shorthand alone, and a facility adds trackers by hand.
+    rendered: false
+    evidence: 'get_config_value\(\s*"web\.feedback\.trackers",\s*None\s*\)'
+    default: null
+  web.feedback.email:
+    evidence: 'get_config_value\("web\.feedback\.email", None\)'
+    note: >-
+      Read with a None sentinel for the same reason as
+      `web.feedback.github_repo` — see that entry.
+    default: thellert@lbl.gov
+  web.feedback.owner:
+    # Documented in every template that carries a `web:` block as a commented
+    # example, never rendered as a live key: the shipped destination is the
+    # OSPREY project, and a facility that redirects feedback writes the block
+    # by hand. Rendering it live would force `osprey profile expand` on every
+    # already-deployed profile to clear a drift report.
+    rendered: false
+    evidence: 'get_config_value\("web\.feedback\.owner", None\)'
+    note: >-
+      One block naming who owns this deployment: `name`, `email` and a
+      forge-agnostic `tracker`. The leaf keys `web.feedback.email` and
+      `web.feedback.github_repo` still outrank it wherever they are spelled,
+      so no already-deployed profile changes meaning. The three leaves below
+      have no dotted lookup of their own — the block is read whole and taken
+      apart by `coerce_feedback_owner`, so they are covered-by rather than
+      evidenced.
+    default: derived
+    default_note: >-
+      absent means the OSPREY project owns the deployment: the destination
+      falls through to `web.feedback.email` / `web.feedback.github_repo`,
+      and past those to DEFAULT_FEEDBACK_EMAIL / DEFAULT_FEEDBACK_GITHUB_REPO
+      in interfaces/web_terminal/feedback_destination.py
+  web.feedback.owner.name: {rendered: false, covered-by: web.feedback.owner, default: n/a}
+  web.feedback.owner.email: {rendered: false, covered-by: web.feedback.owner, default: n/a}
+  web.feedback.owner.tracker: {rendered: false, covered-by: web.feedback.owner, default: n/a}
+  web.feedback.owner.tracker.kind:
+    {rendered: false, covered-by: web.feedback.owner.tracker, default: n/a}
+  web.feedback.owner.tracker.target:
+    {rendered: false, covered-by: web.feedback.owner.tracker, default: n/a}
+  web.feedback.owner.tracker.label:
+    {rendered: false, covered-by: web.feedback.owner.tracker, default: n/a}
+  provenance:
+    # Stamped into the RESOLVED config by build_profile_emit, never written in
+    # a template, so it is not part of the rendered union and carries
+    # rendered: false rather than an all-templates disposition.
+    rendered: false
+    evidence: 'get_config_value\("provenance\.'
+    default: derived
+    default_note: >-
+      stamped into the resolved config by build_profile_emit from the preset
+      the profile extends; a profile that extends no preset carries none, and
+      the feedback report then omits the stamp
+    note: >-
+      Build provenance, and — since the feedback destination gained an
+      escalation path — read at run time after all. The web terminal stamps
+      the preset and its content hash into a feedback report so a facility
+      maintainer can forward a framework bug upstream without anyone
+      re-deriving what was running. The evidence anchors on the prefix the
+      two leaf readers share, so this entry dies with the last of them.
+  provenance.preset:
+    rendered: false
+    evidence: 'get_config_value\("provenance\.preset", None\)'
+    default: derived
+    default_note: the preset name build_profile_emit stamps, absent without a preset
+  provenance.preset_hash:
+    rendered: false
+    evidence: 'get_config_value\("provenance\.preset_hash", None\)'
+    default: derived
+    default_note: the preset's resolved-content hash build_profile_emit stamps, absent without a preset
+  web.feedback.max_store_bytes:
+    evidence: 'get_config_value\(\s*"web\.feedback\.max_store_bytes",\s*DEFAULT_FEEDBACK_MAX_STORE_BYTES\s*\)'
+    default: 268435456
+  web.channel_suggestions: {evidence: 'web\.get\("channel_suggestions"\)', default: {}}
+  web.channel_suggestions.enabled: {evidence: 'section\.get\("enabled", True\)', default: true}
+  web.channel_suggestions.max_channels:
+    evidence: 'section\.get\("max_channels", DEFAULT_MAX_CHANNELS\)'
+    default: 50000
+  web.app_name:
+    rendered: false
+    evidence: '_load_web_ui_config\(\s*config_path\s*\)\.get\(\s*"app_name"\s*\)'
+    note: >-
+      Hidden key, unset in the framework template and the four presets.
+      An optional human-readable
+      deployment name shown in the web terminal's header so otherwise-identical
+      terminals are told apart; empty or absent means no label is rendered, so
+      there is nothing for a template to ship a default for. The environment
+      variable OSPREY_WEB_APP_NAME outranks it, which is what lets several
+      containers that share one baked config image each carry their own name.
+      Documented for operators in reference/configuration/config.rst.
+    default: ''
+  web.chat_turn_timeout_s:
+    rendered: false
+    evidence: 'get_config_value\(\s*"web\.chat_turn_timeout_s",\s*600\s*\)'
+    note: >-
+      Hidden key, unset in the framework template and the four presets.
+      First of the three keys that
+      bound the Simple-mode operator-chat pool, all read in one lifespan block
+      of the web terminal and all documented together in
+      reference/configuration/config.rst. Ceiling in seconds on a single chat
+      turn; default 600. The `\s*` between the call's parts is load-bearing for
+      the same reason `web.docs_url` carries it: the three reads sit side by
+      side and the formatter wraps a call across lines on length alone.
+    default: 600
+  web.chat_idle_timeout_s:
+    rendered: false
+    evidence: 'get_config_value\(\s*"web\.chat_idle_timeout_s",\s*1800\s*\)'
+    note: >-
+      Hidden key, unset in the framework template and the four presets.
+      How long an operator's chat
+      session may sit idle before it is reaped; default 1800 s. Same lifespan
+      block and same `\s*` rule as `web.chat_turn_timeout_s`.
+    default: 1800
+  web.chat_max_sessions:
+    rendered: false
+    evidence: 'get_config_value\(\s*"web\.chat_max_sessions",\s*5\s*\)'
+    note: >-
+      Hidden key, unset in the framework template and the four presets.
+      Cap on concurrent operator-chat
+      sessions, handed to the OperatorRegistry alongside the idle timeout;
+      default 5. Third of the trio, same lifespan block and same `\s*` rule as
+      `web.chat_turn_timeout_s`.
+    default: 5
+  web.bar_items:
+    rendered: false
+    evidence: '_load_web_ui_config\(\s*config_path\s*\)\.get\(\s*"bar_items"\s*\)'
+    note: >-
+      `rendered: false` because the project template carries it COMMENTED and
+      the other four templates not at all — the shipped bars are the default,
+      so there is nothing for a template to render live. The deployment's
+      default arrangement of the web terminal's two item hosts (header and
+      status bar), with four sub-keys — header, status, status_visible,
+      locked. The whole block is unpacked by one reader,
+      `_load_bar_items()` in the web terminal's app factory, so the evidence
+      anchors on that single read and the sub-keys carry no entries of their
+      own: they are documented in a code block in
+      reference/configuration/config.rst rather than as inline literals,
+      which is what keeps them out of the docs cross-check. The `\s*` between
+      the call's parts is load-bearing for the same reason `web.app_name`
+      carries it — the formatter wraps a call across lines on length alone.
+    default: derived
+    default_note: >-
+      the shipped default bar layout, filtered to what this deployment renders
+  cli: {evidence: 'get_config_value\("cli\.theme", "default", config_path\)', default: {}}
+  cli.theme: {evidence: 'get_config_value\("cli\.theme", "default", config_path\)', default: default}
+
+  # ── Bluesky queue ───────────────────────────────────────────────────
+  # No app template ever rendered these: the `bluesky:` posture has always been
+  # preset-side, and it entered this manifest when the presets became the other
+  # half of the rendered config.
+  bluesky: {evidence: 'get_config_value\("bluesky", \{\}\)', default: {}}
+  bluesky.queue_autostart:
+    evidence: 'section\.get\("queue_autostart"\) is True'
+    note: >-
+      Whether the plan queue runs on its own or waits to be started. Read with
+      an identity check, so anything that is not literally `true` leaves the
+      queue disarmed — the fail-closed reading, and the reason the default
+      below is `false` rather than "unstated".
+    default: false
+
+  # ── Multi-user web terminals ────────────────────────────────────────
+  # The roster, its personas and the landing page. Preset-side throughout
+  # (only control-assistant ships a block), and read by
+  # deployment/web_terminals/ rather than by anything in a container.
+  deploy: {evidence: 'as_dict\(root\.get\("deploy"\)\)', default: {}}
+  deploy.fqdn:
+    covered-by: deploy
+    note: >-
+      The hostname people open in a browser. It is what every terminal checks
+      an action's origin against, so a deployment that publishes terminals
+      cannot be given a guess for it.
+    default: no-fallback
+    default_note: >-
+      the render raises when it is absent and the deployment needs an external
+      origin — any configured user, or authentication enabled
+  modules: {evidence: 'config\.get\("modules"\) or \{\}', default: {}}
+  modules.web_terminals:
+    evidence: 'as_dict\(as_dict\(config\.get\("modules"\)\)\.get\("web_terminals"\)\)'
+    note: >-
+      Anchored because every leaf below terminates here: the whole block is
+      unpacked by one read in each consumer (render, lint, lifecycle, personas).
+    default: {}
+  modules.web_terminals.enabled: {covered-by: modules.web_terminals, default: false}
+  modules.web_terminals.image_source:
+    evidence: 'web_terminals\.get\("image_source"\) == "local"'
+    default: registry
+  modules.web_terminals.default_persona: {covered-by: modules.web_terminals, default: null}
+  modules.web_terminals.auth: {evidence: 'as_dict\(web_terminals\.get\("auth"\)\)', default: {}}
+  modules.web_terminals.auth.method:
+    evidence: 'method if isinstance\(method, str\) and method else "token"'
+    default: token
+  modules.web_terminals.auth.session_lifetime:
+    evidence: 'auth\.get\("session_lifetime"\), DEFAULT_SESSION_LIFETIME'
+    note: >-
+      Seconds a browser stays signed in. The literal below is
+      interfaces.web_auth.DEFAULT_SESSION_LIFETIME, twelve hours.
+    default: 43200
+  modules.web_terminals.auth.allow_insecure_http:
+    evidence: 'bool\(auth\.get\("allow_insecure_http", False\)\)'
+    default: false
+  modules.web_terminals.landing: {evidence: 'as_dict\(web_terminals\.get\("landing"\)\)', default: {}}
+  modules.web_terminals.landing.notices:
+    evidence: 'if "notices" not in landing_cfg'
+    note: >-
+      Three-way, which is why the default is not simply the list: absent gets
+      the packaged safety notice, `[]` gets none, and a list names markdown
+      files under the repo root.
+    default: derived
+    default_note: >-
+      the packaged safety notice (render._PACKAGED_NOTICE); `notices: []` is how
+      a deployment asks for none
+  modules.web_terminals.landing.footer:
+    evidence: 'footer = landing_cfg\.get\("footer"\)'
+    default: OSPREY multi-user web terminal stack. Experimental system. Proceed with caution.
+  modules.web_terminals.landing.groups:
+    evidence: 'groups_raw = \[\{"type": "users"\}\]'
+    default: [{type: users}]
+  modules.web_terminals.personas:
+    data-map: true
+    evidence: 'web_terminals\.get\("personas"\)'
+    note: >-
+      The persona catalog. Persona NAMES are the deployment's own, so this is a
+      data map exactly as api.providers is: the guard checks that the catalog is
+      read, never which tiers a facility declares. Each entry's leaves
+      (`project`, `project_path`, `build_profile`, `landing_group`) are read by
+      personas.resolve_personas from the entry it was handed.
+    default: {}
+  modules.web_terminals.users:
+    evidence: 'normalize_users\(web_terminals\.get\("users"\)\)'
+    note: >-
+      The roster, as a LIST — one entry per terminal. A list has no dotted paths
+      below it, so the per-entry keys (`name`, `index`, `persona`,
+      `display_name`) never enter the union and carry no entries here; they are
+      normalized by one function, which is what the evidence anchors on.
+    default: []
+
+# ---------------------------------------------------------------------------
+# deleted — resurrection list. None of these may appear in the rendered union,
+# in any preset `config:` dotted key, or in the loader's synthesized defaults.
+# ---------------------------------------------------------------------------
+deleted:
+  # Ledger 1 / 5 / — : the whole write_verification block. The three inert
+  # knobs went first; `default_level` and `default_tolerance_percent` followed
+  # when confirmation became a per-channel `confirm: true|false` in the limits
+  # database (channel entry, then the database defaults block) — there is no
+  # config.yml default layer and no tolerance at all.
+- control_system.write_verification.enabled
+- control_system.write_verification.fail_on_mismatch
+- control_system.write_verification.timeout
+- control_system.write_verification.default_level
+- control_system.write_verification.default_tolerance_percent
+  # Ledger 33
+- approval.tools.channel_limits
+  # Ledger 7 / 9 / 10 / 11 / 15
+- channel_finder.pipelines.in_context.processing
+- channel_finder.explicit_validation_mode
+- channel_finder.pipelines.hierarchical.tree_preview
+- channel_finder.benchmark.execution
+- channel_finder.benchmark.output
+- channel_finder.benchmark.evaluation
+  # Ledger 12
+- machine_state
+  # Ledger 13 / — : file_paths sweep
+- file_paths.user_memory_dir
+- file_paths.execution_plans_dir
+- file_paths.prompts_dir
+- file_paths.agent_data_dir
+  # Ledger 16
+- workspace.base_dir
+- workspace
+  # Ledger 18
+- control_system.connector.timeout
+  # Ledger 29
+- api.providers.ollama.host
+- api.providers.ollama.port
+  # Ledger 57 / 59 / 60
+- ariel.reasoning
+- ariel.default_max_results
+- ariel.cache_embeddings
+  # Ledger 79 / 80 — loader identity blocks
+- applications
+- current_application
+- configurable
+  # Task 6.3 — retired facility spelling. The READER fallback in
+  # utils/facility.resolve_facility_name stays deliberately; no TEMPLATE may
+  # ship this key again.
+- facility_name
+  # ── Leaves removed by derive / consolidate / replace items ──────────
+  # These have NO deleted ancestor: the parent block legitimately survives (or
+  # survives as a commented override stanza), so only the LEAF is banned. Each
+  # was verified present at merge-base ccf324d7 and absent on the branch.
+  # Ledger 39 — the mock_archiver simulation_file is now DERIVED from
+  # control_system.connector.<type>.simulation_file. The `mock_archiver:` block
+  # itself stays as a commented override example, so only the leaf is listed.
+- archiver.mock_archiver.simulation_file
+  # Ledger 24+35 — the ARIEL DSN is derived from services.postgresql. An
+  # explicit `uri` still WINS when set, and the commented external-DB override
+  # example stays, so `ariel.database` is deliberately NOT listed as deleted.
+- ariel.database.uri
+  # Ledger 27 — semantic_processor takes its provider at the module level; the
+  # nested provider under `model:` was a second, ignored spelling.
+- ariel.enhancement_modules.semantic_processor.model.provider
+  # Ledger 26 — mock connector knob nothing read (project template only).
+- control_system.connector.mock.simulate_delays
+  # Ledger 56 — VA gateway ports are default-filled from
+  # services.virtual_accelerator.port. The commented override example stays; the
+  # EPICS gateway ports are untouched and remain live.
+- control_system.connector.virtual_accelerator.gateways.read_only.port
+- control_system.connector.virtual_accelerator.gateways.write_access.port
+  # Ledger 31 — composition resolves a tier through
+  # api.providers[provider].models; there is no model_id key here.
+- logbook.composition.model_id
+  # Preset-config surface: a commented `# system.facility_name: My Facility`
+  # dotted override in profiles/presets/control-assistant.yml at merge-base,
+  # removed by this branch. Distinct from the dispatch-profile `facility_name`
+  # field (build_profile_schema.py:166), which is a different surface and stays.
+- system.facility_name
+
+# ---------------------------------------------------------------------------
+# deleted_commented_examples — the two keys above whose COMMENTED example in a
+# preset is deliberate, with the reason each one is not a resurrection.
+#
+# Both were removed from what OSPREY ships, not from their readers: setting
+# either still works and still wins. Under the app templates that documentation
+# lived in a template, which the resurrection check never read for comments;
+# converting the templates into presets moved the same lines onto the surface
+# the check does read, and this section is where that move is recorded rather
+# than resolved by deleting the documentation.
+#
+# The exemption is narrow — the LIVE preset override, the rendered union and the
+# loader's synthesized defaults are still checked for these keys — and it is
+# itself checked: an entry naming a key that was never deleted, carrying no
+# reason, or outliving the preset line it was written for fails the guard.
+# ---------------------------------------------------------------------------
+deleted_commented_examples:
+  archiver.mock_archiver.simulation_file: >-
+    The mock archiver's history is DERIVED from
+    `control_system.connector.<type>.simulation_file`, so nothing ships this
+    leaf. control-assistant documents it commented, on the line under the prose
+    that says the derivation exists and this key overrides it.
+  ariel.database.uri: >-
+    The ARIEL DSN is derived from `services.postgresql.*`. An explicit uri still
+    WINS, which is exactly what the commented line in ariel-standalone and
+    control-assistant shows: how to point ARIEL at a Postgres the deployment
+    does not run.
+
+# ---------------------------------------------------------------------------
+# orphan_sites — per deleted key, regexes for its removed code sites. Every
+# regex here must match ZERO times under the listed root (failure mode 4).
+# ---------------------------------------------------------------------------
+orphan_sites:
+  approval.tools.channel_limits:
+  - root: src/osprey/templates
+    regex: '^\s+channel_limits:\s'
+    back_test: {base_matches: 3, branch_matches: 0}
+    why: >-
+      the deleted approval policy entry. The removed sites were UNQUOTED YAML
+      mapping keys in the templates, so the earlier quoted-key regex could
+      never fire — it matched 0 even at merge-base. Anchored to the YAML
+      mapping-key form and rooted at templates, which also keeps the
+      LimitsValidator, channel_limits.json and the osprey_limits hook (all
+      legitimate bare-word users) out of scope.
+  file_paths.user_memory_dir:
+  - root: src/osprey
+    regex: 'user_memory_dir'
+    why: compose_generator mkdir list, scaffolding mkdir/README, Dockerfile.j2, config.py docstring
+  file_paths.execution_plans_dir:
+  - root: src/osprey
+    regex: 'execution_plans_dir'
+    why: compose mkdir list + docstring
+  file_paths.prompts_dir:
+  - root: src/osprey
+    regex: 'prompts_dir'
+    why: compose mkdir list + docstring
+  workspace.base_dir:
+  - root: src/osprey/interfaces/web_terminal/routes
+    regex: '^\s*"workspace",'
+    why: >-
+      the "workspace" entry in config.py `_AGENT_CONFIG_SECTIONS`. Anchored to
+      the list-item form so the many legitimate uses of the word (the
+      osprey_workspace MCP server, utils/workspace.py) do not trip it.
+  ariel.reasoning:
+  - root: src/osprey
+    regex: 'ReasoningConfig|reasoning_config'
+    why: deleted config class/field/parse + capabilities() echo
+  ariel.default_max_results:
+  - root: src/osprey
+    regex: 'default_max_results'
+    why: ARIELConfig field + capabilities payload
+  ariel.cache_embeddings:
+  - root: src/osprey
+    regex: 'cache_embeddings'
+    why: deleted field/parse/assertions
+  channel_finder.explicit_validation_mode:
+  - root: src/osprey
+    regex: 'explicit_validation_mode'
+    why: deleted from 2 templates + propagated copy
+  channel_finder.pipelines.hierarchical.tree_preview:
+  - root: src/osprey/templates
+    regex: '^\s+tree_preview:\s*$'
+    back_test: {base_matches: 2, branch_matches: 0}
+    why: >-
+      the deleted CONFIG BLOCK only, which was a bare YAML block header. The
+      earlier dict/quoted-key regex matched 0 even at merge-base. Rooted at
+      templates so the kept, tested `generate_tree_preview` utility stays out
+      of scope.
+  channel_finder.pipelines.in_context.processing:
+  - root: src/osprey
+    regex: 'chunk_dictionary|max_correction_iterations'
+    why: >-
+      the deleted processing block's own leaf names — `processing` alone is
+      far too common to anchor on.
+  channel_finder.benchmark.execution:
+  - root: src/osprey
+    regex: 'runs_per_query.*delay_between_runs|continue_on_error'
+    why: deleted benchmark execution block leaves
+  channel_finder.benchmark.output:
+  - root: src/osprey
+    regex: 'save_incremental|include_detailed_metrics'
+    why: deleted benchmark output block leaves
+  channel_finder.benchmark.evaluation:
+  - root: src/osprey
+    regex: 'exact_match_weight|partial_match_weight'
+    why: deleted benchmark evaluation block leaves
+  machine_state:
+    # The deleted services/machine_state module has NO content-grep site: it had
+    # zero importers, so nothing anywhere ever spelled its import path. A regex
+    # for it could not fire even at merge-base. Its deletion is asserted by
+    # path ABSENCE below (the mirror of `keeps`), not by grep.
+  - root: src/osprey/templates
+    regex: '^machine_state:'
+    back_test: {base_matches: 1, branch_matches: 0}
+    why: the deleted top-level config block in the templates — a genuine, fireable site
+  api.providers.ollama.host:
+  - root: src/osprey/templates
+      # Anchored on the base_url line that preceded it, not on `host: localhost`
+      # alone. Bare, it claimed every indented `host: localhost` in every
+      # template — so the first unrelated block to use that ordinary default
+      # (the archiver's stored-connection block) read as the deleted ollama key
+      # coming back. An orphan regex has to name the site it is proving gone.
+    regex: '\$\{OLLAMA_HOST[^\n]*\n\s+host:\s*localhost'
+    why: the deleted ollama host/port pair (replaced by a single base_url)
+  api.providers.ollama.port:
+  - root: src/osprey/templates
+    regex: '^\s+port:\s*11434'
+    why: the deleted ollama port line
+  applications:
+    # `root` may be a LIST: the config loader moved to the osprey-connectors
+    # workspace member, so src/osprey/utils/config.py is a shim this regex can
+    # never match. Both trees are scanned; the back-test sums hits across the
+    # roots, because the connectors tree postdates the baseline commit.
+  - root:
+    - src/osprey/utils
+    - packages/osprey-connectors/src/osprey_connectors
+    regex: 'current_application'
+    why: deleted loader identity block (config.py, now osprey_connectors/config.py)
+  control_system.connector.timeout:
+  - root: src/osprey/templates
+    regex: '^  connector:\n    timeout:'
+    multiline: true
+    back_test: {base_matches: 2, branch_matches: 0, engine: 'python re.M over whole-file text'}
+    why: >-
+      the connector-level timeout that sat outside any connector type. The
+      pattern SPANS TWO LINES, so a line-based engine (grep, or a per-line
+      Python loop) finds 0 matches at merge-base as well as now — a check that
+      cannot fail. `multiline: true` obliges the guard to read the whole file
+      and match with re.M; see scan_rules.multiline_entries.
+  facility_name:
+  - root: src/osprey/templates
+    regex: '^facility_name:'
+    why: >-
+      the retired top-level spelling, now migrated to the canonical
+      `facility:` block in every template. The READER fallback in
+      utils/facility.py is deliberate and must NOT be removed — this regex is
+      scoped to templates only for exactly that reason.
+
+# ---------------------------------------------------------------------------
+# render_contexts — the matrix the guard renders every template under, then
+# UNIONS the walked key sets. Jinja conditionals gate audited blocks, so a
+# single context would under-report.
+# ---------------------------------------------------------------------------
+render_contexts:
+  undefined: ChainableUndefined
+  note: >-
+    StrictUndefined fails on project_root and the panel machinery, so
+    ChainableUndefined is required for one context to serve every matrix cell.
+  what_the_union_is: >-
+    Two sources, because a rendered config now has two authors. The FRAMEWORK
+    TEMPLATE writes what the build derives — the project layout, the port
+    layout, api.providers from providers.yml, and the keys a profile FIELD
+    decides — and is rendered once per matrix cell below. Each PRESET's
+    resolved `config:` block is the other half, and it is read through the real
+    resolver (resolve_build_profile + _expand_dotted) rather than parsed out of
+    the file, so personas, `extends:` and every legal dotted/nested spelling are
+    resolved the way a build resolves them. layout_port_fill is applied to each
+    preset for the same reason the build applies it: a preset deliberately
+    spells no host port, and without the fill every `services.*` port key would
+    read as manifest rot.
+  base:
+    project_name: demo
+    project_root: /tmp/demo
+    default_provider: anthropic
+    default_model: haiku
+    environment_python: null
+    environment_packages: []
+    environment_inherit_exclude: []
+  note_computed_context: >-
+    osprey_ports, builtin_panels and provider_catalog are NOT spelled here. Each
+    has exactly one home in the tree — the port layout, the panel registry and
+    providers.yml — and a copy in this file would be the silent one the day they
+    diverge. The guard fills them in.
+  matrix:
+    # The framework template's remaining branches, and nothing else: it renders
+    # no services, no deployed_services and no per-app blocks any more.
+    channel_finder_mode: [in_context, hierarchical, middle_layer]
+    ariel_server_on: [true, false]
+    web_selection:
+    - panels: all          # every builtin the registry declares
+      default_panel: ariel
+      panel_presets: {Operations: [ariel, channel-finder]}
+    - panels: []
+      default_panel: null
+      panel_presets: null
+  framework_template: src/osprey/templates/project/config.yml.j2
+  presets:
+  - src/osprey/profiles/presets/hello-world.yml
+  - src/osprey/profiles/presets/ariel-standalone.yml
+  - src/osprey/profiles/presets/channel-finder-standalone.yml
+  - src/osprey/profiles/presets/control-assistant.yml
+  note_presets: >-
+    The four ROOT presets. The persona presets (control-assistant-*.yml) extend
+    control-assistant and are deliberately absent: they are deltas, so every key
+    they carry is either inherited from the root — already in the union — or a
+    persona-scoped override of one, and listing them would make `all-templates`
+    parity a claim about deltas instead of about the four documents an operator
+    starts from.
+  # Guard self-test: one key from inside each conditional branch must appear in
+  # the union, otherwise the matrix has silently stopped covering that branch.
+  # Re-mapped when the app templates were deleted — the branches these name are
+  # the framework template's own. What makes each one discriminating is that the
+  # framework template is its ONLY author: a key a preset also spelled would stay
+  # in the union after the matrix stopped rendering its branch, and the check
+  # would pass on the preset's copy. Six are DERIVED keys, which is the usual
+  # reason no preset can supply one; `web.panels.channel-finder.enabled` is not
+  # derived and is framework-only for a different reason — the template renders
+  # every builtin panel's block from the registry. So the GUARD checks the exact
+  # source set per key rather than the derived prefix: a key a preset also spells
+  # is refused here, because it could not detect the shrunk matrix.
+  self_test_keys:
+    enable_in_context: channel_finder.pipelines.in_context.subagent_model
+    enable_hierarchical: channel_finder.pipelines.hierarchical.feedback.store_path
+    enable_middle_layer: channel_finder.pipelines.middle_layer.database.type
+    ariel_server_on: ariel.enhancement_modules.semantic_processor.model.model_id
+    panels_on: web.panels.channel-finder.enabled
+    default_panel_set: web.default_panel
+    panel_presets_set: web.presets
+  expected_union_size: 353
+  note_union_size: >-
+    Informational, not an assertion — it moves whenever the framework template
+    or a preset gains or loses a key. The guard reports a diff against this
+    number rather than failing on it. Because it cannot fail, it only stays
+    useful if it is re-derived whenever a source's key set changes; it had
+    drifted 9 low before the qmd blocks landed, which is exactly how a soft
+    counter stops being a signal.
+    309 -> 353 is the app-template deletion, and the arithmetic is deliberately
+    NOT carried over from the old number: the union changed sources, so it was
+    re-derived by running the guard on the new one. Two movements make up the
+    difference and both are structural rather than a change in what ships. The
+    presets carry keys the app templates never rendered because they were always
+    preset-side (the whole modules.web_terminals roster, deploy.fqdn,
+    claude_code.permissions), and the framework template renders every builtin
+    panel's web.panels.<id> block plus web.default_panel and web.presets, which
+    the old five-template matrix's two-panel selection never reached.
+
+# ---------------------------------------------------------------------------
+# governed_sets — ADDENDUM 2. Two safety stanzas make EXHAUSTIVE claims that no
+# test protects. The guard must build each preset's config, run
+# osprey.registry.mcp.resolve_servers, collect every tool whose PreToolUse
+# matcher runs osprey_approval.py, and assert set equality with the enumeration
+# below. A future default-enabled server carrying an approval hook then turns
+# the guard red instead of silently falsifying the shipped comment.
+# ---------------------------------------------------------------------------
+governed_sets:
+  method:
+    description: >-
+      Build the preset's config the way `osprey build` does — the framework
+      template rendered from the preset's own FIELDS, with its resolved
+      `config:` block merged over the top — then pass the `claude_code` section
+      to resolve_servers with a ctx carrying channel_finder_pipeline when the
+      config has a channel_finder section. For every ENABLED server, walk
+      hooks_pre; a rule counts when any of its hooks' `command` contains
+      osprey_approval.py. Extract the tool short-name from each matcher.
+      The framework render is not optional here: pipeline_mode is a DERIVED key,
+      so reading the `config:` block alone would resolve every preset's servers
+      against a pipeline mode of None.
+    matcher_shape: 'mcp__<server>__<tool>'
+    matcher_parse_warning: >-
+      Matchers are SINGLE tokens and underscores are word characters, so a
+      naive `[A-Za-z_][A-Za-z0-9_]*` findall returns the whole matcher as one
+      token. Parse with `mcp__[A-Za-z0-9_-]+?__([A-Za-z0-9_]+)`. An extractor
+      that returns an empty governed set for every template is broken, not a
+      finding.
+    approval_hook_marker: osprey_approval.py
+  claims:
+    ariel-standalone:
+      preset: src/osprey/profiles/presets/ariel-standalone.yml
+      comment_claim: 'here ARIEL `entry_create` and `entry_publish`, workspace `setup_patch` and facility-knowledge `draft_concept`'
+      exhaustive: true
+      tools: [entry_create, entry_publish, setup_patch, draft_concept]
+    channel-finder-standalone:
+      preset: src/osprey/profiles/presets/channel-finder-standalone.yml
+      comment_claim: 'in this deployment that is the workspace setup_patch tool alone'
+      exhaustive: true
+      tools: [setup_patch]
+  reference_counts:
+    note: >-
+      Not exhaustive claims in any shipped comment — recorded so a future
+      change to the default-enabled server set is visible. Re-derived
+      2026-08-27 with the method above: execute_file joined every set when the
+      policy-unit rescue gave it the same approval hook as execute (they share
+      one gate on the python server, so the pair moves together). Re-derived
+      again over the PRESETS when the app templates were deleted: each set is
+      now measured from what a build of that preset resolves. That is why
+      control-assistant's is longer than the old control_assistant template's —
+      the preset enables the bluesky server, whose seven queue/plan tools carry
+      the same approval hook and were never in a template's render.
+      entry_publish joined every set that already carried entry_create when the
+      ariel server gave it the same approval hook.
+    control-assistant: [archiver_read, channel_read, channel_write, control_target_set, draft_concept, entry_create, entry_publish, execute, execute_file, queue_add, queue_remove, queue_start, queue_stop, setup_patch, stop_run, validate_plan, write_plan]
+    hello-world: [archiver_read, channel_read, channel_write, control_target_set, draft_concept, execute, execute_file, setup_patch]
+  draft_concept_note: >-
+    draft_concept is approval-governed in control-assistant and hello-world
+    (osprey_facility_knowledge is enabled by default and carries the hook) but
+    appears in NO approval.tools block, so it falls to
+    default_policy: always. Fail-closed and correctly described by the shipped
+    comment. This is the reason the governed set is larger than the
+    approval.tools LIST in every preset — do not "fix" one to match the other.
+    control_target_set is governed the same way and for the same reason: the
+    controls server carries the approval hook on it, and it appears in no
+    approval.tools block, so it too falls to default_policy. execute_file is
+    the third of this kind: it shares execute's policy unit (same server, same
+    hooks) but no approval.tools block names it.
+
+# ---------------------------------------------------------------------------
+# kept_readers — code that legitimately still mentions a DELETED key. These are
+# deliberate legacy-tolerance paths, not orphans. A guard that greps deleted key
+# names across src/ without this exclusion list goes red against intended code.
+# ---------------------------------------------------------------------------
+kept_readers:
+  facility_name_reader:
+    site: src/osprey/utils/facility.py
+    covers: [facility_name]
+    detail: >-
+      resolve_facility_name still honours the retired top-level `facility_name`
+      as a fallback so pre-consolidation configs keep working. The key is banned
+      from TEMPLATES, not from readers — which is why that orphan regex is
+      scoped to src/osprey/templates.
+  tree_preview_util:
+    site: src/osprey/services/channel_finder
+    covers: [channel_finder.pipelines.hierarchical.tree_preview]
+    detail: >-
+      `generate_tree_preview` is a kept, tested utility. Only the CONFIG BLOCK
+      was deleted, which is why that orphan regex anchors on the mapping-key
+      form rather than the bare word.
+
+# ---------------------------------------------------------------------------
+# scan_rules — how the guard must walk the tree.
+# ---------------------------------------------------------------------------
+scan_rules:
+  exclude_dirs: ['__pycache__', '.venv', 'node_modules', '.git', '.mypy_cache', '.pytest_cache', '.ruff_cache']
+  regex_engine: >-
+    EVERY regex in this file is written against LINE STARTS, because they were
+    authored and verified with grep, which is inherently line-based. A Python
+    implementation MUST therefore pass `re.M` on every match — not only on
+    `multiline: true` entries. Without it, `^` anchors at the start of the whole
+    file and every `^`-anchored regex silently reports 0 matches, manufacturing
+    the exact cannot-fail class this manifest's back-test exists to detect. Cost
+    of learning this: the first back-test implementation applied re.M only to
+    flagged entries and reported 7 false cannot-fail failures, including two
+    regexes that had already been hand-verified as matching at merge-base.
+  multiline_entries: >-
+    An entry carrying `multiline: true` additionally SPANS newlines, so it can
+    never be matched by a line-based tool at all — the guard must read whole
+    files for it. (With `re.M` + whole-file text, both kinds work uniformly.)
+    Only `control_system.connector.timeout` needs this today.
+  back_test_required: >-
+    Every `orphan_sites` regex MUST be back-tested against the merge-base commit
+    recorded in back_test_baseline: it has to match at least once THERE and zero
+    times on the branch. A regex that matches 0 in both places proves nothing —
+    it is a green light wired to nothing. Four of the original 22 were exactly
+    that (see back_test_baseline.history). Entries carry their verified counts
+    in a `back_test:` block; the guard should re-derive them rather than trust
+    the recorded numbers.
+  absence_is_git_tracked: >-
+    An `absent_paths` entry is satisfied when the path has NO git-tracked files
+    (`git ls-files <path>` is empty) — never by filesystem existence
+    (`Path.exists()` / `os.path.isdir`). A deleted Python package leaves a
+    populated `__pycache__/` behind in any working tree it was ever imported in,
+    so a filesystem check goes red on developer worktrees while CI stays green.
+    Measure the base side the same way, with `git ls-tree -r --name-only
+    <commit> -- <path>`. This is the same stale-.pyc trap as
+    `exclude_dirs`, reached from the other direction.
+  back_test_baseline:
+    commit: ccf324d7
+    extraction: 'git show <commit>:<path>'
+    history: >-
+      Found by back-testing during task 7.1 review: channel_limits used a
+      quoted-key regex where the real sites were unquoted YAML; tree_preview
+      used a dict/quoted form where the real site was a bare block header;
+      machine_state's services-module regex could never fire because the module
+      had zero importers; connector.timeout's pattern is multiline. All four
+      matched 0 at merge-base as well as on the branch.
+  exclude_note: >-
+    MUST exclude __pycache__. Compiled .pyc files retain the string constants of
+    deleted modules, so a grep that counts them reports orphan sites that no
+    longer exist in source — observed while authoring this manifest: the
+    machine_state orphan regex appeared to match 3 times, entirely from stale
+    .pyc artifacts, and 0 times in real source.
+  test_tree: >-
+    The guard scans src/osprey only. If it is ever pointed at tests/, the
+    deliberate legacy fixture (see notes.legacy_fixture_out_of_scope) MUST be
+    allowlisted first — it holds every deleted key on purpose.
+
+# ---------------------------------------------------------------------------
+# absent_paths — the mirror of `keeps`. Deletions whose only honest assertion is
+# that a PATH no longer exists, because no content grep can ever fire for them.
+# ---------------------------------------------------------------------------
+absent_paths:
+- path: src/osprey/services/machine_state
+  assert: absent
+  back_test:
+    base_tracked_files: 3     # __init__.py, models.py, reader.py at ccf324d7
+    branch_tracked_files: 0
+  why: >-
+    The module had ZERO importers, so no file anywhere ever spelled
+    `from osprey.services.machine_state` or the module path. A content regex
+    for it therefore matches 0 both before and after the deletion — it cannot
+    distinguish success from failure. Path absence is the only assertion that
+    actually tests this deletion. Note the deliberate asymmetry with
+    `keeps`: the same ledger item both DELETES this module and KEEPS the
+    control_assistant machine_state_channels.json asset, so the two
+    sections guard opposite halves of one change.
+
+# ---------------------------------------------------------------------------
+# keeps — ADDENDUM 3. Assets whose CONTINUED EXISTENCE is load-bearing but
+# which no grep gate protects, because the asset does not contain the string
+# that would be searched for.
+# ---------------------------------------------------------------------------
+keeps:
+- path: src/osprey/templates/apps/control_assistant/data/machine_state_channels.json
+  assert: exists
+  why: >-
+    Feeds VA manifest reconciliation via
+    services/virtual_accelerator/manifest/loaders.load_machine_state_candidate_addresses,
+    surfacing as _metadata.machine_state_reconciliation. The machine_state
+    DELETION's grep gate passes partly for the wrong reason: this file never
+    contains the string `machine_state` in its CONTENT, only in its filename,
+    so a content grep can never protect it. Today only
+    tests/templates/test_machine_state_channels.py and tests/va/test_manifest.py
+    fail on its deletion. An explicit existence assertion makes the dependency
+    visible in the manifest rather than implicit in two test files.
+
+# ---------------------------------------------------------------------------
+# notes — carried forward from tasks 3.2, 5.1 and 6.3. Not guard rules.
+# ---------------------------------------------------------------------------
+notes:
+  manifest_fixture_provider_shape:
+    site: tests/cli/test_manifest_build_args.py
+    detail: >-
+      Carries 'anthropic/claude-opus' as fixture data. It never reaches the
+      resolver, so it is harmless and was left alone. If cheap, the guard could
+      flag provider/model-SHAPED default_model values (a '/' in a value that
+      should be a bare tier: haiku | sonnet | opus), since claude_code.default_model
+      takes a tier, not a wire id.
+  prefix_rule_drift:
+    detail: >-
+      RESOLVED. The only place stating facility.prefix must be lowercase alnum
+      plus hyphens, 2-6 chars, as a hard requirement was the facility-config
+      schema reference, which has been removed along with the rest of the
+      facility-config surface. Nothing enforces that rule and nothing claims it
+      any more: the only validation in the tree is a non-emptiness lint at
+      deployment/web_terminals/lint.py `_check_empty_facility_prefix`.
+    inert: >-
+      Stronger than unenforced. facility.prefix reaches only two container-name
+      interpolations and the personas path — never an nginx location key or a
+      URL segment, which is the specific reason usernames and persona names do
+      get the charset regex. There is NO sink at which violating the
+      2-6/lowercase rule breaks anything.
+    remedy_direction: >-
+      None. Do NOT add a validator, and do NOT let this manifest grow a charset
+      rule for facility.prefix: a new check would reject configurations that
+      work correctly today, converting a cosmetic doc inconsistency into a
+      breaking change. The three presets that carry the key already describe it
+      in prose, and none of them claims a charset or length rule.
+  legacy_fixture_out_of_scope:
+    path: tests/utils/fixtures/legacy_config_all_deleted_keys.yml
+    detail: >-
+      Deliberately holds every retired key so the loader's tolerance stays
+      tested. If the guard is ever pointed at tests/, this file MUST be
+      allowlisted or every `deleted` entry will fire on it.
+  facility_timezone_unshipped:
+    detail: >-
+      facility.timezone is READ (deployment/web_terminals/env_production.py,
+      deployment/web_terminals/render.py) but shipped by no preset, and is
+      distinct from system.timezone. A hidden-key stanza candidate for phase 6,
+      not a guard rule.

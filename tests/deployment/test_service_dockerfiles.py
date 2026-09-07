@@ -495,16 +495,14 @@ def test_proxy_guard_accepts_the_declared_arg_idiom():
 #
 # The framework's default CLI pin is spelled once in code
 # (``_DEFAULT_CLAUDE_CLI_VERSION``, which the project Dockerfile.j2 renders
-# from) and hand-copied into three places that cannot read it: the
-# dispatch-worker Dockerfile (a literal file, not a template), the commented
-# ``cli_version:`` example in the generated config.yml, and the installation
-# page (three times; RST substitutions do not expand inside code blocks or
-# inline literals). Each copy is asserted equal to the constant so a bump that
-# misses one fails here instead of shipping two different CLIs.
+# from) and hand-copied into two places that cannot read it: the
+# dispatch-worker Dockerfile (a literal file, not a template) and the
+# installation page (three times; RST substitutions do not expand inside code
+# blocks or inline literals). Each copy is asserted equal to the constant so a
+# bump that misses one fails here instead of shipping two different CLIs.
 
 DOCS_DIR = pathlib.Path(osprey.__file__).parents[2] / "docs" / "source"
 INSTALLATION_PAGE = DOCS_DIR / "getting-started" / "installation.rst"
-CONFIG_TEMPLATE = TEMPLATES_DIR / "project" / "config.yml.j2"
 _CLI_PIN_RE = re.compile(r'@anthropic-ai/claude-code@([0-9][\w.\-]*)|cli_version: "([^"]+)"')
 
 
@@ -524,14 +522,6 @@ def test_event_dispatcher_pins_the_default_cli_version():
     assert pins == [_default_cli_pin()], (
         f"event_dispatcher/Dockerfile pins {pins}, _DEFAULT_CLAUDE_CLI_VERSION is "
         f"{_default_cli_pin()!r} — bump both together"
-    )
-
-
-def test_config_template_example_pins_the_default_cli_version():
-    pins = _cli_pins(CONFIG_TEMPLATE.read_text())
-    assert pins == [_default_cli_pin()], (
-        f"config.yml.j2's cli_version example says {pins}, _DEFAULT_CLAUDE_CLI_VERSION is "
-        f"{_default_cli_pin()!r}"
     )
 
 

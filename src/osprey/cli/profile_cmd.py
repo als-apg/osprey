@@ -8,7 +8,9 @@ group holds the read-only verbs that act on that source, kept separate from
 The write half lives elsewhere by design: ``osprey init`` creates the deployment
 repo (through :func:`_materialize_profile_directory` here, which is the one
 function in this module that writes anything) and ``osprey set`` edits the
-profile.
+profile. ``profile expand`` is the one verb in this GROUP that writes, and it
+lives in :mod:`osprey.cli.profile_expand` for that reason — it is a one-time
+migration of a profile written before the app template retired, not a reader.
 
 ``osprey validate`` is the top-level spelling of ``profile validate``, and the
 check both run is :func:`osprey.cli.validate_cmd.check_profile_file` — one
@@ -20,10 +22,12 @@ prints.
 Usage:
     osprey profile presets
     osprey profile validate ~/deployments/als-assistant
+    osprey profile expand
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Collection, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -31,8 +35,10 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 import click
 
 from osprey.errors import BuildProfileError
+from osprey.profiles.providers import PROVIDERS_FILENAME
 from osprey.utils.logger import get_logger
 
+from . import profile_expand
 from .output import report, section, warn
 from .profile_conventions import (
     CONTEXT_BASELINE_FILENAME,
@@ -55,6 +61,13 @@ logger = get_logger("profile")
 @click.group()
 def profile() -> None:
     """Author, validate, and inspect build profiles."""
+
+
+# Registered rather than declared: `expand` is defined in its own module (it is
+# the group's only writer and carries its own machinery), and a command object
+# added here is indistinguishable from a decorated one — so `osprey profile
+# --help` stays the whole surface of the group whatever file a verb lives in.
+profile.add_command(profile_expand.expand)
 
 
 def echo_preset_names() -> None:
@@ -249,6 +262,7 @@ PROFILE_DEFAULTS_ENV_BANNER = "# ── Declared by this profile (env.defaults) 
 #: memory, or a hand-written CI job.
 MATERIALIZED_SOURCE_ENTRIES: tuple[str, ...] = (
     "profile.yml",
+    PROVIDERS_FILENAME,
     _PROFILE_DATA_DIRNAME,
     _PERSONA_PROFILE_DIRNAME,
     PROFILE_TRIGGERS_FILENAME,
@@ -297,6 +311,218 @@ def _data_copy_ignore(source_root: Path) -> Callable[[str, list[str]], set[str]]
         }
 
     return ignore
+
+
+class _ProviderCatalogPlan(NamedTuple):
+    """The ``providers.yml`` a materialization is about to write."""
+
+    text: str
+    """Complete file content, ready to write at the repo root."""
+
+    entries: dict[str, Any]
+    """Provider name → entry, parsed. What the ``.env`` seeding reads to learn
+    which environment variable each provider's key lives in."""
+
+    content_hash: str
+    """:func:`~osprey.profiles.providers.compute_providers_hash` of that content,
+    stamped into the emitted profile's ``provenance.providers_hash``."""
+
+    carried: tuple[str, ...]
+    """Entry names taken from the repo's existing catalog because the packaged
+    one does not declare them — the operator's own gateways. Empty on a first
+    init, and on a re-init over a catalog nobody has added to."""
+
+
+def _previous_provider_catalog(target: Path) -> Path | None:
+    """The catalog a re-materialization must carry the operator's entries out of.
+
+    ``osprey init --force`` moves the whole source zone into
+    :data:`~.repo_resolver.HELD_SOURCE_ZONE_DIRNAME` before this materializer
+    runs, so by the time the question is asked the repo root normally no longer
+    holds one and the held copy is the live answer. The repo root is checked
+    first anyway, so the function answers the same question for a materialization
+    that runs over a standing zone.
+    """
+    from .repo_resolver import HELD_SOURCE_ZONE_DIRNAME
+
+    for candidate in (
+        target / PROVIDERS_FILENAME,
+        target / HELD_SOURCE_ZONE_DIRNAME / PROVIDERS_FILENAME,
+    ):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _plan_provider_catalog(target: Path) -> _ProviderCatalogPlan:
+    """Resolve the catalog to write into ``target``, refreshing what OSPREY ships.
+
+    A first init copies the packaged catalog byte for byte. A re-materialization
+    over a repo that already has one REFRESHES every packaged entry — that is
+    the point of re-running the command, and it is how a framework release
+    reaches a repo whose catalog nobody has touched — while carrying over every
+    entry the packaged catalog does not declare, comments included. Those are
+    the operator's own gateways, and nothing else in the repo remembers them.
+
+    Build-time resolution is the opposite rule on purpose
+    (:func:`~osprey.profiles.providers.load_provider_catalog` replaces rather
+    than merges): once the file exists it is the whole catalog, so deleting an
+    entry there deletes it. This function is the one place the two documents
+    meet, and it runs only when the operator asks for a re-materialization.
+
+    Args:
+        target: The repo root being materialized. Read only — the plan is
+            returned, and the caller writes it once the directory exists.
+
+    Returns:
+        The file content, its parsed entries, its hash, and the names carried
+        over (:class:`_ProviderCatalogPlan`).
+
+    Raises:
+        click.UsageError: The repo's existing catalog does not parse. Refusing
+            is the only honest answer: the merge cannot tell an operator's
+            entry from a packaged one in a file it cannot read, and silently
+            replacing it would drop gateways.
+    """
+    import tempfile
+
+    from osprey.profiles.providers import (
+        compute_providers_hash,
+        load_provider_catalog,
+        packaged_catalog_path,
+    )
+
+    packaged_path = packaged_catalog_path()
+    packaged_text = packaged_path.read_text(encoding="utf-8")
+
+    def _packaged_only() -> _ProviderCatalogPlan:
+        return _ProviderCatalogPlan(
+            packaged_text,
+            dict(load_provider_catalog(None).entries),
+            compute_providers_hash(packaged_path),
+            (),
+        )
+
+    previous = _previous_provider_catalog(target)
+    if previous is None:
+        return _packaged_only()
+
+    try:
+        packaged_entries = load_provider_catalog(None).entries
+        existing_entries = load_provider_catalog(previous.parent).entries
+    except BuildProfileError as e:
+        raise click.UsageError(
+            f"Cannot re-materialize over the provider catalog already in this repo: {e} "
+            f"A re-init refreshes the entries OSPREY ships and keeps yours, and it "
+            f"cannot tell which is which while that file does not parse — fix it, or "
+            f"move it aside."
+        ) from e
+
+    carried = tuple(str(name) for name in existing_entries if name not in packaged_entries)
+    if not carried:
+        return _packaged_only()
+
+    # Merged as TEXT, not through a YAML round-trip: the packaged half then
+    # arrives byte-identical, and each carried entry brings the exact lines the
+    # operator wrote — a comment above the key included, which is precisely
+    # what a round-trip loses, because ruamel files a comment before a key
+    # under the key BEFORE it.
+    blocks = _catalog_entry_blocks(previous.read_text(encoding="utf-8"))
+    text = packaged_text if packaged_text.endswith("\n") else packaged_text + "\n"
+    for name in carried:
+        block = blocks.get(name)
+        if block:
+            text += block if block.endswith("\n") else block + "\n"
+
+    # Staged rather than hashed in memory: the validation and the hash are the
+    # ones every other reader of a catalog file gets, over the exact bytes this
+    # repo is about to hold, so a merge that produced something unreadable
+    # fails here rather than at the next build.
+    with tempfile.TemporaryDirectory() as staging:
+        staged = Path(staging) / PROVIDERS_FILENAME
+        staged.write_text(text, encoding="utf-8")
+        entries = dict(load_provider_catalog(Path(staging)).entries)
+        digest = compute_providers_hash(staged)
+    if set(entries) != set(packaged_entries) | set(existing_entries):
+        raise click.UsageError(
+            f"Could not merge the provider catalog at {previous} with the one OSPREY "
+            f"ships: the result would not carry every entry. Nothing was changed. Move "
+            f"that file somewhere you can read it, re-run this command to get a fresh "
+            f"`{PROVIDERS_FILENAME}`, then paste your own entries back into it."
+        )
+    return _ProviderCatalogPlan(text, entries, digest, carried)
+
+
+#: The line the entries hang under. A trailing comment on it is ordinary YAML
+#: and must not stop the slicer: matching only the bare key left every entry
+#: unrecovered, which the caller reads as "the merge lost them" and refuses on.
+_CATALOG_ENTRIES_KEY = re.compile(r"^providers:\s*(?:#.*)?$")
+
+#: A ``providers:`` entry key: two spaces, then a name. Deeper lines are the
+#: entry's body, column-0 lines end the block, and a comment run at this depth
+#: belongs to the entry BELOW it — the convention the packaged catalog follows
+#: and the one an operator copying an entry inherits.
+_CATALOG_ENTRY_KEY = re.compile(r"^ {2}(?![ #])(.+?):\s*(?:#.*)?$")
+
+
+def _catalog_entry_blocks(text: str) -> dict[str, str]:
+    """Slice a catalog file into one verbatim text block per provider entry.
+
+    Text rather than parsed data because what has to survive being carried into
+    a refreshed catalog is exactly what a parse throws away: the operator's
+    comments, their spacing, their quoting. The blocks are re-validated as YAML
+    once they are joined (:func:`_plan_provider_catalog`), so a slice that came
+    out malformed is caught before the file is written rather than trusted.
+
+    Two shapes the slicer does not read, both of which end as a refusal rather
+    than as a lost entry, because the caller compares the names it recovered
+    against the names the loader parsed: a flow-style mapping
+    (``providers: {cborg: {...}}``), where there are no per-entry lines to cut;
+    and a YAML 1.1 boolean-like key (``yes:``, ``on:``), which the loader reads
+    as ``True`` while this reads the characters. Both are rare, both leave the
+    operator's file untouched, and the refusal says how to recover.
+
+    Args:
+        text: A whole ``providers.yml``.
+
+    Returns:
+        Entry name → its lines, leading comment run included. Entries the
+        slicer cannot delimit are simply absent, which the caller notices as a
+        missing name rather than as silent damage.
+    """
+    blocks: dict[str, str] = {}
+    pending: list[str] = []
+    body: list[str] = []
+    current: str | None = None
+    inside = False
+
+    def close() -> None:
+        if current is not None:
+            blocks[current] = "".join(body)
+
+    for line in text.splitlines(keepends=True):
+        if not inside:
+            inside = bool(_CATALOG_ENTRIES_KEY.match(line.rstrip()))
+            continue
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            pending.append(line)
+            continue
+        match = _CATALOG_ENTRY_KEY.match(line)
+        if match:
+            close()
+            current = match.group(1).strip().strip("'\"")
+            body = [*pending, line]
+            pending = []
+        elif line.startswith("  ") and current is not None:
+            body.extend(pending)
+            body.append(line)
+            pending = []
+        else:
+            # A column-0 key: the `providers:` mapping has ended.
+            break
+    close()
+    return blocks
 
 
 def _triggers_source(resolved: BuildProfile, preset_dir: Path) -> Path | None:
@@ -370,15 +596,6 @@ def _stands_up_a_web_tier(config: Mapping[str, Any]) -> bool:
     return bool(effective_web_terminals(config).get("enabled"))
 
 
-# The two config paths a profile names a provider at. `claude_code.provider`
-# picks the one the agent runs on; every entry under `api.providers` is a
-# provider the profile configures (a proxy's base_url, its model tier map), and
-# a configured provider is a referenced one. Kept as segment tuples because a
-# `config:` block addresses paths, not strings.
-_AGENT_PROVIDER_PATH = ("claude_code", "provider")
-_API_PROVIDERS_PATH = ("api", "providers")
-
-
 def _config_node(path: tuple[str, ...], value: Any, wanted: tuple[str, ...]) -> Any:
     """What a single ``config:`` key sets at ``wanted``, or ``None``.
 
@@ -388,8 +605,7 @@ def _config_node(path: tuple[str, ...], value: Any, wanted: tuple[str, ...]) -> 
     here, so a profile cannot hide a provider selection behind a spelling.
 
     A key DEEPER than ``wanted`` addresses something inside the value rather
-    than the value itself and returns ``None``; :func:`_config_entry_names`
-    handles the one case where that is meaningful.
+    than the value itself and returns ``None``.
     """
     if path == wanted:
         return value
@@ -401,49 +617,26 @@ def _config_node(path: tuple[str, ...], value: Any, wanted: tuple[str, ...]) -> 
     return probe
 
 
-def _config_entry_names(path: tuple[str, ...], value: Any, wanted: tuple[str, ...]) -> set[str]:
-    """The names a single ``config:`` key puts in the mapping at ``wanted``.
+def _providers_named_by(provider: Any) -> set[str]:
+    """The provider name one profile layer selects.
 
-    ``api.providers`` is a mapping keyed by provider name, and a profile may
-    populate it either wholesale (a mapping value) or one leaf at a time
-    (``api.providers.my-proxy.base_url``), so both spellings have to yield the
-    same names.
-    """
-    depth = len(wanted)
-    if path[:depth] == wanted and len(path) > depth:
-        return {path[depth]}
-    node = _config_node(path, value, wanted)
-    if isinstance(node, Mapping):
-        return {name for name in node if isinstance(name, str)}
-    return set()
-
-
-def _providers_named_by(provider: Any, config: Any) -> set[str]:
-    """Provider names one profile layer selects or configures.
+    The top-level ``provider:`` field is the only place a layer names one.
+    ``claude_code.provider`` and ``api.providers.*`` are rendered by the build
+    from this field and ``providers.yml``, and a ``config:`` spelling of either
+    is refused (:mod:`osprey.cli.derived_keys`), so there is no second spelling
+    to union in.
 
     Args:
-        provider: The layer's top-level ``provider:`` key.
-        config: The layer's ``config:`` block.
+        provider: The layer's top-level ``provider:`` key. A persona delta that
+            overrides it names its own; one that does not inherits the host's,
+            which is already counted.
 
     Returns:
-        Every provider name the layer references, by any spelling. A union
-        rather than a resolution: this decides which secrets a profile may
-        need, so a name that only one spelling reaches still counts.
+        The name the layer selects, or empty when it selects none.
     """
-    names: set[str] = set()
     if isinstance(provider, str) and provider.strip():
-        names.add(provider.strip())
-    if not isinstance(config, Mapping):
-        return names
-    for key, value in config.items():
-        if not isinstance(key, str):
-            continue
-        path = tuple(key.split("."))
-        selected = _config_node(path, value, _AGENT_PROVIDER_PATH)
-        if isinstance(selected, str) and selected.strip():
-            names.add(selected.strip())
-        names |= _config_entry_names(path, value, _API_PROVIDERS_PATH)
-    return names
+        return {provider.strip()}
+    return set()
 
 
 def _parsed_persona_deltas(
@@ -581,26 +774,36 @@ def read_persona_deltas(repo_root: Path, config: Mapping[str, Any]) -> dict[str,
 
 
 def _referenced_providers(
-    resolved: BuildProfile, persona_deltas: Mapping[str, Mapping[str, Any]]
+    resolved: BuildProfile,
+    persona_deltas: Mapping[str, Mapping[str, Any]],
+    catalog_additions: Collection[str] = (),
 ) -> set[str]:
     """Every provider the materialized profile — host and personas — references.
 
     The persona deltas are read too because they share this profile's ``.env``:
     a delta sits in ``personas/`` and anchors its secrets at the profile root
     (:func:`~.profile_root.resolve_profile_root`), so a persona that switches
-    provider needs its key in the same file. A delta that overrides neither key
-    inherits the host's selection, which is already counted.
+    provider needs its key in the same file. A delta with no ``provider:`` of
+    its own inherits the host's selection, which is already counted.
+
+    An entry the operator added to this repo's ``providers.yml`` counts too,
+    named or not. Writing a gateway into the catalog is the statement that this
+    deployment reaches it — the same statement a ``config: api.providers.*``
+    block used to make, before the catalog became a file of its own — and the
+    entry names the variable its key lives in.
 
     Args:
         resolved: The resolved host profile.
         persona_deltas: The parsed deltas (:func:`_parsed_persona_deltas`).
             Parsed rather than raw text so the one parse that validates them
             is the one read here.
+        catalog_additions: Entry names the repo's catalog carries and the
+            packaged one does not (:attr:`_ProviderCatalogPlan.carried`).
     """
-    names = _providers_named_by(resolved.provider, resolved.config)
+    names = _providers_named_by(resolved.provider)
     for delta in persona_deltas.values():
-        names |= _providers_named_by(delta.get("provider"), delta.get("config"))
-    return names
+        names |= _providers_named_by(delta.get("provider"))
+    return names | {str(name) for name in catalog_additions}
 
 
 class _ShellProviderKeys(NamedTuple):
@@ -613,7 +816,39 @@ class _ShellProviderKeys(NamedTuple):
     """Variables the shell exports for providers the profile never names."""
 
 
-def _exported_provider_keys(providers: Collection[str]) -> _ShellProviderKeys:
+#: An ``api_key:`` that defers to the environment, e.g. ``${CBORG_API_KEY}`` or
+#: ``${ARGO_API_KEY:-}``. A catalog entry spelling its key any other way — a
+#: literal, or an empty placeholder — has no variable to seed.
+_ENV_REFERENCE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-[^}]*)?\}$")
+
+
+def _catalog_key_variables(entries: Mapping[str, Any]) -> dict[str, str]:
+    """Provider name → the environment variable its catalog entry's key names.
+
+    The catalog is where an endpoint says which variable holds its credential,
+    so it is what decides the variable to seed — for a gateway the operator
+    added, which no code-level registry knows, and for a packaged provider an
+    operator has re-pointed at a variable of their own. Entries with a literal
+    key (``ollama``, ``ds4``) and entries with no ``api_key:`` at all contribute
+    nothing, which is right: there is no secret to carry.
+
+    Args:
+        entries: The resolved catalog entries
+            (:attr:`_ProviderCatalogPlan.entries`).
+    """
+    variables: dict[str, str] = {}
+    for name, entry in entries.items():
+        if not isinstance(entry, Mapping):  # pragma: no cover - loader refuses these
+            continue
+        match = _ENV_REFERENCE.match(str(entry.get("api_key", "")).strip())
+        if match:
+            variables[str(name)] = match.group(1)
+    return variables
+
+
+def _exported_provider_keys(
+    providers: Collection[str], catalog_entries: Mapping[str, Any] | None = None
+) -> _ShellProviderKeys:
     """Split the shell's provider API keys against the providers ``providers`` names.
 
     ``os.environ`` is the ONLY source (FR-1). A ``.env`` that happens to sit in
@@ -634,15 +869,22 @@ def _exported_provider_keys(providers: Collection[str]) -> _ShellProviderKeys:
     are reported by name rather than dropped silently (:func:`_skipped_keys_note`)
     — they were seen, and the operator decides whether the omission is right.
 
-    The variable list comes from
+    The variable list starts from
     :func:`~.templates.scaffolding.provider_api_key_entries`, the same registry
     derivation the ``.env.example`` beside it is rendered from, so the file that
     holds the values and the file that documents them cannot name different
-    variables.
+    variables for a provider OSPREY ships. The catalog is then laid over it: an
+    entry's ``api_key: ${VAR}`` is that provider's variable, which is the only
+    way a gateway the operator added has one at all, and the right answer when
+    a packaged entry has been re-pointed. The two agree for every packaged
+    provider, so nothing about a stock repo changes.
 
     Args:
         providers: Provider names the profile references
             (:func:`_referenced_providers`).
+        catalog_entries: The resolved provider catalog
+            (:attr:`_ProviderCatalogPlan.entries`). ``None`` falls back to the
+            registry alone, for a caller with no catalog in hand.
 
     Returns:
         The exported keys split into ``seeded`` and ``skipped``. Both are empty
@@ -652,17 +894,25 @@ def _exported_provider_keys(providers: Collection[str]) -> _ShellProviderKeys:
 
     from .templates.scaffolding import provider_api_key_entries
 
+    variables: dict[str, str] = {
+        entry["provider"]: entry["var"] for entry in provider_api_key_entries()
+    }
+    variables.update(_catalog_key_variables(catalog_entries or {}))
+
     seeded: dict[str, str] = {}
     skipped: list[str] = []
-    for entry in provider_api_key_entries():
-        value = os.environ.get(entry["var"])
+    for provider, var in variables.items():
+        value = os.environ.get(var)
         if not value:
             continue
-        if entry["provider"] in providers:
-            seeded[entry["var"]] = value
-        else:
-            skipped.append(entry["var"])
-    return _ShellProviderKeys(seeded, tuple(skipped))
+        if provider in providers:
+            seeded[var] = value
+        elif var not in skipped:
+            skipped.append(var)
+    # Two entries may name one variable — an operator's gateway sharing a
+    # packaged provider's key, say. Seeding wins: the variable IS carried, so
+    # reporting it as left out would be a false statement about the `.env`.
+    return _ShellProviderKeys(seeded, tuple(var for var in skipped if var not in seeded))
 
 
 def _skipped_keys_note(skipped: Collection[str]) -> str:
@@ -795,7 +1045,8 @@ def _off_chain_problem(persona_name: str, persona_preset: str, host_preset: str)
             f"through {_normalize_preset_name(str(parent))!r}. A persona file holds its own "
             f"layer and nothing else, so emitting one here would drop that preset's settings "
             f"— point the catalog entry at a preset that extends {host_preset!r} directly, or "
-            f"drop this entry from the catalog (a `-O` override removing it), materialize, "
+            f"drop this entry from the catalog (`--set config.modules.web_terminals.personas."
+            f"{persona_name}=null`), materialize, "
             f"then hand-write {_PERSONA_PROFILE_DIRNAME}/{persona_name}.yml as a delta over "
             f"profile.yml and add the entry back to the emitted profile"
         )
@@ -949,8 +1200,8 @@ def _persona_profile_texts(
     Each entry is emitted as a pure DELTA — the persona preset's own layer, no
     ``extends:`` (:func:`~.build_profile_emit.emit_persona_delta_yaml`) — over
     the host profile it sits beside. The host therefore stays the single source
-    of truth: edits there, and the caller's baked ``-O``/``--set`` layers with
-    them, reach every persona through the implicit merge instead of being copied
+    of truth: edits there, and the caller's baked ``--set`` edits with them,
+    reach every persona through the implicit merge instead of being copied
     around. A catalog entry whose preset is not a delta over ``host_preset``
     (the bundled shape: ``control-assistant-readonly`` over
     ``control-assistant``) is rejected rather than approximated — see
@@ -974,7 +1225,7 @@ def _persona_profile_texts(
 
     from .build_profile import resolve_build_profile
     from .build_profile_emit import emit_persona_delta_yaml, persona_catalog
-    from .build_profile_presets import _normalize_preset_name
+    from .build_profile_presets import _normalize_preset_name, preset_data_bundle
 
     catalog = persona_catalog(resolved.config)
     texts: dict[str, str] = {}
@@ -1016,15 +1267,17 @@ def _persona_profile_texts(
         except BuildProfileError as e:
             problems.append(f"{persona_name!r}: build_profile {preset_ref!r} does not resolve: {e}")
             continue
-        if persona_resolved.data_bundle != resolved.data_bundle:
+        persona_bundle = preset_data_bundle(preset_ref)
+        if persona_bundle != preset_data_bundle(host_preset):
             # The sibling profiles share ONE data tree, materialized from the
-            # host's app template. A persona rendering a different template
-            # would read a tree that was never built for it — caught here
-            # rather than surfacing as missing files at deploy time.
+            # host preset's packaged bundle. A persona whose preset names a
+            # different bundle would read a tree that was never built for it —
+            # caught here rather than surfacing as missing files at deploy time.
             problems.append(
-                f"{persona_name!r}: build_profile {preset_ref!r} renders app template "
-                f"{persona_resolved.data_bundle!r}, but this profile materializes "
-                f"{resolved.data_bundle!r} — one shared data tree cannot serve both"
+                f"{persona_name!r}: build_profile {preset_ref!r} names data bundle "
+                f"{persona_bundle!r}, but this profile materializes "
+                f"{preset_data_bundle(host_preset)!r} — one shared data tree "
+                f"cannot serve both"
             )
             continue
         persona_preset = _normalize_preset_name(preset_ref)
@@ -1170,12 +1423,13 @@ def _packaged_data_source(manager: TemplateManager, data_bundle: str) -> Path:
 
 
 def _resolve_preset_bundle(preset: str) -> tuple[str, str]:
-    """Resolve a CLI preset spelling to its name and its app template.
+    """Resolve a CLI preset spelling to its name and its packaged data bundle.
 
-    Both halves of the answer come from resolving the preset for real rather
-    than from reading its file: a preset that inherits its ``app_template:``
-    through ``extends:`` names no bundle of its own, and only the resolved
-    profile knows which one it ends up on.
+    The bundle is a preset-side fact — ``app_template:`` is not a profile key —
+    so it is read off the preset chain rather than off a resolved profile: a
+    preset that inherits the key through ``extends:`` names no bundle of its
+    own, and :func:`~.build_profile_presets.preset_data_bundle` follows the
+    chain the same way the merge would have.
 
     Args:
         preset: Preset name as typed, in either spelling
@@ -1183,29 +1437,25 @@ def _resolve_preset_bundle(preset: str) -> tuple[str, str]:
 
     Returns:
         ``(preset_name, data_bundle)`` — the normalized (hyphenated) preset
-        name, and the app template the resolved profile names.
+        name, and the packaged data bundle the preset chain names.
 
     Raises:
         click.UsageError: If ``preset`` names no bundled preset — the message
             lists every one that exists — or if resolving it fails.
     """
-    from .build_profile import (
-        _normalize_preset_name,
-        _preset_exists,
-        list_presets,
-        resolve_build_profile,
-    )
+    from .build_profile import _normalize_preset_name, _preset_exists, list_presets
+    from .build_profile_presets import preset_data_bundle
 
     preset_name = _normalize_preset_name(preset)
     if _preset_exists(preset_name) is None:
         available = ", ".join(list_presets()) or "(none)"
         raise click.UsageError(f"Unknown preset {preset!r}. Available: {available}")
     try:
-        resolved, _preset_dir = resolve_build_profile(None, preset_name)
+        bundle = preset_data_bundle(preset_name)
     except BuildProfileError as e:
         raise click.UsageError(f"Cannot resolve preset {preset_name!r}: {e}") from e
 
-    return preset_name, resolved.data_bundle
+    return preset_name, bundle
 
 
 class _MaterializedProfile(NamedTuple):
@@ -1253,7 +1503,6 @@ class _MaterializedProfile(NamedTuple):
 def _materialize_profile_directory(
     target_dir: Path,
     preset_name: str,
-    overrides: tuple[Path, ...] = (),
     set_pairs: tuple[str, ...] = (),
     *,
     profile_name: str | None = None,
@@ -1263,11 +1512,12 @@ def _materialize_profile_directory(
 
     Writes ``profile.yml`` — the preset's fully resolved content as an
     explicit, self-contained profile (comments preserved, no ``extends:``) —
+    the ``providers.yml`` catalog beside it (:func:`_plan_provider_catalog`),
     the bundle's ``data/`` tree copied verbatim, the profile's ``.env`` channel
     (:func:`_write_secret_channel`), and a tutorial ``README.md`` explaining the
-    convention directories. ``-O`` files and ``--set`` pairs are merged with the
-    same layering as the render path, so a validated build one-liner carries
-    into the profile without hand-editing.
+    convention directories. ``--set`` pairs are edits of the resolved preset,
+    made the way ``osprey set`` makes them to the file afterwards, so a
+    validated build one-liner carries into the profile without hand-editing.
 
     Fail-before-mutating: the preset, its layers, and the rendered profile text
     are all produced before the first ``mkdir``, and anything that fails after
@@ -1280,8 +1530,7 @@ def _materialize_profile_directory(
     Args:
         target_dir: The profile directory to create.
         preset_name: Bundled preset to materialize, in either spelling.
-        overrides: ``-O`` files, layered in order.
-        set_pairs: ``--set`` pairs, layered last.
+        set_pairs: ``--set`` pairs, each replacing the value at its key.
         profile_name: Display name for the emitted profile. Defaults to one
             derived from the repo directory's own name. ``--set name=`` wins
             over both.
@@ -1299,7 +1548,7 @@ def _materialize_profile_directory(
 
     Raises:
         click.UsageError: For user errors — existing target, an ``extends``
-            override, a roster carrying an unreadable ``access`` value
+            edit, a roster carrying an unreadable ``access`` value
             (:func:`_unreadable_access_problems`), or layers that produce an
             invalid profile.
         BuildProfileError: For packaging problems (missing seed or data tree).
@@ -1309,7 +1558,7 @@ def _materialize_profile_directory(
     from .build_profile import (
         EXTENDS_OVERRIDE_REFUSAL,
         _normalize_preset_name,
-        merge_cli_overrides,
+        cli_edit_layer,
         resolve_build_profile,
     )
     from .build_profile_emit import (
@@ -1317,26 +1566,27 @@ def _materialize_profile_directory(
         persona_catalog_layer,
         triggers_layer,
     )
+    from .build_profile_presets import preset_data_bundle
     from .templates.manager import TemplateManager
 
-    # Resolving through the public path validates the preset AND its -O/--set
-    # layers up front, and names the bundle whose data tree gets copied. It also
+    # Resolving through the public path validates the preset AND its --set
+    # edits up front, and names the bundle whose data tree gets copied. It also
     # rejects a user-supplied `data:` in preset mode, which is right: this
     # command materializes the tree, so pointing it elsewhere is a mistake.
     # Everything it rejects is a user error, so it surfaces as one.
     try:
-        baked = merge_cli_overrides({}, overrides, set_pairs)
-        if "extends" in baked:
-            # The shared refusal: the same override file must be answered the
-            # same way here and on a later build's write-back into this
-            # profile. Asked before the layers are resolved, so the answer is
-            # about the key and never about whatever the named parent requires.
+        edit = cli_edit_layer(set_pairs)
+        if "extends" in edit:
+            # The shared refusal: the same edit must be answered the same way
+            # here and on a later `osprey set` into this profile. Asked before
+            # anything is resolved, so the answer is about the key and never
+            # about whatever the named parent requires.
             raise click.UsageError(EXTENDS_OVERRIDE_REFUSAL)
-        resolved, preset_dir = resolve_build_profile(None, preset_name, overrides, set_pairs)
+        resolved, preset_dir = resolve_build_profile(None, preset_name, set_pairs=set_pairs)
     except BuildProfileError as e:
         raise click.UsageError(f"Cannot materialize {preset_name!r}: {e}") from e
 
-    name_override = baked.get("name")
+    name_override = edit.get("name")
 
     target = target_dir.resolve()
 
@@ -1349,7 +1599,11 @@ def _materialize_profile_directory(
         profile_name_default = str(name_override)
 
     manager = TemplateManager()
-    data_source = _packaged_data_source(manager, resolved.data_bundle)
+    # The packaged tree this repo's `data/` is copied from. Read off the preset
+    # chain, not off `resolved`: the bundle name is preset-side only, so it
+    # never reaches the profile the emission below writes.
+    data_bundle = preset_data_bundle(normalized_preset)
+    data_source = _packaged_data_source(manager, data_bundle)
 
     # How the emitted persona comments spell their own paths: repo-relative,
     # because the repo root is where a reader stands.
@@ -1390,11 +1644,17 @@ def _materialize_profile_directory(
         *((triggers_layer(),) if triggers_src is not None else ()),
     )
 
+    # The catalog to write beside the profile, resolved before the first mkdir
+    # like every other input here: it reads the repo's existing `providers.yml`
+    # (or the copy a `--force` run holds aside), so a catalog that does not
+    # parse refuses before anything is replaced.
+    catalog = _plan_provider_catalog(target)
+
     # Read once, before anything is written: the README rendered below tells the
     # reader whether a `.env` was seeded for them, and the seeding itself happens
     # further down. Two reads of the environment could disagree.
-    referenced_providers = _referenced_providers(resolved, persona_deltas)
-    shell_keys = _exported_provider_keys(referenced_providers)
+    referenced_providers = _referenced_providers(resolved, persona_deltas, catalog.carried)
+    shell_keys = _exported_provider_keys(referenced_providers, catalog.entries)
     exported_keys = shell_keys.seeded
 
     # Derived once for the same reason: the README lists the per-user context
@@ -1403,15 +1663,15 @@ def _materialize_profile_directory(
     roster = _roster_user_names(resolved.config)
 
     # The materialized tree is what the build must read, so `data:` is emitted
-    # as an active key — injected through the same --set layering a user would
-    # use, rather than through a second path into the resolved content.
+    # as an active key — injected through the same --set edit a user would
+    # make, rather than through a second path into the resolved content.
     profile_text = emit_standalone_profile_yaml(
         preset_name=normalized_preset,
-        overrides=overrides,
         set_pairs=(*set_pairs, f"data={_PROFILE_DATA_DIRNAME}"),
         profile_name=profile_name_default,
         extra_layers=extra_layers,
         include_flow_diagram=True,
+        providers_hash=catalog.content_hash,
     )
 
     # The repo root is allowed to exist — it usually does (an empty clone, the
@@ -1443,6 +1703,11 @@ def _materialize_profile_directory(
             ignore=_data_copy_ignore(data_source),
         )
         (target / "profile.yml").write_text(profile_text, encoding="utf-8")
+        (target / PROVIDERS_FILENAME).write_text(catalog.text, encoding="utf-8")
+        if catalog.carried:
+            logger.debug(
+                "  Provider catalog: kept %s", ", ".join(f"{name}" for name in catalog.carried)
+            )
 
         if triggers_src is not None:
             shutil.copy2(triggers_src, target / PROFILE_TRIGGERS_FILENAME)
@@ -1492,7 +1757,7 @@ def _materialize_profile_directory(
             context_dir = target / _CONTEXT_CONVENTION_DIRNAME
             context_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(
-                _context_baseline_source(manager, resolved.data_bundle),
+                _context_baseline_source(manager, data_bundle),
                 context_baseline_slot(context_dir),
             )
             logger.debug(
@@ -1523,7 +1788,7 @@ def _materialize_profile_directory(
         # `__pycache__` and its byte-code are dropped so the seed from a source
         # checkout is byte-identical to the seed from a wheel.
         for name, src_rel in (seed_dirs or {}).items():
-            src = Path(manager.template_root) / "apps" / resolved.data_bundle / src_rel
+            src = Path(manager.template_root) / "apps" / data_bundle / src_rel
             if src.is_dir() and not (target / name).exists():
                 # Recorded BEFORE the copy starts, so a copy that dies half-way
                 # still leaves `_cleanup` a name to remove.
@@ -1548,11 +1813,11 @@ def _materialize_profile_directory(
         written, _written_dir = resolve_build_profile((target / "profile.yml").resolve(), None)
     except BuildProfileError as e:
         # Emission round-trips for every bundled preset (guarded by tests), so
-        # with layers present they are the thing to look at; without them this
+        # with edits present they are the thing to look at; without them this
         # is a framework bug and blaming the user's flags would misdirect.
         blame = (
-            "Overrides produce an invalid profile"
-            if (overrides or set_pairs)
+            "The --set edits produce an invalid profile"
+            if set_pairs
             else "The materialized profile does not validate"
         )
         raise click.UsageError(

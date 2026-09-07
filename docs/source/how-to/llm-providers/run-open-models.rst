@@ -31,25 +31,29 @@ direct, with no proxy. CBORG's *open* models live on its OpenAI-compatible side,
 so to run one you add your own provider entry pointing there. It then goes
 through the translation proxy like any other OpenAI endpoint:
 
+In ``providers.yml``, beside the deployment's ``profile.yml``:
+
 .. code-block:: yaml
 
-   api:
-     providers:
-       cborg-open:
-         api_key: ${CBORG_API_KEY}
-         base_url: https://api.cborg.lbl.gov/v1   # keep the /v1
-         models:
-           haiku: gpt-oss-120b
-           sonnet: gpt-oss-120b
-           opus: gpt-oss-120b
+   providers:
+     cborg-open:
+       api_key: ${CBORG_API_KEY}
+       base_url: https://api.cborg.lbl.gov/v1   # keep the /v1
+       models:
+         haiku: gpt-oss-120b
+         sonnet: gpt-oss-120b
+         opus: gpt-oss-120b
 
-   claude_code:
-     provider: cborg-open
-     default_model: sonnet
+and in ``profile.yml``:
+
+.. code-block:: yaml
+
+   provider: cborg-open
+   model: sonnet
 
 Any model ID from CBORG's catalogue works in the ``models`` block — the
-*Benchmark snapshot* box on this page shows which ones hold up in practice. The provider list
-and ``config.yml`` keys are in :doc:`configure-providers`.
+*Benchmark snapshot* box on this page shows which ones hold up in practice. The
+provider list and the keys behind it are in :doc:`configure-providers`.
 
 Which models are known to work
 ------------------------------

@@ -7,28 +7,35 @@ Defaulting such a config to ``epics_archiver`` sent it straight into
 fallback resolves to the mock archiver and says so at WARNING level — the same
 fail-closed shape ``control_system.type`` uses.
 
-The shipped templates are pinned here too: the fallback is a safety net, not a
+The shipped presets are pinned here too: the fallback is a safety net, not a
 substitute for a config that states what it uses.
 """
 
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 import pytest
 
+from osprey.cli.build_profile_archiver import _expand_dotted
+from osprey.cli.build_profile_resolve import resolve_build_profile
 from osprey.connectors import types
 from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
 from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
 
 FACTORY_LOGGER = "connector_factory"
 
-TEMPLATE_ROOT = Path(__file__).resolve().parents[2] / "src" / "osprey" / "templates"
-TEMPLATES_WITH_ARCHIVER = [
-    TEMPLATE_ROOT / "apps" / "hello_world" / "config.yml.j2",
-    TEMPLATE_ROOT / "project" / "config.yml.j2",
-]
+#: Every bundled preset that grants ``archiver_read`` an approval policy, and
+#: so has to say which archiver that tool reaches. The framework template
+#: renders no ``archiver`` block at all — this comes from the preset's own
+#: ``config:``.
+PRESETS_WITH_ARCHIVER = ["hello-world", "control-assistant"]
+
+
+def _cfg(preset: str) -> dict:
+    """The preset's resolved ``config:`` block, dotted keys folded in."""
+    profile, _profile_dir = resolve_build_profile(None, preset)
+    return _expand_dotted(profile.config)
 
 
 class _LiveArchiverTripwire:
@@ -102,12 +109,18 @@ class TestArchiverTypeFallback:
         await connector.disconnect()
 
 
-class TestShippedTemplatesDeclareAnArchiver:
-    @pytest.mark.parametrize("template", TEMPLATES_WITH_ARCHIVER, ids=lambda p: p.parent.name)
-    def test_template_ships_an_archiver_block(self, template: Path):
-        # Both templates grant archiver_read an approval policy, so both must say
-        # which archiver that tool reaches rather than leaning on the fallback.
-        text = template.read_text()
+class TestShippedPresetsDeclareAnArchiver:
+    @pytest.mark.parametrize("preset", PRESETS_WITH_ARCHIVER)
+    def test_preset_names_the_archiver_its_approval_policy_covers(self, preset: str):
+        # A preset that grants archiver_read an approval policy has to say which
+        # archiver that tool reaches rather than leaning on the fallback.
+        config = _cfg(preset)
 
-        assert "archiver:" in text
-        assert f"type: {types.MOCK_ARCHIVER}" in text
+        assert "archiver_read" in config["approval"]["tools"], (
+            f"{preset} no longer grants archiver_read a policy — drop it from this matrix"
+        )
+        assert config["archiver"]["type"], f"{preset} grants archiver_read but names no archiver"
+
+    def test_the_onboarding_preset_ships_the_mock_archiver(self):
+        """hello-world runs no archive service, so it states the mock explicitly."""
+        assert _cfg("hello-world")["archiver"]["type"] == types.MOCK_ARCHIVER

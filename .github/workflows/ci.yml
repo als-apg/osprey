@@ -867,18 +867,13 @@ jobs:
           echo "⏭️  skipped: podman is absent from this runner (see the pin step above)."
           exit 0
         fi
-        cat > /tmp/two-shape-parse-override.yml <<'EOF'
-        dispatch:
-          triggers: tutorial_triggers.yml
-          worker_count: 1
-          workspace_mode: isolated
-          network: bridge
-        config:
-          claude_code.telemetry.enabled: false
-          deployed_services: []
-        EOF
         uv run osprey init parse-check --preset hello-world --no-git \
-          --override /tmp/two-shape-parse-override.yml
+          --set dispatch.triggers=tutorial_triggers.yml \
+          --set dispatch.worker_count=1 \
+          --set dispatch.workspace_mode=isolated \
+          --set dispatch.network=bridge \
+          --set config.claude_code.telemetry.enabled=false \
+          --set 'config.deployed_services=[]'
         cd parse-check
         # The two chain members carry the SAME key with DIFFERENT values, so
         # the interpolated result below distinguishes "the merged env file was
@@ -1185,14 +1180,14 @@ jobs:
         claude plugin marketplace add "$GITHUB_WORKSPACE"
         claude plugin install osprey@osprey
 
-    - name: Check the plugin exposes all eight skills
+    - name: Check the plugin exposes all nine skills
       # `details` prints the count and the skill names on one line, so both
       # halves are asserted: the count catches a skill that stopped being
       # discovered, and the names catch one silently renamed or swapped.
       run: |
         claude plugin details osprey@osprey | tee /tmp/details.txt
-        grep -q 'Skills (8)' /tmp/details.txt
-        for s in build-interview contribute design-philosophy doc-sync housekeeping panel pre-commit release; do grep -q "$s" /tmp/details.txt; done
+        grep -q 'Skills (9)' /tmp/details.txt
+        for s in contribute design-philosophy doc-sync housekeeping install panel pre-commit release upstream-scout; do grep -q "$s" /tmp/details.txt; done
 
   build-boot-smoke:
     name: Tier 1 — Build + MCP boot (${{ matrix.preset }})
@@ -3190,11 +3185,39 @@ jobs:
         FROM docker.io/library/busybox
         RUN env | sort | grep -i proxy || echo "NO-PROXY-ENV"
         PROBE
-        out="$(podman build --no-cache --http-proxy=false \
+        # Fetch the base image before the measured build, and retry that: the
+        # pull is the only part of this step that talks to a registry, and a
+        # throttled or refused pull is not a fact about proxy variables. The
+        # build then runs from local storage exactly once, so the property under
+        # test is never retried into passing.
+        pulled=
+        for attempt in 1 2 3; do
+          if podman pull docker.io/library/busybox; then
+            pulled=yes
+            break
+          fi
+          echo "pull attempt $attempt of 3 failed; retrying in $((attempt * 5))s"
+          sleep "$((attempt * 5))"
+        done
+        if [ -z "$pulled" ]; then
+          echo "❌ could not fetch the probe base image in 3 attempts — a registry"
+          echo "   failure, which says nothing about the proxy contract below"
+          exit 1
+        fi
+        # `|| rc=$?` is what keeps a failed build readable. The build's stderr is
+        # redirected into $out, so under `set -e` a bare assignment aborts the
+        # step before the printf below and reports the exit status with none of
+        # the output that explains it.
+        rc=0
+        out="$(podman build --no-cache --pull=never --http-proxy=false \
           --build-arg HTTP_PROXY=http://127.0.0.1:8888 \
           --build-arg HTTPS_PROXY=http://127.0.0.1:8888 \
-          /tmp/osprey-proxy-probe 2>&1)"
+          /tmp/osprey-proxy-probe 2>&1)" || rc=$?
         printf '%s\n' "$out"
+        if [ "$rc" -ne 0 ]; then
+          echo "❌ the probe build failed (podman exit $rc); its output is above"
+          exit 1
+        fi
         if ! grep -q 'HTTP_PROXY=http://127.0.0.1:8888' <<<"$out"; then
           echo "❌ the uppercase HTTP_PROXY build-arg never reached the RUN environment"
           exit 1

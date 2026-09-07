@@ -181,6 +181,7 @@ from osprey.services.auth_sidecar.identity_headers import (
 )
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME
 from tests.e2e._volumes import remove_project_volumes
+from tests.e2e.profile_edits import set_pairs
 
 # See "CI HONESTY" in the module docstring: this marker is what keeps the build
 # out of the shared fast e2e glob and what the wiring guard scans for.
@@ -486,14 +487,16 @@ def _render_reference_project(root: Path, osprey_bin: Path) -> Path:
     # `openobserve.password: ${ZO_INGEST_SA_TOKEN}` — a credential only the
     # store can issue — and `osprey up` refuses to serve a terminal whose
     # telemetry names an unresolvable secret.
-    ref_override = root / "persona-ref-override.yml"
-    ref_override.write_text(
-        yaml.safe_dump({"config": {"claude_code.telemetry.enabled": False}}, sort_keys=False),
-        encoding="utf-8",
-    )
     init = _run_osprey(
         osprey_bin,
-        ["init", str(ref_repo), "--preset", PRESET, "--no-git", "--override", str(ref_override)],
+        [
+            "init",
+            str(ref_repo),
+            "--preset",
+            PRESET,
+            "--no-git",
+            *set_pairs({"config": {"claude_code.telemetry.enabled": False}}),
+        ],
         root,
         timeout=RENDER_TIMEOUT_SEC,
     )
@@ -711,13 +714,13 @@ def _roster() -> list[dict[str, Any]]:
     return entries
 
 
-def _override_text() -> str:
-    """The ``-O`` overlay carrying this lane's whole web-terminal stanza.
+def _profile_edits() -> dict[str, Any]:
+    """The edits carrying this lane's whole web-terminal stanza.
 
     Dotted leaf keys under ``config:``, the one spelling a profile's config
     block accepts — and ``modules.web_terminals`` deliberately as ONE dotted key
-    with a nested value, so it sets that subtree without replacing the rendered
-    ``modules:`` mapping around it.
+    with a nested value, so it states that subtree's leaves without replacing
+    the rendered ``modules:`` mapping around it.
 
     ``deployment.port_base`` is the ONE port knob: nginx, the auth sidecar and
     every per-user family follow it, so this lane's whole stack moves into
@@ -738,43 +741,40 @@ def _override_text() -> str:
     deploy no longer runs, and preflight refuses to generate ``.env.users`` for
     a telemetry block naming a credential no deploy on this config can issue.
     """
-    return yaml.safe_dump(
-        {
-            "config": {
-                "container_runtime": RUNTIME,
-                "facility.name": "E2E Full-Chain Auth Fixture",
-                "facility.prefix": PREFIX,
-                "facility.timezone": "UTC",
-                "deploy.fqdn": "127.0.0.1",
-                "deployed_services": [],
-                "claude_code.telemetry.enabled": False,
-                PORT_BASE_CONFIG_KEY: PORT_BASE,
-                "modules.web_terminals": {
-                    "enabled": True,
-                    "image_source": "local",
-                    # The role-less entries land here, which is why the cheap
-                    # persona is the default and the expensive one is reached
-                    # only through a role.
-                    "default_persona": PROBE_PERSONA,
-                    "users": _roster(),
-                    "auth": {
-                        "method": "password",
-                        "allow_insecure_http": True,
-                    },
-                    # The static half of the authorization stanza. No `claims:`
-                    # half: that one is the OIDC binding, and a password login
-                    # presents no ID token — the roster is the authority here.
-                    "authorization": {
-                        "roles": {
-                            ROLE_OPERATOR: {"persona": TERMINAL_PERSONA},
-                            ROLE_OBSERVER: {"persona": PROBE_PERSONA},
-                        }
-                    },
+    return {
+        "config": {
+            "container_runtime": RUNTIME,
+            "facility.name": "E2E Full-Chain Auth Fixture",
+            "facility.prefix": PREFIX,
+            "facility.timezone": "UTC",
+            "deploy.fqdn": "127.0.0.1",
+            "deployed_services": [],
+            "claude_code.telemetry.enabled": False,
+            PORT_BASE_CONFIG_KEY: PORT_BASE,
+            "modules.web_terminals": {
+                "enabled": True,
+                "image_source": "local",
+                # The role-less entries land here, which is why the cheap
+                # persona is the default and the expensive one is reached
+                # only through a role.
+                "default_persona": PROBE_PERSONA,
+                "users": _roster(),
+                "auth": {
+                    "method": "password",
+                    "allow_insecure_http": True,
                 },
-            }
-        },
-        sort_keys=False,
-    )
+                # The static half of the authorization stanza. No `claims:`
+                # half: that one is the OIDC binding, and a password login
+                # presents no ID token — the roster is the authority here.
+                "authorization": {
+                    "roles": {
+                        ROLE_OPERATOR: {"persona": TERMINAL_PERSONA},
+                        ROLE_OBSERVER: {"persona": PROBE_PERSONA},
+                    }
+                },
+            },
+        }
+    }
 
 
 #: The probe persona's delta, ``build_profile: personas/probe.yml``. Two keys,
@@ -821,6 +821,11 @@ def _add_persona_catalog(repo: Path, terminal_path: Path, probe_path: Path) -> N
     render rather than an image build, so it is left alone rather than
     suppressed with a flag this lane would then be the only caller of.
 
+    Written as the dotted key ``modules.web_terminals.personas``, the same
+    spelling the lane's own edits use: a profile's ``config:`` is a flat bag
+    of dotted paths into the rendered config, and one more path is how a
+    catalog joins the stanza the edits already wrote.
+
     A YAML round-trip rather than a text splice: the emitted profile is plain
     YAML, and the comments a dump drops are documentation for an operator, not
     input to the build.
@@ -831,7 +836,7 @@ def _add_persona_catalog(repo: Path, terminal_path: Path, probe_path: Path) -> N
 
     profile_path = repo / "profile.yml"
     profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
-    profile["config"]["modules.web_terminals"]["personas"] = {
+    profile["config"]["modules.web_terminals.personas"] = {
         TERMINAL_PERSONA: {"project": TERMINAL_PROJECT, "project_path": str(terminal_path)},
         PROBE_PERSONA: {
             "project": PROBE_PROJECT,
@@ -860,12 +865,10 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
     probe_path = _write_probe_persona_project(personas_root / PROBE_PROJECT)
 
     repo = tmp_path / PROJECT_NAME
-    override_path = tmp_path / "override.yml"
-    override_path.write_text(_override_text(), encoding="utf-8")
 
     init = _run_osprey(
         osprey_bin,
-        ["init", str(repo), "--preset", PRESET, "--no-git", "--override", str(override_path)],
+        ["init", str(repo), "--preset", PRESET, "--no-git", *set_pairs(_profile_edits())],
         tmp_path,
         timeout=RENDER_TIMEOUT_SEC,
     )
@@ -884,7 +887,7 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
     # The one knob, read back off the render before anything binds. Every host
     # port this lane reaches is `default_port(slot, base=PORT_BASE)`, and that
     # derivation is only true if the render actually resolved the same base: an
-    # overlay key that failed to land leaves the deploy on the default 10000
+    # key that failed to land leaves the deploy on the default 10000
     # block, where it collides with a real deployment and every assertion below
     # then fails as a connection error thirty minutes into a container build.
     # Cheaper to fail here, naming the cause.
@@ -903,8 +906,8 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
         f"{PROJECT_NAME} (built by {__name__}) resolved "
         f"{PORT_BASE_CONFIG_KEY}={resolved_base!r}, not {PORT_BASE}: this lane's ports would "
         f"not be in its own block{on_default_block}.\n"
-        f"Fix in {__name__}: `_override_text` sets `{PORT_BASE_CONFIG_KEY}=<band>` in this "
-        f"lane's --override config block and PORT_BASE is the band it books — that key "
+        f"Fix in {__name__}: `_profile_edits` sets `{PORT_BASE_CONFIG_KEY}=<band>` in this "
+        f"lane's config edits and PORT_BASE is the band it books — that key "
         f"failing to land is what this reads back."
     )
 

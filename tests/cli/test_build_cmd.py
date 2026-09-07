@@ -23,6 +23,51 @@ from osprey.cli.channel_finder_cmd import FILE_DATABASE_PARADIGMS
 from osprey.errors import BuildProfileError
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def bundle_data_root(bundle: str = "control_assistant") -> Path:
+    """The packaged data tree ``osprey init`` copies for *bundle*.
+
+    A build sources ``data/`` from the profile's own ``data:`` tree and from
+    nowhere else, so a test that drives ``TemplateManager.create_project``
+    directly — without a profile — hands it the packaged tree the materialized
+    profile would have pointed at.
+    """
+    import osprey
+
+    return Path(osprey.__file__).parent / "templates" / "apps" / bundle / "data"
+
+
+def _create_project(manager, **kwargs) -> Path:
+    """``create_project`` with the data tree every render now requires.
+
+    A build copies the tree its profile's ``data:`` key names, and that key is
+    required — nothing falls back to a packaged tree any more. These fixtures
+    render straight from a bundle rather than from a profile, so they name the
+    tree that bundle packages.
+    """
+    kwargs.setdefault("data_bundle", "control_assistant")
+    kwargs.setdefault("data_root", bundle_data_root(kwargs["data_bundle"]))
+    return manager.create_project(**kwargs)
+
+
+def materialize_data(profile_dir: Path, bundle: str = "control_assistant") -> Path:
+    """Copy *bundle*'s packaged data tree to ``profile_dir/data``, as init does.
+
+    For a test that builds through the real verb: the render stages channel
+    databases, limits and seeds out of the profile's tree, so the tree has to
+    be a real one.
+    """
+    import shutil
+
+    dst = profile_dir / "data"
+    shutil.copytree(bundle_data_root(bundle), dst, dirs_exist_ok=True)
+    return dst
+
+
+# ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
@@ -47,7 +92,7 @@ def minimal_profile_yaml(profile_dir: Path) -> Path:
     """Write a minimal valid profile YAML and return its path."""
     profile = {
         "name": "Test Profile",
-        "data_bundle": "control_assistant",
+        "data": "data",
         "provider": "cborg",
         "model": "haiku",
         "config": {
@@ -83,7 +128,7 @@ class TestProfileLoading:
     def test_load_minimal_profile(self, minimal_profile_yaml: Path):
         profile = load_profile(minimal_profile_yaml)
         assert profile.name == "Test Profile"
-        assert profile.data_bundle == "control_assistant"
+        assert profile.data == "data"
         assert profile.provider == "cborg"
         assert profile.model == "haiku"
 
@@ -118,11 +163,13 @@ class TestProfileLoading:
 
     def test_load_profile_mcp_server_url(self, tmp_path: Path):
         """URL-only MCP server should parse correctly."""
+        (tmp_path / "data").mkdir()
         p = tmp_path / "profile.yml"
         p.write_text(
             yaml.dump(
                 {
                     "name": "Test",
+                    "data": "data",
                     "mcp_servers": {
                         "remote": {
                             "url": "http://host:8001/sse",
@@ -153,11 +200,16 @@ class TestProfileLoading:
             load_profile(p)
 
     def test_load_profile_defaults(self, tmp_path: Path):
-        """Profile with only name should use defaults."""
+        """A profile stating only what is required should use defaults.
+
+        ``name:`` and ``data:`` are the two keys every profile must carry, so
+        they are what "only" means here.
+        """
+        (tmp_path / "data").mkdir()
         simple = tmp_path / "simple.yml"
-        simple.write_text("name: Simple\n")
+        simple.write_text("name: Simple\ndata: data\n")
         profile = load_profile(simple)
-        assert profile.data_bundle == "control_assistant"
+        assert profile.data == "data"
         assert profile.provider is None
         assert profile.config == {}
         assert profile.mcp_servers == {}
@@ -175,14 +227,19 @@ class TestProfileLoading:
 
     def test_deploy_services_defaults_true(self, tmp_path: Path):
         """Omitting the knob leaves a project self-contained (deploys its own stack)."""
+        (tmp_path / "data").mkdir()
         p = tmp_path / "d.yml"
-        p.write_text("name: Deployable\n")
+        p.write_text("name: Deployable\ndata: data\n")
         assert load_profile(p).deploy_services is True
 
     def test_deploy_services_explicit_false_parses(self, tmp_path: Path):
         """An explicit false marks the project as attached."""
+        (tmp_path / "data").mkdir()
         p = tmp_path / "a.yml"
-        p.write_text("name: Attached\ndeploy_services: false\nconfig:\n  services.qmd.port: 8180\n")
+        p.write_text(
+            "name: Attached\ndata: data\ndeploy_services: false\n"
+            "config:\n  services.qmd.port: 8180\n"
+        )
         assert load_profile(p).deploy_services is False
 
     def test_deploy_services_inherited_child_wins(self, tmp_path: Path):
@@ -192,8 +249,9 @@ class TestProfileLoading:
         like any other scalar: a base that leaves it defaulted-true is overridden
         by a child that sets it false.
         """
+        (tmp_path / "data").mkdir()
         base = tmp_path / "base.yml"
-        base.write_text("name: Base\ndeploy_services: true\n")
+        base.write_text("name: Base\ndata: data\ndeploy_services: true\n")
         child = tmp_path / "child.yml"
         child.write_text(
             "name: Child\nextends: base.yml\ndeploy_services: false\n"
@@ -202,8 +260,10 @@ class TestProfileLoading:
         assert load_profile(child).deploy_services is False
 
     def test_load_profile_lifecycle_parsed(self, tmp_path: Path):
+        (tmp_path / "data").mkdir()
         profile_data = {
             "name": "Lifecycle Test",
+            "data": "data",
             "lifecycle": {
                 "pre_build": [{"name": "check deps", "run": "pip check"}],
                 "post_build": [{"name": "build index", "run": "python index.py", "cwd": "data"}],
@@ -221,8 +281,10 @@ class TestProfileLoading:
         assert len(profile.lifecycle.validate) == 1
 
     def test_load_profile_env_parsed(self, tmp_path: Path):
+        (tmp_path / "data").mkdir()
         profile_data = {
             "name": "Env Test",
+            "data": "data",
             "env": {
                 "required": ["API_KEY", "DB_HOST"],
                 "defaults": {"LOG_LEVEL": "info", "PORT": "8080"},
@@ -235,8 +297,10 @@ class TestProfileLoading:
         assert profile.env.defaults == {"LOG_LEVEL": "info", "PORT": "8080"}
 
     def test_load_profile_dependencies_parsed(self, tmp_path: Path):
+        (tmp_path / "data").mkdir()
         profile_data = {
             "name": "Deps Test",
+            "data": "data",
             "dependencies": ["numpy>=1.24", "pandas", "scipy~=1.11"],
         }
         path = tmp_path / "deps.yml"
@@ -285,8 +349,10 @@ class TestValidation:
             profile.validate(tmp_path)
 
     def test_mcp_server_url_only_passes_validation(self, tmp_path: Path):
+        (tmp_path / "data").mkdir()
         profile = BuildProfile(
             name="Test",
+            data="data",
             mcp_servers={"remote": McpServerDef(url="http://host:8001/sse")},
         )
         profile.validate(tmp_path)  # Should not raise
@@ -370,7 +436,10 @@ class TestValidation:
     def test_default_panel_selected_builtin_accepted(self, tmp_path: Path):
         """A built-in panel id is accepted as default_panel once web_panels
         selects it — the selection is what shows the tab."""
-        profile = BuildProfile(name="Test", web_panels=["ariel"], default_panel="ariel")
+        (tmp_path / "data").mkdir()
+        profile = BuildProfile(
+            name="Test", data="data", web_panels=["ariel"], default_panel="ariel"
+        )
         profile.validate(tmp_path)  # must not raise
 
     def test_default_panel_unselected_builtin_rejected(self, tmp_path: Path):
@@ -383,8 +452,10 @@ class TestValidation:
     def test_default_panel_custom_via_config_accepted(self, tmp_path: Path):
         """A custom panel backed by a `web.panels.<id>.url` config override
         is accepted as default_panel once web_panels selects it."""
+        (tmp_path / "data").mkdir()
         profile = BuildProfile(
             name="Test",
+            data="data",
             web_panels=["grafana"],
             default_panel="grafana",
             config={"web.panels.grafana.url": "http://localhost:3000"},
@@ -555,11 +626,13 @@ class TestBuildHelpers:
 
     def test_load_profile_mcp_server_port_derives_url(self, tmp_path: Path):
         """A bare `port:` should yield url=http://localhost:<port>/mcp."""
+        (tmp_path / "data").mkdir()
         p = tmp_path / "profile.yml"
         p.write_text(
             yaml.dump(
                 {
                     "name": "PortTest",
+                    "data": "data",
                     "mcp_servers": {
                         "matlab": {
                             "port": 8008,
@@ -577,11 +650,13 @@ class TestBuildHelpers:
 
     def test_load_profile_mcp_server_port_with_explicit_url(self, tmp_path: Path):
         """An explicit `url:` plus `port:` should keep the explicit url verbatim."""
+        (tmp_path / "data").mkdir()
         p = tmp_path / "profile.yml"
         p.write_text(
             yaml.dump(
                 {
                     "name": "ExternalClient",
+                    "data": "data",
                     "mcp_servers": {
                         "matlab": {
                             "port": 8008,
@@ -894,10 +969,11 @@ class TestGeneratedProjectEnvExample:
     def built_project(self, tmp_path: Path) -> Path:
         from osprey.cli.templates.manager import TemplateManager
 
-        return TemplateManager().create_project(
+        return _create_project(
+            TemplateManager(),
             project_name="env-example-project",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_root=bundle_data_root(),
             context={"channel_finder_mode": "hierarchical"},
         )
 
@@ -1405,7 +1481,7 @@ class TestProfileExtends:
             tmp_path / "base.yml",
             {
                 "name": "Base Profile",
-                "data_bundle": "control_assistant",
+                "data": "data",
                 "provider": "cborg",
                 "model": "opus",
                 "hooks": ["hook-a", "hook-b"],
@@ -1501,7 +1577,7 @@ class TestProfileExtends:
             tmp_path / "base.yml",
             {
                 "name": "Base",
-                "data_bundle": "control_assistant",
+                "data": "data",
                 "config": {"control_system.type": "mock"},
                 "mcp_servers": {
                     "matlab": {
@@ -1590,7 +1666,7 @@ class TestProfileExtends:
             tmp_path / "grandparent.yml",
             {
                 "name": "Grandparent",
-                "data_bundle": "control_assistant",
+                "data": "data",
                 "provider": "cborg",
                 "model": "opus",
                 "hooks": ["hook-a"],
@@ -1640,7 +1716,7 @@ class TestProfileExtends:
             tmp_path / "base.yml",
             {
                 "name": "Base",
-                "data_bundle": "control_assistant",
+                "data": "data",
                 "config": {"control_system.type": "mock"},
                 "mcp_servers": {
                     "srv": {"command": "python", "args": ["-m", "srv"]},
@@ -1682,6 +1758,20 @@ class TestProfileExtends:
 # ---------------------------------------------------------------------------
 
 
+def _set_args(profile_keys: dict[str, object]) -> list[str]:
+    """*profile_keys* as ``--set`` arguments for ``osprey init``.
+
+    One pair per top-level profile key. A ``--set`` value is YAML, and a
+    mapping given as one is written whole at the key it names, so a block like
+    ``va_archiver:`` travels in a single pair.
+    """
+    return [
+        arg
+        for key, value in profile_keys.items()
+        for arg in ("--set", f"{key}={json.dumps(value)}")
+    ]
+
+
 def _build_for_web_panels(
     tmp_path: Path,
     web_panels: list[str] | None,
@@ -1704,7 +1794,7 @@ def _build_for_web_panels(
 
     profile_data: dict = {
         "name": "Panels Test",
-        "data_bundle": "control_assistant",
+        "data": "data",
         "provider": "cborg",
         "model": "haiku",
         # Ship the memory-guard hook the real control_assistant preset ships:
@@ -1738,13 +1828,14 @@ def _build_for_web_panels(
         template_context["default_panel"] = build_profile.default_panel
 
     manager = TemplateManager()
-    project_dir = manager.create_project(
+    project_dir = _create_project(
+        manager,
         project_name="panels-test",
         output_dir=tmp_path / "out",
-        data_bundle=build_profile.data_bundle,
         context=template_context,
         force=False,
         artifacts=artifacts,
+        data_root=build_profile.resolved_data_root(tmp_path),
     )
     if build_profile.config:
         _apply_config_overrides(project_dir, build_profile.config)
@@ -1786,16 +1877,18 @@ class TestWebPanelsRendering:
         assert panels["beam-viewer"]["url"] == "http://localhost:8007"
         assert "enabled" not in panels["beam-viewer"]
 
-    def test_empty_web_panels_renders_empty_mapping(self, tmp_path: Path):
-        """When web_panels is absent, template emits `panels: {}` and no builtins enable.
-        Empty mapping (not None) is required so dotted-override merge stays safe."""
+    def test_no_web_panels_renders_no_web_block(self, tmp_path: Path):
+        """A profile that selects nothing renders no `web:` header at all.
+
+        The section is written only when a selection fills it — a default
+        panel, a builtin, or a layout preset. A bare `web:` is worse than none:
+        the web terminal cannot load one, and a `config: web.panels.<id>.*`
+        key creates the branch it needs on its own.
+        """
         config_path = _build_for_web_panels(tmp_path, web_panels=None)
         config = yaml.safe_load(config_path.read_text())
 
-        panels = config["web"]["panels"]
-        assert panels == {} or panels is None  # ruamel/pyyaml may parse either way
-        # Critical: `web.panels` key exists and is not missing from the tree.
-        assert "panels" in config["web"]
+        assert "web" not in config
 
     def test_builtin_enabled_from_template_merges_with_dotted_label(self, tmp_path: Path):
         """A builtin panel gets enabled: true from the template, then the dotted
@@ -1852,15 +1945,28 @@ def _preset_tier_source(tier: int, paradigm: str) -> Path:
     )
 
 
+# The posture every deployment must state in its own `config:` block for a
+# build to be allowed to render. Nothing supplies these behind the profile's
+# back, so a hand-written test profile spells them the way a materialized one
+# does.
+POSTURE_CONFIG: dict = {
+    "control_system.type": "mock",
+    "archiver.type": "mock",
+    "claude_code.telemetry.enabled": False,
+    "hooks.debug": False,
+}
+
+
 def _write_tier_profile(profile_dir: Path, paradigm: str, tier: int | None = None) -> Path:
     """Write a minimal control_assistant profile pinned to a single paradigm
     and (optionally) a tier."""
     profile_data: dict = {
         "name": "Tier Test",
-        "data_bundle": "control_assistant",
+        "data": "data",
         "provider": "cborg",
         "model": "haiku",
         "channel_finder_mode": paradigm,
+        "config": dict(POSTURE_CONFIG),
     }
     if tier is not None:
         profile_data["tier"] = tier
@@ -1881,17 +1987,20 @@ def _tier_repo(tmp_path: Path, paradigm: str, tier: int | None = None) -> Path:
     repo.mkdir(parents=True, exist_ok=True)
     profile_data: dict = {
         "name": "Tier Test",
-        "data_bundle": "control_assistant",
+        "data": "data",
         "provider": "cborg",
         "model": "haiku",
         "channel_finder_mode": paradigm,
+        "config": dict(POSTURE_CONFIG),
     }
     if tier is not None:
         profile_data["tier"] = tier
     (repo / "profile.yml").write_text(yaml.dump(profile_data, default_flow_style=False))
-    # The bundle's source zone `osprey init` lays down beside the profile; the
-    # Reach Contract refuses a render whose bind source is not there.
-    (repo / "data" / "facility_knowledge").mkdir(parents=True)
+    # The data tree `osprey init` lays down beside the profile: the build stages
+    # its channel databases out of this tree and no other, and the Reach
+    # Contract refuses a render whose bind source is not there.
+    materialize_data(repo)
+    (repo / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
     return repo
 
 
@@ -2186,14 +2295,14 @@ def test_build_channel_finder_agent_requires_mode(tmp_path: Path, caplog) -> Non
 
     profile_data = {
         "name": "no mode",
-        "data_bundle": "control_assistant",
+        "data": "data",
         "provider": "cborg",
         "model": "haiku",
         "agents": ["channel-finder"],
         # NOTE: channel_finder_mode intentionally omitted.
     }
     repo = tmp_path / "no-mode"
-    repo.mkdir()
+    (repo / "data").mkdir(parents=True)
     (repo / "profile.yml").write_text(yaml.dump(profile_data, default_flow_style=False))
 
     runner = CliRunner()
@@ -2227,10 +2336,12 @@ def test_build_context_warns_when_remove_ask_overrides_gated_tool(tmp_path: Path
     from osprey.cli.templates.manager import TemplateManager
 
     manager = TemplateManager()
-    project = manager.create_project(
+    project = _create_project(
+        manager,
         project_name="remove-ask-warn",
         output_dir=tmp_path,
         data_bundle="hello_world",
+        data_root=bundle_data_root("hello_world"),
     )
 
     config = yaml.safe_load((project / "config.yml").read_text())
@@ -2266,10 +2377,12 @@ def test_lint_rejects_ungated_write_tool_when_memory_guard_absent(tmp_path: Path
     from osprey.cli.templates.manager import TemplateManager
 
     manager = TemplateManager()
-    project = manager.create_project(
+    project = _create_project(
+        manager,
         project_name="lint-no-guard",
         output_dir=tmp_path,
         data_bundle="hello_world",
+        data_root=bundle_data_root("hello_world"),
     )
 
     config = yaml.safe_load((project / "config.yml").read_text())
@@ -2301,10 +2414,12 @@ def test_lint_passes_for_normal_build_with_memory_guard(tmp_path: Path) -> None:
     manager = TemplateManager()
     # create_project runs create_claude_code_integration, which runs the lint;
     # a trip would raise here and fail the test.
-    project = manager.create_project(
+    project = _create_project(
+        manager,
         project_name="lint-normal",
         output_dir=tmp_path,
         data_bundle="hello_world",
+        data_root=bundle_data_root("hello_world"),
     )
 
     settings = json.loads((project / ".claude" / "settings.json").read_text())
@@ -2391,14 +2506,32 @@ def test_write_capable_builtins_cover_the_shell_and_patch_escape_hatches() -> No
 
 
 def _project_with_permissions(tmp_path: Path, name: str, permissions: dict) -> tuple[object, Path]:
-    """A built project whose config carries ``claude_code.permissions``."""
+    """A built project whose config carries ``claude_code.permissions``.
+
+    The manifest is written as well as the project, because that is where a
+    regen reads the artifact selection back from: without it the regenerated
+    context selects no hooks at all and every write-tool gate the lint looks
+    for is missing for a reason that has nothing to do with the permissions
+    under test. It is stamped with what a build stamps — the preset the profile
+    records AND the selection the render was made with — because a manifest
+    that names neither leaves the regen with nothing to select from.
+    """
     from osprey.cli.templates.manager import TemplateManager
 
     manager = TemplateManager()
-    project = manager.create_project(
+    project = _create_project(
+        manager,
         project_name=name,
         output_dir=tmp_path,
         data_bundle="hello_world",
+        data_root=bundle_data_root("hello_world"),
+    )
+    manager.generate_manifest(
+        project,
+        name,
+        recorded_preset="hello-world",
+        artifacts=manager._effective_artifacts("hello_world", None),
+        preset_name="hello-world",
     )
     config = yaml.safe_load((project / "config.yml").read_text())
     config.setdefault("claude_code", {})["permissions"] = permissions
@@ -2506,10 +2639,12 @@ def test_a_framework_matcher_gates_without_the_warning(tmp_path: Path, caplog) -
 
     manager = TemplateManager()
     with caplog.at_level(logging.WARNING):
-        project = manager.create_project(
+        project = _create_project(
+            manager,
             project_name="framework-gate-quiet",
             output_dir=tmp_path,
             data_bundle="hello_world",
+            data_root=bundle_data_root("hello_world"),
         )
 
     assert project.is_dir()
@@ -2528,10 +2663,22 @@ def test_writes_disabled_hard_block_covers_extends_clones(tmp_path: Path) -> Non
     from osprey.utils.config_writer import config_update_fields
 
     manager = TemplateManager()
-    project = manager.create_project(
+    project = _create_project(
+        manager,
         project_name="writes-block-clone",
         output_dir=tmp_path,
         data_bundle="hello_world",
+        data_root=bundle_data_root("hello_world"),
+    )
+    # The regen below reads its artifact selection back from the manifest, so
+    # the stamp carries what a build's stamp carries: the recorded preset and
+    # the selection the render was made with.
+    manager.generate_manifest(
+        project,
+        "writes-block-clone",
+        recorded_preset="hello-world",
+        artifacts=manager._effective_artifacts("hello_world", None),
+        preset_name="hello-world",
     )
 
     config_update_fields(
@@ -2719,8 +2866,9 @@ class TestTierSelectionRules:
         """The valid tier-1 combo (in_context) resolves cleanly."""
         from osprey.cli.build_profile import resolve_build_profile
 
+        (tmp_path / "data").mkdir()
         prof = tmp_path / "profile.yml"
-        prof.write_text("name: t\nchannel_finder_mode: in_context\ntier: 1\n")
+        prof.write_text("name: t\ndata: data\nchannel_finder_mode: in_context\ntier: 1\n")
         resolved, _ = resolve_build_profile(prof.resolve(), preset=None)
         assert resolved.tier == 1
         assert resolved.resolved_tier() == 1
@@ -2954,19 +3102,15 @@ class TestVAArchiverConfigDerivation:
     """The `va_archiver:` block's keys reach a built project's config.yml."""
 
     def _build(self, tmp_path: Path, project_name: str, **profile_keys: object) -> Path:
-        """Init the hello-world preset with *profile_keys* layered on top, build,
-        and return the RENDER — the directory whose config.yml the deploy reads."""
+        """Init the hello-world preset with *profile_keys* stated, build, and
+        return the RENDER — the directory whose config.yml the deploy reads."""
         from click.testing import CliRunner
 
         from osprey.cli.build_cmd import build
         from osprey.cli.init_cmd import init
 
         repo = tmp_path / project_name
-        argv = [str(repo), "--preset", "hello-world", "--no-git"]
-        if profile_keys:
-            override = tmp_path / f"{project_name}-override.yml"
-            override.write_text(yaml.safe_dump(profile_keys, sort_keys=False), encoding="utf-8")
-            argv += ["-O", str(override)]
+        argv = [str(repo), "--preset", "hello-world", "--no-git", *_set_args(profile_keys)]
 
         runner = CliRunner()
         result = runner.invoke(init, argv)
@@ -3091,7 +3235,7 @@ class TestTierIsPinnedOnlyWhereTheParadigmAcceptsOne:
         name: str,
         **profile_keys: object,
     ) -> tuple[Path, list[int | None]]:
-        """Build the control-assistant preset with *profile_keys* layered on.
+        """Build the control-assistant preset with *profile_keys* stated.
 
         Returns the render and the ``tier`` every render in the build handed
         ``create_project``. A build renders more than once — the deployment's
@@ -3113,12 +3257,17 @@ class TestTierIsPinnedOnlyWhereTheParadigmAcceptsOne:
         from osprey.cli.templates.manager import TemplateManager
 
         repo = tmp_path / name
-        override = tmp_path / f"{name}-override.yml"
-        override.write_text(yaml.safe_dump(profile_keys, sort_keys=False), encoding="utf-8")
 
         runner = CliRunner()
         created = runner.invoke(
-            init, [str(repo), "--preset", "control-assistant", "--no-git", "-O", str(override)]
+            init,
+            [
+                str(repo),
+                "--preset",
+                "control-assistant",
+                "--no-git",
+                *_set_args(profile_keys),
+            ],
         )
         assert created.exit_code == 0, created.output
 

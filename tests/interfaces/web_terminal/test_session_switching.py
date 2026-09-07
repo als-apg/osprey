@@ -382,6 +382,11 @@ class TestSessionSwitchingContract:
             mock_reg, _ = self._mock_registry(app)
             with client.websocket_connect(_resume_url(sid)) as ws:
                 _send_resize(ws)
+                # The handler sends session_info only after the hand-off door
+                # has run (get_or_create + attach). Without this barrier the
+                # close below races the door, and the assertions read a mock
+                # the handler never reached.
+                _recv_json(ws, "session_info")
 
         # get_or_create_session was called with the session UUID as key
         mock_reg.get_or_create_session.assert_called_once()
@@ -471,6 +476,9 @@ class TestSessionSwitchingContract:
             mock_reg, fake = self._mock_registry(app)
             with client.websocket_connect(_resume_url(sid)) as ws:
                 _send_resize(ws)
+                # Door-completion barrier — see
+                # test_connect_calls_get_or_create_then_attach.
+                _recv_json(ws, "session_info")
                 mock_reg.reset_mock()
 
         # Handler's finally: detach(current_key, token)
@@ -490,6 +498,9 @@ class TestSessionSwitchingContract:
             mock_reg, _ = self._mock_registry(app, fake_session=dead)
             with client.websocket_connect(_resume_url(sid)) as ws:
                 _send_resize(ws)
+                # Door-completion barrier — see
+                # test_connect_calls_get_or_create_then_attach.
+                _recv_json(ws, "session_info")
                 mock_reg.reset_mock()
                 # Kill the session while connected
                 dead._alive = False
@@ -519,6 +530,9 @@ class TestSessionSwitchingContract:
             mock_reg, _ = self._mock_registry(app, fake_session=dead)
             with client.websocket_connect(_resume_url(sid)) as ws:
                 _send_resize(ws)
+                # Door-completion barrier — see
+                # test_connect_calls_get_or_create_then_attach.
+                _recv_json(ws, "session_info")
                 mock_reg.reset_mock()
                 dead._alive = False
                 time.sleep(0.2)  # let output loop notice and exit

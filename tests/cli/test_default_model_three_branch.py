@@ -161,22 +161,9 @@ class TestShippedPresetsResolve:
         """No preset may drop out of the parametrization by shipping no yml."""
         assert len(list(PRESET_DIR.glob("*.yml"))) >= 6
 
-    def test_the_defaults_view_renders_a_resolvable_default_model(self, tmp_path):
-        """``osprey config --defaults`` is the config people read to start from.
-
-        It answers "what keys exist and what do they default to", so a default
-        model tier it names that the resolver cannot map is a wrong answer at
-        the one place someone is most likely to copy from.
-        """
-        from click.testing import CliRunner
-
-        from osprey.cli.config_cmd import config
-
-        result = CliRunner().invoke(config, ["--defaults"])
-        assert result.exit_code == 0, result.output
-        exported = yaml.safe_load(result.output)
-        cc_config = exported["claude_code"]
-        spec = ClaudeCodeModelResolver.resolve(
-            cc_config, exported.get("api", {}).get("providers", {}), include_telemetry=False
-        )
-        assert spec.default_model_tier in spec.tier_to_model
+    # ``osprey config --defaults`` used to name an example model here, and a
+    # tier the resolver could not map was worth failing on because that view
+    # was a template someone would copy from. It is a key ledger now: it prints
+    # what each key falls back to when a profile omits it, and no reader falls
+    # back to a model, so the view names none to resolve. The presets above are
+    # where a shipped model is checked.

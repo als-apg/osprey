@@ -64,6 +64,7 @@ import yaml
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.port_layout import default_port
 from tests.e2e._volumes import remove_project_volumes
+from tests.e2e.profile_edits import set_pairs
 
 #: This deploy's own thousand-port block — same convention as
 #: test_dispatch_deploy.py (20700) and test_web_bind.py (21000): a real
@@ -290,12 +291,10 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     # nginx, all built locally on `up`) so the deploy only builds the
     # dispatcher/worker images it actually exercises. Web-terminals coverage
     # lives in control-assistant-demo-e2e / multi-user-deploy-lifecycle-e2e /
-    # tests/e2e/web_terminals/. One dotted LEAF key via --override, mirroring
-    # tests/e2e/_orm_stack.override_yaml(): a nested `modules:` mapping (or a
-    # `--set` with its nested-dict semantics) would wholesale-replace the
-    # preset's `modules.web_terminals` subtree instead of flipping one field.
-    override_path = base / "override.yml"
-    override_path.write_text("config:\n  modules.web_terminals.enabled: false\n", encoding="utf-8")
+    # tests/e2e/web_terminals/. One dotted LEAF key, mirroring
+    # tests/e2e/_orm_stack.profile_edits(): stating the
+    # `modules.web_terminals` key itself would replace the preset's whole
+    # subtree instead of flipping one field.
 
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset, `build` renders build/ from it.
@@ -307,8 +306,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             "--preset",
             "control-assistant",
             "--no-git",
-            "--override",
-            str(override_path),
+            *set_pairs({"config": {"modules.web_terminals.enabled": False}}),
             "--set",
             "provider=als-apg",
             "--set",

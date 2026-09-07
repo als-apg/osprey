@@ -153,6 +153,11 @@
             "type": "command",
             "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_panels_context.py" 2>/dev/null || true') | tojson }},
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_control_context.py" 2>/dev/null || true') | tojson }},
+            "timeout": 3
           }
         ]
       },
@@ -185,6 +190,11 @@
           {
             "type": "command",
             "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_workspace_delta.py" 2>/dev/null || true') | tojson }},
+            "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_control_context.py" 2>/dev/null || true') | tojson }},
             "timeout": 3
           },
           {

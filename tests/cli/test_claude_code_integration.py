@@ -6,6 +6,7 @@ Tests that ``osprey build`` generates Claude Code integration files
 
 import json
 import os
+from pathlib import Path
 
 import pytest
 import yaml
@@ -17,6 +18,42 @@ from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.cli.templates.manager import TemplateManager
 from osprey.utils.workspace import RENDERED_CONFIG_RELPATH, agent_data_base_dir
+
+
+def _bundle_data_root(bundle: str = "control_assistant") -> Path:
+    """The tree these fixtures give ``create_project`` as the profile's ``data:``.
+
+    A build copies the tree its profile's ``data:`` key names, and that key is
+    required — nothing falls back to a packaged tree any more. These fixtures
+    render straight from a bundle rather than from a profile, so they name the
+    tree that bundle packages, which is the same content the render used to
+    reach for on its own.
+    """
+    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+
+
+def _create_project(manager: TemplateManager, **kwargs) -> Path:
+    """``create_project`` plus the manifest stamp a real build writes next.
+
+    A build stamps ``.osprey-manifest.json`` immediately after the render, and
+    the Claude Code regen reads the preset back out of it to learn which
+    artifacts the project selected. A fixture that renders without stamping is
+    not a project any build produces: it regenerates with an empty artifact
+    selection, and the write-gate lint rightly refuses the result.
+    """
+    project = manager.create_project(**kwargs)
+    bundle = kwargs.setdefault("data_bundle", "control_assistant")
+    manager.generate_manifest(
+        project,
+        kwargs["project_name"],
+        bundle.replace("_", "-"),
+        {},
+        # The selection the render was made with, exactly as a build stamps it:
+        # a site that hands `create_project` its own `artifacts=` must get that
+        # selection back on the regen, not the bundle's full list.
+        artifacts=manager._effective_artifacts(bundle, kwargs.get("artifacts")),
+    )
+    return project
 
 
 def _init_and_build(runner: CliRunner, repo_dir):
@@ -38,11 +75,13 @@ class TestClaudeCodeIntegrationDefault:
     def test_default_init_creates_all_claude_code_files(self, tmp_path):
         """Default init creates all Claude Code files."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="test-project",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         # All core files should exist
@@ -59,11 +98,13 @@ class TestClaudeCodeIntegrationDefault:
     def test_claude_code_always_generated(self, tmp_path):
         """Claude Code files are always generated (single mode)."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="always-claude-project",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         assert (project_dir / ".mcp.json").exists()
@@ -77,11 +118,13 @@ class TestClaudeCodeFileContents:
     @pytest.fixture()
     def project_dir(self, tmp_path):
         manager = TemplateManager()
-        return manager.create_project(
+        return _create_project(
+            manager,
             project_name="content-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
     def test_mcp_json_is_valid_json(self, project_dir):
@@ -287,11 +330,13 @@ class TestClaudeCodeAcrossTemplates:
     def test_works_for_all_templates(self, tmp_path, data_bundle):
         """Claude Code files are generated for all data bundles."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name=f"test-{data_bundle}",
             output_dir=tmp_path,
             data_bundle=data_bundle,
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root(data_bundle),
         )
 
         assert (project_dir / ".mcp.json").exists()
@@ -311,11 +356,13 @@ class TestClaudeCodeGitignore:
         ``var/agent_data``, so ignoring the zone root covers it.
         """
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="gitignore-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         gitignore = (project_dir / ".gitignore").read_text()
@@ -390,11 +437,13 @@ class TestChannelFinderAgent:
     def test_control_assistant_generates_agent_file(self, tmp_path):
         """control_assistant template produces .claude/agents/channel-finder.md."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="agent-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         agent_path = project_dir / ".claude" / "agents" / "channel-finder.md"
@@ -405,11 +454,13 @@ class TestChannelFinderAgent:
     def test_agent_has_correct_frontmatter(self, tmp_path):
         """Agent file has YAML frontmatter with name, description, model, maxTurns, mcpServers."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="frontmatter-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
@@ -426,11 +477,13 @@ class TestChannelFinderAgent:
     def test_agent_contains_pipeline_specific_tools(self, tmp_path):
         """Hierarchical mode includes cf_hier_* tools, not cf_ml_* or cf_ic_*."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="pipeline-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
@@ -442,11 +495,13 @@ class TestChannelFinderAgent:
     def test_middle_layer_pipeline_tools(self, tmp_path):
         """Middle layer mode includes ml tools, not hier or ic tools."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="ml-pipeline-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "middle_layer"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
@@ -458,11 +513,13 @@ class TestChannelFinderAgent:
     def test_in_context_pipeline_tools(self, tmp_path):
         """In-context mode includes ic tools, not hier or ml tools."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="ic-pipeline-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "in_context"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
@@ -475,11 +532,13 @@ class TestChannelFinderAgent:
     def test_agent_has_submit_response_instructions(self, tmp_path):
         """Channel-finder agent prompt includes submit_response instructions."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="cr-submit-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
         assert "submit_response" in content
@@ -490,11 +549,13 @@ class TestChannelFinderAgent:
         from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
 
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="cf-allow-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
@@ -507,11 +568,13 @@ class TestChannelFinderAgent:
     def test_channel_finder_in_mcp_json(self, tmp_path):
         """channel-finder MCP server IS in .mcp.json (project-level, not inline)."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="mcp-isolation-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         data = json.loads((project_dir / ".mcp.json").read_text())
@@ -520,11 +583,13 @@ class TestChannelFinderAgent:
     def test_channel_finding_rule_not_generated(self, tmp_path):
         """Old channel_finding.md rule file is NOT generated."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="no-rule-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         assert not (project_dir / ".claude" / "rules" / "channel_finding.md").exists()
@@ -614,11 +679,13 @@ class TestGraphParadigmRender:
 
     @staticmethod
     def _render(tmp_path, name):
-        return TemplateManager().create_project(
+        return _create_project(
+            TemplateManager(),
             project_name=name,
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "graph"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
     def test_graph_render_tools_are_backed_by_permissions(self, tmp_path):
@@ -651,11 +718,13 @@ class TestLogbookSearchAgent:
     def test_agent_file_generated(self, tmp_path):
         """All templates produce .claude/agents/logbook-search.md (unconditional)."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="logbook-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
         agent_path = project_dir / ".claude" / "agents" / "logbook-search.md"
         assert agent_path.exists()
@@ -665,11 +734,13 @@ class TestLogbookSearchAgent:
     def test_agent_has_correct_frontmatter(self, tmp_path):
         """Agent file has YAML frontmatter with name, description, model, disallowedTools."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="logbook-fm-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
         content = (project_dir / ".claude" / "agents" / "logbook-search.md").read_text()
         assert "name: logbook-search" in content
@@ -681,11 +752,13 @@ class TestLogbookSearchAgent:
     def test_agent_has_submit_response_instructions(self, tmp_path):
         """Agent prompt includes submit_response instructions."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="logbook-submit-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
         content = (project_dir / ".claude" / "agents" / "logbook-search.md").read_text()
         assert "submit_response" in content
@@ -694,11 +767,13 @@ class TestLogbookSearchAgent:
     def test_task_allowed_in_settings(self, tmp_path):
         """Task(logbook-search) is in settings.json allow list."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="logbook-perm-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
         assert "Task(logbook-search)" in data["permissions"]["allow"]
@@ -709,11 +784,13 @@ class TestLogbookSearchAgent:
     def test_claude_md_has_delegation_instructions(self, tmp_path):
         """CLAUDE.md has logbook-search delegation instructions."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="logbook-claude-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
         content = (project_dir / "CLAUDE.md").read_text()
         assert "logbook-search" in content
@@ -726,11 +803,13 @@ class TestLogbookDeepResearchAgent:
     def test_agent_file_generated(self, tmp_path):
         """All templates produce .claude/agents/logbook-deep-research.md."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="deep-research-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
         agent_path = project_dir / ".claude" / "agents" / "logbook-deep-research.md"
         assert agent_path.exists()
@@ -740,11 +819,13 @@ class TestLogbookDeepResearchAgent:
     def test_agent_has_correct_frontmatter(self, tmp_path):
         """Agent file has correct YAML frontmatter."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="deep-research-fm-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
         content = (project_dir / ".claude" / "agents" / "logbook-deep-research.md").read_text()
         assert "name: logbook-deep-research" in content
@@ -757,11 +838,13 @@ class TestLogbookDeepResearchAgent:
     def test_agent_has_submit_response_instructions(self, tmp_path):
         """Agent prompt includes submit_response instructions."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="deep-research-submit-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
         content = (project_dir / ".claude" / "agents" / "logbook-deep-research.md").read_text()
         assert "submit_response" in content
@@ -770,11 +853,13 @@ class TestLogbookDeepResearchAgent:
     def test_task_allowed_in_settings(self, tmp_path):
         """Task(logbook-deep-research) is in settings.json allow list."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="deep-research-perm-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
         assert "Task(logbook-deep-research)" in data["permissions"]["allow"]
@@ -782,11 +867,13 @@ class TestLogbookDeepResearchAgent:
     def test_claude_md_has_delegation_instructions(self, tmp_path):
         """CLAUDE.md mentions both agents with usage guidance."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="deep-research-claude-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
         content = (project_dir / "CLAUDE.md").read_text()
         assert "logbook-deep-research" in content
@@ -801,11 +888,13 @@ class TestNeverFabricateDataRule:
     def test_safety_md_has_fabrication_rule(self, tmp_path):
         """safety.md contains the data fabrication rule and cross-references error-handling.md."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="fabrication-safety-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         content = (project_dir / ".claude" / "rules" / "safety.md").read_text()
@@ -816,11 +905,13 @@ class TestNeverFabricateDataRule:
     def test_claude_md_references_data_integrity(self, tmp_path):
         """CLAUDE.md identity asserts data integrity."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="fabrication-claude-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
@@ -833,11 +924,13 @@ class TestChannelFinderAwareness:
     def test_claude_md_mentions_agent_upfront(self, tmp_path):
         """control_assistant CLAUDE.md has agent awareness in opening section."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="awareness-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
@@ -848,11 +941,13 @@ class TestChannelFinderAwareness:
     def test_claude_md_warns_no_direct_tools(self, tmp_path):
         """CLAUDE.md tells the main session it does NOT have channel-finder tools."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="no-direct-tools-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
@@ -865,11 +960,13 @@ class TestUserOwnedSkipBehavior:
     def test_user_owned_skips_safety_on_regen(self, tmp_path):
         """Regen skips user-owned safety.md, preserving custom content."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="test-skip-safety",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         # Customize safety.md and add to user_owned
@@ -892,11 +989,13 @@ class TestUserOwnedSkipBehavior:
     def test_user_owned_skips_claude_md_on_regen(self, tmp_path):
         """Regen skips user-owned CLAUDE.md."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="test-skip-md",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         custom_content = "# My Custom CLAUDE.md\nFacility-specific content."
@@ -917,11 +1016,13 @@ class TestUserOwnedSkipBehavior:
     def test_user_owned_skips_mcp_json_on_regen(self, tmp_path):
         """Regen skips user-owned .mcp.json."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="test-skip-mcp",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         custom_content = '{"mcpServers": {"custom": {}}}'
@@ -942,11 +1043,13 @@ class TestUserOwnedSkipBehavior:
     def test_no_user_owned_behaves_as_before(self, tmp_path):
         """A project without a prompts section renders unaffected."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="test-no-owned",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         assert (project_dir / "CLAUDE.md").exists()
@@ -956,11 +1059,13 @@ class TestUserOwnedSkipBehavior:
     def test_claude_project_md_not_generated(self, tmp_path):
         """CLAUDE-project.md is NOT generated (retired)."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="no-project-md-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         assert not (project_dir / "CLAUDE-project.md").exists()
@@ -968,11 +1073,13 @@ class TestUserOwnedSkipBehavior:
     def test_no_overrides_directory_created(self, tmp_path):
         """Init does not create an overrides/ directory."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="no-overrides-dir",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         assert not (project_dir / "overrides").exists()
@@ -991,11 +1098,13 @@ class TestProviderEnvBlock:
     def test_settings_json_has_no_env_block(self, tmp_path, provider):
         """settings.json must not have an 'env' block (runtime-injected now)."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name=f"no-env-{provider}",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"default_provider": provider, "channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
@@ -1008,11 +1117,13 @@ class TestProviderEnvBlock:
     def test_settings_json_has_no_model_key(self, tmp_path, provider):
         """settings.json must not have a 'model' key (runtime-injected now)."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name=f"no-model-{provider}",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"default_provider": provider, "channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
@@ -1026,11 +1137,13 @@ class TestProviderEnvBlock:
         import yaml
 
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="als-apg-config-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"default_provider": "als-apg", "channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1044,11 +1157,13 @@ class TestProtocolAwareSafetyRules:
     def test_epics_renders_epics_content(self, tmp_path):
         """EPICS config produces EPICS-specific safety rules."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="safety-epics",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         # Set control_system.type to epics and regenerate
@@ -1077,11 +1192,13 @@ class TestProtocolAwareSafetyRules:
     def test_tango_renders_tango_content(self, tmp_path):
         """Tango config produces Tango-specific safety rules."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="safety-tango",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1108,11 +1225,13 @@ class TestProtocolAwareSafetyRules:
     def test_opcua_renders_opcua_content(self, tmp_path):
         """OPC-UA config produces OPC-UA-specific safety rules."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="safety-opcua",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1138,11 +1257,13 @@ class TestProtocolAwareSafetyRules:
     def test_mock_renders_generic_content(self, tmp_path):
         """Mock/default config produces generic safety rules."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="safety-mock",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1170,11 +1291,13 @@ class TestProtocolAwareSafetyRules:
         from osprey.cli.templates import claude_code
 
         for protocol in ["epics", "tango", "opcua", "labview", "mock"]:
-            project_dir = manager.create_project(
+            project_dir = _create_project(
+                manager,
                 project_name=f"safety-{protocol}",
                 output_dir=tmp_path / protocol,
                 data_bundle="control_assistant",
                 context={"channel_finder_mode": "hierarchical"},
+                data_root=_bundle_data_root("control_assistant"),
             )
             config = yaml.safe_load((project_dir / "config.yml").read_text())
             config.setdefault("control_system", {})["type"] = protocol
@@ -1200,11 +1323,13 @@ class TestControlSystemTypeContext:
     def test_control_system_type_from_config(self, tmp_path):
         """control_system_type is read from config."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="ctx-cs-type",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1220,11 +1345,13 @@ class TestControlSystemTypeContext:
     def test_control_system_type_defaults_to_mock(self, tmp_path):
         """control_system_type defaults to 'mock' when not in config."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="ctx-cs-default",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1244,11 +1371,13 @@ class TestGeneralizedRulesContent:
     def test_safety_md_no_epics_patterns(self, tmp_path):
         """safety.md does not reference EPICS-specific write patterns."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="gen-safety",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         content = (project_dir / ".claude" / "rules" / "safety.md").read_text()
@@ -1266,11 +1395,13 @@ class TestGeneralizedRulesContent:
         as a control-system outage.
         """
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="gen-errors",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         content = (project_dir / ".claude" / "rules" / "error-handling.md").read_text()
@@ -1299,11 +1430,13 @@ class TestFacilityPermissions:
     def _settings(self, tmp_path, permissions_config):
         """Create project, inject permissions config, regen, return parsed settings."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="perms-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1357,11 +1490,13 @@ class TestFacilityPermissions:
     def test_default_deny_unchanged_without_config(self, tmp_path):
         """Without permissions config, deny list matches the 6 framework defaults."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="perms-default",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
@@ -1382,11 +1517,13 @@ class TestDataVisualizationRuleGating:
     def test_rule_absent_when_data_visualizer_enabled(self, tmp_path):
         """Default config enables data-visualizer; the rule must not render."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="viz-rule-gated-on",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1407,11 +1544,13 @@ class TestDataVisualizationRuleGating:
     def test_rule_present_when_data_visualizer_disabled(self, tmp_path):
         """When data-visualizer is disabled, the rule renders with matplotlib + Plotly guidance."""
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="viz-rule-gated-off",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1449,11 +1588,13 @@ class TestDataVisualizerInteractiveDefault:
 
     def test_agent_prompt_documents_interactive_default(self, tmp_path):
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="viz-default-interactive",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         agent_path = project_dir / ".claude" / "agents" / "data-visualizer.md"
@@ -1496,11 +1637,13 @@ class TestRenderContextDoesNotFork:
 
         monkeypatch.setattr(claude_code, "create_claude_code_integration", _capture)
 
-        TemplateManager().create_project(
+        _create_project(
+            TemplateManager(),
             project_name="ctx-parity",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         expected = claude_code.config_derived_context({}, tmp_path)
@@ -1554,11 +1697,13 @@ class TestConfigDerivedKeysPrecedeServerResolution:
         from osprey.registry import mcp as registry_mcp
 
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="ctx-probe-build",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         monkeypatch.setattr(registry_mcp, "FRAMEWORK_SERVERS", self._framework_servers_with_probe())
@@ -1588,11 +1733,13 @@ class TestConfigDerivedKeysPrecedeServerResolution:
 
         monkeypatch.setattr(claude_code, "create_claude_code_integration", _capture)
 
-        TemplateManager().create_project(
+        _create_project(
+            TemplateManager(),
             project_name="ctx-probe-create",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         assert captured["control_system_type"]
@@ -1655,11 +1802,13 @@ class TestGraphdbConfiguredContextKey:
         from osprey.cli.templates import claude_code
 
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="graphdb-malformed",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1676,11 +1825,13 @@ class TestGraphdbConfiguredContextKey:
         from osprey.cli.templates import claude_code
 
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="graphdb-build-path",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
         config = yaml.safe_load((project_dir / "config.yml").read_text())
 
@@ -1698,17 +1849,19 @@ class TestGraphdbConfiguredContextKey:
         assert without_store["graphdb_configured"] is False
         assert "graph" not in without_store["enabled_servers"]
 
-    @pytest.mark.parametrize("deploy_services", [True, False])
+    @pytest.mark.parametrize("has_store", [True, False])
     def test_graphdb_configured_gates_the_graph_server_on_the_create_path(
-        self, tmp_path, monkeypatch, deploy_services
+        self, tmp_path, monkeypatch, has_store
     ):
         """create_project agrees with the build path, block present or not.
 
-        ``deploy_services: false`` renders ``services: {}`` — the attached-project
-        arm of the app template — which is how this path gets a project with no
-        graph store without editing the rendered config after the fact.
+        A deployment says it runs a graph store by spelling ``services.graphdb``
+        in its own ``config:`` — no template adds one underneath — so that key
+        is what the two arms differ by, and the render reads it out of the
+        config.yml the overlay has just written.
         """
         from osprey.cli.templates import claude_code
+        from osprey.utils.config_writer import config_update_fields
 
         captured: dict = {}
         real_integration = claude_code.create_claude_code_integration
@@ -1719,22 +1872,42 @@ class TestGraphdbConfiguredContextKey:
 
         monkeypatch.setattr(claude_code, "create_claude_code_integration", _capture)
 
-        project_dir = TemplateManager().create_project(
-            project_name=f"graphdb-create-{str(deploy_services).lower()}",
+        manager = TemplateManager()
+        name = f"graphdb-create-{str(has_store).lower()}"
+        context = {"channel_finder_mode": "hierarchical"}
+
+        # First render lays the project down; the store is then stated the way a
+        # profile states it, and the second render is the one under test.
+        project_dir = _create_project(
+            manager,
+            project_name=name,
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context=context,
+            data_root=_bundle_data_root("control_assistant"),
+        )
+        if has_store:
+            config_update_fields(
+                project_dir / "config.yml", {"services.graphdb.path": "./services/graphdb"}
+            )
+        captured.clear()
+        project_dir = _create_project(
+            manager,
+            project_name=name,
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={
-                "channel_finder_mode": "hierarchical",
-                "deploy_services": deploy_services,
+                **context,
+                **claude_code.config_derived_context(
+                    yaml.safe_load((project_dir / "config.yml").read_text()), project_dir
+                ),
             },
+            data_root=_bundle_data_root("control_assistant"),
+            force=True,
         )
 
-        rendered = yaml.safe_load((project_dir / "config.yml").read_text())
-        block = (rendered.get("services") or {}).get("graphdb")
-        assert (block is not None) is deploy_services, "the config shape under test"
-
-        assert captured["graphdb_configured"] is deploy_services
-        assert ("graph" in captured["enabled_servers"]) is deploy_services
+        assert captured["graphdb_configured"] is has_store
+        assert ("graph" in captured["enabled_servers"]) is has_store
 
 
 class TestPhoebusBridgeDefaultContextKey:
@@ -1769,11 +1942,13 @@ class TestPhoebusBridgeDefaultContextKey:
         from osprey.cli.templates import claude_code
 
         manager = TemplateManager()
-        project_dir = manager.create_project(
+        project_dir = _create_project(
+            manager,
             project_name="phoebus-bridge-port",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
         )
         config = yaml.safe_load((project_dir / "config.yml").read_text())
 

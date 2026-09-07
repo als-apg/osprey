@@ -24,6 +24,7 @@ from click.testing import CliRunner
 
 from osprey.cli import build_cmd, build_limits_check
 from osprey.cli.build_cmd import build
+from osprey.utils import config_writer
 from osprey.utils.config_writer import config_edit_session, config_update_fields
 
 SAMPLE = """\
@@ -153,6 +154,14 @@ def test_a_build_parses_each_renders_config_once(
         return real_load(self, stream)
 
     monkeypatch.setattr(ruamel.yaml.YAML, "load", counting_load)
+    # The writer loads through a module-level ``YAML`` singleton. An instance
+    # attribute left on it by anything earlier in the process shadows the class
+    # and this counter silently reads zero, which looks like the contract being
+    # broken rather than the measurement being defeated. Say which it is.
+    assert getattr(config_writer._yaml.load, "__func__", None) is counting_load, (
+        "the parse counter is shadowed by an instance attribute on "
+        "config_writer._yaml and would count nothing"
+    )
 
     previous = Path.cwd()
     os.chdir(lifecycle_repo)

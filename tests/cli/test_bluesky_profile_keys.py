@@ -42,6 +42,17 @@ AUTHORED_PORT = default_port("bluesky") + 1000
 AUTHORED_TILED_PORT = AUTHORED_PORT + 1
 
 
+@pytest.fixture(autouse=True)
+def _facility_data_tree(tmp_path: Path) -> None:
+    """The tree every profile's ``data:`` key names, beside the profile.
+
+    ``data:`` is required of a repo profile and must resolve to a real
+    directory, so without this each profile below would report one extra
+    failure about a key none of these tests is about.
+    """
+    (tmp_path / "data").mkdir(exist_ok=True)
+
+
 def _flat(text: str) -> str:
     """Collapse whitespace so assertions survive terminal line wrapping."""
     return " ".join(text.split())
@@ -105,7 +116,7 @@ def test_every_valid_key_is_accepted_and_read() -> None:
 
 def test_empty_block_still_takes_the_defaults() -> None:
     """The check rejects unknown keys, it does not require any."""
-    profile = _parse_profile({"name": "x", "bluesky": {}})
+    profile = _parse_profile({"name": "x", "data": "data", "bluesky": {}})
 
     assert profile.bluesky == BlueskyConfig()
 
@@ -122,7 +133,7 @@ def test_device_page_size_rejects_a_value_that_is_not_a_positive_int(value: Any)
     boolean page size is an authoring mistake, not a size of one.
     """
     with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "bluesky": {"device_page_size": value}})
+        _parse_profile({"name": "x", "data": "data", "bluesky": {"device_page_size": value}})
 
     message = str(excinfo.value)
     assert "bluesky.device_page_size" in message
@@ -131,7 +142,7 @@ def test_device_page_size_rejects_a_value_that_is_not_a_positive_int(value: Any)
 
 def test_device_page_size_accepts_one() -> None:
     """The floor is inclusive — a one-device page is small, not invalid."""
-    profile = _parse_profile({"name": "x", "bluesky": {"device_page_size": 1}})
+    profile = _parse_profile({"name": "x", "data": "data", "bluesky": {"device_page_size": 1}})
 
     assert profile.bluesky is not None
     assert profile.bluesky.device_page_size == 1
@@ -143,7 +154,7 @@ def test_device_page_size_accepts_one() -> None:
 def test_unknown_bluesky_key_is_rejected_naming_the_key() -> None:
     """The offender is named, so the operator knows which line to delete."""
     with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "bluesky": {"zzz_nonsense": 1}})
+        _parse_profile({"name": "x", "data": "data", "bluesky": {"zzz_nonsense": 1}})
 
     message = str(excinfo.value)
     assert "'zzz_nonsense'" in message
@@ -153,7 +164,7 @@ def test_unknown_bluesky_key_is_rejected_naming_the_key() -> None:
 def test_typo_gets_its_nearest_match_suggested() -> None:
     """A near-miss spelling carries the fix, not just the complaint."""
     with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "bluesky": {"tiled_enabld": True}})
+        _parse_profile({"name": "x", "data": "data", "bluesky": {"tiled_enabld": True}})
 
     message = str(excinfo.value)
     assert "'tiled_enabld'" in message
@@ -164,7 +175,11 @@ def test_all_unknown_bluesky_keys_are_named_in_one_error() -> None:
     """Accumulated, not first-wins — one pass fixes the whole block."""
     with pytest.raises(BuildProfileError) as excinfo:
         _parse_profile(
-            {"name": "x", "bluesky": {"zzz_nonsense": 1, "prt": AUTHORED_PORT, "tiled": True}}
+            {
+                "name": "x",
+                "data": "data",
+                "bluesky": {"zzz_nonsense": 1, "prt": AUTHORED_PORT, "tiled": True},
+            }
         )
 
     message = str(excinfo.value)
@@ -176,7 +191,7 @@ def test_all_unknown_bluesky_keys_are_named_in_one_error() -> None:
 def test_error_lists_the_valid_bluesky_keys() -> None:
     """The message carries the whole closed set the block may spell."""
     with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "bluesky": {"zzz_nonsense": 1}})
+        _parse_profile({"name": "x", "data": "data", "bluesky": {"zzz_nonsense": 1}})
 
     message = str(excinfo.value)
     assert "valid keys are:" in message
@@ -191,9 +206,9 @@ def test_error_style_matches_the_top_level_check() -> None:
     that message is ever reworded, this check must move with it.
     """
     with pytest.raises(BuildProfileError) as block_err:
-        _parse_profile({"name": "x", "bluesky": {"zzz_nonsense": 1}})
+        _parse_profile({"name": "x", "data": "data", "bluesky": {"zzz_nonsense": 1}})
     with pytest.raises(BuildProfileError) as top_err:
-        _parse_profile({"name": "x", "zzz_nonsense": 1})
+        _parse_profile({"name": "x", "data": "data", "zzz_nonsense": 1})
 
     block = str(block_err.value)
     top = str(top_err.value)
@@ -214,14 +229,16 @@ def test_stale_demo_runner_key_fails_loudly() -> None:
     unhonored key has to announce itself.
     """
     with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "bluesky": {"demo_runner": "mock"}})
+        _parse_profile({"name": "x", "data": "data", "bluesky": {"demo_runner": "mock"}})
 
     assert "'demo_runner'" in str(excinfo.value)
 
 
 def test_unknown_key_survives_a_file_load(tmp_path: Path) -> None:
     """The check is on the parse path every profile file takes."""
-    profile = _write_yaml(tmp_path / "p.yml", {"name": "p", "bluesky": {"demo_runner": True}})
+    profile = _write_yaml(
+        tmp_path / "p.yml", {"name": "p", "data": "data", "bluesky": {"demo_runner": True}}
+    )
 
     with pytest.raises(BuildProfileError, match="'demo_runner'"):
         load_profile(profile)
@@ -229,7 +246,9 @@ def test_unknown_key_survives_a_file_load(tmp_path: Path) -> None:
 
 def test_profile_validate_exits_non_zero(tmp_path: Path) -> None:
     """The CLI surfaces it as a usage error, not a warning in the log."""
-    profile = _write_yaml(tmp_path / "p.yml", {"name": "p", "bluesky": {"demo_runner": True}})
+    profile = _write_yaml(
+        tmp_path / "p.yml", {"name": "p", "data": "data", "bluesky": {"demo_runner": True}}
+    )
 
     result = CliRunner().invoke(profile_validate, [str(profile)])
 
@@ -247,7 +266,7 @@ def test_parent_declared_key_is_not_unknown_from_a_child(
     _write_yaml(fake_presets / "base.yml", {"name": "base", "bluesky": {"port": AUTHORED_PORT}})
     child = _write_yaml(
         tmp_path / "child.yml",
-        {"name": "child", "extends": "base", "bluesky": {"tiled_enabled": True}},
+        {"name": "child", "data": "data", "extends": "base", "bluesky": {"tiled_enabled": True}},
     )
 
     profile, _dir = resolve_build_profile(child, None)
@@ -260,7 +279,9 @@ def test_parent_declared_key_is_not_unknown_from_a_child(
 def test_unknown_key_in_an_extends_parent_is_rejected(fake_presets: Path, tmp_path: Path) -> None:
     """Inheritance is not a laundering path for the block either."""
     _write_yaml(fake_presets / "base.yml", {"name": "base", "bluesky": {"demo_runner": True}})
-    child = _write_yaml(tmp_path / "child.yml", {"name": "child", "extends": "base"})
+    child = _write_yaml(
+        tmp_path / "child.yml", {"name": "child", "data": "data", "extends": "base"}
+    )
 
     with pytest.raises(BuildProfileError, match="'demo_runner'"):
         resolve_build_profile(child, None)

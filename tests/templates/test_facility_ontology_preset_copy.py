@@ -25,9 +25,9 @@ the store already holds.
 from pathlib import Path
 
 import pytest
-import yaml
 
-from osprey.cli.templates.manager import TemplateManager
+from osprey.cli.build_profile_archiver import _expand_dotted
+from osprey.cli.build_profile_resolve import resolve_build_profile
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -50,21 +50,15 @@ def _preset_copy(preset: str) -> Path:
     return _REPO_ROOT / "src/osprey/templates/apps" / preset / DECLARED_PATH
 
 
-def _rendered_config(tmp_path: Path, preset: str) -> dict:
-    """The preset's ``config.yml``, rendered the way the CLI renders it."""
-    manager = TemplateManager()
-    output = tmp_path / f"{preset}-config.yml"
-    manager.render_config(
-        project_name=f"ontology-{preset}",
-        project_dir=tmp_path / preset,
-        output_path=output,
-        data_bundle=preset,
-        # Required of any bundle that selects the channel-finder agent; the
-        # paradigm is irrelevant to the facility block, so one is pinned rather
-        # than parametrised.
-        context={"channel_finder_mode": "hierarchical"},
-    )
-    return yaml.safe_load(output.read_text(encoding="utf-8")) or {}
+def _resolved_config(preset: str) -> dict:
+    """The preset's resolved ``config:`` block, dotted keys folded in.
+
+    The framework template renders no ``facility`` block; the key reaches a
+    deployment's ``config.yml`` from the preset's ``config:`` alone, so that is
+    where the declaration is read.
+    """
+    profile, _profile_dir = resolve_build_profile(None, preset)
+    return _expand_dotted(profile.config)
 
 
 @pytest.mark.parametrize("preset", PRESETS_WITH_ONTOLOGY)
@@ -80,9 +74,9 @@ def test_preset_copy_is_the_packaged_table_byte_for_byte(preset):
 
 
 @pytest.mark.parametrize("preset", PRESETS_WITH_ONTOLOGY)
-def test_preset_declares_the_path_it_ships(tmp_path, preset):
+def test_preset_declares_the_path_it_ships(preset):
     """The rendered key names the file the render puts on disk."""
-    config = _rendered_config(tmp_path, preset)
+    config = _resolved_config(preset)
     facility = config.get("facility") or {}
     assert facility.get("ontology") == DECLARED_PATH, (
         f"{preset} must declare facility.ontology as {DECLARED_PATH!r} — the "
@@ -90,9 +84,9 @@ def test_preset_declares_the_path_it_ships(tmp_path, preset):
     )
 
 
-def test_ariel_standalone_leaves_the_key_commented(tmp_path):
+def test_ariel_standalone_leaves_the_key_commented():
     """ARIEL's agent reads the vocabulary from the store, not from a file."""
-    config = _rendered_config(tmp_path, "ariel_standalone")
+    config = _resolved_config("ariel_standalone")
     facility = config.get("facility") or {}
     assert "ontology" not in facility, (
         "ariel_standalone must keep facility.ontology as a commented example: "
@@ -102,8 +96,8 @@ def test_ariel_standalone_leaves_the_key_commented(tmp_path):
     assert not _preset_copy("ariel_standalone").exists()
 
 
-def test_hello_world_declares_no_facility_block(tmp_path):
+def test_hello_world_declares_no_facility_block():
     """The minimal preset is untouched by the vocabulary work."""
-    config = _rendered_config(tmp_path, "hello_world")
+    config = _resolved_config("hello_world")
     assert config.get("facility") is None
     assert not _preset_copy("hello_world").exists()

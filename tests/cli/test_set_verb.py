@@ -422,21 +422,49 @@ def test_registered_on_the_top_level_cli():
 
 
 def _honesty_repo(tmp_path: Path, name: str = "honesty") -> Path:
-    """A minimal buildable repo with NO archiver spelled anywhere."""
+    """A minimal buildable repo whose only archive is the mock.
+
+    Written by hand rather than materialized from a preset: every shipped
+    preset that runs a control system also declares a real archive, and this
+    suite's subject is what happens when a session switches a connector onto a
+    deployment that has none. The posture floor still applies, so the mock is
+    spelled rather than left unset — an unstated ``archiver.type`` is refused
+    before the pairing rule is ever reached.
+    """
     repo = tmp_path / name
     repo.mkdir()
     (repo / "profile.yml").write_text(
         "name: Honesty Table\n"
-        "data_bundle: control_assistant\n"
+        "data: data\n"
         "provider: cborg\n"
         "model: haiku\n"
         "channel_finder_mode: in_context\n"
-        "tier: 1\n",
+        "tier: 1\n"
+        "config:\n"
+        "  control_system.type: mock\n"
+        "  archiver.type: mock_archiver\n"
+        "  approval.enabled: true\n"
+        "  approval.default_policy: always\n"
+        "  claude_code.telemetry.enabled: false\n"
+        "  hooks.debug: false\n"
+        "  system.timezone: UTC\n"
+        # The ARIEL server is on by framework default and dials this store.
+        "  services.postgresql.path: ./services/postgresql\n"
+        "  deployed_services: [postgresql]\n",
         encoding="utf-8",
     )
-    # The bundle's source zone `osprey init` lays down beside the profile; the
-    # Reach Contract refuses a render whose bind source is not there.
-    (repo / "data" / "facility_knowledge").mkdir(parents=True)
+    # The facility data tree `osprey init` lays down beside the profile. The
+    # limits validator reads `channel_limits.json` out of it and the Reach
+    # Contract refuses a render whose source zone is not there, so the packaged
+    # tree is copied whole rather than stubbed.
+    import shutil
+
+    from osprey.cli.templates.manager import TemplateManager
+
+    shutil.copytree(
+        TemplateManager().template_root / "apps" / "control_assistant" / "data", repo / "data"
+    )
+    (repo / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
     return repo
 
 
@@ -462,8 +490,15 @@ class TestASetPairingIsJudgedAtTheNextBuild:
         # message whole (the repo-wide CliRunner convention).
         assert "mock" in caplog.text
 
-    def test_va_with_no_archiver_at_all_is_refused(self, runner, tmp_path, caplog):
-        """Unset counts as mock: the connector factory would resolve it there."""
+    def test_va_with_only_the_shipped_mock_archive_is_refused(self, runner, tmp_path, caplog):
+        """The pairing is judged on the value, not on who typed it.
+
+        The repo already carries ``archiver.type: mock_archiver`` — the posture
+        floor requires the key to be stated — so this session sets only the
+        connector. A refusal that depended on the archiver having been written
+        in the same session would let the same unsafe pairing through whenever
+        the mock came from the profile instead.
+        """
         repo = _honesty_repo(tmp_path)
         assert _invoke(runner, repo, "connector=virtual_accelerator").exit_code == 0
 

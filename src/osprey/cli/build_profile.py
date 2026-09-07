@@ -19,7 +19,8 @@ one per concern:
 - :mod:`osprey.cli.build_profile_load` — raw-mapping-to-dataclass parsing and
   the single-file :func:`load_profile` entry point.
 - :mod:`osprey.cli.build_profile_resolve` — the multi-source resolution the
-  ``build`` command calls: preset or file, plus ``-O`` overlays and ``--set``.
+  ``build`` command calls: preset or file, plus host-variant overlays and
+  ``--set`` edits.
 
 This module holds no logic of its own. The names those modules export are
 re-exported below so ``from osprey.cli.build_profile import <helper>`` keeps
@@ -49,7 +50,8 @@ from .build_profile_presets import (
 from .build_profile_resolve import (
     EXTENDS_OVERRIDE_REFUSAL,
     PROFILE_FILENAME,
-    merge_cli_overrides,
+    apply_cli_edits,
+    cli_edit_layer,
     resolve_build_document,
     resolve_build_profile,
     write_back_cli_overrides,
@@ -98,11 +100,12 @@ __all__ = [
     "_presets_dir",
     "_resolve_extends",
     "_triggers_dir",
+    "apply_cli_edits",
+    "cli_edit_layer",
     "compute_preset_hash",
     "compute_profile_hash",
     "list_presets",
     "load_profile",
-    "merge_cli_overrides",
     "resolve_build_document",
     "resolve_build_profile",
     "write_back_cli_overrides",

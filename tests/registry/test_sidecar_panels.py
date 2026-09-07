@@ -11,7 +11,7 @@ build refuses.
 These tests hold both halves at once: the sidecar id is a first-class built-in
 everywhere panel ids are read, and absent everywhere registry keys are. The
 health category's ``skip`` row is pinned in
-``tests/health/core/test_web_panels.py``, and the build interview's menu entry
+``tests/health/core/test_web_panels.py``, and the install skill's menu entry
 in ``tests/cli/test_build_profile_panels.py``, beside the fixtures each needs.
 """
 

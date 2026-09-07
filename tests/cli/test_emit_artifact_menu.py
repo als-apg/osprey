@@ -9,7 +9,7 @@ from osprey.cli.build_profile_emit import (
 
 
 def _emit(preset: str) -> str:
-    return emit_standalone_profile_yaml(preset, (), (), "Emitted")
+    return emit_standalone_profile_yaml(preset, (), "Emitted")
 
 
 def test_catalog_covers_the_six_profile_list_keys() -> None:

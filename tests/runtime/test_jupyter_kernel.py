@@ -342,7 +342,10 @@ class TestInstallingTheHook:
         config path the preparation publishes, and the call is the executor
         sandbox's: no export, the path from ``CONFIG_FILE``. Log routing comes
         before all of it, so that what the preparation and the registry log is
-        already going to the terminal.
+        already going to the terminal. The shell stream re-arm goes on just
+        before ``initialize``, which builds the shell channel it wraps; it is
+        stubbed here because the real one patches ``ipykernel`` for the whole
+        process.
         """
         order = []
         registry_calls = []
@@ -389,6 +392,11 @@ class TestInstallingTheHook:
         )
         monkeypatch.setattr(jupyter_kernel, "_prepare_environment", prepare)
         monkeypatch.setattr("osprey.registry.initialize_registry", initialize_registry)
+        monkeypatch.setattr(
+            jupyter_kernel,
+            "install_shell_stream_rearm",
+            lambda shell_stream: order.append("install_shell_stream_rearm"),
+        )
         monkeypatch.setattr("ipykernel.kernelapp.IPKernelApp", StubKernelApp)
 
         jupyter_kernel.main([])
@@ -397,6 +405,7 @@ class TestInstallingTheHook:
             "route_logs",
             "prepare",
             "initialize_registry",
+            "install_shell_stream_rearm",
             "initialize",
             "set_custom_exc",
             "register:pre_run_cell",
@@ -428,6 +437,7 @@ class TestInstallingTheHook:
         monkeypatch.setattr(jupyter_kernel, "_route_logs_to_process_stderr", lambda: None)
         monkeypatch.setattr(jupyter_kernel, "_prepare_environment", dict)
         monkeypatch.setattr("osprey.registry.initialize_registry", initialize_registry)
+        monkeypatch.setattr(jupyter_kernel, "install_shell_stream_rearm", lambda shell_stream: None)
         monkeypatch.setattr("ipykernel.kernelapp.IPKernelApp", StubKernelApp)
 
         with caplog.at_level("WARNING", logger=jupyter_kernel.__name__):

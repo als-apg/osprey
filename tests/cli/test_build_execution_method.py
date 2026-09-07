@@ -27,8 +27,9 @@ from osprey.utils import config as config_module
 CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
 
 PROFILE = """\
+extends: hello-world
 name: Execution Method
-app_template: hello_world
+data: data
 provider: anthropic
 config:
 {override}"""
@@ -45,6 +46,7 @@ def _reset_container_warning():
 def _build_repo(tmp_path: Path, monkeypatch, override: str):
     repo = tmp_path / "repo"
     repo.mkdir()
+    (repo / "data").mkdir(exist_ok=True)
     (repo / "profile.yml").write_text(PROFILE.format(override=override))
     monkeypatch.chdir(repo)
     result = CliRunner().invoke(build, CI_FLAGS)

@@ -91,11 +91,13 @@ import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
 
 from osprey.deployment.compose_generator import resolve_project_name
+from tests.e2e.profile_edits import set_pairs
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
 
@@ -507,24 +509,26 @@ def _wait_for_service_ready(container: str, url: str, timeout: float) -> None:
 #: stage the bundled dispatcher/worker templates and register both in
 #: ``deployed_services``; ``network:`` is the one word the shape fixture flips.
 #:
-#: The two config overrides drop the preset's telemetry store: it is not part
+#: The two config edits drop the preset's telemetry store: it is not part
 #: of what this module tests, and deploying it would add a third container
 #: whose published port collides with any other OSPREY stack on the host. The
 #: dispatch injection appends its own two services to the emptied
 #: ``deployed_services``, which is what leaves the render same-mode by
 #: construction — exactly the pair, nothing else.
-_OVERRIDE_YML = f"""\
-dispatch:
-  triggers: tutorial_triggers.yml
-  worker_count: 1
-  workspace_mode: isolated
-  dispatcher_port: {DISPATCHER_PORT}
-  worker_port_base: {WORKER_PORT}
-  network: {BRIDGE}
-config:
-  claude_code.telemetry.enabled: false
-  deployed_services: []
-"""
+_PROFILE_EDITS: dict[str, Any] = {
+    "dispatch": {
+        "triggers": "tutorial_triggers.yml",
+        "worker_count": 1,
+        "workspace_mode": "isolated",
+        "dispatcher_port": DISPATCHER_PORT,
+        "worker_port_base": WORKER_PORT,
+        "network": BRIDGE,
+    },
+    "config": {
+        "claude_code.telemetry.enabled": False,
+        "deployed_services": [],
+    },
+}
 
 #: The repo's own ``.env.shared`` (committed defaults) and ``.env`` (local
 #: secrets) — the two chain members, in ascending precedence. Both tokens are
@@ -697,9 +701,6 @@ def dispatch_repo(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
 
     base = tmp_path_factory.mktemp("two_shape_boot")
     repo = base / PROJECT_NAME
-    override_path = base / "override.yml"
-    override_path.write_text(_OVERRIDE_YML, encoding="utf-8")
-
     init = _run_osprey(
         osprey_bin,
         [
@@ -708,8 +709,7 @@ def dispatch_repo(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             "--preset",
             "hello-world",
             "--no-git",
-            "--override",
-            str(override_path),
+            *set_pairs(_PROFILE_EDITS),
         ],
         base,
         timeout=INIT_TIMEOUT_SEC,

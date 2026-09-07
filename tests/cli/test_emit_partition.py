@@ -4,16 +4,25 @@ Every ``BuildProfile`` field belongs to exactly one of three named sets, and
 what each set promises is asserted against real emissions of every bundled
 preset: EXPLICIT members always appear, COMMENTED members appear either active
 or as a commented template, and build-mechanics keys are never synthesized.
+
+The second half of the file is about the ``config:`` block the presets now
+carry. Those keys used to live in an app template the operator never opened, so
+their documentation could say anything; written into the profile, each comment
+is read beside the key it describes and has to still be true of the deployment
+that reads it. Three properties are pinned: every key is documented, no comment
+freezes a value the operator can move, and emission is byte-deterministic.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import re
 from pathlib import Path
 
 import pytest
 import yaml
 
+from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.build_profile import _KNOWN_PROFILE_KEYS, BuildProfile, list_presets
 from osprey.cli.build_profile_emit import (
     _BUILD_MECHANICS_KEYS,
@@ -22,7 +31,6 @@ from osprey.cli.build_profile_emit import (
     _COMMENTED_TEMPLATES,
     _EXPLICIT_DEFAULTS,
     _EXPLICIT_KEYS,
-    _FIELD_TO_YAML,
     emit_standalone_profile_yaml,
 )
 from osprey.cli.build_profile_load import (
@@ -30,16 +38,22 @@ from osprey.cli.build_profile_load import (
     CONNECTOR_PROFILE_KEY,
     PORT_BASE_PROFILE_KEY,
 )
+from osprey.cli.build_profile_presets import PRESET_DATA_BUNDLE_KEY
+from osprey.port_layout import DEFAULT_PORT_BASE, LAYOUT
 
 _FIELDS = frozenset(f.name for f in dataclasses.fields(BuildProfile))
 
+#: Longest run of comment lines that still documents the key below it. Three is
+#: the reader's rule of thumb: further up and the prose belongs to a section
+#: heading or to the previous key, not to this one.
+_COMMENT_REACH = 3
 
-def _emit(preset: str, overrides: tuple[Path, ...] = (), set_pairs: tuple[str, ...] = ()) -> str:
-    return emit_standalone_profile_yaml(preset, overrides, set_pairs, "Emitted")
+#: A key line inside the ``config:`` block: two spaces, then a dotted path.
+_CONFIG_KEY_RE = re.compile(r"^ {2}([A-Za-z_][\w.]*):")
 
 
-def _yaml_key(field: str) -> str:
-    return _FIELD_TO_YAML.get(field, field)
+def _emit(preset: str, set_pairs: tuple[str, ...] = ()) -> str:
+    return emit_standalone_profile_yaml(preset, set_pairs, "Emitted")
 
 
 def _active_and_commented(text: str) -> tuple[set[str], set[str]]:
@@ -48,13 +62,31 @@ def _active_and_commented(text: str) -> tuple[set[str], set[str]]:
     "Templated" is decided by exact template text rather than by scanning for
     commented key-shaped lines: template prose legitimately mentions other keys
     (``the web_panels list above``), and a line-scanning heuristic reads those
-    as offered keys. Active keys are YAML-spelled, templated ones field-spelled
-    — the two coincide for every member today, and :func:`_yaml_key` bridges
-    them where they would not.
+    as offered keys.
     """
     active = set(yaml.safe_load(text) or {})
     templated = {field for field, template in _COMMENTED_TEMPLATES.items() if template in text}
     return active, templated
+
+
+def _config_block(text: str) -> list[str]:
+    """The lines under ``config:``, exclusive of the ``config:`` line itself."""
+    lines = text.splitlines()
+    start = lines.index("config:")
+    end = next(
+        (
+            i
+            for i in range(start + 1, len(lines))
+            if lines[i] and not lines[i].startswith((" ", "#"))
+        ),
+        len(lines),
+    )
+    return lines[start + 1 : end]
+
+
+def _comment_lines(text: str) -> list[str]:
+    """Every whole-line comment in an emitted profile, stripped."""
+    return [line.strip() for line in text.splitlines() if line.strip().startswith("#")]
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +151,7 @@ def test_explicit_members_appear_in_every_emitted_profile(preset: str) -> None:
     """(b) Every EXPLICIT member is present, under its YAML spelling."""
     active, _commented = _active_and_commented(_emit(preset))
 
-    missing = {_yaml_key(f) for f in _EXPLICIT_KEYS} - active
+    missing = set(_EXPLICIT_KEYS) - active
     assert not missing, f"{preset}: EXPLICIT keys missing from emission: {sorted(missing)}"
 
 
@@ -130,30 +162,26 @@ def test_commented_members_are_active_or_templated(preset: str) -> None:
     active, commented = _active_and_commented(text)
 
     for field in _COMMENTED_TEMPLATE_KEYS:
-        key = _yaml_key(field)
-        assert key in active or key in commented, (
-            f"{preset}: {key} is neither active nor offered as a commented template"
+        assert field in active or field in commented, (
+            f"{preset}: {field} is neither active nor offered as a commented template"
         )
 
 
-def test_commented_members_stay_covered_with_overrides_supplying_blocks(tmp_path: Path) -> None:
-    """(c) again, with `-O` making two COMMENTED members active — the ones that
-    would otherwise always take the template branch."""
-    (tmp_path / "art").mkdir()
-    override = tmp_path / "o.yml"
-    override.write_text(
-        "mcp_servers:\n"
-        "  matlab:\n"
-        "    command: /opt/matlab/bin/mcp-matlab\n"
-        "artifact_server:\n"
-        "  categories:\n"
-        "    optics:\n"
-        "      label: Optics\n"
-        '      color: "#4C9AFF"\n',
-        encoding="utf-8",
-    )
+def test_commented_members_stay_covered_with_set_supplying_blocks() -> None:
+    """(c) again, with ``--set`` making two COMMENTED members active — the ones
+    that would otherwise always take the template branch.
 
-    text = _emit("hello-world", (override,))
+    A mapping given as a ``--set`` value is written whole at the key it names,
+    so one pair per key states the block a facility would otherwise author by
+    hand.
+    """
+    text = _emit(
+        "hello-world",
+        (
+            'mcp_servers={"matlab": {"command": "/opt/matlab/bin/mcp-matlab"}}',
+            'artifact_server={"categories": {"optics": {"label": "Optics", "color": "#4C9AFF"}}}',
+        ),
+    )
     active, commented = _active_and_commented(text)
 
     assert "mcp_servers" in active
@@ -166,8 +194,7 @@ def test_commented_members_stay_covered_with_overrides_supplying_blocks(tmp_path
     assert text.count("\n# mcp_servers:") == 0
     assert text.count("\n# artifact_server:") == 0
     for field in _COMMENTED_TEMPLATE_KEYS:
-        key = _yaml_key(field)
-        assert key in active or field in commented, key
+        assert field in active or field in commented, field
 
 
 @pytest.mark.parametrize("preset", list_presets())
@@ -194,10 +221,7 @@ def test_data_emits_active_when_the_resolved_profile_carries_it(tmp_path: Path) 
     """Forward-compat for `osprey init` (3.4), which materializes a data tree and
     injects `data` into the resolved dict: the COMMENTED contract is
     active-when-carried, so nothing here may assume `data` renders commented."""
-    override = tmp_path / "o.yml"
-    override.write_text("data: data\n", encoding="utf-8")
-
-    text = _emit("hello-world", (override,))
+    text = _emit("hello-world", ("data=data",))
     active, _commented = _active_and_commented(text)
 
     assert "data" in active
@@ -297,21 +321,20 @@ def test_build_mechanics_carried_by_a_preset_survive_emission() -> None:
 def test_known_profile_keys_equals_the_partition_plus_inheritance_keys() -> None:
     """FR8(d): the unknown-key hard error and the partition share one surface.
 
-    Three key families sit outside the field partition and are named here so a
-    fourth cannot be added without a reader deciding it belongs: the
-    inheritance keys, consumed by ``extends`` resolution; the YAML-surface
-    spellings of fields the loader renames; and the top-level shorthands
+    Two key families sit outside the field partition and are named here so a
+    third cannot be added without a reader deciding it belongs: the inheritance
+    keys, consumed by ``extends`` resolution; and the top-level shorthands
     (``connector``, ``port_base``), folded into ``config:`` before parsing and
     therefore never emitted as keys of their own.
+
+    ``app_template`` is in neither family and is deliberately absent from both
+    sides: it names a packaged data tree, is consumed when a PRESET is read,
+    and is refused in a profile.
     """
-    expected = (
-        _FIELDS
-        | {"extends", "exclude"}
-        | set(_FIELD_TO_YAML.values())
-        | {CONNECTOR_PROFILE_KEY, PORT_BASE_PROFILE_KEY}
-    )
+    expected = _FIELDS | {"extends", "exclude"} | {CONNECTOR_PROFILE_KEY, PORT_BASE_PROFILE_KEY}
 
     assert set(_KNOWN_PROFILE_KEYS) == expected
+    assert PRESET_DATA_BUNDLE_KEY not in _KNOWN_PROFILE_KEYS
 
 
 # ---------------------------------------------------------------------------
@@ -336,16 +359,35 @@ def test_version_stamp_comes_from_the_pinned_constant() -> None:
 
 
 @pytest.mark.parametrize("preset", list_presets())
-def test_emitted_profile_keeps_the_app_template_comment_and_position(preset: str) -> None:
-    """The rename must not cost the preset's comment or the key's place: a
-    re-spell after the sync would find the key deleted and re-append it last."""
+def test_the_preset_side_bundle_key_is_not_emitted(preset: str) -> None:
+    """`app_template:` selects the packaged data tree and is not a profile key.
+
+    An emitted profile that carried it would be refused by the loader that
+    wrote it, so its absence is the contract — and the comment the preset put
+    above it goes too, or the emitted file explains a key it does not contain.
+    """
+    text = _emit(preset)
+
+    assert PRESET_DATA_BUNDLE_KEY not in (yaml.safe_load(text) or {})
+    assert PRESET_DATA_BUNDLE_KEY not in text, (
+        f"{preset}: the preset's app_template comment survived the key"
+    )
+
+
+@pytest.mark.parametrize("preset", list_presets())
+def test_dropping_the_bundle_key_leaves_the_next_key_commented(preset: str) -> None:
+    """Removing a key must not take the following key's comment with it.
+
+    ruamel stores the block above a key on its PREDECESSOR, so a naive delete
+    either orphans this key's own comment or eats the next key's. `provider:`
+    follows `app_template:` in every bundled preset, and it is the one whose
+    comment the drop passes through.
+    """
     lines = _emit(preset).splitlines()
-    key_line = next(i for i, line in enumerate(lines) if line.startswith("app_template:"))
+    key_line = next(i for i, line in enumerate(lines) if line.startswith("provider:"))
     preceding = "\n".join(lines[max(0, key_line - 4) : key_line])
 
-    assert "#" in preceding, f"{preset}: app_template lost its comment"
-    # Still in the file's opening section, not appended at the bottom.
-    assert key_line < len(lines) / 2, f"{preset}: app_template drifted to the end of the file"
+    assert "#" in preceding, f"{preset}: provider lost its comment"
 
 
 def test_live_preset_blocks_emit_active() -> None:
@@ -363,4 +405,109 @@ def test_no_commented_template_is_offered_twice() -> None:
     text = _emit("hello-world")
 
     for field in _COMMENTED_TEMPLATE_KEYS:
-        assert text.count(f"\n# {_yaml_key(field)}:") <= 1, field
+        assert text.count(f"\n# {field}:") <= 1, field
+
+
+# ---------------------------------------------------------------------------
+# The `config:` block: documented, unfrozen, reproducible
+# ---------------------------------------------------------------------------
+
+
+def test_every_config_key_carries_a_comment() -> None:
+    """Nothing under ``config:`` arrives undocumented.
+
+    This is the promise the app template could not keep. Its keys came with
+    comments, but in a file the operator never opened; written into
+    profile.yml, a key with no prose above it is a value someone has to guess
+    the meaning of from its name — and there are ~300 of them.
+
+    control-assistant is the preset asked because it is the widest: the other
+    bundled presets configure subsets of the same surface.
+    """
+    undocumented = []
+    block = _config_block(_emit("control-assistant"))
+    for i, line in enumerate(block):
+        match = _CONFIG_KEY_RE.match(line)
+        if match is None:
+            continue
+        above = (entry.strip() for entry in block[max(0, i - _COMMENT_REACH) : i])
+        if not any(entry.startswith("#") and entry.strip("# ") for entry in above):
+            undocumented.append(match.group(1))
+
+    assert undocumented == [], (
+        f"{len(undocumented)} config key(s) have no comment within "
+        f"{_COMMENT_REACH} lines above: {undocumented}"
+    )
+
+
+@pytest.mark.parametrize("preset", list_presets())
+def test_no_comment_names_a_default_layout_port(preset: str) -> None:
+    """A port an operator can move must not be spelled out in prose.
+
+    Every host port a deployment publishes is ``deployment.port_base`` plus a
+    fixed offset, so the numbers below are only this deployment's ports until
+    someone moves the base. The app template's comments were rendered from
+    ``{{ osprey_ports.* }}`` and so were correct at emission and wrong from the
+    first time the base moved. A comment names the slot instead.
+    """
+    ports = sorted({DEFAULT_PORT_BASE + slot.offset for slot in LAYOUT})
+    pattern = re.compile(rf"(?<!\d)({'|'.join(str(port) for port in ports)})(?!\d)")
+
+    offenders = [line for line in _comment_lines(_emit(preset)) if pattern.search(line)]
+
+    assert offenders == [], f"{preset}: comment(s) naming a default-layout port: {offenders}"
+
+
+@pytest.mark.parametrize("mode", sorted(VALID_CHANNEL_FINDER_MODES))
+@pytest.mark.parametrize("preset", ("control-assistant", "channel-finder-standalone"))
+def test_no_comment_freezes_the_channel_finder_mode(preset: str, mode: str) -> None:
+    """Prose about the channel finder must hold whatever paradigm is selected.
+
+    Stated as invariance rather than as a word ban, because the words cannot be
+    banned: "graph" is also the knowledge graph, the graph store and the graph
+    data Neo4j pages. What would be wrong is a comment that changes with the
+    field — the ``{{ channel_finder_mode }}`` interpolations the app template
+    carried, which described the mode as a fact and went stale the moment
+    ``osprey set channel_finder_mode=`` moved it.
+
+    The two presets asked are the ones that spell the field. For a preset that
+    leaves it to the commented template, setting the mode retires that template,
+    which is a difference in the offered keys rather than in frozen prose.
+    """
+    baseline = _comment_lines(_emit(preset))
+    switched = _comment_lines(_emit(preset, set_pairs=(f"channel_finder_mode={mode}",)))
+
+    assert baseline == switched, (
+        f"{preset}: the comments moved when channel_finder_mode became {mode!r}"
+    )
+
+
+@pytest.mark.parametrize("preset", list_presets())
+def test_no_comment_freezes_the_port_base(preset: str) -> None:
+    """The other half of the port rule, over a base the operator really moved.
+
+    The literal check above only catches the numbers of the DEFAULT layout. A
+    comment rendered from a profile's own ``deployment.port_base`` would pass
+    it and still be a frozen port, so the same emission is asked at a moved
+    base and its comments must not have moved with it.
+    """
+    baseline = _comment_lines(_emit(preset))
+    moved = _comment_lines(_emit(preset, set_pairs=("config.deployment.port_base=21000",)))
+
+    assert baseline == moved, f"{preset}: the comments moved with deployment.port_base"
+
+
+@pytest.mark.parametrize("preset", list_presets())
+def test_emission_is_byte_deterministic_across_two_runs(preset: str) -> None:
+    """Re-emitting must produce the same bytes, config block included.
+
+    ``test_emission_is_byte_deterministic`` above says the same thing and is
+    kept: this one exists because the config block is where determinism became
+    easy to lose. It is built by merging dotted keys and their comments out of
+    a preset document, and a set iteration anywhere in that path would show up
+    as a spurious diff on every re-emit of a file facilities keep in git.
+    """
+    first, second = _emit(preset), _emit(preset)
+
+    assert first == second
+    assert _config_block(first) == _config_block(second)

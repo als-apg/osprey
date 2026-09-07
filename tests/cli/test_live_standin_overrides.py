@@ -433,17 +433,23 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         assert limits["enabled"] is True
         assert limits["allow_unlisted_channels"] is False
 
-    def test_live_standin_overrides_derive_no_limits_posture(self, runner, lifecycle_repo) -> None:
+    def test_live_standin_overrides_derive_no_limits_posture(
+        self, runner, lifecycle_repo, caplog
+    ) -> None:
         """Take the pair out of the profile and nothing puts it back.
 
         The other half of the claim above, and the one that actually separates
-        "authored" from "derived": with the two keys gone from ``config:`` the
-        render falls back to what the template ships — permissive — even though
-        a stand-in is still asked for. While the stand-in was ``live`` the build
+        "authored" from "derived". While the stand-in was ``live`` the build
         flipped this key itself and then had to rewrite the comment beside it to
-        stop the rendered line contradicting its own value. Neither happens now:
-        how strictly a deployment runs is a fact about the deployment, and the
-        profile is where it is stated.
+        stop the rendered line contradicting its own value. Nothing does that
+        now — and there is no template default underneath to fall back to
+        either, because a deployment's declarative config is its own.
+
+        So the render does not quietly come up permissive: the stand-in arms
+        writes, limits checking is unstated, and the build refuses rather than
+        building a lane whose devices would take whatever value a plan asks for
+        with no channel-limits database consulted. How strictly a deployment
+        runs is a fact about the deployment, and a build will not invent it.
         """
         _set_live_standin(lifecycle_repo, STANDIN_PORT)
         _remove_config_entries(
@@ -452,14 +458,17 @@ class TestTheRenderedDeploymentDialsTheStandIn:
             "control_system.limits_checking.allow_unlisted_channels",
         )
 
-        result = _build(runner, lifecycle_repo)
-        assert result.exit_code == 0, result.output
+        import logging
 
-        rendered = (lifecycle_repo / "build" / "config.yml").read_text(encoding="utf-8")
-        limits = yaml.safe_load(rendered)["control_system"]["limits_checking"]
-        assert limits["allow_unlisted_channels"] is True
-        line = next(row for row in rendered.splitlines() if "allow_unlisted_channels" in row)
-        assert "false refuses any channel the database does not list" in line
+        with caplog.at_level(logging.ERROR):
+            result = _build(runner, lifecycle_repo)
+        assert result.exit_code != 0, result.output
+        # The refusal reaches the operator through the logger; the Rich handler
+        # wraps rendered lines, so the records carry the message whole.
+        assert "control_system.limits_checking.enabled" in caplog.text
+        assert not (lifecycle_repo / "build" / "config.yml").exists(), (
+            "a refused build must leave no rendered config behind"
+        )
 
     def test_live_standin_overrides_leave_the_sandbox_gateways_portless(
         self, runner, lifecycle_repo

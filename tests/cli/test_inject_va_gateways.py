@@ -3,10 +3,10 @@
 A deployment is switched to a target the rendered ``config.yml`` already describes —
 the switch never edits config — so a project that deploys the virtual
 accelerator and carries no ``control_system.connector.virtual_accelerator``
-block has a soft-IOC running and nothing able to point at it. Projects built
-from the current generic template render that block themselves; these tests
-cover the other configs the injector meets: the ones written before the template
-had it, and the hand-maintained ones.
+block has a soft-IOC running and nothing able to point at it. A project built
+from a preset that declares the connector carries the block already; these
+tests cover the other configs the injector meets: the ones written before that
+block existed, and the hand-maintained ones.
 
 The rule the injector cannot break is the other half: a gateway table that is
 already there was written by somebody, and an injector that "corrects" it is an
@@ -33,7 +33,6 @@ from osprey.mcp_server.control_system.target_eligibility import (
     evaluate_eligibility,
     target_availability,
 )
-from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 
 #: A config with no ``virtual_accelerator`` connector block at all — the shape
 #: of every project rendered before the generic template grew one. Carries a
@@ -343,28 +342,54 @@ def test_the_only_thing_missing_after_injection_is_the_probe_channel(tmp_path):
 STANDIN_PORT = 5074
 
 
-def _render_control_assistant_template() -> str:
-    """The shipped app template, rendered the way the build renders it.
+#: A deploying VA config as an operator maintains it, prose and all.
+#:
+#: The comments matter as much as the values here: this section pins that the
+#: injector's ruamel round-trip leaves an authored ``target_switch`` block
+#: byte-identical, wrapped inline comments and commented-out example included.
+#: A build's own ``build/config.yml`` carries the values without the prose —
+#: the explanation lives in ``profile.yml``, where the operator edits — so the
+#: comment pins below are written out here rather than taken from a render.
+CONFIG_DEPLOYING_VA = """\
+services:
+  virtual_accelerator:
+    path: ./services/virtual_accelerator
+    port: 5064
 
-    Same helper as tests/cli/test_rendered_va_block.py's: the text pins below
-    are only worth having if they are against what ships.
-    """
-    from osprey.cli.templates.manager import TemplateManager
+deployed_services:
+  - virtual_accelerator
 
-    return (
-        TemplateManager()
-        .jinja_env.get_template("apps/control_assistant/config.yml.j2")
-        .render(
-            port_base=DEFAULT_PORT_BASE,
-            osprey_ports=layout_ports(DEFAULT_PORT_BASE),
-        )
-    )
+control_system:
+  type: "mock"
+  connector:
+    virtual_accelerator:
+      timeout: 5.0
+      probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
+      gateways:
+        read_only:
+          address: localhost
+          use_name_server: true
+        write_access:
+          address: localhost
+          use_name_server: true
+    epics:
+      timeout: 5.0
+  target_switch:
+    drain_timeout_s: 5      # Seconds in-flight operations get to finish on the
+                            # old target before it is torn down regardless
+    probe_interval_s: 30    # Seconds between background reachability probes of
+                            # every target's gateways
+    # live_gateway_acknowledged: your-ca-gateway.example.com
+
+archiver:
+  type: "epics_archiver"
+"""
 
 
 def _inject_standin(tmp_path, template: str | None = None, *, port: int | None = STANDIN_PORT):
     """Run the injector over *template* with the stand-in port set (or not)."""
     if template is None:
-        template = _render_control_assistant_template()
+        template = CONFIG_DEPLOYING_VA
     (tmp_path / "config.yml").write_text(template, encoding="utf-8")
     _inject_va(VAConfig(port=5064, live_standin=port), tmp_path)
     return (tmp_path / "config.yml").read_text(encoding="utf-8")
@@ -378,7 +403,7 @@ class TestNoStandinChangesNothing:
     """``live_standin`` unset is the shipped default, and it has to be inert."""
 
     def test_the_rendered_config_is_what_it_was_before_the_stand_in_existed(self, tmp_path):
-        template = _render_control_assistant_template()
+        template = CONFIG_DEPLOYING_VA
         without = _inject_standin(tmp_path, template, port=None)
 
         assert _inject(tmp_path, template) == without
@@ -390,9 +415,9 @@ class TestNoStandinChangesNothing:
         assert "live_standin" not in config["deployed_services"]
         assert "virtual_accelerator" in config["deployed_services"]
 
-    def test_the_target_switch_block_is_left_exactly_as_the_template_ships_it(self, tmp_path):
+    def test_the_target_switch_block_is_left_exactly_as_the_config_carried_it(self, tmp_path):
         """Including the commented-out example: nothing wrote the key, so it stays."""
-        template = _render_control_assistant_template()
+        template = CONFIG_DEPLOYING_VA
         text = _inject_standin(tmp_path, template, port=None)
 
         block = (
@@ -429,7 +454,7 @@ class TestStandinServiceRegistration:
         injectors run — so a stand-in that dropped it would accept the
         declaration and then silently deliver no passthrough.
         """
-        template = _render_control_assistant_template().replace(
+        template = CONFIG_DEPLOYING_VA.replace(
             "services:\n",
             "services:\n  live_standin:\n    env:\n      - MY_HOST_VAR\n",
             1,
@@ -480,7 +505,7 @@ class TestTheAcknowledgmentIsNeverWritten:
         target-switch block — prose, wrapped inline comments, commented example
         and all — is byte-identical to the render that deploys no stand-in.
         """
-        template = _render_control_assistant_template()
+        template = CONFIG_DEPLOYING_VA
 
         def _block(text: str) -> str:
             head = "  target_switch:\n"
@@ -513,7 +538,7 @@ class TestTheAcknowledgmentIsNeverWritten:
 
     def test_an_operator_authored_acknowledgment_is_left_exactly_as_written(self, tmp_path):
         """It names their own machine, and this build has no opinion about it."""
-        template = _render_control_assistant_template().replace(
+        template = CONFIG_DEPLOYING_VA.replace(
             "    # live_gateway_acknowledged: your-ca-gateway.example.com\n",
             "    live_gateway_acknowledged: cagw.example.com   # ours, checked\n",
             1,

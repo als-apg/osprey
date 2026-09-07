@@ -9,10 +9,11 @@ own hardware -- is a matter of endpoints and API keys. *Which model handles
 which task* is routing, and OSPREY has two consumers to route for: the OSPREY
 agent speaks the Anthropic Messages API, while the MCP tool servers call the
 same named providers directly through LiteLLM. Both draw endpoints and keys
-from one ``api.providers`` block, so a key set there serves both -- but which
-provider and model tier each one runs on is chosen separately:
-``claude_code.provider`` for the agent, and each tool server's own provider
-setting, some of which default to the agent's.
+from one catalog -- ``providers.yml`` beside the deployment's ``profile.yml``,
+rendered into ``api.providers`` -- so a key set there serves both. Which
+provider and model tier each one runs on is chosen separately: the profile's
+top-level ``provider:`` field for the agent, and each tool server's own
+provider setting, some of which default to the agent's.
 
 .. grid:: 1 1 2 2
    :gutter: 3
@@ -22,9 +23,9 @@ setting, some of which default to the agent's.
       :link-type: doc
       :shadow: md
 
-      The available providers, the API key each one expects, and the
-      ``api.providers`` and ``claude_code`` blocks that declare them and point
-      the agent at one.
+      The available providers, the API key each one expects, the
+      ``providers.yml`` catalog that declares them, and the profile fields that
+      point the agent at one.
 
    .. grid-item-card:: Run Open & Local Models
       :link: run-open-models

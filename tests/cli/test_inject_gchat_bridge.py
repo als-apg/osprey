@@ -49,8 +49,9 @@ triggers:
 """
 
 _PROFILE_YAML = """\
+extends: hello-world
 name: GChatBridgeTest
-data_bundle: hello_world
+data: data
 provider: anthropic
 model: haiku
 dispatch:
@@ -119,6 +120,7 @@ def _build_bridge_project(
     """
     repo_dir = tmp_path / "gcproj"
     repo_dir.mkdir()
+    (repo_dir / "data").mkdir(exist_ok=True)
     (repo_dir / "triggers.yml").write_text(_TRIGGERS_YAML, encoding="utf-8")
     (repo_dir / "profile.yml").write_text(
         _PROFILE_YAML.format(gchat_bridge=gchat_bridge), encoding="utf-8"
@@ -445,6 +447,7 @@ def test_full_build_both_bridges_coexist(runner: CliRunner, tmp_path: Path) -> N
     """
     repo_dir = tmp_path / "gcproj"
     repo_dir.mkdir()
+    (repo_dir / "data").mkdir(exist_ok=True)
     (repo_dir / "triggers.yml").write_text(
         _TRIGGERS_YAML + "  - name: nextcloud-question\n    source: webhook\n"
         "    action:\n      prompt: Answer on Talk.\n",
@@ -495,8 +498,9 @@ def test_full_build_bridge_without_dispatch_block_aborts(
     """
     repo_dir = tmp_path / "gcproj"
     repo_dir.mkdir()
+    (repo_dir / "data").mkdir(exist_ok=True)
     (repo_dir / "profile.yml").write_text(
-        "name: GcNoDispatch\ndata_bundle: hello_world\nprovider: anthropic\n"
+        "extends: hello-world\nname: GcNoDispatch\ndata: data\nprovider: anthropic\n"
         "model: haiku\ngchat_bridge: {}\n",
         encoding="utf-8",
     )

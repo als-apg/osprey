@@ -16,12 +16,13 @@ Three properties are pinned here:
    disabled: the hook and the middleware read this file at run time under
    either posture.
 
-2. **Both render paths agree.** ``TemplateManager.create_project`` renders
-   this file with its own context and never calls
-   ``build_claude_code_context``; ``regenerate_claude_code`` uses the latter.
-   A key set on one path only ships a safety file whose write coverage
-   depends on whether the project was built or rebuilt — with no error to say
-   so, since the Jinja environment is not strict.
+2. **Neither render path claims coverage the other drops.**
+   ``TemplateManager.create_project`` renders this file with its own context
+   and never calls ``build_claude_code_context``; ``regenerate_claude_code``
+   uses the latter, runs last in a build, and is what ships. A key set on one
+   path only ships a safety file whose write coverage depends on whether the
+   project was built or rebuilt — with no error to say so, since the Jinja
+   environment is not strict.
 
 3. **Absence is empty, never missing.** A context key that is merely absent
    renders as nothing at all in this non-strict environment. Consumers
@@ -30,6 +31,7 @@ Three properties are pinned here:
 """
 
 import json
+from pathlib import Path
 
 import pytest
 import yaml
@@ -52,16 +54,69 @@ _EXPECTED_KEYS = {
 }
 
 
+def _bundle_data_root(bundle: str = "control_assistant") -> Path:
+    """The tree this fixture hands the render as the profile's ``data:``.
+
+    A build copies the tree its profile's ``data:`` key names, and that key is
+    required — nothing falls back to a packaged tree any more. This fixture
+    renders straight from a bundle rather than from a profile, so it names the
+    tree that bundle packages, which is the content the render used to reach
+    for on its own.
+    """
+    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+
+
 def _create_project(tmp_path):
-    """Build a real project on disk through the create_project render path."""
+    """Build a real project on disk, on one config, through both render paths.
+
+    The declarative half of a project's config lives in its preset now: the
+    framework template renders no ``control_system`` block, no service blocks
+    and no server selection of its own. A build therefore renders, overlays the
+    resolved profile's ``config:``, and regenerates from the result.
+
+    That ordering is what property 2 below now reads: ``create_project``
+    derives its Claude Code context from the config.yml it has just written,
+    which does not yet carry the preset's block, and the regeneration that runs
+    next reads the overlaid one. The regen render is the file that ships.
+    """
+    from osprey.cli.build_injectors import _inject_bluesky
+    from osprey.cli.build_profile import resolve_build_profile
+    from osprey.port_layout import DEFAULT_PORT_BASE
+    from osprey.utils.config_writer import config_update_fields
+
     global _PROJECT_COUNTER
     _PROJECT_COUNTER += 1
     manager = TemplateManager()
-    project_dir = manager.create_project(
-        project_name=f"hook-config-{_PROJECT_COUNTER}",
-        output_dir=tmp_path,
-        data_bundle="control_assistant",
-        context={"channel_finder_mode": "hierarchical"},
+    name = f"hook-config-{_PROJECT_COUNTER}"
+
+    profile, _preset_dir = resolve_build_profile(None, preset="control-assistant")
+
+    def render(context: dict | None) -> Path:
+        project = manager.create_project(
+            project_name=name,
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            data_root=_bundle_data_root(),
+            context={"channel_finder_mode": "hierarchical", **(context or {})},
+            force=True,
+        )
+        config_update_fields(project / "config.yml", profile.config)
+        # The build's own injectors, which is where the config learns about the
+        # services a top-level profile block asks for. Without them the
+        # regeneration path reads a config that never heard of the bluesky
+        # queue, and disables a server the first render had enabled.
+        _inject_bluesky(
+            profile.bluesky, project, profile.virtual_accelerator, base=DEFAULT_PORT_BASE
+        )
+        return project
+
+    project_dir = render(None)
+    manager.generate_manifest(
+        project_dir,
+        name,
+        "control-assistant",
+        {},
+        artifacts=manager._effective_artifacts("control_assistant", None),
     )
     return manager, project_dir
 
@@ -137,26 +192,41 @@ def test_regenerate_path_emits_every_key(tmp_path):
     ]
 
 
-def test_both_render_paths_render_the_same_file(tmp_path):
-    """Byte-identical output from build and rebuild, for one config.
+def test_the_build_path_never_covers_more_than_the_file_that_ships(tmp_path):
+    """Neither path may claim coverage the other drops.
 
     The drift this pins is not hypothetical: create_project builds its own
     context and never runs build_claude_code_context, so a key added only to
     the latter renders EMPTY on the build path — a hook config whose mixed
     read/write exemption covers nothing, beside a fully populated write-tool
-    list, in a file nothing validates. The non-emptiness assertions below keep
-    the equality from passing vacuously on two empty renders.
+    list, in a file nothing validates.
+
+    The two renders are no longer byte-identical, and cannot be. A project's
+    declarative config lives in its preset, and a build writes it into
+    config.yml AFTER create_project has rendered from the template — so the
+    first render sees a config that names no servers yet, and the regeneration
+    that runs next sees the whole one. The regen render is therefore the file
+    that ships, and it is the RICHER of the two.
+
+    What must still hold is the direction: the build path may not list a tool
+    or prefix the shipping file drops. That is the failure the byte comparison
+    was there to catch — a build-path render advertising write coverage the
+    rebuilt file does not have — and it is checkable without asserting an
+    equality the architecture no longer provides.
     """
     manager, project_dir = _create_project(tmp_path)
-    built = (project_dir / ".claude" / "hooks" / "hook_config.json").read_text()
-    _regenerate(manager, project_dir)
-    rebuilt = (project_dir / ".claude" / "hooks" / "hook_config.json").read_text()
+    built = json.loads((project_dir / ".claude" / "hooks" / "hook_config.json").read_text())
+    rebuilt = _regenerate(manager, project_dir)
 
-    assert built == rebuilt
-    parsed = json.loads(built)
-    assert parsed["write_tools"], "no write tools rendered — equality is vacuous"
-    assert parsed["mixed_read_write_tools"], "no mixed tools rendered — equality is vacuous"
-    assert parsed["server_prefixes"], "no server prefixes rendered — equality is vacuous"
+    assert set(built) == set(rebuilt) == _EXPECTED_KEYS
+    for key in _EXPECTED_KEYS:
+        assert set(built[key]) <= set(rebuilt[key]), (
+            f"the build path lists {sorted(set(built[key]) - set(rebuilt[key]))} under "
+            f"{key!r}, which the file that ships does not"
+        )
+    assert rebuilt["write_tools"], "no write tools rendered — the comparison is vacuous"
+    assert rebuilt["mixed_read_write_tools"], "no mixed tools rendered — the comparison is vacuous"
+    assert rebuilt["server_prefixes"], "no server prefixes rendered — the comparison is vacuous"
 
 
 # ---------------------------------------------------------------------------

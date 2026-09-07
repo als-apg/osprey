@@ -94,12 +94,14 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
 
 from osprey.deployment.reset import MINTED_ENV_BANNERS
 from osprey.utils.dotenv import parse_dotenv_text
+from tests.e2e.profile_edits import set_pairs
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
 
@@ -266,8 +268,8 @@ def _needle(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _services_override(ports: dict[str, int]) -> str:
-    """A ``-O`` overlay adding a Postgres service beside the preset's OpenObserve.
+def _services_edits(ports: dict[str, int]) -> dict[str, Any]:
+    """Profile edits adding a Postgres service beside the preset's OpenObserve.
 
     Two services, deliberately: they are the two ``_SERVICE_TOKEN_VARS`` entries
     whose secret initializes a docker volume, and covering both proves the mint
@@ -275,24 +277,23 @@ def _services_override(ports: dict[str, int]) -> str:
     ``ZO_ROOT_USER_PASSWORD`` is the four-character-class OpenObserve policy).
 
     Dotted leaf keys under ``config:``, the one spelling the profile's config
-    block accepts — a nested mapping would wholesale-replace the rendered
-    subtree instead of setting the addressed leaf.
+    block accepts — each names one leaf of the rendered config, leaving the
+    rest of the addressed subtree alone.
     """
-    return (
-        "config:\n"
-        "  services.postgresql.path: ./services/postgresql\n"
-        "  services.postgresql.database_name: ariel\n"
-        "  services.postgresql.username: ariel\n"
-        f"  services.postgresql.port_host: {ports['postgres']}\n"
-        f"  services.openobserve.port: {ports['openobserve']}\n"
-        "  deployed_services:\n"
-        "    - openobserve\n"
-        "    - postgresql\n"
-    )
+    return {
+        "config": {
+            "services.postgresql.path": "./services/postgresql",
+            "services.postgresql.database_name": "ariel",
+            "services.postgresql.username": "ariel",
+            "services.postgresql.port_host": ports["postgres"],
+            "services.openobserve.port": ports["openobserve"],
+            "deployed_services": ["openobserve", "postgresql"],
+        }
+    }
 
 
-def _init_and_build(base_dir: Path, name: str, preset: str, override_text: str) -> Path:
-    """``osprey init <dir> --preset P -O F`` then ``osprey build --repo <dir>``.
+def _init_and_build(base_dir: Path, name: str, preset: str, edits: dict[str, Any]) -> Path:
+    """``osprey init <dir> --preset P --set ...`` then ``osprey build --repo <dir>``.
 
     Two commands, because the surface has two: ``init`` writes the repo's source
     zone from the preset, ``build`` renders ``build/`` from it. The repo
@@ -305,8 +306,6 @@ def _init_and_build(base_dir: Path, name: str, preset: str, override_text: str) 
 
     Returns the repo root.
     """
-    override_path = base_dir / f"{name}-override.yml"
-    override_path.write_text(override_text, encoding="utf-8")
     repo = base_dir / name
 
     init = _run_osprey(
@@ -316,8 +315,7 @@ def _init_and_build(base_dir: Path, name: str, preset: str, override_text: str) 
             "--preset",
             preset,
             "--no-git",
-            "--override",
-            str(override_path),
+            *set_pairs(edits),
         ],
         cwd=base_dir,
         timeout=BUILD_TIMEOUT_SEC,
@@ -557,7 +555,7 @@ def test_minted_secrets_survive_a_rebuild_and_a_redeploy(tmp_path: Path) -> None
     ports = PORTS_REBUILD
 
     try:
-        repo = _init_and_build(tmp_path, project_name, "hello-world", _services_override(ports))
+        repo = _init_and_build(tmp_path, project_name, "hello-world", _services_edits(ports))
         env_path = repo / ".env"
         pre_deploy = _env_of(env_path)
         for var in (ZO_PASSWORD_VAR, DB_PASSWORD_VAR):
@@ -692,7 +690,7 @@ def test_divergent_shell_export_never_overwrites_the_pinned_secret(tmp_path: Pat
     divergent = "d1vergentexportvaluenotfromthisrepo"
 
     try:
-        repo = _init_and_build(tmp_path, project_name, "hello-world", _services_override(ports))
+        repo = _init_and_build(tmp_path, project_name, "hello-world", _services_edits(ports))
         env_path = repo / ".env"
 
         up1 = _run_osprey(["up", "-d"], repo)
@@ -802,22 +800,23 @@ def test_personas_are_rendered_by_the_build_from_this_repos_own_deltas(tmp_path:
     """
     project_name = PROJECT_PERSONA
     web = PORTS_PERSONA_WEB
-    override = (
-        "config:\n"
-        f"  services.postgresql.port_host: {PORTS_PERSONA['postgres']}\n"
-        f"  services.openobserve.port: {PORTS_PERSONA['openobserve']}\n"
-        f"  modules.web_terminals.nginx_port: {web['nginx']}\n"
-        f"  modules.web_terminals.web_base_port: {web['web']}\n"
-        f"  modules.web_terminals.artifact_base_port: {web['artifact']}\n"
-        f"  modules.web_terminals.ariel_base_port: {web['ariel']}\n"
-        f"  modules.web_terminals.lattice_base_port: {web['lattice']}\n"
-        f"  modules.web_terminals.channel_finder_base_port: {web['channel_finder']}\n"
-    )
+    edits = {
+        "config": {
+            "services.postgresql.port_host": PORTS_PERSONA["postgres"],
+            "services.openobserve.port": PORTS_PERSONA["openobserve"],
+            "modules.web_terminals.nginx_port": web["nginx"],
+            "modules.web_terminals.web_base_port": web["web"],
+            "modules.web_terminals.artifact_base_port": web["artifact"],
+            "modules.web_terminals.ariel_base_port": web["ariel"],
+            "modules.web_terminals.lattice_base_port": web["lattice"],
+            "modules.web_terminals.channel_finder_base_port": web["channel_finder"],
+        }
+    }
 
     try:
         # The repo root IS the profile root: profile.yml, personas/ and the
         # deltas the catalog points at all live here.
-        repo = _init_and_build(tmp_path, project_name, "control-assistant", override)
+        repo = _init_and_build(tmp_path, project_name, "control-assistant", edits)
 
         catalog = _persona_catalog(repo)
         assert catalog, "the control-assistant build produced no persona catalog"

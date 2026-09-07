@@ -586,27 +586,30 @@ def build_claude_code_context(
     project_name = config.get("project_name", project_dir.name)
     package_name = project_name.replace("-", "_").lower()
 
-    # Read template_name and artifact selections from manifest if available
+    # Read the preset stamp and artifact selections from the manifest if
+    # available. The stamp is a NAME the render prints and the artifact fallback
+    # looks up, never a lookup key into the bundled template tree: what this
+    # project renders from is its own config.yml, which is already on disk.
+    # `None` for a project built from a profile that records no preset.
     manifest_path = project_dir / manifest_mod.MANIFEST_FILENAME
-    template_name = "control_assistant"
-    data_bundle = "control_assistant"
+    preset = None
     claude_md_template = "CLAUDE.md.j2"
     artifacts: dict[str, list[str]] = {}
     if manifest_path.exists():
         try:
             manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
             creation = manifest_data.get("creation", {})
-            template_name = creation.get("template", "control_assistant")
-            data_bundle = creation.get("data_bundle", template_name)
+            manifest_mod.note_retired_creation_keys(creation)
+            preset = creation.get("template")
             claude_md_template = creation.get("claude_md_template", "CLAUDE.md.j2")
             artifacts = manifest_data.get("artifacts", {})
         except (json.JSONDecodeError, OSError):
             pass
 
-    # Fall back to template manifest.yml artifact list when manifest has no artifacts
-    # (projects created before artifact persistence was introduced)
+    # Fall back to the preset's own artifact declarations when the project
+    # manifest names no selection (a project built before artifact persistence).
     if not artifacts:
-        tmpl_manifest = manifest_mod.load_template_manifest(template_root, template_name)
+        tmpl_manifest = manifest_mod.load_template_manifest(preset)
         if tmpl_manifest:
             artifacts = tmpl_manifest.get("artifacts", {})
 
@@ -637,8 +640,7 @@ def build_claude_code_context(
         or _derive_runtime_interpreter(
             project_dir, project_root_override, runtime_venv_dir=runtime_venv_dir
         ),
-        "template_name": template_name,
-        "data_bundle": data_bundle,
+        "preset": preset,
         "claude_md_template": claude_md_template,
         "facility_name": resolve_facility_name(config, project_name),
         "system_timezone": config.get("system", {}).get("timezone", "UTC"),
@@ -2045,8 +2047,10 @@ def regenerate_claude_code(
     )
 
     # Resolve allowed_outputs from .osprey-manifest.json artifact list.
-    # Fall back to loading the template's manifest.yml for a project without one.
-    template_name = ctx.get("template_name", "control_assistant")
+    # Fall back to the recorded preset's own declarations for a project without
+    # one; a project that records no preset has no second source, and the static
+    # tracked-file list is what answers then.
+    preset = ctx.get("preset")
     osprey_manifest_path = project_dir / manifest_mod.MANIFEST_FILENAME
     regen_manifest: dict | None = None
     stored_artifacts: dict | None = None
@@ -2055,12 +2059,12 @@ def regenerate_claude_code(
             osprey_manifest_data = json.loads(osprey_manifest_path.read_text(encoding="utf-8"))
             stored_artifacts = osprey_manifest_data.get("artifacts") or None
             if stored_artifacts:
-                # Build an in-memory manifest dict in the same format as manifest.yml
+                # Wrap them in the shape load_template_manifest returns
                 regen_manifest = {"artifacts": stored_artifacts}
         except (json.JSONDecodeError, OSError):
             pass
     if regen_manifest is None:
-        regen_manifest = manifest_mod.load_template_manifest(template_root, template_name)
+        regen_manifest = manifest_mod.load_template_manifest(preset)
 
     allowed_outputs = (
         manifest_mod.resolve_manifest_outputs(regen_manifest) if regen_manifest else None
@@ -2078,9 +2082,7 @@ def regenerate_claude_code(
     if stored_artifacts and allowed_outputs is not None:
         claude_code_files = sorted(allowed_outputs)
     else:
-        claude_code_files = manifest_mod.get_tracked_files(
-            template_root, template_name, project_dir
-        )
+        claude_code_files = manifest_mod.get_tracked_files(preset, project_dir)
     agents_dir = project_dir / ".claude" / "agents"
     if agents_dir.exists():
         for agent_file in agents_dir.iterdir():

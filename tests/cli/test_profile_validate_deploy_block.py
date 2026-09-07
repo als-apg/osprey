@@ -60,9 +60,12 @@ def _deploy(**overrides: Any) -> dict[str, Any]:
 
 
 def _write_profile(tmp_path: Path, deploy: Any) -> Path:
-    body: dict[str, Any] = {"name": "Facility", "data_bundle": "hello_world"}
+    body: dict[str, Any] = {"name": "Facility", "extends": "hello-world", "data": "data"}
     if deploy is not None:
         body["deploy"] = deploy
+    # ``data:`` is required of a repo profile and must resolve to a real
+    # directory, so the tree is part of writing a valid profile.
+    (tmp_path / "data").mkdir(exist_ok=True)
     path = tmp_path / "profile.yml"
     path.write_text(yaml.safe_dump(body, sort_keys=False), encoding="utf-8")
     return path
@@ -367,7 +370,7 @@ def test_an_emitted_profile_offers_the_deploy_block_as_a_comment_only(preset: st
     the second silently winning. It must appear exactly once, commented."""
     from osprey.cli.build_profile_emit import emit_standalone_profile_yaml
 
-    text = emit_standalone_profile_yaml(preset, (), (), "Emitted")
+    text = emit_standalone_profile_yaml(preset, (), "Emitted")
 
     assert "deploy" not in (yaml.safe_load(text) or {})
     assert [line for line in text.splitlines() if line.strip() == "# deploy:"] == ["# deploy:"]
@@ -379,7 +382,7 @@ def test_the_emitted_stub_is_a_block_the_schema_accepts() -> None:
     facility the wrong one, and it would only find out after uncommenting."""
     from osprey.cli.build_profile_emit import emit_standalone_profile_yaml
 
-    text = emit_standalone_profile_yaml("control-assistant", (), (), "Emitted")
+    text = emit_standalone_profile_yaml("control-assistant", (), "Emitted")
     lines = text.splitlines()
     start = lines.index("# deploy:")
     stub = []

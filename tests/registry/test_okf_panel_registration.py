@@ -153,12 +153,13 @@ def test_frontend_panel_manager_registers_okf_tab():
 
 
 def test_build_chain_reads_builtins_dynamically_no_hardcoded_okf():
-    """DA IA-1: build_profile_model / manifest gate on BUILTIN_PANELS, not literals."""
+    """DA IA-1: the build gates on BUILTIN_PANELS, not on literals."""
     from osprey.cli import build_profile_model
-    from osprey.cli.templates import manifest
 
-    # Both import the shared set rather than hardcoding panel ids; adding "okf"
+    # It imports the shared set rather than hardcoding panel ids; adding "okf"
     # to BUILTIN_PANELS is therefore sufficient (no separate edit needed).
-    # Fresh-file reads (not inspect.getsource) keep this guard deterministic.
+    # ``templates.manifest`` held a second copy of that gate for the template
+    # manifests, which no longer exist: the profile and its preset are now the
+    # whole statement of a deployment, so nothing there validates panels.
+    # A fresh-file read (not inspect.getsource) keeps this guard deterministic.
     assert "BUILTIN_PANELS" in _fresh_source(build_profile_model)
-    assert "BUILTIN_PANELS" in _fresh_source(manifest)

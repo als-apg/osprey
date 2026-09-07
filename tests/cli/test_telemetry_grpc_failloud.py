@@ -107,21 +107,34 @@ def test_derived_openobserve_endpoint_unaffected_when_protocol_omitted():
     assert env["OTEL_EXPORTER_OTLP_PROTOCOL"] == "http/protobuf"
 
 
-def test_templates_do_not_offer_grpc_unqualified():
-    """Every template offering the knob must name the openobserve restriction."""
-    from pathlib import Path
+def test_presets_do_not_offer_grpc_unqualified():
+    """Every preset offering the knob must name the openobserve restriction.
 
-    import osprey
+    The knob is declarative, so it lives in the presets an operator edits
+    rather than in a config template. The restriction is stated in the prose
+    above the key — a preset spells one key per line, so the explanation cannot
+    ride at the end of it.
+    """
+    from osprey.cli.build_profile_presets import _presets_dir
 
-    templates = Path(osprey.__file__).parent / "templates"
     declaring = sorted(
         path
-        for path in templates.rglob("config.yml.j2")
-        if "protocol: http/protobuf" in path.read_text()
+        for path in _presets_dir().glob("*.yml")
+        if "claude_code.telemetry.protocol: http/protobuf" in path.read_text(encoding="utf-8")
     )
-    assert len(declaring) == 4, f"expected 4 declaring templates, found {declaring}"
+    assert declaring, "no preset offers the protocol knob — the check is vacuous"
     for path in declaring:
-        line = next(
-            raw for raw in path.read_text().splitlines() if "protocol: http/protobuf" in raw
+        rows = path.read_text(encoding="utf-8").splitlines()
+        key = next(
+            i
+            for i, raw in enumerate(rows)
+            if "claude_code.telemetry.protocol: http/protobuf" in raw
         )
-        assert "endpoint" in line, f"{path} offers grpc without naming the endpoint requirement"
+        prose = []
+        i = key - 1
+        while i >= 0 and rows[i].strip().startswith("#"):
+            prose.insert(0, rows[i])
+            i -= 1
+        assert "endpoint" in "\n".join(prose), (
+            f"{path.name} offers grpc without naming the endpoint requirement"
+        )
