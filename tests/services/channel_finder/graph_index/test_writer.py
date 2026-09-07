@@ -12,6 +12,7 @@ previous file byte-identical and no temporary file behind.
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import sys
@@ -263,6 +264,22 @@ class TestReport:
         assert report.path.exists()
 
 
+#: The logger the builder warns on. The two assertions below are about what
+#: *the builder* says, so they read that logger by name rather than everything
+#: `caplog` happens to hold: the root capture picks up whatever else in the
+#: process logs during the window — an audit refusal from a server another test
+#: left running, a config reader on a worker shared under `-n auto` — and
+#: "somebody warned" would fail a test about a corpus that builds cleanly. The
+#: claims are unchanged: exactly one warning for an empty corpus, none for a
+#: populated one.
+_BUILDER_LOGGER = "osprey.services.channel_finder.graph_index.builder"
+
+
+def _builder_warnings(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    """The WARNING records the graph-index builder itself emitted."""
+    return [r for r in caplog.records if r.name == _BUILDER_LOGGER and r.levelname == "WARNING"]
+
+
 class TestEmptyCorpus:
     @pytest.fixture
     def parsed(self) -> ParsedCorpus:
@@ -281,18 +298,18 @@ class TestEmptyCorpus:
 
     def test_it_warns(self, parsed: ParsedCorpus, tmp_path: Path, caplog):
         path = tmp_path / "graph.duckdb"
-        with caplog.at_level("WARNING"):
+        with caplog.at_level("WARNING", logger=_BUILDER_LOGGER):
             _build(parsed, path)
-        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        warnings = _builder_warnings(caplog)
         assert len(warnings) == 1
         assert str(path) in warnings[0].getMessage()
 
     def test_a_corpus_with_bindings_does_not_warn(
         self, chain: ParsedCorpus, tmp_path: Path, caplog
     ):
-        with caplog.at_level("WARNING"):
+        with caplog.at_level("WARNING", logger=_BUILDER_LOGGER):
             _build(chain, tmp_path / "graph.duckdb")
-        assert [r for r in caplog.records if r.levelname == "WARNING"] == []
+        assert _builder_warnings(caplog) == []
 
 
 @dataclass(slots=True)
