@@ -292,3 +292,40 @@ def test_slash_commands_resolve_targets() -> None:
                     orphans.append(f"{rel}: {kind} '{ref}' not in registry")
 
     assert not orphans, "Slash commands reference unknown artifacts:\n  " + "\n  ".join(orphans)
+
+
+#: Values a shipped preset must not write as a live key. Each is the OSPREY
+#: project's own address, not a facility's: rendered live, `osprey init` copies
+#: it into the operator's profile.yml and `osprey profile expand` puts it back,
+#: so every deployment carries the maintainers' mailbox, tracker or
+#: documentation site as if it had chosen it. The code defaults still supply
+#: them, and each preset documents the key as a commented example, so nothing
+#: about an unconfigured deployment changes — only what lands in a facility's
+#: own file.
+_PROJECT_CONTACT_LITERALS = (
+    "thellert@lbl.gov",
+    "als-apg/osprey",
+    "https://als-apg.github.io/osprey",
+)
+
+
+@pytest.mark.parametrize("preset", _all_presets())
+def test_no_preset_writes_a_project_contact_as_a_live_key(preset: str) -> None:
+    """No shipped preset renders the maintainers' mailbox, tracker or docs site."""
+    profile, _preset_dir = resolve_build_profile(None, preset=preset)
+    rendered = "\n".join(f"{key}: {value}" for key, value in _flatten(profile.config or {}))
+    for literal in _PROJECT_CONTACT_LITERALS:
+        assert literal not in rendered, (
+            f"preset {preset} renders {literal!r} as a live config value; "
+            f"document it as a commented example instead"
+        )
+
+
+def _flatten(node: object, prefix: str = "") -> list[tuple[str, object]]:
+    """Every leaf of a nested/dotted config mapping, as ``(dotted key, value)``."""
+    if not isinstance(node, dict):
+        return [(prefix, node)]
+    out: list[tuple[str, object]] = []
+    for key, value in node.items():
+        out.extend(_flatten(value, f"{prefix}.{key}" if prefix else str(key)))
+    return out

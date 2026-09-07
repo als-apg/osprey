@@ -65,30 +65,41 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # all and the facility names the recipient. The five control-assistant
     # personas inherit the root preset and move with it; hello-world names no
     # `web:` block and stands still.
-    "ariel-standalone": ("sha256:2da76441f9b23fbb5f6be2a3ffb0ece92f81a5e490261bc42afa0b1220139dd4"),
+    # The seventh move, and again not every preset: the three presets carrying a
+    # `web:` block stopped rendering `web.docs_url`, `web.feedback.email` and
+    # `web.feedback.github_repo` as live keys — each documents them as a
+    # commented example instead, so a deployment's own profile.yml no longer
+    # carries the OSPREY project's documentation site and tracker as if the
+    # facility had chosen them. The five control-assistant personas extend the
+    # root preset and move with it; hello-world names no `web:` block and
+    # stands still. The code defaults still apply — the docs and tracker
+    # defaults are unchanged, and the mail default already ships blank — so a
+    # rebuilt project behaves exactly as before; the advisory firing is the
+    # correct signal that its rendered config really is three leaves shorter.
+    "ariel-standalone": ("sha256:389fad6bd826efc4b53ea263800110585867aab31c92d9931206897c75548643"),
     "channel-finder-standalone": (
-        "sha256:e9191d66287745d731fd238b3893677d8a16426a4a17c495b9e2086f42b6e77d"
+        "sha256:6c42cc563c637073dd76803ebfb0a371f29437747ee3b6ea701662de44bc4ca9"
     ),
     "control-assistant": (
-        "sha256:d3d49b8f4a4ccbde304b6018bec3629bcd28b8b067ede712f59a4ba5f440f0e1"
+        "sha256:54780712d416102f266fa303bc96fccc06db262bd70d18c9e2ef511468e8c252"
     ),
     "control-assistant-admin": (
-        "sha256:d9f13eed69481c0f9c0c8c3c4fd7da566d40e76d2daa8bcefd4127dce4962bd1"
+        "sha256:d5bcb632db87fbd7be5339a56be6cdca4e6c5d121a148b73b8b9d369543d2de2"
     ),
     "control-assistant-knowledge": (
-        "sha256:5c6bfa6e800cf870d1c312a8d68b877065a32fca5e313ff9560850b4c0bb5134"
+        "sha256:11248666b3009d9d8fd3f81460dad2cfeb62e555f19fe2482dbe4876de9ef599"
     ),
     "control-assistant-logbook": (
-        "sha256:ed131ffa232d813321f485524f5404fc3242eb888fd6a4a8884760fb37c291f3"
+        "sha256:67d66dbb1d476115efb91b3f444fa7b0f512e446363c4179213d1bf2fb4bf350"
     ),
     "control-assistant-readonly": (
-        "sha256:e4011bd738871d17ad5b344108758c577458915117ac77cd09210dccb4c1b921"
+        "sha256:4b9b2fa8c40c1fa9e0eed6eb27f9e6ef181cd0b03c15b93cb99c0db895e5d6ec"
     ),
     "control-assistant-readwrite": (
-        "sha256:ca7d10ac9f4adca9e2c71601c441d154ee7084934c0f3da73a90944f979a5fd9"
+        "sha256:70111bf6029217c2999f7c1e98c7c43a23cd071a357962bff3530412767a2243"
     ),
     "control-assistant-va-readwrite": (
-        "sha256:27976f8102e39e45e26f006604f95448acd6bdbbda71014aa83277cdb6587f9e"
+        "sha256:b2a14f6358a6c896c84fa465bec0c472b0c0538b6f207bc06dea83c4ed7ce679"
     ),
     "hello-world": ("sha256:10ce4bc73c7a244debbf355189dfbcd13feb7d31007c79e83c93aec978831b65"),
 }

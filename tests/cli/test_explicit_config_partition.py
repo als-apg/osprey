@@ -108,8 +108,25 @@ def _leaves(node: Any, prefix: tuple[str, ...] = ()) -> Iterator[tuple[str, Any]
         yield ".".join(prefix), node
 
 
+#: Leaves the frozen renders carry that no preset states any more.
+#:
+#: The fixtures are a baseline, never re-frozen, so a key a preset has since
+#: stopped rendering stays in them forever and would read here as a rendered
+#: key with no source. These three named the OSPREY project's own mailbox,
+#: tracker and documentation site; each preset documents them as a commented
+#: example now, and the code defaults still apply, so the rendered document is
+#: simply three leaves shorter. The same three are declared in
+#: ``test_explicit_config_equivalence.CELL_DELTAS`` — that table is what pins
+#: the divergence; this set only keeps the partition reading the render as it
+#: is produced today.
+_RETIRED_SINCE_THE_FREEZE = frozenset(
+    {"web.docs_url", "web.feedback.email", "web.feedback.github_repo"}
+)
+
+
 def _render(directory: str, document: str = "root") -> dict[str, Any]:
-    return dict(_leaves(yaml.safe_load((FIXTURE_ROOT / directory / f"{document}.yml").read_text())))
+    frozen = _leaves(yaml.safe_load((FIXTURE_ROOT / directory / f"{document}.yml").read_text()))
+    return {key: value for key, value in frozen if key not in _RETIRED_SINCE_THE_FREEZE}
 
 
 def _preset_document(preset: str) -> dict[str, Any]:
@@ -286,16 +303,6 @@ def test_preset_values_reach_the_render_unchanged(
         if key == "container_runtime":
             assert value == "auto"
             assert render[key] in {"docker", "podman"}
-            continue
-        if key == "web.feedback.email":
-            # The root presets stopped shipping a recipient after the freeze:
-            # the prefilled draft can carry a session's scrollback, so the
-            # facility names the mailbox and an unconfigured deployment offers
-            # no Email channel. Exact in both directions — the preset must be
-            # blank and the frozen render must still carry what it shipped —
-            # so neither half can drift back without being noticed.
-            assert value == "", key
-            assert render[key], key
             continue
         if key == "deployed_services":
             # The injectors append what the profile's sections deploy; what the
