@@ -41,6 +41,7 @@ from osprey.deployment.compose_generator import (
     resolve_image_defaults,
     resolve_project_name,
     resolve_repo_root,
+    resolve_site_image_axes,
 )
 from osprey.deployment.deploy_summary import log_endpoint_summary
 from osprey.deployment.errors import (
@@ -2072,6 +2073,116 @@ def _resolve_pip_spec(dev_mode: bool = False) -> str:
     return f"osprey-framework=={get_release_version()}"
 
 
+#: The name a staged site CA is copied to inside each build context it reaches,
+#: value ``OSPREY_SITE_CA`` therefore carries. ``COPY`` cannot reach outside the
+#: context, so the operator's host path is staged under a fixed name here rather
+#: than passed through — every recipe's ``*.cr[t]`` glob then matches it.
+SITE_CA_CONTEXT_FILENAME = "osprey-site-ca.crt"
+
+
+def site_image_build_args(config: dict, context_dir: Path | str) -> list[str]:
+    """The site's ``--build-arg`` flags for one image build, context staged.
+
+    One producer for the three images ``osprey up`` builds from OSPREY's own
+    recipes — the project image, each persona image and the web-terminal auth
+    sidecar — so a deployment behind a
+    TLS-intercepting proxy, on an internal package index, or on an air-gapped
+    host configures those facts once in ``config.yml`` and every managed build
+    honours them. Before this, the Dockerfiles declared the ARGs and no builder
+    passed them: the settings existed only for a hand-run ``docker build``.
+
+    Two producers feed it:
+
+    * :func:`~osprey.deployment.compose_generator.resolve_site_image_axes` for
+      the ``images.*`` block — the site CA, pip's proxy bypass list and the two
+      index URLs; and
+    * the top-level ``offline`` key, read exactly as
+      :func:`osprey.interfaces.vendor.is_offline` reads it, so build-time
+      vendoring and the runtime check that decides whether to SERVE the
+      vendored assets cannot disagree. A deployment that sets ``offline: true``
+      and gets an image that never ran ``osprey vendor fetch`` serves broken
+      asset paths with nothing to point at.
+
+    An axis the deployment did not set contributes nothing, so an unconfigured
+    deployment's build command is exactly what it was before this existed.
+
+    :param config: The deployment's raw config.
+    :param context_dir: The build context this argv will be run against — the
+        directory a site CA is staged into.
+    :return: The flags, ready to extend a build command with.
+    :raises FileNotFoundError: If ``images.site_ca`` names a file that is not
+        there. A CA the build cannot find is a build that silently fails TLS
+        verification against the site proxy much later.
+    """
+    from osprey.interfaces.vendor import offline_from_config
+
+    args: list[str] = []
+    axes = resolve_site_image_axes(config)
+    for arg_name, value in axes.items():
+        if arg_name == "OSPREY_SITE_CA":
+            value = _stage_site_ca(value, context_dir)
+        args.extend(["--build-arg", f"{arg_name}={value}"])
+    if offline_from_config(config):
+        # "1" is the one spelling the Dockerfiles compare against; the config
+        # layer accepts every truthy spelling `is_offline` does.
+        args.extend(["--build-arg", "OSPREY_OFFLINE=1"])
+    return args
+
+
+def _stage_site_ca(source: str, context_dir: Path | str) -> str:
+    """Copy the site CA into *context_dir* and return the name COPY will see.
+
+    The file is refreshed on every build rather than copied once: the operator
+    edits their own bundle, not this copy, and a stale copy in a context that
+    is otherwise regenerable would outlive the certificate it was made from.
+
+    :param source: The host path ``images.site_ca`` names.
+    :param context_dir: The build context to stage into.
+    :return: :data:`SITE_CA_CONTEXT_FILENAME`.
+    :raises FileNotFoundError: If *source* does not name a readable file.
+    """
+    import shutil
+
+    src = Path(source).expanduser()
+    if not src.is_file():
+        raise FileNotFoundError(
+            f"images.site_ca names {source}, which is not a readable file. "
+            "It must be a PEM bundle on this host: the build stages a copy of "
+            "it into the build context, which is the only place a Dockerfile "
+            "COPY can reach."
+        )
+    dest = Path(context_dir) / SITE_CA_CONTEXT_FILENAME
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src, dest)
+    return SITE_CA_CONTEXT_FILENAME
+
+
+def clear_staged_site_ca(cmd: Sequence[str], context_dir: Path | str) -> None:
+    """Remove the site CA :func:`site_image_build_args` staged into *context_dir*.
+
+    A build context is the operator's own directory — for the project image it
+    IS the deployment repo — so the copy of their CA bundle is cleared once the
+    build that needed it has read it, the way the staged dev wheel and its
+    requirements manifest are. Nothing needs it to persist: every build stages
+    it again from ``images.site_ca``, which is what keeps a rotated certificate
+    from being shadowed by a stale copy.
+
+    Keyed on the argv that was actually built rather than on the config: a
+    deployment that stages no CA must never have a file of its own that happens
+    to carry this name removed from under it.
+
+    :param cmd: The build command :func:`site_image_build_args` contributed to.
+    :param context_dir: The build context that argv was staged into.
+    """
+    if f"OSPREY_SITE_CA={SITE_CA_CONTEXT_FILENAME}" not in cmd:
+        return
+    staged = Path(context_dir) / SITE_CA_CONTEXT_FILENAME
+    try:
+        staged.unlink(missing_ok=True)
+    except OSError:
+        logger.warning("Could not remove the staged site CA %s", staged)
+
+
 #: Env-var spellings for "on" and "off", matching the other framework switches.
 _TRUTHY = {"1", "true", "yes", "on"}
 _FALSY = {"0", "false", "no", "off"}
@@ -2216,6 +2327,11 @@ def _project_image_build_cmd(
     ``OSPREY_DEV=1`` build-arg is added (mirroring the persona dev path), so
     the Dockerfile's dev branch can key off it.
 
+    The site's own build args — proxy bypass, package index, TLS-intercepting
+    CA, offline vendoring — come from :func:`site_image_build_args`, the one
+    producer this build shares with the persona and sidecar builds, and
+    contribute nothing when the deployment declares none.
+
     :param config: Raw deploy config (project name, ``claude_code.cli_version``).
     :param runtime: Base container command (``docker`` or ``podman``).
     :param project_root: Build context — the project root that holds the
@@ -2246,6 +2362,7 @@ def _project_image_build_cmd(
     ]
     if dev_mode:
         cmd.extend(["--build-arg", "OSPREY_DEV=1"])
+    cmd.extend(site_image_build_args(config, project_root))
     with_plain_build_progress(cmd)
     cmd.append(project_root)
     return cmd
@@ -2283,7 +2400,9 @@ def _build_project_image(
     actually succeeded — a failed wheel build keeps the pinned install
     fail-loud instead of silently relaxing it to the latest published release.
     The staged wheel is removed afterward so it cannot poison a later
-    non-dev build (whose wheel-drop branch fires on any ``*.whl`` in the context).
+    non-dev build (whose wheel-drop branch fires on any ``*.whl`` in the
+    context), and so is the site CA the build args stage — this context is the
+    operator's own directory, not a render zone OSPREY regenerates.
 
     :param config: Raw deploy config.
     :param dev_mode: Whether ``--dev`` was passed (stage a local wheel).
@@ -2351,6 +2470,7 @@ def _build_project_image(
                 "osprey-framework install."
             )
 
+    cmd: list[str] = []
     try:
         cmd = _project_image_build_cmd(config, runtime, project_root, dev_mode and wheel_staged)
         logger.debug("Building dispatch worker project image %s:", project_image)
@@ -2375,6 +2495,9 @@ def _build_project_image(
                 artifact.unlink()
             except OSError:
                 logger.warning("Could not remove staged dev artifact %s", artifact)
+        # Same reason, for the third thing this build stages: the context here
+        # is the deployment repo itself.
+        clear_staged_site_ca(cmd, project_root)
 
 
 #: The merged env chain, written under the render zone for the delivery shapes

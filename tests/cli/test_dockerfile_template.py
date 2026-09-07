@@ -39,6 +39,8 @@ EXPECTED_ARGS = {
     "OSPREY_PIP_SPEC": "osprey-framework",
     "OSPREY_DEV": "",
     "PIP_NO_PROXY": "",
+    "PIP_INDEX_URL": "",
+    "PIP_EXTRA_INDEX_URL": "",
     "OSPREY_OFFLINE": "0",
     "OSPREY_SITE_CA": "",
 }

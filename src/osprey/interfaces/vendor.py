@@ -245,6 +245,40 @@ _TRUTHY = {"1", "true", "yes", "on"}
 _FALSY = {"0", "false", "no", "off"}
 
 
+def _offline_env() -> bool | None:
+    """What ``OSPREY_OFFLINE`` says, or ``None`` when it says nothing.
+
+    Split out so the environment layer is read the same way whether the config
+    is loaded from disk (:func:`is_offline`) or already in the caller's hands
+    (:func:`offline_from_config`).
+    """
+    env = os.environ.get("OSPREY_OFFLINE", "").strip().lower()
+    if env in _TRUTHY:
+        return True
+    if env in _FALSY:
+        return False
+    return None
+
+
+def offline_from_config(config: dict | None) -> bool:
+    """:func:`is_offline`'s answer for a config the caller already holds.
+
+    The deploy path resolves this before anything is running: an image is
+    built from a config dict, and ``osprey vendor fetch`` runs INSIDE that
+    build, where the deployment's ``config.yml`` is not on disk to be loaded.
+    Reading the same two layers in the same order is what keeps the mode the
+    image was built for and the mode it later serves in from disagreeing.
+
+    :param config: The configuration to read ``offline`` from. ``None`` and an
+        empty mapping both mean "the config says nothing".
+    :return: Whether locally bundled vendor assets should be served.
+    """
+    override = _offline_env()
+    if override is not None:
+        return override
+    return bool((config or {}).get("offline", False))
+
+
 def is_offline() -> bool:
     """Return True if interfaces should serve locally bundled vendor assets.
 
@@ -256,18 +290,16 @@ def is_offline() -> bool:
     Env var wins — a developer can flip modes per-shell without editing
     project config.
     """
-    env = os.environ.get("OSPREY_OFFLINE", "").strip().lower()
-    if env in _TRUTHY:
-        return True
-    if env in _FALSY:
-        return False
+    override = _offline_env()
+    if override is not None:
+        return override
     try:
         from osprey.utils.workspace import load_osprey_config
 
         cfg = load_osprey_config() or {}
     except Exception:
         return False
-    return bool(cfg.get("offline", False))
+    return offline_from_config(cfg)
 
 
 def asset_cdn_url(name: str) -> str:

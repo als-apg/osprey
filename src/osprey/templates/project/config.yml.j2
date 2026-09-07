@@ -71,6 +71,38 @@ execution:
     packages: {{ environment_packages | default([]) | tojson }}
     inherit_exclude: {{ environment_inherit_exclude | default([]) | tojson }}
 
+# ── Site network ────────────────────────────────────────────
+# Commented out, and deliberately valueless: these are facts about the HOST
+# network a deployment is built on, so no preset can guess one. Uncomment what
+# your site needs and rebuild — `osprey up` turns each of them into a build arg
+# for the project image, each web-terminal persona image and the login sidecar,
+# and leaving them all unset builds exactly what OSPREY built before they
+# existed.
+#
+# `offline: true` vendors the web assets into the image at build time AND makes
+# the running interfaces serve them from there instead of a CDN — one key for
+# both halves, so an air-gapped deployment cannot end up with an image that
+# never fetched what it is now asked to serve. OSPREY_OFFLINE overrides it.
+#
+# offline: true
+#
+# The `images:` block carries the rest, beside the `registry`/`tag` axes:
+#   site_ca              path on THIS host to the PEM bundle of a proxy that
+#                        re-signs TLS. Copied into each build context, so the
+#                        images trust it at build AND at run time.
+#   pip_no_proxy         hosts pip reaches without the proxy.
+#   pip_index_url        an internal PyPI mirror.
+#   pip_extra_index_url  a second index, consulted after the first.
+# Each is overridden for one shell by the environment variable of the same
+# name as its build arg: OSPREY_SITE_CA, PIP_NO_PROXY, PIP_INDEX_URL,
+# PIP_EXTRA_INDEX_URL.
+#
+# images:
+#   site_ca: /etc/ssl/certs/site-proxy-ca.pem
+#   pip_no_proxy: .internal.example.org
+#   pip_index_url: https://mirror.internal.example.org/pypi/simple
+#   pip_extra_index_url: https://wheels.internal.example.org/simple
+
 # ── Port layout ─────────────────────────────────────────────
 # The artifact gallery's host port, from this deployment's `deployment.port_base`.
 # OSPREY_ARTIFACT_SERVER_PORT still outranks it at run time.

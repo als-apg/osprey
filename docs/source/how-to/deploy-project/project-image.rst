@@ -86,7 +86,16 @@ passed at runtime via ``--env-file`` — the ``.dockerignore`` guarantees
 Build Arguments
 ===============
 
-The image exposes these knobs for site-specific builds:
+``osprey up`` passes these from ``config.yml``: the top-level ``offline`` key
+and the ``images.site_ca`` / ``images.pip_no_proxy`` / ``images.pip_index_url``
+/ ``images.pip_extra_index_url`` block, resolved once and handed to the three
+images built from these recipes — the project image, each web-terminal persona
+image and the login sidecar. Set them there and a site network is configured in
+one place.
+The build arguments below are the same settings under the names a hand-run
+``docker build`` uses; each is also overridden for one shell by an environment
+variable of the same name (``OSPREY_SITE_CA``, ``PIP_INDEX_URL``, …), the same
+way ``OSPREY_IMAGE_REGISTRY`` overrides ``images.registry``.
 
 .. list-table::
    :header-rows: 1
@@ -103,6 +112,15 @@ The image exposes these knobs for site-specific builds:
      - ``""``
      - Hosts exempted from any proxy during ``pip install`` (e.g. an
        internal GitLab serving the OSPREY package).
+   * - ``PIP_INDEX_URL``
+     - ``""``
+     - Package index the dependency layer resolves from, for a site that
+       mirrors PyPI internally. It is pip's own environment name, so the
+       declared argument reaches pip directly; left empty, pip drops it and
+       resolves from PyPI.
+   * - ``PIP_EXTRA_INDEX_URL``
+     - ``""``
+     - A second index, consulted after the first. Same handling.
    * - ``OSPREY_OFFLINE``
      - ``"0"``
      - ``"1"`` vendors web assets (JS/CSS/fonts) into the image via
@@ -118,8 +136,20 @@ The image exposes these knobs for site-specific builds:
        where a proxy re-signs TLS with its own CA — see
        `TLS-Intercepting Proxies`_ below. Unset, the CA step does nothing.
 
-(A sixth ARG, ``OSPREY_DEV``, is used internally by ``osprey up
+(One more ARG, ``OSPREY_DEV``, is used internally by ``osprey up
 --dev`` to install a locally built wheel; you normally never set it by hand.)
+
+The **host** side of the build reads its own settings from the shell rather
+than from ``config.yml``: ``osprey build`` installs the project's virtual
+environment with ``uv`` (or pip), so ``UV_INDEX_URL``, ``PIP_INDEX_URL`` and a
+``pip.conf`` on the build host all apply there and nowhere else.
+
+Building an image by hand
+-------------------------
+
+Everything below is the unmanaged path — a ``docker build`` you run yourself,
+outside ``osprey up``. Nothing reads ``config.yml`` there, so every setting is
+typed out as a build argument.
 
 Example — install OSPREY from an internal mirror behind a proxy, with
 vendored assets for an air-gapped host:
@@ -187,9 +217,17 @@ proxy values as above is then not enough — every fetch inside the build (apt,
 npm, pip, the optional ``osprey vendor fetch``) fails cert verification,
 because nothing in the image trusts that CA yet.
 
-The ``OSPREY_SITE_CA`` build argument closes the gap. A Dockerfile ``COPY``
-cannot reach outside the build context, so first stage a copy of the CA bundle
-beside the Dockerfile, then name it:
+The ``OSPREY_SITE_CA`` build argument closes the gap. Point ``images.site_ca``
+at the bundle on the deploy host and ``osprey up`` does the rest — a Dockerfile
+``COPY`` cannot reach outside the build context, so the deploy stages a copy
+into each context and passes its staged name:
+
+.. code-block:: yaml
+
+   images:
+     site_ca: /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+
+Building by hand, stage the copy yourself and name it:
 
 .. code-block:: bash
 

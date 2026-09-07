@@ -26,6 +26,7 @@ import sys
 import pytest
 
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
+from osprey.deployment import container_lifecycle
 from osprey.deployment.subprocess_capture import SPOOL_DIR, CapturedProcess
 from osprey.deployment.web_terminals import persona_images, postup_hooks, provision
 
@@ -251,7 +252,9 @@ def test_persona_build_is_watched_under_its_own_image_tag(monkeypatch, tmp_path,
 def test_persona_image_build_cmd_pins_plain_progress_on_docker(tmp_path):
     """The live view is parsed from BuildKit's plain stream, so plain is pinned
     rather than left to `auto` degrading under the capture pipe."""
-    cmd = persona_images._persona_image_build_cmd("docker", str(tmp_path), "demo", "ops", "demo")
+    cmd = persona_images._persona_image_build_cmd(
+        "docker", str(tmp_path), "demo", "ops", {}, "demo"
+    )
     assert cmd[cmd.index("--progress") + 1] == "plain"
     assert cmd[-1] == str(tmp_path)  # the flag lands ahead of the context
 
@@ -259,9 +262,40 @@ def test_persona_image_build_cmd_pins_plain_progress_on_docker(tmp_path):
 def test_persona_image_build_cmd_omits_plain_progress_on_podman(tmp_path):
     """`podman build` has no `--progress` — the same caveat `with_plain_progress`
     carries for compose. An unknown flag there would fail the deploy outright."""
-    cmd = persona_images._persona_image_build_cmd("podman", str(tmp_path), "demo", "ops", "demo")
+    cmd = persona_images._persona_image_build_cmd(
+        "podman", str(tmp_path), "demo", "ops", {}, "demo"
+    )
     assert "--progress" not in cmd
     assert cmd[-1] == str(tmp_path)
+
+
+def test_persona_image_build_cmd_carries_the_site_build_args(monkeypatch, tmp_path):
+    """A persona image is built on the same host as the project image, so it
+    gets the same site CA, package index and offline mode — from the FACILITY
+    config, which is the only place those are declared."""
+    for name in ("OSPREY_SITE_CA", "PIP_NO_PROXY", "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
+    ca = tmp_path / "site-ca.pem"
+    ca.write_text("-----BEGIN CERTIFICATE-----\n")
+    config = {
+        "project_name": "demo",
+        "offline": True,
+        "images": {"site_ca": str(ca), "pip_index_url": "https://mirror.example.org/simple"},
+    }
+
+    cmd = persona_images._persona_image_build_cmd(
+        "docker", str(tmp_path), "demo", "ops", config, "demo"
+    )
+
+    args = dict(
+        arg.split("=", 1) for flag, arg in zip(cmd, cmd[1:], strict=False) if flag == "--build-arg"
+    )
+    assert args["OSPREY_SITE_CA"] == container_lifecycle.SITE_CA_CONTEXT_FILENAME
+    assert args["PIP_INDEX_URL"] == "https://mirror.example.org/simple"
+    assert args["OSPREY_OFFLINE"] == "1"
+    # Staged into THIS persona's own context, which is what COPY can reach.
+    assert (tmp_path / container_lifecycle.SITE_CA_CONTEXT_FILENAME).is_file()
 
 
 # --------------------------------------------------------------------------
