@@ -283,6 +283,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             description="UserPromptSubmit hook that reports web workspace changes since the agent's last turn",
         ),
         BuildArtifact(
+            canonical_name="hooks/control-context",
+            template_path="claude/hooks/osprey_control_context.py",
+            output_path=".claude/hooks/osprey_control_context.py",
+            description="Puts the active control target and each target's write state in front of the agent at session start and whenever it moved since its last turn",
+        ),
+        BuildArtifact(
             canonical_name="hooks/turn-state",
             template_path="claude/hooks/osprey_turn_state.py",
             output_path=".claude/hooks/osprey_turn_state.py",

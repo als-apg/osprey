@@ -892,6 +892,10 @@ def test_hello_world_renders_no_graph_surface_at_all(built_hello_world_project):
         ("osprey_turn_state.py", "Stop"),
         ("osprey_turn_state.py", "StopFailure"),
         ("osprey_turn_state.py", "SessionStart"),
+        # The control context is the fourth: the agent learns where the session
+        # is pointed, and of a switch made under it, from the harness.
+        ("osprey_control_context.py", "SessionStart"),
+        ("osprey_control_context.py", "UserPromptSubmit"),
     ],
 )
 def test_panel_hooks_rendered_and_wired(built_control_assistant_project, hook_file, event):
