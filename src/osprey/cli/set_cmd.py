@@ -15,19 +15,20 @@ refusal of an ``extends:`` write that materialization makes. A second writer
 with its own spelling rules would mean ``osprey set connector=epics`` and
 ``osprey init --set connector=epics`` landing differently in the same file.
 
-Two shorthands are accepted as key spellings:
-``connector=`` (folded into ``config.control_system.type`` by
-the shared layering step) and ``epics_gateway=`` (expanded below into the
-facility's gateway addresses). Both write the literal dotted keys a reader
-would otherwise type by hand, so nothing lands in the profile that only this
-command can understand.
+One shorthand is accepted as a key spelling: ``connector=``, folded into
+``config.control_system.type`` by the shared layering step. It writes the
+literal dotted key a reader would otherwise type by hand, so nothing lands in
+the profile that only this command can understand.
+
+``epics_gateway=<facility>`` was a second one. It expanded a table of named
+facilities' gateway hostnames that core no longer carries — a gateway address
+is site infrastructure, not something a framework can know — so it is refused
+here with the dotted keys that do the job.
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Any
 
 import click
 
@@ -36,31 +37,34 @@ from .profile_expand import RETIRED_TEMPLATE_KEY
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 from .styles import Styles
 
-#: CLI-only shorthand absorbed from ``osprey config set-epics-gateway
-#: --facility NAME``. It never reaches the profile under this name: it is
-#: expanded into the dotted gateway keys before anything is written, so the
-#: file holds the same entries a hand-editor would write.
-EPICS_GATEWAY_KEY = "epics_gateway"
+#: Retired shorthand. It stood for a facility out of a table of named
+#: institutions' gateway hostnames that core no longer ships; refused rather
+#: than passed through, because as a profile key it is one the next
+#: ``osprey build`` rejects.
+RETIRED_GATEWAY_KEY = "epics_gateway"
 
 #: Where the EPICS connector's gateway table lives in the rendered config, as
 #: the ``config.``-prefixed key path ``--set`` addresses it by.
 GATEWAY_KEY_PREFIX = "config.control_system.connector.epics.gateways"
 
 
-def _expand_shorthands(pairs: tuple[str, ...]) -> tuple[str, ...]:
-    """Expand CLI-only shorthands, passing every other pair through untouched.
+def _refuse_retired_shorthands(pairs: tuple[str, ...]) -> None:
+    """Refuse the retired ``epics_gateway=`` spelling before anything is written.
 
-    Runs before the shared parser sees anything, so a shorthand is indistin-
-    guishable from the dotted keys it stands for by the time the write happens.
+    Runs before the shared parser sees anything, so the refusal costs no
+    partial write: the whole command line is rejected the way a malformed pair
+    is.
     """
-    expanded: list[str] = []
     for pair in pairs:
-        key, separator, value = pair.partition("=")
-        if separator and key.strip() == EPICS_GATEWAY_KEY:
-            expanded.extend(_gateway_pairs(value.strip()))
-        else:
-            expanded.append(pair)
-    return tuple(expanded)
+        key, separator, _ = pair.partition("=")
+        if separator and key.strip() == RETIRED_GATEWAY_KEY:
+            raise click.UsageError(
+                f"`{RETIRED_GATEWAY_KEY}=` named a facility out of a gateway table "
+                "OSPREY no longer ships. Write the gateway your control network "
+                "actually has:\n"
+                f"  osprey set {GATEWAY_KEY_PREFIX}.read_only.address=gw.example.org "
+                f"{GATEWAY_KEY_PREFIX}.read_only.port=5064"
+            )
 
 
 def _unrecognized_top_level_keys(pairs: tuple[str, ...]) -> list[str]:
@@ -96,33 +100,6 @@ def _unrecognized_top_level_keys(pairs: tuple[str, ...]) -> list[str]:
     return sorted(unknown)
 
 
-def _gateway_pairs(facility: str) -> list[str]:
-    """The dotted gateway keys ``epics_gateway=<facility>`` stands for.
-
-    Values are rendered as JSON, which is a YAML subset: the port stays an
-    integer and ``use_name_server`` stays a boolean through the same
-    ``yaml.safe_load`` the ``--set`` parser puts every value through.
-    """
-    from osprey.templates.data import get_facility_config, list_facilities
-
-    preset = get_facility_config(facility)
-    if preset is None:
-        known = ", ".join(sorted(list_facilities()))
-        raise click.UsageError(
-            f"Unknown facility {facility!r} for {EPICS_GATEWAY_KEY}. Known facilities: "
-            f"{known}.\n\nA gateway that list does not carry is set by its own keys:\n"
-            f"  osprey set {GATEWAY_KEY_PREFIX}.read_only.address=gw.example.org "
-            f"{GATEWAY_KEY_PREFIX}.read_only.port=5064"
-        )
-
-    gateways: dict[str, dict[str, Any]] = preset["gateways"]
-    return [
-        f"{GATEWAY_KEY_PREFIX}.{role}.{field}={json.dumps(value)}"
-        for role, gateway in gateways.items()
-        for field, value in gateway.items()
-    ]
-
-
 @click.command(name="set")
 @click.argument("pairs", nargs=-1, metavar="KEY=VALUE...")
 @repo_option
@@ -146,9 +123,8 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     VALUE is read as YAML — true/false become booleans, bare numbers become
     numbers, everything else is text.
 
-    Two shorthands stand in for longer key paths: `connector=` writes
-    config.control_system.type, and `epics_gateway=` writes a known facility's
-    EPICS gateway addresses.
+    One shorthand stands in for a longer key path: `connector=` writes
+    config.control_system.type.
 
     Examples:
 
@@ -156,9 +132,8 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
       $ osprey set model=sonnet
       $ osprey set connector=epics
       $ osprey set tier=1 channel_finder_mode=in_context
-      $ osprey set config.facility.name='ALS Storage Ring'
-      $ osprey set epics_gateway=als
-      $ osprey set --repo ~/als-assistant config.control_system.writes_enabled=true
+      $ osprey set config.facility.name='Storage Ring'
+      $ osprey set --repo ~/my-assistant config.control_system.writes_enabled=true
       $ osprey set config.control_system.connector.virtual_accelerator.writes_enabled=true
     """
     from osprey.deployment.staleness import check_drift
@@ -178,12 +153,12 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     repo_root = find_repo_root(repo)
     profile_path = repo_root / PROFILE_FILENAME
 
-    expanded = _expand_shorthands(pairs)
+    _refuse_retired_shorthands(pairs)
 
     try:
         # Every pair is merged into one layer before any of it is written, so a
         # command line with one bad pair in it changes nothing at all.
-        written = write_back_cli_overrides(profile_path, set_pairs=expanded)
+        written = write_back_cli_overrides(profile_path, set_pairs=pairs)
     except BuildProfileError as e:
         raise click.UsageError(str(e)) from e
 
@@ -191,7 +166,7 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     for key in written:
         note(key)
 
-    unrecognized = _unrecognized_top_level_keys(expanded)
+    unrecognized = _unrecognized_top_level_keys(pairs)
     # The retired app-template key is unknown for a REASON the generic advice
     # gets wrong: prefixing it with `config.` writes a key nothing reads, and
     # what the operator actually wants is the verb that fills the profile in.

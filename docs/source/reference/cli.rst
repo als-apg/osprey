@@ -154,19 +154,21 @@ search a channel database file; ``graph`` searches the graph store named by
 ``services.graphdb`` -- deployed with the stack or facility-hosted -- instead of
 a database file.
 
-Two shorthands stand in for longer key paths: ``connector=`` writes
-``config.control_system.type``, and ``epics_gateway=`` writes a known facility's
-EPICS gateway addresses. (Control systems beyond the bundled ones are reachable
-through custom connector packages — see :doc:`/how-to/control-systems/use-connectors`.)
+One shorthand stands in for a longer key path: ``connector=`` writes
+``config.control_system.type``. (Control systems beyond the bundled ones are
+reachable through custom connector packages — see
+:doc:`/how-to/control-systems/use-connectors`.) An EPICS gateway is written by
+its own dotted keys, which is the only spelling: OSPREY ships no table of
+facilities' gateway addresses.
 
 .. code-block:: bash
 
    osprey set model=sonnet
    osprey set connector=epics
    osprey set tier=1 channel_finder_mode=in_context
-   osprey set config.facility.name='ALS Storage Ring'
-   osprey set epics_gateway=als
-   osprey set --repo ~/als-assistant config.control_system.writes_enabled=true
+   osprey set config.facility.name='Storage Ring'
+   osprey set config.control_system.connector.epics.gateways.read_only.address=gw.example.org
+   osprey set --repo ~/my-assistant config.control_system.writes_enabled=true
    osprey set config.control_system.connector.virtual_accelerator.writes_enabled=true
 
 osprey validate

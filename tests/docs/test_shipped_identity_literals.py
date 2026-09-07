@@ -23,9 +23,9 @@ nothing else would notice.
 **The list grows.** It starts at what has actually been swept out of the tree,
 because a pattern that fires on the current tree is not a guard, it is a
 failing test. As each remaining literal is removed, its pattern joins
-:data:`DENIED` in the same change that removes it: the maintainers' gateway
-host, ``lbl.gov``, ``\\bALS\\b`` and ``ALS-U`` outside the simulation and
-virtual-accelerator packages, ``BELLA``, ``GEECS``.
+:data:`DENIED` in the same change that removes it: ``lbl.gov``,
+``\\bALS\\b`` and ``ALS-U`` outside the simulation and virtual-accelerator
+packages, ``BELLA``, ``GEECS``.
 
 Three kinds of surface legitimately name an institution and will need an
 ``allow`` entry rather than an edit when their patterns land: the shipped
@@ -96,6 +96,16 @@ DENIED: tuple[Denied, ...] = (
         pattern=re.compile(r"thellert", re.IGNORECASE),
         why="a maintainer's own login and mailbox is not an example anyone can copy",
         sample='  # bare username, e.g. "thellert"',
+    ),
+    Denied(
+        name="site EPICS gateway host",
+        pattern=re.compile(r"cagw-alsdmz|pvgatemain1", re.IGNORECASE),
+        why=(
+            "a gateway address is one site's own infrastructure — unreachable "
+            "everywhere else, and read as this deployment's own machine when it "
+            "ships in an example"
+        ),
+        sample="  epics_gateway: cagw-alsdmz.example-site.org:5064",
     ),
 )
 
