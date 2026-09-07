@@ -65,6 +65,15 @@ guides are the better starting point.
       What the facility graph stores, how its names are spelled, and what each
       of the four ``graph`` MCP tools returns.
 
+   .. grid-item-card:: Bridge Dispatch Payload
+      :link: bridge-dispatch
+      :link-type: doc
+      :shadow: md
+
+      The JSON body a chat bridge fires at the dispatcher: the conversation so
+      far, the message being replied to, the attached and replayed files, and
+      the notes that account for what did not fit.
+
    .. grid-item-card:: Audit Trail Contract
       :link: audit-trail
       :link-type: doc
@@ -84,3 +93,4 @@ guides are the better starting point.
    channel-finder
    facility-graph
    audit-trail
+   bridge-dispatch
