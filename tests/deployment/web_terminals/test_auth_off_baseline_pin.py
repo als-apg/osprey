@@ -286,6 +286,17 @@ _ALLOWED_COMPOSE_LINES = Counter(
         # absent `auth:` block already resolves to, so the line restates today's
         # behaviour rather than changing it.
         "      - OSPREY_TERMINAL_SESSION_LIFETIME=43200": 2,
+        # The proxy passthrough — the FOURTH exception to SC6. Every per-user
+        # container now receives the deploy env chain's three uppercase proxy
+        # names, as the login service already did, because `.env.users` is a
+        # closed credential allowlist and carries none of them. It is not an
+        # authentication or authorization line: it renders identically under
+        # every method, `token` included, and on a host with no proxy the
+        # `${VAR:-}` directives resolve to empty and change nothing. Count 2 =
+        # alice + bob.
+        "      - HTTP_PROXY=${HTTP_PROXY:-}": 2,
+        "      - HTTPS_PROXY=${HTTPS_PROXY:-}": 2,
+        "      - NO_PROXY=${NO_PROXY:-}": 2,
     }
 )
 

@@ -184,23 +184,26 @@ the same proxy, in ``.env`` when this one differs:
    HTTPS_PROXY=http://proxy.example.com:8080
    NO_PROXY=localhost,127.0.0.1
 
-**Spell them in uppercase.** The login service is handed exactly these three
-names and nothing else from the chain, so a lowercase ``https_proxy`` never
-reaches it. (Inside a container that does receive the whole chain, an empty
+**Spell them in uppercase.** Two containers do not read the chain wholesale and
+are handed exactly these three names instead: the login service, whose
+``env_file`` is ``.env.auth``, and each per-user terminal, whose ``env_file`` is
+the closed allowlist ``.env.users``. A lowercase ``https_proxy`` therefore never
+reaches either. (Inside a container that does receive the whole chain, an empty
 lowercase name is worse than absent — it turns the proxy off for that scheme —
 which is why only the uppercase spelling is passed through.) On a deployment
-whose login service uses OIDC, ``osprey up`` warns when the chain spells one of
+that renders web terminals, ``osprey up`` warns when the chain spells one of
 these names in lowercase with no uppercase twin, naming the file and the
 variable; the value is left as written.
 
-On a multi-user deployment the login service reads this set from the chain as
-well, and it is the one worth remembering, because it makes a call of its own:
-at the first login it fetches the identity provider's discovery document. On a
-proxied host without these names that call goes out directly, so the stack
-comes up, the health check is green, and every login fails. Nothing
-proxy-related belongs in ``.env.auth``. That file is the login service's
-credential store; proxy settings are configuration rather than secrets, and the
-chain already delivers them (see :ref:`multi-user-require-a-login`).
+Both of those containers make calls of their own, which is why they get the
+three. The login service fetches the identity provider's discovery document at
+the first login; the agent in a terminal reaches the model provider on every
+turn. On a proxied host without these names those calls go out directly, so the
+stack comes up, the health check is green, and they fail. Nothing
+proxy-related belongs in ``.env.auth`` or ``.env.users``. Those files are a
+credential store and a generated allowlist; proxy settings are configuration
+rather than secrets, and the chain already delivers them (see
+:ref:`multi-user-require-a-login`).
 
 **The trust store comes from the image, not from the chain.** A proxy that
 re-signs TLS with a site certificate authority needs that authority's

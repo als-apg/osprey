@@ -3807,30 +3807,37 @@ def test_auth_sidecar_egress_adds_no_second_env_file() -> None:
     )
 
 
-def test_no_other_service_carries_a_proxy_passthrough() -> None:
-    """The passthrough is the sidecar's alone. The per-user containers reach the
-    outside through the settings their own image and `.env.users` already carry;
-    injecting a second, deploy-time proxy here would silently redirect every
-    agent's provider traffic on any host that sets one, which is a change to the
-    agent tier's egress and not to the login surface's.
+def test_every_container_that_reaches_out_carries_the_passthrough() -> None:
+    """The passthrough belongs to the two services that do not read the whole
+    env chain and still make outbound calls: the login sidecar (`.env.auth`)
+    and each per-user terminal (`.env.users`, a closed allowlist that carries
+    credentials and nothing else). A terminal without it cannot reach the model
+    provider on a proxied host, and says so nowhere — the stack starts and the
+    health check is green.
 
-    Every service in the rendered project is checked, with `auth` the only
-    exemption, so nginx — and whatever service the module renders next — is
-    covered without anyone having to remember to widen this test.
+    nginx is the counter-case and stays out: it proxies inbound requests within
+    the deployment and fetches nothing. Every service in the rendered project is
+    checked, so whatever the module renders next is covered without anyone
+    having to remember to widen this test.
     """
     # Act
-    services = _compose(_auth_config())["services"]
+    services = _compose(_auth_config(["alice", "bob"]))["services"]
 
     # Assert
-    assert [name for name in _env_names(services["auth"]) if name in _PROXY_NAMES] == _PROXY_NAMES
+    reaches_out = {"auth", "web-alice", "web-bob"}
+    assert reaches_out < set(services), sorted(services)
     for name, service in services.items():
-        if name == "auth":
-            continue
+        present = [env for env in _env_names(service) if env in _PROXY_NAMES]
+        if name in reaches_out:
+            assert present == _PROXY_NAMES, f"{name} is missing the proxy passthrough"
+        else:
+            assert not present, f"{name} fetches nothing and needs no proxy passthrough"
+        # UPPERCASE only, everywhere, for the reason spelled out above.
         assert not [
             env
             for env in _env_names(service)
-            if env in _PROXY_NAMES or env in _LOWERCASE_PROXY_NAMES
-        ], f"{name} carries a proxy passthrough that belongs to the login sidecar alone"
+            if env not in _PROXY_NAMES and env.lower() in _LOWERCASE_PROXY_NAMES
+        ], f"{name} carries a lowercase proxy name"
 
 
 def _session_lifetime_config(method: str, **auth: object) -> dict:
