@@ -117,7 +117,8 @@ PROBE_BUDGET_MAX_S = 90.0
 
 Sized from the largest device set this project ships against the slowest
 latency a healthy gateway plausibly answers with, through the dispatch
-parallelism a small container actually has: 2908 addresses × 0.1 s ÷ 6 threads
+parallelism a small container actually has: the bundled demo tree's 2908
+addresses × 0.1 s ÷ 6 threads
 ≈ 49 s for the first pass, leaving some forty seconds for retries and jitter.
 A healthy sweep of any roster OSPREY builds therefore finishes inside this, and
 is not refused for being large.
@@ -159,8 +160,9 @@ def sweep_budget(
 
     Deriving it from the count is what keeps the bound from being a second
     failure mode. A budget fixed at the floor refuses healthy plans purely for
-    being large (2908 addresses answering in 100 ms each, six at a time, is 49
-    seconds of perfectly good pre-flight); one fixed at the ceiling makes every
+    being large (the bundled demo tree's 2908 addresses answering in 100 ms
+    each, six at a time, is 49 seconds of perfectly good pre-flight); one fixed
+    at the ceiling makes every
     small plan's dead-gateway case cost a minute and a half. The size of the
     plan is the thing that separates those, so the size of the plan is what
     sets the budget.
