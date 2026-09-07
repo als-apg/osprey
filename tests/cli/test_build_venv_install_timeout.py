@@ -113,3 +113,43 @@ def test_venv_creation_failure_still_reports_its_own_error(with_uv, monkeypatch,
 
     with pytest.raises(BuildProfileError, match="Failed to create project venv"):
         _create_project_venv(Path(tmp_path), _profile())
+
+
+def test_a_failed_install_mentioning_litellm_fails_closed(with_uv, monkeypatch, tmp_path):
+    """A failed install is a build error — never a link to the build env's packages.
+
+    An install that fails is a failed install whatever its output says. Matching
+    a package name in that output and recovering by installing ``--no-deps`` and
+    writing a ``.pth`` into the project venv would point the project at the
+    *build host's* site-packages, so the built project would run against
+    whatever happens to be installed beside osprey rather than against its own
+    recorded dependency set.
+    """
+    # The first install is the one whose result decides the outcome; any later
+    # one would be a fallback path, and there must not be one.
+    installs: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        if _is_install(cmd):
+            installs.append(cmd)
+            if len(installs) == 1:
+                return subprocess.CompletedProcess(
+                    args=cmd,
+                    returncode=1,
+                    stdout="",
+                    stderr="error: distribution litellm==1.81.11 is not available",
+                )
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        _create_project_venv(tmp_path, _profile())
+
+    # The resolver's own output is what tells the operator which package failed.
+    assert "litellm" in str(excinfo.value), str(excinfo.value)
+    assert len(installs) == 1, f"a second install ran after the first failed: {installs}"
+    assert not list(tmp_path.rglob("_osprey_build_env.pth")), (
+        "a failed install left a .pth pointing the project venv at the build "
+        "environment's site-packages"
+    )
