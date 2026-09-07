@@ -63,6 +63,46 @@ _SOURCE_FILES = (
 )
 
 
+#: A hierarchical database levelled the way another facility levels one --
+#: the shipped worked example, five levels with no ring/field/subfield among
+#: them. Every partition rule and every manifest identity key is read off
+#: those names, so this tree describes a hierarchy the classifier cannot be
+#: evaluated against.
+_FOREIGN_LEVELS_DB = (
+    PACKAGE_PATHS.data_root / "channel_databases" / "examples" / "hierarchical_jlab_style.json"
+)
+
+#: A database levelled exactly the way the classifier reads one, whose tokens
+#: belong to no partition rule. Readable, classifiable, and classified as
+#: static-noisy throughout -- which is a different outcome from the one above
+#: and is reported differently.
+_FOREIGN_TOKEN_DB = {
+    "hierarchy": {
+        "levels": [
+            {"name": "ring", "type": "tree"},
+            {"name": "system", "type": "tree"},
+            {"name": "family", "type": "tree"},
+            {"name": "device", "type": "instances"},
+            {"name": "field", "type": "tree"},
+            {"name": "subfield", "type": "tree"},
+        ],
+        "naming_pattern": "{ring}:{system}:{family}:{device}:{field}:{subfield}",
+    },
+    "tree": {
+        "ZZLINAC": {
+            "PWR": {
+                "KLYSTRON": {
+                    "DEVICE": {
+                        "_expansion": {"_type": "list", "_instances": ["01", "02"]},
+                        "POWER": {"CTRL": {}, "MEAS": {}},
+                    }
+                }
+            }
+        }
+    },
+}
+
+
 def _facility_tree(root: Path) -> Path:
     """Copy the bundled sources into ``root`` as a standalone facility tree."""
     for relative in _SOURCE_FILES:
@@ -237,6 +277,52 @@ class TestStagedSubset:
             prepared.manifest["_metadata"]["total_channels"]
             == (build_manifest()["_metadata"]["total_channels"])
         )
+
+    def test_a_foreign_levelled_database_yields_a_manifest_naming_what_it_lacks(
+        self, editable_tree
+    ):
+        """A tree levelled some other way is a namespace, not a broken file."""
+        paths = ManifestPaths(data_root=editable_tree, tier=DEFAULT_TIER)
+        paths.in_context_db.unlink()
+        paths.middle_layer_db.unlink()
+        shutil.copy2(_FOREIGN_LEVELS_DB, paths.hierarchical_db)
+
+        prepared = prepare_project_manifest(editable_tree, DEFAULT_TIER)
+
+        assert prepared is not None
+        metadata = prepared.manifest["_metadata"]
+        reason = metadata["unclassified_reason"]
+        assert reason.startswith("levels system/family/sector/device/pv lack ")
+        for level in ("ring", "field", "subfield"):
+            assert level in reason
+        assert metadata["setpoint_count"] == 0
+        assert set(metadata["by_partition"]) == {classify.PARTITION_STATIC_NOISY}
+        # Classified nothing means exactly that: no channel carries an
+        # identity key derived from a level this classifier cannot read.
+        assert all(channel["ring"] == "" for channel in prepared.manifest["channels"])
+        assert all(channel["subfield"] == "" for channel in prepared.manifest["channels"])
+        # And the addresses are still the facility's own.
+        assert "MQS1L02.S" in {channel["address"] for channel in prepared.manifest["channels"]}
+
+    def test_a_six_level_database_of_foreign_tokens_classifies_and_says_so(self, editable_tree):
+        """The levels are readable, the tokens match no rule: still a manifest."""
+        paths = ManifestPaths(data_root=editable_tree, tier=DEFAULT_TIER)
+        paths.in_context_db.unlink()
+        paths.middle_layer_db.unlink()
+        paths.hierarchical_db.write_text(json.dumps(_FOREIGN_TOKEN_DB))
+
+        prepared = prepare_project_manifest(editable_tree, DEFAULT_TIER)
+
+        assert prepared is not None
+        metadata = prepared.manifest["_metadata"]
+        # Nothing was unreadable, so no reason is recorded -- the tokens
+        # simply matched no rule.
+        assert "unclassified_reason" not in metadata
+        assert metadata["setpoint_count"] == 0
+        assert set(metadata["by_partition"]) == {classify.PARTITION_STATIC_NOISY}
+        assert set(metadata["by_ring"]) == {"ZZLINAC"}
+        served = {c["address"]: c for c in prepared.manifest["channels"]}
+        assert served["ZZLINAC:PWR:KLYSTRON:01:POWER:CTRL"]["family"] == "KLYSTRON"
 
     def test_build_manifest_refuses_a_tree_that_stages_nothing(self, editable_tree):
         shutil.rmtree(editable_tree / "channel_databases")
