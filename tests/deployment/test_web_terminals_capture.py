@@ -378,6 +378,55 @@ def test_auth_sidecar_build_pins_plain_progress_on_docker(monkeypatch, tmp_path,
     assert cmd[-1].endswith("auth")  # the flag lands ahead of the context
 
 
+def test_auth_sidecar_build_carries_the_site_build_args(monkeypatch, tmp_path, reporter):
+    """The login service is the container that reaches the identity provider,
+    so its image gets the same site CA every other managed image is built
+    with — staged into its own context, since a COPY cannot leave one."""
+    for name in ("OSPREY_SITE_CA", "PIP_NO_PROXY", "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
+    monkeypatch.chdir(tmp_path)
+    context = tmp_path / "build" / "auth"
+    context.mkdir(parents=True)
+    ca = tmp_path / "site-ca.pem"
+    ca.write_text("-----BEGIN CERTIFICATE-----\n")
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker"])
+    monkeypatch.setattr(
+        provision,
+        "_materialize_auth_build_context",
+        lambda repo_root, dev_mode: (context, dev_mode),
+    )
+    recorder = RunRecorder()
+    staged_while_building: list[bool] = []
+
+    def _run(cmd, **kwargs):
+        staged_while_building.append(
+            (context / container_lifecycle.SITE_CA_CONTEXT_FILENAME).is_file()
+        )
+        return recorder(cmd, **kwargs)
+
+    monkeypatch.setattr(provision, "run_captured", _run)
+    config = {
+        "project_name": "demo",
+        "images": {"site_ca": str(ca), "pip_no_proxy": ".internal.example.org"},
+        "modules": {"web_terminals": {"image_source": "local", "auth": {"method": "password"}}},
+    }
+
+    provision.build_auth_sidecar_image(config, False, {})
+
+    cmd = recorder.by_spool("build-auth-sidecar")["cmd"]
+    args = dict(
+        arg.split("=", 1) for flag, arg in zip(cmd, cmd[1:], strict=False) if flag == "--build-arg"
+    )
+    assert args["OSPREY_SITE_CA"] == container_lifecycle.SITE_CA_CONTEXT_FILENAME
+    assert args["PIP_NO_PROXY"] == ".internal.example.org"
+    # Staged into THIS context while the build reads it, and cleared after: the
+    # copy is the operator's bundle, and the next build stages it again.
+    assert staged_while_building == [True]
+    assert not (context / container_lifecycle.SITE_CA_CONTEXT_FILENAME).exists()
+    assert cmd[-1] == str(context)
+
+
 def test_auth_sidecar_build_omits_plain_progress_on_podman(monkeypatch, tmp_path, reporter):
     """`podman build` has no `--progress`; passing it would fail the deploy."""
     recorder, _ = _sidecar_build(monkeypatch, tmp_path, "podman")

@@ -206,11 +206,16 @@ on the deploy host. A ``claims`` stanza under ``password`` resolves nothing;
    emit only the groups assigned to this application, or define app roles and
    point ``claim`` at ``roles``.
 
-Behind a proxy that re-signs TLS with a site certificate authority, the
-identity-provider fetch fails inside the login service even with the site-CA
-block in ``.env.shared`` uncommented: that service receives the three proxy
-variables and nothing else, and no site CA is mounted into its image. See
-:ref:`deployment-env-chain` for what the chain delivers to which container.
+Behind a proxy that re-signs TLS with a site certificate authority, point
+``images.site_ca`` at the bundle on the deploy host and rebuild: the CA is
+installed into the login service's image, which is where its trust store lives.
+The site-CA block in ``.env.shared`` does not do this — a CA path in the chain
+names a file that image does not carry. See :ref:`deployment-env-chain` for
+what the chain delivers to which container.
+
+This applies to the image OSPREY builds. In registry mode
+(``modules.web_terminals.auth.image``) the login service runs a published image
+the facility built itself, so its trust store is that build's business.
 
 .. _multi-user-shared-card:
 

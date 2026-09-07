@@ -3711,8 +3711,9 @@ _PROXY_ENTRIES = [
 _PROXY_NAMES = [entry.split("=", 1)[0] for entry in _PROXY_ENTRIES]
 _LOWERCASE_PROXY_NAMES = [name.lower() for name in _PROXY_NAMES]
 # The CA-bundle family that looks like it belongs beside the proxy trio and does
-# not: nothing mounts a CA into this image, so each of these can only ever name
-# a path that is not there.
+# not: a site CA is BAKED INTO the image from `images.site_ca`, and the image
+# sets these itself to the merged bundle it installs into. One named here could
+# only name a path the container might not have.
 _CA_BUNDLE_NAMES = ["SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE"]
 
 
@@ -3773,13 +3774,13 @@ def test_auth_sidecar_egress_is_uppercase_only() -> None:
 
 
 def test_auth_sidecar_egress_is_proxy_only_and_carries_no_ca_bundle_variable() -> None:
-    """The egress block stops at the proxy trio. A custom CA is the other half of
-    the corporate-network story and is deliberately NOT here: nothing mounts a CA
-    into this image, so `SSL_CERT_FILE` would name a path that does not exist —
-    which crashes httpx at client construction, turning a working plain-HTTP
-    deployment into a sidecar that cannot build a client at all — and nothing in
-    the sidecar reads `REQUESTS_CA_BUNDLE`. Custom-CA support is a mount plus a
-    variable, and its own change."""
+    """The egress block stops at the proxy trio. The other half of the
+    corporate-network story — a proxy that re-signs TLS with a site CA — is
+    deliberately NOT here: the CA is installed into the image at build time
+    from `images.site_ca`, and the image points these variables at the merged
+    bundle itself. Naming one here instead would name a path the container may
+    not have, which crashes httpx at client construction and turns a working
+    plain-HTTP deployment into a sidecar that cannot build a client at all."""
     # Act
     auth = _compose(_oidc_auth_config())["services"]["auth"]
 

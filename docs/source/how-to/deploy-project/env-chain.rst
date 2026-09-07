@@ -202,16 +202,16 @@ proxy-related belongs in ``.env.auth``. That file is the login service's
 credential store; proxy settings are configuration rather than secrets, and the
 chain already delivers them (see :ref:`multi-user-require-a-login`).
 
-**The trust store is not carried across.** A proxy that re-signs TLS with a
-site certificate authority needs that authority's certificate inside the
-container, and nothing puts it there yet. ``SSL_CERT_FILE`` and
-``REQUESTS_CA_BUNDLE`` in the chain do not reach the login service at all — it
-receives only the three proxy names. Uncommenting the site-CA block
-``osprey init`` writes into ``.env.shared`` therefore changes nothing for
-logins; the stack still starts and the identity-provider fetch still fails at
-TLS. (Routing a CA variable into the sidecar is not a fix either: one naming a
-path the image does not carry stops httpx from constructing a client at all.)
-Delivering a custom CA is a mount plus a variable, and separate work.
+**The trust store comes from the image, not from the chain.** A proxy that
+re-signs TLS with a site certificate authority needs that authority's
+certificate inside the container, and the chain is the wrong place to put it: a
+``SSL_CERT_FILE`` naming a path the image does not carry stops httpx from
+constructing a client at all. Set ``images.site_ca`` in ``config.yml`` instead
+and rebuild — the CA is installed into the project image, each web-terminal
+persona image and the login sidecar, and each of the three points its own tools
+at the merged bundle. The
+site-CA block ``osprey init`` writes into ``.env.shared`` is for the
+*containers* that read the whole chain, not for this.
 
 **A changed value lands at the next start.** These values are filled in when a
 container is created, so editing the chain does not reach a running stack:
