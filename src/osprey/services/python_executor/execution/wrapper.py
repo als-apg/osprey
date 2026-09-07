@@ -247,8 +247,8 @@ else:
     print("⚠️ Could not locate framework src directory")
 
 # IMPORTANT: Also add the application's src directory to Python path
-# This is needed for the registry to import application-specific modules
-# (e.g., its_control_assistant.context_classes, als_assistant.capabilities, etc.)
+# This is needed for the registry to import a deployment's own modules --
+# whatever packages live under the `src/` tree beside its config.yml.
 # Note: config_file is reused below for registry initialization
 config_file = os.environ.get('CONFIG_FILE')
 if config_file:
