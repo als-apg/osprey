@@ -47,3 +47,13 @@ class GraphIndexBuildError(ChannelFinderError):
     """Raised when the graph search index cannot be built from the corpus."""
 
     pass
+
+
+class AddressPatternError(ChannelFinderError):
+    """Raised when a device family's address pattern cannot be expanded.
+
+    The pattern is the family's own address column, so a family that gives two
+    of them, or one naming a placeholder the expander has no value for, would
+    otherwise reach the database as channels whose address is the literal
+    pattern text.  It is a defect in the input, not a family to skip.
+    """
