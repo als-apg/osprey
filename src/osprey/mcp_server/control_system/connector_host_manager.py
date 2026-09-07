@@ -126,13 +126,13 @@ from osprey.mcp_server.control_system.target_eligibility import (
 )
 from osprey_connectors.control_system.base import is_readonly_run
 from osprey_connectors.ipc import frames
+from osprey_connectors.ipc.host import EPICS_ENV_PREFIXES
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
 from osprey_connectors.types import (
-    MOCK,
+    _SIMULATED_TYPES,
     TARGET_LIVE,
     TARGET_STANDIN,
     TARGET_VA,
-    VIRTUAL_ACCELERATOR,
 )
 from osprey_connectors.types import baseline_target as types_baseline_target
 from osprey_connectors.types import switch_capable as types_switch_capable
@@ -163,10 +163,17 @@ __all__ = [
 #: in ``ps``.
 CHILD_MODULE = "osprey_connectors.ipc.host"
 
-#: Scrubbed from the environment handed to a child. The child scrubs again on
-#: its own first line; this is the defense-in-depth half of the same rule, so
-#: that an ambient gateway cannot even reach the process that might read it.
-EPICS_ENV_PREFIXES = ("EPICS_CA_", "EPICS_PVA_")
+# -- Facts this module imports rather than restates -------------------------
+#
+# ``EPICS_ENV_PREFIXES`` names the environment families scrubbed from what a
+# child is handed. The child scrubs again on its own first line; this
+# parent-side pass is the defense-in-depth half of that one rule, and a rule
+# spelled in two places is a rule its two halves can come to disagree about.
+#
+# ``_SIMULATED_TYPES`` names the connector types that serve a machine nobody
+# has to be careful around. It labels the state file's per-target display
+# metadata, and a type added to the connector package but forgotten in a local
+# copy would put "Real machine" on a simulator's row.
 
 #: ``control_system.target_switch.drain_timeout_s`` and its default.
 DRAIN_TIMEOUT_KEY = "drain_timeout_s"
@@ -203,10 +210,6 @@ REASON_VERIFICATION_FAILED = "verification_failed"
 REASON_PROBE_FAILED = "probe_failed"
 #: Not a switch stage: the state a session is in when its child has died.
 REASON_NO_CHILD = "no_connector_host"
-
-#: Connector types that serve a machine nobody has to be careful around. Used
-#: only to label the state file's per-target display metadata.
-_SIMULATED_TYPES = (MOCK, VIRTUAL_ACCELERATOR)
 
 #: The operator-facing name each display branch defaults to — one word per way
 #: a target can be derived, not per target name, because that is what the name

@@ -180,6 +180,13 @@ def build_connector_config(control_system_type: str) -> dict[str, Any]:
     else is forwarded through with no type-specific config, so an unrecognized
     value surfaces as ``ConnectorFactory``'s own "Unknown control system type"
     error rather than being silently mis-wired to a connector nobody asked for.
+
+    Forwarding is not an offer to run plans on it: this connector type does not
+    execute plans. What keeps such a type away from a worker is the lane
+    renderer, which never renders one for it, and the sentence an operator reads
+    about it is the lane's capability report
+    (``REASON_UNSUPPORTED_CONNECTOR`` in
+    :mod:`osprey.services.bluesky_bridge.queue_backend`).
     """
     from osprey_connectors.types import CHANNEL_ACCESS_TYPES
 

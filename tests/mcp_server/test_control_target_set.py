@@ -246,6 +246,13 @@ STANDIN_PORT = 5074
 STANDIN_PROBE = "STANDIN:BEAM:CURRENT"
 ACK_HOST = "gw.example.org"
 
+#: The connector type a facility's live machine is reached over. The lifecycle
+#: harness's own live type is a dotted-path mock connector — servable inside a
+#: test, but not a control system the switch can dial, so a target on it is
+#: refused ``connector_not_switchable`` before any FR-8 gate is reached. Tests
+#: about those gates name this instead, which is what a facility deployment has.
+EPICS_TYPE = "epics"
+
 
 def config_with_a_standin(
     *,
@@ -253,6 +260,7 @@ def config_with_a_standin(
     strict_limits=True,
     acknowledged=False,
     recorder=False,
+    live_type=None,
 ):
     """The gateway harness config, plus the stand-in this deployment co-deploys.
 
@@ -268,8 +276,11 @@ def config_with_a_standin(
     gated. The remaining three arguments set the FR-8 facts the live family is
     judged on: the limits posture, the operator acknowledgment, and whether an
     ``archiver_recorder`` makes the archive the stand-in's history.
+
+    *live_type* names the connector type ``live`` resolves to, for the tests
+    that ask what happens on the way to it: see :data:`EPICS_TYPE`.
     """
-    raw = config_with_gateways()
+    raw = config_with_gateways(**({"live_type": live_type} if live_type else {}))
     control_system = raw["control_system"]
     control_system["connector"][LIVE_STANDIN] = {
         "probe_channel": STANDIN_PROBE,
@@ -664,7 +675,12 @@ class TestTheStandinIsGatedAsAThirdTarget:
         unacknowledged deployment would hand a session the facility's real
         machine.
         """
-        raw = config_with_a_standin(baseline_standin=True, strict_limits=True, acknowledged=False)
+        raw = config_with_a_standin(
+            baseline_standin=True,
+            strict_limits=True,
+            acknowledged=False,
+            live_type=EPICS_TYPE,
+        )
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
         assert manager.baseline == "standin"
@@ -681,7 +697,12 @@ class TestTheStandinIsGatedAsAThirdTarget:
         self, make_manager, monkeypatch, emitted, record_root
     ):
         """Same direction, the earlier of the two away-gates, and target-worded."""
-        raw = config_with_a_standin(baseline_standin=True, strict_limits=False, acknowledged=True)
+        raw = config_with_a_standin(
+            baseline_standin=True,
+            strict_limits=False,
+            acknowledged=True,
+            live_type=EPICS_TYPE,
+        )
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
         owned_here(record_root, target="standin")
@@ -706,7 +727,11 @@ class TestTheStandinIsGatedAsAThirdTarget:
         a real machine's readings must not be spliced onto it.
         """
         raw = config_with_a_standin(
-            baseline_standin=True, strict_limits=True, acknowledged=True, recorder=True
+            baseline_standin=True,
+            strict_limits=True,
+            acknowledged=True,
+            recorder=True,
+            live_type=EPICS_TYPE,
         )
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
