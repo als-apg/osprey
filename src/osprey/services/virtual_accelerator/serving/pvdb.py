@@ -22,10 +22,11 @@ is feeding.
 Four properties of the served database are contracts, not preferences:
 
 * **The channel set is closed.** One PV per manifest channel, no more, no
-  fewer: the pinned counts (348 SR magnet ``:SP`` / 348 paired ``:RB`` /
-  144 BPM readings / 2,908 channels total) are what clients, the channel
-  finder databases and the safety limits file all agree on. This module
-  adds no diagnostic or control PV of its own.
+  fewer -- whatever the manifest holds. (In the bundled demo tree: the
+  pinned counts of 348 SR magnet setpoints / 348 paired readbacks / 144 BPM
+  readings / 2,908 channels total, which its clients, its channel-finder
+  databases and its safety limits file all agree on.) This module adds no
+  diagnostic or control PV of its own.
 * **Drive limits are not alarm limits.** ``drive_limits`` becomes
   ``lolim``/``hilim`` (the CA *control/display* band, what DRVL/DRVH mean
   to a client). The alarm-limit keys (``lolo``/``low``/``high``/``hihi``)
@@ -277,7 +278,7 @@ class PVRecord:
         The value taken is the Channel Access one, because that is the
         authoritative view of the machine -- the same reason a write commits
         there first. A driver that cannot answer for this address is logged
-        and skipped: 2,908 records are attached in one loop, and one of them
+        and skipped: every record is attached in one loop, and one of them
         failing must not leave the remainder unattached and the server
         half-built.
         """
@@ -370,8 +371,8 @@ class ServingRecords:
                 # the first push onwards; this is what makes them agree from
                 # boot (see :meth:`PVRecord.reconcile_pva`). Skipped outright
                 # when there is no second view, rather than reconciled onto a
-                # publisher that discards it: that would be 2,908 driver reads
-                # at boot to produce nothing.
+                # publisher that discards it: that would be one driver read
+                # per served record at boot to produce nothing.
                 record.reconcile_pva()
 
 
