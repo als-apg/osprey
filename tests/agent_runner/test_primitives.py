@@ -59,6 +59,9 @@ def test_provider_override_propagates_raw_secret(
     raw secret for the overridden provider, not the config's."""
     _write_config(tmp_path, "anthropic")
     monkeypatch.setenv("ALS_APG_API_KEY", "sk-als-secret")
+    # als-apg ships no endpoint of its own, so a deployment names one; here the
+    # break-glass variable stands in for the deployment's providers.yml entry.
+    monkeypatch.setenv("ALS_APG_BASE_URL", "https://gw.test/v1")
 
     env = provider_env_for_project(tmp_path, provider="als-apg")
 

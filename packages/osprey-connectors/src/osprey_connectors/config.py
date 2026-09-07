@@ -142,6 +142,38 @@ def resolve_env_vars(data: Any, *, environ: "Mapping[str, str] | None" = None) -
     return resolved
 
 
+#: A string that is nothing but a single unresolved env-var placeholder, e.g.
+#: ``"${MISSING}"`` or ``"$MISSING"``. :func:`resolve_env_vars` leaves such a
+#: value verbatim when the variable is unset (there is nothing to substitute and
+#: no declared default), so every consumer that reads a config value has to know
+#: this shape to tell "not configured" from a value.
+#:
+#: The two branches are the two branches of the resolver's own pattern above,
+#: character class included: the braced form takes any name without ``}`` or
+#: ``:`` (a ``:-`` default always substitutes, so it never survives), the bare
+#: form the shell-style identifier. Narrowing either half here would fail to
+#: recognise a reference the resolver did leave verbatim.
+_LONE_PLACEHOLDER = re.compile(r"^\$\{[^}:]+\}$|^\$[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def is_unresolved_placeholder(value: object) -> bool:
+    """Whether *value* is an env-var reference :func:`resolve_env_vars` left alone.
+
+    The counterpart to :func:`resolve_env_vars`: it keeps ``${VAR}`` verbatim
+    when ``VAR`` is unset, so a consumer that treats what it reads as data sees
+    the literal string ``"${VAR}"`` where a URL or a key belongs. This is the
+    one producer of that test, so a caller never has to re-state the syntax the
+    resolver accepts.
+
+    Args:
+        value: A config value, of any type. Only a ``str`` can be a placeholder.
+
+    Returns:
+        True when the value is exactly one unsubstituted reference.
+    """
+    return isinstance(value, str) and bool(_LONE_PLACEHOLDER.match(value))
+
+
 # OSPREY runs agent Python code in exactly one backend: a subprocess on the host.
 # ``local`` is an accepted alias for that same backend; ``container`` names a
 # Jupyter kernel gateway OSPREY does not ship.

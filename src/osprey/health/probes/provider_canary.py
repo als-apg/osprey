@@ -35,7 +35,6 @@ contract that authentication is checked by ``check_health`` itself.
 from __future__ import annotations
 
 import os
-import re
 from collections.abc import Mapping
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
@@ -43,7 +42,11 @@ from typing import TYPE_CHECKING, Any
 from osprey.health.models import CheckResult, Status
 from osprey.health.offload import run_sync
 from osprey.models.provider_registry import get_provider_registry
-from osprey.utils.config import get_config_value, resolve_env_vars
+from osprey_connectors.config import (
+    get_config_value,
+    is_unresolved_placeholder,
+    resolve_env_vars,
+)
 
 if TYPE_CHECKING:
     from osprey.health.probes import ProbeContext
@@ -53,10 +56,6 @@ if TYPE_CHECKING:
 #: ``timeout`` so ``check_health`` returns its own ``(False, "…timed out")`` row
 #: before the bridge abandons the thread on a hard hang.
 _OFFLOAD_MARGIN_S = 2.0
-
-#: A string that is nothing but a single unresolved env-var placeholder, e.g.
-#: ``"${MISSING}"`` or ``"$MISSING"``. Such a value collapses to ``""``.
-_LONE_PLACEHOLDER = re.compile(r"^\$\{[A-Za-z_][A-Za-z0-9_]*\}$|^\$[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def _resolve_secret(value: str | None) -> str | None:
@@ -73,7 +72,7 @@ def _resolve_secret(value: str | None) -> str | None:
     resolved = resolve_env_vars(value, environ=os.environ)
     if not isinstance(resolved, str):
         return value
-    if _LONE_PLACEHOLDER.match(resolved):
+    if is_unresolved_placeholder(resolved):
         return ""
     return resolved
 

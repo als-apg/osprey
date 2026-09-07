@@ -4,6 +4,8 @@ import os
 from abc import ABC, abstractmethod
 from typing import Any
 
+from osprey_connectors.config import is_unresolved_placeholder
+
 
 class BaseProvider(ABC):
     """Abstract base class for AI model providers.
@@ -106,6 +108,13 @@ class BaseProvider(ABC):
         validation for "missing" base_url, and the default it declared was
         unreachable — visible only once the env override was removed.
 
+        A ``base_url`` that is still an unresolved ``${VAR}`` reference counts as
+        no value at all. :func:`~osprey_connectors.config.resolve_env_vars` keeps
+        such a reference verbatim when the variable is unset, so a config
+        declaring ``base_url: ${MY_GATEWAY}`` with nothing exported would
+        otherwise hand the literal string to the HTTP client and fail somewhere
+        far from the cause.
+
         Args:
             base_url: The caller's value, usually from deployment config. May be
                 ``None``.
@@ -119,6 +128,8 @@ class BaseProvider(ABC):
             override = os.environ.get(cls.base_url_env_var)
             if override:
                 return override
+        if is_unresolved_placeholder(base_url):
+            base_url = None
         if cls.apply_default_base_url_fallback:
             return base_url or cls.default_base_url
         return base_url

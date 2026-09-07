@@ -23,11 +23,13 @@ def _default_provider_config(provider: str) -> dict[str, str] | None:
     """
     if provider == "als-apg":
         api_key = os.environ.get("ALS_APG_API_KEY")
-        if not api_key:
+        # The gateway has no built-in endpoint — it is a deployment's own host,
+        # named by ALS_APG_BASE_URL. Without both halves there is nothing to
+        # call, so the judge has no self-contained config and falls back to
+        # whatever config.yml the run supplies.
+        base_url = os.environ.get("ALS_APG_BASE_URL")
+        if not api_key or not base_url:
             return None
-        # base_url overridable so the judge can follow a redirected provider
-        # (e.g. a cborg-only box). Unset -> unchanged default, so CI is unaffected.
-        base_url = os.environ.get("ALS_APG_BASE_URL") or "https://llm.gianlucamartino.com/v1"
         return {"api_key": api_key, "base_url": base_url}
     return None
 

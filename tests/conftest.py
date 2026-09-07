@@ -97,6 +97,23 @@ def pytest_collection_finish(session):
 
 
 # ===================================================================
+# Provider gateway stand-in
+# ===================================================================
+
+#: The endpoint every test uses when a gateway-backed provider needs a URL.
+#:
+#: Providers that front a site's own gateway (``als-apg``) ship no default
+#: endpoint, so a test that exercises one has to supply the URL the same way a
+#: deployment does. One shared value means no test states a real deployment's
+#: host, and a reader can tell "this is the fixture endpoint" at a glance.
+GATEWAY_BASE_URL = "https://gateway.example.org/v1"
+
+#: :data:`GATEWAY_BASE_URL` as Claude Code receives it — no trailing ``/v1``,
+#: which the resolver strips because Claude Code appends ``/v1/messages``.
+GATEWAY_ORIGIN = "https://gateway.example.org"
+
+
+# ===================================================================
 # Environment guard
 # ===================================================================
 #

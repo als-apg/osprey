@@ -47,7 +47,7 @@ the bash now lives in the config + launcher.
 providers:
   cborg:   { base_url: https://api.cborg.lbl.gov/v1, key_file: ~/.cborg_key,
              protocol: openai,    judge: { via: cborg,   model: google/claude-haiku-4-5 } }
-  als-apg: { base_url: https://llm.gianlucamartino.com, key_file: ~/.als_apg_key,
+  als-apg: { base_url: ${ALS_APG_BASE_URL}, key_file: ~/.als_apg_key,
              protocol: anthropic, judge: { via: als-apg, model: claude-haiku-4-5-20251001 } }
   ds4:     { base_url: http://127.0.0.1:8000/v1, keyless: true,
              protocol: openai,    judge: { via: cborg,   model: google/claude-haiku-4-5 } }

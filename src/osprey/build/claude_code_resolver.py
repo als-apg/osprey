@@ -35,6 +35,7 @@ from osprey.models.spend_attribution import apply_attribution_env, gateway_for
 from osprey.models.tiers import VALID_TIERS
 from osprey.utils.dotenv import chain_files
 from osprey_connectors import yaml_loader
+from osprey_connectors.config import is_unresolved_placeholder
 
 logger = logging.getLogger("osprey.build.claude_code_resolver")
 
@@ -71,10 +72,17 @@ CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
     "als-apg": {
         "auth_env_var": "ANTHROPIC_AUTH_TOKEN",  # Bearer auth for proxy
         "auth_secret_env": "ALS_APG_API_KEY",  # Shell env var holding the secret
-        "base_url": "https://llm.gianlucamartino.com",  # ALS-APG AWS proxy (no /v1)
-        # Break-glass redirect: a set env var beats config and the URL above,
-        # so a deployment with a baked-in config can be pointed at a fallback
-        # gateway at runtime (mirrors the provider adapter's base_url_env_var).
+        # No built-in URL: this gateway is a deployment's own host, so the
+        # endpoint is site data. `requires_base_url` turns "nobody named one"
+        # into a refusal instead of an unset ANTHROPIC_BASE_URL, which would
+        # send the gateway's key straight to api.anthropic.com.
+        "base_url": None,
+        "requires_base_url": True,
+        # The endpoint arrives from api.providers.als-apg.base_url (the shipped
+        # catalog entry reads ``${ALS_APG_BASE_URL}``) or from the env var
+        # directly, which also beats a baked-in config so an already-deployed
+        # system can be pointed at a fallback gateway without a rebuild
+        # (mirrors the provider adapter's base_url_env_var).
         "base_url_env_var": "ALS_APG_BASE_URL",
         "default_model_tier": "haiku",
         # Fallback model IDs (used when api.providers.als-apg.models is absent)
@@ -450,6 +458,39 @@ def inject_provider_env(
     return sorted(spec.env_block.keys())
 
 
+def _without_unresolved_base_urls(api_providers: dict) -> dict:
+    """Drop every ``base_url`` that is still an unexported ``${VAR}``.
+
+    This is the *runtime* path, where a placeholder is not a value: the config
+    resolver keeps ``${VAR}`` verbatim when the variable is unset, and the
+    shipped catalog spells gateway endpoints exactly that way
+    (``base_url: ${ALS_APG_BASE_URL}``). Left in place the literal would be
+    exported as ``ANTHROPIC_BASE_URL``, i.e. handed to the agent as a hostname.
+    Blanked, it falls through the same precedence chain a missing key does —
+    to the built-in URL, or to the refusal that names the variable.
+
+    Only a launch blanks them. The template-render callers stay on the pure
+    :class:`ClaudeCodeModelResolver` precisely because they *want* the literal
+    ``${VAR}`` written into ``settings.json`` for expansion at launch, and the
+    build's reachability check reads a render the same way — see
+    ``defer_unresolved_base_url`` on :func:`load_provider_spec`.
+
+    Args:
+        api_providers: The ``api.providers`` mapping, already env-resolved.
+
+    Returns:
+        The same mapping with unresolved ``base_url`` values set to ``None``.
+    """
+    return {
+        name: (
+            {**entry, "base_url": None}
+            if isinstance(entry, dict) and is_unresolved_placeholder(entry.get("base_url"))
+            else entry
+        )
+        for name, entry in (api_providers or {}).items()
+    }
+
+
 def load_provider_spec(
     project_dir: Path,
     *,
@@ -457,6 +498,7 @@ def load_provider_spec(
     provider: str | None = None,
     include_telemetry: bool = True,
     defer_unresolved_telemetry_creds: bool = False,
+    defer_unresolved_base_url: bool = False,
 ) -> ClaudeCodeModelSpec | None:
     """Read ``config.yml``, expand ``${VAR}`` placeholders, and resolve the spec.
 
@@ -476,8 +518,10 @@ def load_provider_spec(
     literal ``${VAR}`` written into ``settings.json`` for deferred runtime
     expansion, and the model-id-only readers (``benchmarks/sdk.py``,
     ``channel_finder_in_context/server_context.py``) consume only
-    ``tier_to_model`` wire ids, which never contain ``${VAR}``. See
-    ``benchmarks/backends/react_backend.py`` for the one genuine deferral.
+    ``tier_to_model`` wire ids, which never contain ``${VAR}``.
+    ``benchmarks/backends/react_backend.py`` keeps its own resolver — its
+    contract is a synthetic config plus litellm ``api_base``, not a spec — but
+    expands and refuses the same way this does.
 
     Args:
         project_dir: Directory holding the ``config.yml`` to resolve.
@@ -489,6 +533,14 @@ def load_provider_spec(
             ``project_dir`` — the flat layout, where the two coincide.
         provider: When given, overrides ``claude_code.provider`` in the loaded
             config before resolving — used by cross-provider model sweeps.
+        defer_unresolved_base_url: Keep a provider ``base_url`` that is still an
+            unexported ``${VAR}`` instead of reading it as "no endpoint". The
+            build's reachability check sets it: a render is an artifact that can
+            start on another host — a container image is built here and given
+            its gateway there — so a deferred reference is that render's
+            contract with its runtime, not a missing value. Every launch path
+            leaves it False, so the process about to call the gateway is the one
+            that refuses, by name.
 
     Returns:
         Resolved :class:`ClaudeCodeModelSpec` with ``${VAR}`` expanded in both
@@ -508,9 +560,12 @@ def load_provider_spec(
     cc_config = cfg.get("claude_code", {})
     if provider is not None:
         cc_config = {**cc_config, "provider": provider}
+    api_providers = cfg.get("api", {}).get("providers", {})
+    if not defer_unresolved_base_url:
+        api_providers = _without_unresolved_base_urls(api_providers)
     return ClaudeCodeModelResolver.resolve(
         cc_config,
-        cfg.get("api", {}).get("providers", {}),
+        api_providers,
         include_telemetry=include_telemetry,
         defer_unresolved_telemetry_creds=defer_unresolved_telemetry_creds,
         environ=lookup,
@@ -704,7 +759,11 @@ class ClaudeCodeModelResolver:
         consults ``os.environ``, because it also renders ``settings.json`` at
         build time, where an ambient read would bake the builder's endpoint
         into the artifact. The trailing ``/v1`` is stripped for
-        ``ANTHROPIC_BASE_URL`` either way (see below).
+        ``ANTHROPIC_BASE_URL`` either way (see below). A built-in that declares
+        ``requires_base_url`` — it fronts a gateway each site hosts itself, so
+        there is no endpoint to default to — is refused outright when no source
+        names one, rather than falling through to Claude Code's native backend
+        with the gateway's bearer token.
 
         A tier that all three sources leave unmapped falls back to the
         resolved default model, with a warning naming each substitution — the
@@ -739,8 +798,9 @@ class ClaudeCodeModelResolver:
 
         Raises:
             ValueError: If the provider name is not in CLAUDE_CODE_PROVIDERS
-                and not in api_providers, or if the provider maps no models
-                and no ``default_model`` is set to fall back on.
+                and not in api_providers, if a provider that declares
+                ``requires_base_url`` resolves no endpoint, or if the provider
+                maps no models and no ``default_model`` is set to fall back on.
         """
         provider_name = claude_code_config.get("provider")
         if not provider_name:
@@ -804,6 +864,20 @@ class ClaudeCodeModelResolver:
             or api_providers.get(provider_name, {}).get("base_url")
             or provider_def.get("base_url")
         )
+        # A provider that has no built-in endpoint must be told one. Left
+        # unresolved, `base_url` is simply absent from the env block below and
+        # Claude Code talks to its native backend — so a gateway's bearer token
+        # would be presented to api.anthropic.com, which reads as an auth error
+        # nowhere near its cause.
+        if provider_def.get("requires_base_url") and not base_url:
+            sources = f"api.providers.{provider_name}.base_url in config.yml"
+            if env_var:
+                sources = f"{env_var}, or {sources}"
+            raise ValueError(
+                f"Provider '{provider_name}' has no base_url. It fronts models "
+                f"through a gateway that has no default endpoint, so the URL has "
+                f"to be named: set {sources}."
+            )
 
         # ── Build tier → model mapping ───────────────────────────
         # Priority: built-in fallback < api.providers models < claude_code.models

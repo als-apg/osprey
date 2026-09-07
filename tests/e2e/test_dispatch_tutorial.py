@@ -2,8 +2,8 @@
 
 Proves the bundled ``tutorial_triggers.yml`` triggers actually work end to end
 ACROSS PROCESSES with a real Claude Agent SDK run, using the provider named by
-``OSPREY_E2E_PROVIDER`` (defaulting to the Bedrock proxy reachable from GitHub
-Actions runners). For each token trigger this:
+``OSPREY_E2E_PROVIDER`` (defaulting to the ALS-APG gateway, reachable from
+GitHub Actions runners). For each token trigger this:
 
   1. Builds a real control-assistant deployment repo once (module-scoped fixture).
   2. Loads the REAL shipped ``tutorial_triggers.yml`` and overrides ONLY

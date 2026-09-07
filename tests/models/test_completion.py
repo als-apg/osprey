@@ -136,7 +136,6 @@ class TestConvertTypedDictToPydantic:
 # Kept explicit so a new provider forces a deliberate entry here rather than
 # silently inheriting whichever behavior its class attributes happen to give it.
 PROVIDERS_DECLARING_A_DEFAULT_ENDPOINT = [
-    ("als-apg", "https://llm.gianlucamartino.com"),
     ("argo", "https://apps.inside.anl.gov/argoapi/v1"),
     ("ds4", "http://127.0.0.1:8000/v1"),
     ("ollama", "http://localhost:11434"),
@@ -147,7 +146,7 @@ PROVIDERS_DECLARING_A_DEFAULT_ENDPOINT = [
 # Providers that require a base_url and declare no default: nothing but config
 # (or an env override) can supply their endpoint, so the gate must keep
 # rejecting them.
-PROVIDERS_WITH_NO_ENDPOINT_SOURCE = ["amsc-i2", "asksage", "cborg"]
+PROVIDERS_WITH_NO_ENDPOINT_SOURCE = ["als-apg", "amsc-i2", "asksage", "cborg"]
 
 
 def _clear_base_url_overrides(monkeypatch):
@@ -174,10 +173,8 @@ class TestBaseUrlRequirementHonorsProviderDefaults:
     provider carrying a perfectly good default was refused for "missing" base_url
     and its default was unreachable.
 
-    That disagreement was invisible for as long as an env override happened to
-    supply the value — it surfaced the moment ``ALS_APG_BASE_URL`` was removed
-    once the default gateway came back. These tests pin the agreement rather than
-    either half, since either half alone passes while the pair is broken.
+    These tests pin the agreement rather than either half, since either half
+    alone passes while the pair is broken.
     """
 
     @pytest.fixture(autouse=True)
@@ -193,7 +190,7 @@ class TestBaseUrlRequirementHonorsProviderDefaults:
         # None in, the declared default out — the value the gate must accept.
         assert provider_class.effective_base_url(None) == expected
 
-    def test_an_env_override_still_beats_the_default(self, monkeypatch):
+    def test_an_env_override_supplies_and_beats_a_configured_value(self, monkeypatch):
         from osprey.models.provider_registry import get_provider_registry
 
         monkeypatch.setenv("ALS_APG_BASE_URL", "https://fallback.example")
@@ -203,10 +200,24 @@ class TestBaseUrlRequirementHonorsProviderDefaults:
         # a break-glass redirect for an already-deployed system.
         assert provider_class.effective_base_url("https://baked-in") == "https://fallback.example"
 
+    @pytest.mark.parametrize("provider", ["als-apg", "cborg", "vllm"])
+    def test_an_unresolved_placeholder_counts_as_no_value(self, provider):
+        """``base_url: ${VAR}`` with nothing exported is "unset", not a hostname.
+
+        The config resolver keeps the reference verbatim when the variable is
+        unset, so every provider has to read that shape as an absent value or
+        the literal reaches the HTTP client.
+        """
+        from osprey.models.provider_registry import get_provider_registry
+
+        provider_class = get_provider_registry().get_provider(provider)
+        resolved = provider_class.effective_base_url("${SOME_GATEWAY_URL}")
+        assert resolved == provider_class.default_base_url
+
     def test_a_configured_value_still_wins_over_the_default(self):
         from osprey.models.provider_registry import get_provider_registry
 
-        provider_class = get_provider_registry().get_provider("als-apg")
+        provider_class = get_provider_registry().get_provider("stanford")
         assert provider_class.effective_base_url("https://configured") == "https://configured"
 
     @pytest.mark.parametrize("provider", PROVIDERS_WITH_NO_ENDPOINT_SOURCE)
@@ -294,14 +305,33 @@ class TestGetChatCompletionAcceptsAProviderDefault:
         # The gate must not become a rubber stamp: a requires_base_url provider
         # with nothing to fall back on still fails, and still names itself.
         from osprey.models import completion as completion_module
-        from osprey.models.provider_registry import get_provider_registry
 
-        provider_class = get_provider_registry().get_provider("als-apg")
-        monkeypatch.setattr(provider_class, "apply_default_base_url_fallback", False)
         monkeypatch.setattr(
             completion_module,
             "get_provider_config",
             lambda provider: {"api_key": "k", "default_model_id": "claude-haiku-4-5-20251001"},
+        )
+
+        with pytest.raises(ValueError, match="Base URL required for als-apg"):
+            completion_module.get_chat_completion(message="ping", provider="als-apg", max_tokens=4)
+
+    def test_an_unresolved_placeholder_is_rejected_like_a_missing_url(self, monkeypatch):
+        """A deployment that never exported its gateway variable is refused.
+
+        The shipped catalog spells the endpoint ``${ALS_APG_BASE_URL}``; unset,
+        the literal survives config resolution, and the gate has to read it as
+        "no URL" rather than let it through to the HTTP client.
+        """
+        from osprey.models import completion as completion_module
+
+        monkeypatch.setattr(
+            completion_module,
+            "get_provider_config",
+            lambda provider: {
+                "api_key": "k",
+                "base_url": "${ALS_APG_BASE_URL}",
+                "default_model_id": "claude-haiku-4-5-20251001",
+            },
         )
 
         with pytest.raises(ValueError, match="Base URL required for als-apg"):

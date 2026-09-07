@@ -29,6 +29,22 @@ _PROVIDER_RATE_LIMIT_RPM: dict[str, int | None] = {
 logger = logging.getLogger(__name__)
 
 
+def _project_dotenv(project_dir: Path) -> dict[str, str]:
+    """Read the project's ``.env``, so a benchmark run needs no exported shell vars.
+
+    Returns an empty mapping when there is no file, or when ``python-dotenv``
+    is not installed — the caller falls back to the process environment.
+    """
+    env_file = project_dir / ".env"
+    if not env_file.is_file():
+        return {}
+    try:
+        from dotenv import dotenv_values
+    except ImportError:
+        return {}
+    return {key: value for key, value in dotenv_values(env_file).items() if value is not None}
+
+
 def _resolve_litellm_endpoint(project_dir: Path, provider: str) -> dict | None:
     """Resolve provider routing kwargs for a non-ollama provider.
 
@@ -42,13 +58,14 @@ def _resolve_litellm_endpoint(project_dir: Path, provider: str) -> dict | None:
     and for direct Anthropic (LiteLLM's default routing is correct).
 
     NOTE (#307 follow-up): this benchmark-only path still does a raw
-    ``yaml.safe_load`` + ``ClaudeCodeModelResolver.resolve`` and so does NOT
-    expand ``${VAR}`` placeholders in a custom provider's ``base_url``. The
-    model matrix uses native literal-URL providers, so this is deferred rather
-    than switched to ``load_provider_spec`` — the contract differs (synthetic
-    ``{"provider": provider}`` config + litellm ``api_base``). Migrate to
-    ``load_provider_spec`` if a ``${VAR}``-based custom provider is ever
-    benchmarked.
+    ``yaml.safe_load`` + ``ClaudeCodeModelResolver.resolve`` rather than going
+    through ``load_provider_spec``, because the contract differs (synthetic
+    ``{"provider": provider}`` config + litellm ``api_base``). It does expand
+    ``${VAR}`` in a provider's ``base_url``, against the same
+    ``os.environ`` + project ``.env`` overlay the auth secret is read from, and
+    refuses a reference that resolves to nothing rather than handing litellm a
+    placeholder as a hostname — the shipped catalog spells gateway endpoints
+    that way.
     """
     if provider == "ollama":
         return None
@@ -56,32 +73,32 @@ def _resolve_litellm_endpoint(project_dir: Path, provider: str) -> dict | None:
     import yaml
 
     from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
+    from osprey_connectors.config import is_unresolved_placeholder, resolve_env_vars
 
     config_path = project_dir / "config.yml"
     if not config_path.exists():
         return None
     config = yaml.safe_load(config_path.read_text()) or {}
-    api_providers = config.get("api", {}).get("providers", {})
+    # os.environ wins over the project .env, so a sweep can redirect a provider
+    # for one run without editing the deployment's file.
+    dotenv = _project_dotenv(project_dir)
+    overlay = {**dotenv, **os.environ}
+    api_providers = resolve_env_vars(config.get("api", {}).get("providers", {}), environ=overlay)
     spec = ClaudeCodeModelResolver.resolve({"provider": provider}, api_providers)
     if spec is None:
         return None
 
     base_url = spec.env_block.get("ANTHROPIC_BASE_URL")
+    if is_unresolved_placeholder(base_url):
+        raise ValueError(
+            f"Provider '{provider}' names its endpoint as {base_url}, and that variable "
+            f"is not set. Export it, or put it in {project_dir / '.env'}, before "
+            "benchmarking this provider."
+        )
     if not base_url:
         return None  # direct Anthropic — LiteLLM default routing works
 
-    secret = os.environ.get(spec.auth_secret_env)
-    if not secret:
-        # Fall back to project .env so users don't need to export shell vars
-        env_file = project_dir / ".env"
-        if env_file.is_file():
-            try:
-                from dotenv import dotenv_values
-
-                secret = dotenv_values(env_file).get(spec.auth_secret_env)
-            except ImportError:
-                pass
-
+    secret = os.environ.get(spec.auth_secret_env) or dotenv.get(spec.auth_secret_env)
     if not secret:
         logger.warning(
             "No %s found in env or project .env; LiteLLM auth will likely fail",

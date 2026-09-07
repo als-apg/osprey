@@ -2367,7 +2367,17 @@ def _render_project(
         # raises ObservabilityCredentialError into this ValueError catch.
         # Pinned by test_deferred_var_credential_warns_not_raises_through_resolve
         # in tests/cli/test_telemetry_env.py.
-        load_provider_spec(render_dir, defer_unresolved_telemetry_creds=True)
+        #
+        # A provider base_url still spelled "${VAR}" is deferred for the same
+        # reason: this render may start on another host (a container image is
+        # built here and handed its gateway there), so the reference is the
+        # render's contract with its runtime. The launch paths resolve it for
+        # real and refuse by name when nothing supplies it.
+        load_provider_spec(
+            render_dir,
+            defer_unresolved_telemetry_creds=True,
+            defer_unresolved_base_url=True,
+        )
     except ValueError as e:
         raise BuildProfileError(str(e)) from e
 

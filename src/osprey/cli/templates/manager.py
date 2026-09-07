@@ -578,6 +578,13 @@ class TemplateManager:
             # Ordered list of {"provider", "var"} dicts; key-less providers
             # (ollama, vllm, …) are excluded.
             "provider_api_keys": scaffolding.provider_api_key_entries(),
+            # Providers that require a base_url and ship no default: their
+            # gateway is the deployment's own host, so .env.example names the
+            # variable rather than leaving it to the documentation.
+            "provider_base_urls": scaffolding.provider_base_url_entries(),
+            # As with the keys: empty here, so a caller with no profile renders
+            # them all uncommented; `osprey init` fills it in.
+            "active_provider_base_url_vars": [],
             # The subset of the above this profile actually uses. Empty here so
             # a caller with no profile still renders the whole list uncommented;
             # `osprey init` fills it in and the rest drop below a divider.

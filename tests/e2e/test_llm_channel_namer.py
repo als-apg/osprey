@@ -29,16 +29,18 @@ def get_available_providers() -> dict[str, dict]:
 
     available = {}
 
-    # Provider preference: als-apg first (AWS Bedrock proxy — IP-unrestricted,
-    # works in CI and off-VPN). CBORG is LBLnet-gated and would 403 from GitHub
-    # Actions runners or off-VPN laptops.
-    providers_to_check = [
-        (
-            "als-apg",
-            ["ALS_APG_API_KEY"],
-            os.environ.get("ALS_APG_BASE_URL") or "https://llm.gianlucamartino.com",
-            "claude-haiku-4-5-20251001",
-        ),
+    # Provider preference: als-apg first (the ALS-APG gateway — IP-unrestricted,
+    # works in CI and off-VPN), but only once its endpoint is named: the gateway
+    # has no built-in host, so ALS_APG_BASE_URL is what makes it a route at all.
+    # CBORG is LBLnet-gated and would 403 from GitHub Actions runners or
+    # off-VPN laptops.
+    als_apg_base_url = os.environ.get("ALS_APG_BASE_URL")
+    providers_to_check = []
+    if als_apg_base_url:
+        providers_to_check.append(
+            ("als-apg", ["ALS_APG_API_KEY"], als_apg_base_url, "claude-haiku-4-5-20251001")
+        )
+    providers_to_check += [
         ("cborg", ["CBORG_API_KEY"], "https://api.cborg.lbl.gov", "anthropic/claude-haiku"),
         (
             "amsc-i2",

@@ -11,12 +11,17 @@ ALS-APG differs from the other OpenAI-compatible proxies (amsc-i2, cborg,
 stanford) in one deliberate way: it leaves ``supports_native_structured_output``
 at the None default so structured-output support is auto-detected, rather than
 asserting True. That default is pinned below.
+
+It also declares no ``default_base_url``: the gateway is a site's own host, so
+the endpoint comes from config or from ``ALS_APG_BASE_URL`` and a call with
+neither is refused rather than sent somewhere else.
 """
 
 from unittest.mock import patch
 
 import pytest
 from pydantic import BaseModel
+from tests.conftest import GATEWAY_BASE_URL
 
 from osprey.models.providers.als_apg import ALSAPGProviderAdapter
 
@@ -55,8 +60,16 @@ class TestALSAPGMetadata:
         assert ALSAPGProviderAdapter.requires_model_id is True
         assert ALSAPGProviderAdapter.supports_proxy is True
 
-    def test_default_base_url(self):
-        assert ALSAPGProviderAdapter.default_base_url == "https://llm.gianlucamartino.com"
+    def test_declares_no_default_base_url(self):
+        """The gateway is site infrastructure — there is no endpoint to default to.
+
+        A default here would be one organisation's host shipped as every
+        deployment's fallback, and it would be reached silently: the provider
+        requires a base_url, so the requirement gate would accept the default
+        instead of asking for the deployment's own.
+        """
+        assert ALSAPGProviderAdapter.default_base_url is None
+        assert ALSAPGProviderAdapter.apply_default_base_url_fallback is False
 
     def test_default_and_health_models(self):
         assert ALSAPGProviderAdapter.default_model_id == "claude-haiku-4-5-20251001"
@@ -143,22 +156,26 @@ class TestALSAPGExecuteCompletion:
         assert kwargs["enable_thinking"] is True
         assert kwargs["budget_tokens"] == 256
 
-    def test_missing_base_url_falls_back_to_default(self):
-        """als-apg routes openai-compatible, so a missing base_url must resolve
-        to its default endpoint rather than falling through to api.openai.com."""
+    def test_missing_base_url_resolves_to_nothing(self):
+        """No endpoint is invented; the requirement gate refuses the call instead.
+
+        ``osprey.models.completion`` rejects a ``requires_base_url`` provider
+        that resolves to None, which is what makes "you have to name your
+        gateway" the error a deployer sees.
+        """
         with patch(COMPLETION, return_value="ok") as mock_exec:
             ALSAPGProviderAdapter().execute_completion(
                 message="hi", model_id="m", api_key="key", base_url=None
             )
-        assert mock_exec.call_args.kwargs["base_url"] == "https://llm.gianlucamartino.com"
+        assert mock_exec.call_args.kwargs["base_url"] is None
 
 
 class TestALSAPGBaseURLEnvOverride:
     """ALS_APG_BASE_URL redirects the adapter regardless of config.
 
-    The env var is the break-glass lever for pointing an already-deployed
-    system at a fallback gateway without rebuilding images: it must beat
-    both an explicit base_url argument and the built-in default.
+    The env var is both how a deployment names its gateway and the break-glass
+    lever for pointing an already-deployed system at a fallback without
+    rebuilding images: it must beat an explicit base_url argument.
     """
 
     def test_declares_the_env_var_name(self):
@@ -181,13 +198,27 @@ class TestALSAPGBaseURLEnvOverride:
         assert mock_exec.call_args.kwargs["base_url"] == "https://fallback.example.org/v1"
 
     def test_empty_env_var_is_ignored(self, monkeypatch):
-        """An empty export must not blank the URL — fall through to the default."""
+        """An empty export must not blank a configured URL."""
         monkeypatch.setenv("ALS_APG_BASE_URL", "")
         with patch(COMPLETION, return_value="ok") as mock_exec:
             ALSAPGProviderAdapter().execute_completion(
-                message="hi", model_id="m", api_key="key", base_url=None
+                message="hi", model_id="m", api_key="key", base_url=GATEWAY_BASE_URL
             )
-        assert mock_exec.call_args.kwargs["base_url"] == "https://llm.gianlucamartino.com"
+        assert mock_exec.call_args.kwargs["base_url"] == GATEWAY_BASE_URL
+
+    def test_an_unresolved_placeholder_is_not_a_url(self, monkeypatch):
+        """``base_url: ${ALS_APG_BASE_URL}`` with nothing exported means "unset".
+
+        The config resolver keeps a reference verbatim when the variable is
+        unset, so without this the literal string would be handed to litellm as
+        a hostname.
+        """
+        monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
+        with patch(COMPLETION, return_value="ok") as mock_exec:
+            ALSAPGProviderAdapter().execute_completion(
+                message="hi", model_id="m", api_key="key", base_url="${ALS_APG_BASE_URL}"
+            )
+        assert mock_exec.call_args.kwargs["base_url"] is None
 
     def test_env_var_redirects_check_health_too(self, monkeypatch):
         """osprey health must probe the endpoint completions actually use."""
@@ -242,10 +273,10 @@ class TestALSAPGCheckHealth:
             )
         assert mock_health.call_args.kwargs["timeout"] == 12.0
 
-    def test_missing_base_url_falls_back_to_default(self):
+    def test_missing_base_url_resolves_to_nothing(self):
         with patch(HEALTH, return_value=(True, "ok")) as mock_health:
             ALSAPGProviderAdapter().check_health(api_key="key", base_url=None)
-        assert mock_health.call_args.kwargs["base_url"] == "https://llm.gianlucamartino.com"
+        assert mock_health.call_args.kwargs["base_url"] is None
 
     def test_propagates_failure(self):
         with patch(HEALTH, return_value=(False, "down")):
