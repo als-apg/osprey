@@ -39,6 +39,7 @@ import { AGENT_MODEL_OPTIONS, parseFrontMatter, lockEditor } from './utils.js';
  * @property {any} selectedArtifact
  * @property {boolean} editDirty
  * @property {EditContentElement|null} detailContentEl
+ * @property {number} detailRenderSeq
  * @property {() => void} renderDetailModes
  */
 
@@ -51,10 +52,17 @@ import { AGENT_MODEL_OPTIONS, parseFrontMatter, lockEditor } from './utils.js';
 export function createScaffoldGalleryEditForm(gallery) {
   /** @returns {Promise<void>} */
   async function renderEdit() {
+    // Same claim on the content pane the read-side renderers take: taking
+    // ownership on a first edit reopens the detail view in Preview and
+    // switches to Edit immediately, so both renders are in flight at once and
+    // the later one has to win regardless of which fetch lands first (see
+    // scaffold/detail.js's renderDetailContent).
+    const render = gallery.detailRenderSeq;
+
     const data = await fetchJSON(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}`); // fetchJSON prefixes internally
     const content = data.content || '';
 
-    if (!gallery.detailContentEl) return;
+    if (!gallery.detailContentEl || gallery.detailRenderSeq !== render) return;
 
     // Clear content area
     while (gallery.detailContentEl.firstChild) {
