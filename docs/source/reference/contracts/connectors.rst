@@ -250,6 +250,17 @@ block:
   ``true``. A deployment that states no limits posture at all runs no limits
   checking, and nothing on that path refuses an unlisted channel.
 
+``max_step`` is the one limit that costs a read. It caps how far a single write
+may move a channel, which means measuring the channel's present value first —
+over the client the write is about to go through, not some other one. The
+connector performing the write supplies that read from its own client, so
+``max_step`` works on every control system rather than only over Channel
+Access. A connector with no synchronous read refuses a ``max_step`` channel
+rather than guessing: a step that cannot be measured cannot be approved. The
+layers above the connector — the ``channel_write`` tool and the limits hook —
+hold no client, so they apply every other limit and leave this one to the
+connector, which makes it on the write itself.
+
 A refusal about an unlisted channel — and the target switch's
 ``limits_posture`` refusal — names the key that answered, the per-type one where
 a block spoke and the deployment-wide one where none did, so an operator edits

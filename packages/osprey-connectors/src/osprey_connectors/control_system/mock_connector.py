@@ -178,6 +178,19 @@ class MockConnector(ControlSystemConnector):
             ),
         )
 
+    def _current_value_reader(self) -> Callable[[str], Any] | None:
+        """What the simulated control system holds, read without noise.
+
+        The same store, and the same noise-free reading, that
+        :meth:`_confirming_read` compares a write against: measurement jitter
+        applied here would put a random error on every step size.
+        """
+
+        def read_current(channel_address: str) -> Any:
+            return self._read_value(channel_address, apply_noise=False).value
+
+        return read_current
+
     async def write_channel(
         self,
         channel_address: str,
@@ -216,7 +229,9 @@ class MockConnector(ControlSystemConnector):
             from osprey_connectors.errors import ChannelLimitsViolationError
 
             try:
-                self._limits_validator.validate(channel_address, value)
+                self._limits_validator.validate(
+                    channel_address, value, read_current=self._current_value_reader()
+                )
                 logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
             except ChannelLimitsViolationError:
                 raise

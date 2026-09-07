@@ -387,12 +387,16 @@ async def test_connector_recreated_after_cleanup(clear_runtime_state):
 
 
 class TestRuntimeLimitsValidation:
-    """Tests that _limits_validator fires before the connector is called (I-2)."""
+    """Tests that _limits_validator fires before anything is written (I-2)."""
 
     @pytest.mark.asyncio
-    async def test_limits_violation_raises_before_connector(self, clear_runtime_state):
-        """When _limits_validator rejects a value, ChannelLimitsViolationError is raised
-        and _get_connector() is never called."""
+    async def test_limits_violation_raises_before_the_write(self, clear_runtime_state):
+        """A rejected value raises and nothing is sent to the control system.
+
+        The connector itself is acquired first — the safety net asks it for the
+        fresh-read primitive the ``max_step`` check needs — but acquiring a
+        connector writes nothing, and no write call is made.
+        """
         import osprey.runtime as runtime
 
         test_db = {
@@ -403,13 +407,105 @@ class TestRuntimeLimitsValidation:
         validator = LimitsValidator(test_db, {"allow_unlisted_pvs": False})
         runtime._limits_validator = validator
 
+        mock_connector = MockConnector()
+
         with patch("osprey.runtime._get_connector", new_callable=AsyncMock) as mock_get_connector:
+            mock_get_connector.return_value = mock_connector
             with pytest.raises(ChannelLimitsViolationError) as exc_info:
                 await _write_channel_async("TEST:PV", 150.0)
 
-            mock_get_connector.assert_not_called()
+            assert mock_connector.write_calls == []
             assert exc_info.value.channel_address == "TEST:PV"
             assert exc_info.value.attempted_value == 150.0
+
+
+class TestRuntimeStepCheckReader:
+    """The safety net measures max_step with the connector's own client.
+
+    The validator injected into ``osprey.runtime`` owns no control-system
+    client. Without a reader every ``max_step`` channel would be refused
+    ``STEP_CHECK_FAILED`` here, before the connector that can measure the step
+    is ever asked to write.
+    """
+
+    @staticmethod
+    def _validator():
+        return LimitsValidator(
+            {
+                "TEST:PV": ChannelLimitsConfig(
+                    channel_address="TEST:PV",
+                    min_value=0.0,
+                    max_value=100.0,
+                    max_step=2.0,
+                    writable=True,
+                ),
+                "OTHER:PV": ChannelLimitsConfig(
+                    channel_address="OTHER:PV", min_value=0.0, max_value=100.0, writable=True
+                ),
+            },
+            {"allow_unlisted_channels": False},
+        )
+
+    @staticmethod
+    def _connector(reads):
+        class ReadingConnector(MockConnector):
+            def _current_value_reader(self):
+                def read_current(channel_address):
+                    reads.append(channel_address)
+                    return 50.0
+
+                return read_current
+
+        return ReadingConnector()
+
+    @pytest.mark.asyncio
+    async def test_step_within_limit_is_measured_and_written(self, clear_runtime_state):
+        import osprey.runtime as runtime
+
+        runtime._limits_validator = self._validator()
+        reads: list[str] = []
+        connector = self._connector(reads)
+
+        with patch("osprey.runtime._get_connector", new_callable=AsyncMock) as get_connector:
+            get_connector.return_value = connector
+            await _write_channel_async("TEST:PV", 51.0)
+
+        assert reads == ["TEST:PV"]
+        assert connector.write_calls[0][:2] == ("TEST:PV", 51.0)
+
+    @pytest.mark.asyncio
+    async def test_step_beyond_limit_is_refused_as_a_step_violation(self, clear_runtime_state):
+        import osprey.runtime as runtime
+
+        runtime._limits_validator = self._validator()
+        reads: list[str] = []
+        connector = self._connector(reads)
+
+        with patch("osprey.runtime._get_connector", new_callable=AsyncMock) as get_connector:
+            get_connector.return_value = connector
+            with pytest.raises(ChannelLimitsViolationError) as exc_info:
+                await _write_channel_async("TEST:PV", 90.0)
+
+        assert exc_info.value.violation_type == "MAX_STEP_EXCEEDED"
+        assert connector.write_calls == []
+
+    @pytest.mark.asyncio
+    async def test_bulk_write_gets_the_same_reader(self, clear_runtime_state):
+        """write_channels' multi-channel branch validates with the connector's reader too."""
+        import osprey.runtime as runtime
+        from osprey.runtime import _write_channels_async
+
+        runtime._limits_validator = self._validator()
+        reads: list[str] = []
+        connector = self._connector(reads)
+
+        with patch("osprey.runtime._get_connector", new_callable=AsyncMock) as get_connector:
+            get_connector.return_value = connector
+            await _write_channels_async({"TEST:PV": 51.0, "OTHER:PV": 10.0})
+
+        # Only the max_step channel needed a read.
+        assert reads == ["TEST:PV"]
+        assert len(connector.write_calls) == 2
 
     @pytest.mark.asyncio
     async def test_no_validator_calls_connector_normally(self, clear_runtime_state):

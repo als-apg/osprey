@@ -313,7 +313,7 @@ if not _execution_dir.exists():
             try:
                 import json
                 from osprey.connectors.control_system.limits_validator import (
-                    LimitsValidator, ChannelLimitsConfig
+                    LimitsValidator, ChannelLimitsConfig, STEP_READ_TIMEOUT_SECONDS
                 )
                 from osprey.errors import ChannelLimitsViolationError
 
@@ -345,22 +345,41 @@ if not _execution_dir.exists():
                 except ImportError:
                     print("ℹ️  osprey.runtime not available for limits injection")
 
+                import inspect as _inspect
+
                 try:
                     import epics
 
                     # Store original functions
                     _original_caput = epics.caput
+                    _original_caget = getattr(epics, 'caget', None)
                     _original_PV_put = epics.PV.put if hasattr(epics.PV, 'put') else None
+
+                    def _ca_current_value(_address):
+                        '''Read a channel's present value for the max_step check.
+
+                        The script's OWN Channel Access client, captured before
+                        the guard is installed - the validator holds no client
+                        and must not reach for one. A client that cannot read
+                        answers None, which fails the step check closed.
+                        '''
+                        if _original_caget is None:
+                            return None
+                        return _original_caget(_address, timeout=STEP_READ_TIMEOUT_SECONDS)
 
                     def _checked_caput(pvname, value, wait=False, timeout=60, **kwargs):
                         '''Limits-checked wrapper for epics.caput()'''
-                        _limits_validator.validate(pvname, value)  # Raises if invalid
+                        _limits_validator.validate(
+                            pvname, value, read_current=_ca_current_value
+                        )  # Raises if invalid
                         return _original_caput(pvname, value, wait=wait, timeout=timeout, **kwargs)
 
                     if _original_PV_put is not None:
                         def _checked_PV_put(self, value, wait=False, timeout=60, **kwargs):
                             '''Limits-checked wrapper for PV.put()'''
-                            _limits_validator.validate(self.pvname, value)  # Raises if invalid
+                            _limits_validator.validate(
+                                self.pvname, value, read_current=_ca_current_value
+                            )  # Raises if invalid
                             return _original_PV_put(self, value, wait=wait, timeout=timeout, **kwargs)
 
                         epics.PV.put = _checked_PV_put
@@ -375,7 +394,32 @@ if not _execution_dir.exists():
                 # concurrency flavor, so each one is imported and patched in its
                 # OWN try/except - patching only the thread client would leave an
                 # approved `from p4p.client.asyncio import Context` put unvalidated.
-                def _p4p_validate_put(_name, _values):
+                def _p4p_current_value(_context):
+                    '''A reader for the max_step check, bound to the putting context.
+
+                    The step is measured over the same PVA context the put
+                    goes through, so it follows that client's own addressing.
+                    NTScalar and friends carry the number in a ``value``
+                    field; a bare scalar answers itself.
+
+                    p4p's asyncio flavour answers get() with a coroutine, and
+                    the validator is synchronous — there is no read to make
+                    here, so this answers None and a max_step channel on that
+                    flavour fails closed. Calling get() anyway would hand the
+                    validator an un-awaited coroutine and refuse the write with
+                    a TypeError about it.
+                    '''
+                    _get = getattr(_context, 'get', None)
+                    if _get is None or _inspect.iscoroutinefunction(_get):
+                        return None
+
+                    def _read(_address):
+                        _current = _get(_address)
+                        return getattr(_current, 'value', _current)
+
+                    return _read
+
+                def _p4p_validate_put(_name, _values, _read_current):
                     '''Validate a p4p put payload BEFORE any network operation.
 
                     Discrimination mirrors p4p's OWN rule - a str name is the
@@ -388,12 +432,15 @@ if not _execution_dir.exists():
                     the shorter prefix, and a shape p4p would accept but we
                     cannot pair up fails closed via ValueError.
 
+                    ``_read_current`` is the putting context's own reader,
+                    used only by channels that configure max_step.
+
                     Returns the name to forward to the original put(); a
                     one-shot iterable is materialized so validation does not
                     consume the caller's names.
                     '''
                     if isinstance(_name, str):
-                        _limits_validator.validate(_name, _values)
+                        _limits_validator.validate(_name, _values, read_current=_read_current)
                         return _name
 
                     if not isinstance(_values, (list, tuple)):
@@ -414,7 +461,9 @@ if not _execution_dir.exists():
                             ) from _shape_error
 
                     for _pair_name, _pair_value in zip(_names_seq, _values, strict=True):
-                        _limits_validator.validate(_pair_name, _pair_value)
+                        _limits_validator.validate(
+                            _pair_name, _pair_value, read_current=_read_current
+                        )
                     return _names_seq
 
                 def _p4p_install_guard(_context_cls):
@@ -424,7 +473,9 @@ if not _execution_dir.exists():
 
                         def _p4p_checked_put(self, name, values, *args, **kwargs):
                             '''Limits-checked wrapper for p4p Context.put()'''
-                            name = _p4p_validate_put(name, values)  # Raises if invalid
+                            name = _p4p_validate_put(
+                                name, values, _p4p_current_value(self)
+                            )  # Raises if invalid
                             return _original_p4p_put(self, name, values, *args, **kwargs)
 
                         _context_cls.put = _p4p_checked_put
@@ -496,6 +547,23 @@ if not _execution_dir.exists():
                     def _tango_channel(_proxy, _attr):
                         return f"{{_proxy.dev_name()}}/{{_attr}}"
 
+                    def _tango_current_value(_proxy):
+                        '''A reader for the max_step check, bound to the writing proxy.
+
+                        The step is measured over the same DeviceProxy the
+                        write goes through. The address the validator holds is
+                        the full device/attribute form built above, so the
+                        attribute name is its last segment.
+                        '''
+                        if not hasattr(_proxy, 'read_attribute'):
+                            return None
+
+                        def _read(_address):
+                            _attr = _proxy.read_attribute(_address.rsplit('/', 1)[-1])
+                            return getattr(_attr, 'value', _attr)
+
+                        return _read
+
                     def _tango_pairs(_name_val):
                         '''Normalise write_attributes' argument to (name, value) pairs.
 
@@ -523,7 +591,9 @@ if not _execution_dir.exists():
                             def _checked_tango_write(self, attr_name, value, *args, **kwargs):
                                 '''Limits-checked wrapper for DeviceProxy.write_attribute().'''
                                 _limits_validator.validate(
-                                    _tango_channel(self, attr_name), value
+                                    _tango_channel(self, attr_name),
+                                    value,
+                                    read_current=_tango_current_value(self),
                                 )
                                 return _orig_tango_write(self, attr_name, value, *args, **kwargs)
 
@@ -535,9 +605,12 @@ if not _execution_dir.exists():
                             def _checked_tango_write_many(self, name_val, *args, **kwargs):
                                 '''Limits-checked wrapper for DeviceProxy.write_attributes().'''
                                 _pairs = _tango_pairs(name_val)
+                                _read_current = _tango_current_value(self)
                                 for _attr, _value in _pairs:
                                     _limits_validator.validate(
-                                        _tango_channel(self, _attr), _value
+                                        _tango_channel(self, _attr),
+                                        _value,
+                                        read_current=_read_current,
                                     )
                                 # The materialised pairs, not the argument: a
                                 # generator was consumed by the check above, and
@@ -558,12 +631,29 @@ if not _execution_dir.exists():
                 try:
                     import doocs4py as _doocs4py
 
+                    def _doocs_current_value(_address):
+                        '''A reader for the max_step check, over doocs4py itself.
+
+                        ``get()`` answers an EqData, which carries the number
+                        in ``get_data()`` — the same unwrapping the shipped
+                        DOOCS connector does.
+                        '''
+                        _current = _doocs4py.get(_address)
+                        _get_data = getattr(_current, 'get_data', None)
+                        return _get_data() if _get_data is not None else _current
+
+                    _doocs_reader = (
+                        _doocs_current_value if hasattr(_doocs4py, "get") else None
+                    )
+
                     if hasattr(_doocs4py, "set"):
                         _orig_doocs_set = _doocs4py.set
 
                         def _checked_doocs_set(address, value, *args, **kwargs):
                             '''Limits-checked wrapper for doocs4py.set().'''
-                            _limits_validator.validate(address, value)
+                            _limits_validator.validate(
+                                address, value, read_current=_doocs_reader
+                            )
                             return _orig_doocs_set(address, value, *args, **kwargs)
 
                         _doocs4py.set = _checked_doocs_set
@@ -577,15 +667,40 @@ if not _execution_dir.exists():
                 # --- caproto. Two entry points, in two modules: the sync
                 # client's module-level write() and the threading client's
                 # PV.write(), which knows its own channel name.
+                def _caproto_scalar(_response):
+                    '''The number in a caproto read response.
+
+                    caproto answers a read with a response object whose
+                    ``data`` is an array, even for a scalar channel; a stub or
+                    a bare value answers itself.
+                    '''
+                    _data = getattr(_response, 'data', _response)
+                    try:
+                        return _data[0]
+                    except (TypeError, IndexError, KeyError):
+                        return _data
+
                 try:
                     import caproto.sync.client as _caproto_sync
+
+                    def _caproto_sync_current_value(_address):
+                        '''A reader for the max_step check, over caproto's own client.'''
+                        return _caproto_scalar(_caproto_sync.read(_address))
+
+                    _caproto_sync_reader = (
+                        _caproto_sync_current_value
+                        if hasattr(_caproto_sync, "read")
+                        else None
+                    )
 
                     if hasattr(_caproto_sync, "write"):
                         _orig_caproto_write = _caproto_sync.write
 
                         def _checked_caproto_write(pv_name, data, *args, **kwargs):
                             '''Limits-checked wrapper for caproto.sync.client.write().'''
-                            _limits_validator.validate(pv_name, data)
+                            _limits_validator.validate(
+                                pv_name, data, read_current=_caproto_sync_reader
+                            )
                             return _orig_caproto_write(pv_name, data, *args, **kwargs)
 
                         _caproto_sync.write = _checked_caproto_write
@@ -602,12 +717,24 @@ if not _execution_dir.exists():
                 try:
                     from caproto.threading.client import PV as _CaprotoPV
 
+                    def _caproto_pv_current_value(_pv):
+                        '''A reader for the max_step check, bound to the writing PV.'''
+                        if not hasattr(_pv, 'read'):
+                            return None
+
+                        def _read(_address):
+                            return _caproto_scalar(_pv.read())
+
+                        return _read
+
                     if hasattr(_CaprotoPV, "write"):
                         _orig_caproto_pv_write = _CaprotoPV.write
 
                         def _checked_caproto_pv_write(self, data, *args, **kwargs):
                             '''Limits-checked wrapper for caproto threading PV.write().'''
-                            _limits_validator.validate(self.name, data)
+                            _limits_validator.validate(
+                                self.name, data, read_current=_caproto_pv_current_value(self)
+                            )
                             return _orig_caproto_pv_write(self, data, *args, **kwargs)
 
                         _CaprotoPV.write = _checked_caproto_pv_write

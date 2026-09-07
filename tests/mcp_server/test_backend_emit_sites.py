@@ -114,8 +114,14 @@ async def test_channel_write_limits_violation_no_emit(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
 
-    mock_validator = MagicMock()
-    mock_validator.validate.side_effect = ChannelLimitsViolationError(
+    from osprey.connectors.control_system.limits_validator import LimitsValidator
+
+    # Spec'd, so the mock carries exactly the entry points the real validator
+    # does: the tool asks for the checks a caller that has not yet resolved a
+    # connector can make, and an unspec'd mock would answer that with a silent
+    # stand-in instead.
+    mock_validator = MagicMock(spec=LimitsValidator)
+    mock_validator.validate_without_step_check.side_effect = ChannelLimitsViolationError(
         channel_address="TEST:PV",
         value=9999.0,
         violation_type="MAX_EXCEEDED",
