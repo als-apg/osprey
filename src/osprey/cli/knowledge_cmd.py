@@ -1205,7 +1205,10 @@ def build_ttl(
         f"{len(graph_model.devices)} devices, {len(graph_model.bindings)} channel bindings, "
         f"{len(graph_model.signal_groups)} signals."
     )
-    note(direction_report.message)
+    if direction_report.write_groups == 0:
+        warn(direction_report.message)
+    else:
+        note(direction_report.message)
     note(f"Facility token: {facility_token} (from {facility_source}); ontology: {ontology_source}")
     if facility_token == DEFAULT_FACILITY and db_path.resolve() != DEMO_CHANNEL_DB.resolve():
         warn(

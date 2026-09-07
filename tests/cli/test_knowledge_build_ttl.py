@@ -20,6 +20,8 @@ Covers:
   rather than reported as malformed JSON.
 - Section order comes from the database's own tree, ``--section-order``
   overrides it, and a list with an empty token is refused.
+- A machine that spells its setpoints its own way gets the zero-writable
+  direction line as a warning rather than as a note.
 """
 
 from __future__ import annotations
@@ -1036,6 +1038,12 @@ TWO_SECTION_ADDRESSES = FIXTURE_ADDRESSES + (
     "BR:MAG:DIPOLE:02:CURRENT:SP",
 )
 
+#: The same machine spelling its setpoint and readback subfields its own way,
+#: which is the shape the PV-grammar fallback cannot read a write out of.
+NO_SETPOINT_ADDRESSES = tuple(
+    address.replace(":SP", ":SET").replace(":RB", ":MON") for address in FIXTURE_ADDRESSES
+)
+
 
 def _in_context_for(addresses: tuple[str, ...]) -> dict[str, Any]:
     """The in-context database of a machine holding exactly *addresses*."""
@@ -1067,6 +1075,15 @@ def _two_section_payload() -> dict[str, Any]:
     return payload
 
 
+def _no_setpoint_payload() -> dict[str, Any]:
+    """The miniature machine with ``SET``/``MON`` subfields instead of ``SP``/``RB``."""
+    payload = _hierarchical_payload()
+    current = payload["tree"]["SR"]["MAG"]["DIPOLE"]["DEVICE"]["CURRENT"]
+    current["SET"] = current.pop("SP")
+    current["MON"] = current.pop("RB")
+    return payload
+
+
 @pytest.fixture()
 def two_section_db(tmp_path: Path) -> Path:
     """Write the two-section database and return its path."""
@@ -1080,6 +1097,22 @@ def two_section_descriptions(tmp_path: Path) -> Path:
     """The in-context prose of the two-section machine."""
     path = tmp_path / "two_section_in_context.json"
     path.write_text(json.dumps(_in_context_for(TWO_SECTION_ADDRESSES)), encoding="utf-8")
+    return path
+
+
+@pytest.fixture()
+def no_setpoint_db(tmp_path: Path) -> Path:
+    """Write the database whose subfields the PV grammar knows nothing about."""
+    path = tmp_path / "no_setpoint.json"
+    path.write_text(json.dumps(_no_setpoint_payload()), encoding="utf-8")
+    return path
+
+
+@pytest.fixture()
+def no_setpoint_descriptions(tmp_path: Path) -> Path:
+    """The in-context prose of the machine with no ``:SP`` subfield."""
+    path = tmp_path / "no_setpoint_in_context.json"
+    path.write_text(json.dumps(_in_context_for(NO_SETPOINT_ADDRESSES)), encoding="utf-8")
     return path
 
 
@@ -1191,3 +1224,67 @@ def test_build_ttl_refuses_a_section_order_with_an_empty_token(
     assert "--section-order" in flat
     assert "empty one" in flat
     assert not output.exists()
+
+
+def test_build_ttl_warns_when_the_grammar_finds_nothing_writable(
+    no_setpoint_db: Path,
+    no_setpoint_descriptions: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A corpus asserting nothing can be written is a warning, not a note.
+
+    The subfield token is the machine's, so a facility that spells setpoints
+    ``SET`` lands here with every signal read-only -- which is a finding about
+    the inputs rather than a fact about the machine, and reads as one.
+    """
+    _no_config(monkeypatch)
+    output = tmp_path / "read_only.ttl"
+
+    result = CliRunner().invoke(
+        knowledge,
+        [
+            "build-ttl",
+            str(output),
+            "--channel-db",
+            str(no_setpoint_db),
+            "--descriptions",
+            str(no_setpoint_descriptions),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    flat = _flat(result)
+    assert "\u26a0 direction from PV grammar" in flat
+    assert "0 of 4 signal groups matched" in flat
+    assert "nothing is writable" in flat
+    assert _predicate_count(output, "writesSignal") == 0
+
+
+def test_build_ttl_keeps_the_direction_line_a_note_when_something_writes(
+    channel_db: Path,
+    descriptions_db: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The promotion is the zero case only; an ordinary run reads as before."""
+    _no_config(monkeypatch)
+    output = tmp_path / "grammar.ttl"
+
+    result = CliRunner().invoke(
+        knowledge,
+        [
+            "build-ttl",
+            str(output),
+            "--channel-db",
+            str(channel_db),
+            "--descriptions",
+            str(descriptions_db),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    flat = _flat(result)
+    assert "direction from PV grammar" in flat
+    assert "\u26a0 direction from PV grammar" not in flat
+    assert "signal groups matched" not in flat
