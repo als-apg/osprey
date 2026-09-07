@@ -23,8 +23,9 @@ Files, by surface
 =================
 
 ``<identity>`` is whoever was acting, so on a multi-user deployment each
-person's records stay in their own directory; ``<surface>`` is the layer that
-decided, so a gallery refusal and a config refusal never share a file.
+person's records stay in their own directory (:ref:`how it is resolved
+<audit-trail-identity-ladder>`); ``<surface>`` is the layer that decided, so a
+gallery refusal and a config refusal never share a file.
 
 .. list-table::
    :header-rows: 1
@@ -250,6 +251,56 @@ card on the next one.
 ``detail`` on these records names a claim at most. The asserted address, its
 domain, and the value of the hosted-domain claim are never written to the
 trail.
+
+.. _audit-trail-identity-ladder:
+
+Which directory a record lands in
+=================================
+
+``<identity>`` is resolved once, by one ladder, and the same answer is used
+twice: as the record's ``actor`` field and as the directory the file goes in.
+Resolving those separately is how a trail starts naming one actor while filing
+under another, so there is only ever one resolution. Most specific first:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - Rung
+     - When it answers
+   * - ``OSPREY_TERMINAL_USER``
+     - A multi-user terminal container. The name is the roster entry's, so a
+       real person is behind the record.
+   * - ``OSPREY_AUDIT_IDENTITY``
+     - A container that hosts no single person: a framework service's key, or
+       ``sidecar`` for the login service. Rendered by the same derivation that
+       names the container's audit mount, so the writer's path and the mounted
+       path cannot diverge.
+   * - The local account
+     - The single-user laptop case, where the process account *is* the person.
+   * - ``unknown``
+     - An honest floor. A slim image often has no account entry for its uid;
+       that is routine, and an unresolvable identity must never cost the
+       record.
+
+**The hostname is never a rung.** It looks like an identity and is not one: a
+host-network container reports the shared host's name, so every service on the
+box would collide into one file, and a bridge-network container reports a fresh
+container id on every restart.
+
+A value carrying a path separator, or naming ``.`` or ``..``, is not a usable
+identity and falls to the next rung — the same string becomes a directory name,
+and ``../elsewhere`` would file one service's records under another's mount.
+
+**These variables are the framework's, not yours to set.** The build renders
+them into each container from the roster and the service derivation. Setting
+one by hand in a shell, a compose override or an MCP server's ``env:`` block
+does not relabel a record; it aims one process's records at another's ledger.
+That is why they are *stripped* from every MCP server spec the build renders,
+together with the session's control-target and write-posture markers and
+``OSPREY_AUDIT_WRITER``, which names the root maintenance phase's own ledger.
+A server spec that could set any of them could quietly repoint or shed the
+evidence of what it did.
 
 Who can read it
 ===============
