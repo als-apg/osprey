@@ -33,7 +33,7 @@ class PendingReviewStore:
                 "<uuid>": {
                     "id": "<uuid>",
                     "query": "show me magnets",
-                    "facility": "ALS",
+                    "facility": "Storage Ring",
                     "tool_name": "mcp__channel-finder__build_channels",
                     "tool_response": "...",
                     "channel_count": 42,

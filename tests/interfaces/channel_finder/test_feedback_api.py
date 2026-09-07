@@ -58,7 +58,6 @@ class TestFeedbackList:
             "/api/feedback",
             json={
                 "query": "magnets",
-                "facility": "ALS",
                 "entry_type": "success",
                 "selections": {"system": "MAG"},
                 "channel_count": 42,
@@ -82,7 +81,6 @@ class TestFeedbackDetail:
             "/api/feedback",
             json={
                 "query": "magnets",
-                "facility": "ALS",
                 "entry_type": "success",
                 "selections": {"system": "MAG"},
                 "channel_count": 10,
@@ -109,7 +107,6 @@ class TestFeedbackAdd:
             "/api/feedback",
             json={
                 "query": "magnets",
-                "facility": "ALS",
                 "entry_type": "success",
                 "selections": {"system": "MAG"},
                 "channel_count": 42,
@@ -123,7 +120,6 @@ class TestFeedbackAdd:
             "/api/feedback",
             json={
                 "query": "bad",
-                "facility": "ALS",
                 "entry_type": "failure",
                 "selections": {"system": "X"},
                 "reason": "not found",
@@ -136,11 +132,27 @@ class TestFeedbackAdd:
             "/api/feedback",
             json={
                 "query": "test",
-                "facility": "ALS",
                 "entry_type": "invalid",
             },
         )
         assert resp.status_code == 400
+
+    def test_the_facility_comes_from_the_app_not_the_client(self, feedback_client):
+        """A client that names no facility gets the one the app resolved.
+
+        The name is a property of the deployment, which the app already knows
+        (``app.state.facility_name``). Asking an operator to retype it once per
+        entry can only introduce a second spelling of the same machine.
+        """
+        feedback_client.app.state.facility_name = "Storage Ring"
+        resp = feedback_client.post(
+            "/api/feedback",
+            json={"query": "magnets", "entry_type": "success", "selections": {"system": "MAG"}},
+        )
+
+        assert resp.status_code == 200
+        entry = feedback_client.get(f"/api/feedback/{resp.json()['key']}").json()
+        assert entry["_meta"]["facility"] == "Storage Ring"
 
 
 # ------------------------------------------------------------------
@@ -154,7 +166,6 @@ class TestFeedbackEdit:
             "/api/feedback",
             json={
                 "query": "magnets",
-                "facility": "ALS",
                 "entry_type": "success",
                 "selections": {"system": "MAG"},
                 "channel_count": 10,
@@ -212,7 +223,6 @@ class TestFeedbackDelete:
             "/api/feedback",
             json={
                 "query": "magnets",
-                "facility": "ALS",
                 "entry_type": "success",
                 "selections": {"system": "MAG"},
                 "channel_count": 10,
@@ -232,7 +242,6 @@ class TestFeedbackDelete:
             "/api/feedback",
             json={
                 "query": "magnets",
-                "facility": "ALS",
                 "entry_type": "success",
                 "selections": {"system": "MAG"},
                 "channel_count": 10,
@@ -255,7 +264,6 @@ class TestFeedbackDelete:
             "/api/feedback",
             json={
                 "query": "magnets",
-                "facility": "ALS",
                 "entry_type": "success",
                 "selections": {"system": "MAG"},
                 "channel_count": 10,
@@ -287,7 +295,6 @@ class TestFeedbackClear:
             "/api/feedback",
             json={
                 "query": "magnets",
-                "facility": "ALS",
                 "entry_type": "success",
                 "selections": {"system": "MAG"},
                 "channel_count": 10,
@@ -309,7 +316,6 @@ class TestFeedbackExport:
             "/api/feedback",
             json={
                 "query": "magnets",
-                "facility": "ALS",
                 "entry_type": "success",
                 "selections": {"system": "MAG"},
                 "channel_count": 10,

@@ -321,7 +321,6 @@ async function _handleAddEntry() {
     title: 'Add Feedback Entry',
     fields: [
       { name: 'query', label: 'Query', type: 'text', required: true, placeholder: 'e.g. show me magnets' },
-      { name: 'facility', label: 'Facility', type: 'text', required: true, placeholder: 'e.g. ALS' },
       { name: 'entry_type', label: 'Type', type: 'select', options: [
         { value: 'success', label: 'Success' },
         { value: 'failure', label: 'Failure' },
@@ -335,9 +334,11 @@ async function _handleAddEntry() {
 
   const selections = _parseSelections(result.selections);
   try {
+    // No facility field: the server fills it from the name this deployment
+    // resolved, so an entry cannot be filed against a second spelling of the
+    // same machine.
     await postJSON('/api/feedback', {
       query: result.query,
-      facility: result.facility,
       entry_type: result.entry_type,
       selections,
       channel_count: 0,
