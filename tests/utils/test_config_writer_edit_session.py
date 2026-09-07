@@ -19,6 +19,7 @@ What these tests pin, in order of importance:
 from __future__ import annotations
 
 import shutil
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -140,11 +141,22 @@ def _recorded_edits(path: Path) -> list[Any]:
 
 
 @pytest.fixture
-def counters(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
-    """Count ruamel round-trip loads and dumps the shared writer performs."""
+def counters() -> Iterator[dict[str, int]]:
+    """Count ruamel round-trip loads and dumps the shared writer performs.
+
+    Patched and restored by hand rather than with ``monkeypatch``. Neither
+    ``load`` nor ``dump`` is an attribute of ``config_writer._yaml`` itself —
+    both resolve to the class — and ``monkeypatch``'s undo restores by
+    *setting* whatever ``getattr`` returned, which leaves the bound method
+    behind as a real instance attribute. ``_yaml`` is a module-level singleton,
+    so that residue outlives the test and shadows the class for the rest of the
+    process: a later test that patches ``ruamel.yaml.YAML.load`` then counts
+    nothing, and reads as a flake. Restore the object to the shape it had.
+    """
     counts = {"load": 0, "dump": 0}
-    real_load = config_writer._yaml.load
-    real_dump = config_writer._yaml.dump
+    yaml_rt = config_writer._yaml
+    real_load = yaml_rt.load
+    real_dump = yaml_rt.dump
 
     def counting_load(stream: Any) -> Any:
         counts["load"] += 1
@@ -154,9 +166,15 @@ def counters(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
         counts["dump"] += 1
         return real_dump(data, stream, **kwargs)
 
-    monkeypatch.setattr(config_writer._yaml, "load", counting_load)
-    monkeypatch.setattr(config_writer._yaml, "dump", counting_dump)
-    return counts
+    held = {n: yaml_rt.__dict__[n] for n in ("load", "dump") if n in yaml_rt.__dict__}
+    yaml_rt.load = counting_load
+    yaml_rt.dump = counting_dump
+    try:
+        yield counts
+    finally:
+        for name in ("load", "dump"):
+            yaml_rt.__dict__.pop(name, None)
+        yaml_rt.__dict__.update(held)
 
 
 class TestByteIdentity:

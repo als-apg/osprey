@@ -14,6 +14,11 @@
     "kind": "static",
     "osprey_version": "2026.6.2.post1770+g08a2dceef.d20260825"
   },
+  "install_flow": {
+    "captured_utc": "2026-09-06T19:18:11.962704+00:00",
+    "kind": "static",
+    "osprey_version": "2026.6.2.post2455+g031c71899.d20260906"
+  },
   "qmd_query_pipeline": {
     "captured_utc": "2026-08-19T04:20:17.523563+00:00",
     "kind": "static",

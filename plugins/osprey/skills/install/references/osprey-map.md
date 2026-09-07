@@ -4,6 +4,20 @@ Pointers only — every entry is a path to read or a command to run, so this sta
 as the framework grows. When you need a list (presets, artifacts, config keys,
 providers), run the command and read the live output instead of recalling one.
 
+## Install OSPREY
+
+Three forms, all of which put `osprey` on the PATH so every verb below runs the same way:
+
+| Form | Command | Upgrade |
+| --- | --- | --- |
+| Latest release | `uv tool install osprey-framework` | `uv tool upgrade osprey-framework` |
+| Development version, `main` | `uv tool install git+https://github.com/als-apg/osprey.git@main` | `uv tool upgrade osprey-framework` |
+| A branch (an upstream fix in flight) | `uv tool install git+https://github.com/<owner>/osprey.git@<branch>`, or `uv tool install --editable <clone>` | re-run the same command |
+
+`osprey --version` before and after. A source checkout (`git clone` + `uv sync --extra
+dev`) is the contributor's form, run as `uv run osprey …` from inside the clone; the
+install skill does not choose it, `/osprey:contribute` does.
+
 ## Ask the installation what exists
 
 | Question | Command |
@@ -29,10 +43,10 @@ osprey init <dir> --preset <name>
 ```
 
 `--preset` is required; pick one from `osprey profile presets`. By rule, a build starts
-from `--preset hello-world`; `control-assistant` is the reference package later steps
-pull pieces from. It refuses to re-materialize an existing repo's source zone unless
-`--force` is given. `-O <file>` and `--set KEY=VALUE` bake overrides into the written
-profile.
+from `--preset hello-world`; `control-assistant` is the reference example BUILD reads
+key groups and skeletons from, and is never initialized (`references/map.md`, the
+feature port). It refuses to re-materialize an existing repo's source zone unless
+`--force` is given. `--set KEY=VALUE` bakes overrides into the written profile.
 
 `<dir>` becomes a git repo that is the deployment, holding four zones:
 
@@ -125,3 +139,6 @@ These ship in the same plugin, at `plugins/osprey/skills/` in the OSPREY
 repository — outside the wheel, so the join above does not reach them.
 
 - `/osprey:panel` — web-panel authoring.
+- `/osprey:upstream-scout` — investigates a candidate framework gap; launched in the
+  background by the install skill, or on its own.
+- `/osprey:contribute` — the branch-to-PR journey the scout's branch path hands off to.

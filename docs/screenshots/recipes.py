@@ -168,6 +168,17 @@ REGISTRY: list[DocShot] = [
         themes=("light", "dark"),
         viewport=(1400, 1000),
     ),
+    DocShot(
+        name="install_flow",
+        environment="static_page",
+        kind="static",
+        source_file="docs/diagrams/install_flow.html",
+        capture_mode="element",
+        element_selector="#fig-install-flow",
+        wait_selector="#fig-install-flow svg",
+        themes=("light", "dark"),
+        viewport=(1400, 1000),
+    ),
     # ARIEL views (opt-in ``--stack``). One tutorial stack → four PNGs, one per
     # hash-routed view. Keyword mode is ARIEL's default, so ``#search`` shows the
     # keyword form + results with no extra activation (Postgres-only, no Ollama).

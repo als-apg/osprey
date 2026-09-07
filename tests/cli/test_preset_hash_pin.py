@@ -34,32 +34,37 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # registrations (UserPromptSubmit, Stop, StopFailure, and a SessionStart
     # entry matched to `startup|resume|clear`). Deploy-visible, so the
     # staleness advisory firing on already-deployed projects is correct.
-    "ariel-standalone": ("sha256:eede725ef001ae4a81569d2dc11bf0cda189de2bf748854191f50c90701be4b6"),
+    # The third move, one commit: `control-context` joined every preset's
+    # `hooks:`, putting the active control target and each target's write state
+    # in front of the agent at session start and whenever it changed since its
+    # last turn. A rebuilt project gains the hook file in `.claude/hooks/` and
+    # two settings.json registrations (SessionStart, UserPromptSubmit).
+    "ariel-standalone": ("sha256:99e429dc923ba5276672f3c18857976ae517e3e05ef38f21f2fc7b72fad9386c"),
     "channel-finder-standalone": (
-        "sha256:7485126a38c7d8282d12c952930969a728d7b68d0228abbb3788f15d5754490e"
+        "sha256:5c5d670fb6d048e854dfa5ecff9b02d6b9bf504a4cd574d6a5f66b34e18e3fa1"
     ),
     "control-assistant": (
-        "sha256:64ce952375e4899364cdecb3b1f0718428476f205b8ee5fc1c7199d5222b58bd"
+        "sha256:a35bc6778ca15ff0e11b680b894d2b5488e9c753b9fa901cd8f26313490e6554"
     ),
     "control-assistant-admin": (
-        "sha256:fb939cd02c7618020be32b5c9918031867d1cb0c3b11c506b51ec1ac4781046c"
+        "sha256:4f1496e3921e32937cad756be25c639061abfa62149527380fb513f480c79e6f"
     ),
     "control-assistant-knowledge": (
-        "sha256:552538d9966725f18e63a17d065b08e2ceaf4319508870d87eba0306807adb3c"
+        "sha256:5ef269fd5090e53a98c52b9a8f7a9be0837e48e70f8f8cbc109d4e372c42d025"
     ),
     "control-assistant-logbook": (
-        "sha256:cd88a1a9f6a7d0e68a2d46a76924dd256eebb845a6b6d302d50d4f8dbb0b4822"
+        "sha256:0154037230bcfbecac1bcb11e1823afb0f65a328fee7931c8985e8069b72f243"
     ),
     "control-assistant-readonly": (
-        "sha256:1089443113d8b249703936635059a302c41946ed4be5b793d5234fb7ed009336"
+        "sha256:5f751306dd38faed68eaacc69e1bb8ce1dbd0fa79b5a739c9d796a6e7d735f41"
     ),
     "control-assistant-readwrite": (
-        "sha256:4d63a4075534e9284bf20fb6cd72ce370f2a3bcf3b2ebf42233d6063d8418875"
+        "sha256:519e9cfb344b95f6bb094057704b2ea5fe620a997d82a5a24da82ec74fa90003"
     ),
     "control-assistant-va-readwrite": (
-        "sha256:53da90b4a2a90d1c6926c0b0a7dc59867f9ea98c22c49b7977d527bd0132e852"
+        "sha256:2b74afdad052c055cfa12c682815d0d7a771fd5723826c845ecbbf86ed398f23"
     ),
-    "hello-world": ("sha256:d5a177599044c7f1ba4c8c67ead8d6e8f684a87c95d2f03d703f6f98c3ae233e"),
+    "hello-world": ("sha256:495e21e03af8f135964a3ebffa141e7dc6061183fa5d00978b81cd4ab3657e6a"),
 }
 
 

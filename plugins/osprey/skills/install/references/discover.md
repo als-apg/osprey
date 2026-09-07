@@ -1,7 +1,9 @@
 # DISCOVER reference
 
-Loaded on every answer to the first question, "nothing yet" included. Covers the generation fingerprint, the inventory recipe per generation, the
-exploration protocol for a facility with no OSPREY, and the status-quo card.
+Loaded on every answer to the first question, "nothing yet" included. Covers the
+generation fingerprint, the inventory recipe per generation, the exploration protocol
+for a facility with no OSPREY, and what goes on the status-quo card (its shape is
+`references/cards.md`).
 
 Two rules hold over everything below.
 
@@ -161,10 +163,9 @@ that no framework artifact matches. Read each README or module docstring. When t
 purpose is still unclear after reading, it is a `?` row on the card with the path and
 what is unclear, and it becomes an `unknown` element in MAP.
 
-Everything inventoried here has one row in section 7: personas and logins on `users`,
-triggers and the `data/` counts on `data`, variable names on `env`, convention directories
-on `custom`, validate's advisories on the row they concern or on `warnings`. Nothing is left
-to prose.
+Everything inventoried here has one line in section 7's boxes: personas and logins in WEB,
+triggers and the `data/` counts in DATA, variable names in ENV, convention directories in
+CUSTOM, validate's advisories on the box they concern or in OPEN. Nothing is left to prose.
 
 ## 4. Inventory: overlay era
 
@@ -239,74 +240,45 @@ only on the user's yes; on no, every row stays `reported, not verified`.
 
 ## 7. The status-quo card
 
-Existing deployment:
+The card is the STATUS QUO panels in `references/cards.md`: one box per group, counts in
+the title bar, a group with nothing to say omitted, the OPEN box last. Draw it from this
+file's sections, nothing else — FRAMEWORK from §2 and §3's first two verbs, CONTROL and
+AGENT and WEB from `osprey profile card --json` plus the native-versus-custom rule,
+DATA from the `data/` counts, ENV from the names rule, CUSTOM from the convention
+directories, OPEN from every `?` row and every advisory that belongs to no box.
 
-```
- STATUS QUO — <name>                        generation: <current|overlay|early>
- ─────────────────────────────────────────────────────────────────────────────
- OSPREY      requires <floor> · built with <version|?> · preset <name|none>
- drift       <n> unmarked differences from preset, measured with OSPREY <version>
- artifacts   framework-managed ×<n> · claimed ×<n>
- control     <type> · writes <ON|OFF> · limits <n> channels · archiver <type>
- provider    <provider> / <model>
- agents      <native list> · custom: <list>
- panels      <native list> · configured: <list>
- mcp         osprey-native ×<n> · own: <keys>
- data        channel db <mode> finder tier <n> · OKF <n> docs · lattice ×<n> · <…>
- env         names: <list> · from <where read>
- users       <n> entries · personas <list> · auth <method> (<wall|no wall>)
- custom      <dir>/ ×<n>, one per non-empty convention directory
- warnings    <validate advisory that belongs to no row above>
- unknown     ? <path> · <what is unclear>
- ─────────────────────────────────────────────────────────────────────────────
- Is this correct?  yes / modify
-```
+Two rules for what goes where:
+
+- **Nothing is left to prose.** Personas and logins are WEB lines, triggers and the
+  `data/` counts are DATA lines, variable names are the ENV line, validate's advisories
+  sit on the box they concern or in OPEN. The two sentences allowed around the card say
+  what was inventoried and what needs an answer, not facts.
+- **Reference-facility material gets its own line.** Any path from
+  `references/knowledge-starter.md` §7 found in the repo — a demo document under the
+  knowledge bundle, the demo vocabulary, the demo lattice, a landing text naming the
+  demo product, the demo logins — is listed on DATA's `reference facility` line (or WEB
+  for logins), marked `(reference facility)`. MAP turns each into a `placeholder` row.
+  Recognize by content, not by path: open the file and see whose facility it describes.
 
 `auth` stands a login wall on `password` and `oidc` only; `token` (the default, and what an
 absent `auth:` means) and `none` stand none.
 
-An era repo has no verb behind three of those rows, so there they read:
+An era repo has no verb behind FRAMEWORK, so its lines read `requires n/a · built with ?
+· extends <preset|none>`, `drift n/a (era repo)`, `artifacts ? (never built here)`. An
+early-era repo adds an OBSOLETE box, one line per path with why it is gone.
 
-```
- OSPREY      requires n/a · built with ? · extends <preset|none>
- drift       n/a (era repo)
- artifacts   ? (never built here)
-```
-
-An early-era repo adds one row for what the migration discards:
-
-```
- obsolete    <path> · <why it is gone>
-```
-
-Facility with no OSPREY: replace the OSPREY rows with one row per reference, and add the
-`source` and state columns.
-
-```
- STATUS QUO — <facility>                                    generation: none
- ─────────────────────────────────────────────────────────────────────────────
- reference   <name>              <path|endpoint|user said>   <state>
- control     <type|?>            <source>                    <state>
- archiver    <type|?>            <source>                    <state>
- logbook     <type|?>            <source>                    <state>
- channels    <n|?> named         <source>                    <state>
- data        <lattice, lists|?>  <source>                    <state>
- owners      <who owns what|?>   <source>                    <state>
- ─────────────────────────────────────────────────────────────────────────────
- Is this correct?  yes / modify
-```
-
-`<state>` is one of `verified`, `verified from files` (named in a file, endpoint not probed),
-`reported, not verified`, `not reachable`, `no access`. `<source>` is a short label; the full
-path or `file:line` goes in the Sources list shown on request.
-
+A facility with no OSPREY draws the second STATUS QUO form in `references/cards.md`:
+one REFERENCES box, then CONTROL, DATA and OWNERS, each line with its source and state.
+`<state>` is one of `verified`, `verified from files` (named in a file, endpoint not
+probed), `reported, not verified`, `not reachable`, `no access`. `<source>` is a short
+label; the full path or `file:line` goes in the Sources list shown on request.
 `<facility>` is the name the inventory yielded, else `?`.
 
 "Nothing yet" has no repo: skip the fingerprint, `generation: none` comes from the answer.
-Still ask once for references (section 6): a design report or a planned channel list counts.
-Then render this same card with every value `?` and every state blank, so the user sees that
-nothing was assumed, and ask the confirm question as usual; a "modify" here is how the user
-adds what they do have.
+Still ask once for references (section 6): a design report or a planned channel list
+counts. Then draw the same boxes with every value `?` and every state blank, so the user
+sees that nothing was assumed, and ask the confirm question as usual; a "modify" here is
+how the user adds what they do have.
 
 The header then reads `STATUS QUO — ?`, and it stays that way. MAP asks the facility name
 one phase later, but a locked card is never re-derived, so that answer does not back-fill

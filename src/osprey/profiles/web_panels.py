@@ -34,7 +34,7 @@ class SidecarPanel:
     hand it a port band, a port env var and a health probe that mean nothing.
 
     Attributes:
-        name: One-line description, used as the build interview's menu entry
+        name: One-line description, used as the install skill's menu entry
             for the panel id.
         factory_path: ``module:attribute`` of the sidecar class the terminal
             imports to start it. A dotted path rather than the object so this

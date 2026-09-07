@@ -35,10 +35,11 @@ record for its whole life instead of holding whatever was true when it started.
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import sys
-from collections.abc import MutableMapping, Sequence
+from collections.abc import Callable, MutableMapping, Sequence
 from pathlib import Path
 from types import TracebackType
 from typing import Any
@@ -51,6 +52,7 @@ __all__ = [
     "compute_stamps",
     "install_cell_hooks",
     "install_refusal_handler",
+    "install_shell_stream_rearm",
     "kernel_id_from_argv",
     "main",
     "post_run_cell",
@@ -582,6 +584,62 @@ def _initialize_registry() -> None:
         logger.warning("Registry initialization failed", exc_info=True)
 
 
+#: Set on ``SubshellManager`` once :func:`install_shell_stream_rearm` has wrapped
+#: its reply send, so a second call is a no-op rather than a second wrapper.
+_SHELL_REARM_MARK = "_osprey_shell_stream_rearm"
+
+
+def install_shell_stream_rearm(shell_stream: Callable[[], Any]) -> None:
+    """Re-arm the kernel's shell stream after every reply it sends behind the stream's back.
+
+    ``ipykernel`` 7 reads shell requests through a ``ZMQStream`` on the ROUTER
+    socket, but writes every reply to that socket directly, from the shell
+    channel thread (``SubshellManager._send_on_shell_channel``). A direct send
+    makes libzmq process the socket's pending commands, and that consumes the
+    edge-triggered wake-up the stream's event loop is waiting on. ``pyzmq``
+    re-reads ``ZMQ_EVENTS`` after each of its own operations and never after
+    somebody else's, so a request that arrived in that window sits in the
+    socket until some later command wakes the stream — in practice the next
+    client's connection.
+
+    The first message on a fresh channels socket is the one that lands there.
+    ``jupyter_server`` nudges a new connection with a ``kernel_info_request`` on
+    a transient shell channel and closes that channel as soon as the control
+    channel answers, so the kernel's shell reply is always sent to a peer that
+    is gone: the ROUTER drops it, and a reply that went nowhere produces no
+    follow-up command. A client whose first request arrived while that reply
+    was being sent waits forever. ``ipykernel`` 6 sent replies through the
+    stream itself and never had this window.
+
+    The wrapper re-reads the stream's events after each direct send, which is
+    what ``pyzmq`` does after its own sends. It runs on the shell channel
+    thread, where both the send and the stream live. Idempotent, and a no-op
+    on an ``ipykernel`` without ``SubshellManager``.
+
+    Args:
+        shell_stream: Returns the ``ZMQStream`` wrapping the shell socket. Read
+            lazily, because the stream exists only once the kernel does.
+    """
+    try:
+        from ipykernel.subshell_manager import SubshellManager
+    except ImportError:  # ipykernel < 7 replies through the stream; nothing to re-arm
+        return
+    if getattr(SubshellManager, _SHELL_REARM_MARK, False):
+        return
+    send_on_shell_channel = SubshellManager._send_on_shell_channel
+
+    @functools.wraps(send_on_shell_channel)
+    def send_and_rearm(self: Any, msg: Any) -> None:
+        send_on_shell_channel(self, msg)
+        stream = shell_stream()
+        rebuild = getattr(stream, "_rebuild_io_state", None)
+        if rebuild is not None:
+            rebuild()
+
+    SubshellManager._send_on_shell_channel = send_and_rearm  # type: ignore[method-assign]
+    setattr(SubshellManager, _SHELL_REARM_MARK, True)
+
+
 #: Format for this process's log records on the terminal log. Level and logger
 #: name are what make a kernel's line findable among the sidecar's own.
 LOG_FORMAT = "%(levelname)s %(name)s: %(message)s"
@@ -646,9 +704,11 @@ def main(argv: list[str] | None = None) -> None:
     registry is created from the config path the preparation publishes; and
     both happen before the kernel exists, so no cell can run ahead of them.
 
-    The last four statements are four rather than one chained call because the
-    hooks go between the second and the last: ``initialize`` is what builds the
-    shell, and ``start`` does not return until the kernel stops.
+    The kernel statements are separate rather than one chained call because
+    things go between them: the shell stream re-arm is installed before
+    ``initialize``, which is what builds the kernel and its shell channel; the
+    hooks go after it, because ``initialize`` is also what builds the shell;
+    and ``start`` does not return until the kernel stops.
 
     Args:
         argv: Kernel arguments. ``None`` takes them from the command line, the
@@ -663,6 +723,7 @@ def main(argv: list[str] | None = None) -> None:
     from ipykernel.kernelapp import IPKernelApp
 
     app = IPKernelApp.instance()
+    install_shell_stream_rearm(lambda: app.kernel.shell_stream)
     app.initialize(argv)
     install_refusal_handler(app.shell)
     install_cell_hooks(app.shell)

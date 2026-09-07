@@ -602,6 +602,7 @@ class TestTemplateManifest:
             "osprey_approval.py",
             "osprey_cf_feedback_capture.py",
             "osprey_config_drift.py",
+            "osprey_control_context.py",
             "osprey_error_guidance.py",
             "osprey_focus_validate.py",
             "osprey_hook_log.py",
