@@ -153,6 +153,17 @@ simulator, so correctors move and BPMs read through exactly the approval and
 limit layers a live machine would use. The preset ships ``mock``, which touches
 nothing.
 
+A deployment describes **one real machine**. ``control_system.type`` names it,
+or — on a simulated baseline like this one — the single non-simulated block
+under ``control_system.connector`` does, and the three control targets
+(``live``, ``va``, ``standin``) name that machine, the simulator and the
+stand-in soft IOC. A complex that operates two real machines, an injector and a
+storage ring say, runs one deployment per machine rather than one deployment
+naming both: the write posture, the limits, the approvals and the archive all
+belong to a machine, and a second non-simulated connector block here would be a
+block no target ever reaches. See
+:doc:`control-systems/switch-control-target`.
+
 ``deployed_services`` looks too short, and is not. The ``virtual_accelerator:``
 block and the ``services:`` entry you add in Step 4 each append their own
 service to this list at build time. Naming ``openobserve`` explicitly is what

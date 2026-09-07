@@ -62,6 +62,17 @@ deployment has the ones its config describes, which is often two:
        It is a machine of its own, not a relabelled ``live`` — and it is
        operated like the real one, which is what makes it worth rehearsing on.
 
+.. note::
+
+   **One real machine per deployment.** ``live`` names one machine, and the
+   connector blocks are keyed by connector type, so a second real one — the
+   injector beside the ring, a second complex's control system — cannot be
+   written into this config at all. A facility that operates two runs one
+   deployment per machine, each with its own targets, write posture, limits and
+   archive, behind the same login origin if that is convenient. A config that
+   does carry a second non-simulated connector block gets no target for it, and
+   the controls server's log names the block nothing reaches.
+
 Two tools move between them:
 
 ``control_target``
@@ -192,11 +203,25 @@ deployment's services, or drop ``virtual_accelerator.live_standin`` from the
 build profile — and rebuild. The archive belongs to the machine it records.
 
 There is one exemption. A deployment can always come **home** to its own
-baseline — whichever of the three that is — with neither the limits posture,
-the acknowledgment, nor the archive gate applied. The probe still runs: a target
-that cannot prove itself reachable is never switched to, in either direction.
-Stranding a deployment away from the machine it was built for is the less safe
-outcome of the two.
+baseline — whichever of the three that is — with none of the gates above
+applied: not the limits posture, not the acknowledgment, not the archive gate,
+and not the gateway and probe-channel checks either. Stranding a deployment away
+from the machine it was built for is the less safe outcome of the two, and a
+baseline whose block is half authored — no gateways yet, the probe channel still
+commented out, a machine reached over something other than Channel Access —
+would otherwise be a machine a session can leave and never come back to. Where
+the baseline names a probe channel the return is proven with it like any other
+switch; where it does not, the return is made unprobed and the controls server's
+log says so.
+
+Three things still refuse, coming home as much as going out: a target that
+resolves to no ``control_system.connector`` block at all, a ``standin`` block
+pointed at something other than the stand-in this deployment runs; and a
+baseline whose connector block derives no endpoint at all, which publishes no
+reachability row and so, while a controls server is live, is still refused as
+``reachability_unknown`` — the switch gate's reachability rung is
+direction-blind and has nothing to read. None of the three is a machine the
+switch can prove it came home to.
 
 Coming home
 -----------
@@ -316,10 +341,11 @@ channel the switch reads to prove that target is reachable:
        same machine model, so the channel that proves one proves the other. A
        deployment whose simulator names none gets none here either.
 
-A target with no ``probe_channel`` is never switched to, and the roster says so
-by name. Naming the live machine's probe channel is therefore a deliberate act
-by whoever knows the facility — the same posture as the acknowledgment key
-above.
+A target with no ``probe_channel`` is never switched to — except the
+deployment's own baseline, which is come home to unprobed rather than made
+unreachable — and the roster says so by name. Naming the live machine's probe
+channel is therefore a deliberate act by whoever knows the facility — the same
+posture as the acknowledgment key above.
 
 Two more keys bound the switch itself, both under
 ``control_system.target_switch:``: ``drain_timeout_s`` (default 5) is how long
