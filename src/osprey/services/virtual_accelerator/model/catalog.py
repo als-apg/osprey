@@ -33,6 +33,7 @@ catches a bad band regeneration in CI rather than at VA boot.
 from __future__ import annotations
 
 import json
+from collections.abc import Container
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -41,6 +42,7 @@ from osprey.services.virtual_accelerator.manifest import (
     READBACK_SUBFIELD,
     SETPOINT_SUBFIELD,
     build_manifest,
+    setpoint_addresses,
 )
 from osprey.services.virtual_accelerator.manifest.loaders import load_machine_json_channels
 
@@ -67,17 +69,27 @@ def _channel_limits_path() -> Path:
     )
 
 
-def _load_limit_bands(path: Path | None = None) -> dict[str, tuple[float, float]]:
-    """Return one ``(min_value, max_value)`` band per writable ``:SP``
+def _load_limit_bands(
+    path: Path | None = None, *, setpoints: Container[str]
+) -> dict[str, tuple[float, float]]:
+    """Return one ``(min_value, max_value)`` band per writable setpoint
     address with numeric bounds, merging the file's ``defaults`` block under
     every entry. Mirrors the read ``entrypoint.py`` performs for the IOC's
     drive limits -- the same file, read independently so the model layer
-    stays free of the IOC module."""
+    stays free of the IOC module.
+
+    ``setpoints`` is the manifest's own setpoint set -- the channels
+    whose ``subfield`` says they are written. The limits file holds an entry
+    per address, read-only ones included, so the setpoint half has to be
+    named from outside it; asking the address text instead would silently
+    drop every facility whose setpoints are not spelled ``...:SP``."""
     raw = json.loads((path or _channel_limits_path()).read_text())
     defaults = raw.get("defaults", {})
     bands: dict[str, tuple[float, float]] = {}
     for address, entry in raw.items():
-        if address.startswith("_") or address == "defaults" or not address.endswith(":SP"):
+        if address.startswith("_") or address == "defaults":
+            continue
+        if address not in setpoints:
             continue
         merged = {**defaults, **entry}
         if not merged.get("writable", True):
@@ -134,9 +146,9 @@ def build_variable_catalog(
             the module docstring).
     """
     machine_channels = load_machine_json_channels()
-    bands = _load_limit_bands()
     if channels is None:
         channels = build_manifest()["channels"]
+    bands = _load_limit_bands(setpoints=setpoint_addresses(channels))
 
     catalog: dict[str, ScalarVariable] = {}
     for channel in channels:

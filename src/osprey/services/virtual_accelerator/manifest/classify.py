@@ -22,6 +22,9 @@ explicit rule below; everything else falls through to `static-noisy`.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
+from typing import Any
+
 from osprey.simulation.facility_spec import ALS_U_AR
 
 # Spec-derived: every magnet/corrector family declared by the facility spec
@@ -41,6 +44,20 @@ PARTITION_STATIC_NOISY = "static-noisy"
 # disable every write on the machine rather than fail loudly.
 SETPOINT_SUBFIELD = "SP"
 READBACK_SUBFIELD = "RB"
+
+
+def setpoint_addresses(channels: Iterable[Mapping[str, Any]]) -> frozenset[str]:
+    """The addresses a manifest declares writable, read off its own subfields.
+
+    The one answer to "which of these channels is a setpoint", for every layer
+    that needs it: the drive-limit and value-range readers, which have to pick
+    the writable half out of a limits file holding an entry per address. Asking
+    the address text instead ties those layers to one facility's spelling.
+    """
+    return frozenset(
+        channel["address"] for channel in channels if channel["subfield"] == SETPOINT_SUBFIELD
+    )
+
 
 # SR RF/VAC fields that carry a real writable-setpoint + readback pair.
 # Pure telemetry fields in the same systems (POWER, TEMPERATURE, PRESSURE,

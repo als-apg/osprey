@@ -73,6 +73,7 @@ import json
 import os
 import signal
 import threading
+from collections.abc import Container
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -80,6 +81,7 @@ from osprey.services.virtual_accelerator.ioc.engine_source import EngineSource
 from osprey.services.virtual_accelerator.manifest import (
     PARTITION_SP_ECHO,
     READBACK_SUBFIELD,
+    setpoint_addresses,
 )
 from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
 from osprey.services.virtual_accelerator.manifest.loaders import (
@@ -286,19 +288,30 @@ def _channel_limits_path() -> Path:
     )
 
 
-def _load_drive_limits(path: Path | None = None) -> dict[str, tuple[float, float]]:
+def _load_drive_limits(
+    path: Path | None = None, *, setpoints: Container[str]
+) -> dict[str, tuple[float, float]]:
     """Derive the ``build_records(drive_limits=...)`` map from
     ``channel_limits.json``: one ``(min_value, max_value)`` entry per
-    writable ``:SP`` address with numeric bounds. ``ioc/records.py`` stays
+    writable setpoint address with numeric bounds. ``ioc/records.py`` stays
     file-blind (see its ``build_records`` docstring) -- this is the file
     read its ``drive_limits`` argument replaces. ``path`` selects which
     limits file to parse; ``None`` (the default) reads the bundled
-    template."""
+    template.
+
+    ``setpoints`` is the manifest's own setpoint set -- the channels
+    whose ``subfield`` says they are written. The limits file carries an
+    entry per address, read-only ones included, so which of them are
+    setpoints has to come from the manifest; reading it off the address text
+    would hand an empty band map to every facility whose setpoints are not
+    spelled ``...:SP``."""
     raw = json.loads((path or _channel_limits_path()).read_text())
     defaults = raw.get("defaults", {})
     limits: dict[str, tuple[float, float]] = {}
     for address, entry in raw.items():
-        if address.startswith("_") or address == "defaults" or not address.endswith(":SP"):
+        if address.startswith("_") or address == "defaults":
+            continue
+        if address not in setpoints:
             continue
         merged = {**defaults, **entry}
         if not merged.get("writable", True):
@@ -403,8 +416,11 @@ def main() -> None:
     # manifest reaches this the same way any other does: by being named.
     print(f"Loading channel manifest from {channels_file} ...", flush=True)
     channels = load_manifest_file(channels_file)
+    setpoints = setpoint_addresses(channels)
     limits_path = data_dir / "channel_limits.json"
-    drive_limits = _load_drive_limits(limits_path) if limits_path.is_file() else {}
+    drive_limits = (
+        _load_drive_limits(limits_path, setpoints=setpoints) if limits_path.is_file() else {}
+    )
     boot_values = _load_boot_values(machine_path)
 
     stuck_setpoints = frozenset(

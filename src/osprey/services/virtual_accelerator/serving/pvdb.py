@@ -323,9 +323,16 @@ class ServingRecords:
     partitions the value sources consume: ``pyat_coupled`` is what
     ``PhysicsBridge.bind()`` takes, ``static_noisy`` is what ``EngineSource``
     drives, and ``all`` is every record by address for whole-namespace
-    consumers. ``setpoint_readbacks`` maps each writable ``:SP`` address to
-    its paired ``:RB`` address, which is the echo the write path owes a
+    consumers. ``setpoint_readbacks`` maps each writable setpoint address to
+    its paired readback address, which is the echo the write path owes a
     client on an accepted write.
+
+    ``physics_setpoints`` is the pyat-coupled half of that: the addresses
+    whose manifest entry declared them setpoints (``subfield ==
+    SETPOINT_SUBFIELD``) inside the pyat-coupled partition, which is what the
+    write path routes into the lattice. It is stated by the manifest here
+    rather than re-derived from address text later, because the address text
+    is a facility's business and the subfield is the manifest's.
     """
 
     pvdb: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -333,6 +340,7 @@ class ServingRecords:
     pyat_coupled: dict[str, PVRecord] = field(default_factory=dict)
     static_noisy: dict[str, PVRecord] = field(default_factory=dict)
     setpoint_readbacks: dict[str, str] = field(default_factory=dict)
+    physics_setpoints: frozenset[str] = frozenset()
 
     def attach_driver(
         self, driver: Any, *, pva_post: Callable[[str, Any], None] | None = None
@@ -430,7 +438,8 @@ def build_serving_pvdb(
 
     Returns:
         A :class:`ServingRecords` carrying the database, the per-partition
-        record shims and the setpoint->readback pairing.
+        record shims, the setpoint->readback pairing and the pyat-coupled
+        setpoint addresses.
 
     Raises:
         ManifestContractError: a channel's record_type/noise combination, or
@@ -440,6 +449,7 @@ def build_serving_pvdb(
     records = ServingRecords()
     readback_addresses: dict[tuple[str, str, str, str, str], str] = {}
     setpoint_channels: list[dict] = []
+    physics_setpoints: set[str] = set()
 
     for channel in channels:
         address = channel["address"]
@@ -477,6 +487,8 @@ def build_serving_pvdb(
             readback_addresses[_channel_key(channel)] = address
         elif channel["subfield"] == SETPOINT_SUBFIELD:
             setpoint_channels.append(channel)
+            if partition == PARTITION_PYAT_COUPLED:
+                physics_setpoints.add(address)
 
     for channel in setpoint_channels:
         readback = readback_addresses.get(_channel_key(channel))
@@ -493,6 +505,7 @@ def build_serving_pvdb(
             continue
         records.setpoint_readbacks[channel["address"]] = readback
 
+    records.physics_setpoints = frozenset(physics_setpoints)
     return records
 
 

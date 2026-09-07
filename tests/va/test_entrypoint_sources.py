@@ -22,9 +22,15 @@ import json
 import pytest
 
 from osprey.services.virtual_accelerator import entrypoint
+from osprey.services.virtual_accelerator.manifest import setpoint_addresses
 from osprey.services.virtual_accelerator.manifest.build import build_manifest
 from osprey.services.virtual_accelerator.manifest.loaders import load_manifest_file
 from osprey.services.virtual_accelerator.manifest.paths import MANIFEST_OUTPUT
+
+
+def _bundled_setpoints() -> frozenset[str]:
+    """The bundled tree's own setpoint addresses, as the entrypoint derives them."""
+    return setpoint_addresses(build_manifest()["channels"])
 
 
 class TestResolveChannelsFile:
@@ -162,10 +168,12 @@ class TestParameterizedDataLoads:
         )
         # The non-writable default suppresses the second entry; only the
         # explicitly writable one yields a clamp band.
-        assert entrypoint._load_drive_limits(limits) == {"ZZEXP:JET:STAGE:SP": (-5.0, 5.0)}
+        assert entrypoint._load_drive_limits(
+            limits, setpoints={"ZZEXP:JET:STAGE:SP", "ZZEXP:LOCKED:DOWN:SP"}
+        ) == {"ZZEXP:JET:STAGE:SP": (-5.0, 5.0)}
 
     def test_no_arg_defaults_still_read_the_bundled_data(self):
         # Calling with no argument must keep returning the bundled tutorial
         # data (non-empty, known shape) for the callers that still do.
         assert entrypoint._load_boot_values()
-        assert entrypoint._load_drive_limits()
+        assert entrypoint._load_drive_limits(setpoints=_bundled_setpoints())

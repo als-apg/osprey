@@ -21,6 +21,7 @@ from osprey.services.virtual_accelerator.lattice.solve import OrbitSolveError
 from osprey.services.virtual_accelerator.manifest import (
     PARTITION_PYAT_COUPLED,
     build_manifest,
+    setpoint_addresses,
 )
 from osprey.services.virtual_accelerator.manifest.loaders import load_machine_json_channels
 from osprey.services.virtual_accelerator.model import (
@@ -155,7 +156,7 @@ class TestNominalsLieInBand:
 
     def test_every_setpoint_nominal_is_within_its_band(self, pyat_coupled_setpoints):
         machine_channels = load_machine_json_channels()
-        bands = _load_limit_bands()
+        bands = _load_limit_bands(setpoints=setpoint_addresses(build_manifest()["channels"]))
 
         missing = [a for a in pyat_coupled_setpoints if a not in bands]
         assert not missing, f"pyat-coupled setpoints with no limit band: {missing}"
