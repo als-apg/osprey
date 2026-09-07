@@ -48,8 +48,17 @@ nothing. Such a posture answers neither leaf, and a caller that must act blocks
 every write instead of waving them through unchecked.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Any
+
+logger = logging.getLogger("osprey_connectors.types")
+
+#: Config shapes the second-real-block warning has already been said about, so
+#: a resolver asked on every roster render says it once. Keyed by the shape
+#: itself — a deployment has one, and a test that edits a config gets a fresh
+#: line for the shape it edited to.
+_SECOND_REAL_BLOCK_WARNED: set[tuple[str, tuple[str, ...]]] = set()
 
 # -- Control system connector types (have implementations) --
 MOCK = "mock"
@@ -93,6 +102,21 @@ TARGET_LIVE = "live"
 TARGET_VA = "va"
 TARGET_STANDIN = "standin"
 CONTROL_TARGETS = [TARGET_LIVE, TARGET_VA, TARGET_STANDIN]
+
+#: The topology those three names bound, spelled once and quoted by every
+#: answer that runs into it. One deployment describes one real machine: the
+#: target vocabulary has a single name for it, and the connector table is keyed
+#: by connector type, so a second machine on the same protocol cannot be written
+#: down at all. That is a product shape rather than an oversight — a complex
+#: whose sessions must reach two real machines runs one deployment per machine,
+#: which is also what keeps a session's posture, limits and archive about one
+#: machine each. Said here so a deployer meets it in the error and in the how-to
+#: rather than in the silence of a configured block nothing ever offers.
+ONE_REAL_MACHINE = (
+    "A deployment names one real machine — exactly one connector block that is "
+    "neither simulated nor the stand-in — and 'live' is that machine. A complex "
+    "with two real machines runs one deployment per machine."
+)
 
 # -- Write posture --
 #: The deployment-wide write posture, dotted as a caller spells it for
@@ -183,7 +207,10 @@ def resolve_target(section: Any, target: Any) -> str:
     - When the section's own type is a real control system, that is the live
       machine, and it is returned as written — including a value this module
       does not recognize, which reaches the factory's "Unknown … type" error
-      exactly as :func:`resolve_control_system_type` already lets it.
+      exactly as :func:`resolve_control_system_type` already lets it. A second
+      non-simulated block beside it is not a second target: no name reaches it
+      (:data:`ONE_REAL_MACHINE`), so it is warned about rather than skipped in
+      silence.
     - When the section's own type is simulated or is a stand-in (or absent,
       which resolves to the mock), the deployment has not named its real machine
       there, so the live type is taken from the connector table: exactly one
@@ -222,9 +249,9 @@ def resolve_target(section: Any, target: Any) -> str:
     raise ValueError(
         f"Unknown control target {target!r}. Valid targets are "
         f"{TARGET_LIVE!r}, {TARGET_VA!r} and {TARGET_STANDIN!r}, spelled "
-        "exactly. A control target is always stated, never defaulted — there is "
-        "no target a caller gets by saying nothing, because the one it would "
-        "get could be the real machine."
+        f"exactly. {ONE_REAL_MACHINE} A control target is always stated, never "
+        "defaulted — there is no target a caller gets by saying nothing, "
+        "because the one it would get could be the real machine."
     )
 
 
@@ -1104,6 +1131,44 @@ def _limits_leaf(value: Any) -> bool | None:
     return None
 
 
+def _real_blocks(section: Any, never_live: tuple[str, ...]) -> list[str]:
+    """The connector blocks that could describe a real machine, sorted."""
+    connector = section.get("connector") if isinstance(section, dict) else None
+    if not isinstance(connector, dict):
+        return []
+    return sorted(key for key in connector if isinstance(key, str) and key not in never_live)
+
+
+def _report_second_real_block(section: Any, baseline: str, never_live: tuple[str, ...]) -> None:
+    """Say so when a config describes a real machine no target can reach.
+
+    A deployment whose own type is its real machine never consults the connector
+    table for ``live``, so a second non-simulated block is not ambiguous here —
+    it is unreachable, and quietly so: no control target resolves to it, and the
+    roster it never appears in looks exactly like a roster for a deployment that
+    configured one machine. Nothing else in the stack will ever mention it, so
+    the resolver that skipped it is where a deployer has to hear about it.
+
+    Once per config shape, not once per call: this resolver answers every roster
+    render, and a line repeated at that rate is a line nobody reads.
+    """
+    others = [name for name in _real_blocks(section, never_live) if name != baseline]
+    if not others:
+        return
+    seen = (baseline, tuple(others))
+    if seen in _SECOND_REAL_BLOCK_WARNED:
+        return
+    _SECOND_REAL_BLOCK_WARNED.add(seen)
+    logger.warning(
+        "'control_system.connector' carries %s beside this deployment's own %r block, "
+        "and no control target reaches %s. %s",
+        ", ".join(repr(name) for name in others),
+        baseline,
+        "them" if len(others) > 1 else "it",
+        ONE_REAL_MACHINE,
+    )
+
+
 def _live_type(section: Any) -> str:
     """The control system type that reaches this deployment's real machine.
 
@@ -1113,18 +1178,19 @@ def _live_type(section: Any) -> str:
     deployment stands up itself; counting it would either answer ``live`` with
     the stand-in, or make ``live`` ambiguous on exactly the deployments that run
     the stand-in beside the block naming their facility's own machine.
+
+    Either way the answer is one machine — :data:`ONE_REAL_MACHINE` — and both
+    ways of missing it are said out loud: a baseline that cannot derive one
+    raises, and a baseline that *is* one, beside a second real block no target
+    can reach, is warned about.
     """
     never_live = _SIMULATED_TYPES + STANDIN_TYPES
     baseline = resolve_control_system_type(section)
     if baseline not in never_live:
+        _report_second_real_block(section, baseline, never_live)
         return baseline
 
-    connector = section.get("connector") if isinstance(section, dict) else None
-    candidates: list[str] = []
-    if isinstance(connector, dict):
-        candidates = sorted(
-            key for key in connector if isinstance(key, str) and key not in never_live
-        )
+    candidates = _real_blocks(section, never_live)
     if len(candidates) == 1:
         return candidates[0]
 
@@ -1133,8 +1199,7 @@ def _live_type(section: Any) -> str:
         f"Target {TARGET_LIVE!r} has no control system on this deployment: "
         f"'control_system.type' resolves to {baseline!r}, which is simulated, "
         f"and the live blocks under 'control_system.connector' are: {found}. "
-        "Exactly one non-simulated connector block is what names the real "
-        f"machine (an {EPICS!r} or {DOOCS!r} block, say); configure it there. "
-        "It is not inferred, so that no session reaches a real machine this "
-        "config never described."
+        f"{ONE_REAL_MACHINE} Configure exactly one such block (an {EPICS!r} or "
+        f"{DOOCS!r} block, say). It is not inferred, so that no session reaches "
+        "a real machine this config never described."
     )

@@ -656,6 +656,32 @@ def reset_health_offload_state():
 
 
 # ===================================================================
+# One-real-machine warning guard
+# ===================================================================
+
+
+@pytest.fixture(autouse=True, scope="function")
+def reset_second_real_block_warning():
+    """Forget which config shapes have already drawn the one-real-machine warning.
+
+    Leak guarded: ``osprey_connectors.types`` says once per process that a
+    config carries a second real connector block no control target reaches —
+    once, because the resolver behind it answers every roster render and a line
+    repeated at that rate is a line nobody reads. Held for the life of the
+    process, that set makes any test asserting the warning depend on whether an
+    earlier test on the same worker happened to resolve the same shape first,
+    which under xdist depends on how the files were distributed.
+    """
+    from osprey_connectors import types as connector_types
+
+    connector_types._SECOND_REAL_BLOCK_WARNED.clear()
+
+    yield
+
+    connector_types._SECOND_REAL_BLOCK_WARNED.clear()
+
+
+# ===================================================================
 # Marker-driven resource skip-gating
 # ===================================================================
 #
