@@ -48,11 +48,13 @@ which land with the tasks that cause them:
 that whole mapping (it resolves to an interpreter path), so it can never surface
 as a delta and needs no entry here.
 
-One more delta is declared that Requirement 1 did not foresee:
+Two more deltas are declared that Requirement 1 did not foresee.
 ``approval.tools.entry_publish`` reaches every render made from a preset that
-spells an ARIEL approval policy. The fixtures were frozen while that tool was
+spells an ARIEL approval policy; the fixtures were frozen while that tool was
 gated nowhere, so the leaf is genuinely new rather than a render the conversion
-moved.
+moved. ``web.feedback.email`` goes the other way: the three root presets
+stopped shipping a recipient, so every document they render carries ``""``
+where the frozen one carries the address the baseline shipped.
 
 One leaf is exempt from the table rather than declared in it. ``osprey build``
 answers the presets' ``container_runtime: auto`` with the runtime that served
@@ -323,6 +325,45 @@ def _entry_publish_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+#: The feedback recipient the frozen renders carry. Spelled out rather than
+#: read from a fixture: a delta that derived its expectation from the documents
+#: it compares would assert nothing. It is a historical value — what the
+#: baseline shipped — and the change below is what retires it.
+_FROZEN_FEEDBACK_EMAIL = "thellert@lbl.gov"
+
+
+def _feedback_email_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The feedback recipient the root presets stopped shipping.
+
+    ``web.feedback.email`` shipped a maintainer's own mailbox, so an
+    unconfigured deployment aimed its operators' reports — and the session
+    scrollback a report can carry — outside the facility. The presets now ship
+    it blank: no Email channel is offered until the deployment names a
+    recipient. The fixtures were frozen while the address was still shipped,
+    which is why the leaf reads as a difference here rather than as a render
+    the conversion changed.
+
+    ``hello-world`` names no ``web:`` block and gains nothing, so its cell is
+    absent below.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(
+            document=document,
+            path="web.feedback.email",
+            fixture=_FROZEN_FEEDBACK_EMAIL,
+            live="",
+        )
+        for document in documents
+    )
+
+
 #: The documents a control-assistant cell renders: the root config plus one per
 #: persona in the preset's roster.
 _CONTROL_ASSISTANT_DOCUMENTS = (
@@ -343,18 +384,27 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
         Delta(document="root", path="hooks.debug", fixture=ABSENT, live=False),
         *_entry_publish_deltas("root"),
     ),
-    "ariel-standalone/unset": _standalone_catalog_delta() + _entry_publish_deltas("root"),
-    "channel-finder-standalone/in_context": _standalone_catalog_delta(),
-    "channel-finder-standalone/hierarchical": _standalone_catalog_delta(),
-    "channel-finder-standalone/middle_layer": _standalone_catalog_delta(),
+    "ariel-standalone/unset": _standalone_catalog_delta()
+    + _entry_publish_deltas("root")
+    + _feedback_email_deltas("root"),
+    "channel-finder-standalone/in_context": _standalone_catalog_delta()
+    + _feedback_email_deltas("root"),
+    "channel-finder-standalone/hierarchical": _standalone_catalog_delta()
+    + _feedback_email_deltas("root"),
+    "channel-finder-standalone/middle_layer": _standalone_catalog_delta()
+    + _feedback_email_deltas("root"),
     "control-assistant/in_context": _control_assistant_persona_deltas()
-    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _feedback_email_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
-    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _feedback_email_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
-    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _feedback_email_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/graph": _control_assistant_persona_deltas()
-    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _feedback_email_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
 }
 
 

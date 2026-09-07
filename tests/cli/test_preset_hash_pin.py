@@ -47,30 +47,37 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # ARIEL server and has no approval table for it, so it alone stands still.
     # A rebuilt project prompts before a publish, so the staleness advisory
     # firing on already-deployed projects is the correct signal.
-    "ariel-standalone": ("sha256:2522f525c8850daf2915e59b898a13269d1c924d59d0d0f868b219a2b8e72c6d"),
+    # The fifth move, and again not every preset: the three root presets stopped
+    # shipping a feedback recipient. `web.feedback.email` carried a maintainer's
+    # own mailbox, and the prefilled draft it receives can carry a session's
+    # scrollback, so an unconfigured deployment now offers no Email channel at
+    # all and the facility names the recipient. The five control-assistant
+    # personas inherit the root preset and move with it; hello-world names no
+    # `web:` block and stands still.
+    "ariel-standalone": ("sha256:388c3db8e75bbf31519c1b9fa1a30483c6a42221a18758bc7f5ff4a6f40500f0"),
     "channel-finder-standalone": (
-        "sha256:5c5d670fb6d048e854dfa5ecff9b02d6b9bf504a4cd574d6a5f66b34e18e3fa1"
+        "sha256:e9191d66287745d731fd238b3893677d8a16426a4a17c495b9e2086f42b6e77d"
     ),
     "control-assistant": (
-        "sha256:e1cd276ba9e3062452b5afe86daed341be5c8cfa12b6a992d7b4ea0e33c2ff05"
+        "sha256:6feee637a96e871ee57f437375eead18cc5fd5652345cb918d9ede9a91e9c68c"
     ),
     "control-assistant-admin": (
-        "sha256:c29f07d93cee491afda6276603d5a86a9cf0e919960ba598f78c8906e419eb3c"
+        "sha256:85556bc278e3fc27e323a5c4699a1ccb9119d503ed535dbe7bc3a1d31db1ac02"
     ),
     "control-assistant-knowledge": (
-        "sha256:84fb320d701ef1d14d18155c0c59dfff4b2bcc2d5441175733f7fb6d2aad90f0"
+        "sha256:3a2664feecf9f4a22cd8a0e10d90d8ca39c99aa647863f2fadcd1c2c4584f7b1"
     ),
     "control-assistant-logbook": (
-        "sha256:a63cee6c479a8bee82c1f6e261b921ea96708226cb9e0d331d52d9e800b195e4"
+        "sha256:e52cb8666629459d370f47264ee6737805dc6d00b113ba3108646d09e37a05e9"
     ),
     "control-assistant-readonly": (
-        "sha256:99a75fd3714a9114fd527724b77de6b7bd36aac571b821882b8903be6c626c3c"
+        "sha256:19fc54cb889725e742a1b7d44a8a8e9ae4b74506c9e47ed22c5c991c366ac6f3"
     ),
     "control-assistant-readwrite": (
-        "sha256:3a8c88791900e5c0d7bff064db59f65a1244dd07425a90e1e17301311aa63a19"
+        "sha256:3ea78f64f7e5dbffacdca537465ebdc9530917ffb938760b83a36ad754f49691"
     ),
     "control-assistant-va-readwrite": (
-        "sha256:93c34788a885b8013162c85bb9f39fd506b6950c210fc8f07ae1579e13f42f20"
+        "sha256:71c9c770a0cfc611e06d38228b8cc797225a408f55ea02ecd31af7bcaf8bff05"
     ),
     "hello-world": ("sha256:5f23b2a31f03c885b20dae82781aa87efda81db3960d6865c3bc93e54e4ca837"),
 }

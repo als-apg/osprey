@@ -281,6 +281,16 @@ def test_preset_values_reach_the_render_unchanged(
             assert value == "auto"
             assert render[key] in {"docker", "podman"}
             continue
+        if key == "web.feedback.email":
+            # The root presets stopped shipping a recipient after the freeze:
+            # the prefilled draft can carry a session's scrollback, so the
+            # facility names the mailbox and an unconfigured deployment offers
+            # no Email channel. Exact in both directions — the preset must be
+            # blank and the frozen render must still carry what it shipped —
+            # so neither half can drift back without being noticed.
+            assert value == "", key
+            assert render[key], key
+            continue
         if key == "deployed_services":
             # The injectors append what the profile's sections deploy; what the
             # preset lists comes first and unchanged.

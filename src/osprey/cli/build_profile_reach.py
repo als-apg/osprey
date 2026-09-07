@@ -209,20 +209,23 @@ def feedback_owner_advisories(rendered_config: Mapping[str, Any]) -> list[str]:
 def _feedback_aim(value: Any, project_default: str) -> str:
     """Where one feedback setting points: ``moved``, ``upstream`` or ``retired``.
 
-    ``retired`` is the explicitly blank posture. It is deliberately NOT a
-    synonym for either of the others: a retired channel delivers nothing, so it
-    neither reaches the facility nor leaks upstream.
+    ``retired`` is the blank posture. It is deliberately NOT a synonym for
+    either of the others: a retired channel delivers nothing, so it neither
+    reaches the facility nor leaks upstream.
 
-    A value the runtime could not use (a mapping from a mis-indented config)
-    reads as ``upstream``, because that is where the runtime's own coercion
-    will send it.
+    Blankness is judged on the *effective* value, not the spelled one. An
+    absent key and a value the runtime could not use (a mapping from a
+    mis-indented config) both resolve to *project_default*, because that is
+    what the runtime's own coercion will do with them — so a setting whose
+    shipped default is itself blank reads as retired rather than upstream.
+    That is the mail channel today: nothing ships a recipient, so an
+    unconfigured deployment offers no Email channel and has no mail half to
+    leak.
     """
-    if not isinstance(value, str):
-        return "upstream"
-    stripped = value.strip()
-    if not stripped:
+    effective = value.strip() if isinstance(value, str) else project_default
+    if not effective:
         return "retired"
-    return "upstream" if stripped == project_default else "moved"
+    return "upstream" if effective == project_default else "moved"
 
 
 def spelled_values(config: Any, dotted_key: str) -> list[tuple[str, Any]]:

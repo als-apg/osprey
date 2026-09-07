@@ -46,8 +46,15 @@ DEFAULT_FEEDBACK_GITHUB_REPO = "als-apg/osprey"
 FEEDBACK_TRACKER_LABELS: dict[str, str] = {"github": "GitHub", "gitlab": "GitLab"}
 
 #: Recipient of the prefilled ``mailto:`` draft when ``web.feedback.email``
-#: is absent — the OSPREY maintainers.
-DEFAULT_FEEDBACK_EMAIL = "thellert@lbl.gov"
+#: is absent. Blank, and deliberately so: nothing ships a mailbox.
+#:
+#: The draft this address receives can carry a session's scrollback, so who
+#: reads it is a decision only the deployment's owner can make — a site with
+#: incident-reporting or export-control rules cannot inherit one. Unconfigured,
+#: the Email channel is simply not offered; the issue tracker
+#: (:data:`DEFAULT_FEEDBACK_GITHUB_REPO`) remains, and ``osprey feedback
+#: list``/``export`` still records every submission locally.
+DEFAULT_FEEDBACK_EMAIL = ""
 
 #: Ceiling (bytes) on the on-disk feedback store before the oldest saved
 #: contexts are pruned; 256 MB unless ``web.feedback.max_store_bytes`` says

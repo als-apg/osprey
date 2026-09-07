@@ -463,8 +463,10 @@ Documentation and feedback keys
      - ``owner/repo`` of one more GitHub tracker, captioned **GitHub** —
        shorthand for a ``github`` entry in ``trackers``.
    * - ``web.feedback.email``
-     - ``thellert@lbl.gov``
+     - unset (no Email channel)
      - Recipient of the prefilled mail draft the dialog's Email channel opens.
+       Nothing ships here: the draft can carry a session's scrollback, so name
+       the mailbox your operators should reach before offering the channel.
    * - ``web.feedback.max_store_bytes``
      - ``268435456`` (256 MB)
      - Ceiling on the on-disk feedback store. Over it, the oldest saved session

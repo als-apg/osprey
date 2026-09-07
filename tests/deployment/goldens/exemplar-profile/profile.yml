@@ -801,8 +801,10 @@ config:
   #   - kind: gitlab
   #     url: https://git.example.org/controls/osprey
   #     label: Facility GitLab
-  # Recipient of the prefilled mailto: draft the Email channel opens.
-  web.feedback.email: thellert@lbl.gov
+  # Recipient of the prefilled mailto: draft the Email channel opens. Blank
+  # ships no Email channel: the draft can carry this session's scrollback,
+  # so name the mailbox this deployment's operators should reach.
+  web.feedback.email: ""
   # Ceiling in bytes on the on-disk feedback store (256 MB). Above it the
   # oldest saved session contexts are deleted; submission headers are kept.
   web.feedback.max_store_bytes: 268435456
