@@ -4,9 +4,10 @@
  *
  * No imports: every function here is self-contained and side-effect-free apart
  * from DOM node construction. Keep it that way so the module stays trivially
- * testable in isolation. Ported from the ALS integration-status dashboard, with
- * the DOM builder aligned to the okf panel's el(tag, attrs, children) signature
- * and every status mapped to a CSS class name — never an inline color literal.
+ * testable in isolation. Ported from an earlier integration-status dashboard,
+ * with the DOM builder aligned to the okf panel's el(tag, attrs, children)
+ * signature and every status mapped to a CSS class name — never an inline
+ * color literal.
  */
 
 /**

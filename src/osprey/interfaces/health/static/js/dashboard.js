@@ -132,7 +132,7 @@ function buildCheckRow(ck) {
   // value, fall back to its message so an informational row (e.g. the
   // restart-notice: name=control_system, no value/details, message IS the
   // payload) carries its text instead of dropping it. Value-bearing rows are
-  // untouched (ALS fidelity).
+  // untouched: a row that already shows a value keeps the value as its text.
   const extra = ck.details || (ck.value ? "" : ck.message);
   /** @type {HTMLElement | null} */
   let detail = null;
