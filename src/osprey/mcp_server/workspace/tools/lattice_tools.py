@@ -96,7 +96,8 @@ async def lattice_init(lattice_path: str) -> str:
     chromaticity, tune footprint).
 
     Args:
-        lattice_path: Path to a MATLAB .m lattice file (e.g. "machine_data/als.m").
+        lattice_path: Path to a MATLAB .m lattice file, resolved by the
+            dashboard process (e.g. "data/lattice/<your-lattice>.m").
 
     Returns:
         JSON with lattice summary including energy, tunes, chromaticity,
