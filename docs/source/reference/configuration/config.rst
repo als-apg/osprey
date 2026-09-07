@@ -503,8 +503,11 @@ Documentation and feedback keys
        email: controls-support@example.org
        max_store_bytes: 268435456
 
-The last four keys are unset in every shipped template: they are read straight
-from ``config.yml`` when present and fall back to the defaults above when not.
+``docs_url``, ``trackers``, ``github_repo`` and ``email`` are unset in every
+shipped preset — each is documented there as a commented example, so nothing
+writes the project's own address into your ``profile.yml``. All four are read
+straight from ``config.yml`` when present and fall back to the defaults above
+when not.
 
 .. _feedback-trackers:
 
