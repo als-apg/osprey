@@ -65,9 +65,6 @@ PROTOCOL = "ca"
 #: Bindings are derived mechanically from the address grammar, not guessed.
 CONFIDENCE = "high"
 
-#: Rings in facility order; anything else sorts after these, alphabetically.
-RING_ORDER: tuple[str, ...] = ("SR", "BR", "BTS")
-
 #: Turtle's prefixed-name local part.  A property key outside this shape would
 #: render as a full ``<iri>`` rather than as ``narad_p:key``, so extra-property
 #: keys are held to it; the emitter reuses the same pattern when it decides
@@ -312,11 +309,16 @@ def _natural_key(token: str) -> tuple[tuple[int, int | str], ...]:
     )
 
 
-def _ring_rank(ring: str) -> tuple[int, str]:
-    """Facility order for a ring token: SR, BR, BTS, then the rest by name."""
-    if ring in RING_ORDER:
-        return (RING_ORDER.index(ring), "")
-    return (len(RING_ORDER), ring)
+def _ring_rank(ring: str, section_order: Sequence[str]) -> tuple[int, str]:
+    """Facility order for a ring token: *section_order* first, then the rest by name.
+
+    The order is the caller's, not this module's: it is the order the facility's
+    own channel database lists its top-level sections in.  A token the order
+    does not name sorts after every token it does, alphabetically.
+    """
+    if ring in section_order:
+        return (section_order.index(ring), "")
+    return (len(section_order), ring)
 
 
 def _device_sort_key(key: tuple[str, str, str, str]) -> tuple:
@@ -325,9 +327,9 @@ def _device_sort_key(key: tuple[str, str, str, str]) -> tuple:
     return (system, family, _natural_key(device))
 
 
-def _facility_sort_key(key: tuple[str, str, str, str]) -> tuple:
+def _facility_sort_key(key: tuple[str, str, str, str], section_order: Sequence[str]) -> tuple:
     """Order devices across the whole facility (ring first, then in-ring order)."""
-    return (_ring_rank(key[0]), _device_sort_key(key))
+    return (_ring_rank(key[0], section_order), _device_sort_key(key))
 
 
 # ---------------------------------------------------------------------------
@@ -719,6 +721,7 @@ def build_model(
     channel_map: Mapping[str, Mapping],
     *,
     facility: str = FACILITY,
+    section_order: Sequence[str] = (),
     hierarchy_descriptions: HierarchyDescriptions | None = None,
     binding_descriptions: Mapping[str, str] | None = None,
     device_properties: Mapping[str, Mapping[str, str | int | float]] | None = None,
@@ -741,6 +744,12 @@ def build_model(
             token the returned model carries.  Defaults to :data:`FACILITY`, so
             the shipped demo corpus is unchanged.  Two models with different
             tokens can be built in one process: nothing is stored globally.
+        section_order: The facility's own order for the top-level section
+            (``RING``) tokens — the order its channel database lists them in.
+            Devices and bindings are sorted by it, so the ordinals and the
+            emitted corpus follow the machine's layout rather than the
+            alphabet.  A token the order does not name sorts after every token
+            it does, alphabetically; the default orders every section that way.
         hierarchy_descriptions: Prose from the hierarchical tree, as returned by
             :func:`resolve_hierarchy_descriptions`.  Its ring, system and family
             maps land on :class:`Device`; its field and subfield maps land on
@@ -766,10 +775,14 @@ def build_model(
             — see :func:`_check_extra_properties`.
     """
     addresses = [parse_address(addr) for addr in channel_map]
+    order = tuple(section_order)
 
     # Devices first: ordinals depend on the sorted device population, and every
     # binding needs its device's source name to build its own IRI.
-    device_keys = sorted({address.device_key for address in addresses}, key=_facility_sort_key)
+    device_keys = sorted(
+        {address.device_key for address in addresses},
+        key=lambda key: _facility_sort_key(key, order),
+    )
     ordinal_in_section: dict[tuple[str, str, str, str], int] = {}
     seen_per_ring: dict[str, int] = {}
     for key in device_keys:
@@ -782,7 +795,7 @@ def build_model(
     }
     groups: dict[tuple[str, str, str], list[str]] = {}
 
-    for address in sorted(addresses, key=_binding_sort_key):
+    for address in sorted(addresses, key=lambda address: _binding_sort_key(address, order)):
         ring = address.ring
         name = source_name(address.family, address.device)
         group_name = signal_name(address.family, address.field, address.subfield)
@@ -857,9 +870,9 @@ def _lookup_extra_properties(
     return normalize_extra_properties(source.get(key))
 
 
-def _binding_sort_key(address: Address) -> tuple:
+def _binding_sort_key(address: Address, section_order: Sequence[str]) -> tuple:
     """Order bindings by their device, then by FIELD and SUBFIELD."""
-    return (_facility_sort_key(address.device_key), address.field, address.subfield)
+    return (_facility_sort_key(address.device_key, section_order), address.field, address.subfield)
 
 
 def _build_device(

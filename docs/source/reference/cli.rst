@@ -880,7 +880,7 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
    synonyms and families that differ --- which is what a CI job or a pre-commit
    hook runs to prove a committed table still matches its schema.
 
-``osprey knowledge build-ttl OUTPUT [--channel-db PATH] [--descriptions PATH] [--limits PATH] [--ontology PATH] [--facility TOKEN]``
+``osprey knowledge build-ttl OUTPUT [--channel-db PATH] [--descriptions PATH] [--limits PATH] [--ontology PATH] [--section-order A,B,...] [--facility TOKEN]``
    Derive a NARAD-convention TTL corpus — the file ``seed-graph`` loads — from
    the project's own channel databases, so the graph store and the channel
    finder describe the same machine. The corpus carries one device node per
@@ -909,7 +909,7 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
       the OSPREY source tree keeps the two, side by side under ``tiers/tier3/``.
       With no such neighbour the command asks for the flag.
 
-   Three more inputs decide details:
+   Four more inputs decide details:
 
    ``--limits``
       ``control_system.limits_checking.database_path``. This file is what tells
@@ -925,6 +925,16 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
       (``compile-ontology`` above) rather than written by hand, though a
       hand-written JSON table is still accepted, so an existing one keeps
       working untouched.
+
+   ``--section-order``
+      The order the corpus lists the machine's top-level sections in, which
+      decides every device's ordinal and the order the file reads in. Unnamed,
+      it is the order the ``--channel-db`` file's own ``tree`` block lists its
+      top-level tokens in --- a hierarchical database is written in the
+      machine's layout order, and JSON keeps that order. Name your own
+      (``--section-order LINAC,TL,RING``) for a database whose key order
+      carries no meaning; a section neither source names sorts after the ones
+      they do, alphabetically.
 
    ``--facility``
       The facility token, ``demo`` by default. Every IRI and identifier the

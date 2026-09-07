@@ -245,8 +245,10 @@ def directed_model_and_report(
     """
     from osprey.services.facility_knowledge.ttl_generator import direction, model
 
+    raw = json.loads(CHANNEL_DB_PATH.read_text(encoding="utf-8"))
     built = model.build_model(
         channel_map,
+        section_order=[token for token in raw["tree"] if not token.startswith("_")],
         hierarchy_descriptions=hierarchy_descriptions,
         binding_descriptions=binding_descriptions,
     )
