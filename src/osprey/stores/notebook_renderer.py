@@ -62,15 +62,21 @@ def create_notebook_from_code(
     return notebook
 
 
-# nbconvert's default HTML template links these assets from public CDNs.
-# The gallery serves rendered notebooks inside a sandboxed iframe, and deployed
-# environments have no outbound internet access (a restrictive proxy blocks
-# external hosts), so those loads fail and the notebook renders broken. Every
-# one is an nbconvert HTMLExporter traitlet; blanking them yields self-contained
-# HTML that depends only on the template's inlined CSS. The cost is that inline
-# LaTeX (MathJax), interactive widgets, and Mermaid diagrams are not rendered —
-# but those already fail in the target environment, so this is a strict
-# improvement there, not a regression.
+# nbconvert's default HTML template links these assets from public CDNs. The
+# gallery serves a rendered notebook inside a sandboxed iframe, and a render
+# whose assets are fetched at view time is a render whose appearance depends on
+# the viewer's network: on a site that blocks external hosts those loads fail
+# and the notebook shows broken. So this renderer is deliberately
+# self-contained — every one of these is an nbconvert HTMLExporter traitlet,
+# and blanking them yields HTML that depends only on the template's inlined
+# CSS.
+#
+# The policy is a choice, not a statement about where OSPREY runs: it is
+# applied unconditionally, on a connected deployment as much as an isolated
+# one. The cost it pays everywhere is that inline LaTeX (MathJax), interactive
+# widgets and Mermaid diagrams do not render. Making it conditional would mean
+# reading the deployment's offline posture here AND carrying the mode in the
+# cache key below, since the two renders are different documents.
 _EXTERNAL_ASSET_TRAITS = (
     "mathjax_url",
     "require_js_url",
@@ -85,8 +91,10 @@ _EXTERNAL_ASSET_TRAITS = (
 def render_notebook_to_html(ipynb_path: Path) -> str:
     """Render a .ipynb file to self-contained HTML using nbconvert.
 
-    The output references no external resources so it renders correctly inside
-    the gallery's sandboxed iframe in offline / proxied deployments.
+    The output references no external resources, so what it looks like does not
+    depend on what the viewer's network can reach — see
+    :data:`_EXTERNAL_ASSET_TRAITS` for what that costs and why it is
+    unconditional.
 
     Args:
         ipynb_path: Path to the .ipynb file.
