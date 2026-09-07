@@ -1136,6 +1136,11 @@ config:
   # ── Runtime ────────────────────────────────────────────────────────────────
   # Agent Python runs as a host subprocess.
   execution.execution_method: subprocess
+  # Wall-clock ceiling on one agent Python run, in seconds. A run that reaches
+  # it is killed and reported as a timeout, so raise it for a facility whose
+  # analyses legitimately run long and lower it to keep a runaway script from
+  # holding the sandbox.
+  # python_executor.execution_timeout_seconds: 600
   # Console colour theme for the CLI: default | custom. With custom, set the
   # colours (`cli.custom_theme.primary` and friends) and optionally a banner.
   cli.theme: default

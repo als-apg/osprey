@@ -8,14 +8,15 @@ build`` renders it from the build profile, so the profile is where you edit a
 setting and this file is where you look one up: :doc:`profile` describes the
 authoring side, and this page catalogues what the rendered result means.
 
-Five parts of that file are gathered here — the facility this deployment
+Six parts of that file are gathered here — the facility this deployment
 belongs to (``facility:``), the diagnostic suite (``health:``), the browser
 UI's documentation and feedback settings (``web:``), the artifact gallery's own
-categories (``artifact_server:``), and the deployment keys
-that decide which container image each service runs and how ``${VAR}``
-placeholders in the compose files are filled in. Settings that only ever arrive
-from the environment are in :doc:`environment-variables`. A closing note records
-the **protected set** — the files and keys no agent-side writer may touch.
+categories (``artifact_server:``), the Python sandbox's run ceiling
+(``python_executor:``), and the deployment keys that decide which container
+image each service runs and how ``${VAR}`` placeholders in the compose files
+are filled in. Settings that only ever arrive from the environment are in
+:doc:`environment-variables`. A closing note records the **protected set** —
+the files and keys no agent-side writer may touch.
 
 .. _config-facility:
 
@@ -703,6 +704,28 @@ restart.
 
 The four commented stanzas in the shipped presets have nothing to do but say
 this: a shipped value would be one facility's vocabulary handed to every other.
+
+.. _config-python-executor:
+
+``python_executor:`` — how long one agent script may run
+---------------------------------------------------------
+
+``python_executor.execution_timeout_seconds`` is the wall-clock ceiling on a
+single agent Python run. It defaults to ``600`` — ten minutes — and a run that
+reaches it is killed and reported as a **timeout**, which the response
+deliberately classes as the sandbox's decision rather than as a failure of the
+submitted script:
+
+.. code-block:: yaml
+
+   config:
+     python_executor.execution_timeout_seconds: 1800
+
+Raise it for a facility whose legitimate analyses run long — a fit over a
+day of archived data, a scan reconstruction — and lower it where a runaway
+script holding the sandbox is the worse outcome. The value is read once in
+the sandbox's MCP server process and held for that process's lifetime, so a
+change lands after ``osprey build`` and a restart of the stack.
 
 .. _config-deployment:
 
