@@ -5046,7 +5046,7 @@
 <https://narad.example.org/device/demo_SR_QFA01> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA01" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA01_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA01_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA01_CURRENT_SP>,
@@ -5067,7 +5067,7 @@
 <https://narad.example.org/device/demo_SR_QFA02> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA02" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA02_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA02_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA02_CURRENT_SP>,
@@ -5088,7 +5088,7 @@
 <https://narad.example.org/device/demo_SR_QFA03> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA03" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA03_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA03_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA03_CURRENT_SP>,
@@ -5109,7 +5109,7 @@
 <https://narad.example.org/device/demo_SR_QFA04> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA04" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA04_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA04_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA04_CURRENT_SP>,
@@ -5130,7 +5130,7 @@
 <https://narad.example.org/device/demo_SR_QFA05> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA05" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA05_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA05_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA05_CURRENT_SP>,
@@ -5151,7 +5151,7 @@
 <https://narad.example.org/device/demo_SR_QFA06> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA06" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA06_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA06_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA06_CURRENT_SP>,
@@ -5172,7 +5172,7 @@
 <https://narad.example.org/device/demo_SR_QFA07> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA07" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA07_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA07_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA07_CURRENT_SP>,
@@ -5193,7 +5193,7 @@
 <https://narad.example.org/device/demo_SR_QFA08> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA08" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA08_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA08_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA08_CURRENT_SP>,
@@ -5214,7 +5214,7 @@
 <https://narad.example.org/device/demo_SR_QFA09> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA09" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA09_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA09_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA09_CURRENT_SP>,
@@ -5235,7 +5235,7 @@
 <https://narad.example.org/device/demo_SR_QFA10> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA10" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA10_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA10_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA10_CURRENT_SP>,
@@ -5256,7 +5256,7 @@
 <https://narad.example.org/device/demo_SR_QFA11> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA11" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA11_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA11_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA11_CURRENT_SP>,
@@ -5277,7 +5277,7 @@
 <https://narad.example.org/device/demo_SR_QFA12> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA12" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA12_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA12_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA12_CURRENT_SP>,
@@ -5298,7 +5298,7 @@
 <https://narad.example.org/device/demo_SR_QFA13> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA13" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA13_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA13_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA13_CURRENT_SP>,
@@ -5319,7 +5319,7 @@
 <https://narad.example.org/device/demo_SR_QFA14> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA14" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA14_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA14_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA14_CURRENT_SP>,
@@ -5340,7 +5340,7 @@
 <https://narad.example.org/device/demo_SR_QFA15> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA15" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA15_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA15_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA15_CURRENT_SP>,
@@ -5361,7 +5361,7 @@
 <https://narad.example.org/device/demo_SR_QFA16> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA16" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA16_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA16_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA16_CURRENT_SP>,
@@ -5382,7 +5382,7 @@
 <https://narad.example.org/device/demo_SR_QFA17> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA17" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA17_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA17_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA17_CURRENT_SP>,
@@ -5403,7 +5403,7 @@
 <https://narad.example.org/device/demo_SR_QFA18> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA18" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA18_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA18_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA18_CURRENT_SP>,
@@ -5424,7 +5424,7 @@
 <https://narad.example.org/device/demo_SR_QFA19> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA19" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA19_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA19_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA19_CURRENT_SP>,
@@ -5445,7 +5445,7 @@
 <https://narad.example.org/device/demo_SR_QFA20> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA20" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA20_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA20_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA20_CURRENT_SP>,
@@ -5466,7 +5466,7 @@
 <https://narad.example.org/device/demo_SR_QFA21> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA21" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA21_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA21_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA21_CURRENT_SP>,
@@ -5487,7 +5487,7 @@
 <https://narad.example.org/device/demo_SR_QFA22> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA22" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA22_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA22_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA22_CURRENT_SP>,
@@ -5508,7 +5508,7 @@
 <https://narad.example.org/device/demo_SR_QFA23> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA23" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA23_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA23_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA23_CURRENT_SP>,
@@ -5529,7 +5529,7 @@
 <https://narad.example.org/device/demo_SR_QFA24> a narad_sem:Quadrupole ;
     narad_p:deviceId "narad:device:demo:SR:QFA24" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets." ;
+    narad_p:familyDescription "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA24_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA24_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_QFA24_CURRENT_SP>,
@@ -6558,7 +6558,7 @@
 <https://narad.example.org/device/demo_SR_SHD01> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD01" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD01_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD01_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD01_CURRENT_SP>,
@@ -6579,7 +6579,7 @@
 <https://narad.example.org/device/demo_SR_SHD02> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD02" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD02_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD02_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD02_CURRENT_SP>,
@@ -6600,7 +6600,7 @@
 <https://narad.example.org/device/demo_SR_SHD03> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD03" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD03_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD03_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD03_CURRENT_SP>,
@@ -6621,7 +6621,7 @@
 <https://narad.example.org/device/demo_SR_SHD04> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD04" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD04_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD04_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD04_CURRENT_SP>,
@@ -6642,7 +6642,7 @@
 <https://narad.example.org/device/demo_SR_SHD05> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD05" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD05_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD05_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD05_CURRENT_SP>,
@@ -6663,7 +6663,7 @@
 <https://narad.example.org/device/demo_SR_SHD06> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD06" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD06_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD06_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD06_CURRENT_SP>,
@@ -6684,7 +6684,7 @@
 <https://narad.example.org/device/demo_SR_SHD07> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD07" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD07_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD07_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD07_CURRENT_SP>,
@@ -6705,7 +6705,7 @@
 <https://narad.example.org/device/demo_SR_SHD08> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD08" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD08_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD08_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD08_CURRENT_SP>,
@@ -6726,7 +6726,7 @@
 <https://narad.example.org/device/demo_SR_SHD09> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD09" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD09_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD09_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD09_CURRENT_SP>,
@@ -6747,7 +6747,7 @@
 <https://narad.example.org/device/demo_SR_SHD10> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD10" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD10_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD10_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD10_CURRENT_SP>,
@@ -6768,7 +6768,7 @@
 <https://narad.example.org/device/demo_SR_SHD11> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD11" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD11_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD11_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD11_CURRENT_SP>,
@@ -6789,7 +6789,7 @@
 <https://narad.example.org/device/demo_SR_SHD12> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD12" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD12_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD12_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD12_CURRENT_SP>,
@@ -6810,7 +6810,7 @@
 <https://narad.example.org/device/demo_SR_SHD13> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD13" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD13_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD13_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD13_CURRENT_SP>,
@@ -6831,7 +6831,7 @@
 <https://narad.example.org/device/demo_SR_SHD14> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD14" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD14_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD14_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD14_CURRENT_SP>,
@@ -6852,7 +6852,7 @@
 <https://narad.example.org/device/demo_SR_SHD15> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD15" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD15_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD15_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD15_CURRENT_SP>,
@@ -6873,7 +6873,7 @@
 <https://narad.example.org/device/demo_SR_SHD16> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD16" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD16_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD16_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD16_CURRENT_SP>,
@@ -6894,7 +6894,7 @@
 <https://narad.example.org/device/demo_SR_SHD17> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD17" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD17_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD17_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD17_CURRENT_SP>,
@@ -6915,7 +6915,7 @@
 <https://narad.example.org/device/demo_SR_SHD18> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD18" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD18_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD18_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD18_CURRENT_SP>,
@@ -6936,7 +6936,7 @@
 <https://narad.example.org/device/demo_SR_SHD19> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD19" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD19_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD19_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD19_CURRENT_SP>,
@@ -6957,7 +6957,7 @@
 <https://narad.example.org/device/demo_SR_SHD20> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD20" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD20_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD20_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD20_CURRENT_SP>,
@@ -6978,7 +6978,7 @@
 <https://narad.example.org/device/demo_SR_SHD21> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD21" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD21_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD21_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD21_CURRENT_SP>,
@@ -6999,7 +6999,7 @@
 <https://narad.example.org/device/demo_SR_SHD22> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD22" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD22_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD22_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD22_CURRENT_SP>,
@@ -7020,7 +7020,7 @@
 <https://narad.example.org/device/demo_SR_SHD23> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD23" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD23_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD23_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD23_CURRENT_SP>,
@@ -7041,7 +7041,7 @@
 <https://narad.example.org/device/demo_SR_SHD24> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHD24" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD24_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD24_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHD24_CURRENT_SP>,
@@ -7062,7 +7062,7 @@
 <https://narad.example.org/device/demo_SR_SHF01> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF01" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF01_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF01_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF01_CURRENT_SP>,
@@ -7083,7 +7083,7 @@
 <https://narad.example.org/device/demo_SR_SHF02> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF02" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF02_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF02_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF02_CURRENT_SP>,
@@ -7104,7 +7104,7 @@
 <https://narad.example.org/device/demo_SR_SHF03> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF03" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF03_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF03_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF03_CURRENT_SP>,
@@ -7125,7 +7125,7 @@
 <https://narad.example.org/device/demo_SR_SHF04> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF04" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF04_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF04_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF04_CURRENT_SP>,
@@ -7146,7 +7146,7 @@
 <https://narad.example.org/device/demo_SR_SHF05> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF05" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF05_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF05_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF05_CURRENT_SP>,
@@ -7167,7 +7167,7 @@
 <https://narad.example.org/device/demo_SR_SHF06> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF06" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF06_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF06_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF06_CURRENT_SP>,
@@ -7188,7 +7188,7 @@
 <https://narad.example.org/device/demo_SR_SHF07> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF07" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF07_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF07_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF07_CURRENT_SP>,
@@ -7209,7 +7209,7 @@
 <https://narad.example.org/device/demo_SR_SHF08> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF08" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF08_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF08_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF08_CURRENT_SP>,
@@ -7230,7 +7230,7 @@
 <https://narad.example.org/device/demo_SR_SHF09> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF09" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF09_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF09_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF09_CURRENT_SP>,
@@ -7251,7 +7251,7 @@
 <https://narad.example.org/device/demo_SR_SHF10> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF10" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF10_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF10_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF10_CURRENT_SP>,
@@ -7272,7 +7272,7 @@
 <https://narad.example.org/device/demo_SR_SHF11> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF11" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF11_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF11_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF11_CURRENT_SP>,
@@ -7293,7 +7293,7 @@
 <https://narad.example.org/device/demo_SR_SHF12> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF12" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF12_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF12_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF12_CURRENT_SP>,
@@ -7314,7 +7314,7 @@
 <https://narad.example.org/device/demo_SR_SHF13> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF13" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF13_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF13_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF13_CURRENT_SP>,
@@ -7335,7 +7335,7 @@
 <https://narad.example.org/device/demo_SR_SHF14> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF14" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF14_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF14_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF14_CURRENT_SP>,
@@ -7356,7 +7356,7 @@
 <https://narad.example.org/device/demo_SR_SHF15> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF15" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF15_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF15_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF15_CURRENT_SP>,
@@ -7377,7 +7377,7 @@
 <https://narad.example.org/device/demo_SR_SHF16> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF16" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF16_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF16_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF16_CURRENT_SP>,
@@ -7398,7 +7398,7 @@
 <https://narad.example.org/device/demo_SR_SHF17> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF17" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF17_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF17_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF17_CURRENT_SP>,
@@ -7419,7 +7419,7 @@
 <https://narad.example.org/device/demo_SR_SHF18> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF18" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF18_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF18_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF18_CURRENT_SP>,
@@ -7440,7 +7440,7 @@
 <https://narad.example.org/device/demo_SR_SHF19> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF19" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF19_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF19_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF19_CURRENT_SP>,
@@ -7461,7 +7461,7 @@
 <https://narad.example.org/device/demo_SR_SHF20> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF20" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF20_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF20_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF20_CURRENT_SP>,
@@ -7482,7 +7482,7 @@
 <https://narad.example.org/device/demo_SR_SHF21> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF21" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF21_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF21_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF21_CURRENT_SP>,
@@ -7503,7 +7503,7 @@
 <https://narad.example.org/device/demo_SR_SHF22> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF22" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF22_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF22_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF22_CURRENT_SP>,
@@ -7524,7 +7524,7 @@
 <https://narad.example.org/device/demo_SR_SHF23> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF23" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF23_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF23_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF23_CURRENT_SP>,
@@ -7545,7 +7545,7 @@
 <https://narad.example.org/device/demo_SR_SHF24> a narad_sem:Sextupole ;
     narad_p:deviceId "narad:device:demo:SR:SHF24" ;
     narad_p:facility "demo" ;
-    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets." ;
+    narad_p:familyDescription "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets." ;
     narad_p:hasBinding <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF24_CURRENT_GOLDEN>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF24_CURRENT_RB>,
         <https://narad.example.org/binding/narad_endpoint_demo_SR_SHF24_CURRENT_SP>,

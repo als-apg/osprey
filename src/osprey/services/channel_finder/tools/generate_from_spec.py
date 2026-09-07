@@ -199,8 +199,7 @@ def _new_hierarchical_family(fam: str, schema: FamilyChannelSchema, count: int) 
 
     return {
         "_description": (
-            f"{schema.display_name}s ({fam}): ALS-U Accumulator Ring "
-            f"{schema.display_name.lower()} magnets."
+            f"{schema.display_name}s ({fam}): storage ring {schema.display_name.lower()} magnets."
         ),
         "DEVICE": {
             "_expansion": {"_type": "range", "_pattern": "{:02d}", "_range": [1, count]},
@@ -442,8 +441,8 @@ def _dump(path: Path, data: dict[str, Any]) -> None:
 def generate(source_dir: Path | str, dest_dir: Path | str | None = None) -> dict[str, Path]:
     """Regenerate the shipped tier-3 and tier-1 channel databases.
 
-    Grows the ALS-U AR SR-ring families to their full :data:`ALS_U_AR`
-    inventory while preserving every other address byte-for-byte, writes the
+    Grows the SR-ring families to their full :data:`ALS_U_AR` inventory while
+    preserving every other address byte-for-byte, writes the
     three tier-3 paradigms to ``dest_dir`` (defaults to ``source_dir`` -- an
     in-place regeneration), and verifies cross-paradigm address identity.
 
