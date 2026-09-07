@@ -32,6 +32,16 @@ PARTITION_PYAT_COUPLED = "pyat-coupled"
 PARTITION_SP_ECHO = "sp-echo"
 PARTITION_STATIC_NOISY = "static-noisy"
 
+# The manifest's setpoint/readback vocabulary, and the one place it is spelled.
+# A channel's ADDRESS text is free -- any facility's namespace loads through
+# `loaders.load_manifest_file` -- but the `subfield` VALUE is reserved: "SP"
+# marks the writable channel, "RB" marks its readback, and a channel carrying
+# any other token is neither written nor paired with one. Deliberately not
+# facility-configurable: a typo in a per-facility spelling would silently
+# disable every write on the machine rather than fail loudly.
+SETPOINT_SUBFIELD = "SP"
+READBACK_SUBFIELD = "RB"
+
 # SR RF/VAC fields that carry a real writable-setpoint + readback pair.
 # Pure telemetry fields in the same systems (POWER, TEMPERATURE, PRESSURE,
 # ION-PUMP CURRENT) have no setpoint counterpart and stay static-noisy.

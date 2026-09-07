@@ -60,8 +60,8 @@ from typing import Any, Protocol
 
 from lume.model import LUMEModel
 
+from osprey.services.virtual_accelerator.manifest import SETPOINT_SUBFIELD
 from osprey.services.virtual_accelerator.serving.pvdb import (
-    SETPOINT_SUBFIELD,
     ServingRecords,
     discard_pva_post,
 )

@@ -37,6 +37,7 @@ from pathlib import Path
 from osprey.errors import BuildProfileError
 
 from . import classify, loaders
+from .classify import READBACK_SUBFIELD, SETPOINT_SUBFIELD
 from .paths import MANIFEST_OUTPUT, PACKAGE_PATHS, ManifestPaths
 
 logger = logging.getLogger(__name__)
@@ -406,7 +407,7 @@ def _finish_manifest(
         if e.ring:
             by_ring[e.ring] = by_ring.get(e.ring, 0) + 1
         by_partition[e.partition] = by_partition.get(e.partition, 0) + 1
-        if e.subfield == "SP":
+        if e.subfield == SETPOINT_SUBFIELD:
             setpoint_count += 1
 
     metadata: dict = {
@@ -494,14 +495,6 @@ def _graph_missing_sources(paths: ManifestPaths) -> list[Path]:
         if not path.is_file()
     ]
     return missing
-
-
-#: The subfield tokens the container pairs a setpoint with its readback on
-#: (``serving/pvdb.py`` spells the same two; not imported from there because
-#: this module is imported on the build host, where the IOC's dependencies
-#: are not installed).
-SETPOINT_SUBFIELD = "SP"
-READBACK_SUBFIELD = "RB"
 
 
 def _echo_entry(address: str, *, pair_key: str, subfield: str) -> ManifestEntry:

@@ -135,6 +135,11 @@ def load_manifest_file(path: Path) -> list[dict]:
     any facility's namespace (three-part addresses included) loads through
     the same call.
 
+    The address text is free; the ``subfield`` VALUE is not. It is a reserved
+    vocabulary (``classify.SETPOINT_SUBFIELD`` / ``READBACK_SUBFIELD``):
+    ``SP`` marks the writable channel and ``RB`` marks its readback, and a
+    channel carrying any other token is neither written nor paired with one.
+
     Raises:
         ManifestFileError: if the file is absent, not valid JSON, lacks a
             top-level ``channels`` list, contains a channel missing schema
