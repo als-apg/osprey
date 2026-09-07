@@ -621,6 +621,41 @@ See <a class="reference internal" href="#live-ingestion">Live Ingestion</a> belo
 <p>The adapters above reflect the logbook schemas we have had access to so far. If you implement an adapter for your facility and test it successfully, we encourage you to open a pull request to make it natively available in Osprey — this makes it easier for other sites running similar logbook systems to get started.</p>
 </div>
 </section>
+<section id="connecting-to-your-logbook">
+<h3>Connecting to Your Logbook<a class="headerlink" href="#connecting-to-your-logbook" title="Link to this heading">#</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">ariel.ingestion</span></code> block says which adapter runs and how it reaches the source system.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ariel</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">ingestion</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">adapter</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">als_logbook</span><span class="w">              </span><span class="c1"># required</span>
+<span class="w">    </span><span class="nt">source_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://logbook.example.org/api/entries</span>
+<span class="w">    </span><span class="nt">ca_bundle</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/ssl/certs/site-ca.pem</span><span class="w">   </span><span class="c1"># optional, for a site CA</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">adapter</span></code> is required. There is no default: a block that names no adapter is refused when the configuration loads, with the registered adapter names in the message, rather than failing later on the first ingest.</p>
+<p><strong>TLS.</strong> Certificates are verified. A logbook served over HTTPS whose certificate does not check out fails the ingest instead of being trusted — credentials for a write-enabled logbook and the entry text itself both travel over that connection. Two ways to make a site certificate verifiable:</p>
+<ul class="simple">
+<li><p>Install your site CA into the image’s trust store. Nothing needs to be configured; verification just succeeds.</p></li>
+<li><p>Point <code class="docutils literal notranslate"><span class="pre">ca_bundle</span></code> at the CA’s PEM file when it lives beside the deployment rather than in the image. Verification then runs against that bundle.</p></li>
+</ul>
+<p>If neither is possible, <code class="docutils literal notranslate"><span class="pre">verify_ssl:</span> <span class="pre">false</span></code> turns verification off for this ingestion source:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ariel</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">ingestion</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">verify_ssl</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</pre></div>
+</div>
+<p>Write it only as a deliberate choice. Nothing about the connection is authenticated afterwards.</p>
+<p>The same settings cover the sidecar-metadata fetch described below, so one ingest never reaches the logbook host two different ways.</p>
+<section id="sidecar-metadata">
+<h4>Sidecar Metadata<a class="headerlink" href="#sidecar-metadata" title="Link to this heading">#</a></h4>
+<p>An entry can carry its structured metadata in a JSON attachment beside the prose — session ids, model names, whatever the tooling that wrote the entry recorded. During ingestion that file is fetched and merged into the entry’s <code class="docutils literal notranslate"><span class="pre">metadata</span></code>.</p>
+<p>The filename is a facility convention, not a standard, so each adapter declares its own:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">MyLogbookAdapter</span><span class="p">(</span><span class="n">FacilityAdapter</span><span class="p">):</span>
+    <span class="n">metadata_sidecar_names</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;entry-meta.json&quot;</span><span class="p">,)</span>
+</pre></div>
+</div>
+<p>The default is <code class="docutils literal notranslate"><span class="pre">(&quot;metadata.json&quot;,)</span></code>. Matching is case-insensitive, and a name that never appears is simply a no-op — there is no switch to turn this off. If an entry has attachments and none of them matched, ingestion says so at debug level rather than staying silent about metadata it did not collect.</p>
+</section>
+</section>
 <section id="enhancement-pipeline">
 <span id="id3"></span><h3>Enhancement Pipeline<a class="headerlink" href="#enhancement-pipeline" title="Link to this heading">#</a></h3>
 <p>Enhancement modules run after ingestion to add computed fields to stored entries. While the base ingestion captures the raw logbook text and metadata, enhancement modules derive additional structure from that text — generating vector embeddings that enable semantic similarity search, using an LLM to extract keywords and summaries that improve search recall and the quality of the context the agent layer surfaces, or performing any other analysis that produces useful derived data. Each module inherits from <code class="docutils literal notranslate"><span class="pre">BaseEnhancementModule</span></code> and is discovered through the Osprey registry. Because enhancement is decoupled from ingestion, you can ingest a large dataset first and enhance it later, swap out models without re-ingesting, or run only the modules you need. Run them with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">enhance</span></code>.</p>
@@ -927,6 +962,10 @@ recorded. A store that has never been ingested warns either way.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ingestion-architecture">Ingestion Architecture</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#facility-adapters">Facility Adapters</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#connecting-to-your-logbook">Connecting to Your Logbook</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#sidecar-metadata">Sidecar Metadata</a></li>
+</ul>
+</li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#enhancement-pipeline">Enhancement Pipeline</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#live-ingestion">Live Ingestion</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#cli-usage">CLI Usage</a></li>

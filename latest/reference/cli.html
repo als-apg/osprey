@@ -1170,8 +1170,12 @@ project’s config; <code class="docutils literal notranslate"><span class="pre"
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">preview</span></code></dt><dd><p>Preview a channel database with flexible display options.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">generate</span> <span class="pre">[--output-dir</span> <span class="pre">DIR]</span> <span class="pre">[--source</span> <span class="pre">PATH]</span> <span class="pre">[--format</span> <span class="pre">in_context|hierarchical|middle_layer|all]</span> <span class="pre">[--tier</span> <span class="pre">1|3|none]</span> <span class="pre">[--validate]</span></code></dt><dd><p>Generate channel databases from a hierarchical template. Produces one
-or more pipeline formats (default: all three) with optional tier filtering.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">generate</span> <span class="pre">(--source</span> <span class="pre">PATH</span> <span class="pre">|</span> <span class="pre">--demo)</span> <span class="pre">[--output-dir</span> <span class="pre">DIR]</span> <span class="pre">[--force]</span> <span class="pre">[--format</span> <span class="pre">in_context|hierarchical|middle_layer|all]</span> <span class="pre">[--tier</span> <span class="pre">1|3|none]</span> <span class="pre">[--validate]</span></code></dt><dd><p>Generate channel databases from a hierarchical template. Produces one
+or more pipeline formats (default: all three) with optional tier filtering.
+Name the source: <code class="docutils literal notranslate"><span class="pre">--source</span></code> for your own hierarchical database, <code class="docutils literal notranslate"><span class="pre">--demo</span></code>
+for the packaged demo one. Files already in the output directory are left
+alone unless you pass <code class="docutils literal notranslate"><span class="pre">--force</span></code> — the default output directory,
+<code class="docutils literal notranslate"><span class="pre">data/channel_databases/</span></code>, is the one the pipelines read.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">benchmark</span> <span class="pre">--model</span> <span class="pre">PROVIDER/WIRE_ID</span> <span class="pre">[--queries</span> <span class="pre">SPEC]</span> <span class="pre">[--runs-per-query</span> <span class="pre">N]</span> <span class="pre">[--concurrency</span> <span class="pre">N]</span> <span class="pre">[--output-dir</span> <span class="pre">DIR]</span> <span class="pre">[--queries-path</span> <span class="pre">PATH]</span> <span class="pre">[-v]</span></code></dt><dd><p>Run the benchmark harness against a channel-finder pipeline using a
 LiteLLM-form model id (e.g. <code class="docutils literal notranslate"><span class="pre">anthropic/claude-haiku-4-5</span></code>). Saves per-run
@@ -1186,7 +1190,7 @@ and <code class="docutils literal notranslate"><span class="pre">--pipeline</spa
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>channel-finder<span class="w"> </span>build-database
 osprey<span class="w"> </span>channel-finder<span class="w"> </span>validate
 osprey<span class="w"> </span>channel-finder<span class="w"> </span>preview
-osprey<span class="w"> </span>channel-finder<span class="w"> </span>generate<span class="w"> </span>--format<span class="w"> </span>hierarchical
+osprey<span class="w"> </span>channel-finder<span class="w"> </span>generate<span class="w"> </span>--source<span class="w"> </span>my_channels.json<span class="w"> </span>--format<span class="w"> </span>hierarchical
 osprey<span class="w"> </span>channel-finder<span class="w"> </span>benchmark<span class="w"> </span>--model<span class="w"> </span>anthropic/claude-haiku-4-5
 osprey<span class="w"> </span>channel-finder<span class="w"> </span>web
 </pre></div>

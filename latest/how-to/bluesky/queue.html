@@ -805,9 +805,13 @@ drive or record — see <a class="reference internal" href="../../reference/conf
 queue comes up armed is <code class="docutils literal notranslate"><span class="pre">bluesky.queue_autostart</span></code>: on in the
 <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset, off unless a deployment says so.</p>
 <p class="sd-card-text">Whether a deployment can execute plans at all is decided by its control
-system: <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> and <code class="docutils literal notranslate"><span class="pre">epics</span></code> can, <code class="docutils literal notranslate"><span class="pre">mock</span></code> is
-browse-only. The panels and the agent both surface this as a capability
-banner; on a browse-only deployment it names the flip:</p>
+system. The queue worker builds its devices over Channel Access, so the
+connectors that speak it execute plans — <code class="docutils literal notranslate"><span class="pre">epics</span></code>, <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>
+and the live stand-in — and every other one browses. <code class="docutils literal notranslate"><span class="pre">mock</span></code> browses
+because it moves nothing; a connector for another protocol browses because
+no device layer for it exists yet, which is a gap in the plan stack rather
+than a property of the facility. The panels and the agent both surface this
+as a capability banner; on the <code class="docutils literal notranslate"><span class="pre">mock</span></code> connector it names the flip:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">connector</span><span class="o">=</span>virtual_accelerator
 </pre></div>
 </div>

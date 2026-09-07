@@ -601,6 +601,12 @@ the <code class="docutils literal notranslate"><span class="pre">config:</span><
 the profile declares. Reach for a
 <a class="reference internal" href="../../reference/configuration/profile.html#profile-tool-permissions"><span class="std std-ref">tool permission</span></a> — <code class="docutils literal notranslate"><span class="pre">ask:</span></code> prompts before
 the call — or a framework server, which can carry hooks of its own.</p>
+<p>One preset is narrower than attaching it to a whole server suggests:
+<code class="docutils literal notranslate"><span class="pre">limits</span></code> validates only <code class="docutils literal notranslate"><span class="pre">channel_write</span></code>-shaped input — a call carrying a
+<code class="docutils literal notranslate"><span class="pre">channel</span></code>/<code class="docutils literal notranslate"><span class="pre">value</span></code> pair, or an <code class="docutils literal notranslate"><span class="pre">operations</span></code> list. It abstains on any
+other shape (denying would deny the server’s reads), so a tool that writes
+in another shape is <em>not</em> limits-checked. The build says so in a warning
+when a server attaches it.</p>
 </div>
 <p>Every key an <code class="docutils literal notranslate"><span class="pre">mcp_servers:</span></code> entry accepts — the remote <code class="docutils literal notranslate"><span class="pre">url</span></code> and
 <code class="docutils literal notranslate"><span class="pre">transport</span></code> forms, the <code class="docutils literal notranslate"><span class="pre">port</span></code> shorthand, the placeholder rules, and how to

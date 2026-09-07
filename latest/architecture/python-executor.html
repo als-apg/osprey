@@ -570,8 +570,10 @@ sources or render. Applied in <strong>every</strong> execution mode; see
 <a class="reference internal" href="#python-executor-protected-paths"><span class="std std-ref">What executed code may not change</span></a>.</p></li>
 <li><p><strong>Readonly import denylist</strong> (<code class="docutils literal notranslate"><span class="pre">check_readonly_imports</span></code>)—a
 <code class="docutils literal notranslate"><span class="pre">readonly</span></code> run may not import control-system client libraries
-(<code class="docutils literal notranslate"><span class="pre">epics</span></code>, <code class="docutils literal notranslate"><span class="pre">p4p</span></code>, <code class="docutils literal notranslate"><span class="pre">caproto</span></code>, <code class="docutils literal notranslate"><span class="pre">pvaccess</span></code>, <code class="docutils literal notranslate"><span class="pre">tango</span></code>) at all.
-Reads go through <code class="docutils literal notranslate"><span class="pre">read_channel()</span></code>.</p></li>
+(<code class="docutils literal notranslate"><span class="pre">epics</span></code>, <code class="docutils literal notranslate"><span class="pre">aioca</span></code>, <code class="docutils literal notranslate"><span class="pre">p4p</span></code>, <code class="docutils literal notranslate"><span class="pre">caproto</span></code>, <code class="docutils literal notranslate"><span class="pre">pvaccess</span></code>, <code class="docutils literal notranslate"><span class="pre">tango</span></code>,
+<code class="docutils literal notranslate"><span class="pre">doocs4py</span></code>) at all. Reads go through <code class="docutils literal notranslate"><span class="pre">read_channel()</span></code>. The list is
+derived from the client half of the write surface below, so a client
+added there is denied at import in the same change.</p></li>
 <li><p><strong>Control-system pattern detection</strong>
 (<code class="docutils literal notranslate"><span class="pre">detect_control_system_operations</span></code>)—identifies read and write
 patterns. In <code class="docutils literal notranslate"><span class="pre">readonly</span></code> mode, detected writes cause immediate
@@ -587,9 +589,9 @@ however it is spelled.</p></li>
 subprocess so it also sees paths the source did not spell out. Emitted
 in <strong>every</strong> execution mode.</p></li>
 <li><p><strong>Limits monkeypatch</strong> (<code class="docutils literal notranslate"><span class="pre">ExecutionWrapper</span></code> /
-<code class="docutils literal notranslate"><span class="pre">LimitsValidator</span></code>)—at runtime, <code class="docutils literal notranslate"><span class="pre">epics.caput()</span></code> calls are
-intercepted and validated against the channel limits database.
-Out-of-range values are blocked.</p></li>
+<code class="docutils literal notranslate"><span class="pre">LimitsValidator</span></code>)—at runtime, direct client writes this build knows
+how to intercept (pyepics, p4p, Tango, caproto and DOOCS) are validated
+against the channel limits database. Out-of-range values are blocked.</p></li>
 <li><p><strong>Process isolation</strong>—code always runs in a separate subprocess, never
 inside the MCP server process.</p></li>
 <li><p><strong>Execution timeout</strong>—configurable via
@@ -603,9 +605,9 @@ process is killed if it exceeds the limit.</p></li>
 <section id="what-counts-as-a-control-system-write">
 <span id="python-executor-write-surface"></span><h3>What counts as a control-system write<a class="headerlink" href="#what-counts-as-a-control-system-write" title="Link to this heading">#</a></h3>
 <p>A <code class="docutils literal notranslate"><span class="pre">readonly</span></code> run refuses all of the following. The list is generated from
-one table in the code (<code class="docutils literal notranslate"><span class="pre">_READONLY_WRITE_TARGETS</span></code> in
-<code class="docutils literal notranslate"><span class="pre">services/python_executor/execution/wrapper.py</span></code>), so adding a library there
-is all it takes to enforce it.</p>
+one table in the code (<code class="docutils literal notranslate"><span class="pre">services/python_executor/write_surface.py</span></code>), so
+adding a library there is all it takes to enforce it — the runtime guard,
+the import denylist and this page all read that one table.</p>
 <p><strong>Approved API</strong> — the path everything should use:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">write_channel()</span></code> / <code class="docutils literal notranslate"><span class="pre">write_channels()</span></code> from <code class="docutils literal notranslate"><span class="pre">osprey.runtime</span></code>, and
@@ -615,15 +617,26 @@ is all it takes to enforce it.</p>
 resolved dynamically:</p>
 <ul class="simple">
 <li><p><strong>pyepics</strong> — <code class="docutils literal notranslate"><span class="pre">caput</span></code>, <code class="docutils literal notranslate"><span class="pre">caput_many</span></code>, <code class="docutils literal notranslate"><span class="pre">PV.put</span></code>, <code class="docutils literal notranslate"><span class="pre">ca.put</span></code></p></li>
+<li><p><strong>aioca</strong> — <code class="docutils literal notranslate"><span class="pre">caput</span></code>, <code class="docutils literal notranslate"><span class="pre">caput_many</span></code>. Every OSPREY environment carries
+it: it is the Channel Access backend of <code class="docutils literal notranslate"><span class="pre">ophyd-async[ca]</span></code></p></li>
 <li><p><strong>p4p</strong> — <code class="docutils literal notranslate"><span class="pre">Context.put</span></code>/<code class="docutils literal notranslate"><span class="pre">rpc</span></code> for the thread, asyncio and cothread
 clients; <code class="docutils literal notranslate"><span class="pre">SharedPV.post</span></code>/<code class="docutils literal notranslate"><span class="pre">open</span></code> on the server side</p></li>
 <li><p><strong>caproto</strong> — <code class="docutils literal notranslate"><span class="pre">sync.client.write</span></code>, <code class="docutils literal notranslate"><span class="pre">threading.client.PV.write</span></code>,
 <code class="docutils literal notranslate"><span class="pre">Batch.write</span></code>, <code class="docutils literal notranslate"><span class="pre">asyncio.client.PV.write</span></code></p></li>
 <li><p><strong>pvaPy</strong> — every <code class="docutils literal notranslate"><span class="pre">Channel.put*</span></code> method, including the typed setters
 such as <code class="docutils literal notranslate"><span class="pre">putDouble</span></code> and <code class="docutils literal notranslate"><span class="pre">putScalarArray</span></code></p></li>
+<li><p><strong>doocs4py</strong> — <code class="docutils literal notranslate"><span class="pre">set</span></code>, the call the DOOCS connector writes through</p></li>
 <li><p><strong>Tango</strong> — <code class="docutils literal notranslate"><span class="pre">DeviceProxy.write_attribute</span></code> and its variants,
 <code class="docutils literal notranslate"><span class="pre">AttributeProxy.write</span></code>, and <code class="docutils literal notranslate"><span class="pre">command_inout</span></code> (a Tango command acts on
 the device rather than reading it)</p></li>
+</ul>
+<p><strong>Acquisition frameworks.</strong> These drive hardware through a client below them,
+so their write entry points refuse — but they are also ordinary document and
+analysis libraries, so <em>importing</em> them stays allowed in a <code class="docutils literal notranslate"><span class="pre">readonly</span></code> run:</p>
+<ul class="simple">
+<li><p><strong>ophyd-async</strong> — <code class="docutils literal notranslate"><span class="pre">SignalW.set</span></code> / <code class="docutils literal notranslate"><span class="pre">SignalRW.set</span></code>, and <code class="docutils literal notranslate"><span class="pre">SignalX</span></code>
+execution</p></li>
+<li><p><strong>Bluesky</strong> — <code class="docutils literal notranslate"><span class="pre">RunEngine.__call__</span></code>, which is how a plan is run</p></li>
 </ul>
 <p><strong>Routes out of Python.</strong> These reach a control system without importing a
 client at all, so they are refused in <code class="docutils literal notranslate"><span class="pre">readonly</span></code> runs too:</p>
@@ -641,8 +654,10 @@ program, and the <code class="docutils literal notranslate"><span class="pre">ex
 <p class="admonition-title">Note</p>
 <p>The consequence of the second group is that a <code class="docutils literal notranslate"><span class="pre">readonly</span></code> script cannot
 shell out or load a shared library <em>at all</em>, even for something unrelated
-to the control system. Resubmit such work with
-<code class="docutils literal notranslate"><span class="pre">execution_mode=&quot;readwrite&quot;</span></code>, which requires human approval.</p>
+to the control system. <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> is not a way around it: <code class="docutils literal notranslate"><span class="pre">import</span>
+<span class="pre">subprocess</span></code> is refused before execution in <strong>every</strong> mode, by the
+prohibited-import check. Work that genuinely needs a child process belongs
+outside the executor.</p>
 </div>
 </section>
 <section id="what-executed-code-may-not-change">

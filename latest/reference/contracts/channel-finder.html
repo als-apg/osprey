@@ -606,7 +606,7 @@ artifacts when you run <code class="docutils literal notranslate"><span class="p
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> after you edit the config. There is no public Python
 <code class="docutils literal notranslate"><span class="pre">find_channels(...)</span></code> entry point — drive the resolver from natural
 language via the agent, or invoke the CLI directly:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>channel-finder<span class="w"> </span>generate<span class="w">     </span><span class="c1"># build database from template</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>channel-finder<span class="w"> </span>generate<span class="w"> </span>--source<span class="w"> </span>my_channels.json<span class="w">   </span><span class="c1"># build database from template</span>
 osprey<span class="w"> </span>channel-finder<span class="w"> </span>benchmark<span class="w">    </span><span class="c1"># evaluate on a query dataset</span>
 </pre></div>
 </div>

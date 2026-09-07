@@ -633,7 +633,10 @@ never falls back. Both default to blocked when omitted, and <strong>only a liter
 <code class="docutils literal notranslate"><span class="pre">true</span></code> <strong>arms writes</strong> — the quoted string <code class="docutils literal notranslate"><span class="pre">'true'</span></code> and the number <code class="docutils literal notranslate"><span class="pre">1</span></code> do
 not. A custom connector’s block is keyed by the same dotted module path that
 selects it, so <code class="docutils literal notranslate"><span class="pre">mypackage.MoatConnector</span></code> names one block and is never split
-on its dots.</p>
+on its dots. A profile key <em>is</em> split on every dot, so a refused write from
+such a connector quotes the mapping above rather than a
+<code class="docutils literal notranslate"><span class="pre">control_system.connector.&lt;dotted</span> <span class="pre">type&gt;.writes_enabled</span></code> line: that line
+would build a nest nothing reads, and the write would go on being refused.</p>
 <p>Write posture is a <strong>launch-time deployment posture, not a live kill-switch</strong>:
 read from config and process-cached, so flipping it in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> does not
 affect a running process. The enforced kill-switch lives at the harness layer
@@ -696,6 +699,16 @@ that no key states refuses unlisted channels — permission needs an explicit
 <code class="docutils literal notranslate"><span class="pre">true</span></code>. A deployment that states no limits posture at all runs no limits
 checking, and nothing on that path refuses an unlisted channel.</p></li>
 </ul>
+<p><code class="docutils literal notranslate"><span class="pre">max_step</span></code> is the one limit that costs a read. It caps how far a single write
+may move a channel, which means measuring the channel’s present value first —
+over the client the write is about to go through, not some other one. The
+connector performing the write supplies that read from its own client, so
+<code class="docutils literal notranslate"><span class="pre">max_step</span></code> works on every control system rather than only over Channel
+Access. A connector with no synchronous read refuses a <code class="docutils literal notranslate"><span class="pre">max_step</span></code> channel
+rather than guessing: a step that cannot be measured cannot be approved. The
+layers above the connector — the <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> tool and the limits hook —
+hold no client, so they apply every other limit and leave this one to the
+connector, which makes it on the write itself.</p>
 <p>A refusal about an unlisted channel — and the target switch’s
 <code class="docutils literal notranslate"><span class="pre">limits_posture</span></code> refusal — names the key that answered, the per-type one where
 a block spoke and the deployment-wide one where none did, so an operator edits

@@ -865,6 +865,11 @@ proxy in Anthropic mode), add <code class="docutils literal notranslate"><span c
 </div>
 <p>(The unmapped <code class="docutils literal notranslate"><span class="pre">opus</span></code> tier here falls back to the default model at build
 time, with a warning — map it to silence the substitution.)</p>
+<p><code class="docutils literal notranslate"><span class="pre">api_protocol</span></code> takes exactly two values, <code class="docutils literal notranslate"><span class="pre">anthropic</span></code> and <code class="docutils literal notranslate"><span class="pre">openai</span></code>.
+Anything else — including a capitalised <code class="docutils literal notranslate"><span class="pre">Anthropic</span></code> — is refused when the
+provider is resolved, naming the provider and the two accepted values. Leave
+the key out and the provider is treated as OpenAI, which is what all but the
+Anthropic-native built-ins are.</p>
 </section>
 <section id="spend-attribution-on-a-litellm-gateway">
 <h2>Spend Attribution on a LiteLLM Gateway<a class="headerlink" href="#spend-attribution-on-a-litellm-gateway" title="Link to this heading">#</a></h2>
