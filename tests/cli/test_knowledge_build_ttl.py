@@ -939,6 +939,48 @@ def test_build_ttl_rejects_a_malformed_address(descriptions_db: Path, tmp_path: 
     assert not output.exists()
 
 
+def test_build_ttl_refuses_a_foreign_level_list_before_it_parses_addresses(
+    descriptions_db: Path, tmp_path: Path
+) -> None:
+    """A machine on another level grammar gets one refusal, not one per address.
+
+    The level list is read while the prose is resolved, which happens before
+    any address is parsed; that order is what turns a whole foreign database
+    into a single line naming the grammar this verb reads.
+    """
+    payload = _hierarchical_payload()
+    # A machine whose top level is a section rather than a ring, and whose last
+    # two levels join with '_' -- so every expanded address is five colon
+    # tokens, which is what a per-address refusal would fire on.
+    payload["hierarchy"]["levels"][0] = {"name": "section", "type": "tree"}
+    payload["hierarchy"]["naming_pattern"] = (
+        "{section}:{system}:{family}:{device}:{field}_{subfield}"
+    )
+    db_path = tmp_path / "foreign_levels.json"
+    db_path.write_text(json.dumps(payload), encoding="utf-8")
+    output = tmp_path / "out.ttl"
+
+    result = CliRunner().invoke(
+        knowledge,
+        [
+            "build-ttl",
+            str(output),
+            "--channel-db",
+            str(db_path),
+            "--descriptions",
+            str(descriptions_db),
+        ],
+    )
+
+    assert result.exit_code != 0
+    flat = _flat(result)
+    assert "Traceback" not in result.output
+    assert "six-token grammar: RING, SYSTEM, FAMILY, DEVICE, FIELD, SUBFIELD" in flat
+    # Not the per-address refusal: nothing was parsed before the list was checked.
+    assert "holds an address build-ttl cannot read" not in flat
+    assert not output.exists()
+
+
 def test_build_ttl_points_a_yaml_ontology_at_the_compiler(
     channel_db: Path, descriptions_db: Path, tmp_path: Path
 ) -> None:
