@@ -901,6 +901,13 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
       ``channel_finder.pipelines.hierarchical.database.path``, resolved against
       the ``config.yml`` directory.
 
+      That grammar is the whole of what this verb reads: six levels, in that
+      order, with the device level generated. A hierarchical database built on
+      any other level list --- the shipped
+      ``data/channel_databases/examples/hierarchical_jlab_style.json``, whose
+      levels are ``system, family, sector, device, pv``, is one --- is refused
+      in one line naming the grammar, before a single address is parsed.
+
    ``--descriptions``
       The in-context database for the same machine: a flat list of addresses,
       each with a sentence about that one channel. Those sentences become

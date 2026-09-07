@@ -55,6 +55,19 @@ DEMO_CHANNEL_DB = (
 )
 
 
+def _address_grammar() -> str:
+    """The address grammar, read from the module that defines it.
+
+    Lazily, so ``osprey knowledge`` still does not pull the TTL generator into
+    its import graph for verbs that never touch an address. One producer:
+    a message here and the parser's own refusal cannot spell the grammar
+    differently.
+    """
+    from osprey.services.facility_knowledge.ttl_generator.model import ADDRESS_GRAMMAR
+
+    return ADDRESS_GRAMMAR
+
+
 @click.group()
 def knowledge() -> None:
     """Manage OKF facility knowledge bundles."""
@@ -715,7 +728,7 @@ def _resolve_channel_db(channel_db: Path | None) -> Path:
             f"That is {CHANNEL_DB_CONFIG_KEY} ('{raw}') resolved against the config file's "
             f"directory. {_paradigm_databases(path.parent)}\n"
             "build-ttl reads the hierarchical-paradigm database, the one whose addresses "
-            "are RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD; a project built for another "
+            f"are {_address_grammar()}; a project built for another "
             "paradigm does not ship it. Name a hierarchical database with --channel-db PATH."
         )
     return path
@@ -856,8 +869,7 @@ def _resolve_hierarchy_descriptions(raw: Mapping[str, Any], db_path: Path) -> An
     except (ValueError, AttributeError, TypeError) as exc:
         raise click.ClickException(
             f"Cannot read the level prose in {db_path}: {exc}\n"
-            "build-ttl reads the six-token grammar: RING, SYSTEM, FAMILY, DEVICE, "
-            "FIELD, SUBFIELD."
+            f"build-ttl reads the six-token grammar: {_address_grammar().replace(':', ', ')}."
         ) from exc
 
 
@@ -1160,8 +1172,7 @@ def build_ttl(
     except ValueError as exc:
         raise click.ClickException(
             f"The channel database at {db_path} holds an address build-ttl cannot read: {exc}\n"
-            "Every address must be six colon-separated tokens: "
-            "RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD."
+            f"Every address must be six colon-separated tokens: {_address_grammar()}."
         ) from exc
 
     ontology_table = _load_ontology_table(ontology)

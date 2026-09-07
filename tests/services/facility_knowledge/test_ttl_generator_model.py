@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from osprey.services.facility_knowledge.ttl_generator.model import (
+    ADDRESS_GRAMMAR,
     BINDING_IRI_PREFIX,
     CONFIDENCE,
     DEVICE_IRI_PREFIX,
@@ -165,6 +166,24 @@ def synthetic_tree() -> dict:
 # ---------------------------------------------------------------------------
 # Address grammar
 # ---------------------------------------------------------------------------
+
+
+class TestAddressGrammar:
+    """The grammar string and the parser come from one place."""
+
+    def test_grammar_is_the_field_list_upper_cased(self):
+        """Nothing spells the six tokens by hand, here or in the CLI."""
+        assert ADDRESS_GRAMMAR == "RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD"
+
+    def test_wrong_token_count_is_refused_with_the_grammar(self):
+        """The refusal names the shape it wanted, not just the count it got."""
+        with pytest.raises(ValueError, match=ADDRESS_GRAMMAR):
+            parse_address("SR:MAG:DIPOLE:01:CURRENT")
+
+    def test_empty_token_is_refused_with_the_grammar(self):
+        """An address of the right length but a blank token says the same thing."""
+        with pytest.raises(ValueError, match=ADDRESS_GRAMMAR):
+            parse_address("SR:MAG:DIPOLE::CURRENT:SP")
 
 
 class TestParseAddress:

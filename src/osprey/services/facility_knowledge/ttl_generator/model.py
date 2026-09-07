@@ -75,6 +75,12 @@ _ADDRESS_FIELDS = ("ring", "system", "family", "device", "field", "subfield")
 _ADDRESS_TOKEN_COUNT = len(_ADDRESS_FIELDS)
 _DIGIT_RUN = re.compile(r"(\d+)")
 
+#: The address grammar, spelled the way an operator sees it. Derived from the
+#: field list so the grammar and the parser cannot say different things: every
+#: message that names the grammar --- here and in the CLI --- reads it from
+#: here rather than repeating the six tokens.
+ADDRESS_GRAMMAR = ":".join(field.upper() for field in _ADDRESS_FIELDS)
+
 
 # ---------------------------------------------------------------------------
 # Address grammar
@@ -136,14 +142,13 @@ def parse_address(addr: str) -> Address:
     if len(tokens) != _ADDRESS_TOKEN_COUNT:
         raise ValueError(
             f"Channel address {addr!r} has {len(tokens)} colon-separated token(s), "
-            f"expected {_ADDRESS_TOKEN_COUNT} "
-            "(RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD)"
+            f"expected {_ADDRESS_TOKEN_COUNT} ({ADDRESS_GRAMMAR})"
         )
     empty = [name for name, tok in zip(_ADDRESS_FIELDS, tokens, strict=True) if not tok]
     if empty:
         raise ValueError(
             f"Channel address {addr!r} has an empty {', '.join(empty)} token; "
-            "every token of RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD must be non-empty"
+            f"every token of {ADDRESS_GRAMMAR} must be non-empty"
         )
     return Address(*tokens)
 
