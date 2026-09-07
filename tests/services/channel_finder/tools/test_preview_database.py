@@ -26,6 +26,7 @@ from osprey.services.channel_finder.tools.preview_database import (
     _count_channels_at_path,
     _count_channels_matching_focus,
     _get_children_at_level,
+    _looks_like_middle_layer,
     _navigate_middle_layer_focus,
     _navigate_to_focus,
     _resolve_path,
@@ -412,6 +413,49 @@ class TestPreviewInContext:
 # ---------------------------------------------------------------------------
 
 
+#: The demo machine's own middle-layer database, as it ships in the source tree.
+SHIPPED_MIDDLE_LAYER = (
+    Path(__file__).resolve().parents[4]
+    / "src/osprey/templates/apps/control_assistant/data"
+    / "channel_databases/tiers/tier3/middle_layer.json"
+)
+
+#: Its in-context sibling, which must not be mistaken for one.
+SHIPPED_IN_CONTEXT = SHIPPED_MIDDLE_LAYER.with_name("in_context.json")
+
+
+class TestLooksLikeMiddleLayer:
+    """The paradigm is recognised by its shape, not by one machine's group names."""
+
+    def test_the_shipped_database_is_recognised(self):
+        """The file the demo machine actually ships still classifies."""
+        assert SHIPPED_MIDDLE_LAYER.is_file(), SHIPPED_MIDDLE_LAYER
+        data = json.loads(SHIPPED_MIDDLE_LAYER.read_text(encoding="utf-8"))
+        assert _looks_like_middle_layer(data) is True
+
+    def test_another_facilitys_group_names_are_recognised(self):
+        """The same file re-keyed LINAC/TL is the same paradigm."""
+        assert SHIPPED_MIDDLE_LAYER.is_file(), SHIPPED_MIDDLE_LAYER
+        data = json.loads(SHIPPED_MIDDLE_LAYER.read_text(encoding="utf-8"))
+        groups = [key for key in data if not key.startswith("_")]
+        renamed = dict(zip(("LINAC", "TL", "RING"), (data[key] for key in groups), strict=False))
+        assert _looks_like_middle_layer(renamed) is True
+
+    def test_an_in_context_database_is_not_one(self):
+        """The negative the token list used to get right by accident."""
+        assert SHIPPED_IN_CONTEXT.is_file(), SHIPPED_IN_CONTEXT
+        data = json.loads(SHIPPED_IN_CONTEXT.read_text(encoding="utf-8"))
+        assert _looks_like_middle_layer(data) is False
+
+    def test_a_bare_mapping_is_not_one(self):
+        """Nesting alone is not the paradigm; the ChannelNames leaf is."""
+        assert _looks_like_middle_layer({"SR": {"BPM": {"Monitor": {}}}}) is False
+
+    def test_metadata_keys_do_not_carry_the_shape(self):
+        """A ``_``-prefixed block is metadata, so it cannot classify the file."""
+        assert _looks_like_middle_layer({"_notes": {"ChannelNames": ["X"]}}) is False
+
+
 class TestPreviewDatabaseDispatch:
     def test_dispatch_hierarchical_by_path(self, hier_file: Path):
         console = _capture_console()
@@ -421,6 +465,19 @@ class TestPreviewDatabaseDispatch:
     def test_dispatch_middle_layer_by_path(self, ml_file: Path):
         console = _capture_console()
         preview_database(db_path=str(ml_file), console=console)
+        assert "Middle Layer Database Preview" in _text(console)
+
+    def test_dispatch_middle_layer_with_another_facilitys_groups(self, tmp_path: Path):
+        """A machine whose top-level groups are its own still previews."""
+        data = {
+            "LINAC": {
+                "BPM": {"Monitor": {"ChannelNames": ["LIN:BPM1:X"]}},
+            },
+        }
+        path = tmp_path / "linac_ml.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        console = _capture_console()
+        preview_database(db_path=str(path), console=console)
         assert "Middle Layer Database Preview" in _text(console)
 
     def test_dispatch_in_context_by_path(self, in_context_file: Path):

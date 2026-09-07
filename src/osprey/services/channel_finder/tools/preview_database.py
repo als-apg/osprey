@@ -30,6 +30,44 @@ from osprey.services.channel_finder.utils.detection import detect_pipeline_confi
 _default_console = Console()
 
 
+def _reaches_channel_names(node: object) -> bool:
+    """True when *node* is a mapping that holds, or nests, a ``ChannelNames`` list.
+
+    ``ChannelNames`` is what the middle-layer paradigm bottoms out in; every
+    level above it is named by the facility, so the walk descends through
+    whatever names it finds. Keys starting with ``_`` are metadata and are
+    skipped, as they are everywhere else in these files.
+    """
+    if not isinstance(node, dict):
+        return False
+    if isinstance(node.get("ChannelNames"), list):
+        return True
+    return any(
+        _reaches_channel_names(value)
+        for key, value in node.items()
+        if isinstance(key, str) and not key.startswith("_")
+    )
+
+
+def _looks_like_middle_layer(data: object) -> bool:
+    """True when *data* has the shape of a middle-layer database.
+
+    The paradigm is a nesting of the facility's own group names that ends in a
+    ``ChannelNames`` list --- the structure
+    :mod:`osprey.services.channel_finder.databases.middle_layer` documents.
+    Recognising it by shape is what lets any facility's file be previewed: a
+    list of group tokens would only ever recognise the machine it was written
+    from.
+    """
+    if not isinstance(data, dict):
+        return False
+    return any(
+        _reaches_channel_names(value)
+        for key, value in data.items()
+        if isinstance(key, str) and not key.startswith("_")
+    )
+
+
 def _resolve_path(path_str: str) -> Path:
     """Resolve a database path."""
     path = Path(path_str)
@@ -829,9 +867,7 @@ def preview_database(
             if "hierarchy" in data or "tree" in data:
                 pipeline_type = "hierarchical"
                 db_config = {}
-            elif isinstance(data, dict) and any(
-                key in data for key in ["SR", "BR", "BTS", "VAC", "Scraper"]
-            ):
+            elif _looks_like_middle_layer(data):
                 pipeline_type = "middle_layer"
                 db_config = {}
             else:
