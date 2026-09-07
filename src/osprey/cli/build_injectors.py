@@ -733,21 +733,24 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
 
 
 #: The control-system targets a bluesky plan lane can serve, keyed by the
-#: ``control_system.type`` each is spelled with in a rendered config.yml — taken
-#: from the connector package's constants rather than respelled here, so a
-#: renamed type cannot leave this mapping silently matching nothing.
-#: ``MOCK`` and ``DOOCS`` are deliberately absent: they are not switch targets,
-#: so a deployment on one of them has no second lane to render.
+#: ``control_system.type`` each is spelled with in a rendered config.yml.
 #:
-#: ``LIVE_STANDIN`` is here because the stand-in is a control target in its own
+#: Derived rather than written out: the keys are the types the queue worker can
+#: build devices over (:data:`~osprey_connectors.types.CHANNEL_ACCESS_TYPES`)
+#: and each value is the target that type is the baseline of
+#: (:func:`~osprey_connectors.types.baseline_target`), so a type added to either
+#: upstream reaches the lane renderer without a second edit here. ``MOCK`` and
+#: ``DOOCS`` fall out for the reason they were left out by hand: a lane the
+#: worker cannot execute over is not a lane to render.
+#:
+#: ``LIVE_STANDIN`` is in because the stand-in is a control target in its own
 #: right — a soft IOC this deployment runs for itself, with its own connector
 #: block — and not a way of spelling ``live``. A deployment baselined on it
 #: gets a lane that says ``standin``, which is what keeps ``live`` meaning the
 #: facility's own machine on the very deployments that run both.
 _LANE_TARGET_BY_CONTROL_SYSTEM_TYPE = {
-    connector_types.EPICS: connector_types.TARGET_LIVE,
-    connector_types.VIRTUAL_ACCELERATOR: connector_types.TARGET_VA,
-    connector_types.LIVE_STANDIN: connector_types.TARGET_STANDIN,
+    cs_type: connector_types.baseline_target({"type": cs_type})
+    for cs_type in connector_types.CHANNEL_ACCESS_TYPES
 }
 
 #: Lane 1 always keeps the historical service key. Lane 2 is named for the

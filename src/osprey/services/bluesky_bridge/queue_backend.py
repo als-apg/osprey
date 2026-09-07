@@ -1350,10 +1350,12 @@ class QueueBackend:
                 lane_target=lane_target,
                 lane_degraded=lane_degraded,
                 detail=(
-                    f"The {connector_type!r} connector is not one the plan stack can execute "
-                    "plans against: the queue worker builds its devices over Channel "
-                    "Access, so a deployment executes plans only on a connector that "
-                    "speaks it. Plans can be composed and validated here."
+                    f"This connector type does not execute plans: the queue worker "
+                    f"builds its devices over Channel Access and {connector_type!r} "
+                    "does not speak it, so plans can be composed and validated here "
+                    "but not run. That is a property of the worker's device layer "
+                    "rather than of the plan stack — what executing them needs is a "
+                    "device layer for this protocol."
                 ),
             )
 

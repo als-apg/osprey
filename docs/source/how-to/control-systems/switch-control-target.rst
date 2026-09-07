@@ -156,6 +156,15 @@ Moving toward the live machine is the direction with the extra gates. The switch
 checks them in this order and reports the first one that fails, so the answer
 names the nearest thing to fix rather than the whole list.
 
+**A control system the switch can dial** (``connector_not_switchable``).
+The switch moves a session by pointing a connector host at a Channel Access
+gateway, so a deployment whose live block is on another protocol has nothing for
+it to dial. The refusal names the connector type rather than sending you to
+author a gateways table your control system has no use for. It is not a fault in
+the config and it does not touch the machine: the deployment still runs on that
+control system, and its own baseline is still where a session comes home to.
+What it cannot do is move a session onto it.
+
 **The gateways** (``gateways_missing``).
 ``control_system.connector.epics.gateways`` names where the live machine is
 reached. A facility's gateways cannot be guessed, so nothing usable ships
@@ -472,6 +481,11 @@ not usable right now".
    * - **Already there**
      - The deployment is on that target already. The active target always
        answers this, whatever else would also be true of it.
+   * - **Switching not supported**
+     - The target's connector type is not reached over Channel Access, and the
+       switch has no way to dial it. Nothing is missing from the config and the
+       deployment still runs on that control system — a session simply cannot be
+       moved onto it.
    * - **The target is not configured**
      - No connector block for that target, no gateways table, or no entry for
        the gateway role this deployment would select. This is a build or config

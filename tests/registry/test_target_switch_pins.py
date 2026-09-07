@@ -324,10 +324,7 @@ def test_the_approval_hooks_target_literals_match_the_frameworks() -> None:
     assert hook._TARGET_STANDIN == TARGET_STANDIN
     assert hook._VIRTUAL_ACCELERATOR_TYPE == connector_types.VIRTUAL_ACCELERATOR
     assert hook._LIVE_STANDIN_TYPE == connector_types.LIVE_STANDIN
-    assert hook._BASELINE_TARGETS == {
-        connector_types.VIRTUAL_ACCELERATOR: TARGET_VA,
-        connector_types.LIVE_STANDIN: TARGET_STANDIN,
-    }
+    assert hook._BASELINE_TARGETS == connector_types._BASELINE_TARGETS
 
 
 # ---------------------------------------------------------------------------

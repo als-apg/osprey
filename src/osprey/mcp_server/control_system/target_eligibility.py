@@ -124,6 +124,7 @@ from osprey_connectors.standin import (
     live_standin_active,
 )
 from osprey_connectors.types import (
+    CHANNEL_ACCESS_TYPES,
     INVENTED_HISTORY_TYPES,
     TARGET_LIVE,
     TARGET_STANDIN,
@@ -178,6 +179,15 @@ DIRECTION_BACK = "back"
 REASON_ALREADY_ACTIVE = "already_active"
 REASON_TARGET_UNRESOLVABLE = "target_unresolvable"
 REASON_CONNECTOR_BLOCK_MISSING = "connector_block_missing"
+#: The switch has no way to dial this connector type. It points a connector host
+#: at a Channel Access gateway, so a type reached over another protocol is
+#: undialable whether or not its block authored a gateways table — this is asked
+#: ahead of :data:`REASON_GATEWAYS_MISSING` rather than being that table's empty
+#: case, so a deployer is never told to author, or repair, something their
+#: control system has no use for. It says nothing about the machine: such a type
+#: is still this deployment's real one, with the posture that goes with a real
+#: machine.
+REASON_CONNECTOR_NOT_SWITCHABLE = "connector_not_switchable"
 REASON_GATEWAYS_MISSING = "gateways_missing"
 REASON_SELECTED_ROLE_MISSING = "selected_role_missing"
 REASON_PROBE_CHANNEL_MISSING = "probe_channel_missing"
@@ -674,7 +684,11 @@ def evaluate_eligibility(
        would select *for this target* (a target armed for writes with only a read
        gateway selects ``read_only`` and is eligible; a target with only a write
        gateway whose own posture leaves writes unarmed selects ``read_only`` and
-       is not);
+       is not). Before that table is read at all, the connector type has to be
+       one the switch can dial: a type that is not reached over Channel Access
+       has no gateway to point a connector host at, whatever its block says, and
+       is refused as the protocol it is (:data:`REASON_CONNECTOR_NOT_SWITCHABLE`)
+       rather than judged on a table that cannot apply to it;
     4. that block names a ``probe_channel`` — a target that cannot prove itself
        reachable is never switched to;
     5. for ``standin`` only: the endpoint that block selects really is the
@@ -762,6 +776,25 @@ def evaluate_eligibility(
     selected_role = derivation.selected_role
 
     if switching_away:
+        # Asked before the gateways table, not as its empty case: the switch
+        # points a connector host at a Channel Access gateway, so a type that is
+        # not reached that way is undialable whether or not its block authored a
+        # table. Judging such a block on its gateways would report the protocol
+        # as a key nobody filled in, or worse, walk a deployment on another
+        # control system through checks that read a Channel Access address.
+        if connector_type not in CHANNEL_ACCESS_TYPES:
+            speaks = ", ".join(repr(t) for t in CHANNEL_ACCESS_TYPES)
+            return Eligibility(
+                False,
+                REASON_CONNECTOR_NOT_SWITCHABLE,
+                f"Target {target!r} resolves to connector type "
+                f"{connector_type!r}, which the switch has no way to dial: it "
+                f"points a connector host at a gateway named in "
+                f"'{block_key}.gateways', and only {speaks} are reached that "
+                f"way. The deployment still runs on {connector_type!r} — what "
+                "it cannot do is move a session onto it.",
+            )
+
         if not _sub(raw_block, "gateways"):
             return Eligibility(
                 False,
