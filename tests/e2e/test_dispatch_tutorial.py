@@ -1,9 +1,9 @@
 """Real-token subprocess sweep over the shipped tutorial triggers (L1).
 
 Proves the bundled ``tutorial_triggers.yml`` triggers actually work end to end
-ACROSS PROCESSES with a real Claude Agent SDK run, using the als-apg provider
-(the Bedrock proxy reachable from GitHub Actions runners). For each token
-trigger this:
+ACROSS PROCESSES with a real Claude Agent SDK run, using the provider named by
+``OSPREY_E2E_PROVIDER`` (defaulting to the Bedrock proxy reachable from GitHub
+Actions runners). For each token trigger this:
 
   1. Builds a real control-assistant deployment repo once (module-scoped fixture).
   2. Loads the REAL shipped ``tutorial_triggers.yml`` and overrides ONLY
@@ -46,6 +46,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.e2e.conftest import e2e_provider
 from tests.e2e.sdk_helpers import HAS_SDK
 
 TOKEN = "tutorial-e2e-token"  # shared dispatcher<->worker bearer for the test
@@ -168,7 +169,7 @@ def _run_osprey(argv: list[str], cwd: Path, timeout: int = 300) -> subprocess.Co
 
 @pytest.fixture(scope="module")
 def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Init + build a real als-apg control-assistant deployment repo once per module.
+    """Init + build a real control-assistant deployment repo once per module.
 
     Two steps because the surface has two: ``init`` writes the repo's source zone
     from the preset, ``build`` renders ``build/`` from it. ``--skip-deps`` keeps
@@ -186,7 +187,7 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
             "control-assistant",
             "--no-git",
             "--set",
-            "provider=als-apg",
+            f"provider={e2e_provider()}",
             "--set",
             "model=haiku",
         ],
@@ -194,7 +195,7 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
     )
     if init.returncode != 0:
         pytest.fail(
-            f"osprey init (als-apg) failed (rc={init.returncode}):\n"
+            f"osprey init ({e2e_provider()}) failed (rc={init.returncode}):\n"
             f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
         )
 
