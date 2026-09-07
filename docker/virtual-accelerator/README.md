@@ -83,9 +83,8 @@ Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
   work across container runtimes (see
   `scripts/va/probe_pcaspy/README.md`'s reachability
   matrix; UDP broadcast discovery is not published because it is not relied
-  upon). Port 5064 matches the shipped **"Local Simulation"** gateway preset
-  (`src/osprey/templates/data/facility_gateways.py`) exactly, so a project
-  using it needs no config changes beyond selecting
+  upon). 5064 is the port the server binds and the image publishes; it is the
+  CA default, so a project needs no config changes beyond selecting
   `control_system.type: virtual_accelerator`.
 - **The published port and the port the server binds must be the same
   number.** A CA search reply carries the server's own port, so a remap like

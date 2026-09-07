@@ -66,13 +66,12 @@
 #
 # Environment:
 #   OSPREY_VA_CA_PORT   Channel Access port to bind and publish. Defaults to
-#                       5164, deliberately NOT the 5064 the "Local Simulation"
-#                       gateway preset and the compose template name: this gate
-#                       binds and publishes whatever port it is given, so it
-#                       needs no particular number, and staying off 5064 keeps
-#                       it clear of the deployed stacks that do need that one.
-#                       Set it to 5064 to certify on the shipped default, on a
-#                       host where nothing else holds it.
+#                       5164, deliberately NOT the 5064 the compose template
+#                       names: this gate binds and publishes whatever port it
+#                       is given, so it needs no particular number, and staying
+#                       off 5064 keeps it clear of the deployed stacks that do
+#                       need that one. Set it to 5064 to certify on the shipped
+#                       default, on a host where nothing else holds it.
 #   OSPREY_VA_RUNTIME   Container runtime. Auto-detected when unset.
 set -euo pipefail
 
@@ -85,12 +84,11 @@ CONTAINER="osprey-va-full-gate"
 # server's own port -- but WHICH number that is, this gate does not care about:
 # it tells the server the port and publishes the same one. So the default is
 # chosen to stay out of the way rather than to match anything. 5064 belongs to
-# the deployed stacks (the "Local Simulation" gateway preset and the compose
-# template both name it), and pointing a host client at a port a *different*
-# virtual accelerator may be serving is precisely the hazard the identity
-# handshake below exists to catch. 5164 is a port this gate has been run clean
-# on end to end. Overridable, including back to 5064 to certify the shipped
-# default on a host where nothing else holds it.
+# the deployed stacks (the compose template names it), and pointing a host
+# client at a port a *different* virtual accelerator may be serving is
+# precisely the hazard the identity handshake below exists to catch. 5164 is a
+# port this gate has been run clean on end to end. Overridable, including back
+# to 5064 to certify the shipped default on a host where nothing else holds it.
 CA_PORT="${OSPREY_VA_CA_PORT:-5164}"
 BOOT_TIMEOUT_SECS=60
 READY_LOG_MARKER="virtual accelerator IOC serving PVs"

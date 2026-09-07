@@ -115,11 +115,7 @@ RUN pip install --no-cache-dir "accelerator-toolbox[plot]==0.7.1" \
 # client side) is the one host<->container configuration proven to work
 # across container runtimes (see
 # scripts/va/probe_pcaspy/README.md); UDP broadcast
-# discovery is not published because it is not relied upon. 5064 matches the
-# "Local Simulation" gateway preset
-# (src/osprey/templates/data/facility_gateways.py) exactly, so a preset
-# project needs no config changes beyond selecting control_system.type:
-# virtual_accelerator.
+# discovery is not published because it is not relied upon.
 #
 # The published port and the port the server binds must be the SAME number:
 # a CA search reply carries the server's own port, so a remap like
