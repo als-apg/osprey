@@ -105,6 +105,17 @@ class _ShellChannel:
         self.context.destroy(linger=0)
 
 
+def _pristine_send():  # type: ignore[no-untyped-def]
+    """``ipykernel``'s own ``_send_on_shell_channel``, under any re-arm already installed.
+
+    The re-arm patches the class for the whole process, and a test elsewhere
+    in the same worker may have installed one already; wrapping that instead
+    of the real send would put its closure in the reply path.
+    """
+    send = subshell_manager.SubshellManager._send_on_shell_channel
+    return getattr(send, "__wrapped__", send)
+
+
 @pytest.fixture
 def gated_send(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, threading.Event]]:
     """``_send_on_shell_channel`` that waits for peer B's request before sending A's reply.
@@ -114,7 +125,7 @@ def gated_send(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, threading.
     straight through.
     """
     gate = {"a_reply_pending": threading.Event(), "b_sent": threading.Event()}
-    original = subshell_manager.SubshellManager._send_on_shell_channel
+    original = _pristine_send()
     gated_once = threading.Event()
 
     def gated(self, msg):  # type: ignore[no-untyped-def]
@@ -132,8 +143,13 @@ def gated_send(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, threading.
     yield gate
 
 
-def _run_nudge_shaped_exchange(channel: _ShellChannel, gate: dict[str, threading.Event]) -> bool:
-    """Peer A asks and leaves; peer B asks while A's reply is held. Was B answered?"""
+def _run_nudge_shaped_exchange(
+    channel: _ShellChannel, gate: dict[str, threading.Event]
+) -> tuple[bool, zmq.Socket]:
+    """Peer A asks and leaves; peer B asks while A's reply is held. Was B answered?
+
+    Returns B's socket still open, so a caller can watch what frees it later.
+    """
     a, b = channel.peer(), channel.peer()
     time.sleep(0.05)
     a.send_multipart([b"", b"from-a"])
@@ -142,9 +158,7 @@ def _run_nudge_shaped_exchange(channel: _ShellChannel, gate: dict[str, threading
     b.send_multipart([b"", b"from-b"])
     time.sleep(0.05)  # let B's request reach the ROUTER inside the held callback
     gate["b_sent"].set()
-    answered = bool(b.poll(REPLY_DEADLINE_MS))
-    b.close()
-    return answered
+    return bool(b.poll(REPLY_DEADLINE_MS)), b
 
 
 def test_the_rearmed_stream_serves_a_request_that_landed_during_a_reply(gated_send):
@@ -157,7 +171,9 @@ def test_the_rearmed_stream_serves_a_request_that_landed_during_a_reply(gated_se
     jupyter_kernel.install_shell_stream_rearm(lambda: channel.shell_stream)
     channel = _ShellChannel(None)
     try:
-        assert _run_nudge_shaped_exchange(channel, gated_send)
+        answered, b = _run_nudge_shaped_exchange(channel, gated_send)
+        b.close()
+        assert answered
     finally:
         channel.close()
 
@@ -166,17 +182,20 @@ def test_without_the_rearm_that_request_is_stuck_until_another_peer_connects(gat
     """The failure the re-arm exists for, pinned so the test above is known to bite.
 
     Stuck means: B is not answered within the deadline, and a third peer's
-    connection then frees it. If this test ever fails because B is answered
-    promptly, ``ipykernel`` has fixed its send and the re-arm can go.
+    connection then frees it. The connection alone is the wake-up — a command
+    the ROUTER processes on the stream's own loop; a request from that peer
+    would only land in the same window again, behind B's reply. If this test
+    ever fails because B is answered promptly, ``ipykernel`` has fixed its send
+    and the re-arm can go.
     """
     channel = _ShellChannel(None)
     try:
-        answered = _run_nudge_shaped_exchange(channel, gated_send)
+        answered, b = _run_nudge_shaped_exchange(channel, gated_send)
         assert not answered
         c = channel.peer()
-        c.send_multipart([b"", b"from-c"])
-        assert c.poll(REPLY_DEADLINE_MS)
+        assert b.poll(REPLY_DEADLINE_MS), "a new peer's connection did not free B"
         c.close()
+        b.close()
     finally:
         channel.close()
 
@@ -185,7 +204,7 @@ def test_the_rearm_installs_once(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         subshell_manager.SubshellManager, jupyter_kernel._SHELL_REARM_MARK, False, raising=False
     )
-    original = subshell_manager.SubshellManager._send_on_shell_channel
+    original = _pristine_send()
     monkeypatch.setattr(subshell_manager.SubshellManager, "_send_on_shell_channel", original)
 
     jupyter_kernel.install_shell_stream_rearm(lambda: None)

@@ -35,6 +35,7 @@ record for its whole life instead of holding whatever was true when it started.
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import sys
@@ -627,6 +628,7 @@ def install_shell_stream_rearm(shell_stream: Callable[[], Any]) -> None:
         return
     send_on_shell_channel = SubshellManager._send_on_shell_channel
 
+    @functools.wraps(send_on_shell_channel)
     def send_and_rearm(self: Any, msg: Any) -> None:
         send_on_shell_channel(self, msg)
         stream = shell_stream()
