@@ -52,6 +52,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.e2e.conftest import e2e_provider
 from tests.e2e.test_dispatch_tutorial import (
     HEALTH_TIMEOUT_SEC,
     _find_osprey_console_script,
@@ -106,7 +107,7 @@ def _run_osprey(argv: list[str], cwd: Path, timeout: int = 300) -> subprocess.Co
 
 @pytest.fixture(scope="module")
 def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Init + build a real als-apg control-assistant deployment repo once per module."""
+    """Init + build a real control-assistant deployment repo once per module."""
     base = tmp_path_factory.mktemp("parity_build")
     repo = base / "proj"
 
@@ -118,7 +119,7 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
             "control-assistant",
             "--no-git",
             "--set",
-            "provider=als-apg",
+            f"provider={e2e_provider()}",
             "--set",
             "model=haiku",
         ],

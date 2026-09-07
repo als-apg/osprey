@@ -12,6 +12,25 @@ import pytest
 
 from osprey.registry import reset_registry
 
+#: Environment variable naming the provider the build-and-run e2e lanes drive.
+#:
+#: These lanes init a real deployment repo and run an agent against it, so they
+#: need a provider whose credential the runner actually holds. That is one fact
+#: about a CI environment, not about OSPREY: a facility running this suite on
+#: its own gateway sets this variable and the lanes follow it, instead of
+#: patching four modules that each spelled one gateway's name inline.
+E2E_PROVIDER_ENV = "OSPREY_E2E_PROVIDER"
+
+#: The provider used when :data:`E2E_PROVIDER_ENV` names none — the gateway
+#: whose key the project's own runners carry, and the one the ``requires_*``
+#: markers on these lanes gate on.
+DEFAULT_E2E_PROVIDER = "als-apg"
+
+
+def e2e_provider() -> str:
+    """The provider these lanes build their deployment repo with."""
+    return os.environ.get(E2E_PROVIDER_ENV, "").strip() or DEFAULT_E2E_PROVIDER
+
 
 def _print_failure_now(report) -> None:
     """Put a failed test's traceback in the log the moment it fails.
