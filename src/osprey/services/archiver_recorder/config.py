@@ -247,11 +247,16 @@ def resolve_channel_addresses(data_dir: Path | None = None) -> list[str]:
     the IOC and this service share; reading anything else makes a second source
     that is free to drift from what is actually being served.
 
+    An address the archive cannot hold as a field name is refused here on the
+    same terms (see :func:`_unstorable_field_name`), rather than started and
+    discovered a tick at a time.
+
     Raises:
-        RecorderConfigError: if ``VA_CHANNELS_FILE`` names nothing, or if the
-            manifest it names cannot be loaded. A recorder that fell back to
-            the built-in channel set on either path would record another
-            facility's namespace into this facility's archive.
+        RecorderConfigError: if ``VA_CHANNELS_FILE`` names nothing, if the
+            manifest it names cannot be loaded, or if it lists an address the
+            archive cannot store as a field name. A recorder that fell back to
+            the built-in channel set on either of the first two paths would
+            record another facility's namespace into this facility's archive.
     """
     root = Path(data_dir) if data_dir is not None else Path(DEFAULT_DATA_DIR)
     raw = os.environ.get("VA_CHANNELS_FILE", "").strip()
@@ -283,7 +288,40 @@ def resolve_channel_addresses(data_dir: Path | None = None) -> list[str]:
             f"could not be loaded: {exc}"
         ) from exc
 
-    return [str(channel["address"]) for channel in channels]
+    addresses = [str(channel["address"]) for channel in channels]
+    for address in addresses:
+        refusal = _unstorable_field_name(address)
+        if refusal is not None:
+            raise RecorderConfigError(
+                f"cannot record: the channel manifest named by VA_CHANNELS_FILE ({path}) "
+                f"lists {address!r}, which cannot be stored: it {refusal}. Every tick is "
+                f"one document with a field per address, so this channel would be dropped "
+                f"from the archive -- or take the whole write with it -- rather than "
+                f"recorded. Rename the channel, or leave it out of the manifest the "
+                f"recorder is pointed at."
+            )
+    return addresses
+
+
+def _unstorable_field_name(address: str) -> str | None:
+    """Why ``address`` cannot be an archive field name, or ``None`` if it can.
+
+    A tick is stored as one flat document keyed by channel address, and the
+    archiver connector projects the same names back out. MongoDB reads ``.``
+    in a field name as a path separator and a leading ``$`` as an operator,
+    and holds no NUL byte at all, so an address carrying one of those is not a
+    field this store can round-trip. Refusing at startup is the same
+    fail-closed stance the rest of this module takes: the alternative is a
+    recorder that runs, warns once a tick, and leaves an archive that quietly
+    does not hold what its operators believe it holds.
+    """
+    if "." in address:
+        return "contains '.', which the archive reads as a document path separator"
+    if address.startswith("$"):
+        return "starts with '$', which the archive reads as an operator"
+    if "\x00" in address:
+        return "contains a NUL byte, which a field name cannot hold"
+    return None
 
 
 # ---------------------------------------------------------------------------
