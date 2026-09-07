@@ -886,6 +886,12 @@ config:
   # thing that stops it. `host` has no env override.
   artifact_server.host: 127.0.0.1
   artifact_server.auto_launch: true
+  # Extra artifact categories on top of the ones the gallery ships, so a badge
+  # reads in this facility's own vocabulary. One dotted line per category, each
+  # value a `label` and a `#RRGGBB` `color`. An artifact handed in under a
+  # category nobody declared is still stored — it just keeps the default badge,
+  # and the save logs a warning naming this key.
+  # artifact_server.categories.beam_diagnostics: {label: Beam Diagnostics, color: "#f59e0b"}
   # Seed one shipped example (an interactive plot, synthetic data) into an
   # empty WORKSPACE on the gallery's first start. Deleting it there is permanent.
   artifact_server.example_artifact: true
