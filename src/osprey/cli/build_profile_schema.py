@@ -403,6 +403,23 @@ class DispatchConfig:
     single value into both halves instead.
     """
 
+    env: list[str] = field(default_factory=list)
+    """Host environment variable NAMES both halves pass through to their
+    containers, in author order.
+
+    The same axis every other service declares as ``services.<name>.env``, and
+    it lives here for the same reason ``network`` does: ``_inject_dispatch``
+    writes both ``services.<half>`` blocks wholesale, so a name authored on
+    either half would be dropped before it reached a container — which is why
+    that spelling is refused outright.
+
+    One knob for both halves, unlike ``network`` for a different reason: they
+    are two containers of one feature reading one deployment's environment, and
+    a name the dispatcher needs to see the machine is a name a worker acting on
+    what it saw needs too. Names only, never values: each is emitted as a bare
+    ``NAME: ${NAME}`` the deploy env chain fills in.
+    """
+
 
 #: Host-port distance between a two-lane deploy's first and second bluesky lane.
 #:

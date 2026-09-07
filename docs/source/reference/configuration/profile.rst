@@ -718,6 +718,35 @@ declares ``network: host`` whose render does not carry it. See
 ``dispatch.network``, the single knob that covers the event dispatcher and its
 workers.
 
+A second ``config`` key the build reads is ``env``: a list of host environment
+variable NAMES the service passes through to its container, in the order you
+write them.
+
+.. code-block:: yaml
+
+   services:
+     typesense:
+       template: services/typesense
+       config:
+         env: [TYPESENSE_TELEMETRY, HTTPS_PROXY]
+
+Names only, never values — each becomes a ``NAME: ${NAME}`` the deploy env
+chain fills in, so rotating a value is an edit to ``.env`` and a restart. A name
+nothing sets arrives as an empty variable rather than an absent one.
+
+The event dispatcher and its workers take the same axis as ``dispatch.env``,
+one list for both halves, because the build writes both of their service blocks
+itself:
+
+.. code-block:: yaml
+
+   dispatch:
+     triggers: my_triggers.yml
+     env: [EPICS_CA_ADDR_LIST, EPICS_CA_NAME_SERVERS]
+
+Writing ``env:`` on either half's own service block is refused for the same
+reason ``network:`` there is: the build would overwrite it.
+
 .. _profile-graph-mode:
 
 Graph-mode channel finding

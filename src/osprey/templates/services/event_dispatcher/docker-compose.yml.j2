@@ -5,6 +5,12 @@
     near-identical dialects. With no `network:` declared the macros emit
     exactly the blocks this file carried before, byte for byte. -#}
 {%- import "services/_network_axis.j2" as net -%}
+{#- The env passthrough axis: the host variables this deployment hands both
+    halves of the dispatch pair, from the profile's `dispatch.env`. Written
+    into `services.event_dispatcher` (and its worker sibling) by
+    `_inject_dispatch`, because this block is authored by the build rather than
+    by hand. With nothing declared the macro emits nothing at all. -#}
+{%- import "services/_env_axis.j2" as hostenv -%}
 {#- The one thing the macros cannot render for this service: the address the
     MCP server itself binds. Read once here so the mode is spelled the same
     way the macros spell it (unset means `bridge`), rather than repeated as a
@@ -122,6 +128,7 @@ services:
       OSPREY_TELEMETRY_URL: "http://localhost:{{ services.openobserve.port | default(osprey_ports.openobserve, true) }}"
 {% endif %}
       TZ: {{ system.timezone }}
+{{- hostenv.passthrough(services.event_dispatcher) }}
     # Bind-mount sources are relative to the compose *project directory*
     # (build/services/), which is the first -f file's location — not this
     # service's subdir — so they must be prefixed with event_dispatcher/.

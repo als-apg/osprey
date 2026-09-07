@@ -257,6 +257,26 @@ Authoring Triggers
    stack never exercises it; the behaviour is covered by
    ``tests/unit/dispatch/test_server_routes.py``.
 
+Reaching the Machine
+====================
+
+A trigger's ``source:`` decides what wakes it. ``webhook`` and ``cron`` need
+nothing from the network; ``epics_ca`` monitors channels and does, and on a
+site where those channels live behind a gateway the dispatcher has to be told
+where the gateway is. Both halves of the pair take that from the deployment's
+env chain, through one profile key:
+
+.. code-block:: yaml
+
+   dispatch:
+     triggers: my_triggers.yml
+     env: [EPICS_CA_ADDR_LIST, EPICS_CA_NAME_SERVERS]
+
+Each name is passed through to both containers as ``NAME: ${NAME}``, so the
+values live in ``.env`` / ``.env.shared`` and rotate with an edit and a restart.
+The worker gets the same list as the dispatcher: a run acting on what a trigger
+saw has to be able to see it too.
+
 .. _event-dispatch-auth:
 
 Authentication
