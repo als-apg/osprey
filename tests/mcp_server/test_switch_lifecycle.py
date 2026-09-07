@@ -32,6 +32,7 @@ give the two targets different postures and have both children act on them.
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import signal
 import subprocess
@@ -2106,15 +2107,15 @@ class TestServingFromTheChild:
             assert isinstance(archiver, _FakeArchiver)
             assert await context.archiver() is archiver
 
-    async def test_the_baseline_starts_unprobed_but_a_switch_to_it_still_needs_a_probe(
-        self, make_manager
-    ):
+    async def test_the_baseline_starts_unprobed_and_is_returned_to_unprobed(self, make_manager):
         """The shipped posture: the live block carries no probe channel.
 
         Starting the deployment's own baseline is not a swap, so it does not
         need a channel to prove itself with — refusing to start would leave the
-        server with no control system at all. Switching *to* that target later
-        is a swap, and is refused for exactly the missing channel.
+        server with no control system at all. Coming back to it is refused for
+        the same missing channel on no other target, because a baseline that
+        cannot be returned to is one a session leaves for good: it rehearses on
+        the simulator once and stays there until the server restarts.
         """
         manager = make_manager(raw=raw_config(live_probe=None))
         context = context_for(manager)
@@ -2124,11 +2125,37 @@ class TestServingFromTheChild:
         assert manager.active_target() == "live"
 
         await manager.switch("va")
-        with pytest.raises(SwitchError) as raised:
-            await manager.switch("live")
+        result = await manager.switch("live")
 
-        assert raised.value.reason == REASON_PROBE_CHANNEL_MISSING
-        assert manager.active_target() == "va"
+        assert manager.active_target() == "live"
+        assert result["probe_channel"] == ""
+        assert isinstance(
+            await manager.active_proxy().read_channel(LIVE_PROBE, timeout=10.0), ChannelValue
+        )
+
+    async def test_the_two_unprobed_launches_say_which_one_they_are(self, make_manager, caplog):
+        """Both silences are logged, and they are not logged as the same thing.
+
+        A first child and a return to an unprobed baseline both reach the launch
+        with no channel to read, but only one of them has a working session on
+        the other side of the swap. Telling an operator "there is no session to
+        protect" while one is being retired is a line that says the opposite of
+        what happened.
+        """
+        manager = make_manager(raw=raw_config(live_probe=None))
+        context = context_for(manager)
+
+        with caplog.at_level(logging.INFO, logger=connector_host_manager.__name__):
+            await context.control_system()
+            first_child = [record.getMessage() for record in caplog.records]
+            await manager.switch("va")
+            caplog.clear()
+            await manager.switch("live")
+            return_leg = [record.getMessage() for record in caplog.records]
+
+        assert any("deployment's first child" in line for line in first_child)
+        assert not any("first child" in line for line in return_leg)
+        assert any("names no probe channel" in line for line in return_leg)
 
 
 class TestNoChildRefusal:
