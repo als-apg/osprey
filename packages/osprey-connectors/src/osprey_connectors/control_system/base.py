@@ -23,7 +23,7 @@ from typing import Any
 from osprey_connectors.types import (
     WRITES_ENABLED_KEY,
     type_writes_enabled,
-    writes_enabled_key,
+    writes_enabled_remedy,
 )
 
 logger = logging.getLogger("osprey_connectors.control_system")
@@ -570,11 +570,10 @@ def _writes_disabled_result(
                 "config.yml is not the gate here."
             )
         else:
-            key = writes_enabled_key(connector_type)
             message = (
                 f"Write to '{channel_address}' blocked: writes are disabled. "
-                f"Set {key}: true in the build profile "
-                "(profile.yml on the host), then rebuild and redeploy."
+                f"{writes_enabled_remedy(connector_type)} "
+                "Then rebuild and redeploy."
             )
     return ChannelWriteResult(
         channel_address=channel_address,

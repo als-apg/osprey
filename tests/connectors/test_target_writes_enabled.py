@@ -42,6 +42,7 @@ from osprey_connectors.types import (
     target_writes_enabled_key,
     type_writes_enabled,
     writes_enabled_key,
+    writes_enabled_remedy,
 )
 from tests._control_context_fixtures import write_control_context
 
@@ -83,6 +84,46 @@ def test_a_type_names_its_own_block_key():
         writes_enabled_key(CUSTOM_TYPE)
         == "control_system.connector.mypackage.MoatConnector.writes_enabled"
     )
+
+
+@pytest.mark.unit
+def test_a_registered_type_is_armed_by_the_key_that_names_it():
+    """A name with no dots in it is one line, and the refusal quotes that line."""
+    remedy = writes_enabled_remedy(EPICS)
+
+    assert "control_system.connector.epics.writes_enabled: true" in remedy
+    assert "profile.yml" in remedy
+
+
+@pytest.mark.unit
+def test_a_dotted_type_is_armed_by_a_mapping_the_profile_applies_verbatim():
+    """A build profile splits a dotted key on every dot; this lookup does not.
+
+    So the remedy for a dotted connector type must never be the dotted key:
+    an operator who wrote it would get a five-level nest nothing reads, and
+    the same refusal on the next write. What the profile applies as written is
+    the ``control_system.connector:`` mapping with the type as one key.
+    """
+    remedy = writes_enabled_remedy(CUSTOM_TYPE)
+
+    assert writes_enabled_key(CUSTOM_TYPE) not in remedy
+    assert "control_system.connector:" in remedy
+    assert f"{CUSTOM_TYPE}:" in remedy
+    assert f"{TYPE_WRITES_ENABLED_LEAF}: true" in remedy
+    # And the key it inherits when it says nothing about itself.
+    assert WRITES_ENABLED_KEY in remedy
+
+
+@pytest.mark.unit
+def test_a_refusal_carries_the_remedy_the_profile_can_express():
+    """The blocked-write message is where an operator meets the remedy."""
+    result = connector_base._writes_disabled_result(
+        "SR:CH", 1.0, CUSTOM_TYPE, None, store_permits=True
+    )
+
+    assert result.outcome is WriteOutcome.REFUSED
+    assert writes_enabled_key(CUSTOM_TYPE) not in result.error_message
+    assert "control_system.connector:" in result.error_message
 
 
 @pytest.mark.unit
