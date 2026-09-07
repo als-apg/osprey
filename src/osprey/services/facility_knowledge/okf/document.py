@@ -8,13 +8,13 @@ Example document::
 
     ---
     type: facility_overview
-    title: ALS Accelerator Complex
-    description: High-level overview of the Advanced Light Source accelerator systems.
+    title: Accelerator Complex
+    description: High-level overview of this facility's accelerator systems.
     ---
 
-    # ALS Accelerator Complex
+    # Accelerator Complex
 
-    The Advanced Light Source (ALS) is a ...
+    The storage ring is fed by ...
 """
 
 from __future__ import annotations

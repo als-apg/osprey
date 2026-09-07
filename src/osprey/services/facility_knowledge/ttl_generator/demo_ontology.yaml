@@ -9,7 +9,7 @@ description: >-
   control_assistant tier-3 channel database to a class in the NARAD shared-semantics
   vocabulary; 'classes' declares those classes and their rdfs:subClassOf parents,
   closed up to the root 'AcceleratorDevice'. The hierarchy is copied edge-for-edge
-  from the NARAD shared-semantics vocabulary the als-ontology project defines, so a
+  from the NARAD shared-semantics vocabulary the prototype ontology defines, so a
   class-rollup query written against any NARAD graph returns the analogous answer on
   the demo graph.
 
@@ -77,7 +77,7 @@ classes:
         counts particles lost from the beam.
       - >-
         This is deliberate: the demo corpus stays inside the shipped vocabulary rather
-        than inventing a class the ALS graph would not recognise.
+        than inventing a class a NARAD graph would not recognise.
       - >-
         A facility whose real ontology has a better class should ship its own table.
 
