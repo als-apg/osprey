@@ -193,8 +193,14 @@ async def test_channel_write_limits_violation(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
 
-    mock_validator = MagicMock()
-    mock_validator.validate.side_effect = ChannelLimitsViolationError(
+    from osprey.connectors.control_system.limits_validator import LimitsValidator
+
+    # Spec'd, so the mock carries exactly the entry points the real validator
+    # does: the tool asks for `validate_without_step_check` — the checks a
+    # caller that has not yet resolved a connector can make — and an unspec'd
+    # mock would answer that with a silent stand-in instead.
+    mock_validator = MagicMock(spec=LimitsValidator)
+    mock_validator.validate_without_step_check.side_effect = ChannelLimitsViolationError(
         channel_address="TEST:PV",
         value=9999.0,
         violation_type="MAX_EXCEEDED",
@@ -225,6 +231,78 @@ async def test_channel_write_limits_violation(tmp_path, monkeypatch):
     assert details[0]["violation_type"] == "MAX_EXCEEDED"
     # Suggestions are actionable guidance, not the violation banner
     assert any("Do NOT" in s for s in data["suggestions"])
+
+
+@pytest.mark.unit
+async def test_channel_write_leaves_max_step_to_the_connector(tmp_path, monkeypatch):
+    """A max_step channel is not refused by the tool's own pre-check.
+
+    The step needs a fresh read of the channel over the client the write goes
+    through, and the connector is resolved after this check on purpose. The
+    connector makes the step check itself; refusing here for want of a reader
+    would take max_step off the mediated write path rather than enforcing it.
+    """
+    from osprey.connectors.control_system.limits_validator import (
+        ChannelLimitsConfig,
+        LimitsValidator,
+    )
+
+    _prepare(tmp_path, monkeypatch)
+
+    validator = LimitsValidator(
+        {
+            "TEST:PV": ChannelLimitsConfig(
+                channel_address="TEST:PV",
+                min_value=0.0,
+                max_value=100.0,
+                max_step=1.0,
+                writable=True,
+            )
+        },
+        {"allow_unlisted_channels": False},
+    )
+
+    data, connector = await _run_single(
+        _make_write_result(channel="TEST:PV", value=99.0), validator=validator
+    )
+
+    assert data["summary"]["outcomes"] == {"confirmed": 1}
+    connector.write_channel.assert_awaited_once()
+
+
+@pytest.mark.unit
+async def test_channel_write_still_denies_a_bound_violation_on_a_max_step_channel(
+    tmp_path, monkeypatch
+):
+    """Deferring the step check defers nothing else."""
+    from osprey.connectors.control_system.limits_validator import (
+        ChannelLimitsConfig,
+        LimitsValidator,
+    )
+
+    _prepare(tmp_path, monkeypatch)
+
+    validator = LimitsValidator(
+        {
+            "TEST:PV": ChannelLimitsConfig(
+                channel_address="TEST:PV",
+                min_value=0.0,
+                max_value=100.0,
+                max_step=1.0,
+                writable=True,
+            )
+        },
+        {"allow_unlisted_channels": False},
+    )
+
+    connector = AsyncMock()
+    with _patched(connector, validator):
+        fn = _get_channel_write()
+        with assert_raises_error(error_type="limits_violation") as _exc_ctx:
+            await fn(operations=[{"channel": "TEST:PV", "value": 9999.0}])
+
+    assert _exc_ctx["envelope"]["details"][0]["violation_type"] == "MAX_EXCEEDED"
+    connector.write_channel.assert_not_awaited()
 
 
 @pytest.mark.unit

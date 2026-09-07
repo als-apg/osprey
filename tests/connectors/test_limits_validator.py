@@ -11,7 +11,6 @@ Covers two contracts:
 """
 
 import json
-import sys
 from pathlib import Path
 
 import pytest
@@ -1247,63 +1246,150 @@ def _step_validator(max_step: float = 5.0) -> LimitsValidator:
     return LimitsValidator(limits, {"allow_unlisted_channels": False}, {})
 
 
+def _reader(current):
+    """A stub fresh-read primitive answering *current* for any address."""
+    return lambda _address: current
+
+
 class TestMaxStepCheck:
-    def test_current_none_blocks_write(self, monkeypatch):
-        monkeypatch.setattr("epics.caget", lambda *a, **k: None)
+    """The step check measures against a reader the CALLER supplies.
+
+    The validator is shared by every connector and holds no control-system
+    client of its own, so the caller that is about to write hands it the read.
+    """
+
+    def test_current_none_blocks_write(self):
         validator = _step_validator()
 
         with pytest.raises(ChannelLimitsViolationError) as exc:
-            validator.validate("FOO", 50.0)
+            validator.validate("FOO", 50.0, read_current=_reader(None))
 
         assert exc.value.violation_type == "STEP_CHECK_FAILED"
 
-    def test_step_exceeded_blocks_with_details(self, monkeypatch):
-        monkeypatch.setattr("epics.caget", lambda *a, **k: 10.0)
+    def test_step_exceeded_blocks_with_details(self):
         validator = _step_validator(max_step=5.0)
 
         with pytest.raises(ChannelLimitsViolationError) as exc:
-            validator.validate("FOO", 100.0)  # step of 90 >> 5
+            validator.validate("FOO", 100.0, read_current=_reader(10.0))  # step of 90 >> 5
 
         assert exc.value.violation_type == "MAX_STEP_EXCEEDED"
         assert exc.value.current_value == 10.0
         assert exc.value.max_step == 5.0
 
-    def test_step_within_limit_passes(self, monkeypatch):
-        monkeypatch.setattr("epics.caget", lambda *a, **k: 48.0)
+    def test_step_within_limit_passes(self):
         validator = _step_validator(max_step=5.0)
 
         # Step of 2.0 is within max_step=5.0 -> no raise.
-        validator.validate("FOO", 50.0)
+        validator.validate("FOO", 50.0, read_current=_reader(48.0))
 
-    def test_non_numeric_current_skips_step_check(self, monkeypatch):
-        monkeypatch.setattr("epics.caget", lambda *a, **k: "not-a-number")
+    def test_the_reader_is_asked_for_the_channel_being_written(self):
+        """The address handed to the reader is the one under validation.
+
+        A reader that was asked about some other channel would compare the
+        step against a value that has nothing to do with the write.
+        """
+        asked: list[str] = []
+        validator = _step_validator(max_step=5.0)
+
+        def reader(address):
+            asked.append(address)
+            return 48.0
+
+        validator.validate("FOO", 50.0, read_current=reader)
+
+        assert asked == ["FOO"]
+
+    def test_non_numeric_current_skips_step_check(self):
         validator = _step_validator(max_step=1.0)
 
         # Current value can't be coerced to float -> step check is skipped, write allowed.
-        validator.validate("FOO", 50.0)
+        validator.validate("FOO", 50.0, read_current=_reader("not-a-number"))
 
-    def test_missing_pyepics_blocks_write(self, monkeypatch):
-        monkeypatch.setitem(sys.modules, "epics", None)  # import epics -> ImportError
+    def test_no_reader_blocks_write(self):
+        """No reader, no measurement, no write -- and no reaching for pyepics.
+
+        This is the branch that used to `import epics` and caget the address
+        whatever control system the write was bound for.
+        """
         validator = _step_validator()
 
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate("FOO", 50.0)
 
         assert exc.value.violation_type == "STEP_CHECK_FAILED"
-        assert "pyepics not available" in exc.value.violation_reason
+        assert "No way to read the current channel value" in exc.value.violation_reason
 
-    def test_caget_error_blocks_write(self, monkeypatch):
-        def boom(*a, **k):
+    def test_a_channel_without_max_step_needs_no_reader(self):
+        """Only max_step costs a read, so every other channel validates with none."""
+        limits = {"FOO": ChannelLimitsConfig(channel_address="FOO", min_value=0.0, max_value=100.0)}
+        validator = LimitsValidator(limits, {"allow_unlisted_channels": False}, {})
+
+        validator.validate("FOO", 99.0)
+
+    def test_read_error_blocks_write(self):
+        def boom(_address):
             raise RuntimeError("CA timeout")
 
-        monkeypatch.setattr("epics.caget", boom)
         validator = _step_validator()
 
         with pytest.raises(ChannelLimitsViolationError) as exc:
-            validator.validate("FOO", 50.0)
+            validator.validate("FOO", 50.0, read_current=boom)
 
         assert exc.value.violation_type == "STEP_CHECK_FAILED"
         assert "CA timeout" in exc.value.violation_reason
+
+
+class TestValidateWithoutStepCheck:
+    """The entry point for a caller that is not the one performing the write.
+
+    The PreToolUse limits hook gates a write request before any connector has
+    it, so it holds no client to measure a step over. It applies every other
+    check and leaves ``max_step`` to the writer — which makes it moments later
+    on the same write. Refusing there for want of a reader would take max_step
+    off the mediated write path instead of enforcing it.
+    """
+
+    def test_a_max_step_channel_is_not_refused_for_want_of_a_reader(self):
+        validator = _step_validator(max_step=1.0)
+
+        # The very write validate() refuses without a reader.
+        validator.validate_without_step_check("FOO", 50.0)
+
+    def test_validate_still_refuses_the_same_write(self):
+        """The two entry points differ deliberately, not by accident."""
+        validator = _step_validator(max_step=1.0)
+
+        with pytest.raises(ChannelLimitsViolationError) as exc:
+            validator.validate("FOO", 50.0)
+
+        assert exc.value.violation_type == "STEP_CHECK_FAILED"
+
+    def test_bounds_are_still_enforced(self):
+        validator = _step_validator(max_step=1.0)
+
+        with pytest.raises(ChannelLimitsViolationError) as exc:
+            validator.validate_without_step_check("FOO", 999.0)
+
+        assert exc.value.violation_type == "MAX_EXCEEDED"
+
+    def test_a_read_only_channel_is_still_refused(self):
+        limits = {
+            "FOO": ChannelLimitsConfig(channel_address="FOO", writable=False, max_step=1.0),
+        }
+        validator = LimitsValidator(limits, {"allow_unlisted_channels": False}, {})
+
+        with pytest.raises(ChannelLimitsViolationError) as exc:
+            validator.validate_without_step_check("FOO", 1.0)
+
+        assert exc.value.violation_type == "READ_ONLY_CHANNEL"
+
+    def test_an_unlisted_channel_is_still_refused(self):
+        validator = _step_validator(max_step=1.0)
+
+        with pytest.raises(ChannelLimitsViolationError) as exc:
+            validator.validate_without_step_check("NOT:LISTED", 1.0)
+
+        assert exc.value.violation_type == "UNLISTED_CHANNEL"
 
 
 # ---------------------------------------------------------------------------

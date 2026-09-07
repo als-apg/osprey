@@ -180,62 +180,48 @@ class TestLimitsValidator:
 
     def test_max_step_violation(self, step_validator):
         """Test that excessive step size raises exception."""
-        # Mock epics module with caget that returns known current value
-        mock_epics = MagicMock()
-        mock_epics.caget = MagicMock(return_value=50.0)
+        # The caller supplies the read; here it answers a known current value.
+        reader = MagicMock(return_value=50.0)
 
-        with patch.dict("sys.modules", {"epics": mock_epics}):
-            # This should work: step=5 (from 50 to 55)
-            step_validator.validate("TEST:PV:STEP", 55.0)
+        # This should work: step=5 (from 50 to 55)
+        step_validator.validate("TEST:PV:STEP", 55.0, read_current=reader)
 
-            # Reset mock for next call
-            mock_epics.caget.return_value = 50.0
+        # This should fail: step=45 (from 50 to 95)
+        with pytest.raises(ChannelLimitsViolationError) as exc_info:
+            step_validator.validate("TEST:PV:STEP", 95.0, read_current=reader)
 
-            # This should fail: step=45 (from 50 to 95)
-            with pytest.raises(ChannelLimitsViolationError) as exc_info:
-                step_validator.validate("TEST:PV:STEP", 95.0)
-
-            error = exc_info.value
-            assert error.violation_type == "MAX_STEP_EXCEEDED"
-            assert error.current_value == 50.0
-            assert error.max_step == 10.0
+        error = exc_info.value
+        assert error.violation_type == "MAX_STEP_EXCEEDED"
+        assert error.current_value == 50.0
+        assert error.max_step == 10.0
 
     def test_max_step_read_failure_blocks_write(self, step_validator):
-        """Test that PV read failure blocks write (failsafe)."""
-        # Mock epics.caget to return None (read failed)
-        mock_epics = MagicMock()
-        mock_epics.caget = MagicMock(return_value=None)
+        """Test that a channel read failure blocks the write (failsafe)."""
+        reader = MagicMock(return_value=None)  # read failed
 
-        with patch.dict("sys.modules", {"epics": mock_epics}):
-            # Should fail because we can't read current value
-            with pytest.raises(ChannelLimitsViolationError) as exc_info:
-                step_validator.validate("TEST:PV:STEP", 55.0)
+        with pytest.raises(ChannelLimitsViolationError) as exc_info:
+            step_validator.validate("TEST:PV:STEP", 55.0, read_current=reader)
 
-            assert exc_info.value.violation_type == "STEP_CHECK_FAILED"
+        assert exc_info.value.violation_type == "STEP_CHECK_FAILED"
 
-    def test_max_step_epics_import_failure(self, step_validator):
-        """Test that epics import failure blocks write when step checking required."""
-        # Remove epics from sys.modules to simulate ImportError
-        with patch.dict("sys.modules", {"epics": None}):
-            with pytest.raises(ChannelLimitsViolationError) as exc_info:
-                step_validator.validate("TEST:PV:STEP", 55.0)
+    def test_max_step_without_a_reader_blocks_write(self, step_validator):
+        """Test that a caller with no way to read the channel is refused."""
+        with pytest.raises(ChannelLimitsViolationError) as exc_info:
+            step_validator.validate("TEST:PV:STEP", 55.0)
 
-            assert exc_info.value.violation_type == "STEP_CHECK_FAILED"
+        assert exc_info.value.violation_type == "STEP_CHECK_FAILED"
 
     def test_max_step_no_io_without_config(self, basic_validator):
         """Test that max_step checking is skipped if not configured (no I/O)."""
-        # This PV has no max_step configured - should NOT trigger any epics.caget()
-        # If it does, this test will fail because epics is not mocked
+        # This PV has no max_step configured - so it needs no reader at all.
         basic_validator.validate("TEST:PV", 99.0)  # Large change, but no max_step check
 
     def test_max_step_non_numeric_current_value(self, step_validator):
         """Test that non-numeric current value skips step check."""
-        mock_epics = MagicMock()
-        mock_epics.caget = MagicMock(return_value="invalid")  # Non-numeric current value
+        reader = MagicMock(return_value="invalid")  # Non-numeric current value
 
-        with patch.dict("sys.modules", {"epics": mock_epics}):
-            # Should not raise because current value is non-numeric
-            step_validator.validate("TEST:PV:STEP", 55.0)
+        # Should not raise because current value is non-numeric
+        step_validator.validate("TEST:PV:STEP", 55.0, read_current=reader)
 
     # =========================================================================
     # Database Loading Tests

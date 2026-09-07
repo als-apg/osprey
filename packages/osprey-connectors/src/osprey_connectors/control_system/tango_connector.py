@@ -300,6 +300,15 @@ class TangoConnector(ControlSystemConnector):
             return await asyncio.wait_for(call, timeout)
         return await call
 
+    def _current_value_reader(self) -> Callable[[str], Any] | None:
+        """The attribute's present value, read through this connector's own proxy."""
+
+        def read_current(channel_address: str) -> Any:
+            device_name, attribute = _split_address(channel_address)
+            return self._get_proxy(device_name).read_attribute(attribute).value
+
+        return read_current
+
     async def write_channel(
         self,
         channel_address: str,
@@ -348,7 +357,9 @@ class TangoConnector(ControlSystemConnector):
             from osprey_connectors.errors import ChannelLimitsViolationError
 
             try:
-                self._limits_validator.validate(channel_address, value)
+                self._limits_validator.validate(
+                    channel_address, value, read_current=self._current_value_reader()
+                )
                 logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
             except ChannelLimitsViolationError:
                 raise

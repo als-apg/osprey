@@ -50,6 +50,8 @@ stdin ──► Parse JSON
               │
               ▼
          Validate each op
+         (max_step is the
+         writer's check)
               │
               ▼
          Violations found? ──NO──► EXIT (allow)
@@ -98,6 +100,13 @@ no posture to apply:
    decide. This is the hook's only fail-open direction. A *failsafe* validator
    is not one of them: an incomplete per-type block or an unreadable database
    still builds a validator, and it blocks every write.
+
+One check is deliberately not made here. `max_step` caps how far a single write
+may move a channel, which takes a fresh read of the channel over the client the
+write goes through — and this hook holds no such client. It applies every other
+check and leaves that one to the connector, which makes it moments later on the
+same write. This is not a fail-open direction: the write is still refused, one
+layer down, by the only caller that can measure the step.
 
 The target itself comes from `osprey_target_state`, the same stdlib reader of
 the deployment's control-context record that the writes kill switch and the
@@ -262,12 +271,22 @@ def main():
     if not operations:
         sys.exit(0)
 
+    # The step check is the one limit that needs a fresh read of the machine,
+    # over the client the write itself goes through — and this hook is not the
+    # writer. It applies the checks it can make (database, writable, min/max)
+    # and leaves `max_step` to the connector, which owns that client and checks
+    # it moments later. Refusing here for want of a reader would take max_step
+    # off the mediated write path rather than enforcing it. A framework older
+    # than this render has no such entry point; there, `validate` still reads
+    # the channel itself, which is what that framework always did.
+    check = getattr(validator, "validate_without_step_check", validator.validate)
+
     violations = []
     for op in operations:
         channel = op.get("channel", "")
         value = op.get("value")
         try:
-            validator.validate(channel, value)
+            check(channel, value)
         except Exception as exc:
             violations.append(f"  {channel}={value}: {exc}")
 

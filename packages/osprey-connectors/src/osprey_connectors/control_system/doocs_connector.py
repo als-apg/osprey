@@ -134,6 +134,19 @@ class DOOCSConnector(ControlSystemConnector):
 
         return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
 
+    def _current_value_reader(self) -> Callable[[str], Any] | None:
+        """The property's present value, read through this connector's own client.
+
+        ``get_data()`` is what :meth:`_read_channel_sync` unwraps an ``EqData``
+        with; the step check needs only that number, not the timestamps and
+        metadata a full read builds around it.
+        """
+
+        def read_current(channel_address: str) -> Any:
+            return self._doocs4py.get(channel_address).get_data()
+
+        return read_current
+
     async def write_channel(
         self,
         channel_address: str,
@@ -174,7 +187,9 @@ class DOOCSConnector(ControlSystemConnector):
             from osprey_connectors.errors import ChannelLimitsViolationError
 
             try:
-                self._limits_validator.validate(channel_address, value)
+                self._limits_validator.validate(
+                    channel_address, value, read_current=self._current_value_reader()
+                )
                 logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
             except ChannelLimitsViolationError:
                 raise

@@ -40,6 +40,17 @@ _PROJECT_ROOT_CONFIG_KEY = "project_root"
 #: :func:`osprey_connectors.config.get_config_value`.
 ConfigLookup = Callable[[str, Any], Any]
 
+#: The signature of the fresh-read primitive :meth:`LimitsValidator.validate`
+#: takes for the ``max_step`` check: one channel address in, that channel's
+#: present value out. Every control system can read a channel; none of them
+#: agree on how, so the caller that is about to write supplies its own.
+CurrentValueReader = Callable[[str], Any]
+
+#: Ceiling on the fresh read a ``max_step`` check makes, in seconds. The check
+#: sits in front of a write an operator is waiting on, so a channel that does
+#: not answer must fail closed quickly rather than hold the write open.
+STEP_READ_TIMEOUT_SECONDS = 2.0
+
 
 def mapping_config_lookup(config: Mapping[str, Any]) -> ConfigLookup:
     """A ``get_config_value``-shaped lookup over an already-loaded config.
@@ -666,7 +677,13 @@ class LimitsValidator:
             logger.error(f"Failed to load limits database: {e}")
             raise ValueError(f"Failed to load channel limits database: {e}") from e
 
-    def validate(self, channel_address: str, value: Any) -> None:
+    def validate(
+        self,
+        channel_address: str,
+        value: Any,
+        *,
+        read_current: CurrentValueReader | None = None,
+    ) -> None:
         """Validate a channel write operation (synchronous, optional I/O for max_step).
 
         Raises ChannelLimitsViolationError if validation fails.
@@ -674,119 +691,57 @@ class LimitsValidator:
 
         Note: If max_step is configured for the channel, this performs one synchronous
         read to get the current value. This adds ~50-100ms latency but
-        provides important step-size safety checking.
+        provides important step-size safety checking. This validator owns no
+        control-system client of its own -- it is shared by every connector --
+        so the caller that is about to write supplies the read.
 
         Args:
             channel_address: Channel address to validate
             value: Value to write
+            read_current: The caller's own way to read *channel_address*'s
+                present value, used only when the channel configures
+                ``max_step``. Omitting it on such a channel fails the write
+                closed: a step that cannot be measured cannot be approved.
 
         Raises:
             ChannelLimitsViolationError: If any validation check fails
         """
         from osprey_connectors.errors import ChannelLimitsViolationError
 
-        # Check 1: Channel exists in database?
-        channel_config = self.limits.get(channel_address)
-
-        if channel_config is None:
-            # A database that failed to load blocks everything — say so, rather
-            # than refusing with the unlisted-channel message: "not in limits
-            # database" sends the operator chasing a data problem when the
-            # actual failure is that no database was loaded at all.
-            if self.failsafe_reason:
-                logger.warning(
-                    f"Blocked write (limits database unavailable): {channel_address}={value}"
-                )
-                raise ChannelLimitsViolationError(
-                    channel_address=channel_address,
-                    value=value,
-                    violation_type="LIMITS_DATABASE_UNAVAILABLE",
-                    violation_reason=(
-                        f"Limits database unavailable — all writes are blocked as a "
-                        f"failsafe ({self.failsafe_reason}). This is not a statement "
-                        f"about channel '{channel_address}'."
-                    ),
-                )
-            # Unlisted channel - check policy. Only an explicit `True` is
-            # permission: the policy carries the posture's tri-state verbatim
-            # so that `channel_limits` can report an unstated answer as `null`,
-            # and unstated is nobody's permission to write an unlisted channel.
-            if self.policy.get("allow_unlisted_channels") is True:
-                return  # Allow unlisted channel
-            else:
-                # FAILSAFE: Block unlisted channels. Name the key that actually
-                # answered — a deployment may set this per connector type, and
-                # quoting the deployment-wide key there would send an operator
-                # to flip a line the per-type block overrides. A validator built
-                # from a bare policy dict carries no key; the deployment-wide
-                # one is the honest answer for it.
-                answering_key = self.policy.get(
-                    "allow_unlisted_key", "control_system.limits_checking.allow_unlisted_channels"
-                )
-                logger.warning(f"Blocked write to unlisted channel: {channel_address}={value}")
-                raise ChannelLimitsViolationError(
-                    channel_address=channel_address,
-                    value=value,
-                    violation_type="UNLISTED_CHANNEL",
-                    violation_reason=(
-                        f"Channel '{channel_address}' not in limits database "
-                        f"('{answering_key}' does not allow unlisted channels)"
-                    ),
-                )
-
-        # Check 2: Channel is writable?
-        if not channel_config.writable:
-            logger.warning(f"Blocked write to read-only channel: {channel_address}={value}")
-            raise ChannelLimitsViolationError(
-                channel_address=channel_address,
-                value=value,
-                violation_type="READ_ONLY_CHANNEL",
-                violation_reason="Channel is marked as read-only",
-            )
-
-        # Check 3: Min/Max bounds (numeric values only)
-        try:
-            numeric_value = float(value)
-        except (ValueError, TypeError):
-            # Non-numeric value - skip numeric checks
+        channel_config, numeric_value = self._validate_without_step(channel_address, value)
+        if channel_config is None or numeric_value is None:
+            # An allowed unlisted channel, or a non-numeric value: neither one
+            # has a step size to measure.
             return
-
-        if channel_config.min_value is not None and numeric_value < channel_config.min_value:
-            logger.warning(
-                f"Blocked write below minimum: {channel_address}={numeric_value} "
-                f"(min={channel_config.min_value})"
-            )
-            raise ChannelLimitsViolationError(
-                channel_address=channel_address,
-                value=value,
-                violation_type="MIN_EXCEEDED",
-                violation_reason=f"Value {numeric_value} below minimum {channel_config.min_value}",
-                min_value=channel_config.min_value,
-                max_value=channel_config.max_value,
-            )
-
-        if channel_config.max_value is not None and numeric_value > channel_config.max_value:
-            logger.warning(
-                f"Blocked write above maximum: {channel_address}={numeric_value} "
-                f"(max={channel_config.max_value})"
-            )
-            raise ChannelLimitsViolationError(
-                channel_address=channel_address,
-                value=value,
-                violation_type="MAX_EXCEEDED",
-                violation_reason=f"Value {numeric_value} above maximum {channel_config.max_value}",
-                min_value=channel_config.min_value,
-                max_value=channel_config.max_value,
-            )
 
         # Check 4: Step size limit (OPTIONAL - only if configured, requires I/O)
         if channel_config.max_step is not None:
-            try:
-                import epics
+            if read_current is None:
+                # FAILSAFE: no reader, no measurement, no write. This used to
+                # be a direct pyepics caget, which measured the step over
+                # Channel Access whatever control system the write was bound
+                # for -- so max_step blocked every write on a non-CA
+                # deployment, and on a CA one it followed the process-wide
+                # EPICS_CA_* environment rather than the client the write
+                # itself goes through.
+                logger.error(
+                    f"Cannot verify step size for {channel_address} - "
+                    f"the caller supplied no way to read the channel"
+                )
+                raise ChannelLimitsViolationError(
+                    channel_address=channel_address,
+                    value=value,
+                    violation_type="STEP_CHECK_FAILED",
+                    violation_reason=(
+                        "No way to read the current channel value was supplied, "
+                        "so the step size cannot be verified"
+                    ),
+                )
 
+            try:
                 # Read current value (I/O operation)
                 logger.debug(f"Reading current value for step check: {channel_address}")
-                current_value = epics.caget(channel_address, timeout=2.0)
+                current_value = read_current(channel_address)
 
                 if current_value is None:
                     # FAILSAFE: Can't read current value → block write
@@ -836,17 +791,6 @@ class LimitsValidator:
             except ChannelLimitsViolationError:
                 # Re-raise limits violations (from max_step check)
                 raise
-            except ImportError:
-                # FAILSAFE: Can't import epics → block write if step checking required
-                logger.error(
-                    f"Cannot verify step size for {channel_address} - pyepics not available"
-                )
-                raise ChannelLimitsViolationError(
-                    channel_address=channel_address,
-                    value=value,
-                    violation_type="STEP_CHECK_FAILED",
-                    violation_reason="pyepics not available for step size verification",
-                ) from None
             except Exception as e:
                 # FAILSAFE: Any error during read → block write
                 logger.error(
@@ -861,3 +805,133 @@ class LimitsValidator:
 
         # All checks passed!
         logger.debug(f"Validated write: {channel_address}={value}")
+
+    def validate_without_step_check(self, channel_address: str, value: Any) -> None:
+        """Every limits check that can be made without reading the machine.
+
+        For a caller that is *not* the one performing the write, and so has no
+        client to measure a step over: the PreToolUse limits hook, which gates
+        the write request before it reaches a connector at all. It applies the
+        database, the writable flag and the min/max bounds, and leaves
+        ``max_step`` to the writer -- which owns the client the write goes
+        through and checks it moments later in :meth:`validate`. Refusing here
+        for want of a reader would take ``max_step`` off the mediated write
+        path entirely rather than enforcing it.
+
+        Args:
+            channel_address: Channel address to validate
+            value: Value to write
+
+        Raises:
+            ChannelLimitsViolationError: If any of those checks fails
+        """
+        self._validate_without_step(channel_address, value)
+
+    def _validate_without_step(
+        self, channel_address: str, value: Any
+    ) -> tuple[ChannelLimitsConfig | None, float | None]:
+        """Checks 1-3, shared by both entry points.
+
+        Returns the channel's config and the value as a number, so the caller
+        can go on to the step check without repeating the lookup. A ``None``
+        config means an allowed unlisted channel and a ``None`` number means a
+        non-numeric value -- in either case there is nothing further to check.
+        """
+        from osprey_connectors.errors import ChannelLimitsViolationError
+
+        # Check 1: Channel exists in database?
+        channel_config = self.limits.get(channel_address)
+
+        if channel_config is None:
+            # A database that failed to load blocks everything — say so, rather
+            # than refusing with the unlisted-channel message: "not in limits
+            # database" sends the operator chasing a data problem when the
+            # actual failure is that no database was loaded at all.
+            if self.failsafe_reason:
+                logger.warning(
+                    f"Blocked write (limits database unavailable): {channel_address}={value}"
+                )
+                raise ChannelLimitsViolationError(
+                    channel_address=channel_address,
+                    value=value,
+                    violation_type="LIMITS_DATABASE_UNAVAILABLE",
+                    violation_reason=(
+                        f"Limits database unavailable — all writes are blocked as a "
+                        f"failsafe ({self.failsafe_reason}). This is not a statement "
+                        f"about channel '{channel_address}'."
+                    ),
+                )
+            # Unlisted channel - check policy. Only an explicit `True` is
+            # permission: the policy carries the posture's tri-state verbatim
+            # so that `channel_limits` can report an unstated answer as `null`,
+            # and unstated is nobody's permission to write an unlisted channel.
+            if self.policy.get("allow_unlisted_channels") is True:
+                return None, None  # Allow unlisted channel
+            else:
+                # FAILSAFE: Block unlisted channels. Name the key that actually
+                # answered — a deployment may set this per connector type, and
+                # quoting the deployment-wide key there would send an operator
+                # to flip a line the per-type block overrides. A validator built
+                # from a bare policy dict carries no key; the deployment-wide
+                # one is the honest answer for it.
+                answering_key = self.policy.get(
+                    "allow_unlisted_key", "control_system.limits_checking.allow_unlisted_channels"
+                )
+                logger.warning(f"Blocked write to unlisted channel: {channel_address}={value}")
+                raise ChannelLimitsViolationError(
+                    channel_address=channel_address,
+                    value=value,
+                    violation_type="UNLISTED_CHANNEL",
+                    violation_reason=(
+                        f"Channel '{channel_address}' not in limits database "
+                        f"('{answering_key}' does not allow unlisted channels)"
+                    ),
+                )
+
+        # Check 2: Channel is writable?
+        if not channel_config.writable:
+            logger.warning(f"Blocked write to read-only channel: {channel_address}={value}")
+            raise ChannelLimitsViolationError(
+                channel_address=channel_address,
+                value=value,
+                violation_type="READ_ONLY_CHANNEL",
+                violation_reason="Channel is marked as read-only",
+            )
+
+        # Check 3: Min/Max bounds (numeric values only)
+        try:
+            numeric_value = float(value)
+        except (ValueError, TypeError):
+            # Non-numeric value - nothing numeric left to check, and no
+            # step to measure either.
+            return channel_config, None
+
+        if channel_config.min_value is not None and numeric_value < channel_config.min_value:
+            logger.warning(
+                f"Blocked write below minimum: {channel_address}={numeric_value} "
+                f"(min={channel_config.min_value})"
+            )
+            raise ChannelLimitsViolationError(
+                channel_address=channel_address,
+                value=value,
+                violation_type="MIN_EXCEEDED",
+                violation_reason=f"Value {numeric_value} below minimum {channel_config.min_value}",
+                min_value=channel_config.min_value,
+                max_value=channel_config.max_value,
+            )
+
+        if channel_config.max_value is not None and numeric_value > channel_config.max_value:
+            logger.warning(
+                f"Blocked write above maximum: {channel_address}={numeric_value} "
+                f"(max={channel_config.max_value})"
+            )
+            raise ChannelLimitsViolationError(
+                channel_address=channel_address,
+                value=value,
+                violation_type="MAX_EXCEEDED",
+                violation_reason=f"Value {numeric_value} above maximum {channel_config.max_value}",
+                min_value=channel_config.min_value,
+                max_value=channel_config.max_value,
+            )
+
+        return channel_config, numeric_value

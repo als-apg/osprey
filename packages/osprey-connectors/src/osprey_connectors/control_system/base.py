@@ -742,6 +742,18 @@ class ControlSystemConnector(ABC):
             return False
         return _deployment_writes_enabled(self._connector_type)
 
+    def _current_value_reader(self) -> Callable[[str], Any] | None:
+        """This connector's own way to read a channel's present value.
+
+        Handed to :meth:`LimitsValidator.validate` so the ``max_step`` check
+        measures the step over the client and the target the write itself is
+        bound for. The validator is shared by every connector and owns no
+        client; a connector that cannot read synchronously answers ``None``
+        here, and a ``max_step`` channel on it fails closed rather than being
+        measured over somebody else's protocol.
+        """
+        return None
+
     def _validation_refusal(
         self, channel_address: str, value: Any, error: BaseException
     ) -> ChannelWriteResult:

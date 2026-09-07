@@ -694,7 +694,16 @@ async def channel_write(
             )
         if validator:
             try:
-                validator.validate(channel, value)
+                # Every check that can be made here. `max_step` is the one that
+                # cannot: it needs a fresh read of the channel over the client
+                # the write goes through, and the connector is resolved further
+                # down, deliberately as late as possible. That connector makes
+                # the step check itself, on the write. Refusing here for want of
+                # a reader would take max_step off this path rather than
+                # enforcing it. `validate` remains the fallback for a validator
+                # older than this entry point.
+                check = getattr(validator, "validate_without_step_check", validator.validate)
+                check(channel, value)
             except Exception as exc:
                 violation = {
                     "channel": channel,
