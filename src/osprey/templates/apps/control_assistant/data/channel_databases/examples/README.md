@@ -244,7 +244,7 @@ With 24 devices, this configuration generates **1,440 channels**:
 
 ### Use Case
 ✓ **Variable-depth naming conventions** (some paths longer than others)
-✓ Real accelerator/control naming (JLab, ALS, etc.)
+✓ Real accelerator/control naming conventions
 ✓ Devices with optional sub-channels
 ✓ Signals with optional suffixes (RB/SP, raw/calibrated, etc.)
 
