@@ -14,7 +14,8 @@ import pytest
 from rich.logging import RichHandler
 
 from osprey.utils.logger import QUIET_THIRD_PARTY_LOGGERS
-from tests import ci_diagnostics
+from tests import _env_scope_guard, ci_diagnostics
+from tests._env_scope_guard import restore_module_environment
 
 #: Repo root — the fallback when a test leaves the process in a deleted cwd.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -139,6 +140,9 @@ def restore_environ():
     ``OSPREY_CONFIG`` and ``CONFIG_FILE`` are additionally cleared on the way in,
     so a developer who exports either in their shell still gets a pristine run.
     ``TZ`` is handled once per session instead -- see ``_clear_dotenv_timezone``.
+
+    This snapshot cannot see writes made by a *module*-scoped fixture, which is
+    set up before it — ``restore_environ_per_module`` below covers those.
     """
     saved = dict(os.environ)
 
@@ -150,6 +154,27 @@ def restore_environ():
     finally:
         os.environ.clear()
         os.environ.update(saved)
+
+
+@pytest.fixture(autouse=True, scope="module")
+def restore_environ_per_module():
+    """Snapshot and restore ``os.environ`` around every test *module*.
+
+    Module-scoped fixtures — a real ``osprey build`` over a seeded exemplar repo,
+    which loads that repo's ``.env`` with override semantics — are set up before
+    the function-scoped snapshot above is taken, so their writes land inside that
+    snapshot's ``saved`` copy and are restored, not removed, by every later test.
+    This restores the environment at module teardown so they cannot outlive the
+    module that created them.
+
+    A fixture that outlives the module keeps its writes: the plugin registered
+    in :func:`pytest_configure` records them, and :func:`~tests._env_scope_guard.restore_module_environment` replays
+    them on top of the snapshot. Without that, a session-scoped fixture first
+    requested by this module's second test would be left alive with its
+    environment rolled back under it.
+    """
+    with restore_module_environment():
+        yield
 
 
 @pytest.fixture(autouse=True, scope="function")
@@ -981,6 +1006,13 @@ _CI_DIAGNOSTICS: ci_diagnostics.DiagnosticsRecorder | None = None
 
 def pytest_configure(config):
     """Open the per-worker records and arm the stack dumper."""
+    # Registered as a plugin rather than left as a hook in this file: a
+    # session-scoped fixture's ``pytest_fixture_setup`` is dispatched on the
+    # Session node, whose hook proxy carries only the conftests above it — this
+    # one is not among them. See tests/_env_scope_guard.py.
+    if not config.pluginmanager.is_registered(_env_scope_guard):
+        config.pluginmanager.register(_env_scope_guard, "osprey-env-scope-guard")
+
     # Registered here rather than in pyproject.toml so the seam and its opt-out
     # marker live in one file; `--strict-markers` would otherwise reject it.
     config.addinivalue_line(
