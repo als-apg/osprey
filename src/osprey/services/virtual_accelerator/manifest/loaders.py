@@ -52,13 +52,27 @@ class ParadigmMismatchError(RuntimeError):
     """
 
 
-def load_hierarchical_channels(paths: ManifestPaths = PACKAGE_PATHS) -> list[HierarchicalChannel]:
-    """Expand ``paths``' hierarchical DB into (address, path) pairs."""
+def load_hierarchical_database(
+    paths: ManifestPaths = PACKAGE_PATHS,
+) -> tuple[list[HierarchicalChannel], tuple[str, ...]]:
+    """Expand ``paths``' hierarchical DB into its channels and its level names.
+
+    The level names are the facility's own: a hierarchical database declares
+    what its levels are called, and the manifest's identity keys and every
+    partition rule are read from those names. Returned alongside the channels
+    so the generator can compare the two without re-opening the file.
+    """
     db = HierarchicalChannelDatabase(str(paths.hierarchical_db))
     db.load_database()
-    return [
+    channels = [
         HierarchicalChannel(address=ch["address"], path=ch["path"]) for ch in db.get_all_channels()
     ]
+    return channels, tuple(db.hierarchy_levels)
+
+
+def load_hierarchical_channels(paths: ManifestPaths = PACKAGE_PATHS) -> list[HierarchicalChannel]:
+    """Expand ``paths``' hierarchical DB into (address, path) pairs."""
+    return load_hierarchical_database(paths)[0]
 
 
 def load_in_context_addresses(paths: ManifestPaths = PACKAGE_PATHS) -> set[str]:

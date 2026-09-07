@@ -31,6 +31,13 @@ from osprey.simulation.facility_spec import ALS_U_AR
 # (excludes the BPM monitor family, which is gated separately below).
 MAG_FAMILIES = frozenset(f.name for f in ALS_U_AR.families if f.kind in ("magnet", "corrector"))
 
+# The hierarchy level names this classifier reads, and the identity keys the
+# manifest carries per channel. A hierarchical database declares its own level
+# names, and a facility whose tree is not levelled this way describes a
+# hierarchy no rule below can be evaluated against -- the caller compares the
+# declared names with these and classifies nothing rather than guessing.
+CLASSIFIER_LEVELS = ("ring", "system", "family", "device", "field", "subfield")
+
 PARTITION_PYAT_COUPLED = "pyat-coupled"
 PARTITION_SP_ECHO = "sp-echo"
 PARTITION_STATIC_NOISY = "static-noisy"

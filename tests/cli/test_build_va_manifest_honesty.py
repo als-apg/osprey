@@ -256,6 +256,78 @@ def test_without_a_hierarchical_database_the_fact_states_the_cost(tmp_path, caps
     assert prepared.manifest["_metadata"]["setpoint_count"] == 0
 
 
+#: The shipped worked example of a database levelled the way another facility
+#: levels one: five levels, none of them the ring/field/subfield the partition
+#: rules read.
+_FOREIGN_LEVELS_DB = (
+    PACKAGE_PATHS.data_root / "channel_databases" / "examples" / "hierarchical_jlab_style.json"
+)
+
+#: Levelled exactly as the rules read one; every token belongs to some other
+#: machine. Readable and classified -- as static-noisy, throughout.
+_FOREIGN_TOKEN_DB = {
+    "hierarchy": {
+        "levels": [
+            {"name": "ring", "type": "tree"},
+            {"name": "system", "type": "tree"},
+            {"name": "family", "type": "tree"},
+            {"name": "device", "type": "instances"},
+            {"name": "field", "type": "tree"},
+            {"name": "subfield", "type": "tree"},
+        ],
+        "naming_pattern": "{ring}:{system}:{family}:{device}:{field}:{subfield}",
+    },
+    "tree": {
+        "ZZLINAC": {
+            "PWR": {
+                "KLYSTRON": {
+                    "DEVICE": {
+                        "_expansion": {"_type": "list", "_instances": ["01", "02"]},
+                        "POWER": {"CTRL": {}, "MEAS": {}},
+                    }
+                }
+            }
+        }
+    },
+}
+
+
+def _single_database_tree(root: Path) -> ManifestPaths:
+    """A tree staging the hierarchical database alone, so the caller can swap it."""
+    paths = ManifestPaths(data_root=_facility_tree(root), tier=DEFAULT_TIER)
+    paths.in_context_db.unlink()
+    paths.middle_layer_db.unlink()
+    return paths
+
+
+def test_a_foreign_levelled_database_is_reported_not_refused(tmp_path, capsys):
+    """A valid file levelled another way used to be called unreadable."""
+    paths = _single_database_tree(tmp_path / "levels" / "data")
+    shutil.copy2(_FOREIGN_LEVELS_DB, paths.hierarchical_db)
+
+    prepared = prepare_project_manifest(paths.data_root, DEFAULT_TIER)
+    _report(_shared(tmp_path), _profile(), paths.data_root, prepared)
+
+    printed = _printed(capsys)
+    assert "not levelled the way the partition rules read it" in printed
+    assert "levels system/family/sector/device/pv lack ring, field, subfield" in printed
+    assert "serves 0 setpoints" in printed
+
+
+def test_a_foreign_token_database_is_reported_with_the_tokens_it_saw(tmp_path, capsys):
+    """Levels the rules can read, tokens no rule matched: the tokens are named."""
+    paths = _single_database_tree(tmp_path / "tokens" / "data")
+    paths.hierarchical_db.write_text(json.dumps(_FOREIGN_TOKEN_DB))
+
+    prepared = prepare_project_manifest(paths.data_root, DEFAULT_TIER)
+    _report(_shared(tmp_path), _profile(), paths.data_root, prepared)
+
+    printed = _printed(capsys)
+    assert "matched no partition rule (top-level tokens seen: ZZLINAC)" in printed
+    assert "serves 0 setpoints" in printed
+    assert "not levelled the way" not in printed
+
+
 def test_a_hierarchical_trees_fact_states_no_degradation(whole_tree, tmp_path, capsys):
     _report(
         _shared(tmp_path),
