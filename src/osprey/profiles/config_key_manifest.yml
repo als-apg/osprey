@@ -1788,10 +1788,15 @@ keys:
       checks that the block exists, never which layouts a deployment declares.
     default: {}
   web.docs_url:
+    # Documented in every preset that carries a `web:` block as a commented
+    # example, never rendered as a live key: a rendered value would write the
+    # OSPREY project's own documentation site into every deployment's
+    # profile.yml. The default below still applies when nothing spells the key.
+    rendered: false
     evidence: 'get_config_value\(\s*"web\.docs_url",\s*DEFAULT_DOCS_URL\s*\)'
     note: >-
-      Rendered live in the four templates that carry a `web:` block;
-      hello_world has none, so this is deliberately not all-templates.
+      Documented as a commented example in every preset that carries a `web:`
+      block; hello-world has none.
       The `\s*` between the call's parts is load-bearing: these four reads sit
       in one lifespan block, and the formatter wraps a call across lines purely
       on line length, so a single-line pattern reds the guard when a rename
@@ -1804,7 +1809,7 @@ keys:
       whole read, so the evidence anchors on the prefix they share and this
       entry dies with that reader rather than outliving it. Rendered live in
       the four templates that carry a `web:` block; hello_world has none, so
-      this is deliberately not all-templates, same as `web.docs_url`.
+      this is deliberately not all-templates.
     default: {}
   web.config_panel.enabled:
     evidence: '(?:get_config_value|resolve_config_flag|coerce_config_flag)\(\s*"web\.config_panel\.enabled",\s*(?:[^,)]+,\s*)?True'
@@ -1855,6 +1860,11 @@ keys:
       last of them rather than outliving them all.
     default: {}
   web.feedback.github_repo:
+    # Documented in every preset that carries a `web:` block as a commented
+    # example, never rendered as a live key: a rendered value would write the
+    # OSPREY project's own tracker into every deployment's profile.yml. The
+    # default below still applies when nothing spells the key.
+    rendered: false
     evidence: 'get_config_value\("web\.feedback\.github_repo", None\)'
     note: >-
       Read with a None sentinel rather than its own default, unlike its
@@ -1871,6 +1881,9 @@ keys:
     evidence: 'get_config_value\(\s*"web\.feedback\.trackers",\s*None\s*\)'
     default: null
   web.feedback.email:
+    # Commented rather than rendered, for the reason `web.feedback.github_repo`
+    # carries above.
+    rendered: false
     evidence: 'get_config_value\("web\.feedback\.email", None\)'
     note: >-
       Read with a None sentinel for the same reason as

@@ -367,42 +367,33 @@ def _rail_tool_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
-#: The feedback recipient the frozen renders carry. Spelled out rather than
-#: read from a fixture: a delta that derived its expectation from the documents
-#: it compares would assert nothing. It is a historical value — what the
-#: baseline shipped — and the change below is what retires it.
-_FROZEN_FEEDBACK_EMAIL = "thellert@lbl.gov"
+def _retired_upstream_link_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The three leaves naming the upstream project the presets stopped rendering.
 
-
-def _feedback_email_deltas(*documents: str) -> tuple[Delta, ...]:
-    """The feedback recipient the root presets stopped shipping.
-
-    ``web.feedback.email`` shipped a maintainer's own mailbox, so an
-    unconfigured deployment aimed its operators' reports — and the session
-    scrollback a report can carry — outside the facility. The presets now ship
-    it blank: no Email channel is offered until the deployment names a
-    recipient. The fixtures were frozen while the address was still shipped,
-    which is why the leaf reads as a difference here rather than as a render
-    the conversion changed.
-
-    ``hello-world`` names no ``web:`` block and gains nothing, so its cell is
-    absent below.
+    ``web.feedback.email``, ``web.feedback.github_repo`` and ``web.docs_url``
+    named the OSPREY maintainers, their tracker and their documentation site.
+    Rendered live they landed in every deployment's own ``profile.yml`` as
+    though the facility had chosen them; each preset now documents the key as a
+    commented example instead. The code defaults in
+    ``interfaces/web_terminal/feedback_destination.py`` still apply when
+    nothing spells the key, so the running deployment is unchanged — only the
+    rendered document is three leaves shorter.
 
     Args:
         documents: The rendered documents the cell emits, ``root`` plus one per
             persona.
 
     Returns:
-        One delta per document.
+        Three deltas per document.
     """
     return tuple(
-        Delta(
-            document=document,
-            path="web.feedback.email",
-            fixture=_FROZEN_FEEDBACK_EMAIL,
-            live="",
-        )
+        Delta(document=document, path=path, fixture=fixture, live=ABSENT)
         for document in documents
+        for path, fixture in (
+            ("web.docs_url", "https://als-apg.github.io/osprey"),
+            ("web.feedback.email", "thellert@lbl.gov"),
+            ("web.feedback.github_repo", "als-apg/osprey"),
+        )
     )
 
 
@@ -430,29 +421,29 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     "ariel-standalone/unset": _standalone_catalog_delta()
     + _entry_publish_deltas("root")
     + _rail_tool_deltas("root")
-    + _feedback_email_deltas("root"),
+    + _retired_upstream_link_deltas("root"),
     "channel-finder-standalone/in_context": _standalone_catalog_delta()
-    + _feedback_email_deltas("root"),
+    + _retired_upstream_link_deltas("root"),
     "channel-finder-standalone/hierarchical": _standalone_catalog_delta()
-    + _feedback_email_deltas("root"),
+    + _retired_upstream_link_deltas("root"),
     "channel-finder-standalone/middle_layer": _standalone_catalog_delta()
-    + _feedback_email_deltas("root"),
+    + _retired_upstream_link_deltas("root"),
     "control-assistant/in_context": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _feedback_email_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _feedback_email_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _feedback_email_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/graph": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _feedback_email_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
 }
 
 
