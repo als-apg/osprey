@@ -6,7 +6,7 @@ into a NARAD-convention Turtle file that ``osprey knowledge seed-graph`` can
 import into the graph store.
 
 The output follows the NARAD convention triple-for-triple in *shape* — the
-convention the als-ontology project defines, which is what the graph tools'
+convention the NARAD prototype ontology defines, which is what the graph tools'
 Cypher is written against: the same prefixes, the same predicate spellings,
 devices carrying the identity and position
 properties, ``narad_sem:ChannelBinding`` nodes carrying ``bindingId`` /
