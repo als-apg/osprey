@@ -104,7 +104,7 @@ async function init() {
     initEntries();
     initDashboard();
     initAdvancedOptions(capabilities);
-    initSettings();
+    initSettings(capabilities);
   } catch (e) {
     console.error('Module initialization failed (non-fatal):', e);
   }

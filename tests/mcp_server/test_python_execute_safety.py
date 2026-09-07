@@ -162,6 +162,57 @@ def test_quick_safety_check_standalone():
 
 
 # ============================================================================
+# eval / exec matching — a CALL of a bare name, not a substring
+# ============================================================================
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param("retrieval(query)", id="name-contains-eval"),
+        pytest.param("df.eval('a + b')", id="pandas-expression"),
+        pytest.param("model.eval()", id="torch-inference-mode"),
+        pytest.param("s = 'eval('", id="inside-a-string"),
+        pytest.param("# eval(x)\nprint(1)", id="inside-a-comment"),
+        pytest.param("executor(job)", id="name-contains-exec"),
+        pytest.param("ctx.exec(stmt)", id="attribute-exec"),
+    ],
+)
+def test_ordinary_code_is_not_flagged_as_dynamic_evaluation(code):
+    """``pattern in code`` refused ordinary analysis for containing ``eval(``.
+
+    None of these runs caller-supplied code, and every one of them is code an
+    operator has a real reason to submit — so refusing them trains people to
+    work around the executor rather than through it.
+    """
+    from osprey.services.python_executor.analysis.safety_checks import quick_safety_check
+
+    passed, issues = quick_safety_check(code)
+    assert passed is True, issues
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param("exec('print(1)')", id="exec"),
+        pytest.param("result = eval('2 + 2')", id="eval"),
+        pytest.param("__import__('os').system('ls')", id="dunder-import"),
+        pytest.param("compile('x = 1', '<s>', 'exec')", id="compile"),
+        pytest.param("def f():\n    return eval(user_input)", id="nested-in-function"),
+    ],
+)
+def test_dynamic_evaluation_calls_are_still_refused(code):
+    """Narrowing the match must not let the real thing through."""
+    from osprey.services.python_executor.analysis.safety_checks import quick_safety_check
+
+    passed, issues = quick_safety_check(code)
+    assert passed is False
+    assert any("Security risk" in i for i in issues), issues
+
+
+# ============================================================================
 # readonly import denylist — control-system client libraries
 # ============================================================================
 
@@ -186,6 +237,10 @@ def _readonly_import_issues(code):
         pytest.param("import pvaccess", id="pvaccess"),
         pytest.param("import tango", id="tango"),
         pytest.param("from PyTango import DeviceProxy", id="pytango"),
+        pytest.param("import doocs4py", id="doocs4py"),
+        pytest.param("from doocs4py import set as _w", id="doocs4py-alias"),
+        pytest.param("import aioca", id="aioca"),
+        pytest.param("from aioca import caput", id="aioca-from-import"),
         pytest.param("def f():\n    import epics\n    return epics", id="nested-in-function"),
     ],
 )
@@ -193,6 +248,25 @@ def test_readonly_imports_denied(code):
     issues = _readonly_import_issues(code)
     assert issues, code
     assert all("readonly" in i for i in issues), issues
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param("from ophyd_async.core import SignalRW", id="ophyd-async"),
+        pytest.param("import bluesky", id="bluesky"),
+        pytest.param("from bluesky import RunEngine", id="bluesky-run-engine"),
+    ],
+)
+def test_readonly_allows_framework_imports(code):
+    """Frameworks are not import-denied; only their write calls refuse.
+
+    ophyd-async and Bluesky are how a readonly script reads a device tree or a
+    catalog. Denying the import would refuse legitimate analysis; the runtime
+    guard refuses the calls that move hardware instead.
+    """
+    assert _readonly_import_issues(code) == []
 
 
 @pytest.mark.unit

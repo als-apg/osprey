@@ -41,6 +41,38 @@ def test_control_system_chain_imports_without_heavy_deps():
     assert "CLEAN" in result.stdout
 
 
+def test_limits_validator_reaches_for_no_control_system_client():
+    """The shared validator holds no client of its own.
+
+    It used to ``import epics`` inside the ``max_step`` check, which measured
+    the step over Channel Access whatever control system the write was bound
+    for. The read now comes from the connector doing the write, so nothing in
+    this module may reach for a client library. Importing the module is not
+    enough to prove that -- the old import was inside a function -- so the
+    check is run against a validator that actually performs a step check.
+    """
+    code = (
+        "import sys;"
+        "from osprey_connectors.control_system.limits_validator import ("
+        "    ChannelLimitsConfig, LimitsValidator);"
+        "v = LimitsValidator("
+        "    {'FOO': ChannelLimitsConfig(channel_address='FOO', max_step=5.0)},"
+        "    {'allow_unlisted_channels': False}, {});"
+        "v.validate('FOO', 1.0, read_current=lambda _a: 0.0);"
+        "bad = sorted({'epics', 'p4p', 'tango', 'caproto', 'doocs4py'} & set(sys.modules));"
+        "assert not bad, f'the limits validator imported a control-system client: {bad}';"
+        "print('CLEAN')"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        env=dict(os.environ, PYTHONPATH=SRC),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "CLEAN" in result.stdout
+
+
 def test_control_context_imports_no_osprey_module():
     """The record reader must not pull in the framework it is read beneath.
 

@@ -108,8 +108,10 @@ config:
   # must not drift if the base's default ever changes.
   control_system.writes_enabled: false
   # Creating a logbook entry is this agent's only write of any kind, and it is
-  # approval-gated like every other write in OSPREY.
+  # approval-gated like every other write in OSPREY. Publishing it is the half
+  # that actually reaches the facility's logbook, so it is gated too.
   approval.tools.entry_create: always
+  approval.tools.entry_publish: always
   # Full split-pane layout: the ARIEL search panel is the point of this tier, so
   # it needs the panel area. Pinned rather than left to the server default for
   # the same reason the other two tiers pin theirs.

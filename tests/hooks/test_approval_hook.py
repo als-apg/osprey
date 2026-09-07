@@ -949,6 +949,59 @@ def test_entry_create_always_asks(tmp_path, hook_runner, make_config):
     assert output["permissionDecision"] == "ask"
 
 
+@pytest.mark.unit
+def test_entry_publish_always_asks(tmp_path, hook_runner, make_config):
+    """Publishing an entry reaches the facility's logbook, so it prompts.
+
+    It falls to `default_policy` rather than naming a policy of its own, which
+    is fail-closed and is what the shipped presets state explicitly.
+    """
+    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__ariel__entry_publish",
+        {"entry_id": "e-1"},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert result is not None
+    assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "tool_name",
+    ["mcp__ring__channel_write", "mcp__ring__control_target_set"],
+    ids=["channel_write", "control_target_set"],
+)
+def test_clone_approval_gated_tools_still_ask(tmp_path, hook_runner, make_config, tool_name):
+    """A clone renames only the server prefix, never the tool.
+
+    The registry rewrites each rule's matcher to `mcp__<clone>__<tool>`, so the
+    hook fires; the policy has to be resolved from the SHORT name or every
+    approval-gated controls tool on a clone falls through unrecognised.
+    """
+    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
+
+    result = hook_runner(
+        "osprey_approval.py",
+        tool_name,
+        {"channel": "TEST:PV", "value": 1.0},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config={
+            "server_prefixes": ["mcp__ring__"],
+            "approval_prefixes": ["mcp__ring__"],
+        },
+    )
+
+    assert result is not None
+    assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+
+
 # ============================================================================
 # Pattern parity — fallback patterns must match framework patterns
 # ============================================================================
@@ -998,6 +1051,21 @@ def test_fallback_covers_p4p_write_idioms(hook_module):
         assert pattern in fallback_patterns
 
     assert r"\.post\s*\(" not in fallback_patterns
+
+
+@pytest.mark.unit
+def test_fallback_covers_the_doocs_write_idiom(hook_module):
+    """The fallback list must carry the DOOCS write spelling.
+
+    ``doocs4py.set`` is what the shipped DOOCS connector writes through, so a
+    deployment on that connector is guaranteed to have the library. Anchored
+    to ``doocs4py`` on purpose: a bare ``.set(`` would flag every set() call in
+    ordinary analysis code.
+    """
+    fallback_patterns = hook_module("osprey_approval")._FALLBACK_WRITE_PATTERNS
+
+    assert r"\bdoocs4py\b[\s\S]*?\.set\s*\(" in fallback_patterns
+    assert r"\.set\s*\(" not in fallback_patterns
 
 
 @pytest.mark.unit

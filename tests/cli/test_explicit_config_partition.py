@@ -244,11 +244,15 @@ def test_root_render_is_partitioned_between_its_sources(
     assert sets["Panels"] == _panel_switches(document), directory
     assert not {key for key in config if key in sets["Panels"]}
 
-    # Every key the preset states reaches the render, with one exception the
-    # proposal names: hello-world gains `hooks.debug: false`, which the old
-    # template shipped commented out.
+    # Every key the preset states reaches the render, save two the fixtures
+    # were frozen before: hello-world gains `hooks.debug: false`, which the old
+    # template shipped commented out, and every preset that spells an ARIEL
+    # approval policy gains `approval.tools.entry_publish`, the logbook
+    # write-through that was gated nowhere when the freeze ran.
     missing = set(config) - set(render)
     expected_gain = {"hooks.debug"} if preset == "hello-world" else set()
+    if "approval.tools.entry_publish" in config:
+        expected_gain = expected_gain | {"approval.tools.entry_publish"}
     assert missing == expected_gain, (
         f"{directory}: preset keys absent from the render: {sorted(missing)}"
     )

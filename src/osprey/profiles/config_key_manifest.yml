@@ -666,6 +666,15 @@ keys:
       not mistaken for drift.
     default: derived
     default_note: falls through to approval.default_policy
+  approval.tools.entry_publish:
+    evidence: 'entry_publish'
+    note: >-
+      The second half of the logbook write: entry_create drafts, entry_publish
+      writes the entry through to the facility's logbook. Both carry the
+      approval hook, so both belong here. Inert in hello-world for the same
+      reason entry_create is.
+    default: derived
+    default_note: falls through to approval.default_policy
   hooks:
     all-templates: true
     evidence: 'full_config\.get\("hooks", \{\}\)'
@@ -1314,8 +1323,31 @@ keys:
       the runner refuses a benchmark with no query set, naming this key and --queries-path
   ariel: {evidence: 'get_config_value\("ariel", \{\}\)', default: {}}
   ariel.ingestion: {covered-by: ariel, default: n/a}
-  ariel.ingestion.adapter: {covered-by: ariel.ingestion, default: generic}
+  ariel.ingestion.adapter:
+    covered-by: ariel.ingestion
+    default: no-fallback
+    default_note: >-
+      config load refuses an ingestion block that names no adapter -- there is no
+      adapter registered under a generic name to fall back to
   ariel.ingestion.source_url: {evidence: 'source_url', default: null}
+  ariel.ingestion.verify_ssl:
+    rendered: false
+    evidence: 'data\.get\("verify_ssl", True\)'
+    note: >-
+      The default is spelled in the evidence because it is the safe posture: an
+      ingest that cannot verify the logbook's certificate must fail rather than
+      trust whatever answered, so a silent flip back to False has to red this
+      guard.
+    default: true
+  ariel.ingestion.ca_bundle:
+    rendered: false
+    evidence: 'data\.get\("ca_bundle"\)'
+    note: >-
+      Named only in the commented `ingestion:` guidance the presets and the
+      ingestion how-to carry: a site CA path is facility content, and the
+      shipped default (the image trust store) is the right answer for a
+      deployment that has none.
+    default: null
   ariel.default_search_mode: {evidence: 'default_search_mode', default: derived, default_note: the implicit mode for whichever search modules are enabled}
   # The facility vocabulary: shorthand the operators type, mapped to the words
   # the logbook prose actually uses. Read ONCE at config parse — the file is
@@ -1629,7 +1661,7 @@ keys:
       pushes an unrelated call past the margin.
     default: https://als-apg.github.io/osprey
   web.config_panel:
-    evidence: '(?:get_config_value|resolve_config_flag)\(\s*"web\.config_panel\.'
+    evidence: '(?:get_config_value|resolve_config_flag|coerce_config_flag)\(\s*"web\.config_panel\.'
     note: >-
       The block is never read as a mapping — its single leaf below carries the
       whole read, so the evidence anchors on the prefix they share and this
@@ -1638,7 +1670,7 @@ keys:
       this is deliberately not all-templates, same as `web.docs_url`.
     default: {}
   web.config_panel.enabled:
-    evidence: '(?:get_config_value|resolve_config_flag)\(\s*"web\.config_panel\.enabled",\s*True'
+    evidence: '(?:get_config_value|resolve_config_flag|coerce_config_flag)\(\s*"web\.config_panel\.enabled",\s*(?:[^,)]+,\s*)?True'
     note: >-
       Tier gate for the Config panel, and a SERVER-side one: false makes
       /api/config and /api/claude-setup refuse every verb with 403 and takes
@@ -2302,9 +2334,9 @@ governed_sets:
   claims:
     ariel-standalone:
       preset: src/osprey/profiles/presets/ariel-standalone.yml
-      comment_claim: 'here ARIEL `entry_create`, workspace `setup_patch` and facility-knowledge `draft_concept`'
+      comment_claim: 'here ARIEL `entry_create` and `entry_publish`, workspace `setup_patch` and facility-knowledge `draft_concept`'
       exhaustive: true
-      tools: [entry_create, setup_patch, draft_concept]
+      tools: [entry_create, entry_publish, setup_patch, draft_concept]
     channel-finder-standalone:
       preset: src/osprey/profiles/presets/channel-finder-standalone.yml
       comment_claim: 'in this deployment that is the workspace setup_patch tool alone'
@@ -2322,7 +2354,9 @@ governed_sets:
       control-assistant's is longer than the old control_assistant template's —
       the preset enables the bluesky server, whose seven queue/plan tools carry
       the same approval hook and were never in a template's render.
-    control-assistant: [archiver_read, channel_read, channel_write, control_target_set, draft_concept, entry_create, execute, execute_file, queue_add, queue_remove, queue_start, queue_stop, setup_patch, stop_run, validate_plan, write_plan]
+      entry_publish joined every set that already carried entry_create when the
+      ariel server gave it the same approval hook.
+    control-assistant: [archiver_read, channel_read, channel_write, control_target_set, draft_concept, entry_create, entry_publish, execute, execute_file, queue_add, queue_remove, queue_start, queue_stop, setup_patch, stop_run, validate_plan, write_plan]
     hello-world: [archiver_read, channel_read, channel_write, control_target_set, draft_concept, execute, execute_file, setup_patch]
   draft_concept_note: >-
     draft_concept is approval-governed in control-assistant and hello-world

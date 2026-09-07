@@ -335,6 +335,35 @@ class WriteConfig:
         )
 
 
+def _known_ingestion_adapters() -> list[str]:
+    """Adapter names to offer an operator who named none.
+
+    The live registry first — a deployment that registered its own adapter must
+    see it here — and the framework's built-in registrations as the fallback,
+    since a config can be parsed outside a project, where there is no registry
+    to ask.
+
+    Returns:
+        Sorted adapter names, or an empty list if neither source can answer.
+    """
+    try:
+        from osprey.registry.manager import get_registry
+
+        names = get_registry().list_ariel_ingestion_adapters()
+        if names:
+            return sorted(names)
+    except Exception:  # noqa: BLE001 — the refusal matters more than the list
+        pass
+
+    try:
+        from osprey.registry.builtins import FrameworkRegistryProvider
+
+        registrations = FrameworkRegistryProvider().get_registry_config()
+        return sorted(r.name for r in registrations.ariel_ingestion_adapters)
+    except Exception:  # noqa: BLE001 — same
+        return []
+
+
 @dataclass
 class IngestionConfig:
     """Configuration for logbook ingestion.
@@ -344,7 +373,11 @@ class IngestionConfig:
         source_url: URL for source system API (optional)
         poll_interval_seconds: Polling interval for incremental ingestion
         proxy_url: SOCKS proxy URL (e.g., "socks5://localhost:1080")
-        verify_ssl: Whether to verify SSL certificates (default: False for internal servers)
+        verify_ssl: Whether to verify TLS certificates (default: True). Set false
+            only as a deliberate opt-out for a logbook whose certificate cannot
+            be verified any other way.
+        ca_bundle: Path to a PEM bundle to verify against, for a site CA that is
+            not in the image trust store (optional)
         chunk_days: Days per API request for time windowing (default: 365)
         request_timeout_seconds: Timeout for HTTP requests (default: 60)
         max_retries: Maximum retry attempts for failed requests (default: 3)
@@ -357,7 +390,8 @@ class IngestionConfig:
     source_url: str | None = None
     poll_interval_seconds: int = 3600
     proxy_url: str | None = None
-    verify_ssl: bool = False
+    verify_ssl: bool = True
+    ca_bundle: str | None = None
     chunk_days: int = 365
     request_timeout_seconds: int = 60
     max_retries: int = 3
@@ -367,7 +401,29 @@ class IngestionConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "IngestionConfig":
-        """Create IngestionConfig from dictionary."""
+        """Create IngestionConfig from dictionary.
+
+        Args:
+            data: The ``ariel.ingestion`` block.
+
+        Returns:
+            The parsed configuration.
+
+        Raises:
+            ConfigurationError: If ``adapter`` is absent. There is no sensible
+                default — the old one, ``"generic"``, is not a registered name
+                at all, so an ingestion block without an adapter never worked;
+                it just failed later, at the first ingest, instead of here.
+        """
+        if not data.get("adapter"):
+            available = ", ".join(_known_ingestion_adapters())
+            suffix = f" Registered adapters: {available}." if available else ""
+            raise ConfigurationError(
+                "ariel.ingestion.adapter is required: name the adapter that reads "
+                f"your logbook.{suffix}",
+                config_key="ingestion.adapter",
+            )
+
         proxy_url = data.get("proxy_url") or os.environ.get("ARIEL_SOCKS_PROXY")
 
         watch = WatchConfig()
@@ -379,11 +435,12 @@ class IngestionConfig:
             write = WriteConfig.from_dict(data["write"])
 
         return cls(
-            adapter=data.get("adapter", "generic"),
+            adapter=data["adapter"],
             source_url=data.get("source_url"),
             poll_interval_seconds=data.get("poll_interval_seconds", 3600),
             proxy_url=proxy_url,
-            verify_ssl=data.get("verify_ssl", False),
+            verify_ssl=data.get("verify_ssl", True),
+            ca_bundle=data.get("ca_bundle"),
             chunk_days=data.get("chunk_days", 365),
             request_timeout_seconds=data.get("request_timeout_seconds", 60),
             max_retries=data.get("max_retries", 3),

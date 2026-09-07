@@ -97,6 +97,13 @@ class ArtifactGallery {
     this.selectedArtifact = null;
     this.currentView = 'gallery';
     this.detailMode = 'preview';
+    // Bumped by every detail-content render; read back by the renderers after
+    // their fetch so a render the panel has moved past does not draw over the
+    // one that replaced it. Monotonic for the life of the gallery -- reset()
+    // deliberately leaves it alone, so a render in flight across a drawer
+    // close can never match a recycled number. See scaffold/detail.js's
+    // renderDetailContent.
+    this.detailRenderSeq = 0;
     this.searchQuery = '';
     /** @type {string|null} */
     this.filterCategory = null;

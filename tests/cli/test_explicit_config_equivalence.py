@@ -48,6 +48,12 @@ which land with the tasks that cause them:
 that whole mapping (it resolves to an interpreter path), so it can never surface
 as a delta and needs no entry here.
 
+One more delta is declared that Requirement 1 did not foresee:
+``approval.tools.entry_publish`` reaches every render made from a preset that
+spells an ARIEL approval policy. The fixtures were frozen while that tool was
+gated nowhere, so the leaf is genuinely new rather than a render the conversion
+moved.
+
 One leaf is exempt from the table rather than declared in it. ``osprey build``
 answers the presets' ``container_runtime: auto`` with the runtime that served
 the build, so the rendered value states a fact about the building host: it is
@@ -284,19 +290,71 @@ def _standalone_catalog_delta() -> tuple[Delta, ...]:
     )
 
 
+def _entry_publish_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The approval policy every render with an ARIEL approval table gained.
+
+    ``entry_publish`` is the half of a logbook write that reaches the facility,
+    and it was gated nowhere: it sat in neither ``permissions_ask`` nor the
+    approval hook, so a headless read-only query could publish. Gating it put
+    ``approval.tools.entry_publish: always`` beside the existing
+    ``entry_create`` line in every preset that spells an ARIEL approval policy,
+    so every document those presets render gains the leaf. The fixtures were
+    frozen before that, which is why it reads as a difference here rather than
+    as a render the conversion changed.
+
+    channel-finder-standalone runs no ARIEL server and names no approval table
+    for it, so its cells gain nothing and are absent below.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(
+            document=document,
+            path="approval.tools.entry_publish",
+            fixture=ABSENT,
+            live="always",
+        )
+        for document in documents
+    )
+
+
+#: The documents a control-assistant cell renders: the root config plus one per
+#: persona in the preset's roster.
+_CONTROL_ASSISTANT_DOCUMENTS = (
+    "admin",
+    "knowledge",
+    "logbook",
+    "readonly",
+    "readwrite",
+    "root",
+)
+
+
 CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     # The posture floor makes `hooks.debug` unconditional, and hello-world is the
     # one preset whose app template never carried it (Requirement 1). The other
     # presets already render `hooks.debug: true`, so they gain nothing.
-    "hello-world/unset": (Delta(document="root", path="hooks.debug", fixture=ABSENT, live=False),),
-    "ariel-standalone/unset": _standalone_catalog_delta(),
+    "hello-world/unset": (
+        Delta(document="root", path="hooks.debug", fixture=ABSENT, live=False),
+        *_entry_publish_deltas("root"),
+    ),
+    "ariel-standalone/unset": _standalone_catalog_delta() + _entry_publish_deltas("root"),
     "channel-finder-standalone/in_context": _standalone_catalog_delta(),
     "channel-finder-standalone/hierarchical": _standalone_catalog_delta(),
     "channel-finder-standalone/middle_layer": _standalone_catalog_delta(),
-    "control-assistant/in_context": _control_assistant_persona_deltas(),
-    "control-assistant/hierarchical": _control_assistant_persona_deltas(),
-    "control-assistant/middle_layer": _control_assistant_persona_deltas(),
-    "control-assistant/graph": _control_assistant_persona_deltas(),
+    "control-assistant/in_context": _control_assistant_persona_deltas()
+    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    "control-assistant/hierarchical": _control_assistant_persona_deltas()
+    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    "control-assistant/middle_layer": _control_assistant_persona_deltas()
+    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    "control-assistant/graph": _control_assistant_persona_deltas()
+    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
 }
 
 

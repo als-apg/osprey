@@ -23,7 +23,7 @@ from typing import Any
 from osprey_connectors.types import (
     WRITES_ENABLED_KEY,
     type_writes_enabled,
-    writes_enabled_key,
+    writes_enabled_remedy,
 )
 
 logger = logging.getLogger("osprey_connectors.control_system")
@@ -570,11 +570,10 @@ def _writes_disabled_result(
                 "config.yml is not the gate here."
             )
         else:
-            key = writes_enabled_key(connector_type)
             message = (
                 f"Write to '{channel_address}' blocked: writes are disabled. "
-                f"Set {key}: true in the build profile "
-                "(profile.yml on the host), then rebuild and redeploy."
+                f"{writes_enabled_remedy(connector_type)} "
+                "Then rebuild and redeploy."
             )
     return ChannelWriteResult(
         channel_address=channel_address,
@@ -741,6 +740,47 @@ class ControlSystemConnector(ABC):
         if not store_permits:
             return False
         return _deployment_writes_enabled(self._connector_type)
+
+    def _current_value_reader(self) -> Callable[[str], Any] | None:
+        """This connector's own way to read a channel's present value.
+
+        Handed to :meth:`LimitsValidator.validate` so the ``max_step`` check
+        measures the step over the client and the target the write itself is
+        bound for. The validator is shared by every connector and owns no
+        client; a connector that cannot read synchronously answers ``None``
+        here, and a ``max_step`` channel on it fails closed rather than being
+        measured over somebody else's protocol.
+        """
+        return None
+
+    def _validation_refusal(
+        self, channel_address: str, value: Any, error: BaseException
+    ) -> ChannelWriteResult:
+        """The REFUSED result a non-limits validation error owes the caller.
+
+        Limits validation answers a write in one of two ways: a
+        :class:`ChannelLimitsViolationError`, which carries its own semantics
+        and propagates to the caller unchanged, or any other error — which
+        says the check could not be MADE. A check that could not be made is
+        not permission to write: a validator that never answered has not said
+        yes. So every connector turns that second case into this one REFUSED
+        result and sends nothing.
+
+        Spelled once, here, because the six-outcome contract is a promise
+        every connector makes with the same words
+        (``tests/connectors/test_cross_connector_parity.py``); four private
+        copies of it would be four chances to drift.
+        """
+        logger.warning(
+            f"Validation error - refusing write (fail-closed): {channel_address}: {error}"
+        )
+        return ChannelWriteResult(
+            channel_address=channel_address,
+            value_written=value,
+            outcome=WriteOutcome.REFUSED,
+            refusal_reason="VALIDATION_ERROR",
+            error_message=f"Write to '{channel_address}' refused: validation error: {error}",
+        )
 
     def __init_subclass__(cls, **kwargs):
         """Auto-wrap write methods with writes_enabled pre-check.

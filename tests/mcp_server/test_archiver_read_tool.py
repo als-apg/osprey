@@ -244,41 +244,93 @@ def test_parse_time_relative_expressions(expression, expected_delta, monkeypatch
         "M ago",
     ],
 )
-def test_parse_time_unrecognized_relative_falls_through_to_dateutil(expression, monkeypatch):
-    """A "... ago" string the unit map cannot serve still reaches the dateutil branch.
+def test_parse_time_unrecognized_relative_falls_through_to_iso(expression, monkeypatch):
+    """A "... ago" string the unit map cannot serve still reaches the ISO branch.
 
-    dateutil rejects all of these, so ``ParserError`` proves the fall-through
-    happened.
+    None of these is ISO-8601, so the ``ValueError`` proves the fall-through
+    happened and that it ends in a refusal rather than a guess.
     """
     from datetime import UTC
-
-    from dateutil.parser import ParserError
 
     from osprey.mcp_server.control_system.tools import archiver_read as mod
 
     monkeypatch.setattr(mod, "get_facility_timezone", lambda: UTC)
 
-    with pytest.raises(ParserError):
+    with pytest.raises(ValueError):
         mod._parse_time(expression)
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    ("field", "kwargs"),
+    "expression",
     [
-        ("start_time", {"start_time": "not-a-timestamp"}),
-        # A bad end_time is caught after a good start_time.
-        ("end_time", {"start_time": "2024-01-15T10:00:00", "end_time": "not-a-timestamp"}),
+        "03.04.2026",  # third of April, or fourth of March? Nobody can tell.
+        "03/04/2026",
+        "4 March 2026",
+        "March 4, 2026",
+        "next tuesday",
     ],
 )
-async def test_archiver_read_unparseable_time(archiver_project, field, kwargs):
-    """A time even dateutil cannot parse errors cleanly, naming the failing field."""
+def test_parse_time_refuses_ambiguous_dates(expression, monkeypatch):
+    """A dotted or slashed date has two readings a month apart; guessing is worse."""
+    from datetime import UTC
+
+    from osprey.mcp_server.control_system.tools import archiver_read as mod
+
+    monkeypatch.setattr(mod, "get_facility_timezone", lambda: UTC)
+
+    with pytest.raises(ValueError):
+        mod._parse_time(expression)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "2026-04-03",
+        "2026-04-03T14:00:00",
+        "2026-04-03 14:00:00",  # the space form fromisoformat takes since 3.11
+        "2026-04-03T14:00:00+02:00",
+    ],
+)
+def test_parse_time_accepts_iso_spellings(expression, monkeypatch):
+    """Everything the contract advertises still parses."""
+    from datetime import UTC
+
+    from osprey.mcp_server.control_system.tools import archiver_read as mod
+
+    monkeypatch.setattr(mod, "get_facility_timezone", lambda: UTC)
+
+    parsed = mod._parse_time(expression)
+
+    assert parsed.tzinfo is not None
+    assert parsed.year == 2026
+    assert (parsed.month, parsed.day) == (4, 3)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "bad_value", "kwargs"),
+    [
+        ("start_time", "not-a-timestamp", {"start_time": "not-a-timestamp"}),
+        # An ambiguous date is a validation error, not a month-first guess.
+        ("start_time", "03.04.2026", {"start_time": "03.04.2026"}),
+        # A bad end_time is caught after a good start_time.
+        (
+            "end_time",
+            "not-a-timestamp",
+            {"start_time": "2024-01-15T10:00:00", "end_time": "not-a-timestamp"},
+        ),
+    ],
+)
+async def test_archiver_read_unparseable_time(archiver_project, field, bad_value, kwargs):
+    """A time outside the accepted spellings errors cleanly, naming the failing field."""
     fn = _get_archiver_read()
     with assert_raises_error(error_type="validation_error") as ctx:
         await fn(channels=["SR:CURRENT:RB"], **kwargs)
 
     assert field in ctx["envelope"]["error_message"]
-    assert "not-a-timestamp" in ctx["envelope"]["error_message"]
+    assert bad_value in ctx["envelope"]["error_message"]
 
 
 @pytest.mark.unit

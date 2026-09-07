@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 from typing import NoReturn
 
+import yaml
 from fastmcp.exceptions import ToolError
 
 from osprey.cli.profile_conventions import RESERVED_PATH_CHANNELS, is_protected_key
@@ -110,6 +111,75 @@ def _mask_env(env: dict[str, str]) -> dict[str, str]:
     return masked
 
 
+def _mask_document(value: object, key: str | None = None) -> object:
+    """Return *value* with literal secrets under sensitive key names masked.
+
+    Walks a parsed document — the config, the ``.mcp.json`` blob — and replaces
+    the value of any key matching :data:`_SENSITIVE_PATTERNS` with ``***``.
+    A ``${VAR}`` placeholder survives: it names the variable a secret comes
+    from, which is the diagnostic, not the secret.
+
+    This is the second line, not the first. The document reported here is the
+    UNEXPANDED one, so a well-formed deployment has nothing but placeholders
+    under those keys already; this catches a secret somebody typed straight
+    into ``config.yml`` or ``.mcp.json``.
+
+    Args:
+        value: The node being walked.
+        key: The mapping key *value* was found under, or None at the root and
+            inside sequences.
+
+    Returns:
+        The masked copy.
+    """
+    if isinstance(value, dict):
+        return {k: _mask_document(v, str(k)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_mask_document(item, key) for item in value]
+    if (
+        key is not None
+        and isinstance(value, str)
+        and value
+        and _SENSITIVE_PATTERNS.search(key)
+        and "${" not in value
+    ):
+        return "***"
+    return value
+
+
+def _unexpanded_config(config_path: Path) -> dict:
+    """The config document with its ``${VAR}`` placeholders still in place.
+
+    ``load_osprey_config`` returns the EXPANDED document — every placeholder
+    replaced by the value the environment holds — which is the right input for
+    resolving a path and the wrong thing to hand back to an agent transcript.
+    The unexpanded copy is the better diagnostic anyway: it shows which
+    variable each key references, and the environment section beside it already
+    reports whether that variable is set.
+
+    Falls back to a plain YAML read of the same file, which is unexpanded by
+    construction, so no failure here can turn into an expanded document.
+
+    Args:
+        config_path: The config.yml this deployment resolved.
+
+    Returns:
+        The unexpanded document, or an empty dict when it cannot be read.
+    """
+    try:
+        from osprey.utils.config import get_config_builder
+
+        return get_config_builder(config_path=str(config_path)).get_unexpanded_config()
+    except Exception:
+        logger.warning("Could not load %s through ConfigBuilder; reading it as YAML", config_path)
+
+    try:
+        return yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        logger.warning("Could not read %s", config_path)
+        return {}
+
+
 def _read_json_file(path: Path) -> dict | list | None:
     """Read and parse a JSON file, returning None if missing or invalid."""
     if not path.exists():
@@ -152,21 +222,27 @@ async def setup_inspect() -> str:
     including config.yml, MCP servers, settings, hooks, rules, agents, skills,
     environment variables, and workspace structure.
 
-    Environment variables containing KEY, TOKEN, SECRET, or PASSWORD in their
-    names have their values masked.
+    The config is reported UNEXPANDED --- ``${VAR}`` placeholders intact ---
+    so a resolved secret never reaches the transcript. Environment variables
+    and any literal value in the config or ``.mcp.json`` whose key contains
+    KEY, TOKEN, SECRET or PASSWORD are masked on top of that.
 
     Returns:
         JSON object with all configuration sections.
     """
     try:
-        project_root = resolve_config_path().parent
+        config_path = resolve_config_path()
+        project_root = config_path.parent
         claude_dir = project_root / ".claude"
 
-        # Config
+        # Config. Two copies with two jobs: the expanded one resolves the
+        # agent-data path below and is never reported; the unexpanded one is
+        # what the caller sees.
         config = load_osprey_config()
+        reported_config = _mask_document(_unexpanded_config(config_path))
 
         # MCP servers (.mcp.json)
-        mcp_servers = _read_json_file(project_root / ".mcp.json")
+        mcp_servers = _mask_document(_read_json_file(project_root / ".mcp.json"))
 
         # Settings (.claude/settings.json)
         settings = _read_json_file(claude_dir / "settings.json")
@@ -198,9 +274,7 @@ async def setup_inspect() -> str:
         # deployment REPO root, not beside the render `project_root` points at —
         # so resolve it from the config's own `agent_data.base_dir` anchored on
         # the repo, the same derivation every writer uses.
-        ws_dir = anchored_path(
-            agent_data_base_dir(config), repo_root_for_config(resolve_config_path())
-        )
+        ws_dir = anchored_path(agent_data_base_dir(config), repo_root_for_config(config_path))
         workspace = {
             "exists": ws_dir.is_dir(),
             "subdirs": _list_dirs_in(ws_dir) if ws_dir.is_dir() else [],
@@ -208,7 +282,7 @@ async def setup_inspect() -> str:
 
         return json.dumps(
             {
-                "config": config,
+                "config": reported_config,
                 "mcp_servers": mcp_servers,
                 "settings": settings,
                 "hooks": hooks,

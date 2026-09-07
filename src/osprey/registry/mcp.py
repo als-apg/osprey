@@ -319,10 +319,21 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "status",
             "filter_options",
         ],
-        permissions_ask=["entry_create"],
+        # entry_publish is gated alongside entry_create: it is the tool that
+        # actually writes the entry through to the facility's logbook, so a
+        # deployment that prompts for the draft and not for the publish gates
+        # the half that never leaves the deployment. It is deliberately NOT
+        # writes-check gated — whether a logbook write-through belongs under
+        # the hardware kill switch is one question for every non-hardware
+        # write, and it is answered in one place, not here.
+        permissions_ask=["entry_create", "entry_publish"],
         hooks_pre=[
             HookRule(
                 matcher="mcp__ariel__entry_create",
+                hooks=[_APPROVAL],
+            ),
+            HookRule(
+                matcher="mcp__ariel__entry_publish",
                 hooks=[_APPROVAL],
             ),
         ],
@@ -1319,6 +1330,21 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition | None:
                 resolved.append(hook)
             else:
                 logger.warning("Unknown hook preset %r for server %r — skipping", preset, name)
+        if "limits" in pre_presets:
+            # The rule below matches every tool on the server, but the limits
+            # hook only knows one input shape: a `channel_write`-shaped call
+            # carrying `channel`/`value` or an `operations` list. It abstains on
+            # anything else — which is right (denying would deny reads) and is
+            # also why attaching it to a whole server is not the guarantee the
+            # config line looks like.
+            logger.warning(
+                "Server %r attaches the 'limits' hook preset to every tool "
+                "(mcp__%s__.*), but the hook validates only channel_write-shaped "
+                "input (a `channel`/`value` pair, or an `operations` list). Tools "
+                "on this server that write in another shape are NOT limits-checked",
+                name,
+                name,
+            )
         if resolved:
             hooks_pre = [HookRule(matcher=f"mcp__{name}__.*", hooks=resolved)]
 

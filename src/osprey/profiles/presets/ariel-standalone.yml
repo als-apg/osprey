@@ -186,14 +186,16 @@ config:
 
   # ── Approval ───────────────────────────────────────────────────────────────
   # Applied by the approval hook, so it reaches only hook-wired tools: here
-  # ARIEL `entry_create`, workspace `setup_patch` and facility-knowledge
-  # `draft_concept`. Everything else is gated by the rendered settings.json
-  # permissions.
+  # ARIEL `entry_create` and `entry_publish`, workspace `setup_patch` and
+  # facility-knowledge `draft_concept`. Everything else is gated by the
+  # rendered settings.json permissions.
   approval.enabled: true
   # Policy for any hook-wired tool not listed below. "always" is fail-closed.
   approval.default_policy: always
   # Creating a logbook entry always asks first.
   approval.tools.entry_create: always
+  # Publishing it through to the facility's logbook does too.
+  approval.tools.entry_publish: always
 
   # ── Hook observability ─────────────────────────────────────────────────────
   # On here. Every hook call logs one line to stderr and appends to
@@ -219,6 +221,15 @@ config:
   # `osprey ariel ingest`.
   ariel.ingestion.adapter: generic_json
   ariel.ingestion.source_url: data/logbook_seed/demo_logbook.json
+  # TLS on the logbook fetch. Verification is ON — an ingest that cannot verify
+  # the logbook's certificate fails rather than trusting whatever answered.
+  # Two ways out, in order of preference: name your site CA's PEM with
+  # `ca_bundle` when it is not in the image trust store, or set
+  # `verify_ssl: false` for a certificate that cannot be verified at all.
+  # Credentials and entry text then travel over a connection nobody has
+  # authenticated.
+  # ariel.ingestion.ca_bundle: /etc/ssl/certs/site-ca.pem
+  # ariel.ingestion.verify_ssl: false
   # Which module answers a search that names no mode: the web interface's
   # opening tab, `osprey ariel search` without `--mode`, and the service API.
   # Naming a module that is off below is refused at startup.

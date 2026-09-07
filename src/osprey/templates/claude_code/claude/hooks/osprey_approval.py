@@ -5,7 +5,7 @@ name: Human Approval Gate
 description: Requires human approval for dangerous operations based on per-tool policy
 summary: Requires human approval for dangerous operations
 event: PreToolUse
-tools: channel_write, execute, setup_patch, entry_create, queue_add, queue_start, queue_stop, queue_remove, stop_run
+tools: channel_write, execute, setup_patch, entry_create, entry_publish, queue_add, queue_start, queue_stop, queue_remove, stop_run
 safety_layer: 2
 ---
 
@@ -134,7 +134,7 @@ except Exception:  # pragma: no cover - older render without the reader
     _target_state = None
 
 # Fallback write patterns: used when osprey is not importable (e.g., standalone hook).
-# Must stay in sync with get_framework_standard_patterns()["write"] (19 patterns).
+# Must stay in sync with get_framework_standard_patterns()["write"] (20 patterns).
 # The parity test in test_approval_hook.py enforces this.
 _FALLBACK_WRITE_PATTERNS = [
     # osprey.runtime unified API
@@ -158,6 +158,9 @@ _FALLBACK_WRITE_PATTERNS = [
     r"\.write_attribute\s*\(",
     r"\.write_attribute_asynch\s*\(",
     r"tango\.DeviceProxy\([^)]*\)\.write",
+    # DOOCS (doocs4py) - anchored to doocs4py; a bare r"\.set\s*\(" would
+    # flag every set() call in ordinary analysis code
+    r"\bdoocs4py\b[\s\S]*?\.set\s*\(",
     # LabVIEW
     r"labview\.set_control\(",
     r"\.SetControlValue\(",
@@ -165,7 +168,7 @@ _FALLBACK_WRITE_PATTERNS = [
     r"connector\.write_channel\(",
 ]
 
-# Pattern detection: prefer framework module (regex-based, config-driven, 19 patterns)
+# Pattern detection: prefer framework module (regex-based, config-driven, 20 patterns)
 # with graceful fallback to regex matching against _FALLBACK_WRITE_PATTERNS
 try:
     from osprey.services.python_executor.analysis.pattern_detection import (

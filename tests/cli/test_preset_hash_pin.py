@@ -39,32 +39,40 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # in front of the agent at session start and whenever it changed since its
     # last turn. A rebuilt project gains the hook file in `.claude/hooks/` and
     # two settings.json registrations (SessionStart, UserPromptSubmit).
-    "ariel-standalone": ("sha256:99e429dc923ba5276672f3c18857976ae517e3e05ef38f21f2fc7b72fad9386c"),
+    # The fourth move, and the only one that is not every preset: every preset
+    # that spells an ARIEL approval policy gained
+    # `approval.tools.entry_publish: always` beside its existing `entry_create`
+    # line. Publishing is the half of a logbook write that reaches the
+    # facility, and it was gated nowhere. channel-finder-standalone runs no
+    # ARIEL server and has no approval table for it, so it alone stands still.
+    # A rebuilt project prompts before a publish, so the staleness advisory
+    # firing on already-deployed projects is the correct signal.
+    "ariel-standalone": ("sha256:2522f525c8850daf2915e59b898a13269d1c924d59d0d0f868b219a2b8e72c6d"),
     "channel-finder-standalone": (
         "sha256:5c5d670fb6d048e854dfa5ecff9b02d6b9bf504a4cd574d6a5f66b34e18e3fa1"
     ),
     "control-assistant": (
-        "sha256:a35bc6778ca15ff0e11b680b894d2b5488e9c753b9fa901cd8f26313490e6554"
+        "sha256:e1cd276ba9e3062452b5afe86daed341be5c8cfa12b6a992d7b4ea0e33c2ff05"
     ),
     "control-assistant-admin": (
-        "sha256:4f1496e3921e32937cad756be25c639061abfa62149527380fb513f480c79e6f"
+        "sha256:c29f07d93cee491afda6276603d5a86a9cf0e919960ba598f78c8906e419eb3c"
     ),
     "control-assistant-knowledge": (
-        "sha256:5ef269fd5090e53a98c52b9a8f7a9be0837e48e70f8f8cbc109d4e372c42d025"
+        "sha256:84fb320d701ef1d14d18155c0c59dfff4b2bcc2d5441175733f7fb6d2aad90f0"
     ),
     "control-assistant-logbook": (
-        "sha256:0154037230bcfbecac1bcb11e1823afb0f65a328fee7931c8985e8069b72f243"
+        "sha256:a63cee6c479a8bee82c1f6e261b921ea96708226cb9e0d331d52d9e800b195e4"
     ),
     "control-assistant-readonly": (
-        "sha256:5f751306dd38faed68eaacc69e1bb8ce1dbd0fa79b5a739c9d796a6e7d735f41"
+        "sha256:99a75fd3714a9114fd527724b77de6b7bd36aac571b821882b8903be6c626c3c"
     ),
     "control-assistant-readwrite": (
-        "sha256:519e9cfb344b95f6bb094057704b2ea5fe620a997d82a5a24da82ec74fa90003"
+        "sha256:3a8c88791900e5c0d7bff064db59f65a1244dd07425a90e1e17301311aa63a19"
     ),
     "control-assistant-va-readwrite": (
-        "sha256:2b74afdad052c055cfa12c682815d0d7a771fd5723826c845ecbbf86ed398f23"
+        "sha256:93c34788a885b8013162c85bb9f39fd506b6950c210fc8f07ae1579e13f42f20"
     ),
-    "hello-world": ("sha256:495e21e03af8f135964a3ebffa141e7dc6061183fa5d00978b81cd4ab3657e6a"),
+    "hello-world": ("sha256:5f23b2a31f03c885b20dae82781aa87efda81db3960d6865c3bc93e54e4ca837"),
 }
 
 

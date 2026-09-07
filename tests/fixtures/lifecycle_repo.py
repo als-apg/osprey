@@ -567,6 +567,8 @@ config:
   approval.tools.setup_patch: always
   # Creating a logbook entry always asks first.
   approval.tools.entry_create: always
+  # Publishing it through to the facility's logbook does too.
+  approval.tools.entry_publish: always
 
   # ── Hook observability ─────────────────────────────────────────────────────
   # On here. Every hook call logs one line to stderr and appends to
@@ -583,7 +585,11 @@ config:
   # No `ariel.ingestion` block: the logbook is seeded from the simulation
   # scenario bundles by `osprey sim apply NAME...`. For production, add
   # `ariel.ingestion.adapter` and `ariel.ingestion.source_url` for your
-  # logbook system and use `osprey ariel ingest`.
+  # logbook system and use `osprey ariel ingest`. That fetch verifies the
+  # logbook's certificate by default: name your site CA with
+  # `ariel.ingestion.ca_bundle` when it is not in the image trust store, and
+  # keep `ariel.ingestion.verify_ssl: false` for a certificate that cannot be
+  # verified at all.
   # osprey:panel-port ariel
   # The ARIEL tab's own web server. It launches when `ariel` is in
   # `web_panels:` above, on this deployment's ARIEL slot; OSPREY_ARIEL_PORT or
@@ -1435,8 +1441,10 @@ config:
   # must not drift if the base's default ever changes.
   control_system.writes_enabled: false
   # Creating a logbook entry is this agent's only write of any kind, and it is
-  # approval-gated like every other write in OSPREY.
+  # approval-gated like every other write in OSPREY. Publishing it is the half
+  # that actually reaches the facility's logbook, so it is gated too.
   approval.tools.entry_create: always
+  approval.tools.entry_publish: always
   # Full split-pane layout: the ARIEL search panel is the point of this tier, so
   # it needs the panel area. Pinned rather than left to the server default for
   # the same reason the other two tiers pin theirs.

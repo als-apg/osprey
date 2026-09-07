@@ -155,6 +155,11 @@ _DANGEROUS_PATTERNS: list[tuple[str, str]] = [
     ("epics", "epics module"),
     ("caput", "caput()"),
     ("PV.put", "PV.put()"),
+    # EPICS Channel Access via aioca - ophyd-async's backend, so it is present
+    # in every OSPREY environment whether or not the facility installed it
+    ("aioca", "aioca module"),
+    # DOOCS / control system - the client the DOOCS connector writes through
+    ("doocs4py", "doocs4py module"),
     # Tango / control system
     ("tango", "tango module"),
     ("DeviceProxy", "Tango DeviceProxy"),

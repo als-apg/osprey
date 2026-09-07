@@ -28,6 +28,16 @@ class TestValidateSqlQuery:
             "SELECT * FROM recent"
         )
 
+    def test_reject_query_that_reads_no_table(self):
+        """A server-side file read names no table, so the allowlist saw nothing."""
+        with pytest.raises(ValueError, match="reads no allowlisted table"):
+            validate_sql_query("SELECT pg_read_file('/etc/passwd')")
+
+    def test_reject_cte_only_query(self):
+        """A query whose only references are its own CTEs reads no real table."""
+        with pytest.raises(ValueError, match="reads no allowlisted table"):
+            validate_sql_query("WITH x AS (SELECT 1 AS n) SELECT * FROM x")
+
     def test_reject_insert(self):
         """INSERT is rejected."""
         with pytest.raises(ValueError, match="INSERT"):

@@ -41,8 +41,8 @@ async def execute(
       2. ``path_policy_issues()`` — in *every* mode, blocks literal writes into
          the render zone, the profile sources and the audit ledger, and code
          that names the sandbox guard's own internals
-      3. ``check_readonly_imports()`` — readonly runs may not import
-         control-system client libraries (epics, p4p, ...) at all
+      3. ``check_readonly_imports()`` — readonly runs may not import a
+         control-system client library at all; read through ``osprey.runtime``
       4. ``detect_control_system_operations()`` — blocks detected write
          spellings in readonly mode
     Safety layers applied during execution:
@@ -51,7 +51,9 @@ async def execute(
          import (starting a process, ``ctypes``); the connectors refuse
          ``write_channel``, and the EPICS connector stays on the read_only
          gateway (``OSPREY_EXECUTION_MODE``)
-      6. ``ExecutionWrapper`` monkeypatch — validates epics.caput() against limits DB
+      6. ``ExecutionWrapper`` monkeypatch — writes through ``osprey.runtime``
+         are checked against the limits database, as are the direct client
+         writes this build knows how to intercept
       7. Process isolation — code runs outside the MCP server process
       8. Execution timeout — kills execution after configured timeout
 

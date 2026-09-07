@@ -121,8 +121,8 @@ class TestNonBlockingOffload:
         """
         connector = _make_connector()
 
-        def slow_validate(_addr, _val):
-            time.sleep(0.3)  # stand-in for max_step's blocking caget
+        def slow_validate(_addr, _val, *, read_current=None):
+            time.sleep(0.3)  # stand-in for max_step's blocking fresh read
 
         connector._limits_validator.validate = MagicMock(side_effect=slow_validate)
 

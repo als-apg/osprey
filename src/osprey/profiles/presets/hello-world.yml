@@ -181,6 +181,7 @@ config:
   approval.tools.setup_patch: always
   # ARIEL logbook writes. Inert here: the ariel server is off below.
   approval.tools.entry_create: always
+  approval.tools.entry_publish: always
 
   # ── Hook observability ─────────────────────────────────────────────────────
   # Off here. On, every hook call logs one line to stderr and appends to

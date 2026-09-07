@@ -462,12 +462,19 @@ async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> No
     # about its value.
     _assert_target_pin()
 
-    # Safety net: validate against injected limits validator (set by execution wrapper)
-    # This catches violations even when the connector's own validator isn't configured
-    if _limits_validator is not None:
-        _limits_validator.validate(channel_address, value)  # Raises ChannelLimitsViolationError
-
     connector = await _get_connector()
+
+    # Safety net: validate against injected limits validator (set by execution wrapper)
+    # This catches violations even when the connector's own validator isn't
+    # configured. The connector is acquired first so the net can hand over that
+    # connector's own fresh-read primitive: max_step is measured over the client
+    # the write is about to go through, and a net that omitted it would refuse
+    # every max_step channel before the connector that CAN measure it is reached.
+    if _limits_validator is not None:
+        _limits_validator.validate(
+            channel_address, value, read_current=connector._current_value_reader()
+        )  # Raises ChannelLimitsViolationError
+
     # write_channel_checked is the reference monitor's denial contract: it raises
     # on a refusal, on a failed write, AND on a write whose confirming re-read
     # did not hold the setpoint. Calling write_channel directly would let an
@@ -502,14 +509,17 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
         # through _write_channel_async.
         _assert_target_pin()
 
-        # Validate all values against injected limits validator first
-        if _limits_validator is not None:
-            for channel_address, value in channel_values.items():
-                _limits_validator.validate(channel_address, value)
-
         from osprey.connectors.control_system import raise_for_write_result
 
         connector = await _get_connector()
+
+        # Validate every value before any of them is sent, with the same
+        # connector-supplied reader the single-channel path uses.
+        if _limits_validator is not None:
+            read_current = connector._current_value_reader()
+            for channel_address, value in channel_values.items():
+                _limits_validator.validate(channel_address, value, read_current=read_current)
+
         results = await connector.write_multiple_channels(list(channel_values.items()), **kwargs)
         # Same denial contract as the single-channel path: a refusal or an
         # unconfirmed write must raise rather than return.

@@ -125,8 +125,12 @@ INVENTED_HISTORY_TYPES = (VIRTUAL_ACCELERATOR, LIVE_STANDIN)
 
 #: Types that speak real Channel Access — the facility's own EPICS machine, a
 #: virtual-accelerator soft-IOC, or the live stand-in soft-IOC. The queue worker
-#: builds its devices over Channel Access and nothing else, so these are the
-#: only types plans can execute against; every other type browses.
+#: builds its devices over Channel Access, so these are the types plans can
+#: execute against today and every other type browses. That is a property of
+#: the worker's device layer, not of the plan stack: a facility whose machine
+#: speaks another protocol executes plans once a device layer for it exists,
+#: and adds its type here — this list is not a statement that no other protocol
+#: can ever run plans.
 CHANNEL_ACCESS_TYPES = (EPICS, VIRTUAL_ACCELERATOR, LIVE_STANDIN)
 
 #: The target each self-standing machine's type is the baseline of. A type
@@ -477,6 +481,40 @@ def writes_enabled_key(connector_type: str | None) -> str:
     if not connector_type:
         return WRITES_ENABLED_KEY
     return f"control_system.connector.{connector_type}.{TYPE_WRITES_ENABLED_LEAF}"
+
+
+def writes_enabled_remedy(connector_type: str | None) -> str:
+    """The edit that arms writes for one connector *type*, as an operator makes it.
+
+    :func:`writes_enabled_key` names the key; this names the CHANGE, and for a
+    dotted connector type the two are not interchangeable. A build profile
+    applies each of its dotted keys as a path, splitting on every dot, while
+    this posture is looked up with the type held whole (see
+    :func:`type_writes_enabled`). So an operator told to set
+    ``control_system.connector.my_pkg.mod.MyConnector.writes_enabled`` would
+    write a five-level nest that nothing ever reads, and the write would go on
+    being refused with the same line.
+
+    The remedy for a dotted type is therefore the mapping form the profile
+    applies verbatim: ``control_system.connector:`` with the type as one key
+    under it. A registered name has no dots to be split on, and keeps the
+    one-line form.
+    """
+    if connector_type and "." in connector_type:
+        return (
+            "Arm this connector in the build profile (profile.yml on the host) by its "
+            "own key, which is the connector type in full - a dotted type is one "
+            "mapping key and is never split on its dots:\n"
+            "  control_system.connector:\n"
+            f"    {connector_type}:\n"
+            f"      {TYPE_WRITES_ENABLED_LEAF}: true\n"
+            f"({WRITES_ENABLED_KEY} is what a type inherits when it says nothing "
+            "about itself.)"
+        )
+    return (
+        f"Set {writes_enabled_key(connector_type)}: true in the build profile "
+        "(profile.yml on the host)."
+    )
 
 
 def target_writes_enabled_key(section: Any, target: Any) -> str:

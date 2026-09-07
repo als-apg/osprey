@@ -24,6 +24,7 @@ from osprey_connectors.control_system.base import (
     is_readonly_run,
     values_match,
 )
+from osprey_connectors.control_system.limits_validator import STEP_READ_TIMEOUT_SECONDS
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import writes_enabled_key
 
@@ -892,6 +893,26 @@ class EPICSConnector(ControlSystemConnector):
         raw_metadata["shape"] = list(getattr(array, "shape", ()))
         return {"value": array, "raw_metadata": raw_metadata}
 
+    def _current_value_reader(self) -> Callable[[str], Any] | None:
+        """The channel's present value, read with the client this connector connected with.
+
+        Never ``import epics`` here: the module this connector actually holds
+        is the one the deployment configured (gateway routing included), and
+        this file is held to import isolation besides.
+
+        A PVA-routed address answers ``None``, which fails the step check
+        closed. ``write_channel`` refuses those before validation ever runs,
+        so this is the belt to that braces: the CA client must not be pointed
+        at an address routed over PVAccess.
+        """
+
+        def read_current(channel_address: str) -> Any:
+            if self._is_pva_channel(channel_address):
+                return None
+            return self._epics.caget(channel_address, timeout=STEP_READ_TIMEOUT_SECONDS)
+
+        return read_current
+
     async def write_channel(
         self,
         channel_address: str,
@@ -977,15 +998,16 @@ class EPICSConnector(ControlSystemConnector):
         def _validate_and_put():
             if self._limits_validator:
                 try:
-                    self._limits_validator.validate(channel_address, value)
+                    self._limits_validator.validate(
+                        channel_address, value, read_current=self._current_value_reader()
+                    )
                     logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
                 except ChannelLimitsViolationError:
                     raise  # limits refusal propagates unchanged (carries LIMITS semantics)
                 except Exception as e:
-                    # FAIL CLOSED: any other validation error refuses the write — no caput issued
-                    logger.warning(
-                        f"Validation error — refusing write (fail-closed): {channel_address}: {e}"
-                    )
+                    # FAIL CLOSED: any other validation error refuses the write — no caput
+                    # issued. The refusal itself is built on the loop, by the base class's
+                    # one helper, so all four connectors word it identically.
                     return ("refused", e)  # sentinel: no caput issued
             try:
                 # The put-callback is Channel Access's acknowledgement that the
@@ -1016,13 +1038,7 @@ class EPICSConnector(ControlSystemConnector):
             )
 
         if put_result == "refused":
-            return ChannelWriteResult(
-                channel_address=channel_address,
-                value_written=value,
-                outcome=WriteOutcome.REFUSED,
-                refusal_reason="VALIDATION_ERROR",
-                error_message=f"Write to '{channel_address}' refused: validation error: {payload}",
-            )
+            return self._validation_refusal(channel_address, value, payload)
 
         # pyepics answers a put whose callback never arrived with -1, not with
         # a falsy value: ``ca.put`` waits for the callback and, on timeout,

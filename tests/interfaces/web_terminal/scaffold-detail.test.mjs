@@ -329,6 +329,77 @@ describe('renderDetailContent -- mode dispatch', () => {
 });
 
 // ---------------------------------------------------------------------------
+// renderDetailContent -- the content pane belongs to the newest render
+// ---------------------------------------------------------------------------
+
+describe('renderDetailContent -- superseded renders', () => {
+  test('a preview whose fetch lands late does not draw over the render that replaced it', async () => {
+    // Both renders fetch before they draw, so both are in flight against the
+    // same pane -- exactly what taking ownership on a first edit does, and
+    // what a mode click during a slow fetch does. Held here so the Preview
+    // resolves last, the ordering that used to decide the winner.
+    /** @type {(body: any) => void} */
+    let releasePreview = () => {};
+    const previewBody = new Promise((resolve) => { releasePreview = resolve; });
+
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+      ok: true, json: () => previewBody,
+    })));
+
+    const gallery = makeGallery({
+      selectedArtifact: { name: 'a', status: 'framework' },
+      detailMode: 'preview',
+      renderEdit: vi.fn(() => {
+        gallery.detailContentEl.textContent = 'EDITOR';
+        return Promise.resolve();
+      }),
+    });
+    const detail = createScaffoldGalleryDetail(gallery);
+
+    const stalePreview = detail.renderDetailContent();
+
+    gallery.detailMode = 'edit';
+    await detail.renderDetailContent();
+
+    releasePreview({ content: 'stale preview body', language: 'text' });
+    await stalePreview;
+
+    expect(gallery.detailContentEl.textContent).toBe('EDITOR');
+  });
+
+  test('a superseded render failing does not replace the render that worked', async () => {
+    /** @type {(reason: any) => void} */
+    let failPreview = () => {};
+    const previewBody = new Promise((_resolve, reject) => { failPreview = reject; });
+
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+      ok: true, json: () => previewBody,
+    })));
+
+    const gallery = makeGallery({
+      selectedArtifact: { name: 'a', status: 'framework' },
+      detailMode: 'preview',
+      renderEdit: vi.fn(() => {
+        gallery.detailContentEl.textContent = 'EDITOR';
+        return Promise.resolve();
+      }),
+    });
+    const detail = createScaffoldGalleryDetail(gallery);
+
+    const stalePreview = detail.renderDetailContent();
+
+    gallery.detailMode = 'edit';
+    await detail.renderDetailContent();
+
+    failPreview(new Error('preview blew up'));
+    await stalePreview;
+
+    expect(gallery.detailContentEl.textContent).toBe('EDITOR');
+    expect(gallery.detailContentEl.querySelector('.prompts-content-error')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // renderDiff -- delegates to diff-utils with grouped blocks
 // ---------------------------------------------------------------------------
 

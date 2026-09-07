@@ -25,7 +25,17 @@ class FacilityAdapter(ABC):
 
     Attributes:
         config: ARIEL configuration
+        metadata_sidecar_names: Attachment filenames this facility uses for the
+            JSON sidecar that carries an entry's structured metadata. Declared
+            per adapter because ``metadata.json`` is one facility's convention,
+            not a standard; a logbook that spells it differently would
+            otherwise get no metadata at all and say nothing about it. A name
+            that never matches is simply a no-op, so this needs no enable
+            switch beside it.
     """
+
+    #: See the class docstring. Lower-case comparison, so case does not matter.
+    metadata_sidecar_names: tuple[str, ...] = ("metadata.json",)
 
     def __init__(self, config: "ARIELConfig") -> None:
         """Initialize the adapter with configuration.

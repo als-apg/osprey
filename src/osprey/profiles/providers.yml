@@ -9,7 +9,12 @@
 #   base_url       required — the OpenAI-compatible endpoint
 #   api_key        optional — usually an ${ENV_VAR} reference, expanded at runtime
 #   models         optional — this provider's own IDs for the haiku/sonnet/opus tiers
-#   api_protocol   optional — set to `anthropic` for an Anthropic-native endpoint
+#   api_protocol   optional — `anthropic` or `openai`, the only two values it
+#                  takes. `anthropic` names an endpoint that speaks the
+#                  Anthropic API directly and so skips the translation proxy;
+#                  an absent key means `openai`. Anything else, a capitalised
+#                  `Anthropic` included, is refused when the provider is
+#                  resolved rather than silently routed through the proxy.
 #
 # Add your own gateway by appending an entry; the keys above are the whole
 # contract. A copy of this file beside profile.yml replaces the packaged

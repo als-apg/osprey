@@ -50,6 +50,8 @@ stdin ──► Parse JSON
               │
               ▼
          Validate each op
+         (max_step is the
+         writer's check)
               │
               ▼
          Violations found? ──NO──► EXIT (allow)
@@ -99,6 +101,13 @@ no posture to apply:
    is not one of them: an incomplete per-type block or an unreadable database
    still builds a validator, and it blocks every write.
 
+One check is deliberately not made here. `max_step` caps how far a single write
+may move a channel, which takes a fresh read of the channel over the client the
+write goes through — and this hook holds no such client. It applies every other
+check and leaves that one to the connector, which makes it moments later on the
+same write. This is not a fail-open direction: the write is still refused, one
+layer down, by the only caller that can measure the step.
+
 The target itself comes from `osprey_target_state`, the same stdlib reader of
 the deployment's control-context record that the writes kill switch and the
 approval prompt use, so one deployment cannot be described as pointing at two
@@ -111,7 +120,14 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from osprey_hook_log import AUDIT_DECISION_REFUSED, emit_audit, get_hook_input, log_hook
+from osprey_hook_log import (
+    AUDIT_DECISION_REFUSED,
+    emit_audit,
+    get_hook_input,
+    load_hook_config,
+    log_hook,
+    short_tool_name,
+)
 
 # The shared, stdlib-only reader for the control-system target state, imported
 # while this file's own directory is still the first `sys.path` entry the line
@@ -150,6 +166,26 @@ def _control_target(hook_input):
         return None
 
 
+def _server_prefixes():
+    """Every MCP server prefix this render generated into hook_config.
+
+    Resolved the way `osprey_writes_check._server_prefixes` resolves it, and
+    for the same reason: an ``extends`` clone of the controls server renames
+    only the prefix, so a check written against the full tool name would miss
+    every clone. Never raises — `short_tool_name` still resolves a short name
+    from the ``mcp__<server>__<tool>`` shape with no prefixes at all.
+    """
+    try:
+        hook_config = load_hook_config()
+        return [
+            prefix
+            for key in ("server_prefixes", "approval_prefixes")
+            for prefix in hook_config.get(key) or ()
+        ]
+    except Exception:
+        return []
+
+
 def _supports_per_target_postures(validator_cls):
     """Whether the installed framework can resolve a limits posture per target.
 
@@ -183,8 +219,13 @@ def main():
 
     tool_name = hook_input.get("tool_name", "")
 
-    # Only validate channel_write
-    if tool_name != "mcp__controls__channel_write":
+    # Only validate channel_write — matched on the SHORT name, so a clone of
+    # the controls server (`extends: controls`) is validated too. The registry
+    # rewrites this hook's matcher to `mcp__<clone>__channel_write`, so the
+    # hook already fired on those calls; keying on the framework server's own
+    # literal name made it exit 0 and report nothing, which reads in the
+    # transcript exactly like a write that passed its limits check.
+    if short_tool_name(tool_name, _server_prefixes()) != "channel_write":
         sys.exit(0)
 
     tool_input = hook_input.get("tool_input", {})
@@ -230,12 +271,22 @@ def main():
     if not operations:
         sys.exit(0)
 
+    # The step check is the one limit that needs a fresh read of the machine,
+    # over the client the write itself goes through — and this hook is not the
+    # writer. It applies the checks it can make (database, writable, min/max)
+    # and leaves `max_step` to the connector, which owns that client and checks
+    # it moments later. Refusing here for want of a reader would take max_step
+    # off the mediated write path rather than enforcing it. A framework older
+    # than this render has no such entry point; there, `validate` still reads
+    # the channel itself, which is what that framework always did.
+    check = getattr(validator, "validate_without_step_check", validator.validate)
+
     violations = []
     for op in operations:
         channel = op.get("channel", "")
         value = op.get("value")
         try:
-            validator.validate(channel, value)
+            check(channel, value)
         except Exception as exc:
             violations.append(f"  {channel}={value}: {exc}")
 

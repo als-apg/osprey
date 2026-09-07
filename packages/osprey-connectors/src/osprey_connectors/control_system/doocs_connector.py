@@ -134,6 +134,19 @@ class DOOCSConnector(ControlSystemConnector):
 
         return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
 
+    def _current_value_reader(self) -> Callable[[str], Any] | None:
+        """The property's present value, read through this connector's own client.
+
+        ``get_data()`` is what :meth:`_read_channel_sync` unwraps an ``EqData``
+        with; the step check needs only that number, not the timestamps and
+        metadata a full read builds around it.
+        """
+
+        def read_current(channel_address: str) -> Any:
+            return self._doocs4py.get(channel_address).get_data()
+
+        return read_current
+
     async def write_channel(
         self,
         channel_address: str,
@@ -166,21 +179,22 @@ class DOOCSConnector(ControlSystemConnector):
             ChannelLimitsViolationError: If limits validation fails (when enabled)
         """
 
-        # Step 1: Validate limits (if enabled)
+        # Step 1: Validate limits (FAIL CLOSED). A limits violation propagates
+        # unchanged; any other error means the check could not be made, and an
+        # unmade check is not permission to write.
         if self._limits_validator:
+            # Import here to avoid circular dependency
+            from osprey_connectors.errors import ChannelLimitsViolationError
+
             try:
-                self._limits_validator.validate(channel_address, value)
+                self._limits_validator.validate(
+                    channel_address, value, read_current=self._current_value_reader()
+                )
                 logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
+            except ChannelLimitsViolationError:
+                raise
             except Exception as e:
-                # Import here to avoid circular dependency
-                from osprey_connectors.errors import ChannelLimitsViolationError
-
-                # Re-raise limits violations
-                if isinstance(e, ChannelLimitsViolationError):
-                    raise
-
-                # Log unexpected errors but don't block (fail-open for non-limit errors)
-                logger.warning(f"Limits validation error (non-blocking): {e}")
+                return self._validation_refusal(channel_address, value, e)
 
         # Step 2: Resolve the confirmation policy. An explicit confirm — False
         # every bit as much as True — is an answer and is taken as given; only

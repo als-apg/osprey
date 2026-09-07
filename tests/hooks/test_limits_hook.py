@@ -66,6 +66,52 @@ def test_limits_violation_blocks_write(tmp_path, hook_runner):
 
 
 @pytest.mark.unit
+def test_max_step_is_left_to_the_writer(tmp_path, hook_runner):
+    """A step this hook cannot measure is not a refusal here.
+
+    `max_step` needs a fresh read of the channel over the client the write is
+    about to go through, and this hook holds no such client. It applies every
+    other check and lets the request reach the connector, which owns that
+    client and makes the step check itself. Refusing here for want of a reader
+    would take max_step off the mediated write path entirely.
+    """
+    config = _make_limits_config(
+        tmp_path,
+        {"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "max_step": 1.0, "writable": True}},
+    )
+
+    result = hook_runner(
+        "osprey_limits.py",
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 99.0}]},
+        config_path=config,
+        cwd=tmp_path,
+    )
+
+    assert result is None or result["hookSpecificOutput"]["permissionDecision"] != "deny"
+
+
+@pytest.mark.unit
+def test_max_step_channel_still_gets_every_other_check(tmp_path, hook_runner):
+    """Deferring the step check defers nothing else: bounds still deny here."""
+    config = _make_limits_config(
+        tmp_path,
+        {"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "max_step": 1.0, "writable": True}},
+    )
+
+    result = hook_runner(
+        "osprey_limits.py",
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 999.0}]},
+        config_path=config,
+        cwd=tmp_path,
+    )
+
+    assert result is not None
+    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+@pytest.mark.unit
 def test_valid_value_passes(tmp_path, hook_runner):
     """Write within channel limits passes through."""
     config = _make_limits_config(
@@ -122,6 +168,78 @@ def test_non_write_tools_pass(tmp_path, hook_runner):
     )
 
     assert result is None  # Read tools pass through
+
+
+@pytest.mark.unit
+def test_clone_channel_write_is_validated(tmp_path, hook_runner):
+    """An `extends: controls` clone's channel_write is limits-checked too.
+
+    `build_extended_server` rewrites this hook's matcher to
+    `mcp__<clone>__channel_write`, so the hook already ran on these calls. Keyed
+    on the framework server's own literal name it exited 0 and reported nothing
+    — which in a transcript is indistinguishable from a write that passed.
+    """
+    config = _make_limits_config(
+        tmp_path,
+        {"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
+    )
+
+    result = hook_runner(
+        "osprey_limits.py",
+        "mcp__ring__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 999.0}]},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config={"server_prefixes": ["mcp__ring__"]},
+    )
+
+    assert result is not None
+    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+@pytest.mark.unit
+def test_clone_channel_read_still_passes(tmp_path, hook_runner):
+    """Short-name keying must not start denying a clone's reads."""
+    config = _make_limits_config(
+        tmp_path,
+        {"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
+    )
+
+    result = hook_runner(
+        "osprey_limits.py",
+        "mcp__ring__channel_read",
+        {"channels": ["TEST:PV"]},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config={"server_prefixes": ["mcp__ring__"]},
+    )
+
+    assert result is None
+
+
+@pytest.mark.unit
+def test_clone_is_validated_without_a_hook_config(tmp_path, hook_runner):
+    """No prefixes to read still resolves a short name from the tool's shape.
+
+    `short_tool_name` falls back to the `mcp__<server>__<tool>` split, so a
+    render whose hook_config could not be read still validates the write rather
+    than waving it through.
+    """
+    config = _make_limits_config(
+        tmp_path,
+        {"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
+    )
+
+    result = hook_runner(
+        "osprey_limits.py",
+        "mcp__ring__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 999.0}]},
+        config_path=config,
+        cwd=tmp_path,
+    )
+
+    assert result is not None
+    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
 @pytest.mark.unit
@@ -272,41 +390,6 @@ def test_single_write_form_valid_passes(tmp_path, hook_runner):
     )
 
     assert result is None  # Valid single-write passes
-
-
-@pytest.mark.unit
-def test_step_size_blocks_when_current_value_unreadable(tmp_path, hook_runner):
-    """max_step validation blocks writes when current channel value can't be read.
-
-    When max_step is configured, the validator tries to read the current channel
-    value to verify the step size. In the hook context (no live control system),
-    this read fails, and the validator blocks the write for safety — it can't
-    confirm the step size is within bounds, so it fails closed.
-    """
-    config = _make_limits_config(
-        tmp_path,
-        {
-            "TEST:PV": {
-                "min_value": 0.0,
-                "max_value": 100.0,
-                "writable": True,
-                "max_step": 5.0,
-            }
-        },
-    )
-
-    result = hook_runner(
-        "osprey_limits.py",
-        "mcp__controls__channel_write",
-        {"operations": [{"channel": "TEST:PV", "value": 50.0}]},
-        config_path=config,
-        cwd=tmp_path,
-    )
-
-    # max_step requires reading current value → fails → deny (fail-closed)
-    assert result is not None
-    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
-    assert "step size" in result["hookSpecificOutput"]["permissionDecisionReason"].lower()
 
 
 @pytest.mark.unit

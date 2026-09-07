@@ -42,6 +42,7 @@ import { scaffoldWritesEnabled, WRITES_DISABLED_REASON } from './write-gate.js';
  * @property {any} selectedArtifact
  * @property {string} currentView
  * @property {string} detailMode
+ * @property {number} detailRenderSeq
  * @property {boolean} editDirty
  * @property {any[]} artifacts
  * @property {HTMLElement|null} galleryView
@@ -315,10 +316,24 @@ export function createScaffoldGalleryDetail(gallery) {
     gallery.detailModesEl.appendChild(right);
   }
 
-  /** @returns {Promise<void>} */
+  /**
+   * Render the content pane for the current mode.
+   *
+   * Every renderer here fetches before it draws, so two renders can be in
+   * flight against the same pane at once -- the claim-on-first-edit flow
+   * starts a Preview (openDetail) and an Edit back to back, and a mode click
+   * during a slow fetch does the same. The two GETs are independent and
+   * nothing orders their responses, so without a claim on the pane the render
+   * that finished last won, whatever the operator last asked for. Each render
+   * takes the next sequence number and every renderer re-checks it after its
+   * await: a render that has been superseded returns without drawing.
+   *
+   * @returns {Promise<void>}
+   */
   async function renderDetailContent() {
     if (!gallery.detailContentEl || !gallery.selectedArtifact) return;
 
+    const render = (gallery.detailRenderSeq = (gallery.detailRenderSeq || 0) + 1);
     gallery.detailContentEl.innerHTML = '<div class="prompts-loading-inline">Loading...</div>';
 
     try {
@@ -330,6 +345,9 @@ export function createScaffoldGalleryDetail(gallery) {
         await gallery.renderEdit();
       }
     } catch (e) {
+      // A superseded render's failure says nothing about what is on screen
+      // now, and the error card would replace a newer render that worked.
+      if (gallery.detailRenderSeq !== render) return;
       const message = e instanceof Error ? e.message : String(e);
       if (gallery.detailContentEl) {
         gallery.detailContentEl.innerHTML =

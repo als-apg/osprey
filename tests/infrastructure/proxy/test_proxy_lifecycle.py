@@ -84,6 +84,31 @@ class TestIsProxyNeeded:
         api = {"other": {"api_protocol": "anthropic"}}
         assert lifecycle.is_proxy_needed("custom", api_providers=api) is True
 
+    @pytest.mark.parametrize("value", ["Anthropic", "ANTHROPIC", "antropic", "openai-compatible"])
+    def test_unrecognised_protocol_is_refused(self, value):
+        """A typo used to read as "not Anthropic" and insert the translation hop."""
+        api = {"custom": {"api_protocol": value}}
+        with pytest.raises(ValueError, match="api.providers.custom.api_protocol"):
+            lifecycle.is_proxy_needed("custom", api_providers=api)
+
+    def test_the_refusal_names_the_accepted_values(self):
+        api = {"custom": {"api_protocol": "Anthropic"}}
+        with pytest.raises(ValueError) as exc_info:
+            lifecycle.is_proxy_needed("custom", api_providers=api)
+
+        assert "anthropic, openai" in str(exc_info.value)
+
+    def test_a_native_provider_with_a_bad_protocol_is_refused_too(self):
+        """The check is on the declaration, not on whether it would have mattered."""
+        api = {"anthropic": {"api_protocol": "Anthropic"}}
+        with pytest.raises(ValueError):
+            lifecycle.is_proxy_needed("anthropic", api_providers=api)
+
+    def test_an_absent_key_keeps_the_openai_default(self):
+        """Nine of the twelve proxied built-ins declare nothing and are OpenAI."""
+        api = {"custom": {"base_url": "https://gateway.example.org/v1"}}
+        assert lifecycle.is_proxy_needed("custom", api_providers=api) is True
+
 
 # ---------------------------------------------------------------------------
 # find_free_port

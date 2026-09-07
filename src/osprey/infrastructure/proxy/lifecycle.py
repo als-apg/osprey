@@ -14,6 +14,12 @@ logger = logging.getLogger("osprey.infrastructure.proxy")
 # Everything else is assumed to be OpenAI-compatible and needs the proxy.
 _ANTHROPIC_NATIVE_PROVIDERS = frozenset({"anthropic", "cborg", "als-apg"})
 
+#: The two wire protocols a provider entry may declare. The comparison against
+#: ``"anthropic"`` is exact, so a misspelling — ``Anthropic``, ``antropic`` —
+#: used to read as "not Anthropic" and silently insert the translation hop the
+#: config template warns about. Two values, checked as an enum.
+VALID_API_PROTOCOLS = frozenset({"anthropic", "openai"})
+
 _state: dict[str, Any] = {
     "server": None,
     "thread": None,
@@ -34,15 +40,42 @@ def is_proxy_needed(
     1. Built-in Anthropic-native providers → False
     2. Explicit ``api_protocol: anthropic`` in config → False
     3. Everything else → True
+
+    An absent ``api_protocol`` means OpenAI, which is right for nine of the
+    twelve proxied built-ins. A PRESENT one is checked against
+    :data:`VALID_API_PROTOCOLS`: the old exact comparison meant a typo took the
+    step-3 branch, so a provider written ``api_protocol: Anthropic`` was routed
+    through the translation proxy the config template explicitly warns against
+    — with nothing said about it.
+
+    Args:
+        provider_name: The provider being resolved.
+        api_providers: The ``api.providers`` block, if the caller has one.
+
+    Returns:
+        Whether the translation proxy has to sit in front of this provider.
+
+    Raises:
+        ValueError: If this provider declares an ``api_protocol`` that is
+            neither ``anthropic`` nor ``openai``.
     """
-    if provider_name in _ANTHROPIC_NATIVE_PROVIDERS:
+    declared = None
+    if api_providers:
+        provider_conf = api_providers.get(provider_name) or {}
+        if isinstance(provider_conf, dict):
+            declared = provider_conf.get("api_protocol")
+
+    if declared is not None and declared not in VALID_API_PROTOCOLS:
+        raise ValueError(
+            f"api.providers.{provider_name}.api_protocol is {declared!r}; "
+            f"expected one of {', '.join(sorted(VALID_API_PROTOCOLS))}."
+        )
+
+    if provider_name in _ANTHROPIC_NATIVE_PROVIDERS or declared == "anthropic":
+        logger.info("Provider %r speaks Anthropic natively; no proxy", provider_name)
         return False
 
-    if api_providers:
-        provider_conf = api_providers.get(provider_name, {})
-        if provider_conf.get("api_protocol") == "anthropic":
-            return False
-
+    logger.info("Provider %r speaks OpenAI; routing through the translation proxy", provider_name)
     return True
 
 

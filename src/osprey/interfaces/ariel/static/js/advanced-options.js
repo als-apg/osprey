@@ -64,6 +64,7 @@ import { escapeHtml } from '/design-system/js/dom.js';
  * @property {string[]} [config_errors]
  * @property {string|null} [remedy]
  * @property {VocabularyCapability} [vocabulary]
+ * @property {boolean} [config_panel_enabled]
  */
 
 // --- State ---

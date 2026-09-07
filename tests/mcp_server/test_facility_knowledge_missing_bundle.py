@@ -2,7 +2,7 @@
 
 ``facility_knowledge.bundle_path`` is optional: a deployment can run the server
 before it has a bundle to point it at, and the tools are supposed to refuse
-with ``server_not_initialised`` until it does. The lookup used to subscript its
+with ``bundle_not_configured`` until it does. The lookup used to subscript its
 way to that key, so how the absence was *spelled* decided what happened — a
 missing block raised ``KeyError`` and was caught, while a block present but
 empty raised ``TypeError`` and took the server down at startup. Same missing

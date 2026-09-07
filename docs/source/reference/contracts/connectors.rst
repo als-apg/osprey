@@ -179,7 +179,10 @@ never falls back. Both default to blocked when omitted, and **only a literal**
 ``true`` **arms writes** — the quoted string ``'true'`` and the number ``1`` do
 not. A custom connector's block is keyed by the same dotted module path that
 selects it, so ``mypackage.MoatConnector`` names one block and is never split
-on its dots.
+on its dots. A profile key *is* split on every dot, so a refused write from
+such a connector quotes the mapping above rather than a
+``control_system.connector.<dotted type>.writes_enabled`` line: that line
+would build a nest nothing reads, and the write would go on being refused.
 
 Write posture is a **launch-time deployment posture, not a live kill-switch**:
 read from config and process-cached, so flipping it in ``config.yml`` does not
@@ -249,6 +252,17 @@ block:
   that no key states refuses unlisted channels — permission needs an explicit
   ``true``. A deployment that states no limits posture at all runs no limits
   checking, and nothing on that path refuses an unlisted channel.
+
+``max_step`` is the one limit that costs a read. It caps how far a single write
+may move a channel, which means measuring the channel's present value first —
+over the client the write is about to go through, not some other one. The
+connector performing the write supplies that read from its own client, so
+``max_step`` works on every control system rather than only over Channel
+Access. A connector with no synchronous read refuses a ``max_step`` channel
+rather than guessing: a step that cannot be measured cannot be approved. The
+layers above the connector — the ``channel_write`` tool and the limits hook —
+hold no client, so they apply every other limit and leave this one to the
+connector, which makes it on the write itself.
 
 A refusal about an unlisted channel — and the target switch's
 ``limits_posture`` refusal — names the key that answered, the per-type one where

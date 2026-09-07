@@ -198,7 +198,11 @@ class IngestionScheduler:
         try:
             async for entry in adapter.fetch_entries(since=since, limit=limit):
                 try:
-                    await extract_metadata_from_attachments(entry)
+                    await extract_metadata_from_attachments(
+                        entry,
+                        adapter=adapter,
+                        ingestion=self.config.ingestion,
+                    )
                     await self.repository.upsert_entry(entry)
                     entries_added += 1
 

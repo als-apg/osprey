@@ -484,8 +484,19 @@ _TARGET_CELL = "import os; print(os.environ.get('OSPREY_CONTROL_TARGET'))"
 _LAB_BAR = "#osprey-control-target-bar"
 _LAB_CHIP = f"{_LAB_BAR} {CHIP}"
 
-#: How long a kernel restart gets to produce a fresh, idle interpreter.
-_RESTART_TIMEOUT = 180.0
+#: JupyterLab's own execution indicator, in the notebook's toolbar. Its
+#: ``data-status`` is the frontend's account of the kernel it is CONNECTED to,
+#: which is what a restart barrier has to read — see
+#: :func:`_restart_the_kernel_from_the_notebook`.
+_EXECUTION_INDICATOR = ".jp-Notebook-ExecutionIndicator"
+
+#: The notebook toolbar's restart button, scoped to the notebook's own toolbar
+#: so it cannot resolve to another document's.
+_RESTART_BUTTON = '.jp-NotebookPanel [data-command="notebook:restart-kernel"]'
+
+#: A restart's own wait: JupyterLab's confirm, a fresh interpreter through the
+#: OSPREY launcher, and the frontend's reconnect on top of it.
+_RESTART_MS = 180_000
 
 
 @contextmanager
@@ -569,6 +580,45 @@ def _control_target_lab(
                 yield base_url, app, root
     finally:
         _reset_process_memos()
+
+
+def _restart_the_kernel_from_the_notebook(page: Page) -> None:
+    """Restart the kernel the way the notebook's own operator does, and wait.
+
+    Driven from the notebook's toolbar rather than from the sidecar's REST API,
+    because a bare ``POST api/kernels/<id>/restart`` is not the same operation
+    from a connected client's point of view. JupyterLab's restart command
+    reconnects the kernel's websocket once the server answers
+    (``KernelConnection.restart``), and it is that reconnect that makes
+    ``jupyter_server`` re-run ``nudge()`` — the step whose whole job is to
+    establish the client's ZMQ subscriptions against the process now on the
+    other end. Restarting behind the frontend's back leaves those subscriptions
+    pointing at a peer that has been replaced, and the first cell run on the new
+    kernel executes with its IOPub output dropped: no output area, ever.
+
+    The wait is on the frontend's own account of the kernel, for the same
+    reason. The sidecar's session list keeps reporting the state the kernel had
+    before it was killed, so a REST poll for an idle kernel returns
+    immediately after a restart and proves nothing at all. The execution
+    indicator leaves ``idle`` the moment the restart is confirmed and comes
+    back to it only once a status message from the NEW kernel has reached this
+    page — which is the condition the next cell actually needs.
+
+    Args:
+        page: The notebook's own page.
+    """
+    indicator = page.locator(_EXECUTION_INDICATOR)
+    expect(indicator).to_have_attribute("data-status", "idle", timeout=_EXEC_MS)
+
+    page.locator(_RESTART_BUTTON).click()
+    expect(page.locator(".jp-Dialog-header")).to_have_text("Restart Kernel?", timeout=TIMEOUT)
+    page.locator(".jp-Dialog-button.jp-mod-accept").click()
+
+    # Leaves ``idle`` synchronously with the confirm — the frontend marks the
+    # kernel restarting before it asks the server — and returns to it only on
+    # the new kernel's own status.
+    expect(indicator).not_to_have_attribute("data-status", "idle", timeout=TIMEOUT)
+    expect(indicator).to_have_attribute("data-status", "idle", timeout=_RESTART_MS)
 
 
 def _publish_fleet(root: Path, *, applied_target: str, applied_generation: int) -> Path:
@@ -767,10 +817,12 @@ def test_a_restarted_kernel_comes_back_on_the_same_target_with_no_hint(
       under a running cell — and a restart is neither. A hint here would be the
       kernel telling an operator to go and fix something that is not wrong.
 
-    The restart is driven through the sidecar's own REST API rather than
-    JupyterLab's menu: it is the same code path the menu reaches, and it names
-    the kernel being restarted instead of depending on which document has
-    focus.
+    The restart is driven from the notebook's own toolbar rather than through
+    the sidecar's REST API. The two are not the same operation for a client
+    that is already connected: only JupyterLab's command reconnects the
+    kernel's websocket afterwards, and only that reconnect re-establishes this
+    page's subscriptions against the process that replaced the old one. See
+    :func:`_restart_the_kernel_from_the_notebook`.
     """
     with _control_target_lab(tmp_path, monkeypatch) as (base_url, app, root):
         assert getattr(app.state, "jupyter_server_url", None)
@@ -780,20 +832,20 @@ def test_a_restarted_kernel_comes_back_on_the_same_target_with_no_hint(
         notebook = _standalone_notebook(chromium_browser, base_url)
         try:
             hub.close()
-            session = _wait_for_idle_kernel(base_url, _KERNEL_TIMEOUT)
-            kernel_id = session["kernel"]["id"]
+            _wait_for_idle_kernel(base_url, _KERNEL_TIMEOUT)
 
             before = _run_next_cell(notebook, _TARGET_CELL)
             assert _cell_output(before).strip() == ACTIVE_TARGET, _cell_output(before)
 
-            restarted = requests.post(
-                f"{base_url}/panel/jupyter/api/kernels/{kernel_id}/restart", timeout=60
-            )
-            assert restarted.ok, restarted.text
-            _wait_for_idle_kernel(base_url, _RESTART_TIMEOUT)
+            _restart_the_kernel_from_the_notebook(notebook)
 
             after = _run_next_cell(notebook, _TARGET_CELL)
             printed = _cell_output(after)
+            # Execution count 1: the cell ran on an interpreter that had never
+            # run anything, which is the "fresh process" the rest of this lane
+            # is about. Reading the same target off the OLD kernel would prove
+            # nothing about the record.
+            expect(after.locator(".jp-InputArea-prompt")).to_have_text("[1]:", timeout=_EXEC_MS)
             assert printed.strip() == ACTIVE_TARGET, printed
             assert HINT_WRITES_OFF not in printed, printed
             assert HINT_TARGET_CHANGED not in printed, printed

@@ -189,8 +189,7 @@ Working with a Bundle
         path minus the ``.md`` extension, e.g. ``subsystems/timing-system``)
       * ``search`` — ranked search across all concept documents (see
         `Searching the Bundle`_)
-      * ``capabilities`` — report the bundle's path, size, concept types, and
-        whether draft writes are enabled
+      * ``capabilities`` — report the bundle's path, size and concept types
       * ``draft_concept`` — author a new concept document (requires human approval)
 
       **The facility-knowledge subagent.** When it is enabled in a project's

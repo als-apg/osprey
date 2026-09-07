@@ -423,6 +423,99 @@ def test_readonly_refuses_tango_write_attribute(monkeypatch):
     assert proxy.read_attribute("current") == 1.0, "reads must survive the guard untouched"
 
 
+def test_readonly_refuses_doocs4py_set(monkeypatch):
+    """The DOOCS connector's own client is guarded like every other client.
+
+    A DOOCS deployment is guaranteed to have ``doocs4py`` importable, so a
+    readonly script naming it is not a hypothetical route to the machine — it
+    is the route the shipped connector itself writes through.
+    """
+    mod = ModuleType("doocs4py")
+    writes: list = []
+
+    def _set(address, value):
+        writes.append((address, value))
+
+    def _get(address):
+        return 1.0
+
+    mod.set = _set
+    mod.get = _get
+    monkeypatch.setitem(sys.modules, "doocs4py", mod)
+    _run_guard("readonly")
+
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        mod.set("FACILITY/MAGNET/H1/CURRENT.SP", 150)
+    assert writes == []
+    assert mod.get("FACILITY/MAGNET/H1/CURRENT.RBV") == 1.0, (
+        "reads must survive the guard untouched"
+    )
+
+
+def test_readonly_refuses_aioca_caput(monkeypatch):
+    """aioca is in every OSPREY environment via ``ophyd-async[ca]``.
+
+    Unlike pyepics it needs no facility-specific install, so it is the Channel
+    Access client a readonly script is most likely to actually find.
+    """
+    mod = ModuleType("aioca")
+    writes: list = []
+
+    async def caput(pv, value, **kwargs):
+        writes.append((pv, value))
+
+    async def caget(pv, **kwargs):
+        return 1.0
+
+    mod.caput = caput
+    mod.caget = caget
+    monkeypatch.setitem(sys.modules, "aioca", mod)
+    _run_guard("readonly")
+
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        mod.caput("SR:MAG:QF:01:CURRENT:SP", 150)
+    assert writes == []
+    assert asyncio.run(mod.caget("SR:MAG:QF:01:CURRENT")) == 1.0, (
+        "reads must survive the guard untouched"
+    )
+
+
+def test_every_client_package_is_also_denied_at_import():
+    """The runtime guard and the static denylist name the same libraries.
+
+    They are two halves of one gate — the denylist stops the import, the guard
+    stops the call — and a client present in only one of them is a client a
+    readonly script can still reach. Deriving both from one table is what makes
+    that impossible; this pins the derivation.
+    """
+    from osprey.services.python_executor.analysis.safety_checks import (
+        _READONLY_DENIED_IMPORTS,
+    )
+    from osprey.services.python_executor.write_surface import _CLIENT_WRITE_TARGETS
+
+    packages = {dotted.split(".")[0] for dotted, _attrs in _CLIENT_WRITE_TARGETS}
+    assert packages <= set(_READONLY_DENIED_IMPORTS)
+    assert {"doocs4py", "aioca"} <= packages
+
+
+def test_framework_write_targets_stay_importable():
+    """Acquisition frameworks refuse their writes but are not import-denied.
+
+    ophyd-async and Bluesky are document and analysis libraries as much as they
+    are hardware drivers; denying the import would refuse a readonly script
+    that only reads a catalog. Their write entry points are in the runtime
+    guard instead.
+    """
+    from osprey.services.python_executor.analysis.safety_checks import (
+        _READONLY_DENIED_IMPORTS,
+    )
+    from osprey.services.python_executor.write_surface import _FRAMEWORK_WRITE_TARGETS
+
+    packages = {dotted.split(".")[0] for dotted, _attrs in _FRAMEWORK_WRITE_TARGETS}
+    assert packages == {"ophyd_async", "bluesky"}
+    assert not packages & set(_READONLY_DENIED_IMPORTS)
+
+
 # ---------------------------------------------------------------------------
 # Routes out of Python
 #

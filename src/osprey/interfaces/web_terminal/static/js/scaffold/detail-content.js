@@ -36,6 +36,7 @@ import {
  * @typedef {object} ScaffoldGalleryDetailContentHost
  * @property {any} selectedArtifact
  * @property {HTMLElement|null} detailContentEl
+ * @property {number} detailRenderSeq
  */
 
 /**
@@ -47,12 +48,17 @@ import {
 export function createScaffoldGalleryDetailContent(gallery) {
   /** @returns {Promise<void>} */
   async function renderPreview() {
+    // Claimed before the fetch, re-checked after it: a render the panel has
+    // moved past must not draw over the one that replaced it (see
+    // scaffold/detail.js's renderDetailContent).
+    const render = gallery.detailRenderSeq;
+
     const data = await fetchJSON(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}`); // fetchJSON prefixes internally
     const content = data.content || '';
     const language = data.language || gallery.selectedArtifact.language || 'text';
     const artifactName = gallery.selectedArtifact.name || '';
 
-    if (!gallery.detailContentEl) return;
+    if (!gallery.detailContentEl || gallery.detailRenderSeq !== render) return;
     gallery.detailContentEl.innerHTML = '';
 
     const wrapper = document.createElement('div');
@@ -140,11 +146,13 @@ export function createScaffoldGalleryDetailContent(gallery) {
 
   /** @returns {Promise<void>} */
   async function renderDiff() {
+    const render = gallery.detailRenderSeq;
+
     const data = await fetchJSON(
       `/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/diff` // fetchJSON prefixes internally
     );
 
-    if (!gallery.detailContentEl) return;
+    if (!gallery.detailContentEl || gallery.detailRenderSeq !== render) return;
     gallery.detailContentEl.innerHTML = '';
 
     if (!data.has_diff) {

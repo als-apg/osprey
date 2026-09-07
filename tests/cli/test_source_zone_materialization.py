@@ -1207,6 +1207,64 @@ def test_failed_round_trip_after_mkdir_removes_the_target(
     assert not target.exists()
 
 
+def test_failed_round_trip_discards_the_env_it_seeded(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A shell-exported provider key seeds `.env`, and a failed run owns it.
+
+    `.env` is an operator file, so cleanup leaves one it finds; but this run
+    wrote it, and leaving it behind both contradicts "Nothing was materialized"
+    and leaves the operator's key in a directory the next attempt then finds
+    non-empty. Whether the run's shell happens to export a key must not decide
+    what a failed init leaves on disk.
+    """
+    from osprey.cli import build_profile
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-not-a-real-key")
+
+    real = build_profile.resolve_build_profile
+
+    def fail_on_round_trip(profile_path, preset, *args, **kwargs):
+        if profile_path is not None:
+            raise BuildProfileError("simulated round-trip failure")
+        return real(profile_path, preset, *args, **kwargs)
+
+    monkeypatch.setattr(build_profile, "resolve_build_profile", fail_on_round_trip)
+    target = tmp_path / "p-facility"
+
+    result = _new(runner, target, "hello-world")
+
+    assert result.exit_code == 2
+    assert "Nothing was materialized" in result.output
+    assert not target.exists()
+
+
+def test_failed_round_trip_keeps_an_env_it_did_not_write(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other half: an operator's own `.env` survives the failure."""
+    from osprey.cli import build_profile
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-not-a-real-key")
+
+    real = build_profile.resolve_build_profile
+
+    def fail_on_round_trip(profile_path, preset, *args, **kwargs):
+        if profile_path is not None:
+            raise BuildProfileError("simulated round-trip failure")
+        return real(profile_path, preset, *args, **kwargs)
+
+    monkeypatch.setattr(build_profile, "resolve_build_profile", fail_on_round_trip)
+    target = tmp_path / "p-facility"
+    target.mkdir()
+    (target / ".env").write_text("OPERATOR_SECRET=keep-me\n", encoding="utf-8")
+
+    result = _new(runner, target, "hello-world")
+
+    assert result.exit_code == 2
+    assert "OPERATOR_SECRET=keep-me" in (target / ".env").read_text(encoding="utf-8")
+
+
 def test_round_trip_failure_without_layers_does_not_blame_overrides(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

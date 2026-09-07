@@ -818,9 +818,13 @@ Options: ``--project PATH``, ``-v, --verbose``
 ``osprey channel-finder preview``
    Preview a channel database with flexible display options.
 
-``osprey channel-finder generate [--output-dir DIR] [--source PATH] [--format in_context|hierarchical|middle_layer|all] [--tier 1|3|none] [--validate]``
+``osprey channel-finder generate (--source PATH | --demo) [--output-dir DIR] [--force] [--format in_context|hierarchical|middle_layer|all] [--tier 1|3|none] [--validate]``
    Generate channel databases from a hierarchical template. Produces one
    or more pipeline formats (default: all three) with optional tier filtering.
+   Name the source: ``--source`` for your own hierarchical database, ``--demo``
+   for the packaged demo one. Files already in the output directory are left
+   alone unless you pass ``--force`` --- the default output directory,
+   ``data/channel_databases/``, is the one the pipelines read.
 
 ``osprey channel-finder benchmark --model PROVIDER/WIRE_ID [--queries SPEC] [--runs-per-query N] [--concurrency N] [--output-dir DIR] [--queries-path PATH] [-v]``
    Run the benchmark harness against a channel-finder pipeline using a
@@ -839,7 +843,7 @@ and ``--pipeline`` does not offer ``graph`` for the same reason.
    osprey channel-finder build-database
    osprey channel-finder validate
    osprey channel-finder preview
-   osprey channel-finder generate --format hierarchical
+   osprey channel-finder generate --source my_channels.json --format hierarchical
    osprey channel-finder benchmark --model anthropic/claude-haiku-4-5
    osprey channel-finder web
 

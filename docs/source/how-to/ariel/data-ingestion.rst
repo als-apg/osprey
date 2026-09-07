@@ -59,6 +59,53 @@ An adapter written and registered as described in :doc:`/contributing/extending-
    The adapters above reflect the logbook schemas we have had access to so far. If you implement an adapter for your facility and test it successfully, we encourage you to open a pull request to make it natively available in Osprey --- this makes it easier for other sites running similar logbook systems to get started.
 
 
+Connecting to Your Logbook
+==========================
+
+The ``ariel.ingestion`` block says which adapter runs and how it reaches the source system.
+
+.. code-block:: yaml
+
+   ariel:
+     ingestion:
+       adapter: als_logbook              # required
+       source_url: https://logbook.example.org/api/entries
+       ca_bundle: /etc/ssl/certs/site-ca.pem   # optional, for a site CA
+
+``adapter`` is required. There is no default: a block that names no adapter is refused when the configuration loads, with the registered adapter names in the message, rather than failing later on the first ingest.
+
+**TLS.** Certificates are verified. A logbook served over HTTPS whose certificate does not check out fails the ingest instead of being trusted --- credentials for a write-enabled logbook and the entry text itself both travel over that connection. Two ways to make a site certificate verifiable:
+
+* Install your site CA into the image's trust store. Nothing needs to be configured; verification just succeeds.
+* Point ``ca_bundle`` at the CA's PEM file when it lives beside the deployment rather than in the image. Verification then runs against that bundle.
+
+If neither is possible, ``verify_ssl: false`` turns verification off for this ingestion source:
+
+.. code-block:: yaml
+
+   ariel:
+     ingestion:
+       verify_ssl: false
+
+Write it only as a deliberate choice. Nothing about the connection is authenticated afterwards.
+
+The same settings cover the sidecar-metadata fetch described below, so one ingest never reaches the logbook host two different ways.
+
+Sidecar Metadata
+~~~~~~~~~~~~~~~~
+
+An entry can carry its structured metadata in a JSON attachment beside the prose --- session ids, model names, whatever the tooling that wrote the entry recorded. During ingestion that file is fetched and merged into the entry's ``metadata``.
+
+The filename is a facility convention, not a standard, so each adapter declares its own:
+
+.. code-block:: python
+
+   class MyLogbookAdapter(FacilityAdapter):
+       metadata_sidecar_names = ("entry-meta.json",)
+
+The default is ``("metadata.json",)``. Matching is case-insensitive, and a name that never appears is simply a no-op --- there is no switch to turn this off. If an entry has attachments and none of them matched, ingestion says so at debug level rather than staying silent about metadata it did not collect.
+
+
 .. _`Enhancement Pipeline`:
 
 Enhancement Pipeline

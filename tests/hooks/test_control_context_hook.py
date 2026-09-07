@@ -56,8 +56,8 @@ def _context(result):
 
 
 @pytest.fixture
-def run(tmp_path, hook_runner, make_config, monkeypatch):
-    """Run the hook for one event; the memo lands in a temp dir private to the test."""
+def envelope(tmp_path, hook_runner, make_config, monkeypatch):
+    """Run the hook for one event and return the WHOLE stdout envelope."""
     monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
     (tmp_path / "tmp").mkdir()
 
@@ -65,7 +65,7 @@ def run(tmp_path, hook_runner, make_config, monkeypatch):
         payload = {"hook_event_name": event, **extra}
         if session_id is not None:
             payload["session_id"] = session_id
-        result = hook_runner(
+        return hook_runner(
             "osprey_control_context.py",
             "",
             {},
@@ -73,7 +73,16 @@ def run(tmp_path, hook_runner, make_config, monkeypatch):
             cwd=tmp_path,
             hook_input_extra=payload,
         )
-        return _context(result)
+
+    return _run
+
+
+@pytest.fixture
+def run(envelope):
+    """The block the hook emitted for one event; the memo is private to the test."""
+
+    def _run(event, **kwargs):
+        return _context(envelope(event, **kwargs))
 
     return _run
 
@@ -172,3 +181,23 @@ def test_the_block_is_plain_text_with_no_instruction(tmp_path, run):
     assert block.count("\n") == 2
     assert not any(word in block.lower() for word in ("you", "please", "must", "should"))
     json.dumps(block)  # what the hook emitted round-trips as the JSON it came in
+
+
+def test_the_envelope_names_the_event_it_was_emitted_for(tmp_path, envelope):
+    """Without ``hookEventName`` the CLI drops the block and the agent sees nothing.
+
+    Claude Code validates ``hookSpecificOutput`` against the schema for the
+    event named INSIDE it. An envelope that omits the name fails that check:
+    the additional context is discarded, and the failure is reported as a
+    non-blocking hook error in the transcript rather than as a hook that
+    crashed — so a hook missing this field goes on exiting 0 and emitting
+    well-formed JSON that never reaches a turn.
+    """
+    _record(tmp_path, "va", 2)
+
+    start = envelope("SessionStart", source="startup")
+    assert start["hookSpecificOutput"]["hookEventName"] == "SessionStart"
+
+    _record(tmp_path, "live", 3)
+    prompt = envelope("UserPromptSubmit")
+    assert prompt["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
