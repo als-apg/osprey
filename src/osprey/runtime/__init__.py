@@ -33,11 +33,11 @@ Write Outcomes:
     object to find out whether the hardware took the value.
 
 Control Target:
-    The execution sandbox is launched with a *target stamp* — ``live`` or ``va``
-    — in its environment, written by
-    :mod:`osprey.mcp_server.python_executor.executor`. That stamp, not the
-    config's own ``control_system.type``, decides which connector this runtime
-    builds: the type is resolved through
+    The execution sandbox is launched with a *target stamp* — one of
+    :data:`osprey_connectors.types.CONTROL_TARGETS` — in its environment,
+    written by :mod:`osprey.mcp_server.python_executor.executor`. That stamp,
+    not the config's own ``control_system.type``, decides which connector this
+    runtime builds: the type is resolved through
     :func:`osprey_connectors.types.resolve_target`, so the factory reads
     ``control_system.connector.<that type>`` and ``connect()`` derives that
     target's gateways here rather than anywhere upstream. An unstamped process
