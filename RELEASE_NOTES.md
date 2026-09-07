@@ -1,26 +1,30 @@
-# Osprey Framework - Latest Release (v2026.6.2)
+# Osprey Framework - Latest Release (v2026.9.0b1)
 
-**Open & self-hosted model support: run the OSPREY agent on any OpenAI-protocol model — open-weight or self-hosted, remote or local — as a configuration change, with a new model-capability benchmark; plus facility-timezone unification, ARIEL logbook publishing fixes, and hardening.**
+**First public beta.** A pre-release for evaluation: pip serves it only on
+request (`pip install --pre osprey-framework`, or pin `==2026.9.0b1`), and a
+plain install keeps resolving to the last stable release. With uv, add
+`--prerelease=allow` so the paired `osprey-connectors` beta resolves too.
+Interfaces may still move before the stable cut.
+
+**Facility-agnostic core, the multi-user web workspace, and a hardened
+write-safety chain.**
 
 ## Highlights
 
-- **Open & self-hosted models.** Run the OSPREY agent on any OpenAI-protocol model — open-weight or self-hosted, remote or local — as a configuration change, not a code change. The agent speaks the Anthropic Messages API and a local translation proxy that OSPREY starts automatically reaches OpenAI-compatible endpoints; `provider=ds4` (local DeepSeek) now resolves in the `control_assistant` and `hello_world` presets. New how-to guide: *Run Open & Local Models* (#296, #297).
-- **Model-capability benchmark.** A declarative `scripts/benchmark/` toolchain runs the model-driving subset of the e2e suite across a model × provider matrix and renders a per-test pass-rate dashboard. The whole run is one config — each row names a provider and a model `id`, and the launcher resolves credentials, derives the route (proxy for OpenAI-protocol, direct for Anthropic), and runs one isolated worker per cell. Adding a model or provider is a config edit (#259).
-- **Facility-timezone unification.** All agent-facing timestamps — archiver queries, live channel reads, simulated events, ARIEL logbook entries, executed-script run times — now share one configurable `system.timezone`, rendered with explicit UTC offsets; operator-provided times ("today", "14:32") are read as facility-local. Shipped presets pin `system.timezone: UTC` for reproducible runs (#286).
-- **ARIEL logbook publishing.** Web entries (including those with attachments) now publish through the facility adapter with proper credential handling — a logbook that needs credentials returns HTTP 401 and the form prompts instead of silently saving local-only — and ARIEL-only attachments are no longer erased by a later re-ingestion poll (#291).
-- **Headless CI runs.** `osprey query "<prompt>"` performs a read-only agent run for CI pipelines: it boots the full MCP + tools stack, exits 0 on pass / 1 on verdict fail / 2 on infra error, and supports `--json` for machine-readable output (#298).
+- **Facility-agnostic.** Core, shipped templates, and docs carry no named
+  facility: what `osprey init` generates is yours, from the gateway URL to the
+  deployment identity stamped into the web terminal.
+- **Multi-user web workspace.** One deployment serves a roster of users behind
+  a landing page, each with their own terminal and a capability tier —
+  read-only, read-write, or admin — enforced by the same safety chain.
+- **Write-safety chain, hardened.** Write verification, per-connector write
+  posture, target-aware approval prompts, and a kill switch that fails closed.
+- **Bluesky bridge and scan stack.** Plan authoring, queue UX, and scan
+  orchestration against the run engine, with the safety chain in the loop.
+- **Eight shipped agent skills.** The OSPREY plugin now carries the full
+  maintainer and operator set — build-interview, panel, design-philosophy,
+  contribute, pre-commit, release, housekeeping, doc-sync.
+- **Pre-release channel.** The release pipeline understands beta/RC tags end
+  to end; this release is the first to use it.
 
-## Notable changes
-
-- `claude-agent-sdk` upgraded to 0.2.106 (bundles CLI 2.1.185) (#278).
-- The EPICS connector now routes Channel Access writes through the configured `gateways.write_access` gateway when `control_system.writes_enabled` is true, falling back to `gateways.read_only` otherwise — reinforcing the writes-enabled master switch at the network layer (#304).
-- The channel-limits `defaults` block is now actually inherited, so a `defaults: {writable: false}` lockdown takes effect; the non-functional `on_violation` knob was removed (limit enforcement is unconditional and fail-closed).
-- `osprey skills install osprey-design-philosophy` bundles OSPREY's design principles as an installable skill for contributors (#284).
-
-## Installation
-
-```bash
-uv tool install --upgrade osprey-framework
-```
-
-**Full Changelog**: https://github.com/als-apg/osprey/blob/main/CHANGELOG.md
+See `CHANGELOG.md` (section 2026.9.0b1) for the full list.
