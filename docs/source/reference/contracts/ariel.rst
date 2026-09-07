@@ -503,4 +503,4 @@ Migrations are run via ``osprey ariel migrate`` and managed by the ``run_migrati
 .. admonition:: Schema Evolution
    :class: outreach
 
-   The current schema was designed around three facility logbook formats (ALS, JLab, ORNL) and may not capture every field your facility needs. The ``metadata`` JSONB column provides flexibility for facility-specific extras, but if your logbook requires a fundamentally different table structure, please open a pull request or contact us --- the ingestion and storage layers are designed to accommodate new schemas without disrupting existing ones.
+   The current schema was generalised from the logbook formats the shipped ingestion adapters read, and may not capture every field your facility needs. The ``metadata`` JSONB column provides flexibility for facility-specific extras, but if your logbook requires a fundamentally different table structure, please open a pull request or contact us --- the ingestion and storage layers are designed to accommodate new schemas without disrupting existing ones.

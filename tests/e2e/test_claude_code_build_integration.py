@@ -261,11 +261,10 @@ def allow_all_tools(repo: Path) -> None:
 def find_png_files(root: Path) -> list[Path]:
     """Recursively find generated .png files under *root*.
 
-    Excludes template assets (logos, icons) that ship with ``osprey build``
-    and therefore don't prove that ``execute`` created a plot.
+    Every .png under the agent-data root is one ``execute`` wrote: ``osprey
+    build`` renders no image assets into it.
     """
-    template_names = {"ALS_assistant_logo.png"}
-    return sorted(p for p in root.rglob("*.png") if p.name not in template_names)
+    return sorted(root.rglob("*.png"))
 
 
 def diagnose_workspace(repo: Path, max_depth: int = 3) -> str:
