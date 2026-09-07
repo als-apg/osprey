@@ -443,6 +443,11 @@ config:
   # ── Runtime ────────────────────────────────────────────────────────────────
   # Agent Python runs as a host subprocess.
   execution.execution_method: subprocess
+  # Wall-clock ceiling on one agent Python run, in seconds. A run that reaches
+  # it is killed and reported as a timeout, so raise it for a facility whose
+  # analyses legitimately run long and lower it to keep a runaway script from
+  # holding the sandbox.
+  # python_executor.execution_timeout_seconds: 600
   # Facility timezone: ARIEL parses operator times as facility-local and
   # renders every logbook timestamp in this zone. Pinned to UTC for
   # reproducibility; set your real zone in production. Avoid ${TZ:-...}:

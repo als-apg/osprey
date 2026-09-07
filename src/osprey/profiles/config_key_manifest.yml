@@ -1143,6 +1143,26 @@ keys:
   execution.environment.python: {forward-declared: true, default: no-fallback, default_note: "the build derives it from the deployment's Python environment; no runtime reader"}
   execution.environment.packages: {forward-declared: true, default: no-fallback, default_note: "the build derives it from the deployment's Python environment; no runtime reader"}
   execution.environment.inherit_exclude: {forward-declared: true, default: no-fallback, default_note: "the build derives it from the deployment's Python environment; no runtime reader"}
+  python_executor:
+    rendered: false
+    evidence: 'config\.get\("python_executor", \{\}\)\.get\("execution_timeout_seconds", 600\)'
+    note: >-
+      The sandbox's own block. One key today, carried commented in all four
+      presets — the ceiling is a facility property (how long a legitimate
+      analysis may run) and the shipped number is a starting point, not a
+      value any preset should assert.
+    default: {}
+  python_executor.execution_timeout_seconds:
+    rendered: false
+    covered-by: python_executor
+    note: >-
+      Wall-clock ceiling on one agent Python run, read by
+      `mcp_server/python_executor/executor._read_config` from the config the
+      sandbox's MCP server process loaded at start-up and held for that
+      process's lifetime, so a change needs a restart; a run that reaches it
+      is killed and reported as a timeout rather than as the script's own
+      failure.
+    default: 600
 
   # ── System / paths ──────────────────────────────────────────────────
   system:
