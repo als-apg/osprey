@@ -26,6 +26,7 @@ from osprey.services.virtual_accelerator.manifest import (
     RECORD_TYPE_MBB,
     RECORD_TYPE_STRING,
     build_manifest,
+    setpoint_addresses,
 )
 from osprey.services.virtual_accelerator.serving.pvdb import (
     ALARM_LIMIT_KEYS,
@@ -891,9 +892,10 @@ class TestFullManifest:
             _load_drive_limits,
         )
 
+        channels = build_manifest()["channels"]
         return build_serving_pvdb(
-            build_manifest()["channels"],
-            drive_limits=_load_drive_limits(),
+            channels,
+            drive_limits=_load_drive_limits(setpoints=setpoint_addresses(channels)),
             boot_values=_load_boot_values(),
         )
 

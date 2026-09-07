@@ -32,6 +32,7 @@ from .classify import (
     SETPOINT_SUBFIELD,
     classify_partition,
     derive_record_type,
+    setpoint_addresses,
 )
 from .loaders import MANIFEST_CHANNEL_KEYS, ManifestFileError, load_manifest_file
 
@@ -52,4 +53,5 @@ __all__ = [
     "RECORD_TYPE_MBB",
     "RECORD_TYPE_STRING",
     "SETPOINT_SUBFIELD",
+    "setpoint_addresses",
 ]

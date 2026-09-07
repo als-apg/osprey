@@ -60,7 +60,6 @@ from typing import Any, Protocol
 
 from lume.model import LUMEModel
 
-from osprey.services.virtual_accelerator.manifest import SETPOINT_SUBFIELD
 from osprey.services.virtual_accelerator.serving.pvdb import (
     ServingRecords,
     discard_pva_post,
@@ -258,10 +257,13 @@ def physics_setpoint_addresses(records: ServingRecords) -> frozenset[str]:
 
     The pyat-coupled partition holds both halves of the physics coupling --
     the magnet setpoints written into the lattice and the BPM readings
-    solved out of it -- so the setpoints are the writable subfield of it.
+    solved out of it -- so the setpoints are the writable half of it. Which
+    half that is was decided by the manifest, on the ``subfield`` each
+    channel declared; nothing here reads the address text, because a
+    facility whose setpoints are not spelled ``...:SP`` has the same
+    setpoints.
     """
-    suffix = f":{SETPOINT_SUBFIELD}"
-    return frozenset(address for address in records.pyat_coupled if address.endswith(suffix))
+    return records.physics_setpoints
 
 
 def clamp_into(value: Any, limits: tuple[float, float] | None) -> Any:
