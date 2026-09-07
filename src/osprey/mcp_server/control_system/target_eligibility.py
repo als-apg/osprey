@@ -61,7 +61,12 @@ by the ``virtual_accelerator.live_standin`` line that stood it up. Both are
 waived **except** when the target is the deployment's own baseline and the
 session is returning to it — stranding a session on the simulator is the less
 safe outcome, so coming home is never gated, and the baseline a deployment comes
-home to may be ``standin`` as readily as ``live``.
+home to may be ``standin`` as readily as ``live``. The exemption covers the
+Channel Access shape of a connector block too — its gateways, the role this
+deployment would select, its probe channel — for the same reason: a baseline
+that never filled that shape in, because its machine is reached over another
+protocol or because the block is half authored, would otherwise be a machine a
+session can leave and never come back to.
 :func:`target_availability` therefore reports two answers:
 
 * ``available_now`` — the predicate for the switch this deployment would make,
