@@ -691,12 +691,20 @@ def evaluate_eligibility(
        stand-in, and a real machine's readings must not land in that store
        (:data:`REASON_ARCHIVE_BELONGS_TO_STANDIN`).
 
+    A **return to the deployment baseline** waives checks 3 and 4 along with 7
+    and 8. Those two are the Channel Access shape of a connector block, and a
+    baseline that never filled it in — a machine reached over another protocol,
+    a block half authored — would otherwise be a target a session could leave
+    and never come back to. Coming home still has to pass 1, 2, 5 and 6: the
+    target resolves, its block exists, the stand-in is really this deployment's
+    stand-in, and an invented present is not paired with an invented past.
+
     Args:
         config: The full rendered config mapping.
         target: The control target being judged.
         direction: :data:`DIRECTION_AWAY` for a switch toward a target that is
             not the deployment baseline, :data:`DIRECTION_BACK` for a return to
-            the baseline. Only the FR-8 gates (checks 7 and 8) read it, and the
+            the baseline. Checks 3, 4, 7 and 8 read it, and the
             baseline a return exempts may be any of the three targets — a
             deployment whose own ``control_system.type`` is ``live_standin``
             comes home to ``standin``.
@@ -741,28 +749,34 @@ def evaluate_eligibility(
             "gateways and probe_channel) to make the target switchable.",
         )
 
-    gateways = _sub(raw_block, "gateways")
-    if not gateways:
-        return Eligibility(
-            False,
-            REASON_GATEWAYS_MISSING,
-            f"'{block_key}.gateways' is empty or missing, so there is no endpoint "
-            f"to point a connector at for target {target!r}.",
-        )
-
+    # Returning to a deployment's own baseline is exempt — a session stranded on
+    # the simulator, unable to come home, is the less safe outcome of the two
+    # this gate can produce — and the baseline may be any of the three targets,
+    # so the exemption follows the direction rather than naming a target.
+    switching_away = direction != DIRECTION_BACK
     selected_role = derivation.selected_role
-    role_missing = _selected_role_missing(config, derivation, target)
-    if role_missing is not None:
-        return role_missing
 
-    if not _is_set(raw_block.get(PROBE_CHANNEL_KEY)):
-        return Eligibility(
-            False,
-            REASON_PROBE_CHANNEL_MISSING,
-            f"'{block_key}.{PROBE_CHANNEL_KEY}' is not set. The switch reads that "
-            f"channel to prove target {target!r} is reachable before making it "
-            "active, so a target without one is never switched to.",
-        )
+    if switching_away:
+        if not _sub(raw_block, "gateways"):
+            return Eligibility(
+                False,
+                REASON_GATEWAYS_MISSING,
+                f"'{block_key}.gateways' is empty or missing, so there is no endpoint "
+                f"to point a connector at for target {target!r}.",
+            )
+
+        role_missing = _selected_role_missing(config, derivation, target)
+        if role_missing is not None:
+            return role_missing
+
+        if not _is_set(raw_block.get(PROBE_CHANNEL_KEY)):
+            return Eligibility(
+                False,
+                REASON_PROBE_CHANNEL_MISSING,
+                f"'{block_key}.{PROBE_CHANNEL_KEY}' is not set. The switch reads that "
+                f"channel to prove target {target!r} is reachable before making it "
+                "active, so a target without one is never switched to.",
+            )
 
     if target == TARGET_STANDIN and not endpoint_is_live_standin(
         config, derivation.selected_endpoint()
@@ -795,13 +809,6 @@ def evaluate_eligibility(
                 "a real archiver — this deployment's own store — before switching a "
                 "session onto this target.",
             )
-
-    # Returning to a deployment's own baseline is exempt from FR-8 — a session
-    # stranded on the simulator, unable to come home, is the less safe outcome
-    # of the two this gate can produce — and the baseline may be either machine
-    # a session can be careful around, so the exemption follows the direction
-    # rather than naming a target.
-    switching_away = direction != DIRECTION_BACK
 
     if switching_away and target in (TARGET_LIVE, TARGET_STANDIN):
         # The strict limits posture guards both machines an operator meets
