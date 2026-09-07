@@ -33,7 +33,7 @@ Available Providers
      - ``CBORG_API_KEY``
      - Anthropic (native)
    * - ``als-apg``
-     - ALS Accelerator Physics Group AWS proxy
+     - ALS Accelerator Physics Group gateway
      - ``ALS_APG_API_KEY``
      - Anthropic (native)
    * - ``stanford``
@@ -100,6 +100,25 @@ Set the API key as an environment variable before running Osprey:
    export STANFORD_API_KEY="..."
 
 Ollama and vLLM run locally and do not require an API key.
+
+``als-apg`` needs one more variable: it fronts a gateway that each site hosts
+itself, so there is no endpoint to default to. Name it alongside the key, or
+put the URL straight into ``providers.yml``:
+
+.. code-block:: bash
+
+   export ALS_APG_BASE_URL="https://your-gateway.example.org/v1"
+
+Without it, every path that would place a call refuses rather than sending the
+gateway's token to another host. A launch — ``osprey chat``, ``osprey web``, an
+agent run — stops with::
+
+   Provider 'als-apg' has no base_url. It fronts models through a gateway that
+   has no default endpoint, so the URL has to be named: set ALS_APG_BASE_URL,
+   or api.providers.als-apg.base_url in config.yml.
+
+A direct model call and ``osprey health`` report the same thing more briefly,
+as ``Base URL required for als-apg``.
 
 .. note::
 

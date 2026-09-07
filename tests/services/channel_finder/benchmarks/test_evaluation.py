@@ -186,6 +186,57 @@ class TestLlmJudgeCoverage:
         assert covered == []
         assert extras == []
 
+    @staticmethod
+    def _judge_env(monkeypatch, **present: str) -> None:
+        """Leave exactly *present* set among the vars the judge consults."""
+        for name in (
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_BASE_URL",
+            "ALS_APG_API_KEY",
+            "ALS_APG_BASE_URL",
+            "CBORG_API_KEY",
+        ):
+            monkeypatch.delenv(name, raising=False)
+        for name, value in present.items():
+            monkeypatch.setenv(name, value)
+
+    @patch("osprey.models.providers.litellm_adapter.execute_litellm_completion")
+    def test_als_apg_needs_its_gateway_url_to_be_a_candidate(self, mock_completion, monkeypatch):
+        """The gateway has no built-in endpoint, so a key on its own names no
+        reachable server — the judge falls through to the next provider rather
+        than calling one it cannot address."""
+        self._judge_env(monkeypatch, ALS_APG_API_KEY="key", CBORG_API_KEY="cborg-key")
+        mock_completion.return_value = ChannelExtractionResult(
+            covered_expected_indices=[], extra_recommended=[], reasoning=""
+        )
+
+        llm_judge_coverage("response", ["CH:A"])
+
+        kwargs = mock_completion.call_args.kwargs
+        assert kwargs["provider"] == "cborg"
+        assert kwargs["api_key"] == "cborg-key"
+
+    @patch("osprey.models.providers.litellm_adapter.execute_litellm_completion")
+    def test_als_apg_is_used_when_its_gateway_url_is_exported(self, mock_completion, monkeypatch):
+        """With both halves exported the gateway is addressable, and its URL is
+        what the call is aimed at."""
+        self._judge_env(
+            monkeypatch,
+            ALS_APG_API_KEY="key",
+            ALS_APG_BASE_URL="https://gateway.example.org",
+            CBORG_API_KEY="cborg-key",
+        )
+        mock_completion.return_value = ChannelExtractionResult(
+            covered_expected_indices=[], extra_recommended=[], reasoning=""
+        )
+
+        llm_judge_coverage("response", ["CH:A"])
+
+        kwargs = mock_completion.call_args.kwargs
+        assert kwargs["provider"] == "als-apg"
+        assert kwargs["base_url"] == "https://gateway.example.org"
+
 
 # ---------------------------------------------------------------------------
 # evaluate_response

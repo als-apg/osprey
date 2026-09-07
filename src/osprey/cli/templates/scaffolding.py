@@ -110,6 +110,46 @@ def provider_api_key_entries() -> list[dict[str, str]]:
     ]
 
 
+def provider_base_url_entries() -> list[dict[str, str]]:
+    """Env vars naming an endpoint the deployment has to supply, in registry order.
+
+    A provider that requires a ``base_url`` and ships no ``default_base_url``
+    has no host to fall back to: the gateway it fronts is the deployment's own,
+    and a launch that names none is refused. Those are the variables whose
+    absence stops a deployment, so ``.env.example`` lists them beside the keys
+    rather than leaving them to the documentation.
+
+    Derived from the provider classes themselves — the same three attributes
+    the launch paths read — so the file cannot drift from what is actually
+    required. Providers with a working default (cborg, argo, ollama, …) are
+    excluded: setting their variable redirects them, it does not enable them.
+
+    Returns:
+        List of ``{"provider": <name>, "var": <ENV_VAR>}`` dicts, in the
+        registry's own (alphabetical) provider order. Empty when every provider
+        ships an endpoint.
+    """
+    from osprey.models.provider_registry import get_provider_registry
+
+    registry = get_provider_registry()
+    entries: list[dict[str, str]] = []
+    for provider in registry.list_providers():
+        # A provider whose module will not import is not this function's
+        # problem — the registry reports that where it is actionable.
+        try:
+            cls = registry.get_provider(provider)
+        except Exception:  # noqa: BLE001 - see comment above
+            continue
+        if cls is None:
+            continue
+        if not cls.requires_base_url or cls.default_base_url:
+            continue
+        if not cls.base_url_env_var:
+            continue
+        entries.append({"provider": provider, "var": cls.base_url_env_var})
+    return entries
+
+
 # Human-readable blurbs for the deploy-minted variables, keyed by var name.
 # Prose only: the *list* of variables comes from ``_SERVICE_TOKEN_VARS``, so a
 # newly minted var still reaches ``.env.example`` (named by the services that

@@ -36,7 +36,7 @@ class TestBuiltInProviderOverride:
     @pytest.mark.parametrize("provider", sorted(CLAUDE_CODE_PROVIDERS))
     def test_override_does_not_mutate_the_builtin_table(self, provider):
         """The built-in dict is module-level shared state — resolve() must not write to it."""
-        before = CLAUDE_CODE_PROVIDERS[provider]["base_url"]
+        before = CLAUDE_CODE_PROVIDERS[provider].get("base_url")
         ClaudeCodeModelResolver.resolve(
             {"provider": provider},
             api_providers={provider: {"base_url": FACILITY_GATEWAY}},
@@ -45,10 +45,22 @@ class TestBuiltInProviderOverride:
 
     def test_builtin_url_survives_when_config_names_no_base_url(self):
         spec = ClaudeCodeModelResolver.resolve(
-            {"provider": "als-apg"},
-            api_providers={"als-apg": {"api_key": "k"}},
+            {"provider": "cborg"},
+            api_providers={"cborg": {"api_key": "k"}},
         )
-        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://llm.gianlucamartino.com"
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://api.cborg.lbl.gov"
+
+    def test_a_provider_with_no_builtin_url_is_refused_when_config_names_none(self):
+        """als-apg fronts a site's own gateway, so nothing can stand in for it.
+
+        Falling through would leave ANTHROPIC_BASE_URL unset, i.e. Claude Code
+        talking to its native backend with the gateway's bearer token.
+        """
+        with pytest.raises(ValueError, match="ALS_APG_BASE_URL"):
+            ClaudeCodeModelResolver.resolve(
+                {"provider": "als-apg"},
+                api_providers={"als-apg": {"api_key": "k"}},
+            )
 
     def test_anthropic_gains_a_base_url_only_when_config_gives_one(self):
         """The built-in anthropic entry has no URL; config is the only source."""
@@ -79,20 +91,16 @@ class TestV1StripSurvivesTheOverride:
         )
         assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
 
-    def test_shipped_template_urls_are_unchanged_by_the_override(self):
-        """cborg/als-apg templates ship the built-in URL + /v1 — the override is a no-op."""
-        for provider, shipped, expected in (
-            ("cborg", "https://api.cborg.lbl.gov/v1", "https://api.cborg.lbl.gov"),
-            (
-                "als-apg",
-                "https://llm.gianlucamartino.com/v1",
-                "https://llm.gianlucamartino.com",
-            ),
+    def test_catalog_urls_are_stripped_the_same_way_for_every_provider(self):
+        """The catalog spells endpoints with /v1; the env var must never carry it."""
+        for provider, configured in (
+            ("cborg", "https://api.cborg.lbl.gov/v1"),
+            ("als-apg", FACILITY_GATEWAY + "/v1"),
         ):
             spec = ClaudeCodeModelResolver.resolve(
-                {"provider": provider}, api_providers={provider: {"base_url": shipped}}
+                {"provider": provider}, api_providers={provider: {"base_url": configured}}
             )
-            assert spec.env_block["ANTHROPIC_BASE_URL"] == expected
+            assert spec.env_block["ANTHROPIC_BASE_URL"] == configured.removesuffix("/v1")
 
 
 class TestProxyUpstreamFollowsTheOverride:
@@ -153,6 +161,68 @@ class TestEndToEndThroughLoadProviderSpec:
         spec = load_provider_spec(tmp_path, include_telemetry=False)
         assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
 
+    def test_unexported_placeholder_is_refused_by_name(self, tmp_path, monkeypatch):
+        """The shipped catalog form with nothing exported must not travel on.
+
+        ``providers.yml`` spells the endpoint ``${ALS_APG_BASE_URL}``. Unset,
+        the config resolver keeps the reference verbatim, so without this the
+        literal reaches the env block and Claude Code is handed
+        ``ANTHROPIC_BASE_URL="${ALS_APG_BASE_URL}"`` as a hostname.
+        """
+        from osprey.build.claude_code_resolver import load_provider_spec
+
+        monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
+        (tmp_path / "config.yml").write_text(
+            "api:\n"
+            "  providers:\n"
+            "    als-apg:\n"
+            "      base_url: ${ALS_APG_BASE_URL}\n"
+            "claude_code:\n"
+            "  provider: als-apg\n"
+        )
+
+        with pytest.raises(ValueError, match="ALS_APG_BASE_URL"):
+            load_provider_spec(tmp_path, include_telemetry=False)
+
+    def test_a_render_may_defer_the_placeholder_to_its_runtime(self, tmp_path, monkeypatch):
+        """The build's reachability check reads a render, not a launch.
+
+        A container image is built on one host and given its gateway on
+        another, so ``${VAR}`` there is the render's contract with its runtime.
+        Only the paths that are about to call the gateway refuse.
+        """
+        from osprey.build.claude_code_resolver import load_provider_spec
+
+        monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
+        (tmp_path / "config.yml").write_text(
+            "api:\n"
+            "  providers:\n"
+            "    als-apg:\n"
+            "      base_url: ${ALS_APG_BASE_URL}\n"
+            "claude_code:\n"
+            "  provider: als-apg\n"
+        )
+
+        spec = load_provider_spec(tmp_path, include_telemetry=False, defer_unresolved_base_url=True)
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "${ALS_APG_BASE_URL}"
+
+    def test_unexported_placeholder_leaves_a_builtin_url_in_charge(self, tmp_path, monkeypatch):
+        """Blanking happens before the fallback chain, not instead of it."""
+        from osprey.build.claude_code_resolver import load_provider_spec
+
+        monkeypatch.delenv("FACILITY_GATEWAY_URL", raising=False)
+        (tmp_path / "config.yml").write_text(
+            "api:\n"
+            "  providers:\n"
+            "    cborg:\n"
+            "      base_url: ${FACILITY_GATEWAY_URL}\n"
+            "claude_code:\n"
+            "  provider: cborg\n"
+        )
+
+        spec = load_provider_spec(tmp_path, include_telemetry=False)
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://api.cborg.lbl.gov"
+
 
 class TestEnvVarBreakGlassOverride:
     """A supplied ``base_url_env_var`` value beats config and the built-in URL.
@@ -165,7 +235,8 @@ class TestEnvVarBreakGlassOverride:
     ``resolve()`` refuses to read the process environment itself.
     """
 
-    def test_supplied_value_wins_over_builtin_url(self):
+    def test_supplied_value_is_enough_on_its_own(self):
+        """For a provider with no built-in URL the variable is the whole source."""
         spec = ClaudeCodeModelResolver.resolve(
             {"provider": "als-apg"},
             environ={"ALS_APG_BASE_URL": f"{FACILITY_GATEWAY}/v1"},
@@ -180,16 +251,22 @@ class TestEnvVarBreakGlassOverride:
         )
         assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
 
-    def test_absent_value_preserves_existing_behavior(self):
-        spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"}, environ={})
-        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://llm.gianlucamartino.com"
+    def test_absent_value_leaves_config_in_charge(self):
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "als-apg"},
+            api_providers={"als-apg": {"base_url": "https://baked.example.org/v1"}},
+            environ={},
+        )
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://baked.example.org"
 
     def test_empty_value_is_ignored(self):
-        """An empty export must not blank the URL — fall through to the default."""
+        """An empty export must not blank the URL — fall through to config."""
         spec = ClaudeCodeModelResolver.resolve(
-            {"provider": "als-apg"}, environ={"ALS_APG_BASE_URL": ""}
+            {"provider": "als-apg"},
+            api_providers={"als-apg": {"base_url": "https://baked.example.org/v1"}},
+            environ={"ALS_APG_BASE_URL": ""},
         )
-        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://llm.gianlucamartino.com"
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://baked.example.org"
 
     def test_provider_without_the_declaration_ignores_the_value(self):
         """The override is opt-in per provider, so it cannot leak across them."""
@@ -246,8 +323,11 @@ class TestResolveNeverReadsAmbientEnviron:
 
     def test_process_env_does_not_reach_the_env_block(self, monkeypatch):
         monkeypatch.setenv("ALS_APG_BASE_URL", "https://build-machine.example.org/v1")
-        spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"})
-        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://llm.gianlucamartino.com"
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "als-apg"},
+            api_providers={"als-apg": {"base_url": "https://baked.example.org/v1"}},
+        )
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://baked.example.org"
 
     def test_process_env_does_not_override_a_config_base_url(self, monkeypatch):
         monkeypatch.setenv("ALS_APG_BASE_URL", "https://build-machine.example.org/v1")
@@ -312,3 +392,21 @@ class TestOverrideReachesTheRuntimePath:
 
         spec = load_provider_spec(tmp_path, include_telemetry=False)
         assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://baked.example.org"
+
+    def test_the_catalog_placeholder_resolves_once_the_variable_is_exported(
+        self, tmp_path, monkeypatch
+    ):
+        from osprey.build.claude_code_resolver import load_provider_spec
+
+        monkeypatch.setenv("ALS_APG_BASE_URL", f"{FACILITY_GATEWAY}/v1")
+        (tmp_path / "config.yml").write_text(
+            "api:\n"
+            "  providers:\n"
+            "    als-apg:\n"
+            "      base_url: ${ALS_APG_BASE_URL}\n"
+            "claude_code:\n"
+            "  provider: als-apg\n"
+        )
+
+        spec = load_provider_spec(tmp_path, include_telemetry=False)
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY

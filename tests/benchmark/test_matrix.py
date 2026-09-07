@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from tests.conftest import GATEWAY_ORIGIN
 
 # import-time required because scripts/ is not a package: matrix.py is loaded
 # by path and registered in sys.modules before exec so @dataclass can resolve
@@ -35,7 +36,7 @@ def _cfg() -> matrix.MatrixConfig:
                 "judge": {"via": "cborg", "model": "google/claude-haiku-4-5"},
             },
             "als-apg": {
-                "base_url": "https://llm.gianlucamartino.com",
+                "base_url": GATEWAY_ORIGIN,
                 "key_env": "ALS_APG_API_KEY",
                 "protocol": "anthropic",
                 "judge": {"via": "als-apg", "model": "claude-haiku-4-5-20251001"},
@@ -211,7 +212,7 @@ def test_cell_env_alsapg_reference_is_direct(keys):
     # proxy"); blanking overrides any stale ambient value run_cell copies down.
     assert env["OSPREY_E2E_PROXY_UPSTREAM"] == ""
     assert env["OSPREY_E2E_PROXY_KEY"] == ""
-    assert env["ALS_APG_BASE_URL"] == "https://llm.gianlucamartino.com"
+    assert env["ALS_APG_BASE_URL"] == GATEWAY_ORIGIN
     assert env["OSPREY_E2E_JUDGE_MODEL"] == "claude-haiku-4-5-20251001"
     assert env["ALS_APG_API_KEY"] == "apg-key"  # judge key == als-apg routing key
     assert "CBORG_API_KEY" not in env
@@ -333,6 +334,61 @@ def test_load_config_top_level_judge_becomes_default(tmp_path):
     cfg = matrix.load_config(p)
     cell = matrix.build_cell(cfg, cfg.models[0], 1)
     assert cell.judge_model == "g/h"
+
+
+def test_load_config_expands_env_references(tmp_path, monkeypatch):
+    """Provider fields honour ``${VAR:-default}``: the environment wins, the
+    literal after ``:-`` is only the fallback."""
+    pytest.importorskip("yaml")
+    p = tmp_path / "m.yaml"
+    p.write_text(
+        "providers:\n"
+        "  als-apg:\n"
+        "    base_url: ${ALS_APG_BASE_URL:-https://fallback.example}\n"
+        "    key_env: ALS_APG_API_KEY\n"
+        "    protocol: anthropic\n"
+        "    judge: { via: als-apg, model: m }\n"
+        "models:\n"
+        "  - { id: claude-sonnet-4-6, provider: als-apg }\n"
+    )
+
+    monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
+    cfg = matrix.load_config(p)
+    assert cfg.providers["als-apg"]["base_url"] == "https://fallback.example"
+
+    monkeypatch.setenv("ALS_APG_BASE_URL", GATEWAY_ORIGIN)
+    cfg = matrix.load_config(p)
+    assert cfg.providers["als-apg"]["base_url"] == GATEWAY_ORIGIN
+
+
+def test_load_config_refuses_an_unresolved_base_url(tmp_path, monkeypatch):
+    """A provider whose endpoint is named by an unset variable is refused.
+
+    ``resolve_env_vars`` leaves ``${VAR}`` verbatim when ``VAR`` is unset, and
+    the shipped matrix names the als-apg gateway that way because it has no
+    default host. Without the refusal the literal reference travels on as a URL
+    and every cell fails at the first request, far from the cause.
+    """
+    pytest.importorskip("yaml")
+    p = tmp_path / "m.yaml"
+    p.write_text(
+        "providers:\n"
+        "  als-apg:\n"
+        "    base_url: ${ALS_APG_BASE_URL}\n"
+        "    key_env: ALS_APG_API_KEY\n"
+        "    protocol: anthropic\n"
+        "    judge: { via: als-apg, model: m }\n"
+        "models:\n"
+        "  - { id: claude-sonnet-4-6, provider: als-apg }\n"
+    )
+
+    monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
+    with pytest.raises(ValueError, match="ALS_APG_BASE_URL"):
+        matrix.load_config(p)
+
+    monkeypatch.setenv("ALS_APG_BASE_URL", GATEWAY_ORIGIN)
+    cfg = matrix.load_config(p)
+    assert cfg.providers["als-apg"]["base_url"] == GATEWAY_ORIGIN
 
 
 # --- orchestration (drive): resume + matrix.log markers ---------------------

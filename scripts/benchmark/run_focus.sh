@@ -22,7 +22,7 @@ NODES=("$@"); [ "${#NODES[@]}" -gt 0 ] || { echo "FATAL: pass test node(s)" >&2;
 [ -n "${ALS_APG_API_KEY:-}" ] || ALS_APG_API_KEY="$(cat "$HOME/.als_apg_key")"
 export ALS_APG_API_KEY
 export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-$ALS_APG_API_KEY}"
-export ALS_APG_BASE_URL="${ALS_APG_BASE_URL:-https://llm.gianlucamartino.com}"
+export ALS_APG_BASE_URL="${ALS_APG_BASE_URL:?set this to your als-apg gateway}"
 export OSPREY_E2E_JUDGE_MODEL="${OSPREY_E2E_JUDGE_MODEL:-claude-haiku-4-5-20251001}"
 export OSPREY_E2E_FORCE_PROVIDER=als-apg
 export OSPREY_E2E_FORCE_MODEL="$MODEL"

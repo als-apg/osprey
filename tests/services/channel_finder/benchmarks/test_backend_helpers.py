@@ -55,6 +55,58 @@ class TestResolveLitellmEndpoint:
         # No config.yml in the project dir -> resolver bails out early.
         assert _resolve_litellm_endpoint(tmp_path, "als-apg") is None
 
+    @staticmethod
+    def _gateway_project(tmp_path: Path) -> Path:
+        """A project whose provider names its endpoint through a variable.
+
+        The shape the shipped provider catalog writes: the gateway host is the
+        deployment's own, so ``base_url`` is a reference, not a literal.
+        """
+        (tmp_path / "config.yml").write_text(
+            "api:\n"
+            "  providers:\n"
+            "    als-apg:\n"
+            "      base_url: ${BENCH_GATEWAY_URL}\n"
+            "      api_key: ${ALS_APG_API_KEY}\n"
+        )
+        return tmp_path
+
+    def test_unset_endpoint_variable_is_refused_by_name(self, tmp_path: Path, monkeypatch):
+        """An unexported ${VAR} is not a hostname to hand to litellm.
+
+        The config resolver keeps the reference verbatim when the variable is
+        unset, so without this the benchmark dials a host called
+        ``${BENCH_GATEWAY_URL}`` and reports the failure as the model's.
+        """
+        monkeypatch.delenv("BENCH_GATEWAY_URL", raising=False)
+        monkeypatch.setenv("ALS_APG_API_KEY", "test-key")
+
+        with pytest.raises(ValueError, match="BENCH_GATEWAY_URL"):
+            _resolve_litellm_endpoint(self._gateway_project(tmp_path), "als-apg")
+
+    def test_endpoint_variable_is_expanded(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("BENCH_GATEWAY_URL", "https://gateway.example.com/v1")
+        monkeypatch.setenv("ALS_APG_API_KEY", "test-key")
+
+        resolved = _resolve_litellm_endpoint(self._gateway_project(tmp_path), "als-apg")
+
+        assert resolved == {"api_base": "https://gateway.example.com", "api_key": "test-key"}
+
+    def test_endpoint_variable_may_come_from_the_project_env_file(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A benchmark run reads the deployment's ``.env``, as it does for the key."""
+        monkeypatch.delenv("BENCH_GATEWAY_URL", raising=False)
+        monkeypatch.delenv("ALS_APG_API_KEY", raising=False)
+        project = self._gateway_project(tmp_path)
+        (project / ".env").write_text(
+            "BENCH_GATEWAY_URL=https://from-dotenv.example.com\nALS_APG_API_KEY=dotenv-key\n"
+        )
+
+        resolved = _resolve_litellm_endpoint(project, "als-apg")
+
+        assert resolved == {"api_base": "https://from-dotenv.example.com", "api_key": "dotenv-key"}
+
 
 def _graph_project(tmp_path: Path) -> Path:
     """A project directory configured for the graph paradigm."""

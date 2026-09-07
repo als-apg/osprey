@@ -629,6 +629,20 @@ def check_litellm_health(
     if api_key and (api_key.startswith("${") or "YOUR_API_KEY" in api_key.upper()):
         return False, "API key not configured (placeholder value detected)"
 
+    if not base_url:
+        # The endpoint is checked the same way the key is. A provider that
+        # declares requires_base_url fronts a gateway with no default host and
+        # routes openai-compatible, so litellm would resolve `openai/<model>`
+        # with no api_base and send the call — carrying the gateway's key — to
+        # api.openai.com. The failure that comes back names authentication,
+        # nowhere near its cause. Lazy import: provider_registry imports the
+        # provider modules, which import this adapter.
+        from osprey.models.provider_registry import get_provider_registry
+
+        provider_class = get_provider_registry().get_provider(provider)
+        if getattr(provider_class, "requires_base_url", False):
+            return False, f"Base URL required for {provider}"
+
     if not model_id:
         return False, "Model ID required for health check"
 

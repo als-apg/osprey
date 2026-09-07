@@ -19,6 +19,13 @@ or direct, judge endpoint, budget scale, grid order, resume); the worker
 ``pytest tests/e2e/`` invocation, and JUnit→JSON summarization). The functions
 below are pure and import-safe so they can be unit-tested without spawning a run
 (see tests/benchmark/test_matrix.py).
+
+Config fields accept ``${VAR}`` / ``${VAR:-default}`` environment references —
+``load_config`` resolves them through ``osprey_connectors.config.resolve_env_vars``,
+the same expander the deployment config uses, so an endpoint set in the
+environment wins over the literal written in the file. A reference with no
+default that resolves to nothing is refused by ``load_config`` rather than
+travelling on as a URL.
 """
 
 from __future__ import annotations
@@ -297,8 +304,20 @@ def _fmt_scale(value: float) -> str:
 def load_config(path: Path) -> MatrixConfig:
     import yaml
 
+    from osprey_connectors.config import is_unresolved_placeholder, resolve_env_vars
+
     raw = yaml.safe_load(path.read_text()) or {}
+    raw = resolve_env_vars(raw)
     providers = raw.get("providers") or {}
+    # A gateway with no default host is written as a bare ``${VAR}``, which the
+    # resolver leaves verbatim when the variable is unset. Refuse it here rather
+    # than handing the literal reference to an HTTP client one cell at a time.
+    for name, spec in providers.items():
+        if isinstance(spec, dict) and is_unresolved_placeholder(spec.get("base_url")):
+            raise ValueError(
+                f"{path}: provider '{name}' has no base_url — "
+                f"{spec['base_url']} is unset in this environment"
+            )
     models = raw.get("models") or []
     defaults = raw.get("defaults") or {}
     # a top-level judge becomes the default judge for providers that omit one

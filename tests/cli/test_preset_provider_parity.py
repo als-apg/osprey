@@ -18,13 +18,19 @@ through ``ClaudeCodeModelResolver`` (no half-wired provider that builds but
 cannot route).
 """
 
+import re
 from pathlib import Path
 
+import pytest
 import yaml
 
 import osprey
-from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
+from osprey.build.claude_code_resolver import (
+    ClaudeCodeModelResolver,
+    _without_unresolved_base_urls,
+)
 from osprey.profiles.providers import packaged_catalog_path
+from osprey_connectors.config import resolve_env_vars
 
 TEMPLATES = Path(osprey.__file__).parent / "templates"
 
@@ -33,6 +39,31 @@ def _api_providers() -> dict:
     """The provider stanzas a build renders into ``api.providers``."""
     catalog = yaml.safe_load(packaged_catalog_path().read_text(encoding="utf-8")) or {}
     return catalog.get("providers") or {}
+
+
+#: ``${VAR}`` / ``${VAR:-default}`` — the two forms ``resolve_env_vars`` accepts,
+#: read here only to name the variables a catalog entry's endpoint comes from.
+_ENDPOINT_VAR = re.compile(r"\$\{([^}:]+)(?::-[^}]*)?\}")
+
+#: Any endpoint will do: these tests ask whether a stanza routes, not where to.
+PLACEHOLDER_ENDPOINT = "https://gateway.example.org/v1"
+
+
+def _endpoint_env_vars() -> set[str]:
+    """The env vars the catalog's ``base_url`` values are spelled in terms of.
+
+    A gateway that each site hosts itself ships as a reference rather than a
+    host (``base_url: ${ALS_APG_BASE_URL}``), so a deployment that exports
+    nothing has no endpoint for it. Naming the variables here lets the routing
+    test supply one, instead of resolving against a literal ``"${VAR}"`` that
+    is not a URL at all.
+    """
+    return {
+        var
+        for entry in _api_providers().values()
+        if isinstance(entry, dict)
+        for var in _ENDPOINT_VAR.findall(str(entry.get("base_url") or ""))
+    }
 
 
 def test_the_catalog_includes_ds4():
@@ -75,14 +106,54 @@ def test_only_one_template_renders_the_catalog_and_it_restates_no_entry():
         )
 
 
-def test_every_declared_provider_resolves():
+def test_every_declared_provider_resolves(monkeypatch):
     """No half-wired provider: each entry must route via the Claude Code
-    resolver (built-in or custom-proxy with a base_url)."""
-    providers = _api_providers()
+    resolver (built-in or custom-proxy with a base_url).
+
+    The catalog is expanded first, with every endpoint variable exported, so
+    what each stanza is judged on is the config a deployment actually runs. On
+    the raw text a stanza that ships ``base_url: ${VAR}`` resolves either way —
+    the literal is a non-empty string, so it passes for a URL and the guard
+    goes quiet exactly where an unexported variable would have broken the
+    launch.
+    """
+    for var in _endpoint_env_vars():
+        monkeypatch.setenv(var, PLACEHOLDER_ENDPOINT)
+    providers = resolve_env_vars(_api_providers())
     assert providers, "the packaged catalog declares no providers"
     for name in providers:
         spec = ClaudeCodeModelResolver.resolve({"provider": name}, providers)
         assert spec is not None, f"provider {name!r} resolved to None"
+        endpoints = (spec.upstream_base_url, spec.env_block.get("ANTHROPIC_BASE_URL"))
+        for endpoint in endpoints:
+            assert "${" not in (endpoint or ""), (
+                f"provider {name!r} routes to {endpoint!r} — an expanded "
+                "catalog still carries a variable reference where the endpoint "
+                "belongs"
+            )
+
+
+def test_a_gateway_with_no_endpoint_exported_is_refused_rather_than_routed(monkeypatch):
+    """The other half: nothing exported must not become a hostname.
+
+    ``resolve_env_vars`` keeps ``${VAR}`` verbatim when the variable is unset,
+    so the value a launch reads is the reference itself. The launch path blanks
+    it before resolving, which turns "nobody named an endpoint" into the
+    refusal that names the variable — rather than a spec that would hand
+    Claude Code the string ``"${ALS_APG_BASE_URL}"`` as its base URL.
+    """
+    for var in _endpoint_env_vars():
+        monkeypatch.delenv(var, raising=False)
+    providers = resolve_env_vars(_api_providers())
+    assert providers["als-apg"]["base_url"] == "${ALS_APG_BASE_URL}", (
+        "the catalog no longer spells the als-apg endpoint as a variable "
+        "reference — this guard is aimed at the wrong shape"
+    )
+
+    with pytest.raises(ValueError, match="ALS_APG_BASE_URL"):
+        ClaudeCodeModelResolver.resolve(
+            {"provider": "als-apg"}, _without_unresolved_base_urls(providers)
+        )
 
 
 def test_ds4_stanza_resolves_to_deepseek_tiers():

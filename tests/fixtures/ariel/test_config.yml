@@ -12,7 +12,10 @@ api:
   providers:
     als-apg:
       api_key: ${ALS_APG_API_KEY}
-      base_url: https://llm.gianlucamartino.com/v1
+      # No default endpoint: the gateway is the running site's own host, named
+      # the same way a deployment names it. Export the full /v1 URL alongside
+      # the key before running this suite.
+      base_url: ${ALS_APG_BASE_URL}
     ollama:
       api_key: ollama
       base_url: http://localhost:11434

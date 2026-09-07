@@ -738,6 +738,32 @@ class TestCheckLitellmHealth:
         assert "placeholder" in msg
 
     @pytest.mark.unit
+    def test_missing_base_url_on_a_provider_that_has_no_default(self):
+        """A gateway provider with no endpoint is refused, not routed to OpenAI.
+
+        ``als-apg`` is openai-compatible, so litellm routes it as
+        ``openai/<model>`` and, with no ``api_base``, sends the call — carrying
+        the gateway's key — to api.openai.com. That comes back as an
+        authentication failure nowhere near its cause, so the endpoint is
+        checked the same way the key is.
+        """
+        assert check_litellm_health(
+            provider="als-apg",
+            api_key="sk-real",
+            base_url=None,
+            model_id="claude-haiku-4-5-20251001",
+        ) == (False, "Base URL required for als-apg")
+
+    @pytest.mark.unit
+    def test_unknown_provider_without_base_url_still_reaches_the_call(self):
+        """The guard reads the provider class, and an unknown name has none."""
+        with patch("litellm.completion") as mock_completion:
+            mock_completion.return_value = MagicMock()
+            assert check_litellm_health(
+                provider="not-a-provider", api_key="sk-real", base_url=None, model_id="m"
+            ) == (True, "API accessible and authenticated")
+
+    @pytest.mark.unit
     def test_missing_model_id(self):
         assert check_litellm_health(
             provider="openai", api_key="sk-real", base_url=None, model_id=None

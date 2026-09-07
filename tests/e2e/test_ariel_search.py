@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 TEST_DATA_PATH = Path(__file__).parent.parent / "fixtures" / "ariel" / "test_logbook_entries.jsonl"
 
 # Path to config file for LLM access (RAG tests need this)
-# Uses minimal test config with ALS-APG API access (AWS Bedrock proxy)
+# Uses minimal test config with ALS-APG API access (gateway)
 CONFIG_FILE_PATH = Path(__file__).parent.parent / "fixtures" / "ariel" / "test_config.yml"
 
 # Dev database URL - uses port 5432 (ariel-postgres container)

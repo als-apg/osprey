@@ -377,6 +377,10 @@ def test_the_repo_root_regen_derives_is_the_one_the_build_recorded(built_repo: P
 #: which value travelled rather than only that something did.
 PROBE_PROVIDER = "als-apg"
 PROBE_SECRET_ENV = "ALS_APG_API_KEY"
+#: That provider fronts a site's own gateway and ships no endpoint, so a
+#: deployment using it names one — here in the repo's ``.env``, the zone these
+#: tests are about.
+PROBE_BASE_URL_ENV = "ALS_APG_BASE_URL"
 
 
 def _synthetic_deployment(root: Path, *, flat: bool = False) -> Path:
@@ -391,7 +395,10 @@ def _synthetic_deployment(root: Path, *, flat: bool = False) -> Path:
         yaml.dump({"project_name": root.name, "claude_code": {"provider": PROBE_PROVIDER}}),
         encoding="utf-8",
     )
-    (root / ".env").write_text(f"{PROBE_SECRET_ENV}=from-the-repos-dotenv\n", encoding="utf-8")
+    (root / ".env").write_text(
+        f"{PROBE_SECRET_ENV}=from-the-repos-dotenv\n{PROBE_BASE_URL_ENV}=https://gw.test/v1\n",
+        encoding="utf-8",
+    )
     return render
 
 
@@ -400,6 +407,7 @@ def _no_ambient_matrix_overrides(monkeypatch):
     """Keep the benchmark matrix's env overrides out of these resolutions."""
     monkeypatch.delenv("OSPREY_E2E_FORCE_MODEL", raising=False)
     monkeypatch.delenv("OSPREY_E2E_PROXY_BASE_URL", raising=False)
+    monkeypatch.delenv(PROBE_BASE_URL_ENV, raising=False)
 
 
 def test_the_sdk_provider_env_resolves_from_the_repos_secrets_zone(tmp_path, monkeypatch):

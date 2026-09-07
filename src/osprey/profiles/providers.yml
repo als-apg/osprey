@@ -82,7 +82,11 @@ providers:
       opus: claudeopus41
   als-apg:
     api_key: ${ALS_APG_API_KEY}
-    base_url: ${ALS_APG_BASE_URL:-https://llm.gianlucamartino.com/v1}
+    # Set this to your gateway. There is no default — this proxy is a
+    # deployment's own host — so export ALS_APG_BASE_URL, or replace the
+    # reference below with the endpoint's /v1 URL. A launch that names
+    # neither is refused rather than reaching somebody else's gateway.
+    base_url: ${ALS_APG_BASE_URL}
     models:
       haiku: claude-haiku-4-5-20251001
       sonnet: claude-sonnet-4-6

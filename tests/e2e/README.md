@@ -252,7 +252,7 @@ als-apg/haiku in 2026-04 — if the model or provider changes, re-tune
 E2E tests require API access. Set the appropriate environment variable:
 
 ```bash
-# For ALS-APG (CI default — AWS Bedrock proxy reachable from anywhere)
+# For ALS-APG (CI default — the ALS-APG gateway, reachable from anywhere)
 export ALS_APG_API_KEY="your-key"
 
 # For CBORG (local dev only — IP allowlist blocks GitHub Actions runners)

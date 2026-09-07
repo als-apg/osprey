@@ -972,7 +972,11 @@ def _write_secret_channel(
     """
     from osprey.utils.dotenv import append_profile_env
 
-    from .templates.scaffolding import provider_api_key_entries, service_token_var_entries
+    from .templates.scaffolding import (
+        provider_api_key_entries,
+        provider_base_url_entries,
+        service_token_var_entries,
+    )
 
     manager.render_template(
         _ENV_EXAMPLE_TEMPLATE,
@@ -986,6 +990,17 @@ def _write_secret_channel(
             "active_provider_vars": [
                 entry["var"]
                 for entry in provider_api_key_entries()
+                if entry["provider"] in providers
+            ],
+            # Endpoints no provider ships a default for: a deployment that
+            # picks one of these has to name its own gateway or the launch is
+            # refused, so the variable belongs in the file it is told to fill in.
+            "provider_base_urls": provider_base_url_entries(),
+            # Which of those this profile actually needs — the rest are
+            # commented, the same way the unused API keys are.
+            "active_provider_base_url_vars": [
+                entry["var"]
+                for entry in provider_base_url_entries()
                 if entry["provider"] in providers
             ],
             "service_token_vars": service_token_var_entries(),

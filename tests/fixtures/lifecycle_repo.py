@@ -2081,6 +2081,12 @@ ANTHROPIC_API_KEY=your-anthropic-api-key-here
 # STANFORD_API_KEY=your-stanford-api-key-here
 # ALS_APG_API_KEY=your-als-apg-api-key-here
 
+# Gateway endpoints. These providers front a gateway that is your own host, so
+# OSPREY ships no default: switch to one of them and it will not start until
+# its endpoint is set here.
+# als-apg
+# ALS_APG_BASE_URL=
+
 # Declared by this profile with a default (`env.defaults`). Override only if
 # your facility needs a different value.
 OSPREY_AUTH_PW_ALICE=alice
