@@ -765,7 +765,11 @@ AUTH_BUILD_CONTEXT = Path("build") / "services" / "auth_sidecar"
 
 #: Files copied out of the bundled template package to form that context. The
 #: ``.dockerignore`` is not optional: the Dockerfile COPYs it as the guaranteed
-#: sibling that keeps its optional ``*.wh[l]`` glob matching.
+#: sibling that keeps its optional ``*.wh[l]`` and ``*.cr[t]``/``*.pe[m]`` globs
+#: matching. Two more files can land in the context beside these, neither of
+#: them bundled: the ``--dev`` wheel, and the site CA
+#: :func:`osprey.deployment.container_lifecycle.site_image_build_args` stages
+#: there from ``images.site_ca``.
 _AUTH_CONTEXT_FILES = ("Dockerfile", ".dockerignore")
 
 #: Package-relative location of those bundled files. Resolved through
@@ -942,6 +946,14 @@ def build_auth_sidecar_image(
         # relaxing it with no wheel to overlay would silently build released
         # code under a flag that means "run my local code".
         cmd.extend(["--build-arg", "OSPREY_DEV=1"])
+    # The same site build args the project and persona images get, from the
+    # same producer: this image reaches the identity provider over TLS, so a
+    # site CA it does not carry is a login stack that starts green and fails
+    # every discovery fetch. Staged into THIS context, after it is
+    # materialized above.
+    from osprey.deployment.container_lifecycle import site_image_build_args
+
+    cmd.extend(site_image_build_args(config, context_dir))
     with_plain_build_progress(cmd)
     cmd.append(str(context_dir))
 
@@ -955,8 +967,17 @@ def build_auth_sidecar_image(
 
     # Watched for the duration of the build and no longer; the step line below
     # is what reports the finished image.
-    with (report := single_image_build_reporter(tag)):
-        run_captured(cmd, env=env, spool_name="build-auth-sidecar", repo_root=root, on_line=report)
+    try:
+        with (report := single_image_build_reporter(tag)):
+            run_captured(
+                cmd, env=env, spool_name="build-auth-sidecar", repo_root=root, on_line=report
+            )
+    finally:
+        # The staged CA is a copy of the operator's bundle; the build has read
+        # it, and the next one stages it again from `images.site_ca`.
+        from osprey.deployment.container_lifecycle import clear_staged_site_ca
+
+        clear_staged_site_ca(cmd, context_dir)
     _report_step(f"auth sidecar image {tag}")
 
 

@@ -703,10 +703,11 @@ services:
          the lowercase pair here would therefore hand every stdlib caller a
          cancelled proxy on any host that sets none — which is exactly what
          `${VAR:-}` renders when the host has no proxy. No CA-bundle variable
-         joins them: nothing mounts a CA into this image, `SSL_CERT_FILE`
-         naming a path that does not exist crashes httpx at client
-         construction, and nothing in the sidecar reads `REQUESTS_CA_BUNDLE`.
-         Custom-CA support is a mount plus a variable, and its own change. #}
+         joins them, and none is needed: a site CA is BAKED INTO the sidecar
+         image from `images.site_ca`, and the image sets `SSL_CERT_FILE` and
+         `REQUESTS_CA_BUNDLE` itself to the merged bundle it installs into. A
+         path named here instead could name a file the container does not
+         have, which crashes httpx at client construction. #}
       - HTTP_PROXY=${HTTP_PROXY:-}
       - HTTPS_PROXY=${HTTPS_PROXY:-}
       - NO_PROXY=${NO_PROXY:-}

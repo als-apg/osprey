@@ -34,6 +34,35 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Optional site CA, for building (and running) behind a TLS-intercepting proxy
+# that re-signs traffic with a site CA — the same layer, in the same place, as
+# the project image's. OSPREY_SITE_CA names a CA file (PEM) staged in the build
+# context; `osprey up` stages the operator's `images.site_ca` there and passes
+# the name, because a COPY cannot reach outside the context. The
+# `.dockerignore` sibling keeps the glob COPY matching when nothing is staged,
+# and with the ARG unset the RUN is a no-op. This layer sits BEFORE the apt
+# install below deliberately: that fetch verifies TLS against the system store
+# this extends.
+#
+# The ENVs point each tool family at the merged Debian bundle the install lands
+# in — pip trusts only its bundled certifi without PIP_CERT, and SSL_CERT_FILE
+# / REQUESTS_CA_BUNDLE cover Python's ssl module and requests, which is what
+# Authlib's httpx transport reaches the identity provider through at RUN time.
+# They are set unconditionally and always name the merged bundle: with no CA
+# staged they restate each tool's own default, whereas a variable naming a path
+# that may not exist crashes httpx at client construction. No
+# NODE_EXTRA_CA_CERTS — this image has no Node.
+ARG OSPREY_SITE_CA=""
+COPY .dockerignore *.cr[t] *.pe[m] /tmp/ca-ctx/
+RUN if [ -n "$OSPREY_SITE_CA" ]; then \
+        cp "/tmp/ca-ctx/${OSPREY_SITE_CA}" /usr/local/share/ca-certificates/osprey-site-ca.crt \
+        && update-ca-certificates; \
+    fi \
+ && rm -rf /tmp/ca-ctx
+ENV PIP_CERT=/etc/ssl/certs/ca-certificates.crt \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+
 # Debian apt mirrors over HTTPS (plain-HTTP bulk fetches are throttled or
 # broken by middleboxes on some networks; deb.debian.org supports HTTPS), and
 # bounded apt retries with backoff so a transient network blip mid-build does
@@ -63,14 +92,30 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 # while the toolchain is still available; the `.dockerignore` COPY sibling keeps
 # the glob matching when no manifest is staged, so this cache only busts when
 # the manifest content changes.
+#
+# The three pip ARGs are the rest of the site build settings `osprey up` hands
+# this image (`container_lifecycle.site_image_build_args`, the same producer
+# that passes OSPREY_SITE_CA above). Declaring them is what makes them
+# arrive: Docker drops a --build-arg no recipe declares, with a warning nobody
+# reads, so an internal mirror configured once in `config.yml` would reach the
+# project image and quietly leave this one resolving from PyPI. PIP_INDEX_URL
+# and PIP_EXTRA_INDEX_URL are pip's own environment names, so the declaration
+# alone delivers them and an unset one arrives empty, which pip drops before it
+# parses its configuration. PIP_NO_PROXY is not a pip name — it is the proxy
+# bypass list, mapped onto NO_PROXY/no_proxy below, and only when it is set:
+# exporting it empty would undo the bridge on the line above it.
 ARG OSPREY_VERSION=""
 ARG OSPREY_DEV=""
+ARG PIP_NO_PROXY=""
+ARG PIP_INDEX_URL=""
+ARG PIP_EXTRA_INDEX_URL=""
 COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
 # setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling and
 # fails sdist compiles of the EPICS toolchain (pvxslibs/epicscorelibs/softioc)
 # where no binary wheel exists (notably linux/arm64); PIP_CONSTRAINT reaches
 # pip's isolated build environments. Drop once a fixed release is out.
 RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    [ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"; \
     [ -n "$OSPREY_VERSION" ] || { echo "ERROR: OSPREY_VERSION build-arg is required" >&2; exit 1; } \
     && printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt \
     && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
