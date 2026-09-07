@@ -378,13 +378,13 @@ def test_config_rendered_reads_the_build_output(
     difference between these two files is the answer."""
     built = repo / "build"
     built.mkdir()
-    (built / "config.yml").write_text("project:\n  name: als_assistant\n", encoding="utf-8")
+    (built / "config.yml").write_text("project:\n  name: built_assistant\n", encoding="utf-8")
     monkeypatch.chdir(repo)
 
     result = runner.invoke(config, ["--rendered"])
 
     assert result.exit_code == 0, result.output
-    assert "als_assistant" in result.output
+    assert "built_assistant" in result.output
     assert "Demo Facility" not in result.output
 
 
