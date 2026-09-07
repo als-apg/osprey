@@ -1401,7 +1401,7 @@ class ConnectorHostManager:
 
         fallback: dict[str, Any] | None = None
         try:
-            candidate = await self._launch(target, derivation, probe_channel)
+            candidate = await self._launch(target, derivation, probe_channel, first_child=not probe)
         except SwitchError as exc:
             read_derivation = self._read_role_fallback(derivation, exc)
             if read_derivation is None:
@@ -1421,7 +1421,11 @@ class ConnectorHostManager:
             derivation = read_derivation
             try:
                 candidate = await self._launch(
-                    target, derivation, probe_channel, without_write_gateway=True
+                    target,
+                    derivation,
+                    probe_channel,
+                    without_write_gateway=True,
+                    first_child=not probe,
                 )
             except SwitchError as retry_error:
                 if retry_error.stage != STAGE_PROBE:
@@ -1513,9 +1517,10 @@ class ConnectorHostManager:
 
         The fields describe the child that is already running rather than one
         that was just launched: its connector type, the role it reported having
-        connected on, and the channel it proved itself with — empty for the
-        deployment's first child, which was started without a probe, because
-        claiming a probe that never ran would be worse than saying so.
+        connected on, and the channel it proved itself with — empty for the two
+        children that start without one: the deployment's first, and a return to
+        a baseline whose block sets no ``probe_channel``. Claiming a probe that
+        never ran would be worse than saying so.
 
         Returns:
             The normal switch result for the running child, or ``None`` when
@@ -1665,10 +1670,27 @@ class ConnectorHostManager:
         Eligibility already reports a missing ``probe_channel``; re-checking it
         here costs one dictionary lookup and keeps the manager's own contract
         closed — a target with nothing to probe must never reach a spawn.
+
+        The deployment baseline is the exception, and it is the one eligibility
+        makes too: coming home is what a session does when nothing else can be
+        proven, so a baseline block that names no probe channel is returned to
+        unprobed rather than turned into a target a session can leave and never
+        come back to. Every other stage of the switch still applies.
         """
         block = _connector_block(self._config.raw, derivation.connector_type)
         channel = block.get(PROBE_CHANNEL_KEY)
         if not isinstance(channel, str) or not channel.strip():
+            if target == self._baseline:
+                logger.warning(
+                    "Returning to the deployment baseline %r without a readiness probe: "
+                    "'control_system.connector.%s.%s' is not set, so nothing reads a "
+                    "channel through the new connection before it goes active. Set that "
+                    "key to a channel this target serves.",
+                    target,
+                    derivation.connector_type,
+                    PROBE_CHANNEL_KEY,
+                )
+                return ""
             raise SwitchError(
                 target,
                 STAGE_PROBE_CHANNEL,
@@ -1687,6 +1709,7 @@ class ConnectorHostManager:
         probe_channel: str,
         *,
         without_write_gateway: bool = False,
+        first_child: bool = False,
     ) -> _Child:
         """Spawn, verify and probe a child — or leave nothing behind.
 
@@ -1695,6 +1718,9 @@ class ConnectorHostManager:
         ``connect()``'s documented absent-row fallback — ``read_only`` with a
         warning — and never even learns where the write gateway is. The caller
         passes a derivation whose selected role is ``read_only`` to match.
+
+        ``first_child`` is true only for the deployment's very first child,
+        which has no session to protect.
         """
         process = await self._spawn(target)
         channel = _LaunchChannel(target, process)
@@ -1741,11 +1767,26 @@ class ConnectorHostManager:
                     # refusal is the only thing the operator sees.
                     raise _name_probed_gateway(exc, derivation) from None
             else:
-                logger.info(
-                    "Connector host for target %r started without a readiness probe: "
-                    "this is the deployment's first child, so there is no session to protect",
-                    target,
-                )
+                # Two silences, and the operator has to be able to tell them
+                # apart: the deployment's very first child, which had no session
+                # to protect, and any later child, which is swapping a working
+                # session out. Which one this is the caller knows, not the
+                # liveness of the child being replaced.
+                if not first_child:
+                    logger.info(
+                        "Connector host for target %r started without a readiness probe: "
+                        "the deployment baseline's block names no probe channel, so the "
+                        "child now taking the session over read nothing through its new "
+                        "connection first",
+                        target,
+                    )
+                else:
+                    logger.info(
+                        "Connector host for target %r started without a readiness probe: "
+                        "this is the deployment's first child, so there is no session to "
+                        "protect",
+                        target,
+                    )
             channel.assert_stream_is_clean()
         except BaseException:
             # Nothing survives a failed launch: the previous child is still the
