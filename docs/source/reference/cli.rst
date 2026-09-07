@@ -811,6 +811,18 @@ Options: ``--project PATH``, ``-v, --verbose``
 ``osprey channel-finder build-database``
    Build a channel database from a CSV file.
 
+   The CSV's ``address`` column *is* each family's address pattern: write the
+   address the way your machine spells it, with ``{instance:02d}`` where the
+   device number goes and ``{sub_channel}`` where the row's sub-channel goes,
+   and it is used as written --- separators, prefixes and level order are
+   yours. All rows of one family must give the same address, and it may name
+   only ``{instance}``, ``{sub_channel}``, ``{base}`` and ``{axis}``; a family
+   that breaks either rule stops the build by name. A family whose rows carry a
+   literal address instead gets ``<family>{instance:02d}{suffix}`` synthesised
+   from its name, as before. The ``instances`` column is a count
+   (``10`` means 1--10) or an explicit range (``4-11``) for a machine whose
+   device numbering does not start at one.
+
 ``osprey channel-finder validate [--database PATH] [--pipeline hierarchical|in_context|middle_layer] [-v]``
    Validate a channel database JSON file. The paradigm is auto-detected from the
    project's config; ``--pipeline`` overrides that.

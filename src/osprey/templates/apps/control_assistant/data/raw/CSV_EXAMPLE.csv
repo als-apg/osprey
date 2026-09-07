@@ -7,9 +7,14 @@ VacuumPressure,Main beamline vacuum pressure in Torr,,,
 RFFrequency,Radio frequency cavity frequency in MHz,,,
 # === DEVICE FAMILY TEMPLATES (Simple) ===
 # Use for device families with multiple instances
+# The address column IS the family's address pattern: write the address the way
+# your machine spells it, with placeholders where it varies. It is used as
+# written, so any separator, prefix or level order is yours to choose.
 # Pattern: {instance:02d} will be replaced with 01, 02, 03, etc.
 # Pattern: {sub_channel} will be replaced with the sub_channel value from this row
-# All rows with same family_name will be grouped into one template
+# All rows of one family must give the same address; the sub_channel column is
+# what varies between them.
+# instances is a count (10 means 1-10) or an explicit range (4-11).
 BPM{instance:02d}{sub_channel},Horizontal position reading from BPM {instance} in millimeters,BPM,10,XPosition
 BPM{instance:02d}{sub_channel},Vertical position reading from BPM {instance} in millimeters,BPM,10,YPosition
 # === DEVICE FAMILY TEMPLATES (With Control + Readback) ===

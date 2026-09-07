@@ -8,6 +8,13 @@ address,description,family_name,instances,sub_channel
 
 - Rows with family_name: grouped into templates
 - Rows without family_name: standalone channels
+
+The ``address`` column of a family row **is** that family's address pattern
+whenever it holds a placeholder: ``{instance}`` (or ``{instance:02d}``) for the
+device number and ``{sub_channel}`` for the row's sub-channel. A family whose
+rows carry a literal address instead gets a pattern synthesised from its name,
+``<family>{instance:02d}{suffix}``. ``instances`` is a count (``8`` means 1-8)
+or an explicit range (``4-11``).
 """
 
 import csv
@@ -15,6 +22,8 @@ import json
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+
+from osprey.services.channel_finder.core.exceptions import AddressPatternError
 
 
 def load_csv(csv_path: Path, delimiter: str = ",") -> list[dict]:
@@ -93,12 +102,118 @@ def find_common_description(descriptions: list[str]) -> str:
     return common
 
 
+#: Placeholders the template expander fills in when it formats an address
+#: pattern (see ``databases/template.py``). A pattern naming anything else
+#: would fail at expansion time, one address at a time, so it is refused here.
+ADDRESS_PATTERN_FIELDS = ("base", "instance", "suffix", "axis")
+
+
+def parse_instance_range(raw: object) -> list[int]:
+    """Return the ``[start, end]`` instance range a family's ``instances`` cell names.
+
+    ``8`` is the common case and means 1 through 8. ``4-11`` is the other one:
+    a machine whose device numbering does not start at 1, which a bare count
+    cannot express.
+
+    Args:
+        raw: The cell's value.
+
+    Returns:
+        ``[start, end]``, inclusive.
+
+    Raises:
+        ValueError: When the cell is not a count or a range, or the range runs
+            backwards.
+    """
+    text = str(raw if raw is not None else 1).strip()
+    start_text, dash, end_text = text.partition("-")
+    if dash:
+        start, end = int(start_text), int(end_text)
+    else:
+        start, end = 1, int(text)
+    if start > end:
+        raise ValueError(f"instance range {text!r} ends before it starts")
+    return [start, end]
+
+
+def family_address_pattern(family_name: str, channels: list[dict]) -> str | None:
+    """The address pattern the family's own rows carry, or ``None``.
+
+    An address column holding a placeholder already says how the family's
+    addresses are built --- which levels there are, where the instance sits,
+    what separates them --- and synthesising a second pattern from the family
+    name silently throws that away. ``{sub_channel}`` is the CSV's name for the
+    expander's ``{suffix}``, so it is translated rather than refused.
+
+    Args:
+        family_name: The family the rows belong to, for the error message.
+        channels: The family's rows.
+
+    Returns:
+        The pattern, or ``None`` when no row carries a placeholder --- in which
+        case the caller synthesises one from the family name as before.
+
+    Raises:
+        AddressPatternError: When the family's rows do not agree on one address.
+    """
+    addresses = {
+        (channel.get("address") or "").replace("{sub_channel}", "{suffix}") for channel in channels
+    }
+    if not any("{" in address for address in addresses):
+        return None
+    if len(addresses) > 1:
+        raise AddressPatternError(
+            f"the rows of family {family_name!r} give different addresses "
+            f"({', '.join(sorted(addresses))}); one family expands from one pattern, "
+            "so put the varying part in {sub_channel}"
+        )
+    return addresses.pop()
+
+
+def check_address_pattern(family_name: str, pattern: str, channels: list[dict]) -> None:
+    """Refuse an address pattern the expander could not fill in.
+
+    Formats *pattern* for the first instance with each row's own sub-channel,
+    which is the same call the expander makes; a placeholder the expander does
+    not know about fails here, once, instead of at expansion time.
+
+    Args:
+        family_name: The family the pattern belongs to.
+        pattern: The pattern to check.
+        channels: The family's rows.
+
+    Raises:
+        AddressPatternError: When the pattern names a placeholder the expander
+            has no value for, or is not a valid format string.
+    """
+    for channel in channels:
+        try:
+            pattern.format(
+                base=family_name,
+                instance=1,
+                suffix=channel.get("sub_channel") or "",
+                axis="",
+            )
+        except (KeyError, IndexError, ValueError) as exc:
+            raise AddressPatternError(
+                f"family {family_name!r} has address pattern {pattern!r}, which "
+                f"cannot be filled in ({exc}); a pattern may use only "
+                + ", ".join(f"{{{field}}}" for field in ADDRESS_PATTERN_FIELDS)
+            ) from exc
+
+
 def create_template(family_name: str, channels: list[dict]) -> dict:
-    """Create a template from a family group."""
+    """Create a template from a family group.
+
+    Raises:
+        AddressPatternError: When the family's rows disagree about their
+            address, or name a placeholder the expander cannot fill in.
+        ValueError: When the ``instances`` cell is neither a count nor a range.
+    """
     first = channels[0]
 
-    # Get instance count
-    instances = int(first.get("instances", 1))
+    # Instance range: a bare count, or an explicit start-end.
+    instances = parse_instance_range(first.get("instances", 1))
 
     # Get sub-channels from all rows in this family
     sub_channels = []
@@ -132,14 +247,18 @@ def create_template(family_name: str, channels: list[dict]) -> dict:
                 cleaned_channel_descriptions[sub_ch] = desc
         channel_descriptions = cleaned_channel_descriptions
 
-    # Simple address pattern
-    pattern = f"{family_name}" + "{instance:02d}{suffix}"
+    # The CSV's own address column is the pattern when it holds a placeholder;
+    # only a family that gives none gets one synthesised from its name.
+    pattern = family_address_pattern(family_name, channels)
+    if pattern is None:
+        pattern = f"{family_name}" + "{instance:02d}{suffix}"
+    check_address_pattern(family_name, pattern, channels)
 
     # Build template
     template = {
         "template": True,
         "base_name": family_name,
-        "instances": [1, instances],
+        "instances": instances,
         "sub_channels": sub_channels,
         "description": base_description,
         "address_pattern": pattern,
@@ -167,6 +286,12 @@ def build_database(
 
     Returns:
         The built database dict.
+
+    Raises:
+        AddressPatternError: When a family's address pattern cannot be
+            expanded. Every other per-family failure demotes that family to
+            standalone rows; this one would write addresses that are the
+            literal pattern, so the build stops instead.
     """
     print("=" * 80)
     print("Channel Database Builder")
@@ -188,11 +313,17 @@ def build_database(
     for family_name, family_channels in families.items():
         try:
             template = create_template(family_name, family_channels)
-            templates.append(template)
-            print(f"  \u2713 {family_name}: {len(family_channels)} channels \u2192 template")
+        except AddressPatternError:
+            # Not a family to skip: every address it would contribute is the
+            # literal pattern text, so degrading it to standalone rows writes a
+            # database nothing can resolve. The input is wrong; say so and stop.
+            raise
         except Exception as e:
             print(f"  \u2717 {family_name}: ERROR - {e}")
             standalone.extend(family_channels)
+        else:
+            templates.append(template)
+            print(f"  \u2713 {family_name}: {len(family_channels)} channels \u2192 template")
 
     # Build database with metadata
     db = {
