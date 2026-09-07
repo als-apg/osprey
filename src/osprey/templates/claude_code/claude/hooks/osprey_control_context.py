@@ -224,8 +224,16 @@ def render_block(state, previous=None):
     return "\n".join(lines)
 
 
-def _emit(block):
-    print(json.dumps({"hookSpecificOutput": {"additionalContext": block}}))
+def _emit(event, block):
+    """Print the block in the envelope Claude Code accepts for *event*.
+
+    ``hookEventName`` is not decoration: the CLI validates the envelope against
+    the schema for the named event and DROPS an output that omits it, reporting
+    a non-blocking hook error into the transcript rather than into the hook's
+    own stderr. An envelope without it costs the agent the whole block while
+    the hook still exits 0 and still looks like it ran.
+    """
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": block}}))
 
 
 def main():
@@ -239,16 +247,16 @@ def main():
             return
         session_id = _session_id(payload)
         if event == _SESSION_START:
-            _emit(render_block(state))
+            _emit(event, render_block(state))
             _remember(session_id, state)
             return
         if session_id is None:
             return
         previous = _remembered(session_id)
         if previous is None:
-            _emit(render_block(state))
+            _emit(event, render_block(state))
         elif previous != state:
-            _emit(render_block(state, previous))
+            _emit(event, render_block(state, previous))
         else:
             return
         _remember(session_id, state)
