@@ -95,6 +95,12 @@ others without it gets an accelerator that serves no setpoints, pairs no
 readback with a setpoint, and drives every channel as static noise rather than
 physics.
 
+A channel's *address* text is free — any facility's namespace is served as it
+is written. Its ``subfield`` *value* is not: that field is a reserved
+vocabulary, where ``SP`` marks the writable channel and ``RB`` marks its
+readback, and a channel carrying any other token is neither written nor paired
+with one.
+
 Quickstart
 ==========
 

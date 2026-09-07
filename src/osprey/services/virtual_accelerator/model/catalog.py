@@ -38,6 +38,8 @@ from typing import TYPE_CHECKING
 
 from osprey.services.virtual_accelerator.manifest import (
     PARTITION_PYAT_COUPLED,
+    READBACK_SUBFIELD,
+    SETPOINT_SUBFIELD,
     build_manifest,
 )
 from osprey.services.virtual_accelerator.manifest.loaders import load_machine_json_channels
@@ -48,8 +50,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, keeps `lume` out of import 
     from lume.variables import ScalarVariable
 
     VariableFactory = Callable[..., ScalarVariable]
-
-_SETPOINT_SUBFIELD = "SP"
 
 
 def _channel_limits_path() -> Path:
@@ -143,11 +143,11 @@ def build_variable_catalog(
         if channel["partition"] != PARTITION_PYAT_COUPLED:
             continue
         subfield = channel["subfield"]
-        if subfield == "RB":
+        if subfield == READBACK_SUBFIELD:
             continue
         address = channel["address"]
         entry = machine_channels.get(address, {})
-        read_only = subfield != _SETPOINT_SUBFIELD
+        read_only = subfield != SETPOINT_SUBFIELD
         factory = output_factory if read_only else input_factory
         catalog[address] = factory(
             channel,

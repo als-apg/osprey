@@ -62,17 +62,16 @@ from osprey.services.virtual_accelerator.manifest import (
     PARTITION_PYAT_COUPLED,
     PARTITION_SP_ECHO,
     PARTITION_STATIC_NOISY,
+    READBACK_SUBFIELD,
     RECORD_TYPE_ANALOG,
     RECORD_TYPE_BINARY,
     RECORD_TYPE_LONG_STRING,
     RECORD_TYPE_MBB,
     RECORD_TYPE_STRING,
+    SETPOINT_SUBFIELD,
 )
 
 LOG = logging.getLogger(__name__)
-
-SETPOINT_SUBFIELD = "SP"
-READBACK_SUBFIELD = "RB"
 
 # Gateway "long string" channels are 512-byte char waveforms. The width is
 # declared explicitly (never derived from the boot value's length) so a wire
@@ -504,8 +503,6 @@ __all__ = [
     "LONG_STRING_LENGTH",
     "MBB_ENUM_STATES",
     "MBB_STATE_COUNT",
-    "READBACK_SUBFIELD",
-    "SETPOINT_SUBFIELD",
     "STRING_LENGTH",
     "ManifestContractError",
     "PVRecord",
