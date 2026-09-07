@@ -1630,6 +1630,17 @@ keys:
       the shipped default family lives as the DEFAULT_WEB_THEME constant
       the evidence cites, so it survives a future rename of the family.
     default: main
+  web.tour:
+    rendered: false
+    evidence: 'get\("web", \{\}\)\.get\("tour", DEFAULT_TOUR_POLICY\)'
+    note: >-
+      Onboarding-tour invite policy: once / always / never. Same layering as
+      `web.theme`, one rung deeper — the per-user `OSPREY_WEB_TOUR` a multi-user
+      roster entry's `tour:` field renders OUTRANKS this key, and an unknown
+      word warns and falls back rather than blocking startup. Commented in all
+      four presets because `once` is what a first deployment wants and a
+      rendered value would only repeat the default.
+    default: once
   web.panels: {evidence: 'web\.panels', default: {}}
   # One pair per BUILTIN_PANELS entry. The framework template renders the block
   # for every builtin the profile's `web_panels:` selects, so the enumeration
