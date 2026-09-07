@@ -172,6 +172,20 @@ keys:
       lives. The evidence anchors on `resolve_port_base`, the one resolver;
       everything else takes the base from a caller that read it there.
     default: 10000
+  offline:
+    rendered: false
+    evidence: '\.get\("offline", False\)'
+    note: >-
+      Hidden key, commented in the framework template and unset in the four
+      presets. Both halves of air-gapped operation, deliberately under one
+      key: `osprey up` passes it to the project, persona and sidecar image
+      builds as `OSPREY_OFFLINE=1`, which makes each image run `osprey vendor
+      fetch`, and the running interfaces read it again through
+      `vendor.is_offline` to decide whether to serve those bundles instead of
+      a CDN. Two keys here would let an image be built for one mode and served
+      in the other. OSPREY_OFFLINE overrides it in the environment, on both
+      halves.
+    default: false
   images.registry:
     rendered: false
     evidence: 'images\.get\("registry"\)'
@@ -194,6 +208,49 @@ keys:
       builds on the host — so a deployment that sets neither key renders
       byte-for-byte what it rendered before the axes existed.
     default: local
+  images.site_ca:
+    rendered: false
+    evidence: '"OSPREY_SITE_CA": "site_ca"'
+    note: >-
+      Hidden key, commented in the framework template and unset in the four
+      presets. Path on the DEPLOY HOST to the PEM bundle of a proxy that
+      re-signs TLS. `osprey up` stages a copy into the build context of each
+      image it builds from a shipped recipe — the project image, each persona
+      image and the login sidecar (`container_lifecycle.site_image_build_args`)
+      — and passes its staged name as the `OSPREY_SITE_CA` build arg, because a
+      Dockerfile COPY cannot reach outside its context. Same two layers as the
+      axes above, with OSPREY_SITE_CA as the environment override. A path that
+      names no readable file fails the deploy rather than building an image
+      that silently does not trust the site proxy.
+    default: ''
+  images.pip_no_proxy:
+    rendered: false
+    evidence: '"PIP_NO_PROXY": "pip_no_proxy"'
+    note: >-
+      Hidden key, commented in the framework template and unset in the four
+      presets. The hosts pip reaches without going through the proxy, passed
+      to the project, persona and sidecar image builds as the `PIP_NO_PROXY`
+      build arg those recipes declare. PIP_NO_PROXY overrides it in the
+      environment.
+    default: ''
+  images.pip_index_url:
+    rendered: false
+    evidence: '"PIP_INDEX_URL": "pip_index_url"'
+    note: >-
+      Hidden key, commented in the framework template and unset in the four
+      presets. The package index the images resolve from, for a site that
+      mirrors PyPI internally. The build arg carries pip's own environment
+      name, so a declared value reaches pip directly and an unset one arrives
+      empty, which pip drops before it parses any configuration.
+      PIP_INDEX_URL overrides it in the environment.
+    default: ''
+  images.pip_extra_index_url:
+    rendered: false
+    evidence: '"PIP_EXTRA_INDEX_URL": "pip_extra_index_url"'
+    note: >-
+      The second index, consulted after `images.pip_index_url`; same layering
+      and the same empty-versus-unset handling.
+    default: ''
   services:
     evidence: 'get_config_value\("services\.postgresql", \{\}\)'
   # The bluesky bridge's plan-lane blocks are INJECTOR-written, not template-

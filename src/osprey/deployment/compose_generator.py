@@ -1043,6 +1043,84 @@ def _axis_config_value(config_key, configured):
     return str(configured)
 
 
+def _image_axis_block(config):
+    """The ``images`` block, validated as a block of axis keys.
+
+    Shared by every reader of the block so a mistyped ``images:`` is refused
+    once, in the same words, wherever the axes are read from.
+
+    :param config: Configuration dictionary.
+    :type config: dict
+    :return: The declared axis keys, empty when the block is absent.
+    :rtype: dict
+    :raises ValueError: If ``images`` is present but is not a block of keys.
+    """
+    images = config.get("images")
+    if images is None:
+        images = {}
+    if not isinstance(images, dict):
+        raise ValueError(
+            f"images must be a block of axis keys, got {type(images).__name__} "
+            f"({images!r}). Spell the axes as 'images.registry' and 'images.tag'."
+        )
+    return images
+
+
+#: The site's build-time network settings, as ``Dockerfile ARG -> images.<key>``.
+#:
+#: These are the knobs a site network needs and the public internet does not: a
+#: TLS-intercepting proxy's CA, the proxy bypass list pip is given, and an
+#: internal package index. They are axes in the same sense ``images.registry``
+#: and ``images.tag`` are — one value per deployment, carried by every image
+#: OSPREY builds — which is why they share the block and its precedence rules
+#: rather than growing a section of their own.
+#:
+#: The ARG name doubles as the environment override, exactly as the two axes
+#: above use ``OSPREY_IMAGE_REGISTRY``/``OSPREY_IMAGE_TAG``: three of the four
+#: are names pip and the CA layer already read, so a build host that exports
+#: them for its own tooling does not then have to spell them again for OSPREY.
+SITE_IMAGE_AXES = {
+    "OSPREY_SITE_CA": "site_ca",
+    "PIP_NO_PROXY": "pip_no_proxy",
+    "PIP_INDEX_URL": "pip_index_url",
+    "PIP_EXTRA_INDEX_URL": "pip_extra_index_url",
+}
+
+
+def resolve_site_image_axes(config):
+    """The site build-arg values this deployment declares, keyed by ARG name.
+
+    Same two layers and same precedence as :func:`resolve_image_axes` — the
+    environment ahead of the config, blank counting as unset on both — over the
+    :data:`SITE_IMAGE_AXES` members of the same ``images`` block.
+
+    An axis the deployment does not set is ABSENT from the result rather than
+    present-and-empty: every consumer turns these into ``--build-arg`` flags,
+    and passing one with an empty value is not the same as not passing it. The
+    Dockerfiles declare each ARG with a default that means "no site setting",
+    so an unset axis leaves the argv a deployment produces today unchanged.
+
+    ``site_ca`` is a HOST path here — the file the operator points at. Staging
+    it into a build context and rewriting the value to the name COPY can reach
+    is the build path's job
+    (:func:`osprey.deployment.container_lifecycle.site_image_build_args`).
+
+    :param config: Configuration dictionary.
+    :type config: dict
+    :return: ARG name -> value, only for the axes that resolved to something.
+    :rtype: dict[str, str]
+    :raises ValueError: If ``images`` is not a block, or an axis declares a
+        value no build arg can carry.
+    """
+    images = _image_axis_block(config)
+    resolved = {}
+    for arg_name, key in SITE_IMAGE_AXES.items():
+        value = _image_axis(arg_name, f"images.{key}", images.get(key), "")
+        if value:
+            resolved[arg_name] = value
+    return resolved
+
+
 def resolve_image_axes(config):
     """The registry prefix and tag every OSPREY-built image default carries.
 
@@ -1065,14 +1143,7 @@ def resolve_image_axes(config):
         if ``images.registry`` / ``images.tag`` declares something no image
         reference can carry — a list, a mapping, a boolean.
     """
-    images = config.get("images")
-    if images is None:
-        images = {}
-    if not isinstance(images, dict):
-        raise ValueError(
-            f"images must be a block of axis keys, got {type(images).__name__} "
-            f"({images!r}). Spell the axes as 'images.registry' and 'images.tag'."
-        )
+    images = _image_axis_block(config)
     registry = _image_axis("OSPREY_IMAGE_REGISTRY", "images.registry", images.get("registry"), "")
     tag = _image_axis("OSPREY_IMAGE_TAG", "images.tag", images.get("tag"), DEFAULT_IMAGE_TAG)
     return (f"{registry.rstrip('/')}/" if registry else ""), tag

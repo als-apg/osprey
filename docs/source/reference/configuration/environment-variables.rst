@@ -48,11 +48,24 @@ deployment, which is why none of them is a config key.
    * - ``OSPREY_IMAGE_REGISTRY``, ``OSPREY_IMAGE_TAG``
      - The two image axes for one build, outranking ``images.registry`` /
        ``images.tag`` — see :ref:`the two image axes <deployment-image-overrides>`.
+   * - ``OSPREY_SITE_CA``, ``PIP_NO_PROXY``, ``PIP_INDEX_URL``,
+       ``PIP_EXTRA_INDEX_URL``
+     - The site's build settings — a CA bundle for a TLS-intercepting proxy, a
+       proxy bypass list, and the package indexes pip resolves from — for one
+       build, outranking ``images.site_ca`` / ``images.pip_no_proxy`` /
+       ``images.pip_index_url`` / ``images.pip_extra_index_url`` exactly as the
+       two image axes outrank ``images.registry`` / ``images.tag``. Whichever
+       layer wins is handed to the project image, each web-terminal persona
+       image and the login sidecar — see
+       :doc:`/how-to/deploy-project/project-image`.
    * - ``OSPREY_OFFLINE``
      - ``1`` switches the web interfaces from CDN-hosted libraries to the local
        bundles ``osprey vendor fetch`` downloads. The equivalent config key is
        ``offline``; use the variable for a single run, the key for a
-       deployment that is always firewalled.
+       deployment that is always firewalled. Whichever layer wins is also
+       passed to those same three builds as the ``OSPREY_OFFLINE`` build
+       argument, which runs ``osprey vendor fetch`` inside the image, so the
+       mode an image was built for and the mode it serves in cannot disagree.
    * - ``OSPREY_CA_BUNDLE``
      - Path to a CA bundle for hosts behind a TLS-intercepting proxy, so
        ``osprey vendor fetch`` verifies rather than skips. ``SSL_CERT_FILE``
@@ -68,10 +81,13 @@ deployment, which is why none of them is a config key.
        the host; a single-user ``osprey web`` sets nothing and ``--host`` is
        honoured as given.
 
-``OSPREY_SITE_CA`` and the other names in
-:doc:`/how-to/deploy-project/project-image` are Docker **build arguments**
-rather than runtime variables: they are passed with ``--build-arg`` when the
-project image is built, and mean nothing to a running process.
+``OSPREY_SITE_CA`` and the ``PIP_*`` names are host-level knobs and Docker
+**build arguments** at once: the Dockerfiles in
+:doc:`/how-to/deploy-project/project-image` declare an ARG of each name, and
+``osprey up`` supplies each one from the host variable, or from the
+``images.*`` key behind it. One spelling for one setting, whether the build is
+managed or a hand-run ``docker build``. What they configure is the build — a
+container that is already running reads nothing from them.
 
 Names the framework stamps
 ==========================
