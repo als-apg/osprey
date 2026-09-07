@@ -25,9 +25,10 @@ which can reject outright before the next ever runs:
    is not falsely rejected by the framework's default (bare ``.put(``/
    ``.get(``) patterns.
 3. **Mock-RunEngine dry-run** (:func:`_dry_run`) — actually builds and drives
-   the plan's generator, in a subprocess whose ``EPICS_CA_*`` variables are
-   neutralized to explicit inert values (no address, no auto-discovery — see
-   :data:`_EPICS_CA_INERT_ENV`), against in-process mock devices
+   the plan's generator, in a subprocess whose ``EPICS_CA_*``/``EPICS_PVA_*``
+   variables are neutralized to explicit inert values (no address, no
+   auto-discovery — see :data:`_EPICS_INERT_ENV`), against in-process mock
+   devices
    (:mod:`osprey.services.bluesky_bridge.devices.mock`) built for exactly the
    channels the plan's ``PARAMS`` declared movable or readable. This is an
    **authoring-quality gate** ("does the body actually run"), not a
@@ -68,6 +69,7 @@ from osprey.mcp_server.workspace.execution.sandbox_executor import validate_sand
 from osprey.services.python_executor.analysis.pattern_detection import (
     detect_control_system_operations,
 )
+from osprey_connectors.ipc.host import scrub_epics_env
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.plan_validation")
 
@@ -370,28 +372,33 @@ class ValidationResult:
 
 
 # ---------------------------------------------------------------------------
-# Stage 3: mock-RunEngine dry-run, in a subprocess with EPICS_CA_* neutralized
+# Stage 3: mock-RunEngine dry-run, in a subprocess with EPICS addressing inert
 # ---------------------------------------------------------------------------
 # Set (not merely deleted) in the dry-run subprocess's environment, on top of
-# the shared `scrub_sensitive_env` deny-list. Deleting these keys outright
-# would be actively WORSE than leaving them alone: a CA client that sees
-# neither `EPICS_CA_ADDR_LIST` nor an explicit `EPICS_CA_AUTO_ADDR_LIST`
-# defaults auto-discovery to YES, which makes it BROADCAST on the local
-# subnet looking for IOCs — exactly the unsolicited network traffic this
-# scrub exists to prevent, not "no CA address to reach." Setting explicit
-# inert values (an empty address list, auto-discovery off, no name server)
-# closes that gap: even if some future bluesky/ophyd-async escape hatch let a
-# plan body reach real CA machinery despite stages 1-2 rejecting the
-# constructs to do so, there is nowhere for it to send a request.
-_EPICS_CA_INERT_ENV: dict[str, str] = {
+# the shared `scrub_sensitive_env` deny-list and the connector package's own
+# `scrub_epics_env` (which removes every inherited variable in the two EPICS
+# addressing families). Deleting these keys outright would be actively WORSE
+# than leaving them alone: a client that sees neither an address list nor an
+# explicit auto-address setting defaults auto-discovery to YES, which makes it
+# BROADCAST on the local subnet looking for servers — exactly the unsolicited
+# network traffic this scrub exists to prevent, not "no address to reach."
+# Setting explicit inert values (an empty address list, auto-discovery off, no
+# name server) closes that gap: even if some future bluesky/ophyd-async escape
+# hatch let a plan body reach real EPICS machinery despite stages 1-2 rejecting
+# the constructs to do so, there is nowhere for it to send a request.
+#
+# Both protocols, not just Channel Access: an ophyd-async device speaks
+# pvAccess, whose defaults broadcast the same way, and a dry-run that neutered
+# one family while leaving the other at its defaults would be inert only
+# against the protocol nobody was going to use.
+_EPICS_INERT_ENV: dict[str, str] = {
     "EPICS_CA_ADDR_LIST": "",
     "EPICS_CA_AUTO_ADDR_LIST": "NO",
     "EPICS_CA_NAME_SERVERS": "",
+    "EPICS_PVA_ADDR_LIST": "",
+    "EPICS_PVA_AUTO_ADDR_LIST": "NO",
+    "EPICS_PVA_NAME_SERVERS": "",
 }
-# Dropped outright rather than set to a value: with no address to reach and
-# auto-discovery disabled (see above), nothing ever consults a configured
-# server port.
-_EPICS_CA_ENV_NAMES_TO_DROP: tuple[str, ...] = ("EPICS_CA_SERVER_PORT",)
 
 # Extra wall-clock time (on top of the caller's `dry_run_timeout`) the parent
 # waits for the subprocess to exit after that timeout — long enough for the
@@ -680,10 +687,10 @@ async def _dry_run(
     why it happens there rather than here.
 
     Runs in a subprocess (its own interpreter, own event loop) with the
-    shared `scrub_sensitive_env` deny-list applied AND every
-    `_EPICS_CA_INERT_ENV` variable set to an inert value (never merely
-    deleted — see that constant's docstring for why deleting would be worse)
-    on top of it. Authoring-QUALITY gate only — "does it actually run" — not
+    shared `scrub_sensitive_env` deny-list applied, the connector package's
+    `scrub_epics_env` run over what is left, AND every `_EPICS_INERT_ENV`
+    variable set to an inert value (never merely deleted — see that constant's
+    docstring for why deleting would be worse) on top of that. Authoring-QUALITY gate only — "does it actually run" — not
     a containment boundary (see module docstring).
 
     A body that runs clean is then held to what its own ``PLAN_METADATA``
@@ -712,9 +719,11 @@ async def _dry_run(
         )
 
         env = scrub_sensitive_env(os.environ.copy())
-        env.update(_EPICS_CA_INERT_ENV)
-        for name in _EPICS_CA_ENV_NAMES_TO_DROP:
-            env.pop(name, None)
+        # Every inherited EPICS addressing variable goes first — a configured
+        # server port, a repeater port, anything this dict does not name — and
+        # the inert values go back on top of the emptied families.
+        scrub_epics_env(env)
+        env.update(_EPICS_INERT_ENV)
 
         proc = await asyncio.create_subprocess_exec(
             sys.executable,

@@ -39,13 +39,13 @@ from osprey.services.bluesky_bridge.plan_fields import (  # noqa: E402
 )
 from osprey.services.bluesky_bridge.plan_validation import (  # noqa: E402
     _CA_ONLY_PATTERNS,
-    _EPICS_CA_ENV_NAMES_TO_DROP,
-    _EPICS_CA_INERT_ENV,
+    _EPICS_INERT_ENV,
     _ca_pattern_scan,
     _static_allowlist_check,
     hash_plan_body,
     validate_plan,
 )
+from osprey_connectors.ipc.host import EPICS_ENV_PREFIXES  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # A tiny, fully-contract-compliant benign plan body: one movable channel, one
@@ -995,20 +995,12 @@ class TestDeclaredPointCountGate:
 
 
 class TestDryRunEnvScrub:
-    async def test_epics_ca_vars_are_neutralized_in_the_subprocess_env(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
-        """Asserts `_dry_run` passes a neutralized env to
-        `create_subprocess_exec` — the real subprocess spawn is mocked out so
-        this test stays fast and doesn't need a real bluesky dry-run to prove
-        the env wiring specifically.
+    @staticmethod
+    def _capture_dry_run_env(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+        """Point `_dry_run` at a fake subprocess and hand back the env it passed.
 
-        Deliberately asserts the SET values, not merely "key absent": a CA
-        client that sees neither `EPICS_CA_ADDR_LIST` nor an explicit
-        `EPICS_CA_AUTO_ADDR_LIST` defaults auto-discovery to YES and
-        broadcasts on the local subnet looking for IOCs — so simply deleting
-        these keys would have been worse than leaving them alone. The
-        assertions below are what actually proves that gap is closed.
+        The real spawn is mocked out so these tests stay fast and do not need a
+        real bluesky dry-run to prove the env wiring specifically.
         """
         captured_env: dict[str, str] = {}
 
@@ -1030,18 +1022,31 @@ class TestDryRunEnvScrub:
             result_path = script_path.parent / "result.json"
             # Stands in for what the real script writes, declared point count
             # included: `BENIGN_PLAN_BODY` says it moves channels, so a payload
-            # without one would be rejected by the point-count gate and this
-            # test would be asserting the wrong thing about the env wiring.
+            # without one would be rejected by the point-count gate and these
+            # tests would be asserting the wrong thing about the env wiring.
             result_path.write_text(json.dumps({"success": True, "declared_points": [3]}))
             return _FakeProc()
 
+        monkeypatch.setattr(
+            plan_validation.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec
+        )
+        return captured_env
+
+    async def test_epics_ca_vars_are_neutralized_in_the_subprocess_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Deliberately asserts the SET values, not merely "key absent": a CA
+        client that sees neither `EPICS_CA_ADDR_LIST` nor an explicit
+        `EPICS_CA_AUTO_ADDR_LIST` defaults auto-discovery to YES and
+        broadcasts on the local subnet looking for IOCs — so simply deleting
+        these keys would have been worse than leaving them alone. The
+        assertions below are what actually proves that gap is closed.
+        """
         monkeypatch.setenv("EPICS_CA_ADDR_LIST", "10.0.0.1")
         monkeypatch.setenv("EPICS_CA_NAME_SERVERS", "10.0.0.1:5064")
         monkeypatch.setenv("EPICS_CA_AUTO_ADDR_LIST", "YES")
         monkeypatch.setenv("EPICS_CA_SERVER_PORT", "5064")
-        monkeypatch.setattr(
-            plan_validation.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec
-        )
+        captured_env = self._capture_dry_run_env(monkeypatch)
 
         reasons = await plan_validation._dry_run(
             BENIGN_PLAN_BODY, plan_name="tiny_sweep", sample_args=BENIGN_SAMPLE_ARGS, timeout=5.0
@@ -1051,19 +1056,56 @@ class TestDryRunEnvScrub:
         assert captured_env["EPICS_CA_AUTO_ADDR_LIST"] == "NO"
         assert captured_env["EPICS_CA_ADDR_LIST"] == ""
         assert captured_env["EPICS_CA_NAME_SERVERS"] == ""
-        for name in _EPICS_CA_ENV_NAMES_TO_DROP:
-            assert name not in captured_env
+        # Named by no inert value: it is carried off by the prefix scrub, which
+        # is what makes the neutralisation about the family rather than about
+        # the handful of names anyone thought to list.
+        assert "EPICS_CA_SERVER_PORT" not in captured_env
+
+    async def test_pvaccess_vars_are_neutralized_in_the_subprocess_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """An ophyd-async device speaks pvAccess, whose auto-discovery
+        broadcasts exactly as Channel Access's does. A dry-run inert against one
+        family and left at its defaults on the other is inert only against the
+        protocol nobody was going to use.
+        """
+        monkeypatch.setenv("EPICS_PVA_ADDR_LIST", "10.0.0.1")
+        monkeypatch.setenv("EPICS_PVA_NAME_SERVERS", "10.0.0.1:5075")
+        monkeypatch.setenv("EPICS_PVA_AUTO_ADDR_LIST", "YES")
+        monkeypatch.setenv("EPICS_PVA_SERVER_PORT", "5075")
+        captured_env = self._capture_dry_run_env(monkeypatch)
+
+        reasons = await plan_validation._dry_run(
+            BENIGN_PLAN_BODY, plan_name="tiny_sweep", sample_args=BENIGN_SAMPLE_ARGS, timeout=5.0
+        )
+
+        assert reasons == []
+        assert captured_env["EPICS_PVA_AUTO_ADDR_LIST"] == "NO"
+        assert captured_env["EPICS_PVA_ADDR_LIST"] == ""
+        assert captured_env["EPICS_PVA_NAME_SERVERS"] == ""
+        assert "EPICS_PVA_SERVER_PORT" not in captured_env
 
     def test_inert_env_constants_are_actually_inert(self):
-        """`_EPICS_CA_INERT_ENV` is the source of truth the assertions above
+        """`_EPICS_INERT_ENV` is the source of truth the assertions above
         rely on — pin its exact values so a future edit can't quietly
         reintroduce the broadcast-discovery gap this fix closed.
+
+        Both addressing families are pinned, and the pin is checked against the
+        connector host's own prefixes rather than a second list of them, so a
+        family added upstream shows up here as a failing test rather than as a
+        dry-run that quietly leaves it at its defaults.
         """
-        assert _EPICS_CA_INERT_ENV == {
+        assert _EPICS_INERT_ENV == {
             "EPICS_CA_ADDR_LIST": "",
             "EPICS_CA_AUTO_ADDR_LIST": "NO",
             "EPICS_CA_NAME_SERVERS": "",
+            "EPICS_PVA_ADDR_LIST": "",
+            "EPICS_PVA_AUTO_ADDR_LIST": "NO",
+            "EPICS_PVA_NAME_SERVERS": "",
         }
+        assert all(name.startswith(EPICS_ENV_PREFIXES) for name in _EPICS_INERT_ENV)
+        for prefix in EPICS_ENV_PREFIXES:
+            assert any(name.startswith(prefix) for name in _EPICS_INERT_ENV), prefix
 
 
 # =========================================================================
