@@ -888,6 +888,23 @@ services:
       - HOME=/data/claude-config
       - TZ={{ facility_timezone | default("UTC") }}
       - OSPREY_TERMINAL_USER={{ svc.user }}
+      {#- The agent in this terminal reaches the network: the model provider,
+         and whatever a tool call fetches. On a proxied site those calls fail
+         unless the host's proxy settings are in this container's environment,
+         and `.env.users` cannot carry them — it is a closed allowlist whose
+         membership is a security statement, and a hand-added variable there
+         marks the file authored and trips the drift refusal.
+
+         So they arrive the same way the login service's do: `${VAR:-}`
+         passthrough interpolated from the deploy env chain, uppercase only.
+         The uppercase-only rule is the login service's, for the same reason —
+         `urllib.request.getproxies_environment` reads lowercase last and lets
+         a present-but-EMPTY lowercase name POP the scheme the uppercase pass
+         set, which is exactly what `${VAR:-}` renders on a host with no proxy.
+         An empty UPPERCASE variable is skipped instead. #}
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-}
       {#- WHO this container's audit records are written as, and WHERE. Both
          rendered from the same roster name that names the mount below
          (render._audit_mount_source / _container_audit_dir), so the identity

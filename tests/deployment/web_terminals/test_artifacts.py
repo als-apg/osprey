@@ -113,6 +113,40 @@ def _auth_config(users):
     return config
 
 
+#: The proxy passthrough, uppercase only — the spelling every container in this
+#: stack is handed, for the reason the compose template spells out.
+_PROXY_LINES = [
+    "HTTP_PROXY=${HTTP_PROXY:-}",
+    "HTTPS_PROXY=${HTTPS_PROXY:-}",
+    "NO_PROXY=${NO_PROXY:-}",
+]
+
+
+def test_every_per_user_terminal_gets_the_proxy_passthrough(tmp_path):
+    """The agent inside a terminal reaches the model provider, so on a proxied
+    site that container needs the host's proxy settings. It cannot get them
+    from `.env.users`: that file is a closed allowlist, and adding a name to it
+    by hand marks it authored and trips the drift refusal. So the three arrive
+    the same way the login service's do — interpolated from the deploy env
+    chain into this service's own `environment:`."""
+    write_web_terminal_artifacts(_config(["alice", "bob"]), tmp_path)
+
+    services = yaml.safe_load(
+        (tmp_path / "build" / "docker-compose.web.yml").read_text(encoding="utf-8")
+    )["services"]
+    for user in ("alice", "bob"):
+        environment = services[f"web-{user}"]["environment"]
+        assert all(line in environment for line in _PROXY_LINES), environment
+        # UPPERCASE ONLY: an empty lowercase name beside a set uppercase one
+        # pops the scheme in urllib.request.getproxies_environment, which is
+        # exactly what `${VAR:-}` renders on a host that sets no proxy.
+        assert not any(
+            value.lower().startswith(("http_proxy=", "https_proxy=", "no_proxy="))
+            and value.split("=", 1)[0].islower()
+            for value in environment
+        ), environment
+
+
 def _rendered_auth_service(dest) -> dict:
     return yaml.safe_load((dest / "docker-compose.web.yml").read_text(encoding="utf-8"))[
         "services"

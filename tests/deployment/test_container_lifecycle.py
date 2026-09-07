@@ -3745,11 +3745,11 @@ def test_a_pinned_worker_image_builds_nothing_under_either_axis(monkeypatch, axe
 # The lowercase-proxy advisory on the env chain
 # ---------------------------------------------------------------------------
 #
-# The login service is handed HTTP_PROXY / HTTPS_PROXY / NO_PROXY from the chain
-# and nothing else, so a lowercase spelling reaches every other container and
-# misses the one that has to reach the identity provider. The advisory names
-# the file and the variable, never the value, and fires only where the login
-# service makes that outbound call.
+# Every container in the web-terminal stack is handed HTTP_PROXY / HTTPS_PROXY /
+# NO_PROXY from the chain and nothing else — neither the login service nor a
+# per-user terminal reads the chain wholesale — so a lowercase spelling misses
+# all of them. The advisory names the file and the variable, never the value,
+# and fires wherever that stack is rendered.
 
 
 def _oidc_web_config(**overrides) -> dict:
@@ -3822,16 +3822,13 @@ def test_the_local_file_is_named_when_it_is_the_one_that_sets_the_lowercase_name
     [
         {},
         {"modules": {"web_terminals": {"enabled": False, "auth": {"method": "oidc"}}}},
-        _oidc_web_config(auth={"method": "password"}),
-        _oidc_web_config(auth={"method": "token"}),
-        _oidc_web_config(auth=None),
     ],
-    ids=["no-web-terminals", "web-terminals-off", "password", "token", "no-auth-stanza"],
+    ids=["no-web-terminals", "web-terminals-off"],
 )
-def test_the_advisory_is_scoped_to_a_deployment_whose_login_service_reaches_out(
+def test_the_advisory_is_scoped_to_a_deployment_that_renders_web_terminals(
     tmp_path, caplog, config
 ):
-    """Only an OIDC login service makes the outbound call the lowercase name misses."""
+    """No web-terminal stack, no three-name passthrough, nothing to warn about."""
     repo = _chain_repo(tmp_path, shared="https_proxy=http://proxy.example.com:8080\n")
 
     with caplog.at_level(logging.WARNING):
@@ -3839,6 +3836,31 @@ def test_the_advisory_is_scoped_to_a_deployment_whose_login_service_reaches_out(
 
     assert findings == []
     assert "https_proxy" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        _oidc_web_config(auth={"method": "password"}),
+        _oidc_web_config(auth={"method": "token"}),
+        _oidc_web_config(auth=None),
+    ],
+    ids=["password", "token", "no-auth-stanza"],
+)
+def test_the_advisory_fires_without_an_oidc_login_service(tmp_path, caplog, config):
+    """The per-user terminals miss the lowercase spelling under every auth
+    method, not only OIDC: the agent inside one reaches the model provider
+    whether or not a login service exists, and the terminal is handed the same
+    three uppercase names and nothing else."""
+    repo = _chain_repo(tmp_path, shared="https_proxy=http://proxy.example.com:8080\n")
+
+    with caplog.at_level(logging.WARNING):
+        findings = container_lifecycle._warn_lowercase_proxy_names(repo, config)
+
+    assert findings == [(".env.shared", "https_proxy")]
+    assert "HTTPS_PROXY" in caplog.text
+    # Names only, never values.
+    assert "proxy.example.com" not in caplog.text
 
 
 def test_a_repo_with_no_chain_files_is_silent(tmp_path):
