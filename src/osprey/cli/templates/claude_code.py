@@ -2,7 +2,6 @@
 
 import json
 import logging
-import os
 import re
 import shutil
 import sys
@@ -58,36 +57,6 @@ DENY_DEFAULTS: tuple[str, ...] = (
     "mcp__plugin_playwright_playwright__*",
     "mcp__plugin_context7_context7__*",
 )
-
-
-def apply_textbooks_root(ctx: dict, project_dir: Path) -> None:
-    """Set the textbooks-root context keys, absolute and tilde-abbreviated.
-
-    Both keys are written unconditionally — ``None`` when the project ships no
-    textbooks tree — so a template can test them without a guard.
-
-    The tilde variant exists for permission matching: a model asked to read a
-    file under the home directory abbreviates the path to ``~/...``, so a rule
-    written only against the absolute form would not match what it actually
-    requests. ``None`` when the tree is outside the home directory, where the
-    abbreviation never appears.
-
-    Set the same way for both the initial project creation and every later
-    re-render, so a permission rule granted at build time still matches after a
-    regen.
-
-    Args:
-        ctx: Template context, mutated in place.
-        project_dir: The project directory; the tree is its sibling
-            ``data/textbooks``.
-    """
-    textbooks_dir = project_dir.parent / "data" / "textbooks"
-    root = str(textbooks_dir) if textbooks_dir.is_dir() else None
-    home = os.path.expanduser("~")
-    ctx["textbooks_root"] = root
-    ctx["textbooks_root_tilde"] = (
-        "~" + root[len(home) :] if root and root.startswith(home) else None
-    )
 
 
 def apply_agent_data_root(ctx: dict, project_dir: Path) -> None:
@@ -760,8 +729,6 @@ def build_claude_code_context(
                         _tool,
                         _srv["name"],
                     )
-
-    apply_textbooks_root(ctx, project_dir)
 
     # Model provider resolution for Claude Code
     from osprey.build.claude_code_resolver import ClaudeCodeModelResolver

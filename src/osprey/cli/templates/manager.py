@@ -403,8 +403,6 @@ class TemplateManager:
         # the same precedence from its ctx.update.
         ctx["deny_defaults"] = list(claude_code.DENY_DEFAULTS)
 
-        claude_code.apply_textbooks_root(ctx, project_dir)
-
         # Resolve servers and agents via the data-driven registry.
         from osprey.registry.mcp import mixed_read_write_tools, resolve_agents, resolve_servers
 
