@@ -268,6 +268,64 @@ def test_an_unloadable_manifest_is_fatal_not_a_fallback(
         resolve_channel_addresses(tmp_path)
 
 
+def _manifest_with(tmp_path: Path, *addresses: str) -> None:
+    """Write a manifest listing exactly ``addresses`` and point the env at it."""
+    manifest = {
+        "channels": [
+            {
+                "address": address,
+                "ring": "SR",
+                "system": "diagnostics",
+                "family": "BPM",
+                "device": "BPM1",
+                "field": "VAL",
+                "subfield": "",
+                "record_type": "ai",
+                "noise": True,
+                "partition": "static_noisy",
+            }
+            for address in addresses
+        ]
+    }
+    (tmp_path / "channel_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("address", "cause"),
+    [
+        ("SR:BPM1.VAL", "path separator"),
+        ("$SR:BPM1:VAL", "operator"),
+    ],
+)
+def test_an_address_the_archive_cannot_store_is_refused_by_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, address: str, cause: str
+) -> None:
+    """Refused at startup, not warned about once a tick with nothing archived.
+
+    A tick is one flat document keyed by channel address. An address the store
+    cannot hold as a field name is not archivable, and a recorder that started
+    anyway would leave an archive that quietly does not hold that channel."""
+    _manifest_with(tmp_path, address)
+    monkeypatch.setenv("VA_CHANNELS_FILE", "channel_manifest.json")
+
+    with pytest.raises(RecorderConfigError) as excinfo:
+        resolve_channel_addresses(tmp_path)
+    assert address in str(excinfo.value)
+    assert cause in str(excinfo.value)
+
+
+def test_a_storable_address_is_not_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The guard is about field names, not about an address grammar: a
+    facility that separates its levels with ``_`` or ``-`` records fine."""
+    _manifest_with(tmp_path, "ZZEXP_MAG_Q1_CURRENT_SP", "ZZEXP-VAC-V1")
+    monkeypatch.setenv("VA_CHANNELS_FILE", "channel_manifest.json")
+
+    assert resolve_channel_addresses(tmp_path) == [
+        "ZZEXP_MAG_Q1_CURRENT_SP",
+        "ZZEXP-VAC-V1",
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Retention: two tiers, decided by the timestamp alone
 # ---------------------------------------------------------------------------
