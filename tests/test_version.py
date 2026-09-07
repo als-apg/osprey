@@ -65,6 +65,15 @@ class TestDescribeParsing:
             == "2026.6.2.post783+g012345678"
         )
 
+    def test_a_pre_release_tag_parses_like_any_other(self):
+        # The beta channel's whole tag grammar: the PEP 440 segment rides the
+        # patch component, so describe output differs only in the tag text.
+        assert version_module._pep440_from_describe("v2026.9.0b1-0-g1234567") == "2026.9.0b1"
+        assert (
+            version_module._pep440_from_describe("v2026.9.0b1-5-g83fda5e60")
+            == "2026.9.0b1.post5+g83fda5e60"
+        )
+
     def test_unparseable_output_returns_none(self):
         assert version_module._pep440_from_describe("not-a-describe") is None
         assert version_module._pep440_from_describe("") is None
@@ -168,6 +177,35 @@ class TestResolutionChain:
         monkeypatch.setattr(version_module, "_version_from_stamp", lambda: "2026.6.2")
 
         assert get_running_version() == "2026.6.2"
+
+
+class TestPreReleaseChannel:
+    """A clean tagged beta is a release; everything derived keeps its segment.
+
+    ``get_release_version`` once returned ``base_version``, which drops ``b1``:
+    every pin produced from a beta install then named a version that does not
+    exist on PyPI, and ``is_release`` refused the tag outright, so the pin
+    producers would not even get that far. Both were found the day the first
+    beta (v2026.9.0b1) was prepared.
+    """
+
+    def test_clean_beta_tag_is_a_release(self, tmp_path, monkeypatch):
+        repo = _make_repo(tmp_path / "osprey", "v2026.9.0b1")
+        monkeypatch.setattr(version_module, "_SOURCE_ROOT", repo)
+        assert get_running_version() == "2026.9.0b1"
+        assert is_release() is True
+
+    def test_release_version_keeps_the_pre_segment(self, tmp_path, monkeypatch):
+        repo = _make_repo(tmp_path / "osprey", "v2026.9.0b1", extra_commits=3)
+        monkeypatch.setattr(version_module, "_SOURCE_ROOT", repo)
+        assert get_release_version() == "2026.9.0b1"
+        assert is_release() is False  # distance: a dev build past the beta
+
+    def test_dirty_beta_checkout_is_not_a_release(self, tmp_path, monkeypatch):
+        repo = _make_repo(tmp_path / "osprey", "v2026.9.0b1")
+        (repo / "pyproject.toml").write_text('[project]\nname = "osprey-framework"\n# dirty\n')
+        monkeypatch.setattr(version_module, "_SOURCE_ROOT", repo)
+        assert is_release() is False
 
 
 class TestUnresolvableEnvironment:
