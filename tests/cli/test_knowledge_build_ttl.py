@@ -18,10 +18,13 @@ Covers:
   names nothing, and an address the six-token grammar cannot read.
 - A LinkML schema handed to ``--ontology`` is pointed at ``compile-ontology``
   rather than reported as malformed JSON.
+- Section order comes from the database's own tree, ``--section-order``
+  overrides it, and a list with an empty token is refused.
 """
 
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 from typing import Any
@@ -838,4 +841,174 @@ def test_build_ttl_points_a_yaml_ontology_at_the_compiler(
     flat = _flat(result)
     assert "Traceback" not in result.output
     assert "compile-ontology" in flat
+    assert not output.exists()
+
+
+# ---------------------------------------------------------------------------
+# Section order and the direction warning
+# ---------------------------------------------------------------------------
+
+#: The two-section machine's addresses: the fixture's storage ring, plus a
+#: booster carrying the same magnet family.
+TWO_SECTION_ADDRESSES = FIXTURE_ADDRESSES + (
+    "BR:MAG:DIPOLE:01:CURRENT:RB",
+    "BR:MAG:DIPOLE:01:CURRENT:SP",
+    "BR:MAG:DIPOLE:02:CURRENT:RB",
+    "BR:MAG:DIPOLE:02:CURRENT:SP",
+)
+
+
+def _in_context_for(addresses: tuple[str, ...]) -> dict[str, Any]:
+    """The in-context database of a machine holding exactly *addresses*."""
+    return {
+        "_metadata": {"version": "1.0", "tier": "test", "total_channels": len(addresses)},
+        "channels": [
+            {
+                "channel": address.replace(":", "_"),
+                "address": address,
+                "description": f"Per-channel sentence for {address}.",
+            }
+            for address in addresses
+        ],
+    }
+
+
+def _two_section_payload() -> dict[str, Any]:
+    """The miniature machine with a booster added after the storage ring.
+
+    The tree lists ``SR`` before ``BR``, which is a machine order and not an
+    alphabetical one -- so a corpus that follows the tree and a corpus that
+    sorts its sections by name come out different, which is the whole point.
+    """
+    payload = _hierarchical_payload()
+    payload["tree"]["BR"] = {
+        "_description": "Booster Ring (BR).",
+        "MAG": copy.deepcopy(payload["tree"]["SR"]["MAG"]),
+    }
+    return payload
+
+
+@pytest.fixture()
+def two_section_db(tmp_path: Path) -> Path:
+    """Write the two-section database and return its path."""
+    path = tmp_path / "two_section.json"
+    path.write_text(json.dumps(_two_section_payload()), encoding="utf-8")
+    return path
+
+
+@pytest.fixture()
+def two_section_descriptions(tmp_path: Path) -> Path:
+    """The in-context prose of the two-section machine."""
+    path = tmp_path / "two_section_in_context.json"
+    path.write_text(json.dumps(_in_context_for(TWO_SECTION_ADDRESSES)), encoding="utf-8")
+    return path
+
+
+def _sections_in_facility_order(ttl_path: Path) -> list[str]:
+    """The section tokens of *ttl_path*, first seen first, by facility ordinal."""
+    import rdflib
+
+    graph = _parse(ttl_path)
+    ordinals = {
+        subject: int(value)
+        for subject, _predicate, value in graph.triples(
+            (None, rdflib.URIRef(NARAD_P + "ordinalInFacility"), None)
+        )
+    }
+    sections = {
+        subject: str(value)
+        for subject, _predicate, value in graph.triples(
+            (None, rdflib.URIRef(NARAD_P + "sectionCode"), None)
+        )
+    }
+    seen: list[str] = []
+    for subject in sorted(ordinals, key=lambda device: ordinals[device]):
+        if sections[subject] not in seen:
+            seen.append(sections[subject])
+    return seen
+
+
+def test_build_ttl_orders_sections_the_way_the_database_lists_them(
+    two_section_db: Path,
+    two_section_descriptions: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The tree's key order reaches the corpus, and it is not the alphabet's."""
+    _no_config(monkeypatch)
+    output = tmp_path / "tree_order.ttl"
+
+    result = CliRunner().invoke(
+        knowledge,
+        [
+            "build-ttl",
+            str(output),
+            "--channel-db",
+            str(two_section_db),
+            "--descriptions",
+            str(two_section_descriptions),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _sections_in_facility_order(output) == ["SR", "BR"]
+
+
+def test_build_ttl_section_order_option_overrides_the_tree(
+    two_section_db: Path,
+    two_section_descriptions: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A database whose key order carries no meaning can be given the real one."""
+    _no_config(monkeypatch)
+    output = tmp_path / "named_order.ttl"
+
+    result = CliRunner().invoke(
+        knowledge,
+        [
+            "build-ttl",
+            str(output),
+            "--channel-db",
+            str(two_section_db),
+            "--descriptions",
+            str(two_section_descriptions),
+            "--section-order",
+            "BR, SR",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _sections_in_facility_order(output) == ["BR", "SR"]
+
+
+def test_build_ttl_refuses_a_section_order_with_an_empty_token(
+    two_section_db: Path,
+    two_section_descriptions: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stray comma would silently name a section no machine has."""
+    _no_config(monkeypatch)
+    output = tmp_path / "empty_token.ttl"
+
+    result = CliRunner().invoke(
+        knowledge,
+        [
+            "build-ttl",
+            str(output),
+            "--channel-db",
+            str(two_section_db),
+            "--descriptions",
+            str(two_section_descriptions),
+            "--section-order",
+            "SR,,BR",
+        ],
+    )
+
+    assert result.exit_code != 0
+    flat = _flat(result)
+    assert "Traceback" not in result.output
+    assert "--section-order" in flat
+    assert "empty one" in flat
     assert not output.exists()

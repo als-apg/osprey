@@ -58,6 +58,10 @@ _SYNTHETIC_ADDRESSES = (
     "BR:MAG:DIPOLE:01:CURRENT:RB",
 )
 
+#: The order the synthetic machine lists its sections in — the same shape a real
+#: database's tree carries, and not the alphabetical one.
+_SYNTHETIC_SECTION_ORDER = ("SR", "BR")
+
 
 @pytest.fixture
 def synthetic_map() -> dict[str, dict]:
@@ -93,6 +97,12 @@ def tier3_raw() -> dict:
     """The raw tier-3 database JSON — the unexpanded tree and its level list."""
     assert TIER3_DB_PATH.is_file(), f"tier-3 channel database missing at {TIER3_DB_PATH}"
     return json.loads(TIER3_DB_PATH.read_text())
+
+
+@pytest.fixture(scope="module")
+def tier3_section_order(tier3_raw: dict) -> tuple[str, ...]:
+    """The order the tier-3 database's own tree lists its top-level sections in."""
+    return tuple(token for token in tier3_raw["tree"] if not token.startswith("_"))
 
 
 @pytest.fixture
@@ -214,7 +224,7 @@ class TestBuildModelDevices:
 
     def test_one_device_per_identity_tuple(self, synthetic_map):
         """Devices are the distinct (RING, SYSTEM, FAMILY, DEVICE) tuples."""
-        model = build_model(synthetic_map)
+        model = build_model(synthetic_map, section_order=_SYNTHETIC_SECTION_ORDER)
         assert model.device_addresses() == (
             "SR:MAG:DIPOLE:01",
             "SR:MAG:DIPOLE:02",
@@ -231,13 +241,15 @@ class TestBuildModelDevices:
 
     def test_section_code_and_raw_type(self, synthetic_map):
         """sectionCode is the ring token, rawType is the family token."""
-        device = build_model(synthetic_map).devices[0]
+        model = build_model(synthetic_map, section_order=_SYNTHETIC_SECTION_ORDER)
+        device = model.devices[0]
         assert device.section_code == "SR"
         assert device.raw_type == "DIPOLE"
 
     def test_ordinals_are_ring_scoped_and_facility_wide(self, synthetic_map):
         """ordinalInSection restarts per ring; ordinalInFacility does not."""
-        by_address = {d.address: d for d in build_model(synthetic_map).devices}
+        model = build_model(synthetic_map, section_order=_SYNTHETIC_SECTION_ORDER)
+        by_address = {d.address: d for d in model.devices}
         section = {a: d.ordinal_in_section for a, d in by_address.items()}
         facility = {a: d.ordinal_in_facility for a, d in by_address.items()}
         assert section == {
@@ -324,7 +336,8 @@ class TestBuildModelSignalGroups:
 
     def test_groups_and_members(self, synthetic_map):
         """One group per combination, carrying its member addresses."""
-        groups = {g.name: g for g in build_model(synthetic_map).signal_groups}
+        model = build_model(synthetic_map, section_order=_SYNTHETIC_SECTION_ORDER)
+        groups = {g.name: g for g in model.signal_groups}
         assert set(groups) == {"dipole_current_sp", "dipole_current_rb", "gauge_pressure_rb"}
         assert groups["dipole_current_sp"].members == (
             "SR:MAG:DIPOLE:01:CURRENT:SP",
@@ -376,6 +389,52 @@ class TestBuildModelSignalGroups:
             assert binding.signal_name == group.name
             assert binding.signal_iri == group.iri
             assert binding.full_pv in group.members
+
+
+class TestSectionOrder:
+    """The caller's section order decides the layout; nothing is built in."""
+
+    #: One device in each of three sections whose names are nothing like the
+    #: demo machine's, and whose facility order is not their alphabetical one.
+    _ADDRESSES = (
+        "L1:MAG:DIPOLE:01:CURRENT:RB",
+        "TL:MAG:DIPOLE:01:CURRENT:RB",
+        "RING:MAG:DIPOLE:01:CURRENT:RB",
+    )
+
+    def _sections(self, model) -> list[str]:
+        """The section token of each device, in the order the model holds them."""
+        return [device.ring for device in model.devices]
+
+    def test_given_order_wins_over_the_alphabet(self):
+        """``L1, TL, RING`` is the machine's order and not the sorted one."""
+        model = build_model(
+            {address: {} for address in self._ADDRESSES},
+            section_order=("L1", "TL", "RING"),
+        )
+        assert self._sections(model) == ["L1", "TL", "RING"]
+        assert [device.ordinal_in_facility for device in model.devices] == [1, 2, 3]
+
+    def test_bindings_follow_their_devices(self):
+        """Binding order is the device order, so the corpus reads top to bottom."""
+        model = build_model(
+            {address: {} for address in self._ADDRESSES},
+            section_order=("L1", "TL", "RING"),
+        )
+        assert [binding.address.ring for binding in model.bindings] == ["L1", "TL", "RING"]
+
+    def test_unnamed_sections_sort_after_named_ones(self):
+        """A section the order does not name lands last, alphabetically."""
+        model = build_model(
+            {address: {} for address in self._ADDRESSES},
+            section_order=("RING",),
+        )
+        assert self._sections(model) == ["RING", "L1", "TL"]
+
+    def test_no_order_sorts_every_section_alphabetically(self):
+        """With no order given nothing is privileged, so the alphabet decides."""
+        model = build_model({address: {} for address in self._ADDRESSES})
+        assert self._sections(model) == ["L1", "RING", "TL"]
 
 
 class TestBuildModelDeterminism:
@@ -432,9 +491,11 @@ class TestRealTier3Database:
         for ring, ordinals in per_ring.items():
             assert sorted(ordinals) == list(range(1, len(ordinals) + 1)), ring
 
-    def test_facility_ordinals_are_dense_and_ring_ordered(self, tier3_channel_map):
-        """Facility ordinals run 1..N in SR, BR, BTS order."""
-        model = build_model(tier3_channel_map)
+    def test_facility_ordinals_are_dense_and_ring_ordered(
+        self, tier3_channel_map, tier3_section_order
+    ):
+        """Facility ordinals run 1..N in the order the database's tree lists."""
+        model = build_model(tier3_channel_map, section_order=tier3_section_order)
         assert [d.ordinal_in_facility for d in model.devices] == list(
             range(1, len(model.devices) + 1)
         )
@@ -442,7 +503,7 @@ class TestRealTier3Database:
         for device in model.devices:
             if device.ring not in ring_first_seen:
                 ring_first_seen.append(device.ring)
-        assert ring_first_seen == ["SR", "BR", "BTS"]
+        assert ring_first_seen == list(tier3_section_order)
 
     def test_identifiers_are_unique(self, tier3_channel_map):
         """No two devices or bindings collide on an IRI or an id literal."""

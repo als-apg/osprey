@@ -847,6 +847,39 @@ def _resolve_hierarchy_descriptions(raw: Mapping[str, Any], db_path: Path) -> An
         ) from exc
 
 
+def _resolve_section_order(explicit: str | None, raw: Mapping[str, Any]) -> tuple[str, ...]:
+    """Return the order the corpus sorts its top-level section tokens in.
+
+    Unnamed, the order is the one the database's own ``tree`` block lists them
+    in: JSON preserves key order, and a hierarchical database is written in the
+    machine's own layout order rather than alphabetically. ``--section-order``
+    overrides that for a database whose key order carries no meaning.
+
+    Args:
+        explicit: The ``--section-order`` value, or ``None``.
+        raw: The database payload, as returned by :func:`_load_channel_map`.
+
+    Returns:
+        The section tokens, in order. Empty when neither source names any, in
+        which case every section sorts alphabetically.
+
+    Raises:
+        click.UsageError: When ``--section-order`` holds an empty token.
+    """
+    if explicit is not None:
+        tokens = tuple(token.strip() for token in explicit.split(","))
+        if not all(tokens):
+            raise click.UsageError(
+                "--section-order is a comma-separated list of section tokens; "
+                f"{explicit!r} holds an empty one."
+            )
+        return tokens
+
+    raw_tree = raw.get("tree")
+    tree: Mapping[str, Any] = raw_tree if isinstance(raw_tree, Mapping) else {}
+    return tuple(token for token in tree if not token.startswith("_"))
+
+
 def _load_ontology_table(ontology: Path | None) -> Any:
     """Return the FAMILY-to-class table to emit against.
 
@@ -957,6 +990,12 @@ def _assign_directions(graph_model: Any, limits: Path | None) -> tuple[Any, Any]
     "table shipped with OSPREY, which is compiled from a LinkML schema.",
 )
 @click.option(
+    "--section-order",
+    default=None,
+    help="Comma-separated order for the top-level section tokens, e.g. 'SR,BR,BTS'. "
+    "Defaults to the order the channel database's own tree lists them in.",
+)
+@click.option(
     "--facility",
     default=DEFAULT_FACILITY,
     show_default=True,
@@ -970,6 +1009,7 @@ def build_ttl(
     descriptions: Path | None,
     limits: Path | None,
     ontology: Path | None,
+    section_order: str | None,
     facility: str,
 ) -> None:
     """Derive a NARAD-convention TTL corpus from the channel database.
@@ -1006,6 +1046,11 @@ def build_ttl(
                     PV grammar decides instead: a :SP subfield writes and
                     everything else reads. Every run reports which of the two
                     it used.
+      --section-order
+                    The order the channel database's own tree lists its
+                    top-level sections in. Name your own when that order
+                    carries no meaning; a section neither source names sorts
+                    after the ones they do, alphabetically.
       --ontology    The demo-machine table shipped with OSPREY. Give your own
                     when your device families are not the demo machine's --
                     authored as a LinkML schema and turned into the table this
@@ -1034,11 +1079,13 @@ def build_ttl(
     channel_map, raw_database = _load_channel_map(db_path)
     binding_descriptions = _load_binding_descriptions(descriptions_path)
     hierarchy_descriptions = _resolve_hierarchy_descriptions(raw_database, db_path)
+    sections = _resolve_section_order(section_order, raw_database)
 
     try:
         graph_model = build_model(
             channel_map,
             facility=facility,
+            section_order=sections,
             hierarchy_descriptions=hierarchy_descriptions,
             binding_descriptions=binding_descriptions,
         )

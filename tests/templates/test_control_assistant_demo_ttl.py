@@ -383,6 +383,7 @@ def regenerated_ttl_text() -> str:
     raw = json.loads(CHANNEL_DB_PATH.read_text(encoding="utf-8"))
     built = model.build_model(
         HierarchicalChannelDatabase(str(CHANNEL_DB_PATH)).channel_map,
+        section_order=[token for token in raw["tree"] if not token.startswith("_")],
         hierarchy_descriptions=_resolve_hierarchy_descriptions(raw, CHANNEL_DB_PATH),
         binding_descriptions=dict(_load_binding_descriptions(DESCRIPTIONS_PATH)),
     )
