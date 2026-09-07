@@ -1976,9 +1976,14 @@ __pycache__/
 ENV_EXAMPLE = """\
 # Als Exemplar Environment Configuration
 #
-# Every variable this agent reads, listed in one place. Copy this file to `.env`
+# Every variable this deployment supplies: the provider keys, whatever its
+# profile declares, and the tokens `osprey up` mints. Copy this file to `.env`
 # beside it and fill in what you need. That one file holds all your secrets, and
 # a value in it survives every rebuild.
+#
+# Not listed here: the host-level knobs a command reads from its own environment
+# (CONTAINER_RUNTIME, OSPREY_OFFLINE, ...), and the names the build stamps into
+# the containers. The Environment Variables reference covers both.
 #
 # This file has no secrets in it and is safe to commit.
 #

@@ -2845,9 +2845,9 @@ def _required_env_problems(repo_root: Path | str, env: Mapping[str, str]) -> lis
                 f"{name} is required by this deployment's profile (env.required), but no "
                 f"value reaches the stack: it is unset in .env, .env.shared and the "
                 f"environment, or set there to an empty value.",
-                f"Set {name} in .env at the repo root. .env.example lists every variable "
-                f"this deployment reads; copy it first (cp .env.example .env) if this repo "
-                f"has no .env yet.",
+                f"Set {name} in .env at the repo root. .env.example lists the variables "
+                f"this deployment supplies; copy it first (cp .env.example .env) if this "
+                f"repo has no .env yet.",
             )
         )
     return problems
