@@ -431,8 +431,8 @@ check still produces a row (an eligible pending check becomes an ``error``
 The top-level ``web:`` section configures the browser UI the Web Terminal
 renders — not the terminal process itself, which has its own ``web_terminal:``
 section. The keys below aim the rail's two utility controls, bound the feedback
-store, name the deployment, arrange the header and status bar, and size the
-Simple-mode operator-chat pool.
+store, name the deployment, decide who is offered the onboarding tour, arrange
+the header and status bar, and size the Simple-mode operator-chat pool.
 
 .. _feedback-configuration:
 
@@ -558,6 +558,41 @@ configuration at all.
 
 A build profile overrides any of these keys from its ``config:`` block in the
 dotted form, e.g. ``web.feedback.max_store_bytes: 536870912``.
+
+.. _config-web-tour:
+
+The onboarding tour invite
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A first-time visitor to the terminal is offered a short guided tour of the
+screen. ``web.tour`` decides who is offered it, and how often:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 84
+
+   * - Value
+     - What the visitor sees
+   * - ``once``
+     - The default. The invite card appears until this browser dismisses it —
+       "Don't show this again", or finishing the tour — and then stops.
+   * - ``always``
+     - The invite appears on every load and offers no permanent dismissal.
+       This is the shared-screen posture: a wall display nobody owns should
+       still greet the next person who walks up to it.
+   * - ``never``
+     - No invite. The tour itself stays reachable from the rail's **Tour**
+       control and the command palette, so turning the invite off does not
+       take the tour away.
+
+An unrecognised value is reported in the log and treated as ``once``: a typo
+costs you the setting, never the terminal's startup.
+
+On a multi-user deployment the policy can differ per user. A roster entry's
+``tour:`` field — beside its ``theme:`` — is rendered into that user's
+container as ``OSPREY_WEB_TOUR``, and the environment variable outranks
+``web.tour`` for that container, exactly as ``OSPREY_WEB_THEME`` outranks
+``web.theme``.
 
 .. _config-bar-items:
 

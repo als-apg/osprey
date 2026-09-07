@@ -919,6 +919,13 @@ config:
   # id ("desy-light") pins it. Each browser can override it from the display
   # menu, and a roster entry's `theme:` overrides it per user.
   web.theme: light
+  # Who gets offered the onboarding tour, and how often. `once` (the default)
+  # invites until a browser dismisses it or finishes the tour; `always` invites
+  # on every load and offers no permanent dismissal, which is what a shared
+  # read-only screen wants; `never` offers nothing and leaves the tour on the
+  # rail's Tour control and the command palette. A roster entry's `tour:` field
+  # overrides it per user.
+  # web.tour: once
   # Target of the Documentation button. Point it at a locally hosted copy of
   # the docs when the control room has no route to the public site.
   web.docs_url: https://als-apg.github.io/osprey
