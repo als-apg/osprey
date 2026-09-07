@@ -1072,11 +1072,12 @@ def _cleanup(target: Path, seeded: tuple[str, ...] = ()) -> str:
 
     Args:
         target: The repo root the failed materialization was writing into.
-        seeded: Write-once directories THIS run created (the ``seed_dirs`` it
-            actually copied — never one it found already there). They are not
-            in :data:`MATERIALIZED_SOURCE_ENTRIES`, because a later ``--force``
-            must leave an operator's own edits inside them alone; but a run that
-            just created one and then failed owns it, so a first init that fails
+        seeded: Entries THIS run created that the table does not cover — the
+            ``seed_dirs`` it actually copied, and a ``.env`` it wrote where
+            there was none. Never one it found already there. They are not in
+            :data:`MATERIALIZED_SOURCE_ENTRIES`, because a later ``--force``
+            must leave an operator's own copy alone; but a run that just
+            created one and then failed owns it, so a first init that fails
             leaves nothing behind.
 
     Returns:
@@ -1422,6 +1423,15 @@ def _materialize_profile_directory(
     # seeds this run created are the only ones it is allowed to remove.
     seeded: list[str] = []
 
+    # `.env` is an operator file, so it is not in MATERIALIZED_SOURCE_ENTRIES
+    # and a re-materialization never touches one it found. A run that CREATES
+    # one owns it exactly the way it owns a seed: without this, a first init
+    # that fails leaves the operator's shell-exported keys sitting in a
+    # directory the same refusal calls empty, and the next attempt then finds
+    # the root non-empty.
+    env_pre_existed = (target / _PROFILE_ENV_FILENAME).exists()
+    run_written: list[str] = []
+
     try:
         # Verbatim copy (D1/FR2): staging subdirectories and any stray `.j2`
         # come across byte-identical — a profile data tree is content, never
@@ -1450,6 +1460,11 @@ def _materialize_profile_directory(
             referenced_providers,
         )
         logger.debug("  Secrets: %s", ", ".join(secret_files))
+        if not env_pre_existed and (target / _PROFILE_ENV_FILENAME).exists():
+            # The sibling lock file is created beside the `.env` by the shared
+            # writer and deliberately never removed while the `.env` lives; a
+            # discarded `.env` takes it along.
+            run_written += [_PROFILE_ENV_FILENAME, f"{_PROFILE_ENV_FILENAME}.lock"]
         if shell_keys.skipped:
             # Debug only. `osprey init`'s summary prints the same sentence from
             # the same helper, and this is the only caller, so logging it here
@@ -1540,11 +1555,13 @@ def _materialize_profile_directory(
             if (overrides or set_pairs)
             else "The materialized profile does not validate"
         )
-        raise click.UsageError(f"{blame}: {e}\n{_cleanup(target, seeded=tuple(seeded))}") from e
+        raise click.UsageError(
+            f"{blame}: {e}\n{_cleanup(target, seeded=(*seeded, *run_written))}"
+        ) from e
     except Exception:
         # Any other failure (a copy error, a full disk) must not leave a
         # half-materialized directory that looks buildable.
-        _cleanup(target, seeded=tuple(seeded))
+        _cleanup(target, seeded=(*seeded, *run_written))
         raise
 
     logger.debug("Wrote profile directory: %s", target)
