@@ -982,10 +982,9 @@ class EPICSConnector(ControlSystemConnector):
                 except ChannelLimitsViolationError:
                     raise  # limits refusal propagates unchanged (carries LIMITS semantics)
                 except Exception as e:
-                    # FAIL CLOSED: any other validation error refuses the write — no caput issued
-                    logger.warning(
-                        f"Validation error — refusing write (fail-closed): {channel_address}: {e}"
-                    )
+                    # FAIL CLOSED: any other validation error refuses the write — no caput
+                    # issued. The refusal itself is built on the loop, by the base class's
+                    # one helper, so all four connectors word it identically.
                     return ("refused", e)  # sentinel: no caput issued
             try:
                 # The put-callback is Channel Access's acknowledgement that the
@@ -1016,13 +1015,7 @@ class EPICSConnector(ControlSystemConnector):
             )
 
         if put_result == "refused":
-            return ChannelWriteResult(
-                channel_address=channel_address,
-                value_written=value,
-                outcome=WriteOutcome.REFUSED,
-                refusal_reason="VALIDATION_ERROR",
-                error_message=f"Write to '{channel_address}' refused: validation error: {payload}",
-            )
+            return self._validation_refusal(channel_address, value, payload)
 
         # pyepics answers a put whose callback never arrived with -1, not with
         # a falsy value: ``ca.put`` waits for the callback and, on timeout,
