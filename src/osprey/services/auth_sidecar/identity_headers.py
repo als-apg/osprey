@@ -155,8 +155,8 @@ CASE_INSENSITIVE_CLAIMS: frozenset[str] = frozenset({"email"})
 ``email`` is the one claim OpenID Connect defines as an RFC 5322 address, and
 an address is the same mailbox in any case: the domain by RFC 5321, the local
 part by every mail provider in practice — the same person is
-``THellert@lbl.gov`` in a directory and ``thellert@lbl.gov`` in daily use, and
-a provider releases whichever spelling it stores. A byte-exact match would
+``Alice@example.org`` in a directory and ``alice@example.org`` in daily use,
+and a provider releases whichever spelling it stores. A byte-exact match would
 couple a roster to that cosmetic choice, refusing every login with a 403 that
 names nothing an operator can see in the config.
 
