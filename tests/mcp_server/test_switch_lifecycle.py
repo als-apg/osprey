@@ -948,8 +948,11 @@ class TestPerTargetPosture:
         """The same write, permitted on one target and refused on the other.
 
         The refusal names the block an operator would have to edit — the live
-        type's own key rather than the deployment-wide one — because that is
-        the posture the connector serving this target actually read.
+        type's own block rather than the deployment-wide key — because that is
+        the posture the connector serving this target actually read. This
+        fixture's type is a dotted module path, so the block is named in the
+        mapping form a build profile applies verbatim: a dotted key would be
+        split on every dot into a nest the posture lookup never reads.
         """
         manager = await mixed_session(make_manager, va_armed_project)
         await manager.switch("va")
@@ -961,7 +964,11 @@ class TestPerTargetPosture:
         assert armed.outcome is not WriteOutcome.REFUSED
         assert refused.outcome is WriteOutcome.REFUSED
         assert refused.refusal_reason == "WRITES_DISABLED"
-        assert f"control_system.connector.{GATEWAY_TYPE}.writes_enabled" in refused.error_message
+        assert (
+            f"control_system.connector.{GATEWAY_TYPE}.writes_enabled" not in refused.error_message
+        )
+        assert "control_system.connector:" in refused.error_message
+        assert f"{GATEWAY_TYPE}:" in refused.error_message
 
 
 # --------------------------------------------------- republished identity
