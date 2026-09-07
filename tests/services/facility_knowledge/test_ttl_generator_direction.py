@@ -269,6 +269,50 @@ class TestAssignDirections:
         assert "PV grammar" in report.message
         assert "/tmp/absent.json" in report.message
 
+    def test_grammar_fallback_says_when_it_found_nothing_writable(self):
+        """A machine that spells setpoints its own way gets told, not left quiet.
+
+        Every group reading as read-only is the shape of a corpus built on the
+        wrong subfield token, not the shape of a machine nobody can write to.
+        """
+        addresses = [
+            "SR:MAG:DIPOLE:01:CURRENT:SET",
+            "SR:MAG:DIPOLE:01:CURRENT:MON",
+            "SR:VAC:VALVE:01:CONTROL:MON",
+        ]
+
+        annotated, report = assign_directions(_model(addresses), None)
+
+        assert set(_directions(annotated).values()) == {DIRECTION_READ}
+        assert report.write_groups == 0
+        assert "0 of 3 signal groups matched" in report.message
+        assert "nothing is writable" in report.message
+        assert "--limits" in report.message
+
+    def test_grammar_fallback_stays_quiet_when_something_writes(self):
+        """The count is only worth saying when it is the one that means trouble."""
+        addresses = ["SR:MAG:DIPOLE:01:CURRENT:SP", "SR:MAG:DIPOLE:01:CURRENT:RB"]
+
+        _annotated, report = assign_directions(_model(addresses), None)
+
+        assert report.write_groups == 1
+        assert "signal groups matched" not in report.message
+
+    def test_limits_source_counts_its_write_groups_too(self, tmp_path):
+        """The count is on every report, so one reader covers both derivations."""
+        addresses = ["SR:MAG:DIPOLE:01:CURRENT:SP", "SR:MAG:DIPOLE:01:CURRENT:RB"]
+        limits = _write_limits(
+            tmp_path / "limits.json",
+            {
+                "SR:MAG:DIPOLE:01:CURRENT:SP": {},
+                "SR:MAG:DIPOLE:01:CURRENT:RB": {"writable": False},
+            },
+        )
+
+        _annotated, report = assign_directions(_model(addresses), limits)
+
+        assert report.write_groups == 1
+
     def test_mixed_group_raises_naming_the_group_and_dissenters(self, tmp_path):
         """Two devices, one group, disagreeing limits: refuse and say who dissents."""
         addresses = ["SR:MAG:DIPOLE:01:CURRENT:SP", "SR:MAG:DIPOLE:02:CURRENT:SP"]

@@ -50,6 +50,7 @@ from typing import Any
 
 from osprey.services.facility_knowledge.seeder.graph_seeder import NARAD_PREFIXES
 from osprey.services.facility_knowledge.seeder.ttl_seeder import local_name
+from osprey.services.facility_knowledge.ttl_generator.direction import WRITE_SUBFIELD
 from osprey.utils.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
 
 logger = logging.getLogger(__name__)
@@ -382,15 +383,17 @@ DEFAULT_PARAMETERS_NOTE = "framework defaults; substitute values from this corpu
 #: the way it does. ``build-ttl`` knows; the seeder carries it in the marker;
 #: the agent needs it because the two derivations differ in what they can get
 #: wrong — a grammar-derived corpus mislabels any writable channel whose address
-#: does not end in ``:SP``. Deliberately worded without the build host's path:
-#: the whole rendered prompt is guarded against leaking one.
+#: does not end in the setpoint subfield. The token is quoted from the generator
+#: that applies it rather than spelled here, so the note cannot describe a rule
+#: the corpus was not built with. Deliberately worded without the build host's
+#: path: the whole rendered prompt is guarded against leaking one.
 DIRECTION_PROVENANCE_LINES = {
     "limits": (
         "Direction provenance: read/write edges derived from this facility's channel limits."
     ),
     "grammar": (
         "Direction provenance: read/write edges derived from the address grammar "
-        "(`:SP` writes), because no channel limits were available."
+        f"(`:{WRITE_SUBFIELD}` writes), because no channel limits were available."
     ),
 }
 
