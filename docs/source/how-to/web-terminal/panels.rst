@@ -20,6 +20,50 @@ Enable OSPREY's built-in panels in ``config.yml``:
        channel-finder: true
        lattice: true
 
+Panels that need a section as well as a tick
+--------------------------------------------
+
+For most panels that line is the whole gesture. Three of them need a second
+one: they are tabs onto a service that has to be configured before there is
+anything to show, and OSPREY will not guess at its address. Listing the panel
+without its section leaves the tab **dark** — no error, one line in the log
+saying the panel is unavailable.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 30 46
+
+   * - Panel
+     - Also needs
+     - What lives in that section
+   * - ``lattice``
+     - ``lattice_dashboard:``
+     - ``host``, ``port``, ``auto_launch`` for the lattice dashboard.
+   * - ``channel-finder``
+     - ``channel_finder:``
+     - The pipeline and the channel database behind it — see
+       :doc:`/reference/contracts/channel-finder`.
+   * - ``okf``
+     - ``facility_knowledge:``
+     - ``bundle_path``, the compiled knowledge bundle the KNOWLEDGE tab serves.
+
+So a working lattice tab is two things, not one:
+
+.. code-block:: yaml
+
+   web:
+     panels:
+       lattice: true
+
+   lattice_dashboard:
+     host: 127.0.0.1
+     auto_launch: true
+
+The shipped ``control-assistant`` preset leaves both halves to you for the
+lattice tab — the panel is not in its ``web_panels:`` list and the
+``lattice_dashboard:`` stanza sits beside it commented out — and supplies both
+for KNOWLEDGE and CHANNELS, which is why those two work out of the box.
+
 Where the panel rail lives
 --------------------------
 
