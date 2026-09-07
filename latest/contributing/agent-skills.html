@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 06, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 07, 2026"/>
   </head>
   
   
@@ -448,12 +448,12 @@
                   
   <section id="agent-skills">
 <span id="contributing-agent-skills"></span><h1>Agent Skills<a class="headerlink" href="#agent-skills" title="Link to this heading">#</a></h1>
-<p>Osprey ships eight <strong>agent skills</strong> — packaged, step-by-step instructions that a
+<p>Osprey ships nine <strong>agent skills</strong> — packaged, step-by-step instructions that a
 coding agent picks up automatically when a task matches their description.
 Instead of re-explaining the contribution workflow or the release process in
 every session, you install them once and the agent follows the project’s own
 playbooks.</p>
-<p>All eight travel together in one plugin, <code class="docutils literal notranslate"><span class="pre">osprey</span></code>, published from the root of
+<p>All nine travel together in one plugin, <code class="docutils literal notranslate"><span class="pre">osprey</span></code>, published from the root of
 the <code class="docutils literal notranslate"><span class="pre">als-apg/osprey</span></code> repository. Claude Code and Codex install it from there
 with two commands each.</p>
 <section id="install-in-claude-code">
@@ -521,8 +521,8 @@ skills themselves are the same files the Claude Code plugin serves.</p>
 and verified against codex-cli 0.149 on 2026-09-02.</p>
 </div>
 </section>
-<section id="the-eight-skills">
-<h2>The eight skills<a class="headerlink" href="#the-eight-skills" title="Link to this heading">#</a></h2>
+<section id="the-nine-skills">
+<h2>The nine skills<a class="headerlink" href="#the-nine-skills" title="Link to this heading">#</a></h2>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 32.0%" />
@@ -552,20 +552,26 @@ gate that matches what you are about to do.</p></td>
 <td><p>Walks a maintainer through a CalVer release: the release-notes PR, the
 tag, and verifying the automated PyPI publish.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:build-interview</span></code></p></td>
-<td><p>Sets up or migrates an Osprey deployment for an accelerator, beamline,
-or detector through a guided interview. Starts by inventorying what
-exists, then maps each part of it onto the new deployment.</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:install</span></code></p></td>
+<td><p>The installer, as a conversation: installs Osprey if it is missing,
+inventories what exists, and sets up or migrates a deployment for an
+accelerator, beamline, or detector one confirmed card at a time.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:panel</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:upstream-scout</span></code></p></td>
+<td><p>Investigates whether something a facility needs is an Osprey gap, a
+deployment gap, or already supported; judges whether the fix is
+mechanical or architectural; drafts the write-up to file or to branch
+from. <code class="docutils literal notranslate"><span class="pre">/osprey:install</span></code> runs it in the background.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:panel</span></code></p></td>
 <td><p>Authors a themed web-terminal panel that passes the panel validator.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:housekeeping</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:housekeeping</span></code></p></td>
 <td><p>Finds where the generated project, the shipped prompts, the runtime
 messages, or a pinned version say something the code no longer does,
 proves it, and writes a report the maintainer rules on. Report only.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:doc-sync</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:doc-sync</span></code></p></td>
 <td><p>Proves the pages under <code class="docutils literal notranslate"><span class="pre">docs/source</span></code> against the code, from reading
 source and from running what a page documents, reports the drift,
 and applies the doc-side fixes the maintainer accepts.</p></td>
@@ -573,20 +579,22 @@ and applies the doc-side fixes the maintainer accepts.</p></td>
 </tbody>
 </table>
 </div>
-<p>In Codex the same eight are <code class="docutils literal notranslate"><span class="pre">$design-philosophy</span></code>, <code class="docutils literal notranslate"><span class="pre">$contribute</span></code>,
-<code class="docutils literal notranslate"><span class="pre">$pre-commit</span></code>, <code class="docutils literal notranslate"><span class="pre">$release</span></code>, <code class="docutils literal notranslate"><span class="pre">$build-interview</span></code>, <code class="docutils literal notranslate"><span class="pre">$panel</span></code>,
+<p>In Codex the same nine are <code class="docutils literal notranslate"><span class="pre">$design-philosophy</span></code>, <code class="docutils literal notranslate"><span class="pre">$contribute</span></code>,
+<code class="docutils literal notranslate"><span class="pre">$pre-commit</span></code>, <code class="docutils literal notranslate"><span class="pre">$release</span></code>, <code class="docutils literal notranslate"><span class="pre">$install</span></code>, <code class="docutils literal notranslate"><span class="pre">$upstream-scout</span></code>, <code class="docutils literal notranslate"><span class="pre">$panel</span></code>,
 <code class="docutils literal notranslate"><span class="pre">$housekeeping</span></code>, and <code class="docutils literal notranslate"><span class="pre">$doc-sync</span></code>.</p>
 <p>The skills route to each other: <code class="docutils literal notranslate"><span class="pre">/osprey:contribute</span></code> hands a standalone
 validation run to <code class="docutils literal notranslate"><span class="pre">/osprey:pre-commit</span></code> and a release to <code class="docutils literal notranslate"><span class="pre">/osprey:release</span></code>;
 <code class="docutils literal notranslate"><span class="pre">/osprey:release</span></code> runs <code class="docutils literal notranslate"><span class="pre">/osprey:housekeeping</span></code> and <code class="docutils literal notranslate"><span class="pre">/osprey:doc-sync</span></code> as
-advisory steps before the release-notes PR, and <code class="docutils literal notranslate"><span class="pre">/osprey:housekeeping</span></code> hands
-doc-page items to <code class="docutils literal notranslate"><span class="pre">/osprey:doc-sync</span></code>.</p>
+advisory steps before the release-notes PR, <code class="docutils literal notranslate"><span class="pre">/osprey:housekeeping</span></code> hands
+doc-page items to <code class="docutils literal notranslate"><span class="pre">/osprey:doc-sync</span></code>, <code class="docutils literal notranslate"><span class="pre">/osprey:install</span></code> launches
+<code class="docutils literal notranslate"><span class="pre">/osprey:upstream-scout</span></code> in the background, and the scout’s branch path hands
+the implementation to <code class="docutils literal notranslate"><span class="pre">/osprey:contribute</span></code>.</p>
 <p>The workflow behind each one is documented on its own page:</p>
 <ul class="simple">
 <li><p><a class="reference internal" href="workflow.html"><span class="doc">Git and GitHub Workflow</span></a> — the contribution journey <code class="docutils literal notranslate"><span class="pre">/osprey:contribute</span></code> follows.</p></li>
 <li><p><a class="reference internal" href="development-setup.html"><span class="doc">Development Setup</span></a> — the checks <code class="docutils literal notranslate"><span class="pre">/osprey:pre-commit</span></code> runs.</p></li>
-<li><p><a class="reference internal" href="../getting-started/osprey-build-interview.html"><span class="doc">Guided Project Setup</span></a> — the deployer-facing
-interview, written for someone standing up a deployment.</p></li>
+<li><p><a class="reference internal" href="../getting-started/osprey-install.html"><span class="doc">Install and Set Up</span></a> — the deployer-facing page,
+written for someone standing up a deployment.</p></li>
 <li><p><a class="reference internal" href="../how-to/web-terminal/panels.html"><span class="doc">Panels</span></a> — the panel contract, with the
 extension seam on <a class="reference internal" href="extending-osprey.html"><span class="doc">Extending Osprey</span></a>.</p></li>
 </ul>
@@ -638,7 +646,7 @@ extension seam on <a class="reference internal" href="extending-osprey.html"><sp
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#install-in-codex">Install in Codex</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-eight-skills">The eight skills</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-nine-skills">The nine skills</a></li>
 </ul>
   </nav></div>
 

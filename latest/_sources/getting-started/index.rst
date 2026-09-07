@@ -65,12 +65,12 @@ By following this comprehensive learning path, you'll have:
       **Outcome:**
       Your first working agent
 
-   .. grid-item-card:: 🎯 3. Guided Build Interview
-      :link: osprey-build-interview
+   .. grid-item-card:: 🎯 3. Install and Set Up
+      :link: osprey-install
       :link-type: doc
       :class-header: bg-success text-white
 
-      Generate a project profile for your own detector, beamline, or accelerator subsystem through a guided conversation.
+      Install OSPREY and set it up for your own detector, beamline, or accelerator subsystem through a guided conversation.
 
       **Outcome:**
       A tailored project for your facility
@@ -115,5 +115,5 @@ By following this comprehensive learning path, you'll have:
    installation
    conceptual-tutorial
    hello-world-tutorial
-   osprey-build-interview
+   osprey-install
    control-assistant
