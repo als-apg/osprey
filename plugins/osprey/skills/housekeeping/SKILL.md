@@ -4,8 +4,10 @@ description: >
   Use when a maintainer wants to know where OSPREY tells its users something that is no
   longer true — before cutting a release, after a long stretch of merges without one, or when
   the generated project, a shipped skill, a runtime message, or a pinned version is suspected
-  of having fallen behind the code. Triggers: "run housekeeping", "check for drift", "what has
-  rotted", "is anything stale", "housekeeping report", "sweep the repo", "what maintainer
+  of having fallen behind the code — or when two shipped presets that are supposed to agree
+  (hello-world and control-assistant) may have drifted apart. Triggers: "run housekeeping",
+  "check for drift", "what has rotted", "is anything stale", "housekeeping report", "sweep the
+  repo", "preset parity", "do the presets still agree", "what maintainer
   chores are outstanding", "pre-release drift check". Prefer it over ad-hoc grepping whenever
   the question is "has anything drifted" rather than "fix this one thing". Doc-page prose is
   not this skill's job; that is osprey:doc-sync.
@@ -39,8 +41,8 @@ a sibling skill's entire output was lost once.
 ## What counts as drift
 
 A promise is any text a person outside this repository reads and believes. OSPREY makes them in
-four places that are not doc pages, and each is one lane. Drift is any gap between a promise
-and reality.
+five places that are not doc pages, and each is one lane. Drift is any gap between a promise
+and reality — or, in lane E, between two promises that ship as a set.
 
 ```
    lane   the promise                                  reality
@@ -56,7 +58,31 @@ and reality.
             (CLI output, errors, banners,
              stamped headers in written files)
     D     pinned versions in source          ←→        what is current out in the world
+    E     the shipped preset family          ←→        each other, and the app
+            (profiles/presets/*.yml and                templates they select
+             the templates/apps/ trees)
 ```
+
+Lane E is the odd one: both sides are text that ships, and neither of them is the code. The
+presets are a family rather than a list — `hello-world` is the deliberate teaching subset of
+`control-assistant`, and says so in its own comments — and each preset also owes agreement to
+the app template it selects.
+
+It rots unseen for a precise reason, and knowing it tells you where to look. Each preset's
+*resolved* content is hash-pinned, so changing a value is a deliberate, deploy-visible event
+that a test makes someone acknowledge. Comments are not resolved content, so they do not move
+that hash: every claim a preset makes in prose is invisible to the entire suite. The failure
+this produces is a commit that correctly updates a list, correctly updates the pinned digest,
+and leaves the sentence four lines above it describing the old list. Provider parity and the
+config-drift hook are pinned separately; do not re-check those. What is unguarded is the prose:
+a header comment that counts its own hooks, a cross-reference to a sibling that no longer holds,
+and a change that lands in a preset and its app bundle but not in that bundle's own README or
+`config.yml.j2`. Check the subset relation in the direction that matters — a hook or rule
+`hello-world` carries that `control-assistant` lacks inverts the teaching relationship, and is a
+finding rather than a curiosity. An omission the preset explains in a comment is not drift; an
+omission nothing accounts for is. The same self-counting claims are repeated on the tutorial
+page that teaches the preset; those belong to doc-sync, so hand them over rather than verify
+them here.
 
 Doc pages under `docs/source/` are **osprey:doc-sync**'s territory, including a doc page that
 documents a dead CLI flag. If a lane trips over one, note it under "handed to doc-sync" and
@@ -81,6 +107,7 @@ unresolved`. An unresolved anchor is not an obstacle, it is the first finding, f
 | console-script entry in `pyproject.toml` | the CLI root |
 | `src/osprey/templates/` | what becomes a user's generated project |
 | `plugins/osprey/skills/` | the skills that ship to facilities |
+| `src/osprey/profiles/presets/` | the preset family lane E compares |
 | `tests/docs/` | where accepted findings become guards |
 | `git describe --tags --abbrev=0 --match 'v*'` | the baseline release tag |
 | `.claude/housekeeping/decisions.md` | past rulings |
@@ -103,7 +130,7 @@ because a tag is the moment that text goes public.
 
 ### 2. Hunt in parallel, file-mediated
 
-Fan out with the Agent tool, one agent per lane, four in all. Prefer a read-only agent type; an instruction can be disregarded, a missing tool cannot.
+Fan out with the Agent tool, one agent per lane, five in all. Prefer a read-only agent type; an instruction can be disregarded, a missing tool cannot.
 Give each the same brief: find where this surface disagrees with the code, prove it, return few
 findings.
 
@@ -131,6 +158,9 @@ tally. The scratch directory survives the runner; a mental note does not.
   another; token-level grep gives noise at about forty percent.
 - **Follow a verb-string grep with a grep on the underlying function name**, or a literal search
   manufactures a false positive.
+- **Count what a comment counts.** A preset that describes its own contents ("a mock control
+  system, eleven hooks, and no containers") is making a claim that is checked by parsing the
+  file and counting, never by reading the sentence and believing it.
 - **If you cannot write the fix, it is not a finding.** It is a complaint. Drop it.
 
 ### 4. Filter against past decisions
@@ -171,7 +201,7 @@ skill.
 
 ## Budget
 
-Four lanes, more only when the maintainer asks for a deeper look at one surface. Several narrow
+Five lanes, more only when the maintainer asks for a deeper look at one surface. Several narrow
 agents beat one that tries to hold the whole repo. Stop when findings stop being
 interesting rather than at a count: past roughly the eighth finding a report is skimmed, and a
 skimmed report is no report. Under-reporting is the safer error.
