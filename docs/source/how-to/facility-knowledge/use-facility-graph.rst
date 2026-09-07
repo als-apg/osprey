@@ -50,6 +50,16 @@ which devices share a PV.
 What the graph holds, how its names are spelled, and what each of the four
 tools returns are in :doc:`/reference/contracts/facility-graph`.
 
+.. note::
+
+   **The store's first start needs egress.** Its image ships the APOC plugin
+   inside and moves it into place, but not ``n10s`` — the entrypoint downloads
+   that jar from GitHub the first time the store comes up, and it is the
+   plugin that imports the Turtle corpus. There is no configuration key for
+   this: a disconnected site brings the store up once on a host that can reach
+   GitHub, or copies the jar into the plugins volume by hand, after which the
+   volume carries it and later starts need nothing.
+
 
 Read-Only by Construction
 =========================

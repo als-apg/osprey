@@ -483,6 +483,28 @@ Step 8 — Build the project
 
    osprey build
 
+.. note::
+
+   **On a restricted network, read this before you run it.** ``osprey build``
+   and the first ``osprey up`` fetch from the public internet: base images and
+   Debian packages, the agent CLI from npm, OSPREY and its dependencies from
+   PyPI, the web UI's assets from a CDN, the search sidecar's models from
+   Hugging Face, and — at the graph store's first start — a Neo4j plugin from
+   GitHub. Each has a knob or a workaround, on its own page:
+
+   * a proxy, an internal package index, and a CA for a proxy that re-signs
+     TLS: :doc:`deploy-project/project-image` (the ``images.*`` build args
+     ``osprey up`` passes) and :doc:`deploy-project/env-chain` (the proxy names
+     the containers themselves are handed);
+   * web assets bundled into the image instead of served from a CDN: the
+     top-level ``offline`` key, also on :doc:`deploy-project/project-image`;
+   * images pulled from your own registry rather than built here:
+     :ref:`deployment-prebuilt-images`;
+   * the search sidecar's models, staged on the host:
+     :ref:`deployment-qmd-prefetched-models`;
+   * the graph store's plugin, which has no knob — see
+     :doc:`facility-knowledge/use-facility-graph`.
+
 ``osprey build`` walks up to the repository's ``profile.yml`` and renders
 ``build/`` from it, from whichever directory inside the repository you run it.
 Watch for these lines in the output:
