@@ -11,7 +11,7 @@
   ----------------------------------------------------------------------------
 
     facility_prefix: str
-      `facility.prefix` from the deployed project's config (e.g. "als"). Used for
+      `facility.prefix` from the deployed project's config (e.g. "ex"). Used for
       container_name (`<prefix>-web-<user>`, `<prefix>-nginx`) only — the
       per-user agent-data mount path comes from each service's own
       `container_agent_data_dir` (below), not this field, so a persona-resolved
@@ -181,7 +181,7 @@
 
     landing_url: str, required when `services` is non-empty
       The fully-qualified origin browsers use to reach nginx, e.g.
-      "http://als-deploy.lbl.gov:10000" (scheme + deploy host + nginx_port, no
+      "https://osprey.example.org:10000" (scheme + deploy host + nginx_port, no
       trailing slash). Passed to every per-user service as
       OSPREY_TERMINAL_LANDING_URL so the in-app logout control has a target.
       This can't be computed the way nginx.conf.j2 computes its targets (from
@@ -302,7 +302,7 @@
       set, spelled by personas.access_wire_value() for the sidecar to parse
       back: "" for an owner-only entry, the literal `any` for the whole
       roster, else a compact sorted JSON array of the members
-      (`["domain:lbl.gov"]`, `["self","user:carol@lbl.gov"]`). One
+      (`["domain:example.org"]`, `["self","user:carol@example.org"]`). One
       OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>=<value> line is emitted per entry
       whose value is non-empty; an owner-only entry emits no line at all, and
       the sidecar resolves an absent variable as owner-only. Emitted under
@@ -843,8 +843,8 @@ services:
    (personas.access_wire_value(), off the set personas.resolve_access_principals()
    read from the roster): the literal `any` for the whole roster, byte-identical
    to what this line has always emitted for `access: any`, and otherwise a
-   compact sorted JSON array of the principals — `["domain:lbl.gov"]`,
-   `["self","user:carol@lbl.gov"]`. Spelled render-side rather than here
+   compact sorted JSON array of the principals — `["domain:example.org"]`,
+   `["self","user:carol@example.org"]`. Spelled render-side rather than here
    because the sidecar parses it back, and one speller and one parser is what
    keeps the set this deployment ADMITS ON identical to the set its roster
    AUTHORED. A fixed token here would hand a `domain:` card to every login.
