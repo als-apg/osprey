@@ -104,9 +104,12 @@ OVER_BUDGET_REASON = "attachments exceed the total size budget; this file was no
 
 # The note flagged onto a prior-artifact descriptor whose bytes could not be brought
 # back (404 / swept / over budget / network). It rides in the outgoing
-# ``conversation_so_far``; trigger prompts key on this EXACT phrase to tell the user
-# the file is no longer available rather than silently retrying. Never fatal — a
-# flagged descriptor is skipped, not dropped.
+# ``conversation_so_far``, which lands in the dispatch body the agent is handed, so
+# the agent can say the file is no longer available instead of pretending to look at
+# it. Prose for a reader, not a token: nothing matches on the wording, and no shipped
+# trigger prompt mentions it. Never fatal — a flagged descriptor is skipped, not
+# dropped. The payload it rides in is documented at
+# docs/source/reference/contracts/bridge-dispatch.rst.
 EXPIRED_NOTE = "may have expired"
 
 # Belt-and-suspenders mirror of ``HistoryStore.MAX_ARTIFACTS_PER_TURN``: the store
