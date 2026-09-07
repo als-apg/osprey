@@ -27,7 +27,7 @@ Facility Adapters
 
 Every logbook system has its own API, data format, and naming conventions. Facility adapters encapsulate these differences behind a uniform interface so that the rest of ARIEL --- storage, enhancement, search --- never needs to know where the data came from. Each adapter connects to one source system, fetches entries within an optional time range, and yields them as ``EnhancedLogbookEntry`` TypedDicts that the repository can store directly. All adapters inherit from ``FacilityAdapter`` and implement two required members --- a source-system name and an entry generator. Writing one for a logbook Osprey does not ship is a developer task: the base class, the registration and the test that pins them are the ARIEL seam in :doc:`/contributing/extending-osprey`.
 
-Adapters are discovered through Osprey's central registry. The framework ships with the following built-in adapters:
+Adapters are discovered through Osprey's central registry. The built-in ones below are the logbooks contributed so far, not a list of the systems Osprey supports --- a logbook that is not here needs an adapter, not a change to ARIEL:
 
 .. list-table::
    :header-rows: 1
@@ -38,13 +38,13 @@ Adapters are discovered through Osprey's central registry. The framework ships w
      - Description
    * - **ALS eLog**
      - ``als_logbook``
-     - Production adapter for the Advanced Light Source electronic logbook. Supports JSONL file and HTTP API modes with SOCKS proxy, time-windowed chunked requests, retry with backoff, and entry deduplication.
+     - The one production adapter. Supports JSONL file and HTTP API modes with SOCKS proxy, time-windowed chunked requests, retry with backoff, and entry deduplication.
    * - **JLab Logbook**
      - ``jlab_logbook``
-     - Schema-ready prototype for Jefferson Lab. Parses JLab JSON format into the common schema but does not yet implement the facility's native API protocol.
+     - Schema-ready prototype. Parses its logbook's JSON format into the common schema but does not yet implement that system's native API protocol.
    * - **ORNL Logbook**
      - ``ornl_logbook``
-     - Schema-ready prototype for Oak Ridge National Laboratory. Parses ORNL JSON format into the common schema but does not yet implement the facility's native API protocol.
+     - Schema-ready prototype. Parses its logbook's JSON format into the common schema but does not yet implement that system's native API protocol.
    * - **Generic JSON**
      - ``generic_json``
      - Reads from a JSON file with flexible field mapping. Useful for demos, testing, and facilities without a custom API.
