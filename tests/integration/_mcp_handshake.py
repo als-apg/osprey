@@ -26,6 +26,13 @@ def _drain(stream, queue: Queue) -> None:
     stream.close()
 
 
+#: How many times the inactivity budget a whole handshake may take before it is
+#: abandoned regardless of how chatty the server is. The inactivity budget below
+#: is the real liveness check; this only bounds the pathological case of a server
+#: that talks forever and answers nothing.
+_HARD_TIMEOUT_FACTOR = 6.0
+
+
 def list_mcp_tools(
     command: str,
     args: list[str],
@@ -37,6 +44,15 @@ def list_mcp_tools(
     Sends JSON-RPC initialize, notifications/initialized, then tools/list,
     one frame per line. Reads stdout line-by-line, ignoring lines that do
     not parse as JSON-RPC (servers may emit log lines).
+
+    ``timeout`` is an **inactivity** budget, not a total one: it is the longest
+    the server may go without writing anything at all. A total budget measures
+    the machine rather than the server — these servers import the framework in
+    the child process, which is seconds of work on an idle box and much more on
+    one running the rest of the suite in parallel, so a wall-clock deadline
+    started before the import turns a busy CI runner into a red test. Silence is
+    the honest signal for a server that will never answer, and it is unaffected
+    by load. :data:`_HARD_TIMEOUT_FACTOR` bounds the remaining pathological case.
 
     Raises MCPHandshakeError on spawn failure, timeout, or protocol error.
     """
@@ -62,29 +78,55 @@ def list_mcp_tools(
     threading.Thread(target=_drain, args=(proc.stdout, stdout_q), daemon=True).start()
     threading.Thread(target=_drain, args=(proc.stderr, stderr_q), daemon=True).start()
 
+    #: Everything the server has written to stderr so far. Drained continuously
+    #: rather than only on failure, because stderr traffic is what proves the
+    #: server is still making progress.
+    stderr_seen: list[str] = []
+
     def _send(msg: dict) -> None:
         assert proc.stdin is not None
         proc.stdin.write(json.dumps(msg) + "\n")
         proc.stdin.flush()
 
-    def _recv(target_id: int, deadline: float) -> dict:
+    def _drain_stderr() -> bool:
+        """Move whatever stderr has produced into the buffer; True if any."""
+        drained = _collect(stderr_q)
+        if drained:
+            stderr_seen.append(drained)
+            return True
+        return False
+
+    def _recv(target_id: int, hard_deadline: float) -> dict:
         import time
 
+        last_activity = time.monotonic()
         while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
+            now = time.monotonic()
+            if now >= hard_deadline:
+                _drain_stderr()
                 raise MCPHandshakeError(
-                    f"timeout waiting for id={target_id}; stderr: {_collect(stderr_q)[:600]}"
+                    f"gave up waiting for id={target_id}: the server kept writing for the "
+                    f"whole {timeout * _HARD_TIMEOUT_FACTOR:g}s handshake budget without "
+                    f"replying; stderr: {''.join(stderr_seen)[-600:]}"
+                )
+            if now - last_activity >= timeout:
+                raise MCPHandshakeError(
+                    f"timeout waiting for id={target_id}: no output for {timeout:g}s; "
+                    f"stderr: {''.join(stderr_seen)[-600:]}"
                 )
             if proc.poll() is not None:
+                _drain_stderr()
                 raise MCPHandshakeError(
                     f"server exited rc={proc.returncode} before responding to id={target_id}; "
-                    f"stderr: {_collect(stderr_q)[:600]}"
+                    f"stderr: {''.join(stderr_seen)[-600:]}"
                 )
+            if _drain_stderr():
+                last_activity = time.monotonic()
             try:
-                line = stdout_q.get(timeout=min(0.25, remaining))
+                line = stdout_q.get(timeout=0.25)
             except Empty:
                 continue
+            last_activity = time.monotonic()
             line = line.strip()
             if not line:
                 continue
@@ -99,7 +141,7 @@ def list_mcp_tools(
 
     import time
 
-    deadline = time.monotonic() + timeout
+    deadline = time.monotonic() + timeout * _HARD_TIMEOUT_FACTOR
 
     try:
         _send(
