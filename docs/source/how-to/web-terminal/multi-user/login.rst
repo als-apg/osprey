@@ -119,7 +119,7 @@ A login matches when the asserted claim equals the card's ``oidc_subject``.
 The comparison is exact for every claim except ``email``, which is compared
 case-insensitively: an address is the same mailbox in any case, and an
 identity provider is free to release the directory's spelling
-(``THellert@lbl.gov``) where the roster says ``thellert@lbl.gov``. ``sub`` is
+(``Alice@example.org``) where the roster says ``alice@example.org``. ``sub`` is
 an opaque, case-sensitive identifier by specification and stays exact.
 
 Under ``password`` or ``oidc`` a small authentication service joins the stack

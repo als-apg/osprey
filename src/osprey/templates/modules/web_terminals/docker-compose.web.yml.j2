@@ -34,7 +34,7 @@
       "display_name": str | None, "panel_env": list,
       **allocate_ports(base_ports, index)}`:
         {
-          "user": str,                  # bare username, e.g. "thellert"
+          "user": str,                  # bare username, e.g. "alice"
           "image": str,                 # resolved by resolve_personas() -> per-svc `image:`
           "project": str,               # resolved by resolve_personas() (not read by this template)
           "container_project_dir": str, # resolved by resolve_personas(); the in-container
