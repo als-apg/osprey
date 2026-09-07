@@ -807,7 +807,7 @@ FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
             "Delegate to this agent when the user needs lattice/optics quantities "
             "computed from the accelerator model (orbit, tunes, beta functions, "
             "dispersion, response matrices) — it writes and executes pyAT code "
-            "against the simulated ALS-U AR ring."
+            "against the deployment's configured lattice model."
         ),
         # Its only compute path is mcp__python__execute (read-only kernels), so
         # it must keep that tool even in a writes-disabled (read-only) persona.

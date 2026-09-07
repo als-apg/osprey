@@ -1,6 +1,6 @@
 {% if "pyat-specialist" in enabled_agents %}---
 name: pyat-specialist
-description: "Delegate to this agent when the user needs lattice/optics quantities computed from the accelerator model (orbit, tunes, beta functions, dispersion, response matrices) — it writes and executes pyAT code against the simulated ALS-U AR ring."
+description: "Delegate to this agent when the user needs lattice/optics quantities computed from the accelerator model (orbit, tunes, beta functions, dispersion, response matrices) — it writes and executes pyAT code against the deployment's configured lattice model."
 summary: Computes lattice/optics quantities by writing and executing pyAT code on the simulated ring
 model: {{ claude_code_model_spec.agent_tier("pyat-specialist") if claude_code_model_spec is defined and claude_code_model_spec else "sonnet" }}
 maxTurns: 30

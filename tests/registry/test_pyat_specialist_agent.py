@@ -19,6 +19,7 @@ All template assertions pin what the artifacts actually contain (truthful pins).
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 
@@ -28,6 +29,19 @@ from osprey.registry.mcp import FRAMEWORK_AGENTS, resolve_agents, resolve_server
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+#: Where the shipped subagent files live, so the frontmatter pin reads the
+#: same file the build renders rather than a copy of its text.
+AGENT_TEMPLATE_ROOT = (
+    Path(__file__).resolve().parents[2]
+    / "src"
+    / "osprey"
+    / "templates"
+    / "claude_code"
+    / "claude"
+    / "agents"
+)
 
 
 def _base_ctx(**overrides):
@@ -63,6 +77,30 @@ class TestPyatSpecialistAgentCatalog:
     def test_description_is_non_empty(self):
         adef = FRAMEWORK_AGENTS["pyat-specialist"]
         assert adef.description
+
+    def test_the_description_names_no_particular_machine(self):
+        """This sentence is rendered into every persona's prompt, everywhere.
+
+        It is the framework speaking about a framework agent, so it can only
+        say what the agent computes against — the lattice model this
+        deployment configured. Naming the ring the shipped demo data happens
+        to hold tells an operator at any other facility that the answer came
+        from someone else's machine.
+        """
+        description = FRAMEWORK_AGENTS["pyat-specialist"].description
+        assert "the deployment's configured lattice model" in description
+        assert "ALS" not in description
+
+    def test_the_shipped_agent_file_repeats_the_registry_description(self):
+        """One sentence, two spellings — the frontmatter and the registry.
+
+        The agent file's `description:` is what Claude Code itself reads when
+        choosing a subagent; the registry's is what the roster in CLAUDE.md
+        renders. Drift between them is invisible until an operator compares
+        two prompts, so it is pinned instead.
+        """
+        template = (Path(AGENT_TEMPLATE_ROOT) / "pyat-specialist.md.j2").read_text(encoding="utf-8")
+        assert FRAMEWORK_AGENTS["pyat-specialist"].description in template
 
     def test_server_dependency_is_python(self):
         """pyat-specialist computes via mcp__python__execute — it needs the python server."""
