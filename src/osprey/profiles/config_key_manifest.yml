@@ -1783,8 +1783,10 @@ keys:
     evidence: 'get_config_value\("web\.feedback\.email", None\)'
     note: >-
       Read with a None sentinel for the same reason as
-      `web.feedback.github_repo` — see that entry.
-    default: thellert@lbl.gov
+      `web.feedback.github_repo` — see that entry. Blank ships no Email
+      channel at all: the prefilled draft can carry a session's scrollback,
+      and only the deployment's owner can say which mailbox may receive it.
+    default: ''
   web.feedback.owner:
     # Documented in every template that carries a `web:` block as a commented
     # example, never rendered as a live key: the shipped destination is the
