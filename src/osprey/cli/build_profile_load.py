@@ -985,6 +985,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             facility_name=dispatch_raw.get("facility_name", ""),
             pv_strip_prefix=dispatch_raw.get("pv_strip_prefix", ""),
             network=dispatch_raw.get("network", "bridge"),
+            env=dispatch_raw.get("env", []),
         )
 
     bluesky_raw = raw.get("bluesky")

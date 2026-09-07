@@ -493,9 +493,13 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
        both in ``deployed_services``.
     4. Print a post-build hint (dashboard URL + sample curl + image prerequisite).
 
-    The pair shares one network: ``dispatch.network`` is written into BOTH
-    service configs, since a dispatcher on the compose bridge and workers on the
-    host network could not reach each other. On the host network the addresses
+    The pair shares one network and one env passthrough: ``dispatch.network``
+    and ``dispatch.env`` are written into BOTH service configs — the first
+    because a dispatcher on the compose bridge and workers on the host network
+    could not reach each other, the second because the two halves are one
+    feature reading one deployment's environment. Neither is authorable on a
+    half: profile validation refuses that spelling, because this function
+    rewrites both blocks wholesale. On the host network the addresses
     the build emits change with it — the dispatcher reaches a worker at
     ``localhost``, not at a compose DNS name — so step 1a also rewrites the
     copied triggers file's ``dispatch_target``, and the worker's per-index port
@@ -622,6 +626,11 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
         # container runtime auto-creates an empty directory at the mount source).
         "additional_dirs": [{"src": "triggers.yml", "dst": "triggers.yml"}],
     }
+    # The env passthrough, written into both halves from the one profile knob.
+    # Written only when the profile declares names: with the axis unset,
+    # config.yml is byte-for-byte what it was before the knob existed, and the
+    # templates' macro renders nothing.
+    declared_env = [name for name in (dispatch.env or []) if isinstance(name, str)]
     worker_config: dict[str, Any] = {
         "path": "./services/dispatch_worker",
         "worker_count": dispatch.worker_count,
@@ -630,6 +639,9 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
         "timeout_sec": dispatch.timeout_sec,
         "inactivity_sec": dispatch.inactivity_sec,
     }
+    if declared_env:
+        dispatcher_config["env"] = list(declared_env)
+        worker_config["env"] = list(declared_env)
     if on_host_network:
         # One profile knob, both halves: the compose templates read the mode off
         # their own service block, so the single ``dispatch.network`` value is
