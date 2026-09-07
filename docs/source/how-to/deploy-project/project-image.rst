@@ -291,6 +291,8 @@ tool's default and the build behaves exactly as before.
    exported here, they cover the host-side build, which reads them from the
    shell rather than from the deployment's env files.
 
+.. _deployment-qmd-prefetched-models:
+
 Prefetched Models for the Search Sidecar
 ========================================
 
