@@ -637,3 +637,78 @@ def test_device_page_size_stops_at_the_bridge(tmp_path: Path) -> None:
 
     queueserver = rendered["services"]["queueserver"]
     assert "BLUESKY_DEVICE_PAGE_SIZE" not in (queueserver["environment"] or {})
+
+
+# ---------------------------------------------------------------------------
+# Settle budget and tolerance through the rendered compose file.
+#
+# Same omit-when-EQUALS-DEFAULT contract as the page size, and the mirror
+# image of where it lands: `ConnectorSettable` is built by the RE Manager's
+# worker, so these two reach the queueserver and stop there.
+# ---------------------------------------------------------------------------
+
+
+def test_settle_keys_round_trip_through_compose(tmp_path: Path) -> None:
+    """Authored settle keys reach the worker under the names the device reads."""
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_bluesky(BlueskyConfig(settle_timeout_s=30.0, settle_tolerance=0.001), project_path)
+    config = _read_config(project_path)
+    rendered = _render_copied_compose(project_path, config)
+
+    queueserver = rendered["services"]["queueserver"]
+    assert queueserver["environment"]["BLUESKY_SETTLE_TIMEOUT_S"] == "30.0"
+    assert queueserver["environment"]["BLUESKY_SETTLE_TOLERANCE"] == "0.001"
+
+
+def test_default_settle_keys_omit_the_env(tmp_path: Path) -> None:
+    """An unauthored budget or tolerance renders neither key anywhere at all."""
+    import yaml as pyyaml
+
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_bluesky(BlueskyConfig(), project_path)
+    config = _read_config(project_path)
+    text = pyyaml.safe_dump(_render_copied_compose(project_path, config))
+
+    assert "BLUESKY_SETTLE_TIMEOUT_S" not in text
+    assert "BLUESKY_SETTLE_TOLERANCE" not in text
+
+
+def test_zero_settle_tolerance_reaches_the_worker(tmp_path: Path) -> None:
+    """Zero is an authored tolerance, not an absent one, and must be rendered.
+
+    A demand that has to match its readback exactly is spelled ``0``; the
+    profile parser accepts it and the device's reader accepts it, so the render
+    has to carry it. A falsy guard in the template would drop the line and
+    leave the worker on its own default instead.
+    """
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_bluesky(BlueskyConfig(settle_tolerance=0.0), project_path)
+    config = _read_config(project_path)
+    rendered = _render_copied_compose(project_path, config)
+
+    queueserver = rendered["services"]["queueserver"]
+    assert queueserver["environment"]["BLUESKY_SETTLE_TOLERANCE"] == "0.0"
+
+
+def test_settle_keys_stop_at_the_worker(tmp_path: Path) -> None:
+    """The bridge never drives a device, so it is handed neither key."""
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_bluesky(BlueskyConfig(settle_timeout_s=30.0, settle_tolerance=0.001), project_path)
+    config = _read_config(project_path)
+    rendered = _render_copied_compose(project_path, config)
+
+    bridge = rendered["services"]["bluesky-bridge"]["environment"] or {}
+    assert "BLUESKY_SETTLE_TIMEOUT_S" not in bridge
+    assert "BLUESKY_SETTLE_TOLERANCE" not in bridge

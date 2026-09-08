@@ -97,6 +97,8 @@ def test_every_valid_key_is_accepted_and_read() -> None:
             "excluded_plans": ["orm"],
             "devices_file": "data/facility_devices.yml",
             "device_page_size": 250,
+            "settle_timeout_s": 30.0,
+            "settle_tolerance": 0.001,
         },
     }
 
@@ -111,6 +113,8 @@ def test_every_valid_key_is_accepted_and_read() -> None:
         excluded_plans=["orm"],
         devices_file="data/facility_devices.yml",
         device_page_size=250,
+        settle_timeout_s=30.0,
+        settle_tolerance=0.001,
     )
 
 
@@ -146,6 +150,49 @@ def test_device_page_size_accepts_one() -> None:
 
     assert profile.bluesky is not None
     assert profile.bluesky.device_page_size == 1
+
+
+def test_settle_keys_default_when_unstated() -> None:
+    """Unstated settle keys take the dataclass defaults the bridge falls back to."""
+    profile = _parse_profile({"name": "x", "data": "data", "bluesky": {}})
+
+    assert profile.bluesky is not None
+    assert profile.bluesky.settle_timeout_s == BlueskyConfig.settle_timeout_s
+    assert profile.bluesky.settle_tolerance == BlueskyConfig.settle_tolerance
+
+
+@pytest.mark.parametrize("value", [0, -1.0, True, "abc"])
+def test_settle_timeout_rejects_a_value_that_is_not_a_positive_number(value: Any) -> None:
+    """A zero or negative budget would abort every move that needs one poll."""
+    with pytest.raises(BuildProfileError) as excinfo:
+        _parse_profile({"name": "x", "data": "data", "bluesky": {"settle_timeout_s": value}})
+
+    message = str(excinfo.value)
+    assert "bluesky.settle_timeout_s" in message
+    assert repr(value) in message
+
+
+@pytest.mark.parametrize("value", [-1e-9, True, "abc"])
+def test_settle_tolerance_rejects_a_value_that_is_not_a_non_negative_number(value: Any) -> None:
+    """A negative tolerance can never be met, so it turns every move into a timeout."""
+    with pytest.raises(BuildProfileError) as excinfo:
+        _parse_profile({"name": "x", "data": "data", "bluesky": {"settle_tolerance": value}})
+
+    message = str(excinfo.value)
+    assert "bluesky.settle_tolerance" in message
+    assert repr(value) in message
+
+
+def test_settle_keys_read_an_authored_integer_as_a_float() -> None:
+    """`settle_timeout_s: 30` is a number, and reaches the config typed as one."""
+    profile = _parse_profile(
+        {"name": "x", "data": "data", "bluesky": {"settle_timeout_s": 30, "settle_tolerance": 0}}
+    )
+
+    assert profile.bluesky is not None
+    assert profile.bluesky.settle_timeout_s == 30.0
+    assert isinstance(profile.bluesky.settle_timeout_s, float)
+    assert profile.bluesky.settle_tolerance == 0.0
 
 
 # ── unknown keys are rejected ────────────────────────────────────────────────
