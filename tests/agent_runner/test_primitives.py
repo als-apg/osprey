@@ -116,6 +116,25 @@ def test_unresolvable_provider_raises(tmp_path: Path) -> None:
         provider_env_for_project(tmp_path)
 
 
+def test_the_no_provider_error_names_the_key_the_operator_sets(tmp_path: Path) -> None:
+    """The remedy has to be one an operator can carry out.
+
+    This branch fires when the key is unset, so it names that key and the file
+    it is set in — not a five-name provider list (an *unknown* name gets the
+    registry-derived union elsewhere) and not a test-only helper.
+    """
+    (tmp_path / "config.yml").write_text("api:\n  providers: {}\n")
+
+    with pytest.raises(RuntimeError) as excinfo:
+        provider_env_for_project(tmp_path)
+
+    message = str(excinfo.value)
+    assert "claude_code.provider" in message
+    assert "profile.yml" in message
+    assert "osprey build" in message
+    assert "init_project" not in message
+
+
 # ---------------------------------------------------------------------------
 # sdk_env composition
 # ---------------------------------------------------------------------------

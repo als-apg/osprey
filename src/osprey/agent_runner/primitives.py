@@ -230,9 +230,9 @@ def provider_env_for_project(project_dir: Path, *, provider: str | None = None) 
     spec = _resolve_project_spec(project_dir, provider=provider)
     if spec is None:
         raise RuntimeError(
-            f"Project at {project_dir} has no resolvable provider in "
-            "config.yml — pass provider=<als-apg|cborg|anthropic|amsc-i2|argo> "
-            "to init_project()."
+            f"Project at {project_dir} has no resolvable provider: its config.yml "
+            "sets no claude_code.provider. Set `provider:` in profile.yml and run "
+            "`osprey build`."
         )
     env: dict[str, str] = dict(spec.env_block)
 
