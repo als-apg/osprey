@@ -658,6 +658,21 @@ services:
 {%- endif %}
     environment:
       - TZ={{ facility_timezone | default("UTC") }}
+      {#- What the login page wears: the deployment's theme id (never rendered
+         CSS — the sidecar resolves the id through the design system, the one
+         producer of palettes) and the facility name shown above the wordmark.
+         Both are guarded: an unset value emits no line and the page keeps its
+         built-in palette and bare wordmark. tojson quotes the WHOLE `KEY=value`
+         as one double-quoted YAML scalar, the same way the per-user containers
+         below carry these two variables: the compose `- KEY=value` list form
+         has no per-value quoting, so a facility name containing a `": "` or a
+         `" #"` would otherwise parse as a mapping or lose its tail. #}
+      {%- if web_theme %}
+      - {{ ("OSPREY_WEB_THEME=" ~ web_theme) | tojson }}
+      {%- endif %}
+      {%- if web_app_name %}
+      - {{ ("OSPREY_WEB_APP_NAME=" ~ web_app_name) | tojson }}
+      {%- endif %}
       {#- The sidecar's audit identity and the directory it writes to. It is one
          service rather than one per user, so the identity is the FIXED name
          `sidecar` (render.AUTH_SIDECAR_AUDIT_IDENTITY) — the users its login and

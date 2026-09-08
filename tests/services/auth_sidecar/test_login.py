@@ -1425,3 +1425,41 @@ def test_a_username_carrying_newlines_cannot_forge_a_log_line(
 
     assert "'mally\\nWARNING forged'" in caplog.text
     assert "\nWARNING forged" not in caplog.text
+
+
+# ── the page wears the deployment ──────────────────────────────────────────
+
+
+def _page_body(env_extra: dict[str, str] | None = None) -> str:
+    """The login page as a browser navigating to it would receive it."""
+    client = _client({**PASSWORD_ENV, **(env_extra or {})})
+    response = client.get(f"{LOGIN_PATH}?user=alice", headers=BROWSER_ACCEPT)
+    assert response.status_code == 200
+    return response.text
+
+
+def test_login_page_wears_the_configured_theme_and_names_the_facility():
+    """The theme id and facility name the terminals behind it already carry."""
+    from osprey.services.auth_sidecar.routes.login import _theme_blocks
+
+    _theme_blocks.cache_clear()
+    body = _page_body({"OSPREY_WEB_THEME": "desy-light", "OSPREY_WEB_APP_NAME": "Example Light"})
+
+    assert '<p class="login-facility">Example Light</p>' in body
+    # A concrete id pins one mode, so the page carries no prefers-color-scheme
+    # block — the marker that the configured value, not the default family,
+    # decided the palette.
+    assert "color-scheme: light" in body
+    assert "prefers-color-scheme" not in body
+
+
+def test_login_page_still_renders_with_neither_set():
+    """Nothing configured: the framework palette and the bare wordmark."""
+    from osprey.services.auth_sidecar.routes.login import _theme_blocks
+
+    _theme_blocks.cache_clear()
+    body = _page_body()
+
+    assert '<p class="login-mark">OSPREY</p>' in body
+    assert '<p class="login-facility"' not in body
+    assert "prefers-color-scheme" in body

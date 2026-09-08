@@ -229,11 +229,14 @@ quietly off-palette.
 """
 
 _DEFAULT_THEME_FAMILY = "main"
-"""Which family's dark/light pair to bake in.
+"""Which family's dark/light pair to bake in when the deployment names none.
 
 The sidecar has no theme setting of its own — it authenticates, it does not
-render terminals — so the login page wears the framework default rather than
-inventing a configuration surface for one page.
+render terminals — so it wears the deployment's ``web.theme``, which reaches it
+as :data:`~osprey.services.auth_sidecar.app.ENV_WEB_THEME` and arrives here as
+``settings.web_theme``. A theme *id* travels, never rendered CSS: the design
+system stays the one producer of palettes, and this route resolves the id
+through it exactly as the landing page one hop earlier does.
 """
 
 _SAFE_CSS_VALUE_RE = re.compile(r"[#A-Za-z0-9 ,.()%/_-]+")
@@ -250,14 +253,18 @@ what would let a value break out of the declaration it was baked into.
 """
 
 
-@lru_cache(maxsize=1)
-def _theme_blocks() -> tuple[dict[str, Any], ...]:
+@lru_cache(maxsize=8)
+def _theme_blocks(configured: str) -> tuple[dict[str, Any], ...]:
     """The design-system token values to bake into the page, resolved once.
 
-    Two blocks, in the shape ``login.html`` and the landing page share: the
-    default family's dark values unconditionally, and its light values behind a
-    ``prefers-color-scheme`` query, so the login page follows the viewer's OS the
-    way the terminals behind it do.
+    The shape ``login.html`` and the landing page share, resolved the same way:
+    a *family* gives two blocks — its dark values unconditionally and its light
+    values behind a ``prefers-color-scheme`` query, so the page follows the
+    viewer's OS the way the terminals behind it do — while a concrete id
+    (``"desy-light"``) pins one block and one mode.
+
+    Args:
+        configured: The deployment's theme value, a family or a concrete id.
 
     Returns:
         Block dicts, or an empty tuple when the token tree cannot be read or
@@ -268,16 +275,24 @@ def _theme_blocks() -> tuple[dict[str, Any], ...]:
     """
     try:
         from osprey.interfaces.design_system.theme_config import (
+            family_of,
             load_theme_registry,
+            resolve_pinned_mode,
+            resolve_theme_id,
             theme_css_variables,
         )
 
-        _, defaults = load_theme_registry()
-        family = defaults[_DEFAULT_THEME_FAMILY]
-        wanted = (
-            (None, "dark", family["dark"]),
-            ("(prefers-color-scheme: light)", "light", family["light"]),
-        )
+        entries, defaults = load_theme_registry()
+        resolved_id = resolve_theme_id(configured, entries, defaults, config_key="web.theme")
+        pinned_mode = resolve_pinned_mode(configured, entries)
+        if pinned_mode is not None:
+            wanted = ((None, pinned_mode, resolved_id),)
+        else:
+            family = defaults[family_of(resolved_id, entries) or _DEFAULT_THEME_FAMILY]
+            wanted = (
+                (None, "dark", family["dark"]),
+                ("(prefers-color-scheme: light)", "light", family["light"]),
+            )
         blocks = []
         for media, color_scheme, theme_id in wanted:
             values = theme_css_variables(theme_id, _THEME_VARIABLES)
@@ -377,6 +392,7 @@ def _page(
     Returns:
         The rendered page.
     """
+    settings = get_settings(request)
     return _templates.TemplateResponse(
         request,
         TEMPLATE_NAME,
@@ -385,7 +401,8 @@ def _page(
             "next": target,
             "error": error,
             "login_path": LOGIN_PATH,
-            "theme_blocks": _theme_blocks(),
+            "theme_blocks": _theme_blocks(settings.web_theme or _DEFAULT_THEME_FAMILY),
+            "app_name": settings.web_app_name,
             "shared": shared,
             "opener": opener,
         },

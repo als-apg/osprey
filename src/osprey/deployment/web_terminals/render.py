@@ -1346,6 +1346,17 @@ def render_web_terminals(
         # only inside the block it already gates on `sidecar_active`,
         # because a deployment with no sidecar service has nothing to mount them
         # into.
+        # What the login page wears. The sidecar sits one hop before the
+        # terminals and had no way to know either, so it fell back to the
+        # framework palette and the bare OSPREY wordmark while everything
+        # behind it carried the deployment's own. The THEME ID travels here,
+        # never rendered CSS: palettes have exactly one producer
+        # (design_system.theme_config), and the sidecar resolves the id through
+        # it the same way the landing page does. Both are emitted
+        # unconditionally and gated in the template, so an unset value emits no
+        # env line and the page keeps its built-in fallbacks.
+        "web_theme": str(as_dict(root.get("web")).get("theme") or ""),
+        "web_app_name": resolve_facility_name(root, ""),
         "auth_audit_identity": AUTH_SIDECAR_AUDIT_IDENTITY,
         "auth_audit_mount_source": _audit_mount_source(AUTH_SIDECAR_AUDIT_IDENTITY),
         "auth_audit_dir": _container_audit_dir(

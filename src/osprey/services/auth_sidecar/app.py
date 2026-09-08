@@ -129,6 +129,17 @@ ENV_USERS = "OSPREY_AUTH_USERS"
 ENV_PW_HASH_PREFIX = "OSPREY_AUTH_PW_HASH_"
 """Per-user stored hash: ``OSPREY_AUTH_PW_HASH_<SUFFIX>``."""
 
+ENV_WEB_THEME = "OSPREY_WEB_THEME"
+ENV_WEB_APP_NAME = "OSPREY_WEB_APP_NAME"
+"""What the login page wears, in the deployment's own vocabulary.
+
+The two names the per-user terminals already read, deliberately reused rather
+than given ``OSPREY_AUTH_`` spellings of their own: they carry the deployment's
+``web.theme`` and facility name, not an auth setting, and a second spelling for
+one page would be a second thing to keep in step. Both are optional — unset
+leaves the login page on the framework palette and shows the wordmark alone.
+"""
+
 ENV_OIDC_ISSUER = "OSPREY_AUTH_OIDC_ISSUER"
 ENV_OIDC_CLIENT_ID_ENV = "OSPREY_AUTH_OIDC_CLIENT_ID_ENV"
 ENV_OIDC_CLIENT_SECRET_ENV = "OSPREY_AUTH_OIDC_CLIENT_SECRET_ENV"
@@ -387,6 +398,12 @@ class AuthSettings:
         oidc_claim: Which ID-token claim carries the identity to map onto a
             roster user.
         oidc_subjects: ``{username: expected claim value}`` from the roster.
+        web_theme: The deployment's ``web.theme`` value — a family or a
+            concrete theme id — for the login page to resolve through the design
+            system. Empty when unset, and the page then wears the framework
+            default.
+        web_app_name: The facility name shown above the login page's wordmark.
+            Empty when the deployment names none.
         roster_access: ``{username: admitted principals}`` for every roster
             user, as :func:`_access_principals` read the entry's
             ``OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>``. :data:`OWNER_ONLY` for the
@@ -412,6 +429,8 @@ class AuthSettings:
     oidc_claim: str = DEFAULT_OIDC_CLAIM
     oidc_subjects: Mapping[str, str] = field(default_factory=dict)
     roster_access: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    web_theme: str = ""
+    web_app_name: str = ""
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> AuthSettings:
@@ -480,6 +499,8 @@ class AuthSettings:
             oidc_claim=(source.get(ENV_OIDC_CLAIM) or "").strip() or DEFAULT_OIDC_CLAIM,
             oidc_subjects=oidc_subjects,
             roster_access=roster_access,
+            web_theme=(source.get(ENV_WEB_THEME) or "").strip(),
+            web_app_name=(source.get(ENV_WEB_APP_NAME) or "").strip(),
         )
 
     def missing_requirements(self) -> tuple[str, ...]:
