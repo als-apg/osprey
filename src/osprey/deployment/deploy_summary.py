@@ -355,8 +355,9 @@ _TERMINAL_FAMILY = "web"
 
 #: The service column of the one row that reports the bands nothing serves.
 #: Public because the tests key on it rather than on its spelling, and because
-#: a reader filtering the entries (the summary card keeps only ``http://``
-#: addresses) should be able to name it rather than pattern-match the text.
+#: a reader filtering the entries (the summary card keeps only the rows whose
+#: address is a URL) should be able to name it rather than pattern-match the
+#: text.
 RESERVED_BANDS_LABEL = "(reserved)"
 
 #: Sort position of that row inside the panels tier. Above every real family
