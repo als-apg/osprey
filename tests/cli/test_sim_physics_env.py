@@ -177,7 +177,10 @@ class TestRenderAndNotice:
         assert "osprey up" in result.output
         # A plain restart reuses the old environment -- the user has to be told
         # that specifically, or they will "restart" and see the old physics.
-        assert "docker restart" in result.output
+        # Said without naming a runtime binary: the notice is printed on hosts
+        # that run podman too.
+        assert "Restarting the container reuses the old environment" in result.output
+        assert "docker" not in result.output
 
     def test_identical_reapply_emits_no_notice(self, tmp_path, monkeypatch):
         project = _make_project(tmp_path)

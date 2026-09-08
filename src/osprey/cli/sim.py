@@ -152,7 +152,9 @@ def _echo_physics_notice(config: dict, rendered: dict[str, str]) -> None:
     else:
         output.report("Cleared the previous scenario's physics fault from .env.")
     output.note("The virtual accelerator reads this only when its container is created.")
-    output.note("Run 'osprey up' to recreate it. 'docker restart' reuses the old environment.")
+    output.note(
+        "Run 'osprey up' to recreate it. Restarting the container reuses the old environment."
+    )
 
 
 def _confirm_archive_rewrite(store: dict) -> None:
