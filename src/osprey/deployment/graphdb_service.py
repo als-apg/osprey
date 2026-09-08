@@ -90,6 +90,7 @@ __all__ = [
     "DEFAULT_PAGECACHE_SIZE",
     "DEFAULT_PASSWORD",
     "DEFAULT_PORT",
+    "DEFAULT_DATABASE",
     "DEFAULT_USERNAME",
     "GRAPHDB_BUILD_INDEX_COMMAND",
     "GRAPHDB_HTTP_PORT_CONFIG_KEY",
@@ -172,6 +173,14 @@ DEFAULT_PAGECACHE_SIZE = "512m"
 #: it. It is a *default* only for an external store reached through an explicit
 #: ``uri``, where the operator names whichever account they provisioned.
 DEFAULT_USERNAME = "neo4j"
+
+#: Database every session is opened against, named explicitly so the driver
+#: skips the home-database lookup round-trip. Like :data:`DEFAULT_USERNAME` this
+#: is a default only for an EXTERNAL store: the shipped Community image serves
+#: exactly one database and this is its name, while an operator whose own
+#: cluster keeps the corpus in a differently-named database says so with
+#: ``services.graphdb.database``.
+DEFAULT_DATABASE = "neo4j"
 
 #: Environment variable both ends of the credential read: the compose service
 #: interpolates it into ``NEO4J_AUTH``, and this module reads it back to dial the
@@ -288,9 +297,10 @@ class GraphdbServiceConfig:
 class GraphdbConnection:
     """Everything needed to open a driver session against the graph store.
 
-    Three fields rather than one DSN string, because that is the shape the neo4j
-    driver actually takes: ``GraphDatabase.driver(uri, auth=(username,
-    password))``. Credentials therefore never enter the URI — no
+    Separate fields rather than one DSN string, because that is the shape the
+    neo4j driver actually takes: ``GraphDatabase.driver(uri, auth=(username,
+    password))``, then ``driver.session(database=...)``. Credentials therefore
+    never enter the URI — no
     ``bolt://user:pass@host`` to leak into a log line, an error message, or a
     ``docker compose`` label. This is the archiver's ``password_env`` split
     rather than the Postgres embedded-DSN one.
@@ -307,11 +317,15 @@ class GraphdbConnection:
         password: The store's password. Not part of ``repr``, so a dataclass that
             lands in a traceback or a debug log does not carry the credential
             with it; it still participates in equality and comparison.
+        database: Database every session is opened against, named explicitly so
+            the driver skips the home-database lookup round-trip. See
+            :data:`DEFAULT_DATABASE`.
     """
 
     uri: str
     username: str
     password: str = field(repr=False)
+    database: str = DEFAULT_DATABASE
 
 
 def resolve_graphdb_service_config(
@@ -544,10 +558,14 @@ def resolve_graphdb_connection(
     """
     section = graphdb_section or {}
 
+    database = _text(section.get("database"), DEFAULT_DATABASE, "services.graphdb.database")
+
     uri = _optional_text(section.get("uri"), "services.graphdb.uri")
     if uri is not None:
         username = _text(section.get("username"), DEFAULT_USERNAME, "services.graphdb.username")
-        return GraphdbConnection(uri=uri, username=username, password=_password(env))
+        return GraphdbConnection(
+            uri=uri, username=username, password=_password(env), database=database
+        )
 
     port = _port(
         (services if services is not None else section).get("port_host"),
@@ -558,6 +576,7 @@ def resolve_graphdb_connection(
         uri=f"bolt://localhost:{port}",
         username=DEFAULT_USERNAME,
         password=_password(env),
+        database=database,
     )
 
 

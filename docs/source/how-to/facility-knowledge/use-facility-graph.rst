@@ -349,6 +349,12 @@ Which differences are refused and which are only reported is set out under
 :ref:`Preset drift, and osprey profile expand <profile-preset-drift>` in the
 profile reference.
 
+If the corpus lives in a database other than ``neo4j`` on that store, name it
+with ``services.graphdb.database``. The store this deployment runs is a
+Community image that serves exactly one database, so the key matters only here:
+it is what every session — the seeder's writes and the agent's reads alike — is
+opened against, so both halves reach the same corpus.
+
 Put that account's password in the project ``.env`` as ``GRAPHDB_PASSWORD``.
 Nothing mints one here — the store belongs to somebody else, so OSPREY starts
 nothing and bootstraps nothing, and it seeds nothing on its own: the corpus is

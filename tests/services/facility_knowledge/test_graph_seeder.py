@@ -755,7 +755,9 @@ class TestLazyNeo4jImport:
     def test_missing_driver_error_names_the_dependency(self, monkeypatch):
         monkeypatch.setitem(sys.modules, "neo4j", None)
         with pytest.raises(ImportError) as excinfo:
-            with graph_seeder.open_session("bolt://localhost:7687", "neo4j", "pw"):
+            with graph_seeder.open_session(
+                "bolt://localhost:7687", "neo4j", "pw", database="neo4j"
+            ):
                 pass  # pragma: no cover
         message = str(excinfo.value)
         assert "neo4j" in message

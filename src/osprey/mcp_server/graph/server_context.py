@@ -103,10 +103,6 @@ DEFAULT_QUERY_MAX_ROWS = 200
 #: trading the one property that makes a down store legible for nothing.
 CONNECTION_TIMEOUT_S = 3.0
 
-#: Database named explicitly on every session so the driver skips the
-#: home-database lookup round-trip. Matches the seeder's ``DEFAULT_DATABASE``.
-DATABASE = "neo4j"
-
 #: Counts the corpus rather than the store's own bookkeeping: ``:Resource`` is
 #: the label neosemantics gives every imported RDF subject, and a bootstrapped
 #: store carries ``_GraphConfig`` and namespace nodes whether or not a corpus was
@@ -446,7 +442,13 @@ class GraphContext:
             raise GraphNotConfigured(_NOT_CONFIGURED_MESSAGE)
 
         cap = self.query_max_rows if max_rows is None else max(1, int(max_rows))
-        driver = self._driver_or_raise()
+        # The connection comes back beside the driver because the database name
+        # is named explicitly on every session, so the driver skips the
+        # home-database lookup round-trip. The name comes off the resolved
+        # connection (`services.graphdb.database`), so the store the seeder
+        # wrote to and the one this reads from cannot be two different
+        # databases.
+        driver, connection = self._driver_or_raise()
 
         from neo4j import unit_of_work
 
@@ -462,7 +464,7 @@ class GraphContext:
             return rows
 
         try:
-            with driver.session(database=DATABASE) as session:
+            with driver.session(database=connection.database) as session:
                 fetched = session.execute_read(_read)
         except Exception as exc:
             raise _map_driver_error(exc) from exc
@@ -560,23 +562,29 @@ class GraphContext:
             )
             self.configured = False
 
-    def _driver_or_raise(self) -> Any:
-        """Return the cached driver, creating it on first use.
+    def _driver_or_raise(self) -> tuple[Any, GraphdbConnection]:
+        """Return the cached driver and the connection it was opened from.
+
+        The connection travels with the driver because a caller that has a
+        driver also needs the database name to open a session on, and the two
+        must come from the same resolution.
 
         Returns:
-            An open neo4j driver. Construction does not dial the store, so a
-            store that is down surfaces on the query rather than here.
+            An open neo4j driver and its resolved connection. Construction does
+            not dial the store, so a store that is down surfaces on the query
+            rather than here.
 
         Raises:
+            GraphNotConfigured: No ``services.graphdb`` block resolved.
             GraphUnreachable: The driver could not be constructed — which for
                 this path means the resolved address is not one it can use.
         """
-        if self._driver is not None:
-            return self._driver
-
         connection = self._connection
         if connection is None:
             raise GraphNotConfigured(_NOT_CONFIGURED_MESSAGE)
+
+        if self._driver is not None:
+            return self._driver, connection
 
         from neo4j import GraphDatabase
 
@@ -591,7 +599,7 @@ class GraphContext:
             raise GraphUnreachable(
                 f"Cannot open a connection to the graph store at {connection.uri}: {_describe(exc)}"
             ) from exc
-        return self._driver
+        return self._driver, connection
 
 
 # ---------------------------------------------------------------------------

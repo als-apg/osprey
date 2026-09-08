@@ -19,7 +19,9 @@ Example::
 
     stubs = seed_from_ttl(Path("/path/to/corpus.ttl"))
 
-    with open_session(conn.uri, conn.username, conn.password) as session:
+    with open_session(
+        conn.uri, conn.username, conn.password, database=conn.database
+    ) as session:
         bootstrap(session)
 """
 

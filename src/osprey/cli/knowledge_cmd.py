@@ -573,7 +573,10 @@ def seed_graph(ttl: Path | None, force: bool) -> None:
 
     try:
         with graph_seeder.open_session(
-            connection.uri, connection.username, connection.password
+            connection.uri,
+            connection.username,
+            connection.password,
+            database=connection.database,
         ) as session:
             if force:
                 graph_seeder.wipe(session)

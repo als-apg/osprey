@@ -52,6 +52,7 @@ from osprey.services.channel_finder.graph_queries import (
 )
 from tests._container_support import start_or_skip, stop_quietly
 from tests._graphdb_container import (
+    GRAPHDB_TEST_DATABASE,
     GRAPHDB_TEST_PASSWORD,
     GRAPHDB_TEST_USERNAME,
     NEO4J_IMAGE,
@@ -157,7 +158,10 @@ def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[str]:
         from osprey.services.facility_knowledge.seeder import graph_seeder
 
         with graph_seeder.open_session(
-            uri, GRAPHDB_TEST_USERNAME, GRAPHDB_TEST_PASSWORD
+            uri,
+            GRAPHDB_TEST_USERNAME,
+            GRAPHDB_TEST_PASSWORD,
+            database=GRAPHDB_TEST_DATABASE,
         ) as session:
             bootstrap = graph_seeder.bootstrap(session)
             assert bootstrap.ok, bootstrap.message
@@ -342,7 +346,9 @@ def _store_state(uri: str) -> tuple[int, str | None]:
     """Read the store's corpus size and seed marker straight off the driver."""
     from osprey.services.facility_knowledge.seeder import graph_seeder
 
-    with graph_seeder.open_session(uri, GRAPHDB_TEST_USERNAME, GRAPHDB_TEST_PASSWORD) as session:
+    with graph_seeder.open_session(
+        uri, GRAPHDB_TEST_USERNAME, GRAPHDB_TEST_PASSWORD, database=GRAPHDB_TEST_DATABASE
+    ) as session:
         return graph_seeder.resource_count(session), graph_seeder.read_marker(session)
 
 

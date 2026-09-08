@@ -475,6 +475,18 @@ keys:
   # qmd's is — every service publishes on the project-wide
   # `deployment.bind_address`, and graphdb reuses that one reading.
     default: 200
+  services.graphdb.database:
+    rendered: false
+    evidence: '_text\(section\.get\("database"\), DEFAULT_DATABASE, "services\.graphdb\.database"\)'
+    note: >-
+      Which database on the store holds the corpus. Hidden like `uri`, and for
+      the same reason: the store this deployment runs is a Community image
+      serving exactly one database, so the key means something only against an
+      EXTERNAL store whose own naming a shipped default could only guess at.
+      Read by `resolve_graphdb_connection` onto `GraphdbConnection.database`,
+      which is the one name both the seeder's sessions and the graph MCP
+      server's reads open against.
+    default: neo4j
   services.graphdb.uri:
     rendered: false
     evidence: '_optional_text\(section\.get\("uri"\), "services\.graphdb\.uri"\)'

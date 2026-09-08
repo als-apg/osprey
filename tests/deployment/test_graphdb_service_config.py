@@ -10,6 +10,7 @@ from osprey.deployment.graphdb_service import (
     CONTAINER_BOLT_PORT,
     CONTAINER_HTTP_PORT,
     DEFAULT_BIND_ADDRESS,
+    DEFAULT_DATABASE,
     DEFAULT_HEAP_INITIAL_SIZE,
     DEFAULT_HEAP_MAX_SIZE,
     DEFAULT_HTTP_PORT,
@@ -497,6 +498,31 @@ class TestConnectionPrecedence:
     def test_connection_blank_username_raises(self, bad: object) -> None:
         with pytest.raises(ValueError, match=r"services\.graphdb\.username"):
             resolve_graphdb_connection({"uri": "bolt://graph.example.org:7687", "username": bad})
+
+    def test_connection_database_defaults_to_the_one_the_shipped_image_serves(self) -> None:
+        """No key, and every session opens against the database OSPREY's own store has."""
+        assert resolve_graphdb_connection({}).database == DEFAULT_DATABASE
+        assert (
+            resolve_graphdb_connection({"uri": "bolt://graph.example.org:7687"}).database
+            == DEFAULT_DATABASE
+        )
+
+    def test_connection_database_is_read_from_the_block(self) -> None:
+        """A facility whose cluster keeps the corpus elsewhere names it once."""
+        resolved = resolve_graphdb_connection(
+            {"uri": "bolt://graph.example.org:7687", "database": "facility"}
+        )
+        assert resolved.database == "facility"
+
+    def test_connection_database_reaches_a_derived_address_too(self) -> None:
+        """The key is about the store, not about how its address was arrived at."""
+        assert resolve_graphdb_connection({"database": "facility"}).database == "facility"
+
+    @pytest.mark.parametrize("bad", ["", "   ", 4, True])
+    def test_connection_blank_database_raises(self, bad: object) -> None:
+        """A half-finished edit refuses rather than silently opening ``neo4j``."""
+        with pytest.raises(ValueError, match=r"services\.graphdb\.database"):
+            resolve_graphdb_connection({"database": bad})
 
     @pytest.mark.parametrize(
         "section",

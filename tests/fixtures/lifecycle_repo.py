@@ -873,6 +873,9 @@ config:
   # GRAPHDB_PASSWORD in this repo's .env yourself.
   # services.graphdb.uri: bolt://graph.example.org:7687
   # services.graphdb.username: neo4j
+  # Which database on that store holds the corpus. The store this deployment
+  # runs serves exactly one, called `neo4j`; a cluster of your own may not.
+  # services.graphdb.database: neo4j
   # Which declared services `osprey up` launches. qmd and graphdb each go
   # together with their `services.<name>.*` keys above: remove both or neither.
   deployed_services:

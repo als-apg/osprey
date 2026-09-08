@@ -5317,7 +5317,10 @@ def _wait_for_graphdb_store(connection, deadline: float) -> None:
     while True:
         try:
             with graph_seeder.open_session(
-                connection.uri, connection.username, connection.password
+                connection.uri,
+                connection.username,
+                connection.password,
+                database=connection.database,
             ) as session:
                 session.run(_GRAPHDB_PING_CYPHER).consume()
                 return
@@ -5361,7 +5364,10 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
     ttl_path = settings.ttl_path if settings is not None else None
 
     with graph_seeder.open_session(
-        connection.uri, connection.username, connection.password
+        connection.uri,
+        connection.username,
+        connection.password,
+        database=connection.database,
     ) as session:
         bootstrapped = graph_seeder.bootstrap(session)
         if not bootstrapped.ok:

@@ -102,10 +102,6 @@ COMMIT_SIZE = 10_000
 #: ``terminationStatus`` value n10s reports for a fully successful import.
 TERMINATION_OK = "OK"
 
-#: Default Neo4j database.  Named explicitly so the driver skips the home-database
-#: lookup round-trip on every session.
-DEFAULT_DATABASE = "neo4j"
-
 #: Label of the singleton node carrying the seeded TTL's sha256.
 SEED_MARKER_LABEL = "_OspreySeed"
 
@@ -275,21 +271,24 @@ def open_session(
     username: str,
     password: str,
     *,
-    database: str = DEFAULT_DATABASE,
+    database: str,
 ) -> Iterator[Session]:
     """Open a driver session against the graph store, closing both on exit.
 
-    Takes the three fields of
+    Takes the four fields of
     :class:`~osprey.deployment.graphdb_service.GraphdbConnection` explicitly
     rather than the dataclass itself, so this module stays free of any
     deployment/config import and can be driven from a test or a script with
-    three literals.
+    four literals.
 
     Args:
         uri: Bolt address to dial, e.g. ``bolt://localhost:7687``.
         username: Account to authenticate as.
         password: That account's password.
-        database: Database to open the session against.
+        database: Database to open the session against, named explicitly so the
+            driver skips the home-database lookup round-trip. Required rather
+            than defaulted: the one place that name is decided is the resolved
+            ``GraphdbConnection``, never a literal restated here.
 
     Yields:
         An open :class:`neo4j.Session`.
