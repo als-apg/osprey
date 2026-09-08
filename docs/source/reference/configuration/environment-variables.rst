@@ -74,6 +74,11 @@ deployment, which is why none of them is a config key.
      - Path to a facility's own component registry module, outranking the
        ``registry_path`` config key. Meant for pointing a container at a
        registry mounted somewhere the config could not have named.
+       ``registry_path`` at the top level of ``config.yml`` is the canonical
+       spelling of that key --- set it in your profile's ``config:`` block ---
+       and ``application.registry_path`` is accepted as an alias. All three
+       resolve through one function, so the registry that loads is the one
+       ``osprey health`` reports on.
    * - ``OSPREY_TERMINAL_BIND_HOST``
      - The address ``osprey web`` binds to, and **authoritative over both
        ``--host`` and the config**. The multi-user compose sets it on every

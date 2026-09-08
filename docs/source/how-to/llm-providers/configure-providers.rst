@@ -407,4 +407,7 @@ The framework automatically:
    config-only entry means nothing to them and a tool call that asks for it
    fails with ``Unknown provider``. Giving an MCP tool server a new provider
    takes code: a provider class registered under that name through a
-   ``ProviderRegistration`` in your application's registry.
+   ``ProviderRegistration`` in your application's registry. That registry file
+   is the one named by ``registry_path`` in the project's ``config.yml`` (set
+   it in your profile's ``config:`` block) or by the ``REGISTRY_PATH``
+   environment variable; see :doc:`/contributing/extending-osprey`.

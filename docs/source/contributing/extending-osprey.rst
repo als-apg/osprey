@@ -19,6 +19,15 @@ code is to hand both to a coding agent and let it draft against them.
 Everything on this page assumes a development checkout --- see
 :doc:`development-setup`.
 
+Each seam's registration lives in your deployment's own registry module, and
+the framework finds that file through the ``registry_path`` key in its
+``config.yml`` --- set it in your profile's ``config:`` block, as
+``registry_path: project/registry.py``. ``application.registry_path`` is
+accepted as an alias, and the ``REGISTRY_PATH`` environment variable outranks
+both, as :doc:`/reference/configuration/environment-variables` records. Without
+one of them the framework loads only its own components, and nothing you
+register is reachable.
+
 .. _extending-connector:
 
 Connector

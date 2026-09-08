@@ -107,6 +107,21 @@ keys:
     evidence: 'config\.get\("project_root"\)'
     default: derived
     default_note: the repo root the loaded config.yml sits in
+  registry_path:
+    rendered: false
+    evidence: 'registry_path'
+    note: >-
+      The application registry module — a facility's own connectors, providers
+      and ARIEL adapters. Nothing derives it, so the build renders no line for
+      it; a deployment states it in its profile's `config:` block (commented
+      example in the control-assistant preset). Resolved by
+      `registry.manager.resolve_registry_path`, which also accepts the
+      `application.registry_path` alias and lets the `REGISTRY_PATH`
+      environment variable outrank both.
+    default: no-fallback
+    default_note: >-
+      unset names no application registry, and the framework-only registry is
+      used
   facility:
     evidence: 'config\.get\("facility"\)'
     note: >-

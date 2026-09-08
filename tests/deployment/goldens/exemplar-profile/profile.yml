@@ -285,6 +285,13 @@ config:
   # table renders. Drop the key and the subagent is told no vocabulary was
   # declared; point it at a missing file and the build stops and says so.
   facility.ontology: data/facility_ontology.json
+  # Your facility's own registry module — the file that registers its
+  # connectors, providers and ARIEL adapters with the framework (see
+  # "Extending Osprey" in the docs). Relative to the project root; unset means
+  # no application registry, and the framework-only one is used. `REGISTRY_PATH`
+  # in the environment outranks this key, for a container pointed at a registry
+  # mounted somewhere the config could not have named.
+  # registry_path: project/registry.py
   # Master write switch, the FIRST guard in the write-safety chain: while
   # false, every hardware write is refused before the limits check or the
   # approval prompt is consulted. On here because the baseline is the stand-in,
