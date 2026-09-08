@@ -9,6 +9,7 @@ and to augment the child environment so *their* subprocesses can too.
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 from pathlib import Path
 
@@ -67,8 +68,9 @@ def resolve_shell_command(command: str) -> str:
             return command
         raise FileNotFoundError(
             f"{command!r} does not exist or is not executable. "
-            f"Check the path or set web_terminal.shell under `config:` in "
-            f"profile.yml and run `osprey build`."
+            f"Check the path, or set web_terminal.shell under `config:` in "
+            f"profile.yml — a command name, an absolute path, or an argv list "
+            f"whose first element is one of those — and run `osprey build`."
         )
 
     # Normal PATH lookup.
@@ -87,6 +89,53 @@ def resolve_shell_command(command: str) -> str:
     raise FileNotFoundError(
         f"{command!r} not found on PATH or in common install locations "
         f"({', '.join(str(d) for d in _user_bin_candidates())}). "
-        f"Install it, or set web_terminal.shell to an absolute path under "
-        f"`config:` in profile.yml and run `osprey build`."
+        f"Install it, or set web_terminal.shell under `config:` in profile.yml "
+        f"to an absolute path — or to an argv list starting with one — and run "
+        f"`osprey build`."
     )
+
+
+def normalize_shell_command(value: str | list[str]) -> list[str]:
+    """Normalize a configured shell command into argv, resolving only argv[0].
+
+    ``web_terminal.shell`` is argv, and it may be written either way: a single
+    string (``"claude"``, ``"/opt/harness/run --profile ops"``, quoting
+    honoured by :func:`shlex.split`) or a YAML list
+    (``["/opt/harness/run", "--profile", "ops"]``). Both reach the PTY as the
+    same argv, so a facility whose harness needs arguments no longer has to
+    hide them in a wrapper script.
+
+    Only the first element is resolved to an absolute path — the arguments are
+    the harness's own and are passed through untouched.
+
+    Args:
+        value: The configured command, as a string or an argv list.
+
+    Returns:
+        argv with an absolute executable at index 0.
+
+    Raises:
+        FileNotFoundError: If argv[0] cannot be found (see
+            :func:`resolve_shell_command`).
+        ValueError: If *value* is neither a string nor a list, is empty, or
+            parses to no words at all.
+    """
+    # YAML admits shapes the key does not — a bare number, a mapping, a `shell:`
+    # written with no value at all. Each names the key, like the empty case
+    # below; the alternative is whatever shlex.split raises on a non-string.
+    if isinstance(value, list):
+        parts = [str(part) for part in value]
+    elif isinstance(value, str):
+        parts = shlex.split(value)
+    else:
+        raise ValueError(
+            f"web_terminal.shell must be a command string or an argv list, not "
+            f"{type(value).__name__}. Set it to a command, an absolute path, or "
+            f"an argv list, or remove the key to use the default launcher."
+        )
+    if not parts:
+        raise ValueError(
+            "web_terminal.shell is empty. Set it to a command, an absolute path, "
+            "or an argv list, or remove the key to use the default launcher."
+        )
+    return [resolve_shell_command(parts[0]), *parts[1:]]

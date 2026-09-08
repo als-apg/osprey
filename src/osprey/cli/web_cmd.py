@@ -867,6 +867,10 @@ def _resolve_web_shell_command(
     Precedence (highest first):
       1. ``--shell`` CLI flag (user-explicit; defeats the pin)
       2. ``web_terminal.shell`` config field (also defeats the pin)
+
+    Both are argv, written as a string or as a list, and both go through
+    :func:`~osprey.utils.shell_resolver.normalize_shell_command`, which resolves
+    argv[0] and passes the harness's own arguments through.
       3. ``claude_code.cli_version`` pin via ``build_claude_launch_argv()``
       4. bare ``claude`` (current default)
 
@@ -878,12 +882,12 @@ def _resolve_web_shell_command(
     consumers can unpack safely.
     """
     from osprey.utils.claude_launcher import build_claude_launch_argv
-    from osprey.utils.shell_resolver import resolve_shell_command
+    from osprey.utils.shell_resolver import normalize_shell_command, resolve_shell_command
 
     if shell_override:
-        return [resolve_shell_command(shell_override)]
+        return normalize_shell_command(shell_override)
     if wt_config.get("shell"):
-        return [resolve_shell_command(wt_config["shell"])]
+        return normalize_shell_command(wt_config["shell"])
     argv = build_claude_launch_argv(cc_config)
     if argv[0] == "claude":
         return [resolve_shell_command(argv[0]), *argv[1:]]
