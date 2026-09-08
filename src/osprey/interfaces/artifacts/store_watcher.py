@@ -10,6 +10,7 @@ the diff naturally produces nothing — no duplicate events.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,42 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 logger = logging.getLogger("osprey.interfaces.artifacts.store_watcher")
+
+
+def _one_level_listing(directory: Path) -> dict[str, tuple[int, int]]:
+    """One level of *directory* as ``{name: (mtime_ns, size)}``.
+
+    A change stamp, not metadata anyone reads: two listings of the same
+    directory differ at exactly the names that were added, removed, or written
+    to. A directory that is gone by the time the scan runs lists as empty
+    rather than raising — the frame is a report about the past.
+    """
+    listing: dict[str, tuple[int, int]] = {}
+    try:
+        entries = list(os.scandir(directory))
+    except OSError:
+        return listing
+    for entry in entries:
+        try:
+            stat = entry.stat()
+            listing[entry.name] = (stat.st_mtime_ns, stat.st_size)
+        except OSError:  # vanished mid-scan
+            continue
+    return listing
+
+
+def _change_stamp(path: Path) -> tuple[int, int] | None:
+    """``(mtime_ns, size)`` of *path*, or ``None`` when it is not there.
+
+    Enough to tell one write from the next without reading the file: two
+    reports of the same write carry the same stamp, and a second write moves
+    it.
+    """
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return (stat.st_mtime_ns, stat.st_size)
 
 
 class _IndexFileHandler(FileSystemEventHandler):
@@ -41,7 +78,9 @@ class _IndexFileHandler(FileSystemEventHandler):
         self._index_configs = index_configs
         self._broadcaster = broadcaster
         self._last_event: dict[str, float] = {}
+        self._last_stamp: dict[str, tuple[int, int] | None] = {}
         self._debounce_seconds = 0.1
+        self._listings: dict[str, dict[str, tuple[int, int]]] = {}
         # Snapshot known entry IDs per store
         self._known_ids: dict[str, set] = {}
         for filename, cfg in index_configs.items():
@@ -51,6 +90,7 @@ class _IndexFileHandler(FileSystemEventHandler):
 
     def on_modified(self, event: FileSystemEvent) -> None:
         if event.is_directory:
+            self._rescan_directory(event)
             return
         self._handle(event)
 
@@ -69,6 +109,44 @@ class _IndexFileHandler(FileSystemEventHandler):
         dest_path = getattr(event, "dest_path", "")
         self._handle(event, path=str(dest_path) if dest_path else None)
 
+    def _rescan_directory(self, event: FileSystemEvent) -> None:
+        """Read a directory frame as the index write it stands for.
+
+        FSEvents coalesces: a write to ``artifacts.json`` can arrive as one
+        ``modified`` event on the directory holding it, with no per-file event
+        behind it. A directory frame carries no per-file event, so returning on
+        it drops the index write. The directory is listed one level deep
+        instead, compared with the listing last taken of it, and every name
+        that differs is routed through :meth:`_handle` exactly as a per-file
+        event would have been. Only the index filenames this watcher was given
+        do anything there, so the rescan cannot broadcast anything a per-file
+        event would not have.
+
+        One level, because that is what the frame names: a write in a
+        subdirectory produces its own frame for its own directory.
+
+        One listing is kept per directory that still exists; a directory that
+        has gone away is dropped rather than remembered as empty.
+        """
+        directory = Path(os.fsdecode(event.src_path))
+        key = str(directory)
+        previous = self._listings.get(key)
+        current = _one_level_listing(directory)
+        if directory.is_dir():
+            self._listings[key] = current
+        else:
+            self._listings.pop(key, None)
+
+        changed = [
+            name
+            for name, stamp in current.items()
+            if previous is None or previous.get(name) != stamp
+        ]
+        changed.extend(sorted((previous or {}).keys() - current.keys()))
+        for name in changed:
+            if name in self._index_configs:
+                self._handle(event, path=str(directory / name))
+
     def _handle(self, event: FileSystemEvent, path: str | None = None) -> None:
         src_path = Path(path) if path is not None else Path(event.src_path)
         filename = src_path.name
@@ -76,13 +154,19 @@ class _IndexFileHandler(FileSystemEventHandler):
         if filename not in self._index_configs:
             return
 
-        # Debounce: skip if same path fired within 100ms
+        # Debounce: skip a repeat report of the index this handler last read.
+        # A directory frame and the per-file event for one write arrive
+        # milliseconds apart and a frame delivered before the index is on disk
+        # reads it unchanged, so closing the window on the clock alone would
+        # drop the event that did carry the entry — and nothing follows it. The
+        # window closes on a change already read instead: same stamp, same
+        # read.
         now = time.monotonic()
         key = str(src_path)
-        last = self._last_event.get(key, 0)
-        if now - last < self._debounce_seconds:
+        stamp = _change_stamp(src_path)
+        within_window = now - self._last_event.get(key, 0) < self._debounce_seconds
+        if within_window and key in self._last_stamp and self._last_stamp[key] == stamp:
             return
-        self._last_event[key] = now
 
         cfg = self._index_configs[filename]
         store = cfg["store"]
@@ -95,8 +179,14 @@ class _IndexFileHandler(FileSystemEventHandler):
         try:
             store._load_index()
         except Exception:
+            # No slot claimed: a half-written index that parses on the next
+            # frame must not have been debounced away by the attempt that
+            # failed on it.
             logger.warning("Failed to reload %s index; skipping", filename, exc_info=True)
             return
+
+        self._last_event[key] = now
+        self._last_stamp[key] = stamp
 
         new_ids = {getattr(e, id_attr) for e in store._entries}
 
