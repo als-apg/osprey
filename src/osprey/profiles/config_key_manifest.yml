@@ -1618,6 +1618,16 @@ keys:
   ariel.enhancement_modules.semantic_processor.model: {covered-by: ariel.enhancement_modules.semantic_processor, default: {}}
   ariel.enhancement_modules.semantic_processor.model.model_id: {covered-by: ariel.enhancement_modules.semantic_processor.model, default: n/a}
   ariel.enhancement_modules.semantic_processor.model.max_tokens: {evidence: 'max_tokens', default: n/a}
+  ariel.attachments.max_file_mb:
+    rendered: false
+    evidence: 'get_config_value\("ariel\.attachments\.max_file_mb"'
+    note: >-
+      Largest file one logbook entry may attach, in megabytes. Commented in the
+      two presets that ship an `ariel:` block: attachments are BYTEA rows in
+      the same Postgres the logbook lives in, so both raising and lowering it
+      is a site storage decision. A value that is not a positive integer is
+      logged and the default kept.
+    default: 10
   ariel.enhancement_modules.semantic_processor.max_input_chars:
     rendered: false
     evidence: 'config\.get\("max_input_chars", DEFAULT_MAX_INPUT_CHARS\)'

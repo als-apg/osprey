@@ -105,6 +105,15 @@ The filename is a facility convention, not a standard, so each adapter declares 
 
 The default is ``("metadata.json",)``. Matching is case-insensitive, and a name that never appears is simply a no-op --- there is no switch to turn this off. If an entry has attachments and none of them matched, ingestion says so at debug level rather than staying silent about metadata it did not collect.
 
+Attachment Size
+~~~~~~~~~~~~~~~
+
+``ariel.attachments.max_file_mb`` (default 10) is the largest file one entry may
+attach; a bigger one is refused, naming the file and the limit. Attachments are
+stored as rows in the same Postgres the logbook lives in, so this number is a
+storage decision in both directions --- raise it for a facility that attaches
+raw traces, lower it to keep the database small.
+
 
 .. _`Enhancement Pipeline`:
 

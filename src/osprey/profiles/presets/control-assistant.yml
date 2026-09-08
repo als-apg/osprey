@@ -474,6 +474,10 @@ config:
   # opening tab, `osprey ariel search` without `--mode`, and the service API.
   # Naming a module that is off below is refused at startup.
   ariel.default_search_mode: hybrid
+  # Largest file one entry may attach, in MB. Attachments are stored as rows in
+  # the same Postgres the logbook lives in, so this number is a storage
+  # decision in both directions.
+  # ariel.attachments.max_file_mb: 10
   # Facility vocabulary: control-room shorthand ("t/s the bpm offset") mapped
   # to the words the logbook prose contains, so a search typed in shorthand
   # finds the entries about it. Plain dictionary matching, every rewrite
