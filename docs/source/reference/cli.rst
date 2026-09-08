@@ -1186,9 +1186,14 @@ directories, and lifecycle scripts.
 
    osprey audit TARGET [OPTIONS]
 
+The reviewer runs on the deployment's configured provider
+(``claude_code.provider``), so an audit needs a built project: point it at one,
+or pass ``--build`` to build the profile first.
+
 ``--build`` — Build a profile in a temp directory, then audit the result.
 
-``--model TEXT`` — Model for the reviewer agent.
+``--model TEXT`` — Model for the reviewer agent. Defaults to the project's
+sonnet tier.
 
 ``--budget FLOAT`` — Maximum budget in USD.
 

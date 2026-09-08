@@ -298,6 +298,134 @@ class TestBuildFlag:
             assert args["project_name"].startswith("audit-")
 
 
+class TestReviewerProvider:
+    """The reviewer runs on the audited deployment's own provider."""
+
+    def _get_audit_cmd(self):
+        from osprey.cli.audit_cmd import audit
+
+        return audit
+
+    def test_options_come_from_the_projects_provider(self, tmp_project, monkeypatch):
+        """Hand-built options carried no provider env, so the SDK fell through
+        to ambient ``ANTHROPIC_*``. They now come from the shared builder, which
+        resolves the project's endpoint, auth and models."""
+        from osprey.cli import audit_cmd
+
+        captured: dict = {}
+        sentinel = object()
+
+        def fake_build(project_dir, **kwargs):
+            captured["project_dir"] = project_dir
+            captured.update(kwargs)
+            return sentinel
+
+        monkeypatch.setattr(
+            "osprey.agent_runner.primitives.build_agent_options", fake_build, raising=True
+        )
+
+        assert audit_cmd._reviewer_options(tmp_project, "some-model", 5.0) is sentinel
+        assert captured["project_dir"] == tmp_project
+        assert captured["model"] == "some-model"
+        assert captured["max_budget_usd"] == 5.0
+        assert captured["max_turns"] == 30
+        # The reviewer reads the target; it must not run as it.
+        assert captured["setting_sources"] == []
+
+    @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
+    @patch("osprey.cli.audit_cmd.asyncio")
+    def test_default_model_is_the_projects_sonnet_tier(
+        self, mock_asyncio, runner, tmp_project, sample_report, monkeypatch
+    ):
+        mock_asyncio.run.return_value = (sample_report.model_dump_json(), 0.01, 5)
+        seen: dict = {}
+
+        def fake_resolve(project_dir, tier="haiku"):
+            seen["tier"] = tier
+            seen["project_dir"] = project_dir
+            return "gateway/claude-sonnet"
+
+        monkeypatch.setattr(
+            "osprey.agent_runner.primitives.resolve_default_model", fake_resolve, raising=True
+        )
+
+        result = runner.invoke(self._get_audit_cmd(), [str(tmp_project)])
+
+        assert result.exit_code == 0
+        assert seen["tier"] == "sonnet"
+        assert seen["project_dir"] == tmp_project
+        assert "gateway/claude-sonnet" in result.output
+
+    @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
+    @patch("osprey.cli.audit_cmd.asyncio")
+    def test_an_explicit_model_still_wins(
+        self, mock_asyncio, runner, tmp_project, sample_report, monkeypatch
+    ):
+        mock_asyncio.run.return_value = (sample_report.model_dump_json(), 0.01, 5)
+        monkeypatch.setattr(
+            "osprey.agent_runner.primitives.resolve_default_model",
+            lambda project_dir, tier="haiku": "should-not-be-used",
+            raising=True,
+        )
+
+        result = runner.invoke(self._get_audit_cmd(), [str(tmp_project), "--model", "picked"])
+
+        assert result.exit_code == 0
+        assert "picked" in result.output
+
+    @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
+    def test_a_bare_profile_outside_a_repo_is_refused(self, runner, tmp_profile):
+        """No project, no provider: better to say so than to review a
+        deployment's safety config through whatever endpoint the shell holds."""
+        result = runner.invoke(self._get_audit_cmd(), [str(tmp_profile)])
+
+        assert result.exit_code == 1
+        assert "--build" in result.output
+
+    @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
+    @patch("osprey.cli.audit_cmd.asyncio")
+    def test_a_bare_profile_in_a_repo_runs_from_the_repos_build(
+        self, mock_asyncio, runner, tmp_path, sample_report, monkeypatch
+    ):
+        """The render under ``build/`` holds ``config.yml``; the repo root does
+        not, so resolving from the root is a FileNotFoundError on any real repo."""
+        from osprey.deployment.staleness import BUILD_DIRNAME
+
+        (tmp_path / "profile.yml").write_text("name: test\n")
+        (tmp_path / BUILD_DIRNAME).mkdir()
+        (tmp_path / BUILD_DIRNAME / "config.yml").write_text("claude_code:\n  provider: mock\n")
+        profile = tmp_path / "other-profile.yml"
+        profile.write_text("name: test\nprovider: mock\n")
+        mock_asyncio.run.return_value = (sample_report.model_dump_json(), 0.01, 5)
+        seen: dict = {}
+
+        def fake_resolve(project_dir, tier="haiku"):
+            seen["project_dir"] = project_dir
+            return "resolved-model"
+
+        monkeypatch.setattr(
+            "osprey.agent_runner.primitives.resolve_default_model", fake_resolve, raising=True
+        )
+
+        result = runner.invoke(self._get_audit_cmd(), [str(profile)])
+
+        assert result.exit_code == 0
+        assert seen["project_dir"] == tmp_path.resolve() / BUILD_DIRNAME
+
+    @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
+    def test_a_bare_profile_in_an_unbuilt_repo_is_refused(self, runner, tmp_path):
+        """A repo that has never been built holds no config.yml to resolve a
+        provider from — say so rather than crash reading one that is not there."""
+        (tmp_path / "profile.yml").write_text("name: test\n")
+        profile = tmp_path / "other-profile.yml"
+        profile.write_text("name: test\nprovider: mock\n")
+
+        result = runner.invoke(self._get_audit_cmd(), [str(profile)])
+
+        assert result.exit_code == 1
+        assert "--build" in result.output
+
+
 # ---------------------------------------------------------------------------
 # Display tests
 # ---------------------------------------------------------------------------
