@@ -75,6 +75,7 @@ def test_singleton_root_without_session_env(project):
 
 
 @pytest.mark.unit
+@pytest.mark.real_server_launch
 def test_daemon_web_server_receives_shared_root(project, monkeypatch):
     """ServerLauncher hands daemons the shared root even in session-scoped processes.
 

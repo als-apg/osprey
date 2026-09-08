@@ -656,6 +656,44 @@ def reset_health_offload_state():
 
 
 # ===================================================================
+# Companion server launch guard
+# ===================================================================
+
+
+@pytest.fixture(autouse=True, scope="function")
+def _no_companion_server_launches(request, monkeypatch):
+    """Keep ``ServerLauncher`` from starting a real uvicorn server in a test.
+
+    Leak guarded: ``ServerLauncher._launch_in_thread`` runs uvicorn in a daemon
+    thread nothing ever stops, and two runtime paths reach it unasked — the
+    web-terminal lifespan launches every companion panel whose ``auto_launch``
+    is on (the default), and ``ArtifactStore`` launches the gallery on every
+    save. A test that boots either leaves a real, gated server listening on the
+    configured port for the rest of the xdist worker's life. A later launcher
+    that finds that port held probes it with the unauthenticated-then-
+    credentialed ``GET /`` pair of ``_adopt_or_refuse``, and the leaked server
+    files both refusals through ``osprey.audit.writer.record`` — resolved at
+    call time, so they land in whichever test currently holds that attribute
+    patched to its own ledger. That test then fails on a record it never made.
+
+    Only the thread start is replaced. Everything ``ensure_running`` decides
+    before it — the auto-launch gate, the bind check, the held-port grace
+    window and its verdict — still runs, so the launcher tests that patch
+    those per instance are unaffected. A test of the launch itself opts out
+    with ``@pytest.mark.real_server_launch``.
+    """
+    if request.node.get_closest_marker("real_server_launch"):
+        return
+
+    from osprey.infrastructure.server_launcher import ServerLauncher
+
+    def _no_launch(self, host: str, port: int) -> None:
+        return None
+
+    monkeypatch.setattr(ServerLauncher, "_launch_in_thread", _no_launch)
+
+
+# ===================================================================
 # Marker-driven resource skip-gating
 # ===================================================================
 #
