@@ -10,7 +10,7 @@ This test module validates error handling and validation in the registry system:
 
 import pytest
 
-from osprey.registry.manager import RegistryError, RegistryManager
+from osprey.registry.manager import RegistryError, RegistryManager, resolve_registry_path
 
 
 class TestFileLoadingErrors:
@@ -286,6 +286,54 @@ class BadProvider(RegistryConfigProvider):
 
         with pytest.raises(RegistryError, match="No RegistryConfigProvider"):
             _ = RegistryManager(registry_path=str(registry_file))
+
+
+class TestResolveRegistryPath:
+    """The one resolver every reader of the registry path goes through.
+
+    Three spellings reach the same file, and a reader that knows only one of
+    them disagrees with the loader about whether a registry is configured at
+    all — which is how the health report came to omit a row for a registry
+    that had loaded.
+    """
+
+    def test_top_level_spelling(self, tmp_path):
+        assert resolve_registry_path({"registry_path": "app/registry.py"}) == "app/registry.py"
+
+    def test_nested_spelling_is_an_accepted_alias(self, tmp_path):
+        config = {"application": {"registry_path": "app/registry.py"}}
+        assert resolve_registry_path(config) == "app/registry.py"
+
+    def test_top_level_wins_over_nested(self, tmp_path):
+        config = {
+            "registry_path": "canonical.py",
+            "application": {"registry_path": "alias.py"},
+        }
+        assert resolve_registry_path(config) == "canonical.py"
+
+    def test_env_var_outranks_both(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("REGISTRY_PATH", "/app/from_env.py")
+        config = {
+            "registry_path": "canonical.py",
+            "application": {"registry_path": "alias.py"},
+        }
+        assert resolve_registry_path(config) == "/app/from_env.py"
+
+    def test_no_spelling_resolves_to_none(self, tmp_path):
+        assert resolve_registry_path({}) is None
+
+    def test_relative_path_resolves_against_base_path(self, tmp_path):
+        resolved = resolve_registry_path({"registry_path": "app/registry.py"}, base_path=tmp_path)
+        assert resolved == str(tmp_path / "app" / "registry.py")
+
+    def test_absolute_path_is_left_alone(self, tmp_path):
+        absolute = str(tmp_path / "registry.py")
+        assert resolve_registry_path({"registry_path": absolute}, base_path=tmp_path) == absolute
+
+    def test_env_vars_in_the_value_are_expanded(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("APP_DIR", "myapp")
+        resolved = resolve_registry_path({"registry_path": "${APP_DIR}/registry.py"})
+        assert resolved == "myapp/registry.py"
 
 
 class TestConfigurationErrorMessages:
