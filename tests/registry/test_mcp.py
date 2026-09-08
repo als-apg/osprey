@@ -541,6 +541,20 @@ def _resolve_one(cfg, name, ctx=None):
     return matches[0]
 
 
+def test_phoebus_drive_carries_writes_check():
+    """A panel drive is a control-system write, so the writes kill switch
+    gates it ahead of the approval prompt — the same chain channel_write
+    carries. Dropping the binding would leave panel actuation open under
+    ``control_system.writes_enabled: false``."""
+    from osprey.registry.mcp import _APPROVAL, framework_write_tools
+
+    phoebus = FRAMEWORK_SERVERS["phoebus"]
+    rules = [r for r in phoebus.hooks_pre if r.matcher == "mcp__phoebus__phoebus_drive"]
+    assert len(rules) == 1
+    assert rules[0].hooks == [_WRITES_CHECK, _APPROVAL]
+    assert "mcp__phoebus__phoebus_drive" in framework_write_tools()
+
+
 class TestExtendsServers:
     """Tests for extends clones (claude_code.servers.<name>.extends)."""
 
@@ -571,11 +585,14 @@ class TestExtendsServers:
         # Permissions inherited as bare names (unrewritten).
         assert p2["permissions_allow"] == _PHOEBUS_ALLOW
         assert p2["permissions_ask"] == _PHOEBUS_ASK
-        # Hook matchers rewritten with the anchored prefix.
+        # Hook matchers rewritten with the anchored prefix. A panel drive is
+        # a control-system write: the writes kill switch gates it ahead of
+        # the approval prompt, as on every other write path.
         assert len(p2["hooks_pre"]) == 1
         assert p2["hooks_pre"][0]["matcher"] == "mcp__phoebus2__phoebus_drive"
-        assert len(p2["hooks_pre"][0]["hooks"]) == 1
-        assert "osprey_approval.py" in p2["hooks_pre"][0]["hooks"][0]["command"]
+        assert len(p2["hooks_pre"][0]["hooks"]) == 2
+        assert "osprey_writes_check.py" in p2["hooks_pre"][0]["hooks"][0]["command"]
+        assert "osprey_approval.py" in p2["hooks_pre"][0]["hooks"][1]["command"]
         assert [r["matcher"] for r in p2["hooks_post"]] == ["mcp__phoebus2__.*"]
         assert p2["is_custom"] is False
         assert p2["url"] is None

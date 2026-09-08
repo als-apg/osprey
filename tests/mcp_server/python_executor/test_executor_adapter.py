@@ -300,7 +300,7 @@ def test_wrapper_includes_monkeypatch_when_validator_present(tmp_path, monkeypat
 
     wrapper = ExecutionWrapper(limits_validator=validator)
     wrapped = wrapper.create_wrapper("print('hello')", tmp_path)
-    assert "_checked_caput" in wrapped
+    assert "_checked_ca_put" in wrapped
     assert "LimitsValidator" in wrapped
 
 
@@ -313,7 +313,7 @@ def test_wrapper_omits_monkeypatch_when_no_validator(tmp_path, monkeypatch):
 
     wrapper = ExecutionWrapper(limits_validator=None)
     wrapped = wrapper.create_wrapper("print('hello')", tmp_path)
-    assert "_checked_caput" not in wrapped
+    assert "_checked_ca_put" not in wrapped
 
 
 # ---------------------------------------------------------------------------

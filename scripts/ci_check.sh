@@ -87,7 +87,15 @@ echo ""
 echo "→ Running pytest with coverage..."
 # -n auto sizes the worker pool to this machine; CI pins -n 4 to keep its matrix cells
 # comparable. Override with PYTEST_XDIST_AUTO_NUM_WORKERS=<n>.
-if ! uv run pytest tests/ --ignore=tests/e2e -m "not pty" -n auto --dist loadgroup -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
+#
+# tests/services/channel_finder/graph_index/test_scale.py is ignored for the same
+# reason ci.yml's lane ignores it: it is a wall-clock latency guard whose budgets
+# are held to an unloaded workstation, and its own module docstring says it does
+# not run in the parallel lane. Under -n it measures worker contention rather
+# than the index, so leaving it in made this script red on every branch. It runs
+# on demand — `uv run pytest tests/services/channel_finder/graph_index/test_scale.py`
+# — and in the benchmark job.
+if ! uv run pytest tests/ --ignore=tests/e2e --ignore=tests/services/channel_finder/graph_index/test_scale.py -m "not pty" -n auto --dist loadgroup -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
     FAILED_CHECKS+=("pytest")
     echo "❌ Tests failed"
 else
@@ -160,7 +168,15 @@ echo ""
 
 echo "→ Building documentation..."
 cd docs
-if ! make clean > /dev/null 2>&1 && make html SPHINXOPTS="-W --keep-going"; then
+# The clean is its own statement, and the build runs under `uv run`, for two
+# reasons this step used to get wrong at once. `! make clean && make html` binds
+# the negation to the clean alone, so a clean that SUCCEEDED short-circuited the
+# `&&` and the build never ran -- and the else branch then printed a green
+# "Documentation build passed" for a build nobody had performed. And `make`
+# outside `uv run` gets no venv on PATH, so once the build did run it died on
+# `sphinx-build: command not found`. ci.yml spells both lines `uv run make`.
+make clean > /dev/null 2>&1 || true
+if ! uv run make html SPHINXOPTS="-W --keep-going"; then
     FAILED_CHECKS+=("docs-build")
     echo "❌ Documentation build failed"
 else
@@ -169,7 +185,7 @@ fi
 
 echo ""
 echo "→ Checking for broken links..."
-if ! make linkcheck 2>&1 | grep -q "build succeeded"; then
+if ! uv run make linkcheck 2>&1 | grep -q "build succeeded"; then
     echo "⚠️  Link check found issues (not blocking)"
 else
     echo "✅ Link check passed"
