@@ -9,6 +9,14 @@
  * `<head>` (`_inject_control_target_bar` in `routes/proxy.py`), and everything
  * below it is the hub's own chip, unchanged.
  *
+ * **One picker per window.** Inside the hub the JUPYTER tab is an iframe under
+ * the header, and the header chip is the picker; a second one in the frame
+ * would be the same switch drawn twice. So the bar mounts only when the Lab
+ * page is its own top-level document — popped out of the hub, or opened at
+ * its own address — and does nothing at all when framed: no host, no
+ * stylesheets, no stream. The proxy injects the tag either way, because only
+ * the page can tell which it is ({@link isEmbedded}).
+ *
  * It owns three things and nothing else:
  *
  * - **a stable host.** One fixed-position element on `document.body`, created
@@ -137,6 +145,26 @@ const BAR_CSS = `
  */
 const JP_THEME_LIGHT_ATTR = 'data-jp-theme-light';
 
+/**
+ * Whether this document is framed by another — the hub's JUPYTER tab — rather
+ * than being its own window.
+ *
+ * `self !== top` is the one test that needs nothing from the parent: reading
+ * `top` itself never throws, only reaching into a cross-origin parent does,
+ * and this never does. A page that cannot even read `top` is framed by
+ * something stricter than the hub and is treated as framed.
+ *
+ * @param {{self?: unknown, top?: unknown}} [win] the window to ask; the global one by default
+ * @returns {boolean}
+ */
+export function isEmbedded(win = /** @type {any} */ (globalThis)) {
+  try {
+    return win.self !== win.top;
+  } catch {
+    return true;
+  }
+}
+
 /** @type {HTMLElement|null} */
 let bar = null;
 
@@ -148,16 +176,19 @@ let themeObserver = null;
  *
  * Idempotent: a second call re-uses the same bar element and re-enters the
  * chip's own idempotent init, which re-renders rather than mounting a second
- * chip. Answers `null` on a document with no `<body>` to mount into.
+ * chip. Answers `null` on a document with no `<body>` to mount into, and on
+ * a document framed inside the hub, where the header chip is the picker.
  *
- * @param {{eventSourceFactory?: typeof import('./api.js').createEventSource}} [opts]
- *   Passed straight through to the chip, which is how its own suite injects a
- *   stream; `undefined` takes the chip's own default. Nothing else here is
- *   injectable.
- * @returns {HTMLElement|null} The bar, or null if there was nowhere to put it.
+ * @param {{eventSourceFactory?: typeof import('./api.js').createEventSource, embedded?: boolean}} [opts]
+ *   `eventSourceFactory` is passed straight through to the chip, which is how
+ *   its own suite injects a stream; `undefined` takes the chip's own default.
+ *   `embedded` overrides {@link isEmbedded} for a suite that cannot frame its
+ *   document. Nothing else here is injectable.
+ * @returns {HTMLElement|null} The bar, or null if it does not belong on this page.
  */
-export function initControlTargetLabBar({ eventSourceFactory } = {}) {
+export function initControlTargetLabBar({ eventSourceFactory, embedded = isEmbedded() } = {}) {
   if (typeof document === 'undefined' || !document.body) return null;
+  if (embedded) return null;
 
   ensureStyles();
 

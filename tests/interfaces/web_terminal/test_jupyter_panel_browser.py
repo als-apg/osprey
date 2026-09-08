@@ -426,6 +426,15 @@ def test_notebooks_panel_opens_jupyterlab_and_runs_cells_on_a_real_kernel(
         expect(body).to_have_attribute("data-jp-theme-light", "false", timeout=_LAB_BOOT_MS)
         expect(body).to_have_attribute("data-jp-theme-name", "JupyterLab Dark")
 
+        # Framed under the hub's header, the Lab page carries no picker of its
+        # own: the header chip is the one switch. The proxy still injected the
+        # bar's module — asserted so a missing tag cannot pass as the guard —
+        # and the module, seeing it is framed, mounted nothing. Lab has booted
+        # by now, and the module ran before Lab did, so an absent bar is the
+        # module's answer and not a race.
+        expect(lab.locator(f'script[src$="{_LAB_BAR_MODULE}"]')).to_have_count(1)
+        expect(lab.locator(_LAB_BAR)).to_have_count(0)
+
         # The starter notebook seeded into the empty notebooks/ is listed, and
         # opens the way an operator opens it.
         starter = lab.locator(".jp-DirListing-item").filter(has_text="getting-started.ipynb")
@@ -481,8 +490,11 @@ def test_notebooks_panel_opens_jupyterlab_and_runs_cells_on_a_real_kernel(
 _TARGET_CELL = "import os; print(os.environ.get('OSPREY_CONTROL_TARGET'))"
 
 #: The bar the panel proxy injects into the Lab page, and the chip inside it.
+#: The bar mounts only on a Lab page that is its own window; framed under the
+#: hub it stays absent, which the embedded lane above asserts.
 _LAB_BAR = "#osprey-control-target-bar"
 _LAB_CHIP = f"{_LAB_BAR} {CHIP}"
+_LAB_BAR_MODULE = "control-target-lab-bar.js"
 
 #: JupyterLab's own execution indicator, in the notebook's toolbar. Its
 #: ``data-status`` is the frontend's account of the kernel it is CONNECTED to,
