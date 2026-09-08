@@ -463,6 +463,22 @@ def test_sweep_interval_default_tracks_the_schema_module():
     )
 
 
+def test_first_index_grace_renders_as_the_healthcheck_start_period():
+    """The grace period is the healthcheck's `start_period`, in seconds."""
+    service = compose_service(qmd={"first_index_grace": 14400})
+
+    assert service["healthcheck"]["start_period"] == "14400s"
+
+
+def test_first_index_grace_default_tracks_the_schema_module():
+    """Unstated, the template renders the module's own default rather than a literal."""
+    from osprey.deployment.qmd_service import DEFAULT_FIRST_INDEX_GRACE_SECONDS
+
+    assert compose_service()["healthcheck"]["start_period"] == (
+        f"{DEFAULT_FIRST_INDEX_GRACE_SECONDS}s"
+    )
+
+
 def test_container_name_is_namespaced_per_project():
     """``container_name`` is a host-global docker identifier: two projects
     deploying a sidecar on one host must not collide on one name."""
