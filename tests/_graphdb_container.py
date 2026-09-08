@@ -87,6 +87,10 @@ GRAPHDB_TEST_PASSWORD = "ospreytest1234"
 
 GRAPHDB_TEST_USERNAME = "neo4j"
 
+#: Database the throwaway store serves. The Community image serves exactly one,
+#: and this is its name.
+GRAPHDB_TEST_DATABASE = "neo4j"
+
 
 # ---------------------------------------------------------------------------
 # Plugins

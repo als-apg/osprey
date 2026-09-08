@@ -49,6 +49,7 @@ from typing import Any
 import pytest
 
 from tests._graphdb_container import (
+    GRAPHDB_TEST_DATABASE,
     GRAPHDB_TEST_PASSWORD,
     GRAPHDB_TEST_USERNAME,
     graphdb_store,
@@ -228,7 +229,10 @@ def clean_store(enrichment_store_uri: str) -> Iterator[Any]:
     from osprey.services.facility_knowledge.seeder import graph_seeder
 
     with graph_seeder.open_session(
-        enrichment_store_uri, GRAPHDB_TEST_USERNAME, GRAPHDB_TEST_PASSWORD
+        enrichment_store_uri,
+        GRAPHDB_TEST_USERNAME,
+        GRAPHDB_TEST_PASSWORD,
+        database=GRAPHDB_TEST_DATABASE,
     ) as session:
         graph_seeder.wipe(session)
         yield session

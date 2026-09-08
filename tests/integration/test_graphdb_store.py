@@ -32,6 +32,7 @@ from pathlib import Path
 import pytest
 
 from tests._graphdb_container import (
+    GRAPHDB_TEST_DATABASE,
     GRAPHDB_TEST_PASSWORD,
     GRAPHDB_TEST_USERNAME,
     graphdb_store,
@@ -176,7 +177,10 @@ def test_bootstrap_seed_and_force_reseed(graphdb_uri: str, demo_ttl: str) -> Non
     expected_sha = graph_seeder.ttl_sha256(demo_ttl)
 
     with graph_seeder.open_session(
-        graphdb_uri, GRAPHDB_TEST_USERNAME, GRAPHDB_TEST_PASSWORD
+        graphdb_uri,
+        GRAPHDB_TEST_USERNAME,
+        GRAPHDB_TEST_PASSWORD,
+        database=GRAPHDB_TEST_DATABASE,
     ) as session:
         # --- 1. Bootstrap a fresh store -------------------------------------
         first = graph_seeder.bootstrap(session)
