@@ -76,30 +76,41 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # defaults are unchanged, and the mail default already ships blank — so a
     # rebuilt project behaves exactly as before; the advisory firing is the
     # correct signal that its rendered config really is three leaves shorter.
+    # The eighth move, and the narrowest yet: the two presets that carry a
+    # `channel_finder` block — control-assistant and channel-finder-standalone —
+    # gained `channel_finder.query_max_rows: 500`, the cap on what the
+    # middle-layer `run_sql` tool hands back. It was a number fixed in the tool,
+    # so a facility could not decide how much of its channel table was worth a
+    # turn of the agent's context. The value is the one the tool already
+    # applied, so a rebuilt project behaves identically — the digest moves
+    # because the preset now STATES it. control-assistant's six `extends`
+    # children inherit the root preset and move with it; ariel-standalone and
+    # hello-world carry no channel finder and stand still. Every other key this
+    # change added is shipped commented, and a comment is not resolved content.
     "ariel-standalone": ("sha256:389fad6bd826efc4b53ea263800110585867aab31c92d9931206897c75548643"),
     "channel-finder-standalone": (
-        "sha256:6c42cc563c637073dd76803ebfb0a371f29437747ee3b6ea701662de44bc4ca9"
+        "sha256:2dfc06f64433fcb1d8393931dccf76550e75ac76dc12f5011029010e02aa9448"
     ),
     "control-assistant": (
-        "sha256:54780712d416102f266fa303bc96fccc06db262bd70d18c9e2ef511468e8c252"
+        "sha256:ab96027bc359a067f44aa04028ebbac34358e675fca503a1d1cc4bcd790c18aa"
     ),
     "control-assistant-admin": (
-        "sha256:d5bcb632db87fbd7be5339a56be6cdca4e6c5d121a148b73b8b9d369543d2de2"
+        "sha256:cef4c0b2de1d152ef4b88d8b8cd1e31f900f4719d99c171ebecc08de3347d769"
     ),
     "control-assistant-knowledge": (
-        "sha256:11248666b3009d9d8fd3f81460dad2cfeb62e555f19fe2482dbe4876de9ef599"
+        "sha256:98cdd6a4930cf92ceaa9bc6c3e741ac51e90ca56cf86d40551e84c00e9179c20"
     ),
     "control-assistant-logbook": (
-        "sha256:67d66dbb1d476115efb91b3f444fa7b0f512e446363c4179213d1bf2fb4bf350"
+        "sha256:38483b2115bc153440dfce862c6d337b5ad6beb2addf3c1e4dc6c57f1efdf2ce"
     ),
     "control-assistant-readonly": (
-        "sha256:4b9b2fa8c40c1fa9e0eed6eb27f9e6ef181cd0b03c15b93cb99c0db895e5d6ec"
+        "sha256:c89b22d754632805e7cdb8b3026bdaf7f7d4401628904083480f4681b4a71a0f"
     ),
     "control-assistant-readwrite": (
-        "sha256:70111bf6029217c2999f7c1e98c7c43a23cd071a357962bff3530412767a2243"
+        "sha256:a4a695bbc044975ba2258a9cd58c46e283b832e2d4b9efd1720b9e1860502ba8"
     ),
     "control-assistant-va-readwrite": (
-        "sha256:b2a14f6358a6c896c84fa465bec0c472b0c0538b6f207bc06dea83c4ed7ce679"
+        "sha256:862dd6a5c5df3843c066ebdc26806c9283f75c9a658145fba1856b47d6e14ce1"
     ),
     "hello-world": ("sha256:10ce4bc73c7a244debbf355189dfbcd13feb7d31007c79e83c93aec978831b65"),
 }

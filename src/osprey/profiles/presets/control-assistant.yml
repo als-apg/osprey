@@ -397,6 +397,10 @@ config:
   # build; `osprey channel-finder benchmark` runs it (`--queries-path FILE`
   # for another).
   channel_finder.benchmark.dataset_path: data/benchmarks/queries.json
+  # Rows one `run_sql` answer carries before it is cut. The cap is on the
+  # AGENT's context, not on DuckDB: a truncated answer says so and names this
+  # key, so the agent narrows the query rather than presenting a partial list.
+  channel_finder.query_max_rows: 500
   # osprey:panel-port channel_finder
   # The CHANNELS tab's own web server. It launches when `channel-finder` is in
   # `web_panels:` above, on this deployment's channel-finder slot;

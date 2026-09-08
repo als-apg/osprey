@@ -3,8 +3,11 @@
 import json
 
 import pytest
+import yaml
 
 from osprey.mcp_server.channel_finder_middle_layer.server_context import (
+    DEFAULT_QUERY_MAX_ROWS,
+    QUERY_MAX_ROWS_CONFIG_KEY,
     get_cf_ml_context,
     initialize_cf_ml_context,
 )
@@ -58,3 +61,39 @@ def test_registry_loads_database(tmp_path, monkeypatch):
     initialize_cf_ml_context()
     reg = get_cf_ml_context()
     assert reg.database is not None
+
+
+@pytest.mark.unit
+def test_query_max_rows_defaults_when_unset(tmp_path, monkeypatch):
+    """A config naming no cap gets the shipped one."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text("{}")
+    initialize_cf_ml_context()
+
+    assert get_cf_ml_context().query_max_rows == DEFAULT_QUERY_MAX_ROWS
+
+
+@pytest.mark.unit
+def test_query_max_rows_is_read_from_the_top_level_block(tmp_path, monkeypatch):
+    """The key sits on `channel_finder`, outside the derived `pipelines` prefix."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text("channel_finder:\n  query_max_rows: 50")
+    initialize_cf_ml_context()
+
+    assert get_cf_ml_context().query_max_rows == 50
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("bad", ["50", 0, -1, True, 1.5])
+def test_an_unusable_cap_warns_and_keeps_the_default(tmp_path, monkeypatch, caplog, bad):
+    """A typo must not leave the agent with no channel tools, so it warns."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text(
+        yaml.safe_dump({"channel_finder": {"query_max_rows": bad}})
+    )
+
+    with caplog.at_level("WARNING"):
+        initialize_cf_ml_context()
+
+    assert get_cf_ml_context().query_max_rows == DEFAULT_QUERY_MAX_ROWS
+    assert any(QUERY_MAX_ROWS_CONFIG_KEY in record.getMessage() for record in caplog.records)
