@@ -116,9 +116,13 @@ def _pep440_from_describe(described: str) -> str | None:
     # it, or the build stamp and this string disagree on hash length alone.
     local = f"g{remainder[:9]}"
     if dirty:
-        from datetime import date
+        from datetime import UTC, datetime
 
-        local = f"{local}.d{date.today():%Y%m%d}"
+        # UTC, because that is the clock setuptools-scm's node-and-date scheme
+        # reads. Local time here made the two derivations disagree by a day for
+        # every dirty checkout west of Greenwich after 17:00, which is not a
+        # midnight race but a several-hour window every single day.
+        local = f"{local}.d{datetime.now(UTC):%Y%m%d}"
     return f"{base}.post{distance}+{local}"
 
 
