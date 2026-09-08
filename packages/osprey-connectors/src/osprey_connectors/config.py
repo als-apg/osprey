@@ -1007,20 +1007,19 @@ def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
             path = project_root_path / agent_data_root / sub_dir_path
         else:
             if not project_root_path.exists():
-                container_project_roots = ["/app", "/pipelines", "/jupyter"]
-                detected_container_root = None
-
-                for container_root in container_project_roots:
-                    container_path = Path(container_root)
-                    if container_path.exists() and (container_path / agent_data_root).exists():
-                        detected_container_root = container_path
-                        break
-
-                if detected_container_root:
+                # A configured root written on the host does not exist inside a
+                # container. ``CONFIG_FILE`` names the config this process
+                # actually loaded, so its directory IS the project root here —
+                # a fact rather than the guess at a container layout this used
+                # to make.
+                config_file = os.environ.get("CONFIG_FILE")
+                anchor = Path(config_file).parent if config_file else None
+                if anchor is not None and anchor.exists():
                     logger.debug(
-                        f"Container environment detected: using {detected_container_root} instead of {project_root}"
+                        f"Configured project root {project_root} is absent; anchoring on "
+                        f"CONFIG_FILE's directory {anchor}"
                     )
-                    path = detected_container_root / agent_data_root / sub_dir_path
+                    path = anchor / agent_data_root / sub_dir_path
                 else:
                     logger.warning(f"Configured project root does not exist: {project_root}")
                     logger.warning("Falling back to relative path resolution")
