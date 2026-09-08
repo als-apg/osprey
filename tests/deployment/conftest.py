@@ -32,12 +32,16 @@ def running_a_released_osprey(monkeypatch):
     checkout, so without this every argv-shape test here would trip that refusal
     instead of asserting on the argv it cares about.
 
-    Tests that are *about* the refusal re-patch these inside the test body, which
-    takes precedence — see ``TestResolvePipSpec`` in
-    ``test_container_lifecycle.py``.
+    Only ``is_release`` is patched — the refusal is keyed on it alone.
+    ``get_release_version`` stays real: pinning it to a literal here would
+    disagree with any provenance stamped outside this fixture's function scope
+    (a module-scoped fixture builds before autouse function fixtures apply), and
+    the staleness advisory reads that disagreement as drift on an untouched
+    build. Tests that assert an exact pin string patch ``get_release_version``
+    inside their own bodies, which takes precedence — see ``TestResolvePipSpec``
+    in ``test_container_lifecycle.py``.
     """
     monkeypatch.setattr("osprey.version.is_release", lambda: True)
-    monkeypatch.setattr("osprey.version.get_release_version", lambda: "2026.6.2")
 
 
 @pytest.fixture(autouse=True)

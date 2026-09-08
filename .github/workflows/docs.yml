@@ -4,8 +4,10 @@
 #   /            written ONLY by the newest release tag, so the site root always
 #                shows the newest release — never a development build.
 #   /vX.Y.Z/     one directory per vX.Y.Z release tag, rewritten only when that
-#                tag is re-published. Pre-release and component tags
-#                (v1.0.0rc1, osprey-connectors-v*) build but are not published.
+#                tag is re-published. A pre-release tag (v2026.9.0b1) publishes
+#                the same way — its own directory and switcher entry, never the
+#                root. Component tags (osprey-connectors-v*) build but are not
+#                published.
 #   /latest/     the development build from main, which renders a banner saying
 #                so and points readers at the released docs.
 #
