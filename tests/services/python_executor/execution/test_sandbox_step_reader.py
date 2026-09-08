@@ -25,6 +25,7 @@ from types import ModuleType
 import pytest
 
 from osprey.connectors.control_system.limits_validator import (
+    DEFAULT_STEP_READ_TIMEOUT_SECONDS,
     ChannelLimitsConfig,
     LimitsValidator,
 )
@@ -65,10 +66,14 @@ def _install_fake_epics(monkeypatch, reads, writes, read=None):
     written against ``caput`` an honest exercise of the wrapper.
 
     ``read`` replaces what ``ca.get`` answers, and may raise: a client that
-    cannot read is the case a step check has to fail closed on.
+    cannot read is the case a step check has to fail closed on. Each read's
+    ``timeout=`` is recorded on ``read_timeouts``, so a test can assert the
+    budget the guard reads with.
     """
     mod = ModuleType("epics")
     ca = ModuleType("epics.ca")
+    #: The ``timeout=`` each guard read was given, in order.
+    mod.read_timeouts = []
 
     class _Chid:
         """What ``epics.ca`` addresses a channel by: an opaque id, not a name."""
@@ -84,6 +89,7 @@ def _install_fake_epics(monkeypatch, reads, writes, read=None):
 
     def get(chid, timeout=None, **kwargs):
         reads.append(name(chid))
+        mod.read_timeouts.append(timeout)
         if read is not None:
             return read(name(chid))
         return CURRENT
@@ -178,12 +184,14 @@ def _install_fake_p4p(monkeypatch, asyncio_flavor=False):
     return asyncio_cls
 
 
-def _run_monkeypatch(monkeypatch, channel=CHANNEL):
+def _run_monkeypatch(monkeypatch, channel=CHANNEL, step_read_timeout_s=None):
     import osprey.runtime as runtime_module
 
     monkeypatch.setattr(runtime_module, "_limits_validator", None, raising=False)
 
-    wrapper = ExecutionWrapper(limits_validator=_step_validator(channel))
+    wrapper = ExecutionWrapper(
+        limits_validator=_step_validator(channel), step_read_timeout_s=step_read_timeout_s
+    )
     source = wrapper._get_limits_checking_monkeypatch()
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
@@ -568,3 +576,39 @@ def test_caproto_pv_write_measures_the_step_with_the_writing_pv(monkeypatch):
 
     assert reads == [CHANNEL]
     assert writes == [(CHANNEL, CURRENT + 1.0)]
+
+
+# ---------------------------------------------------------------------------
+# The budget the guard reads with
+#
+# Which connector block the number came out of is the executor's question, and
+# is pinned where it is answered (tests/mcp_server/python_executor/
+# test_executor_limits_target.py). What has to hold here is that the resolved
+# number travels into the generated source and is what every read is bounded
+# by — the sandbox holds no config and can look nothing up for itself.
+# ---------------------------------------------------------------------------
+
+
+def test_the_resolved_budget_bounds_the_guards_read(monkeypatch):
+    """The sandbox holds no config, so the budget travels in its source."""
+    reads: list = []
+    writes: list = []
+    epics = _install_fake_epics(monkeypatch, reads, writes)
+    _run_monkeypatch(monkeypatch, step_read_timeout_s=0.25)
+
+    epics.caput(CHANNEL, CURRENT + 1.0)
+
+    assert epics.read_timeouts == [0.25]
+    assert writes == [(CHANNEL, CURRENT + 1.0)]
+
+
+def test_a_wrapper_handed_no_budget_still_bounds_the_read(monkeypatch):
+    """A caller that knows no deployment gets the connectors package's default."""
+    reads: list = []
+    writes: list = []
+    epics = _install_fake_epics(monkeypatch, reads, writes)
+    _run_monkeypatch(monkeypatch)
+
+    epics.caput(CHANNEL, CURRENT + 1.0)
+
+    assert epics.read_timeouts == [DEFAULT_STEP_READ_TIMEOUT_SECONDS]

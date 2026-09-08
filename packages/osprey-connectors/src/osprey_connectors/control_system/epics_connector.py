@@ -24,7 +24,10 @@ from osprey_connectors.control_system.base import (
     is_readonly_run,
     values_match,
 )
-from osprey_connectors.control_system.limits_validator import STEP_READ_TIMEOUT_SECONDS
+from osprey_connectors.control_system.limits_validator import (
+    DEFAULT_STEP_READ_TIMEOUT_SECONDS,
+    step_read_timeout_seconds,
+)
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import writes_enabled_key
 
@@ -303,6 +306,11 @@ class EPICSConnector(ControlSystemConnector):
 
     def __init__(self):
         self._connected = False
+        # The `max_step` fresh-read budget, replaced from the connector's own
+        # config block on connect. Set here so the reader is usable on a
+        # connector that has not connected — the fallback is the same number
+        # the block's default resolves to.
+        self._step_read_timeout = DEFAULT_STEP_READ_TIMEOUT_SECONDS
         self._subscriptions: dict[str, Any] = {}
         self._pv_cache: dict[str, Any] = {}
         self._pv_cache_lock = threading.Lock()  # Thread safety for PV cache
@@ -436,6 +444,13 @@ class EPICSConnector(ControlSystemConnector):
             self._epics_configured = True
 
         self._timeout = config.get("timeout", 5.0)
+        # The ceiling on the fresh read a `max_step` check makes before a
+        # write. A facility-network fact like `timeout` above, and read from
+        # the same block: a gateway two hops away answers slower than a soft
+        # IOC on this host. Running out of budget answers None, which refuses
+        # the write — raising it buys a slow channel more room, never a
+        # weaker check.
+        self._step_read_timeout = step_read_timeout_seconds(config, self._connector_type)
 
         # Configure PVAccess routing. Addresses matching one of these globs are
         # served by the p4p client; every other address keeps using Channel
@@ -909,7 +924,7 @@ class EPICSConnector(ControlSystemConnector):
         def read_current(channel_address: str) -> Any:
             if self._is_pva_channel(channel_address):
                 return None
-            return self._epics.caget(channel_address, timeout=STEP_READ_TIMEOUT_SECONDS)
+            return self._epics.caget(channel_address, timeout=self._step_read_timeout)
 
         return read_current
 

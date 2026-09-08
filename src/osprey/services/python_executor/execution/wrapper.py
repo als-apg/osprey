@@ -87,6 +87,7 @@ class ExecutionWrapper:
         protected_roots: Iterable[str | Path] = (),
         permitted_roots: Iterable[str | Path] = (),
         perimeter_denied_ports: Iterable[int] = (),
+        step_read_timeout_s: float | None = None,
     ):
         """
         Initialize the wrapper.
@@ -131,12 +132,30 @@ class ExecutionWrapper:
                 (:meth:`_get_net_guard`); a non-empty set puts the guard in
                 front of user code in **every** execution mode, because the
                 perimeter is orthogonal to the write posture.
+            step_read_timeout_s: Ceiling on the fresh read a ``max_step`` check
+                makes, in seconds. Resolved by the parent
+                (:func:`osprey.mcp_server.python_executor.executor._step_read_timeout_seconds`)
+                from the block of the connector the run's control target
+                selects, and passed as a literal for the same reason the guard
+                roots are: the sandbox holds no config, and a child deriving
+                the budget for itself would read the deployment's baseline
+                block rather than the one its own connector reads. ``None`` —
+                what a caller that knows no deployment gets — takes the
+                connectors package's own default, which fails closed just as
+                quickly.
         """
         self.limits_validator = limits_validator
         self.execution_mode = execution_mode
         self.protected_roots = tuple(str(root) for root in protected_roots)
         self.permitted_roots = tuple(str(root) for root in permitted_roots)
         self.perimeter_denied_ports = tuple(perimeter_denied_ports)
+        if step_read_timeout_s is None:
+            from osprey_connectors.control_system.limits_validator import (
+                DEFAULT_STEP_READ_TIMEOUT_SECONDS,
+            )
+
+            step_read_timeout_s = DEFAULT_STEP_READ_TIMEOUT_SECONDS
+        self.step_read_timeout_s = float(step_read_timeout_s)
 
     def create_wrapper(self, user_code: str, execution_folder: Path | None = None) -> str:
         """
@@ -306,6 +325,13 @@ if not _execution_dir.exists():
 
         db_json = json.dumps(limits_db_serialized)
         policy_json = json.dumps(self.limits_validator.policy)
+        # Embedded as a literal for the same reason the database and the policy
+        # are: the sandbox holds no config, so every number the guard applies
+        # has to travel in the generated source. The parent resolved it from
+        # the connector block this run's control target selects
+        # (`control_system.connector.<type>.step_read_timeout_s`), so a
+        # script's step check and that connector's own read use one budget.
+        step_read_timeout = self.step_read_timeout_s
 
         return textwrap.dedent(
             f"""
@@ -313,9 +339,13 @@ if not _execution_dir.exists():
             try:
                 import json
                 from osprey.connectors.control_system.limits_validator import (
-                    LimitsValidator, ChannelLimitsConfig, STEP_READ_TIMEOUT_SECONDS
+                    LimitsValidator, ChannelLimitsConfig
                 )
+
                 from osprey.errors import ChannelLimitsViolationError
+
+                # This deployment's `max_step` fresh-read budget, in seconds.
+                _step_read_timeout = {step_read_timeout}
 
                 # Deserialize embedded config
                 _limits_db_raw = json.loads('''{db_json}''')
@@ -373,7 +403,7 @@ if not _execution_dir.exists():
                         check closed.
                         '''
                         try:
-                            return _original_ca_get(_chid, timeout=STEP_READ_TIMEOUT_SECONDS)
+                            return _original_ca_get(_chid, timeout=_step_read_timeout)
                         except Exception:
                             return None
 
@@ -446,7 +476,7 @@ if not _execution_dir.exists():
                         if _cfg and _cfg['max_step'] is not None:
                             try:
                                 _current = await _orig_aioca_caget(
-                                    pv, timeout=STEP_READ_TIMEOUT_SECONDS
+                                    pv, timeout=_step_read_timeout
                                 )
                             except Exception:
                                 _current = None
@@ -1305,7 +1335,7 @@ if not _execution_dir.exists():
                         holding the write open.
                         '''
                         return _caproto_scalar(
-                            _caproto_sync.read(_address, timeout=STEP_READ_TIMEOUT_SECONDS)
+                            _caproto_sync.read(_address, timeout=_step_read_timeout)
                         )
 
                     _caproto_sync_reader = (
@@ -1387,7 +1417,7 @@ if not _execution_dir.exists():
 
                         def _read(_address):
                             return _caproto_scalar(
-                                _pv.read(timeout=STEP_READ_TIMEOUT_SECONDS)
+                                _pv.read(timeout=_step_read_timeout)
                             )
 
                         return _read
@@ -1480,7 +1510,7 @@ if not _execution_dir.exists():
                             if _cfg and _cfg['max_step'] is not None:
                                 try:
                                     _current = _caproto_scalar(
-                                        await self.read(timeout=STEP_READ_TIMEOUT_SECONDS)
+                                        await self.read(timeout=_step_read_timeout)
                                     )
                                 except Exception:
                                     _current = None

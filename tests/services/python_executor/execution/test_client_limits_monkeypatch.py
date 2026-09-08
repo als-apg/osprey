@@ -27,7 +27,7 @@ from types import ModuleType
 import pytest
 
 from osprey.connectors.control_system.limits_validator import (
-    STEP_READ_TIMEOUT_SECONDS,
+    DEFAULT_STEP_READ_TIMEOUT_SECONDS,
     ChannelLimitsConfig,
     LimitsValidator,
 )
@@ -2219,7 +2219,7 @@ def test_caproto_pre_reads_carry_the_step_read_ceiling(monkeypatch):
     asyncio.run(asyncio_client.PV("TEST:MAG:STEP").write(2.0))
 
     assert reads == ["TEST:MAG:STEP"] * 4
-    assert read_kwargs == [{"timeout": STEP_READ_TIMEOUT_SECONDS}] * 4
+    assert read_kwargs == [{"timeout": DEFAULT_STEP_READ_TIMEOUT_SECONDS}] * 4
     assert writes == [("TEST:MAG:STEP", 2.0)] * 4
 
 
