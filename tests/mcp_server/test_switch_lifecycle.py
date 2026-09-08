@@ -536,6 +536,50 @@ class TestSuccessfulSwitch:
         assert record["applied_target"] == "live"
         assert record["applied_generation"] == 2
 
+    async def test_a_reconcile_with_no_child_adopts_and_spawns_nothing(self, make_manager):
+        """A server joining a moved record binds nothing and reports nothing."""
+        manager = make_manager()
+
+        result = await manager.reconcile("va", 3)
+
+        assert not manager.has_child()
+        assert manager.spawned == []
+        assert manager.active_target() == "va"
+        assert manager.active_generation() == 3
+        assert result["published"] is False
+        assert result["respawned"] is False
+        record = target_state.read()
+        assert record["applied_target"] is None
+        assert record["applied_generation"] is None
+
+    async def test_a_reconcile_asked_to_launch_brings_up_the_first_child_on_the_record(
+        self, make_manager
+    ):
+        """A record moving under a childless server is answered with a child.
+
+        The child comes up on the record's target with the record's generation
+        and is published like any swap, so the fleet's wait on this server ends
+        in a report rather than in the chip's own deadline.
+        """
+        manager = make_manager()
+
+        result = await manager.reconcile("va", 1, launch=True)
+
+        assert manager.has_child()
+        assert manager.is_started()
+        assert len(manager.spawned) == 1
+        assert manager.active_target() == "va"
+        assert manager.active_generation() == 1
+        assert result["respawned"] is True
+        assert result["published"] is True
+        assert result["child_pid"] == manager.spawned[0].pid
+        record = target_state.read()
+        assert record["applied_target"] == "va"
+        assert record["applied_generation"] == 1
+        assert isinstance(
+            await manager.active_proxy().read_channel(VA_PROBE, timeout=10.0), ChannelValue
+        )
+
 
 # ------------------------------------------------------------ failed switches
 

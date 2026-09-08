@@ -1172,7 +1172,9 @@ class ConnectorHostManager:
                 force=True,
             )
 
-    async def reconcile(self, target: str, generation: int) -> dict[str, Any]:
+    async def reconcile(
+        self, target: str, generation: int, *, launch: bool = False
+    ) -> dict[str, Any]:
         """Bring this server into line with the record, under the lock.
 
         The reconcile loop's one entry point. *target* and *generation* are the
@@ -1180,15 +1182,27 @@ class ConnectorHostManager:
         them; this method never decides either, it only makes this server agree
         with them and says what it did.
 
-        Three answers, and the difference between them is what is running:
+        Four answers, and the difference between them is what is running and
+        whether the caller asked for a child:
 
-        * **No live child.** Both values are adopted in memory and nothing is
-          published. Nothing is bound to a generation, so nothing can be bound
-          to the wrong one, and a report claiming otherwise would let the fleet
-          count a server that has launched nothing as arrived. The first launch
-          then comes up on the adopted target and reports the adopted
-          generation, which is how a server joining a deployment already on
-          generation 7 reports 7 and mints nothing.
+        * **No live child, not asked to launch.** Both values are adopted in
+          memory and nothing is published. Nothing is bound to a generation, so
+          nothing can be bound to the wrong one, and a report claiming
+          otherwise would let the fleet count a server that has launched
+          nothing as arrived. The first launch then comes up on the adopted
+          target and reports the adopted generation, which is how a server
+          joining a deployment already on generation 7 reports 7 and mints
+          nothing.
+        * **No live child, asked to launch.** The first child comes up on
+          *target* with *generation* assigned and is published like any swap.
+          This is a record that moved UNDER a running server: the operator who
+          moved it is waiting for every live server to report the generation,
+          and a server that adopted silently would keep that wait open until
+          the client's own deadline. The launch is not probed, for the reason
+          the deployment's first launch never is — nothing is serving, so
+          there is no working session to protect from a target that cannot
+          answer, and the failure is reported per call instead. A launch that
+          does not come up is reported ``failed`` against *generation*.
         * **A live child on this target.** The generation is adopted and
           republished against the child already serving it: nothing is spawned,
           nothing is retired, and the connections the session holds survive. A
@@ -1216,7 +1230,7 @@ class ConnectorHostManager:
             previous_target = self._target
             previous_generation = self._generation
             child = self._live_child()
-            if child is None:
+            if child is None and not launch:
                 self._target = target
                 self._generation = int(generation)
                 logger.info(
@@ -1226,6 +1240,23 @@ class ConnectorHostManager:
                     generation,
                 )
                 return self._reconciled(previous_target, previous_generation, published=False)
+            if child is None:
+                result = await self._switch_locked(
+                    target,
+                    cause=(
+                        f"launching the connector host on the control-context record's "
+                        f"target {target!r} (generation {generation})"
+                    ),
+                    probe=False,
+                    generation=generation,
+                )
+                return self._reconciled(
+                    previous_target,
+                    previous_generation,
+                    published=bool(result["published"]),
+                    child_pid=result["child_pid"],
+                    respawned=True,
+                )
             if target == self._target:
                 self._generation = int(generation)
                 published = False
