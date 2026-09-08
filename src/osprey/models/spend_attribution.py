@@ -57,8 +57,10 @@ SURFACE_DISPATCH = "dispatch"
 SURFACE_SERVICE = "service"
 SURFACE_LOCAL = "local"
 
-#: Built-in providers that are LiteLLM proxies. A custom ``api.providers``
-#: entry declares the same with ``gateway: litellm``.
+#: Default gateway kind for the built-in names that are LiteLLM proxies —
+#: consulted only when a provider's own ``api.providers`` entry says nothing.
+#: It exists so the build path can answer without importing the adapters, and
+#: is parity-pinned to their ``gateway`` attribute.
 _BUILTIN_GATEWAYS: Mapping[str, str] = {
     "als-apg": LITELLM_GATEWAY,
     "cborg": LITELLM_GATEWAY,
@@ -70,16 +72,21 @@ def gateway_for(
 ) -> str | None:
     """Return the gateway kind fronting *provider_name*, or ``None`` for a direct provider.
 
-    A custom provider's ``gateway`` key wins over nothing: the built-in table
-    only names providers that have no ``api.providers`` entry of their own.
+    A declaration wins. ``api.providers.<name>.gateway`` is this deployment's
+    own statement about the endpoint it points at: a non-empty string is the
+    gateway kind, and an empty value or ``none`` says the endpoint is direct
+    and carries no attribution headers. The built-in table answers only for a
+    name whose entry says nothing about a gateway — otherwise a deployment
+    that re-points a built-in name at its own direct endpoint would go on
+    sending end-user identity to it.
     """
-    if provider_name in _BUILTIN_GATEWAYS:
-        return _BUILTIN_GATEWAYS[provider_name]
-    if api_providers:
-        declared = api_providers.get(provider_name, {}).get("gateway")
-        if isinstance(declared, str) and declared.strip():
+    block = (api_providers or {}).get(provider_name) or {}
+    if isinstance(block, Mapping) and "gateway" in block:
+        declared = block.get("gateway")
+        if isinstance(declared, str) and declared.strip() and declared.strip().lower() != "none":
             return declared.strip()
-    return None
+        return None
+    return _BUILTIN_GATEWAYS.get(provider_name)
 
 
 def acting_surface() -> str:

@@ -340,8 +340,10 @@ LiteLLM SDK path used by MCP servers sets the same identity as the OpenAI
 ``user`` field. Nothing is sent to a direct vendor.
 
 The built-in ``als-apg`` and ``cborg`` providers are LiteLLM proxies and get
-this automatically. A custom gateway declares it in its ``providers.yml``
-entry:
+this automatically; a ``gateway:`` key on one of those names overrides that
+default, and ``gateway: none`` turns attribution off for an entry that points
+the name at a direct endpoint. A custom gateway declares it in its
+``providers.yml`` entry:
 
 .. code-block:: yaml
 
