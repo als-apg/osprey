@@ -27,6 +27,8 @@ import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from osprey.utils.config import get_facility_timezone
+
 from .models import PlotConfig
 
 logger = logging.getLogger(__name__)
@@ -100,7 +102,7 @@ def create_plt_from_config(
         else:
             end_str = str(plot_config.time_range.end)
     else:
-        end_time = datetime.now()
+        end_time = datetime.now(get_facility_timezone())
         start_time = end_time - timedelta(hours=24)
         start_str = start_time.strftime("%Y-%m-%d %H:%M:%S.000")
         end_str = end_time.strftime("%Y-%m-%d %H:%M:%S.999")

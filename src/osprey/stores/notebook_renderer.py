@@ -12,6 +12,8 @@ from pathlib import Path
 
 import nbformat
 
+from osprey.utils.config import to_facility_iso
+
 logger = logging.getLogger("osprey.stores.notebook_renderer")
 
 
@@ -36,7 +38,7 @@ def create_notebook_from_code(
 
     # Header cell
     status = "Error" if stderr else "Success"
-    timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+    timestamp = to_facility_iso(datetime.now(UTC))
     header = (
         f"# {description}\n\n"
         f"**Status:** {status}  \n"
