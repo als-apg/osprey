@@ -795,3 +795,67 @@ def test_list_still_works_before_the_first_build(runner: CliRunner, repo: Path) 
 
     assert result.exit_code == 0, result.output
     assert "Framework-managed" in result.output
+
+
+# ── The environment URL ──────────────────────────────────────────────────────
+
+
+class TestEnvironmentUrl:
+    """The pipeline's environment URL is the deployment's own origin.
+
+    ``https://$DEPLOY_HOST`` was a third spelling of an address this deployment
+    already derives once: it asserted TLS on a profile serving plain HTTP,
+    dropped a non-default port, and named the SSH host rather than the address
+    browsers open. All three are the same defect — a browser-facing URL that did
+    not come from the origin authority.
+    """
+
+    def _context(self, profile: dict, fqdn: str = "ctl-01.example.org"):
+        from osprey.cli.build_profile_deploy import DeployConfig, DeployHost
+        from osprey.cli.deploy_scaffold_templates import build_ci_context
+
+        deploy = DeployConfig(
+            ci="gitlab",
+            host=DeployHost(name="ctl-01", project_path="/srv/d", user="svc", fqdn=fqdn),
+        )
+        return build_ci_context(profile, deploy, Path("."), "d")
+
+    def _profile(self, **config: object) -> dict:
+        return {
+            "name": "d",
+            "config": {
+                "modules.web_terminals": {"enabled": True, **config.pop("web", {})},
+                **config,
+            },
+        }
+
+    def test_plain_http_takes_the_scheme_and_the_published_port(self) -> None:
+        ctx = self._context(self._profile(**{"deploy.fqdn": "ctl-01.example.org"}))
+
+        assert ctx.environment_url == "http://ctl-01.example.org:10000"
+
+    def test_tls_on_a_non_default_port_keeps_the_port(self) -> None:
+        profile = self._profile(
+            **{
+                "deploy.fqdn": "ctl-01.example.org",
+                "web": {"tls": {"enabled": True, "port": 8443}},
+            }
+        )
+
+        assert self._context(profile).environment_url == "https://ctl-01.example.org:8443"
+
+    def test_a_declared_external_origin_wins_verbatim(self) -> None:
+        profile = self._profile(
+            **{
+                "deploy.fqdn": "ctl-01.example.org",
+                "web": {"external_origin": "https://terminals.example.org"},
+            }
+        )
+
+        assert self._context(profile).environment_url == "https://terminals.example.org"
+
+    def test_a_deployment_with_no_web_tier_declares_no_url(self) -> None:
+        """A backend-only deployment has no landing page to link to."""
+        ctx = self._context({"name": "d", "config": {}})
+
+        assert ctx.environment_url is None

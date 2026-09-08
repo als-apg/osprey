@@ -2407,7 +2407,10 @@ deploy:
       REMOTE
   environment:
     name: production
-    url: https://$DEPLOY_HOST
+    # The address browsers open this deployment at, derived from the same
+    # origin the landing page carries and every terminal checks a write
+    # against — not the SSH host the job connects to.
+    url: http://127.0.0.1:10000
   resource_group: production
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
