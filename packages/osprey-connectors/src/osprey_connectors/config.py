@@ -147,6 +147,11 @@ def resolve_env_vars(data: Any, *, environ: "Mapping[str, str] | None" = None) -
 # Jupyter kernel gateway OSPREY does not ship.
 EXECUTION_METHOD_SUBPROCESS = "subprocess"
 
+#: Wall-clock budget one agent Python execution gets when the deployment does not
+#: set ``python_executor.execution_timeout_seconds``. Defined once here and read
+#: by the executor so both ends of the timeout agree.
+DEFAULT_EXECUTION_TIMEOUT_SECONDS = 600
+
 # Module-level latch so the ``container`` deprecation is logged once per process
 # rather than on every config read (the executor resolves per tool call).
 # Tests reset it via ``osprey_connectors.config._container_method_warned = False``.
@@ -635,7 +640,7 @@ class ConfigBuilder:
 
         # Otherwise, provide sensible defaults
         return {
-            "execution_timeout_seconds": 600,
+            "execution_timeout_seconds": DEFAULT_EXECUTION_TIMEOUT_SECONDS,
         }
 
     def _build_configurable(self) -> dict[str, Any]:

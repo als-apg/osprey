@@ -199,12 +199,15 @@ def _read_config() -> dict:
     """
     from osprey.utils.config import resolve_execution_method
     from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.config import DEFAULT_EXECUTION_TIMEOUT_SECONDS
 
     config = load_osprey_config()
 
     return {
         "execution_method": resolve_execution_method(config),
-        "timeout": config.get("python_executor", {}).get("execution_timeout_seconds", 600),
+        "timeout": config.get("python_executor", {}).get(
+            "execution_timeout_seconds", DEFAULT_EXECUTION_TIMEOUT_SECONDS
+        ),
     }
 
 

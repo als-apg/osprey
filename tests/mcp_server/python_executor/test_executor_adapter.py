@@ -22,6 +22,7 @@ from osprey.mcp_server.python_executor.executor import (
     execute_code,
     resolve_agent_interpreter,
 )
+from osprey_connectors.config import DEFAULT_EXECUTION_TIMEOUT_SECONDS, ConfigBuilder
 
 
 @pytest.fixture(autouse=True)
@@ -131,11 +132,25 @@ def test_config_reads_timeout(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 def test_config_timeout_default(tmp_path, monkeypatch):
-    """When timeout config absent, defaults to 600 seconds."""
+    """When timeout config absent, the adapter falls back to the shared default."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text(yaml.dump({}))
     config = _read_config()
-    assert config["timeout"] == 600
+    assert config["timeout"] == DEFAULT_EXECUTION_TIMEOUT_SECONDS
+
+
+@pytest.mark.unit
+def test_config_timeout_default_matches_the_builder_default(tmp_path, monkeypatch):
+    """Both ends of the executor timeout read the same constant."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text(yaml.dump({}))
+    builder = ConfigBuilder(config_path=str(tmp_path / "config.yml"))
+
+    assert (
+        builder._get_python_executor_config()["execution_timeout_seconds"]
+        == _read_config()["timeout"]
+        == DEFAULT_EXECUTION_TIMEOUT_SECONDS
+    )
 
 
 # ---------------------------------------------------------------------------
