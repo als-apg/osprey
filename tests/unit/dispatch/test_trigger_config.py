@@ -402,3 +402,59 @@ def test_only_surface_prompt_present_is_fine(tmp_path):
 
     assert triggers[0].surface is None
     assert triggers[0].surface_prompt == "Extra guidance."
+
+
+# ---------------------------------------------------------------------------
+# Test 14: `action.max_turns` is a typed field, refused at load time
+# ---------------------------------------------------------------------------
+
+
+def test_max_turns_is_parsed_when_present(tmp_path):
+    yaml_content = """\
+        dispatcher:
+          dispatch_target: http://localhost:8010/dispatch
+
+        triggers:
+          - name: with-ceiling
+            source: webhook
+            action:
+              prompt: "Handle event"
+              allowed_tools: []
+              max_turns: 5
+    """
+    path = write_yaml(tmp_path, yaml_content)
+    _, triggers = load_triggers(path)
+
+    assert triggers[0].max_turns == 5
+
+
+def test_max_turns_defaults_to_none_when_absent(tmp_path):
+    path = write_yaml(tmp_path, VALID_WEBHOOK_YAML)
+    _, triggers = load_triggers(path)
+
+    assert triggers[0].max_turns is None
+
+
+@pytest.mark.parametrize("bad_value", ["five", 0, -1, 2.5, True, ["3"]])
+def test_an_unusable_max_turns_is_refused_when_the_file_is_loaded(tmp_path, bad_value):
+    """A turn ceiling the worker would reject is a typo the author must see.
+
+    The worker refuses it with a 422 at dispatch time — which is the moment an
+    event fires, long after the file was written — so the file is where it is
+    caught.
+    """
+    yaml_content = f"""\
+        dispatcher:
+          dispatch_target: http://localhost:8010/dispatch
+
+        triggers:
+          - name: bad-ceiling
+            source: webhook
+            action:
+              prompt: "Handle event"
+              allowed_tools: []
+              max_turns: {bad_value!r}
+    """
+    path = write_yaml(tmp_path, yaml_content)
+    with pytest.raises(ValueError, match="max_turns"):
+        load_triggers(path)

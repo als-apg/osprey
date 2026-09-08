@@ -397,6 +397,33 @@ def _retired_upstream_link_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+def _dispatch_max_turns_deltas() -> tuple[Delta, ...]:
+    """The dispatch worker's turn ceiling, now written into its service block.
+
+    How many agentic turns one dispatched run may take was a literal in the
+    worker's request model, so a facility could set the two clock budgets and
+    not this one. ``dispatch.max_turns`` is the third budget, and the build
+    writes it into ``services.dispatch_worker`` beside ``timeout_sec`` and
+    ``inactivity_sec`` on every deploy. The fixtures were frozen before the key
+    existed, and only the root document carries a service block, so this is one
+    delta rather than one per persona.
+
+    Only ``control-assistant`` deploys a dispatch worker; the other presets gain
+    nothing and are absent below.
+
+    Returns:
+        The single root-document delta.
+    """
+    return (
+        Delta(
+            document="root",
+            path="services.dispatch_worker.max_turns",
+            fixture=ABSENT,
+            live=25,
+        ),
+    )
+
+
 #: The documents a control-assistant cell renders: the root config plus one per
 #: persona in the preset's roster.
 _CONTROL_ASSISTANT_DOCUMENTS = (
@@ -431,19 +458,23 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     "control-assistant/in_context": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _dispatch_max_turns_deltas(),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _dispatch_max_turns_deltas(),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _dispatch_max_turns_deltas(),
     "control-assistant/graph": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _dispatch_max_turns_deltas(),
 }
 
 

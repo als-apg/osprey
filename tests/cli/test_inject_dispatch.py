@@ -157,6 +157,25 @@ def test_inject_dispatch_propagates_inactivity_sec(tmp_path: Path) -> None:
     assert dw["inactivity_sec"] == 45
 
 
+def test_inject_dispatch_propagates_max_turns(tmp_path: Path) -> None:
+    """A dispatch.max_turns lands in services.dispatch_worker so the compose
+    template can render DISPATCH_MAX_TURNS beside the two clock budgets."""
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    profile_dir = tmp_path / "profile"  # empty — forces bundled resolution
+    profile_dir.mkdir()
+    _write_config(project_path)
+
+    _inject_dispatch(
+        _dispatch(max_turns=60),
+        profile_dir=profile_dir,
+        project_path=project_path,
+    )
+
+    dw = _read_config(project_path)["services"]["dispatch_worker"]
+    assert dw["max_turns"] == 60
+
+
 def test_inject_dispatch_propagates_pool_limits(tmp_path: Path) -> None:
     """A non-default dispatch.max_concurrent_runs/max_queue_depth lands in triggers.yml.
 

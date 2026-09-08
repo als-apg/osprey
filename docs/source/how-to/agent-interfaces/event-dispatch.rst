@@ -236,12 +236,22 @@ Authoring Triggers
             prompt: >-
               Reply with a single sentence confirming the pipeline works.
             allowed_tools: []            # tools this run may use
+            max_turns: 25                # optional; defaults to dispatch.max_turns
           on_error:                      # optional: retry if the worker is unreachable
             action: retry
             max_retries: 2
             backoff_sec: 1.0
 
    Each webhook trigger is reachable at ``POST /webhook/<name>``.
+
+   **Turn ceiling.** How many agentic turns one dispatched run may take is
+   ``dispatch.max_turns`` in the build profile (default 25) — the third budget
+   beside ``dispatch.timeout_sec`` and ``dispatch.inactivity_sec``, and the one
+   about the work rather than the clock. A trigger that needs more, or less,
+   than the deployment's number states its own ``max_turns:`` in ``action:``;
+   a trigger that names none gets the deployment's. A trigger's own value must
+   be a whole number of turns of at least one, and the dispatcher refuses the
+   triggers file at load if it is not.
 
    **Tool denylist (defence in depth).** The worker enforces a server-side tool
    denylist regardless of what a trigger requests: ``WebFetch``, ``WebSearch``,

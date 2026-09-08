@@ -388,6 +388,16 @@ class DispatchConfig:
 
     timeout_sec: int = 300
     inactivity_sec: int = 120
+
+    max_turns: int = 25
+    """How many agentic turns one dispatched run may take before the SDK stops it.
+
+    The third budget beside :attr:`timeout_sec` and :attr:`inactivity_sec`, and
+    the one that is about the WORK rather than the clock: a facility whose
+    triggers ask for a multi-step investigation raises it, one that dispatches
+    single-shot summaries lowers it. A trigger may still name its own
+    ``max_turns``; this is what a trigger that names none is given."""
+
     facility_name: str = ""
     pv_strip_prefix: str = ""
 

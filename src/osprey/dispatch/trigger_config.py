@@ -31,6 +31,9 @@ class TriggerConfig:
         surface_prompt: Optional free-text fragment appended to the agent's
             system prompt at run time. ``None`` when ``action.surface_prompt``
             is absent.
+        max_turns: Optional per-trigger ceiling on agentic turns. ``None`` when
+            ``action.max_turns`` is absent, in which case the worker applies
+            the deployment's own ``dispatch.max_turns``.
     """
 
     name: str
@@ -40,6 +43,7 @@ class TriggerConfig:
     source_config: dict[str, Any] = field(default_factory=dict)
     surface: str | None = None
     surface_prompt: str | None = None
+    max_turns: int | None = None
 
 
 @dataclass
@@ -70,6 +74,18 @@ def _parse_trigger(raw: dict[str, Any], index: int) -> TriggerConfig:
     if surface_prompt is not None and not isinstance(surface_prompt, str):
         raise ValueError(f"Trigger '{name}' field 'action.surface_prompt' must be a string")
 
+    # The worker refuses an unusable ceiling with a 422 at dispatch time, which
+    # is the moment an event fires — long after this file was authored — so the
+    # value is typed here, where the author is still looking at it. ``bool`` is
+    # an ``int`` subclass, so ``max_turns: true`` would otherwise mean one turn.
+    max_turns = action.get("max_turns")
+    if max_turns is not None and (
+        isinstance(max_turns, bool) or not isinstance(max_turns, int) or max_turns < 1
+    ):
+        raise ValueError(
+            f"Trigger '{name}' field 'action.max_turns' must be an integer >= 1 (got {max_turns!r})"
+        )
+
     on_error_raw = raw.get("on_error")
     if on_error_raw is None:
         on_error = dict(_DEFAULT_ON_ERROR)
@@ -90,6 +106,7 @@ def _parse_trigger(raw: dict[str, Any], index: int) -> TriggerConfig:
         source_config=source_config,
         surface=surface,
         surface_prompt=surface_prompt,
+        max_turns=max_turns,
     )
 
 

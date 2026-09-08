@@ -965,6 +965,11 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         # Checked on the merged block, like bluesky's: parents, -O layers and
         # --set pairs are all folded in by the time the parser runs.
         _reject_unknown_block_keys(dispatch_raw, _KNOWN_DISPATCH_KEYS, "dispatch")
+        max_turns = dispatch_raw.get("max_turns", DispatchConfig.max_turns)
+        if not isinstance(max_turns, int) or isinstance(max_turns, bool) or max_turns < 1:
+            raise BuildProfileError(
+                f"dispatch.max_turns must be an integer >= 1 (got {max_turns!r})"
+            )
         dispatch = DispatchConfig(
             triggers=dispatch_raw.get("triggers", ""),
             worker_count=dispatch_raw.get("worker_count", 1),
@@ -982,6 +987,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             ),
             timeout_sec=dispatch_raw.get("timeout_sec", 300),
             inactivity_sec=dispatch_raw.get("inactivity_sec", 120),
+            max_turns=max_turns,
             facility_name=dispatch_raw.get("facility_name", ""),
             pv_strip_prefix=dispatch_raw.get("pv_strip_prefix", ""),
             network=dispatch_raw.get("network", "bridge"),

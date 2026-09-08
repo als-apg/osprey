@@ -741,3 +741,22 @@ def test_persisted_runs_follow_a_relocated_agent_data_root(tmp_path, monkeypatch
     dispatch_api._persist_run("run-8", {"status": "completed"})
 
     assert (tmp_path / "state" / "data" / "dispatch" / "run-8.json").is_file()
+
+
+def test_dispatch_request_max_turns_defaults_to_the_deployments_ceiling() -> None:
+    """A request naming no ceiling takes DISPATCH_MAX_TURNS, this deployment's own.
+
+    The env is read at import, so the assertion is against the module attribute
+    rather than a literal — what matters is that the request model and the
+    deployment's configured ceiling are one number.
+    """
+    request = dispatch_api.DispatchRequest(prompt="hi", allowed_tools=[])
+
+    assert request.max_turns == dispatch_api.DISPATCH_MAX_TURNS
+
+
+def test_dispatch_request_max_turns_is_taken_from_the_body_when_given() -> None:
+    """A trigger that names its own ceiling overrides the deployment's."""
+    request = dispatch_api.DispatchRequest(prompt="hi", allowed_tools=[], max_turns=60)
+
+    assert request.max_turns == 60
