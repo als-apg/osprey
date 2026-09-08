@@ -34,6 +34,7 @@ import-clean of ophyd.
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from collections.abc import Sequence
 from typing import Any
@@ -44,19 +45,74 @@ from ophyd_async.core import AsyncStatus, StandardReadable
 from ._connect import connect_all
 from .specs import ReadableSpec, SettableSpec
 
-_READBACK_DEADBAND = 1e-9
-"""Max ``abs(readback - demand)`` for ``ConnectorSettable.set()`` to
-consider a move settled. Mirrors ``epics.py``'s deadband: a float-noise
-bound on a setpoint/readback pair the underlying IOC keeps in exact
-software sync, not a physical tolerance."""
+#: Env var carrying how close a readback must come to the demand before
+#: ``ConnectorSettable.set()`` calls a move settled. Authored per facility in
+#: the build profile and rendered into the compose file; the container cannot
+#: read `config.yml`, so the env var is the whole channel.
+SETTLE_TOLERANCE_ENV = "BLUESKY_SETTLE_TOLERANCE"
 
-_READBACK_SETTLE_TIMEOUT_S = 5.0
-"""Bound on how long ``ConnectorSettable.set()`` polls the readback channel
-for settlement after the write verifies, before raising ``TimeoutError``.
-Referenced by name (not bound as a default argument) inside ``set()`` so
-its current module-level value is read at call time — this lets a test
-monkeypatch the module attribute to a tiny value without touching the
-class."""
+#: Used when the variable is unset. A float-noise bound on a setpoint/readback
+#: pair the underlying IOC keeps in exact software sync — the right value for a
+#: device whose readback is the setpoint echoed back, and far too strict for a
+#: device that physically moves, which is exactly why a facility authors it.
+DEFAULT_SETTLE_TOLERANCE = 1e-9
+
+#: Env var bounding how long ``ConnectorSettable.set()`` polls the readback
+#: channel for settlement after the write verifies.
+SETTLE_TIMEOUT_ENV = "BLUESKY_SETTLE_TIMEOUT_S"
+
+#: Used when the variable is unset.
+DEFAULT_SETTLE_TIMEOUT_S = 5.0
+
+
+def settle_tolerance() -> float:
+    """Max ``abs(readback - demand)`` for a move to count as settled.
+
+    How far a readback may sit from its demand before a plan calls the move
+    done is a property of the DEVICES a facility drives, not of OSPREY: an
+    aliased software setpoint settles to float noise, a magnet or a gap does
+    not. Read from `os.environ` on every call — never cached at import — so a
+    test (and a re-exec'd process) sees the value its environment declares.
+
+    Raises:
+        ValueError: if the variable is set to something that is not a number,
+            or to a value below zero. A negative tolerance can never be
+            satisfied, so it would turn every move into a timeout.
+    """
+    return _positive_float(SETTLE_TOLERANCE_ENV, DEFAULT_SETTLE_TOLERANCE, allow_zero=True)
+
+
+def settle_timeout_s() -> float:
+    """How long ``set()`` polls the readback before raising ``TimeoutError``.
+
+    Fail-closed: running out of budget raises out of the ``AsyncStatus`` and
+    aborts the RunEngine. Raising this key gives a slow device more room; it
+    never turns an unsettled move into a successful one.
+
+    Raises:
+        ValueError: if the variable is set to something that is not a number,
+            or to a value at or below zero — a zero budget would abort every
+            move that needs even one poll.
+    """
+    return _positive_float(SETTLE_TIMEOUT_ENV, DEFAULT_SETTLE_TIMEOUT_S, allow_zero=False)
+
+
+def _positive_float(env_var: str, default: float, *, allow_zero: bool) -> float:
+    """Read *env_var* as a float, falling back to *default* when unset."""
+    raw = os.environ.get(env_var)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        raise ValueError(
+            f"{env_var}={raw!r} is not a number; set it to a decimal value (default {default})"
+        ) from None
+    if value < 0 or (value == 0 and not allow_zero):
+        bound = ">= 0" if allow_zero else "> 0"
+        raise ValueError(f"{env_var}={raw!r} must be {bound}")
+    return value
+
 
 _READBACK_POLL_INTERVAL_S = 0.05
 """Sleep between readback polls in ``ConnectorSettable.set()``."""
@@ -80,9 +136,9 @@ class ConnectorSettable(StandardReadable):
     setpoint through ``connector.write_channel_checked`` — which raises on
     any refusal, failure, mismatch, or unconfirmed write, aborting the
     RunEngine — then polls the (possibly separate) readback channel through
-    ``connector.read_channel`` until it settles within ``_READBACK_DEADBAND``
-    of the demanded value, or raises ``TimeoutError`` after
-    ``_READBACK_SETTLE_TIMEOUT_S``. ``read()``/``describe()`` are overridden
+    ``connector.read_channel`` until it settles within :func:`settle_tolerance`
+    of the demanded value, or raises ``TimeoutError`` once the
+    :func:`settle_timeout_s` budget runs out. ``read()``/``describe()`` are overridden
     to return the *live* readback via the connector on every call — never a
     cached/soft value — so a plan's ``trigger_and_read`` document always
     reflects the current mediated state.
@@ -148,8 +204,8 @@ class ConnectorSettable(StandardReadable):
                 Channel Access layer.
             TimeoutError: Either propagated unchanged from the connector's
                 write, or raised directly by this method when ``readback``
-                does not settle within ``_READBACK_DEADBAND`` of ``value``
-                within ``_READBACK_SETTLE_TIMEOUT_S`` seconds.
+                does not settle within :func:`settle_tolerance` of ``value``
+                within :func:`settle_timeout_s` seconds.
 
             Every one of these propagates uncaught through the
             ``AsyncStatus`` this method is wrapped in, aborting the
@@ -164,8 +220,8 @@ class ConnectorSettable(StandardReadable):
         if self._readback_pv == self._setpoint_pv and result.outcome == "confirmed":
             # ``confirmed`` means the connector re-read this very channel and
             # found the value sent — that IS the settle, so return on the word,
-            # never on arithmetic over ``observed_value``: _READBACK_DEADBAND is
-            # stricter than the connector's comparison rule
+            # never on arithmetic over ``observed_value``: the settle tolerance
+            # is stricter, by default, than the connector's comparison rule
             # (``isclose(rel_tol=1e-6)``), so re-checking a confirmed write here
             # would poll the setpoint just written for the full settle timeout
             # and then raise on a write that succeeded. (``WriteOutcome`` is a
@@ -173,15 +229,21 @@ class ConnectorSettable(StandardReadable):
             # connector package into this deliberately duck-typed device layer.)
             return
 
-        deadline = time.monotonic() + _READBACK_SETTLE_TIMEOUT_S
+        # Both budgets are read HERE, once per call, rather than bound as
+        # defaults: the facility authors them in its profile and they reach the
+        # container as env vars, so the value in force is whatever the process
+        # environment says at the moment the move starts.
+        tolerance = settle_tolerance()
+        timeout_s = settle_timeout_s()
+        deadline = time.monotonic() + timeout_s
         while True:
             reading = await self._osprey_connector.read_channel(self._readback_pv)
-            if abs(reading.value - value) <= _READBACK_DEADBAND:
+            if abs(reading.value - value) <= tolerance:
                 return
             if time.monotonic() >= deadline:
                 raise TimeoutError(
                     f"Readback '{self._readback_pv}' did not settle to {value} "
-                    f"within {_READBACK_SETTLE_TIMEOUT_S}s (last read: {reading.value})"
+                    f"within {timeout_s}s (last read: {reading.value})"
                 )
             await asyncio.sleep(_READBACK_POLL_INTERVAL_S)
 

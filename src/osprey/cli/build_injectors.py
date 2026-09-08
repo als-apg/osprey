@@ -1039,6 +1039,10 @@ def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
         keys["excluded_plans"] = os.pathsep.join(bluesky.excluded_plans)
     if bluesky.device_page_size != BlueskyConfig.device_page_size:
         keys["device_page_size"] = bluesky.device_page_size
+    if bluesky.settle_timeout_s != BlueskyConfig.settle_timeout_s:
+        keys["settle_timeout_s"] = bluesky.settle_timeout_s
+    if bluesky.settle_tolerance != BlueskyConfig.settle_tolerance:
+        keys["settle_tolerance"] = bluesky.settle_tolerance
     return keys
 
 

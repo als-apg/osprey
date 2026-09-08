@@ -348,7 +348,7 @@ class _FakeConnector:
     Records the channel addresses the built devices actually hand to the
     control system, which is what the comma test asserts on. Reads answer
     ``0.0`` so a ``set(0.0)`` settles on its first readback poll instead of
-    spinning until ``_READBACK_SETTLE_TIMEOUT_S``.
+    spinning until the settle timeout.
     """
 
     def __init__(self) -> None:

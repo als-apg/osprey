@@ -1019,6 +1019,24 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             raise BuildProfileError(
                 f"bluesky.device_page_size must be an integer >= 1 (got {device_page_size!r})"
             )
+        settle_timeout_s = bluesky_raw.get("settle_timeout_s", BlueskyConfig.settle_timeout_s)
+        if (
+            not isinstance(settle_timeout_s, int | float)
+            or isinstance(settle_timeout_s, bool)
+            or settle_timeout_s <= 0
+        ):
+            raise BuildProfileError(
+                f"bluesky.settle_timeout_s must be a number > 0 (got {settle_timeout_s!r})"
+            )
+        settle_tolerance = bluesky_raw.get("settle_tolerance", BlueskyConfig.settle_tolerance)
+        if (
+            not isinstance(settle_tolerance, int | float)
+            or isinstance(settle_tolerance, bool)
+            or settle_tolerance < 0
+        ):
+            raise BuildProfileError(
+                f"bluesky.settle_tolerance must be a number >= 0 (got {settle_tolerance!r})"
+            )
         external_raw = bluesky_raw.get("external")
         external = None
         if external_raw is not None:
@@ -1053,6 +1071,8 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             excluded_plans=excluded_plans,
             devices_file=devices_file,
             device_page_size=device_page_size,
+            settle_timeout_s=float(settle_timeout_s),
+            settle_tolerance=float(settle_tolerance),
             external=external,
         )
 

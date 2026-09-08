@@ -1293,6 +1293,16 @@ build** and prints the valid set:
        is served a page at a time and can be narrowed by an exact name
        prefix. The same number decides when a refusal for an unknown device
        stops listing every device it does know and gives a count instead.
+   * - ``settle_timeout_s``
+     - How long a plan write waits for the readback to reach its demand
+       before the move fails and the plan aborts (default 5.0 seconds). Raise
+       it for devices that physically move; it never turns an unsettled move
+       into a successful one.
+   * - ``settle_tolerance``
+     - How close the readback must come to the demand to count as settled, as
+       an absolute difference (default ``1e-9``). The default is a float-noise
+       bound, right for a setpoint a controller echoes back exactly and far
+       too strict for a magnet or a gap.
 
 Whether a deployment can execute plans at all is not set here: it follows from
 the control system the deployment runs. See :doc:`/how-to/bluesky/queue` for

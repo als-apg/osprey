@@ -640,6 +640,35 @@ class BlueskyConfig:
     when the env var is absent.
     """
 
+    settle_timeout_s: float = 5.0
+    """How long a plan write waits for the readback to reach its demand.
+
+    ``ConnectorSettable.set()`` writes the setpoint, then polls the readback
+    channel until it arrives within :attr:`settle_tolerance` — or until this
+    budget runs out, at which point the move raises and the RunEngine aborts.
+    Fail-closed by construction: raising this key gives a slow device more
+    room, and never turns an unsettled move into a successful one.
+
+    Authored per facility because settling time is a property of the DEVICES a
+    plan drives — an aliased software setpoint returns immediately, a magnet or
+    an insertion-device gap does not.
+
+    At the default value this key renders NOTHING into the compose file, and
+    the bridge falls back to the same default when the env var is absent.
+    """
+
+    settle_tolerance: float = 1e-9
+    """How close the readback must come to the demand to count as settled.
+
+    An ABSOLUTE bound on ``abs(readback - demand)``. The default is a
+    float-noise bound: the right value for a setpoint/readback pair the IOC
+    keeps in exact software sync, and far too strict for a device that
+    physically moves, which is exactly why a facility authors it.
+
+    At the default value this key renders NOTHING into the compose file, and
+    the bridge falls back to the same default when the env var is absent.
+    """
+
     external: BlueskyExternalConfig | None = None
     """Attach this lane to an externally-run RE Manager instead of deploying
     one (``bluesky.external:``) — see :class:`BlueskyExternalConfig`. ``None``

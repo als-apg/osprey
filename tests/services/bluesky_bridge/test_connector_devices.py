@@ -147,9 +147,87 @@ async def test_set_aborts_when_the_write_was_not_confirmed(reason: str) -> None:
     assert fake.read_calls == [], "a raised write must never fall through to the poll loop"
 
 
+def test_settle_budgets_default_when_the_env_is_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With nothing in the environment the module's own defaults are in force."""
+    monkeypatch.delenv(connector_module.SETTLE_TIMEOUT_ENV, raising=False)
+    monkeypatch.delenv(connector_module.SETTLE_TOLERANCE_ENV, raising=False)
+
+    assert connector_module.settle_timeout_s() == connector_module.DEFAULT_SETTLE_TIMEOUT_S
+    assert connector_module.settle_tolerance() == connector_module.DEFAULT_SETTLE_TOLERANCE
+
+
+def test_settle_budgets_read_the_env_on_every_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The value in force is whatever the environment says now, never at import."""
+    monkeypatch.setenv(connector_module.SETTLE_TIMEOUT_ENV, "30")
+    monkeypatch.setenv(connector_module.SETTLE_TOLERANCE_ENV, "1e-3")
+
+    assert connector_module.settle_timeout_s() == 30.0
+    assert connector_module.settle_tolerance() == 1e-3
+
+    monkeypatch.setenv(connector_module.SETTLE_TIMEOUT_ENV, "45")
+    assert connector_module.settle_timeout_s() == 45.0
+
+
+@pytest.mark.parametrize("raw", ["", "abc", "-1", "0"])
+def test_settle_timeout_refuses_a_budget_that_is_not_positive(
+    monkeypatch: pytest.MonkeyPatch, raw: str
+) -> None:
+    """A zero or unreadable budget is a misconfiguration, not a policy."""
+    monkeypatch.setenv(connector_module.SETTLE_TIMEOUT_ENV, raw)
+
+    with pytest.raises(ValueError, match=connector_module.SETTLE_TIMEOUT_ENV):
+        connector_module.settle_timeout_s()
+
+
+@pytest.mark.parametrize("raw", ["", "abc", "-1e-9"])
+def test_settle_tolerance_refuses_a_value_below_zero(
+    monkeypatch: pytest.MonkeyPatch, raw: str
+) -> None:
+    """A negative tolerance can never be met, so every move would time out."""
+    monkeypatch.setenv(connector_module.SETTLE_TOLERANCE_ENV, raw)
+
+    with pytest.raises(ValueError, match=connector_module.SETTLE_TOLERANCE_ENV):
+        connector_module.settle_tolerance()
+
+
+def test_settle_tolerance_accepts_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exact equality is a legitimate demand for a readback the IOC echoes."""
+    monkeypatch.setenv(connector_module.SETTLE_TOLERANCE_ENV, "0")
+
+    assert connector_module.settle_tolerance() == 0.0
+
+
+async def test_set_settles_within_an_authored_tolerance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A readback that lands near the demand settles once the facility says so.
+
+    At the default tolerance this same move polls until the budget runs out and
+    raises — which is what a facility driving a device that physically moves is
+    raising the key to avoid.
+    """
+    monkeypatch.setenv(connector_module.SETTLE_TIMEOUT_ENV, "0.3")
+    monkeypatch.setenv(connector_module.SETTLE_TOLERANCE_ENV, "0.01")
+
+    fake = FakeConnector(readbacks={"SP": 0.0, "RB": 0.0})
+    fake.echo_target["SP"] = "RB"
+    fake.write_outcome = "unrequested"
+
+    async def read_near_miss(channel_address: str, timeout: float | None = None):
+        fake.read_calls.append(channel_address)
+        return _FakeChannelValue(value=5.0 - 0.005)
+
+    monkeypatch.setattr(fake, "read_channel", read_near_miss)
+    device = ConnectorSettable(fake, "SP", readback_pv="RB", name="motor")
+
+    await device.set(5.0)  # must not raise
+
+    assert fake.read_calls == ["RB"]
+
+
 async def test_set_times_out_when_readback_never_settles(monkeypatch: pytest.MonkeyPatch) -> None:
     """If the readback never echoes the demand, ``set()`` must raise, never hang."""
-    monkeypatch.setattr(connector_module, "_READBACK_SETTLE_TIMEOUT_S", 0.1)
+    monkeypatch.setenv(connector_module.SETTLE_TIMEOUT_ENV, "0.1")
 
     fake = FakeConnector(readbacks={"SP": 0.0})
     fake.echo_readback = False  # write succeeds, but readback never moves
@@ -192,7 +270,7 @@ async def test_set_returns_on_a_confirmed_write_to_the_readback_channel() -> Non
     """A confirmed write to the readback channel itself needs no settle poll at all.
 
     The connector already re-read that exact channel and found the value sent, so
-    polling it again could only disagree — ``_READBACK_DEADBAND`` is stricter than
+    polling it again could only disagree — the settle tolerance is stricter than
     the connector's comparison rule, so a confirmed write would time out here.
     """
     fake = FakeConnector(readbacks={"SP": 0.0})
@@ -212,7 +290,7 @@ async def test_set_returns_on_a_confirmed_write_the_deadband_would_reject(
     value against the 1e-9 absolute deadband would poll the setpoint just written
     for the full settle timeout and then raise on a write that in fact succeeded.
     """
-    monkeypatch.setattr(connector_module, "_READBACK_SETTLE_TIMEOUT_S", 0.1)
+    monkeypatch.setenv(connector_module.SETTLE_TIMEOUT_ENV, "0.1")
     fake = FakeConnector(readbacks={"SP": 0.0})
     fake.echo_readback = False
     fake.readbacks["SP"] = 3.5 + 1e-7  # confirmed by the connector, outside the deadband
@@ -238,7 +316,7 @@ async def test_set_polls_an_unrequested_write_until_the_readback_settles(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An unchecked write settles on the poll loop, not on the result it returned."""
-    monkeypatch.setattr(connector_module, "_READBACK_SETTLE_TIMEOUT_S", 0.5)
+    monkeypatch.setenv(connector_module.SETTLE_TIMEOUT_ENV, "0.5")
     fake = FakeConnector(readbacks={"SP": 0.0})
     fake.write_outcome = "unrequested"
     fake.echo_readback = False  # the readback moves only under the poll loop
@@ -260,7 +338,7 @@ async def test_set_never_takes_a_confirmed_setpoint_for_a_separate_readback_pv(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A confirmed setpoint write says nothing about a separate readback channel."""
-    monkeypatch.setattr(connector_module, "_READBACK_SETTLE_TIMEOUT_S", 0.1)
+    monkeypatch.setenv(connector_module.SETTLE_TIMEOUT_ENV, "0.1")
     fake = FakeConnector(readbacks={"SP": 0.0, "RB": 0.0})
     # The setpoint echoes (so the write confirms) but the readback never moves.
     device = ConnectorSettable(fake, "SP", readback_pv="RB", name="motor")
