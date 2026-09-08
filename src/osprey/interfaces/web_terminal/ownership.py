@@ -82,6 +82,20 @@ logger = logging.getLogger(__name__)
 #: compose service (it is also $HOME inside that container).
 CLAUDE_CONFIG_ENV = "CLAUDE_CONFIG_DIR"
 
+#: What a deployment with no durable store is told, in the log at startup and
+#: in the gallery's refusal. One sentence, one spelling: an operator who reads
+#: it in either place has to be able to act on it without reading the other.
+NO_DURABLE_STORE = (
+    f"No durable per-user store is mounted here. Set {CLAUDE_CONFIG_ENV} to a directory "
+    "that survives container recreation, or scaffold claims made from this deployment "
+    "are lost when the container is recreated."
+)
+
+#: Whether the notice above has already been logged in this process. It states
+#: a fact about the deployment, not about the call, so once is the honest count
+#: — ``resolve_ownership`` runs on every request.
+_store_notice_logged = False
+
 #: Set to ``1`` by ``Dockerfile.j2`` on every image the build produces, and by
 #: nothing else. Its literal meaning is "the render zone in this image is
 #: root-owned"; its consequence for ownership is the stronger statement that
@@ -841,6 +855,10 @@ def resolve_ownership(project_dir: Path, env: dict[str, str] | None = None) -> O
     4. The manifest names no profile at all → CONFIG. A pre-profile project,
        where config.yml is what ownership has always meant.
 
+    Reaching 3 or 4 inside a container render means no claim made here outlives
+    the next recreation, and both modes are otherwise silent about it, so the
+    resolution logs :data:`NO_DURABLE_STORE` once per process on that path.
+
     Args:
         project_dir: The render whose claims are being resolved.
         env: Environment to read, for tests. Defaults to ``os.environ``.
@@ -856,10 +874,40 @@ def resolve_ownership(project_dir: Path, env: dict[str, str] | None = None) -> O
     if store is not None:
         return Ownership(OwnershipMode.VOLUME, store=store)
 
+    if is_container_render(environ):
+        _log_no_durable_store()
+
     if _names_a_profile(project_dir):
         return Ownership(OwnershipMode.DEGRADED)
 
     return Ownership(OwnershipMode.CONFIG)
+
+
+def _log_no_durable_store() -> None:
+    """Say once that nothing here will outlive the container.
+
+    Neither of the modes reached past this point records a claim anywhere that
+    survives a recreation, and both are silent about it — the artifact is
+    written, the operator is told it was written, and it is gone at the next
+    ``osprey up``. Naming the variable that would fix it is the whole notice.
+
+    Scoped to a container render, because that is the topology the sentence is
+    true of. A bare host reaching CONFIG is a pre-profile project writing to
+    its own ``config.yml``, which is durable and is recreated by nothing; the
+    warning there would name a variable that fixes a problem the operator does
+    not have.
+    """
+    global _store_notice_logged
+    if _store_notice_logged:
+        return
+    _store_notice_logged = True
+    logger.warning(NO_DURABLE_STORE)
+
+
+def _reset_store_notice() -> None:
+    """Re-arm the once-per-process notice. For tests."""
+    global _store_notice_logged
+    _store_notice_logged = False
 
 
 def is_container_render(environ: Mapping[str, str] | None = None) -> bool:
