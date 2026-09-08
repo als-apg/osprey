@@ -116,7 +116,7 @@ class TestValidation:
 
 
 class TestBaseUrl:
-    """Clients connect over loopback regardless of the publish interface."""
+    """Clients dial the address the publish interface is actually reached on."""
 
     def test_uses_configured_port(self) -> None:
         assert QMDServiceConfig(port=8180).base_url == "http://127.0.0.1:8180"
@@ -124,6 +124,12 @@ class TestBaseUrl:
     def test_wildcard_publish_still_dials_loopback(self) -> None:
         assert QMDServiceConfig(port=8180, bind_address="0.0.0.0").base_url == (
             "http://127.0.0.1:8180"
+        )
+
+    def test_pinned_interface_is_dialed_there_not_on_loopback(self) -> None:
+        """A concrete bind publishes on that interface only, so dial it."""
+        assert QMDServiceConfig(port=8180, bind_address="10.0.0.7").base_url == (
+            "http://10.0.0.7:8180"
         )
 
 

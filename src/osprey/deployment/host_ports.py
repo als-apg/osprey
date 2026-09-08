@@ -54,6 +54,7 @@ from osprey.deployment.graphdb_service import (
     GRAPHDB_SERVICE_NAME,
 )
 from osprey.deployment.qmd_service import PORT_CONFIG_KEY as QMD_PORT_CONFIG_KEY
+from osprey.deployment.qmd_service import dial_host
 from osprey.deployment.runtime_helper import get_ps_command, runtime_env
 from osprey.deployment.web_terminals.personas import normalize_users
 from osprey.deployment.web_terminals.ports import allocate_ports, base_ports_from_config
@@ -209,10 +210,6 @@ _HOST_NETWORK_BIND = "127.0.0.1"
 # Stand-in for ``HostPortBinding.compose_file`` on a derived binding: these
 # bindings come from the rendered config, not from any compose file.
 _DERIVED_SOURCE = "<rendered config>"
-
-# Addresses that mean "listening on every interface" — probe them on loopback,
-# where a service bound to all interfaces is always reachable.
-_WILDCARD_HOSTS = {"", "0.0.0.0", "::", "*"}
 
 # Connect-probe timeout (seconds). Loopback probes resolve in well under this;
 # the cap only bounds a wildcard bind whose interface is slow to refuse.
@@ -774,7 +771,7 @@ def derive_web_terminal_bindings(config):
 
 def _probe_host(host_ip):
     """Return the address a published port is reachable on for probing."""
-    return "127.0.0.1" if host_ip in _WILDCARD_HOSTS else host_ip
+    return dial_host(host_ip)
 
 
 def _port_is_free(host_ip, host_port):
@@ -784,13 +781,14 @@ def _port_is_free(host_ip, host_port):
         it succeeds (something is listening)
     :rtype: bool
     """
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.settimeout(_PROBE_TIMEOUT)
-        try:
-            sock.connect((_probe_host(host_ip), host_port))
-        except OSError:
-            return True
-        return False
+    # ``create_connection`` rather than a pinned-family socket: a wildcard IPv6
+    # bind is probed at ``::1``, which an AF_INET socket cannot reach and would
+    # report as free.
+    try:
+        with socket.create_connection((_probe_host(host_ip), host_port), _PROBE_TIMEOUT):
+            return False
+    except OSError:
+        return True
 
 
 def _run_runtime_ps(config=None):

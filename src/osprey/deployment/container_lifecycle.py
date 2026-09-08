@@ -6412,13 +6412,13 @@ def _published_on_all_interfaces(compose_files: list[str]) -> list[str]:
     when it rendered ``deployment.bind_address`` into every ``ports:`` entry, so
     at start time this is a fact to be discovered, not a setting to be applied.
     """
-    from osprey.deployment.host_ports import _WILDCARD_HOSTS
+    from osprey.deployment.qmd_service import WILDCARD_BIND_ADDRESSES
 
     return sorted(
         {
             binding.service
             for binding in parse_host_port_bindings(compose_files)
-            if binding.host_ip in _WILDCARD_HOSTS
+            if binding.host_ip in WILDCARD_BIND_ADDRESSES
         }
     )
 

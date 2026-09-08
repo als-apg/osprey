@@ -50,12 +50,12 @@ from osprey.deployment.graphdb_service import (
     GRAPHDB_SERVICE_NAME,
 )
 from osprey.deployment.host_ports import (
-    _WILDCARD_HOSTS,
     _WORKER_SERVICE_PREFIX,
     HostPortBinding,
     derive_host_network_bindings,
     parse_host_port_bindings,
 )
+from osprey.deployment.qmd_service import dial_address
 from osprey.deployment.web_terminals.ports import resolve_nginx_port
 from osprey.port_layout import (
     LAYOUT,
@@ -293,8 +293,7 @@ def _binding_address(binding: HostPortBinding) -> str:
         HTTP on that container port. A wildcard bind is shown on loopback,
         where a service bound to every interface always answers.
     """
-    host = "127.0.0.1" if binding.host_ip in _WILDCARD_HOSTS else binding.host_ip
-    address = f"{host}:{binding.host_port}"
+    address = f"{dial_address(binding.host_ip)}:{binding.host_port}"
     if _http_service(binding.service, binding.container_port):
         return f"http://{address}"
     return address
