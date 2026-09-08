@@ -747,6 +747,11 @@ itself:
 Writing ``env:`` on either half's own service block is refused for the same
 reason ``network:`` there is: the build would overwrite it.
 
+A third ``config`` key the build reads is ``http``, default false: it says the
+service answers HTTP on the port it publishes, and the deploy summary prints
+its address as a link instead of a bare ``host:port``. Leave it out for a
+service that speaks any other protocol.
+
 .. _profile-graph-mode:
 
 Graph-mode channel finding

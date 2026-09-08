@@ -224,6 +224,7 @@ line and the commented ``mcp_servers:`` example with:
        template: services/facility-mcp
        config:
          port: 10900
+         http: true
 
    mcp_servers:
      facility:
@@ -233,7 +234,13 @@ line and the commented ``mcp_servers:`` example with:
          allow: [machine_status]
 
 ``template:`` is profile-relative, so the next thing to do is write that
-directory. The port appears twice because it is the same fact told to two
+directory. ``http: true`` says this service answers HTTP on the port it
+publishes, so the deploy summary prints its address as a link rather than as a
+bare ``host:port`` — the framework recognises its own services by name and has
+no way to know what protocol sits behind yours. Leave it out for a service that
+speaks anything else; a link that cannot open is worse than no link.
+
+The port appears twice because it is the same fact told to two
 parties: the container publishes it, and the agent dials it. ``10900`` is the
 first port of the facility band, the hundred ports the framework publishes
 nothing in so that a facility's own services can claim them without ever
