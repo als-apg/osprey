@@ -51,6 +51,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 import httpx
 
 from osprey.cli import output
+from osprey.deployment.qmd_service import DEFAULT_BIND_ADDRESS, dial_address
 from osprey.port_layout import default_port, resolve_port_base
 from osprey.utils.logger import get_logger
 
@@ -85,7 +86,6 @@ HARVEST_BANNER = "Harvested OpenObserve ingest token (osprey up)"
 # an unset ``services.openobserve.port`` means the store sits at the layout's
 # ``openobserve`` slot, which moves with this project's own ``port_base`` and so
 # can only be read off the config in hand (see :func:`store_base_url`).
-_DEFAULT_BIND = "127.0.0.1"
 _DEFAULT_ORG = "default"
 
 #: Readiness budget. The store answered ``/healthz`` about a second after start
@@ -185,7 +185,9 @@ def store_base_url(config: Mapping[str, Any]) -> str:
         config: The rendered project config.
 
     Returns:
-        ``http://<bind>:<port>`` — no path, no trailing slash.
+        ``http://<host>:<port>`` — no path, no trailing slash. The host is the
+        bind address as :func:`~osprey.deployment.qmd_service.dial_address`
+        resolves it, so a wildcard publish is dialed on loopback.
 
     Raises:
         ValueError: ``deployment.port_base`` is set to a base no block can
@@ -193,9 +195,9 @@ def store_base_url(config: Mapping[str, Any]) -> str:
     """
     services = config.get("services") or {}
     settings = services.get(SERVICE) or {}
-    bind = (config.get("deployment") or {}).get("bind_address", _DEFAULT_BIND)
+    bind = (config.get("deployment") or {}).get("bind_address", DEFAULT_BIND_ADDRESS)
     port = settings.get("port", default_port("openobserve", base=resolve_port_base(config)))
-    return f"http://{bind}:{port}"
+    return f"http://{dial_address(bind)}:{port}"
 
 
 def store_org(config: Mapping[str, Any]) -> str:
