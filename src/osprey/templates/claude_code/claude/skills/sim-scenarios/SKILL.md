@@ -79,7 +79,7 @@ osprey sim apply nominal              # back to clean baseline
   One exception: a scenario with a `physics` block on a deployment that runs
   the virtual accelerator is written to `.env`, which the VA container reads
   only when it is created. `apply` prints a notice when this happens; follow
-  it with `osprey up` (not `docker restart`, which reuses the old environment).
+  it with `osprey up` — restarting the container reuses the old environment.
 
 **Important:** applying scenarios resets the simulated machine — any setpoint
 changes written during the session are cleared. Warn the user before switching

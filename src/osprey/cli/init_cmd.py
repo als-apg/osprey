@@ -1439,9 +1439,10 @@ def init(
             # and continuing without one walks into the stale-volume refusal
             # further down, whose remedy is `osprey reset`: the very thing that
             # just declined. Stop here and name the actual obstacle instead.
-            survivors = _surviving_project_resources(target)
+            runtime = _runtime_binary()
+            survivors = _surviving_project_resources(target, runtime)
             if survivors:
-                _abort_incomplete_reset(target, survivors)
+                _abort_incomplete_reset(target, survivors, runtime)
 
         if start:
             _chain_up(ctx, target, detached=detached, dev=dev)
@@ -1454,7 +1455,7 @@ def init(
         print_summary_card(target, "running" if start else "created")
 
 
-def _surviving_project_resources(target: Path) -> list[str]:
+def _surviving_project_resources(target: Path, runtime: str) -> list[str]:
     """Containers and volumes still labelled for this project after a reset.
 
     Read-only, and label-scoped to the compose project rather than to the
@@ -1465,14 +1466,20 @@ def _surviving_project_resources(target: Path) -> list[str]:
     An unreachable runtime yields ``[]`` — a reset that could not run at all has
     already failed loudly, and inventing a second failure here would only bury
     the first.
+
+    Args:
+        target: The project directory ``--reset`` was asked to clear.
+        runtime: The container runtime binary this host resolves
+            (:func:`_runtime_binary`). Passed in rather than resolved here so
+            the probe and the refusal that reports its findings can only ever
+            name the same binary.
     """
     from osprey.deployment.compose_generator import resolve_project_name
     from osprey.deployment.reset import RuntimeProbe
-    from osprey.deployment.runtime_helper import get_runtime_command
 
     project = resolve_project_name({"project_name": target.name})
     try:
-        probe = RuntimeProbe(get_runtime_command({})[0])
+        probe = RuntimeProbe(runtime)
         return [
             f"{resource.kind} {resource.name}"
             for resource in (
@@ -1520,8 +1527,35 @@ def _abort_foreign_reset(
     raise click.Abort()
 
 
-def _abort_incomplete_reset(target: Path, survivors: list[str]) -> None:
-    """Stop a ``--reset`` that could not actually clear the name it was given."""
+def _runtime_binary() -> str:
+    """The container runtime binary this host resolves.
+
+    Resolved once for the ``--reset`` sweep: the probe below runs it and the
+    refusal prints it, and a remedy naming a runtime other than the one that
+    found the resources would not be a command the operator can paste. An
+    unresolvable runtime falls back to ``docker`` — the refusal must still
+    print something to run, and a probe against a runtime that is not there
+    fails the same way either resolution would.
+    """
+    from osprey.deployment.runtime_helper import get_runtime_command
+
+    try:
+        return get_runtime_command({})[0]
+    except Exception:
+        return "docker"
+
+
+def _abort_incomplete_reset(target: Path, survivors: list[str], runtime: str) -> None:
+    """Stop a ``--reset`` that could not actually clear the name it was given.
+
+    Args:
+        target: The project directory ``--reset`` was asked to clear.
+        survivors: The labelled resources the sweep left behind.
+        runtime: The container runtime binary this host resolves
+            (:func:`_runtime_binary`), which the printed commands are spelled
+            with. The compose project LABEL keeps its ``com.docker.compose``
+            name on every runtime — podman-compose writes it too.
+    """
     logger.error(
         "✗ --reset could not clear %s: %d resource(s) of this project remain.\n\n%s\n\n"
         "`osprey reset` removes only what carries this checkout's `com.osprey.repo-id` "
@@ -1530,15 +1564,19 @@ def _abort_incomplete_reset(target: Path, survivors: list[str]) -> None:
         "from destroying another's.\n\n"
         "Remove them yourself, once, and every later deployment of this name will carry the "
         "label and reset cleanly:\n"
-        "    docker ps -aq --filter label=com.docker.compose.project=%s | xargs docker rm -f\n"
-        "    docker volume ls -q --filter label=com.docker.compose.project=%s | xargs docker "
+        "    %s ps -aq --filter label=com.docker.compose.project=%s | xargs %s rm -f\n"
+        "    %s volume ls -q --filter label=com.docker.compose.project=%s | xargs %s "
         "volume rm\n\n"
         "Nothing was built and nothing was started.",
         target.name,
         len(survivors),
         "\n".join(f"    {line}" for line in survivors),
+        runtime,
         target.name,
+        runtime,
+        runtime,
         target.name,
+        runtime,
     )
     raise click.Abort()
 

@@ -277,7 +277,9 @@ def _reset_runs_without_a_container_runtime(monkeypatch: pytest.MonkeyPatch) -> 
         "osprey.deployment.reset.reset_for_reinit",
         lambda repo_root, **kw: ResetOutcome.COMPLETED,
     )
-    monkeypatch.setattr("osprey.cli.init_cmd._surviving_project_resources", lambda target: [])
+    monkeypatch.setattr(
+        "osprey.cli.init_cmd._surviving_project_resources", lambda target, runtime: []
+    )
 
 
 @needs_packaged_seed
