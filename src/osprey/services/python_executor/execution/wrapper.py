@@ -346,49 +346,123 @@ if not _execution_dir.exists():
                     print("ℹ️  osprey.runtime not available for limits injection")
 
                 import inspect as _inspect
+                import json as _json
 
+                # pyepics spells a write three ways - caput(), PV.put() and
+                # ca.put() - and the first two reach the network through the
+                # third. Guarding the choke point alone validates every
+                # spelling exactly once and pays for one max_step read, where
+                # a wrapper per spelling validated the same write at each layer
+                # it passed and still left a direct ca.put() unchecked.
                 try:
-                    import epics
+                    from epics import ca as _epics_ca
 
-                    # Store original functions
-                    _original_caput = epics.caput
-                    _original_caget = getattr(epics, 'caget', None)
-                    _original_PV_put = epics.PV.put if hasattr(epics.PV, 'put') else None
+                    _original_ca_put = _epics_ca.put
+                    _original_ca_get = _epics_ca.get
+                    _original_ca_name = _epics_ca.name
 
-                    def _ca_current_value(_address):
+                    def _ca_current_value(_chid):
                         '''Read a channel's present value for the max_step check.
 
                         The script's OWN Channel Access client, captured before
                         the guard is installed - the validator holds no client
-                        and must not reach for one. A client that cannot read
-                        answers None, which fails the step check closed.
+                        and must not reach for one. The read goes through the
+                        very channel id the put is going through, so the step
+                        is measured over the channel being written. A client
+                        that cannot read answers None, which fails the step
+                        check closed.
                         '''
-                        if _original_caget is None:
+                        try:
+                            return _original_ca_get(_chid, timeout=STEP_READ_TIMEOUT_SECONDS)
+                        except Exception:
                             return None
-                        return _original_caget(_address, timeout=STEP_READ_TIMEOUT_SECONDS)
 
-                    def _checked_caput(pvname, value, wait=False, timeout=60, **kwargs):
-                        '''Limits-checked wrapper for epics.caput()'''
+                    def _checked_ca_put(chid, value, *args, **kwargs):
+                        '''Limits-checked wrapper for epics.ca.put()
+
+                        A chid is opaque, so the channel the limits database is
+                        keyed by has to be asked for by name - validating the
+                        chid itself would look up a channel no database has
+                        heard of.
+
+                        A refusal here leaves pyepics' own pre-put state as
+                        it found it: ``PV.put`` coerces an enum string to its
+                        index and sets ``_put_complete`` before it reaches
+                        ca.put, and neither is rolled back.
+                        '''
                         _limits_validator.validate(
-                            pvname, value, read_current=_ca_current_value
+                            _original_ca_name(chid),
+                            value,
+                            read_current=lambda _address: _ca_current_value(chid),
                         )  # Raises if invalid
-                        return _original_caput(pvname, value, wait=wait, timeout=timeout, **kwargs)
+                        return _original_ca_put(chid, value, *args, **kwargs)
 
-                    if _original_PV_put is not None:
-                        def _checked_PV_put(self, value, wait=False, timeout=60, **kwargs):
-                            '''Limits-checked wrapper for PV.put()'''
-                            _limits_validator.validate(
-                                self.pvname, value, read_current=_ca_current_value
-                            )  # Raises if invalid
-                            return _original_PV_put(self, value, wait=wait, timeout=timeout, **kwargs)
-
-                        epics.PV.put = _checked_PV_put
-
-                    epics.caput = _checked_caput
-                    print("✅ Monkeypatched epics.caput() and PV.put()")
+                    _epics_ca.put = _checked_ca_put
+                    print("✅ Monkeypatched epics.ca.put()")
 
                 except ImportError:
                     print("ℹ️  pyepics not available - EPICS limits checking disabled")
+
+                # --- aioca. A second Channel Access client, and a separate
+                # library: an `await aioca.caput(...)` never passes through
+                # epics.ca.put, so the pyepics choke point above leaves it
+                # unchecked. aioca's package namespace re-exports what
+                # `aioca._catools` defines, so both spellings are rebound to
+                # the same wrapper - patching only the re-export would leave
+                # `from aioca._catools import caput` unguarded and would also
+                # break the array form, whose per-pair re-entry goes through
+                # the submodule global.
+                try:
+                    import aioca as _aioca
+                    from aioca import _catools as _aioca_catools
+
+                    _orig_aioca_caput = _aioca_catools.caput
+                    _orig_aioca_caget = _aioca_catools.caget
+
+                    async def _checked_aioca_caput(pv, value, *args, **kwargs):
+                        '''Limits-checked wrapper for aioca.caput().
+
+                        A non-str ``pv`` is aioca's array form, which aioca
+                        dispatches to ``caput_array``. That function writes
+                        each pair by calling the module-global ``caput`` -
+                        this wrapper, since it is bound there - so forwarding
+                        the sequence unchanged is what gets every pair
+                        validated, once, under its own channel's limits.
+                        Validating the sequence here instead would check a
+                        list of values against one channel's limits and refuse
+                        the write for the wrong reason.
+
+                        The guard is a coroutine, so unlike the synchronous
+                        clients it can await the max_step read itself and hand
+                        the validator a plain value. That read is bought only
+                        by a channel that configures max_step, and a read that
+                        fails answers None, which fails the step check closed.
+                        '''
+                        if not isinstance(pv, str):
+                            return await _orig_aioca_caput(pv, value, *args, **kwargs)
+
+                        _cfg = _limits_validator.get_limits_config(pv)
+                        _current = None
+                        if _cfg and _cfg['max_step'] is not None:
+                            try:
+                                _current = await _orig_aioca_caget(
+                                    pv, timeout=STEP_READ_TIMEOUT_SECONDS
+                                )
+                            except Exception:
+                                _current = None
+
+                        _limits_validator.validate(
+                            pv, value, read_current=lambda _address: _current
+                        )  # Raises if invalid
+                        return await _orig_aioca_caput(pv, value, *args, **kwargs)
+
+                    _aioca.caput = _checked_aioca_caput
+                    _aioca_catools.caput = _checked_aioca_caput
+                    print("✅ Monkeypatched aioca.caput()")
+                except ImportError:
+                    print("ℹ️  aioca not available - aioca limits checking disabled")
+                except Exception as _aioca_error:
+                    print(f"⚠️  aioca guard failed: {{_aioca_error}}")
 
                 # p4p / PVAccess clients: p4p ships parallel Context classes per
                 # concurrency flavor, so each one is imported and patched in its
@@ -419,6 +493,77 @@ if not _execution_dir.exists():
 
                     return _read
 
+                def _p4p_reduce(_value):
+                    '''Reduce a p4p put payload to the number the limits are about.
+
+                    p4p takes the value FOUR ways: a bare scalar, a ``Value``
+                    carrying it in a ``value`` field, a plain dict of fields,
+                    and a JSON STRING of those fields. The limits database
+                    holds numbers and the validator SKIPS every check it
+                    cannot read a number for, so handing it a structure
+                    unreduced would let an out-of-range value dressed as a
+                    structure through unchecked.
+
+                    The JSON string is the spelling that has to be read out of
+                    p4p's own put() rather than its docstring: the flavour
+                    client does ``json.loads`` on a payload whose first
+                    character is '{{' INSIDE put(), after this guard has
+                    already run. Left as a str it fails the validator's
+                    ``float()`` and skips every check, and p4p then decodes it
+                    into the very number that was never checked. So it is
+                    decoded HERE, on p4p's own rule, and checked as the dict it
+                    becomes. Bytes are decoded too, which is one spelling
+                    stricter than p4p (whose test never matches a bytes
+                    payload) and errs closed.
+
+                    A structure carrying no ``value`` field fails CLOSED with a
+                    ValueError - dict, decoded JSON and ``Value`` alike, the
+                    last recognised by p4p's own ``has()`` field protocol. That
+                    is the same trade the batch guard makes for a payload it
+                    cannot pair up; a payload whose ``has()`` is something else
+                    entirely raises out of here, which refuses the write.
+
+                    p4p also takes a BUILDER CALLABLE, which p4p invokes with a
+                    blank Value only once the operation is under way. There is
+                    no value here to check and no way to know the one the
+                    callable will write, so the write is refused outright, in
+                    range or not - the posture the pvaPy guard takes for
+                    ``parsePut``.
+                    '''
+                    if callable(_value):
+                        raise ValueError(
+                            "p4p put with a builder callable cannot be "
+                            "limits-checked; pass the value itself"
+                        )
+                    if isinstance(_value, (str, bytes)) and _value[:1] in ('{{', b'{{'):
+                        try:
+                            _value = _json.loads(_value)
+                        except ValueError as _json_error:
+                            raise ValueError(
+                                "p4p put requires a value to limits-check: the "
+                                "payload reads as a JSON structure but does "
+                                "not decode"
+                            ) from _json_error
+                        if not isinstance(_value, dict):
+                            raise ValueError(
+                                "p4p put requires a value to limits-check: the "
+                                "JSON payload is not a structure of fields"
+                            )
+                    if isinstance(_value, dict):
+                        if 'value' not in _value:
+                            raise ValueError(
+                                "p4p put requires a value to limits-check: "
+                                "the structure written carries no 'value' field"
+                            )
+                        return _value['value']
+                    _has_field = getattr(_value, 'has', None)
+                    if callable(_has_field) and not _has_field('value'):
+                        raise ValueError(
+                            "p4p put requires a value to limits-check: "
+                            "the structure written carries no 'value' field"
+                        )
+                    return getattr(_value, 'value', _value)
+
                 def _p4p_validate_put(_name, _values, _read_current):
                     '''Validate a p4p put payload BEFORE any network operation.
 
@@ -432,6 +577,10 @@ if not _execution_dir.exists():
                     the shorter prefix, and a shape p4p would accept but we
                     cannot pair up fails closed via ValueError.
 
+                    Every payload is reduced by ``_p4p_reduce`` before it
+                    is checked, so a structure is checked on the number it
+                    carries and a builder callable is refused.
+
                     ``_read_current`` is the putting context's own reader,
                     used only by channels that configure max_step.
 
@@ -440,7 +589,9 @@ if not _execution_dir.exists():
                     consume the caller's names.
                     '''
                     if isinstance(_name, str):
-                        _limits_validator.validate(_name, _values, read_current=_read_current)
+                        _limits_validator.validate(
+                            _name, _p4p_reduce(_values), read_current=_read_current
+                        )
                         return _name
 
                     if not isinstance(_values, (list, tuple)):
@@ -462,9 +613,22 @@ if not _execution_dir.exists():
 
                     for _pair_name, _pair_value in zip(_names_seq, _values, strict=True):
                         _limits_validator.validate(
-                            _pair_name, _pair_value, read_current=_read_current
+                            _pair_name, _p4p_reduce(_pair_value), read_current=_read_current
                         )
                     return _names_seq
+
+                def _p4p_blocked_rpc(self, *args, **kwargs):
+                    '''Unconditional refusal for p4p Context.rpc().
+
+                    Limits semantics cannot apply to an arbitrary rpc payload,
+                    so refusal is the only honest parity. It is defined once
+                    here rather than per class because the raw base refuses
+                    with the same function the flavours do.
+                    '''
+                    raise RuntimeError(
+                        "rpc is not mediated and cannot be approved — "
+                        "use the supervised write path"
+                    )
 
                 def _p4p_install_guard(_context_cls):
                     '''Limits-check put() and refuse rpc() on one p4p Context class.'''
@@ -481,17 +645,6 @@ if not _execution_dir.exists():
                         _context_cls.put = _p4p_checked_put
 
                     if hasattr(_context_cls, 'rpc'):
-                        def _p4p_blocked_rpc(self, *args, **kwargs):
-                            '''Unconditional refusal for p4p Context.rpc().
-
-                            Limits semantics cannot apply to an arbitrary rpc
-                            payload, so refusal is the only honest parity.
-                            '''
-                            raise RuntimeError(
-                                "rpc is not mediated and cannot be approved — "
-                                "use the supervised write path"
-                            )
-
                         _context_cls.rpc = _p4p_blocked_rpc
 
                 try:
@@ -534,6 +687,225 @@ if not _execution_dir.exists():
                     )
                 except Exception as _p4p_error:
                     print(f"⚠️  p4p.client.cothread guard failed: {{_p4p_error}}")
+
+                # --- p4p's raw Context: the base every flavour above
+                # subclasses, and an object a script can drive on its own. A
+                # flavour put re-enters here through ``super().put`` once it
+                # has already been validated, so the gate below checks only a
+                # put whose receiver IS the raw Context - validating the
+                # re-entry too would check each pair twice and buy a second
+                # max_step read for the same write.
+                try:
+                    from p4p.client.raw import Context as _P4PRawContext
+
+                    if hasattr(_P4PRawContext, 'put'):
+                        _original_raw_put = _P4PRawContext.put
+
+                        def _raw_gated_put(self, name, handler, builder=None, *args, **kwargs):
+                            '''Limits-checked wrapper for p4p raw Context.put().
+
+                            A raw put names ONE channel and spells its value
+                            ``builder`` - a value, a structure, or a callable
+                            p4p invokes later, which ``_p4p_reduce`` refuses
+                            because there is nothing to check yet. The batch
+                            form belongs to the flavour clients, which reach
+                            this method one pair at a time.
+
+                            A receiver of a SUBCLASS type is a flavour put
+                            re-entering through ``super().put``, already
+                            validated by the flavour wrapper, so it is
+                            forwarded untouched. A subclass a script writes
+                            itself is forwarded unchecked for the same reason,
+                            which is why the write surface records this row as
+                            guarded for the raw Context only.
+
+                            The reader is the raw context's own, and raw
+                            ``get`` answers through a handler rather than
+                            returning a value - so a max_step channel written
+                            straight through raw fails CLOSED rather than
+                            being measured.
+                            '''
+                            if type(self) is not _P4PRawContext:
+                                return _original_raw_put(
+                                    self, name, handler, builder, *args, **kwargs
+                                )
+
+                            _limits_validator.validate(
+                                name,
+                                _p4p_reduce(builder),
+                                read_current=_p4p_current_value(self),
+                            )  # Raises if invalid
+                            return _original_raw_put(
+                                self, name, handler, builder, *args, **kwargs
+                            )
+
+                        _P4PRawContext.put = _raw_gated_put
+
+                    if hasattr(_P4PRawContext, 'rpc'):
+                        _P4PRawContext.rpc = _p4p_blocked_rpc
+
+                    print("✅ Monkeypatched p4p.client.raw Context.put()/.rpc()")
+                except ImportError:
+                    print(
+                        "ℹ️  p4p.client.raw not available - "
+                        "PVA limits checking disabled"
+                    )
+                except Exception as _p4p_error:
+                    print(f"⚠️  p4p.client.raw guard failed: {{_p4p_error}}")
+
+                # --- pvaPy. A PVAccess client of its own, not a p4p spelling:
+                # a ``pvaccess.Channel`` put never passes through a p4p
+                # Context, so the flavour guards above leave it unchecked. The
+                # binding spells one typed setter per scalar and array kind
+                # (putDouble, putScalarArray, ...), so the family is swept by
+                # PREFIX, the way the readonly guard sweeps it - enumerating
+                # the names would go stale against the binding, and every name
+                # it missed would be an unchecked write.
+                try:
+                    import pvaccess as _pvaccess
+
+                    def _pva_reduce(_payload):
+                        '''Reduce a pvaPy value to the number the limits are about.
+
+                        pvaPy takes the value three ways: a ``PvObject``
+                        structure, a plain dict of fields, and a bare scalar.
+                        The limits database holds numbers, and the validator
+                        SKIPS every check it cannot read a number for - so
+                        handing it the structure unreduced would let an
+                        out-of-range value dressed as a structure through
+                        unchecked.
+
+                        ``PvObject.getPyObject()`` answers the value under the
+                        structure's ``value`` field and raises pvaPy's own
+                        InvalidRequest when there is none, so a valueless
+                        structure is refused THERE, before the dict branch is
+                        reached. That branch is for a plain dict handed in
+                        directly; one with no ``value`` key fails CLOSED with a
+                        ValueError, the same trade the p4p batch guard makes
+                        for a payload it cannot pair up.
+                        '''
+                        _get_py = getattr(_payload, 'getPyObject', None)
+                        if _get_py is not None:
+                            _payload = _get_py()
+                        if isinstance(_payload, dict):
+                            if 'value' not in _payload:
+                                raise ValueError(
+                                    "pvaccess put requires a value to limits-check: "
+                                    "the structure written carries no 'value' field"
+                                )
+                            _payload = _payload['value']
+                        if callable(_payload):
+                            raise ValueError(
+                                "pvaccess put requires a value to limits-check, "
+                                "not a callable"
+                            )
+                        return _payload
+
+                    _pva_channel_cls = getattr(_pvaccess, 'Channel', None)
+                    _pva_original_get = getattr(_pva_channel_cls, 'get', None)
+
+                    def _pva_current_value(_channel):
+                        '''A reader for the max_step check, bound to the writing Channel.
+
+                        The read goes through the ORIGINAL ``Channel.get`` and
+                        the very channel the put is going through, so the step
+                        is measured over that channel under its own addressing.
+                        pvaPy answers a get with a structure, so the answer is
+                        reduced exactly as the payload is - left unreduced it
+                        is non-numeric, and the validator would SKIP the step
+                        check rather than enforce it. A read that fails answers
+                        None, which fails the step check closed.
+                        '''
+                        if _pva_original_get is None:
+                            return None
+
+                        def _read(_address):
+                            try:
+                                return _pva_reduce(_pva_original_get(_channel))
+                            except Exception:
+                                return None
+
+                        return _read
+
+                    def _pva_refuse_unreducible(_pva_name):
+                        '''Refuse a write whose payload cannot be reduced.
+
+                        ``parsePut``/``parsePutGet`` take a LIST OF JSON
+                        strings, parsed against the channel's introspected
+                        structure - not a value object. There is nothing to
+                        reduce, and nothing that says which string carries the
+                        field the limits are about; guessing would be a check
+                        that silently means nothing. So the write is refused
+                        outright, in range or not, the same posture the p4p
+                        guard takes for a callable payload.
+                        '''
+                        def _refuse(self, *args, **kwargs):
+                            raise ValueError(
+                                "pvaccess " + _pva_name + " cannot be "
+                                "limits-checked; use put"
+                            )
+
+                        return _refuse
+
+                    def _pva_checked_put(_original_put):
+                        '''Wrap ONE member of the put family.
+
+                        The original is bound per attribute by this factory
+                        because closing over the sweep's loop variable would
+                        leave every wrapper calling whichever put was seen
+                        last - one setter's writes going out under another
+                        setter's typing.
+                        '''
+                        def _checked(self, value, *args, **kwargs):
+                            _limits_validator.validate(
+                                self.getName(),
+                                _pva_reduce(value),
+                                read_current=_pva_current_value(self),
+                            )  # Raises if invalid
+                            return _original_put(self, value, *args, **kwargs)
+
+                        return _checked
+
+                    # pvaPy spells three more writes OUTSIDE the put prefix:
+                    # asyncPut (a put with a completion callback, PvObject
+                    # first, so the ordinary wrapper covers it) and
+                    # parsePut/parsePutGet (JSON strings, refused above).
+                    # Each is the same value reaching the machine, so each is
+                    # swept with the family.
+                    _pva_swept = []
+                    if _pva_channel_cls is not None:
+                        for _pva_attr in dir(_pva_channel_cls):
+                            if not _pva_attr.startswith(
+                                ('put', 'asyncPut', 'parsePut')
+                            ):
+                                continue
+                            _pva_original_put = getattr(_pva_channel_cls, _pva_attr, None)
+                            if not callable(_pva_original_put):
+                                continue
+                            if _pva_attr.startswith('parsePut'):
+                                _pva_wrapper = _pva_refuse_unreducible(_pva_attr)
+                            else:
+                                _pva_wrapper = _pva_checked_put(_pva_original_put)
+                            setattr(_pva_channel_cls, _pva_attr, _pva_wrapper)
+                            _pva_swept.append(_pva_attr)
+
+                    # The success line is the operator's only evidence the
+                    # guard is on. A pvaccess without a Channel, or a Channel
+                    # carrying no put, wrapped nothing and must not report
+                    # itself guarded.
+                    if _pva_swept:
+                        print(
+                            "✅ Monkeypatched pvaccess Channel "
+                            "put*()/asyncPut()/parsePut*()"
+                        )
+                    elif _pva_channel_cls is None:
+                        print("⚠️  pvaccess guard failed: no Channel class")
+                    else:
+                        print("⚠️  pvaccess guard failed: Channel has no put method")
+                except ImportError:
+                    print("ℹ️  pvaccess not available - pvaPy limits checking disabled")
+                except Exception as _pva_error:
+                    print(f"⚠️  pvaccess guard failed: {{_pva_error}}")
 
                 # --- Tango. Its writes carry the attribute name only; the
                 # channel a limits database is keyed by is the full
@@ -584,6 +956,58 @@ if not _execution_dir.exists():
                             _pairs.append((_attr, _value))
                         return _pairs
 
+                    # A Tango COMMAND is not a channel write. It names an
+                    # operation on the device, and its argument is whatever
+                    # that command's own signature says - a mode string, a
+                    # struct, nothing at all. There is no channel address to
+                    # look the limits up under and no number to bound, so a
+                    # limits-checked run cannot approve one; a check that
+                    # let it through would mean nothing. Both spellings
+                    # refuse outright, argument or not, which is the posture
+                    # the p4p guard takes for rpc().
+                    def _tango_refuse_command(self, *args, **kwargs):
+                        '''Unconditional refusal for a Tango command call.'''
+                        raise RuntimeError(
+                            "Tango command refused in a limits-checked run: "
+                            "a command carries no value to bound"
+                        )
+
+                    # A group write fans one value out to every device the
+                    # group matched - there is no single channel address to
+                    # look limits up under and no one device to bound the
+                    # step against, so it refuses in range or not.
+                    def _tango_refuse_group_write(self, *args, **kwargs):
+                        '''Unconditional refusal for a Group attribute write.'''
+                        raise RuntimeError(
+                            "Tango group write refused in a limits-checked "
+                            "run: a group write fans one value out to many "
+                            "devices and is not limits-checked"
+                        )
+
+                    def _tango_refuse_on(_class_name, _spellings):
+                        '''Install a refusal per spelling the named class carries.
+
+                        Answers the names installed, so the success line can
+                        say what this binding actually had; a tango without
+                        the class answers an empty list.
+                        '''
+                        _cls = getattr(_tango, _class_name, None)
+                        _installed = []
+                        if _cls is not None:
+                            for _name, _refusal in _spellings:
+                                if hasattr(_cls, _name):
+                                    setattr(_cls, _name, _refusal)
+                                    _installed.append(_name)
+                        return _installed
+
+                    _tango_commands = (
+                        ('command_inout', _tango_refuse_command),
+                        ('command_inout_asynch', _tango_refuse_command),
+                    )
+                    _tango_wrapped = []
+                    _tango_refused = []
+                    _tango_refused_base = []
+
                     if hasattr(_tango, "DeviceProxy"):
                         if hasattr(_tango.DeviceProxy, "write_attribute"):
                             _orig_tango_write = _tango.DeviceProxy.write_attribute
@@ -598,6 +1022,7 @@ if not _execution_dir.exists():
                                 return _orig_tango_write(self, attr_name, value, *args, **kwargs)
 
                             _tango.DeviceProxy.write_attribute = _checked_tango_write
+                            _tango_wrapped.append("write_attribute")
 
                         if hasattr(_tango.DeviceProxy, "write_attributes"):
                             _orig_tango_write_many = _tango.DeviceProxy.write_attributes
@@ -618,8 +1043,63 @@ if not _execution_dir.exists():
                                 return _orig_tango_write_many(self, _pairs, *args, **kwargs)
 
                             _tango.DeviceProxy.write_attributes = _checked_tango_write_many
+                            _tango_wrapped.append("write_attributes")
 
-                    print("✅ Monkeypatched tango DeviceProxy.write_attribute(s)()")
+                        _tango_refused = _tango_refuse_on('DeviceProxy', _tango_commands)
+
+                        # PyTango DEFINES both spellings on the base class
+                        # ``Connection``; ``DeviceProxy`` only inherits them.
+                        # Patching the subclass installs a shadow in
+                        # ``DeviceProxy.__dict__`` and leaves the original
+                        # reachable on the definer, so an unbound
+                        # ``tango.Connection.command_inout(proxy, 'On')`` would
+                        # still drive the device with the refusal installed.
+                        # Refusing on the definer closes that spelling, and
+                        # every other Connection subclass with it.
+                        _tango_refused_base = _tango_refuse_on('Connection', _tango_commands)
+
+                        if not _tango_wrapped and not _tango_refused:
+                            print(
+                                "⚠️  tango guard failed: DeviceProxy has no write "
+                                "or command method"
+                            )
+                    else:
+                        # The success line is the operator's only evidence the
+                        # guard is on. A tango without a DeviceProxy wrapped
+                        # nothing on it, and must not report it guarded.
+                        print("⚠️  tango guard failed: no DeviceProxy class")
+
+                    # ``tango.Group`` is not a Connection subclass. It is a
+                    # separate pure-Python class carrying its own commands AND
+                    # its own attribute writes, so neither install above
+                    # reaches it. It is patched on its own, outside the
+                    # DeviceProxy branch: a Group is a write surface whether
+                    # or not a DeviceProxy sits beside it.
+                    _tango_refused_group = _tango_refuse_on(
+                        'Group',
+                        _tango_commands
+                        + (
+                            ('write_attribute', _tango_refuse_group_write),
+                            ('write_attribute_asynch', _tango_refuse_group_write),
+                        ),
+                    )
+
+                    # The success line is the operator's only evidence the
+                    # guard is on, so it names what this binding actually
+                    # carried, class by class, rather than what the block can
+                    # install.
+                    _tango_report = [
+                        _tango_label + ", ".join(_n + "()" for _n in _tango_names)
+                        for _tango_label, _tango_names in (
+                            ("wrapped on DeviceProxy: ", _tango_wrapped),
+                            ("refused on DeviceProxy: ", _tango_refused),
+                            ("refused on Connection: ", _tango_refused_base),
+                            ("refused on Group: ", _tango_refused_group),
+                        )
+                        if _tango_names
+                    ]
+                    if _tango_report:
+                        print("✅ Monkeypatched tango: " + "; ".join(_tango_report))
                 except ImportError:
                     print("ℹ️  tango not available - Tango limits checking disabled")
                 except Exception as _tango_error:
@@ -771,7 +1251,15 @@ if not _execution_dir.exists():
         The table covers three kinds of route: the control-system client
         libraries themselves, the process-spawning surface that could shell out
         to ``caput``, and ``ctypes``, which reaches Channel Access without
-        importing any client package at all. It is emitted into the script
+        importing any client package at all. Each patched attribute is also
+        followed back to the module that defined it, so a write a package
+        merely re-exports refuses under both of its spellings. That step is
+        what covers the defining modules no table can enumerate — PyTango
+        defines its writes in ``tango.device_proxy`` and ``tango.connection``
+        and binds them onto ``DeviceProxy``, and every binding has its own
+        such layout; the one row that does name a private module
+        (``aioca._catools``) is belt-and-braces for the single library whose
+        second spelling is known. It is emitted into the script
         rather than applied here because the objects to patch only exist in the
         subprocess.
 
@@ -788,6 +1276,7 @@ if not _execution_dir.exists():
             # every route out of Python that could reach one. Installed before
             # user code, so an alias bound later resolves here.
             import importlib as _osprey_importlib
+            import sys as _osprey_sys
 
             # CPython resolves ``platform.uname().processor`` lazily, by
             # shelling out to ``uname -p`` on first read — and h5py reads it
@@ -840,14 +1329,60 @@ if not _execution_dir.exists():
                     if _osprey_obj is None:
                         continue
                     for _osprey_attr in _osprey_attrs:
-                        if hasattr(_osprey_obj, _osprey_attr):
-                            setattr(_osprey_obj, _osprey_attr, _osprey_readonly_refuse)
+                        if not hasattr(_osprey_obj, _osprey_attr):
+                            continue
+                        _osprey_original = getattr(_osprey_obj, _osprey_attr)
+                        setattr(_osprey_obj, _osprey_attr, _osprey_readonly_refuse)
+                        # A re-export leaves a second spelling behind that no
+                        # table can name for every binding: PyTango defines
+                        # its writes in ``tango.device_proxy`` and
+                        # ``tango.connection`` and binds them onto
+                        # ``DeviceProxy``, so patching the class attribute
+                        # alone leaves the module-level function writing.
+                        # Follow the original back to the module that defined
+                        # it and refuse there too. The identity check is what
+                        # makes this safe to run generically: ``__module__``
+                        # and ``__name__`` are metadata a decorator or a rebind
+                        # can leave pointing at a module holding something else
+                        # entirely, and replacing an attribute on a name match
+                        # alone could silently refuse an unrelated read.
+                        try:
+                            _osprey_home = _osprey_sys.modules.get(
+                                getattr(_osprey_original, "__module__", None)
+                            )
+                            _osprey_name = getattr(_osprey_original, "__name__", None)
+                            if (
+                                _osprey_home is not None
+                                and isinstance(_osprey_name, str)
+                                and getattr(_osprey_home, _osprey_name, None)
+                                is _osprey_original
+                            ):
+                                setattr(
+                                    _osprey_home, _osprey_name, _osprey_readonly_refuse
+                                )
+                        except Exception as _osprey_home_error:
+                            # Secondary, best-effort step: the attribute the
+                            # table names already refuses. A failure here — an
+                            # unhashable ``__module__``, a module ``__getattr__``
+                            # that raises — must name the attribute and let the
+                            # REST of the row be patched, so it is caught here
+                            # rather than at the row level.
+                            print(
+                                "⚠️  readonly guard "
+                                f"({{_osprey_dotted}}.{{_osprey_attr}}) "
+                                f"defining-module step failed: {{_osprey_home_error}}"
+                            )
                     # pvaPy spells one typed setter per scalar and array type
                     # (putDouble, putScalarArray, ...). Enumerating them would
-                    # go stale against the binding; the prefix will not.
+                    # go stale against the binding; the prefix will not. Three
+                    # writes sit outside that prefix — asyncPut, parsePut and
+                    # parsePutGet — and they reach the machine exactly as the
+                    # rest do, so they are swept with them.
                     if _osprey_dotted == "pvaccess.Channel":
                         for _osprey_attr in dir(_osprey_obj):
-                            if _osprey_attr.startswith("put"):
+                            if _osprey_attr.startswith(
+                                ("put", "asyncPut", "parsePut")
+                            ):
                                 setattr(_osprey_obj, _osprey_attr, _osprey_readonly_refuse)
                 except Exception as _osprey_guard_error:
                     # A target that cannot be patched must not stop the ones
@@ -856,7 +1391,7 @@ if not _execution_dir.exists():
                         f"⚠️  readonly guard ({{_osprey_dotted}}) failed: {{_osprey_guard_error}}"
                     )
 
-            del _osprey_importlib, _osprey_targets, _osprey_resolve
+            del _osprey_importlib, _osprey_sys, _osprey_targets, _osprey_resolve
         """
         return textwrap.dedent(guard).strip().replace("@@REFUSAL@@", READONLY_REFUSAL)
 

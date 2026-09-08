@@ -90,6 +90,21 @@ def notebook_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         environment.setenv("TMPDIR", str(root))
         environment.setenv("OSPREY_AUDIT_IDENTITY", AUDIT_IDENTITY)
         environment.setenv(TERMINAL_FAMILY_PROBE, "reachable-from-the-terminal")
+        # And the agent-data root, here rather than from the autouse stamp in
+        # tests/interfaces/conftest.py. That one is function-scoped, and the
+        # fixtures below it are module-scoped: pytest builds the module scope
+        # first, so the app lifespan ``proxied`` enters — which claims the
+        # control-context record — runs before any per-test stamp exists and
+        # resolves the root to the checkout. The result is a real
+        # ``<repo>/var/agent_data`` that ``no_agent_data_in_the_repo`` fails the
+        # whole session over, from a module that never asked for one.
+        environment.setenv("OSPREY_AGENT_DATA_ROOT", str(root / "var" / "agent_data"))
+        # The audit zone too, for the same reason: the app's HTTP mutation
+        # records would otherwise land in ``<repo>/var/audit`` under the
+        # identity stamped above.
+        from osprey.audit import writer as audit_writer
+
+        environment.setattr(audit_writer, "audit_dir", lambda: root / "var" / "audit")
         yield root
 
 
