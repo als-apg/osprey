@@ -19,6 +19,7 @@ import importlib.util
 import sys
 from typing import TYPE_CHECKING, Any
 
+from osprey.health.derive import _in_container
 from osprey.health.models import CheckResult, Status
 
 if TYPE_CHECKING:
@@ -73,11 +74,29 @@ def _check_python_version() -> CheckResult:
 
 
 def _check_virtual_environment() -> CheckResult:
+    """Whether this interpreter is isolated from anything else on the machine.
+
+    A container image is isolation by construction: the shipped image installs
+    OSPREY into the system interpreter because nothing else lives there, and
+    warning about it put a permanent amber row on the core category of every
+    containerised deployment for the deployment working as designed. On a bare
+    host the warning stands — a system interpreter there really is shared.
+
+    This row is not a guard on whether OSPREY can run. That is
+    ``core_dependencies``.
+    """
     in_venv = hasattr(sys, "real_prefix") or (
         hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix
     )
     if in_venv:
         return CheckResult("virtual_environment", CATEGORY, Status.OK, "Virtual environment active")
+    if _in_container():
+        return CheckResult(
+            "virtual_environment",
+            CATEGORY,
+            Status.OK,
+            "System interpreter inside a container image",
+        )
     return CheckResult(
         "virtual_environment", CATEGORY, Status.WARNING, "Not in a virtual environment"
     )
