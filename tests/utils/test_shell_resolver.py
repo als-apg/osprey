@@ -12,7 +12,11 @@ from unittest.mock import patch
 
 import pytest
 
-from osprey.utils.shell_resolver import resolve_shell_command, user_bin_dirs
+from osprey.utils.shell_resolver import (
+    normalize_shell_command,
+    resolve_shell_command,
+    user_bin_dirs,
+)
 
 
 class TestUserBinDirs:
@@ -160,3 +164,56 @@ class TestAnAccountWithNoHome:
 
         with pytest.raises(FileNotFoundError, match="not found on PATH"):
             resolve_shell_command("definitely-not-a-real-command")
+
+
+class TestNormalizeShellCommand:
+    """``web_terminal.shell`` is argv, in either spelling."""
+
+    def test_bare_command_resolves_to_one_element(self):
+        with patch(
+            "osprey.utils.shell_resolver.resolve_shell_command", return_value="/abs/harness"
+        ):
+            assert normalize_shell_command("harness") == ["/abs/harness"]
+
+    def test_string_with_arguments_splits_and_keeps_the_tail(self):
+        with patch(
+            "osprey.utils.shell_resolver.resolve_shell_command", return_value="/abs/harness"
+        ) as resolve:
+            assert normalize_shell_command("harness --profile ops") == [
+                "/abs/harness",
+                "--profile",
+                "ops",
+            ]
+        resolve.assert_called_once_with("harness")
+
+    def test_quoting_is_honoured(self):
+        with patch(
+            "osprey.utils.shell_resolver.resolve_shell_command", return_value="/abs/harness"
+        ):
+            assert normalize_shell_command('harness --note "two words"') == [
+                "/abs/harness",
+                "--note",
+                "two words",
+            ]
+
+    def test_list_resolves_only_the_first_element(self):
+        with patch(
+            "osprey.utils.shell_resolver.resolve_shell_command", return_value="/abs/harness"
+        ) as resolve:
+            assert normalize_shell_command(["harness", "--profile", "ops"]) == [
+                "/abs/harness",
+                "--profile",
+                "ops",
+            ]
+        resolve.assert_called_once_with("harness")
+
+    def test_empty_value_is_refused(self):
+        for value in ("", "   ", []):
+            with pytest.raises(ValueError, match="web_terminal.shell"):
+                normalize_shell_command(value)
+
+    def test_a_value_that_is_neither_string_nor_list_is_refused_by_name(self):
+        """YAML admits scalars and mappings the key does not; each names the key."""
+        for value in (5, True, {"command": "harness"}, None):
+            with pytest.raises(ValueError, match="web_terminal.shell"):
+                normalize_shell_command(value)

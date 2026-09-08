@@ -783,6 +783,14 @@ config:
   # The terminal process itself (`osprey web`), every key at its default. The
   # multi-user compose sets OSPREY_TERMINAL_BIND_HOST on every container, which
   # outranks `host`; `shell` REPLACES the launcher and defeats the CLI pin.
+  # `shell` is argv, written either way — a string (quoting honoured) or a
+  # list; only the first word is resolved to an absolute path and the rest are
+  # passed through:
+  #   web_terminal.shell: /opt/harness/run --profile ops
+  #   web_terminal.shell: ["/opt/harness/run", "--profile", "ops"]
+  # The PTY spawn still appends `--session-id`/`--resume` and `--effort` to
+  # whatever is set here, so a harness that does not take those flags needs a
+  # wrapper that drops them.
   # web_terminal.host: 127.0.0.1
   # web_terminal.port: <a port outside this deployment's block>
   # web_terminal.max_background_sessions: 5

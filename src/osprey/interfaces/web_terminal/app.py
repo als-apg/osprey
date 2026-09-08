@@ -1729,6 +1729,7 @@ def _create_lifespan(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from osprey.utils.claude_launcher import build_claude_launch_argv
+        from osprey.utils.shell_resolver import normalize_shell_command
 
         config = _load_web_config(config_path)
 
@@ -1743,7 +1744,7 @@ def _create_lifespan(
         if shell_command:
             app.state.shell_command = list(shell_command)
         elif config.get("shell"):
-            app.state.shell_command = [str(config["shell"])]
+            app.state.shell_command = normalize_shell_command(config["shell"])
         else:
             app.state.shell_command = build_claude_launch_argv(
                 _load_claude_code_config(config_path)
