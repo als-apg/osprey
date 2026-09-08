@@ -79,6 +79,14 @@ deployment, which is why none of them is a config key.
        and ``application.registry_path`` is accepted as an alias. All three
        resolve through one function, so the registry that loads is the one
        ``osprey health`` reports on.
+   * - ``OSPREY_MCP_READY_TIMEOUT``
+     - Seconds a run waits for every MCP server the project declares to finish
+       connecting before it goes ahead without them, default ``90``. A host
+       property, not a deployment one: a cold or oversubscribed machine takes
+       longer to start the same servers. Too low and ``osprey query`` exits 1
+       for a server that was still starting. The former spelling
+       ``OSPREY_E2E_MCP_READY_TIMEOUT`` is still read and will be dropped after
+       one release; the budget was never specific to tests.
    * - ``OSPREY_TERMINAL_BIND_HOST``
      - The address ``osprey web`` binds to, and **authoritative over both
        ``--host`` and the config**. The multi-user compose sets it on every

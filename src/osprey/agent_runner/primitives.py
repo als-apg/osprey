@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -705,7 +706,36 @@ async def _drain_response(
 # Callers that spawn the CLI should hand the same figure to the CLI's own
 # ``MCP_TIMEOUT`` (its stdio-startup limit, 30s by default), or the CLI marks a
 # slow server failed before this barrier would have seen it connect.
-MCP_READY_TIMEOUT_S = float(os.environ.get("OSPREY_E2E_MCP_READY_TIMEOUT", "90"))
+#
+# The variable is ``OSPREY_MCP_READY_TIMEOUT``. It is a HOST property — how long
+# this machine takes to start the servers a deployment declares — not a
+# deployment one, which is why it is an environment variable and not a config
+# key; the dispatch worker takes its own budgets from container env for the
+# same reason. It gates production ``osprey query`` as much as it gates a test,
+# which is what the old ``OSPREY_E2E_`` spelling denied. That spelling is still
+# read, so a host that sets it keeps working; it goes after one release.
+MCP_READY_TIMEOUT_ENV = "OSPREY_MCP_READY_TIMEOUT"
+_LEGACY_MCP_READY_TIMEOUT_ENV = "OSPREY_E2E_MCP_READY_TIMEOUT"
+_MCP_READY_TIMEOUT_DEFAULT_S = 90.0
+
+
+def _mcp_ready_timeout_from_env(environ: Mapping[str, str]) -> float:
+    """The readiness ceiling an environment declares, in seconds.
+
+    Args:
+        environ: The environment to read, ``os.environ`` in production.
+
+    Returns:
+        The new name's value, else the legacy one's, else the default. An
+        unparseable value raises rather than falling back: a host that meant to
+        widen the budget and typed it wrong should hear about it at import,
+        not run every session on a ceiling it did not choose.
+    """
+    declared = environ.get(MCP_READY_TIMEOUT_ENV) or environ.get(_LEGACY_MCP_READY_TIMEOUT_ENV)
+    return float(declared) if declared else _MCP_READY_TIMEOUT_DEFAULT_S
+
+
+MCP_READY_TIMEOUT_S = _mcp_ready_timeout_from_env(os.environ)
 _MCP_READY_TIMEOUT_S = MCP_READY_TIMEOUT_S
 _MCP_READY_POLL_S = 0.3
 

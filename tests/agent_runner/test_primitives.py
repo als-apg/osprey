@@ -14,11 +14,12 @@ silently broke proxy-provider auth for the in_context backend.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
-from osprey.agent_runner import sdk_env
+from osprey.agent_runner import primitives, sdk_env
 from osprey.agent_runner.primitives import provider_env_for_project
 
 
@@ -382,3 +383,42 @@ class TestTelemetryCredentialNotIssuedYet:
 
         assert env["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
         assert "Authorization=Basic " in env["OTEL_EXPORTER_OTLP_HEADERS"]
+
+
+class TestTheMcpReadinessBudgetIsNamedForWhatItGates:
+    """``OSPREY_MCP_READY_TIMEOUT``: the readiness barrier's ceiling.
+
+    It gates production ``osprey query`` (exit 1 when a declared server never
+    registers), the interactive session, and the dispatch worker — not only
+    E2E, which is what the old ``OSPREY_E2E_`` spelling implied.
+
+    The reader takes the environment as an argument, so these cases hand it a
+    dict rather than reloading the module: a reload would rebind the module's
+    classes while every importer keeps the originals.
+    """
+
+    def test_the_default_applies_with_neither_name_set(self) -> None:
+        assert primitives._mcp_ready_timeout_from_env({}) == 90.0
+
+    def test_the_new_name_is_read(self) -> None:
+        assert primitives._mcp_ready_timeout_from_env({"OSPREY_MCP_READY_TIMEOUT": "12"}) == 12.0
+
+    def test_the_old_name_still_works_for_one_release(self) -> None:
+        """A host that already sets the E2E spelling keeps its value."""
+        assert primitives._mcp_ready_timeout_from_env({"OSPREY_E2E_MCP_READY_TIMEOUT": "7"}) == 7.0
+
+    def test_the_new_name_wins_when_both_are_set(self) -> None:
+        assert (
+            primitives._mcp_ready_timeout_from_env(
+                {
+                    "OSPREY_MCP_READY_TIMEOUT": "12",
+                    "OSPREY_E2E_MCP_READY_TIMEOUT": "7",
+                }
+            )
+            == 12.0
+        )
+
+    def test_the_module_constant_comes_from_this_process_environment(self) -> None:
+        """The barrier's own default is what the reader answers for this host."""
+        assert primitives.MCP_READY_TIMEOUT_S == primitives._mcp_ready_timeout_from_env(os.environ)
+        assert primitives._MCP_READY_TIMEOUT_S == primitives.MCP_READY_TIMEOUT_S
