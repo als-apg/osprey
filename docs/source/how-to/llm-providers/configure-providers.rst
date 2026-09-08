@@ -372,8 +372,10 @@ Adding a New Provider
 To add a new OpenAI-compatible provider, append an entry to ``providers.yml``
 beside ``profile.yml`` (see
 :ref:`Provider Configuration <provider-configuration>` above) and run
-``osprey build`` — no code changes required. The rendered result in
-``build/config.yml``:
+``osprey build`` — no code changes required. ``osprey health`` reports such a
+config-only provider as *skipped*, not failed: there is no adapter class to
+probe it with, so the run says it went unverified rather than grading the
+deployment unhealthy. The rendered result in ``build/config.yml``:
 
 .. code-block:: yaml
 

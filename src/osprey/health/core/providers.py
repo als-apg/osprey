@@ -12,10 +12,13 @@ Results are advisory for every provider but one: a reachable provider is
 ``ok``, and every failure mode (bad key, unknown provider, unreachable
 endpoint, timeout) is ``warning``. The exception is the deployment's own agent
 provider — ``claude_code.provider``, the one every web terminal and the
-dispatch worker authenticate with. When that one fails, the deployment is down,
-so its row is an ``error`` (and ``osprey health`` exits 2); it is also an error
-when it is named but has no ``api.providers`` block to probe. Zero configured
-providers yields no rows.
+dispatch worker authenticate with. When that one *fails a probe*, the
+deployment is down, so its row is an ``error`` (and ``osprey health`` exits 2);
+it is also an error when it is named but has no ``api.providers`` block to
+probe at all. A row that never contacted anything is not escalated: a
+config-only provider (a block with no adapter class) is a ``skip``, marked as
+this deployment's agent provider so the operator sees that health did not
+verify it. Zero configured providers yields no rows.
 """
 
 from __future__ import annotations
@@ -65,7 +68,11 @@ def providers(
     cfg: Mapping[str, Any] = config or {}
     # The canary ignores the runtime; supply a never-constructed one when the
     # factory is called without a context so the ProbeContext stays type-correct.
-    ctx = ProbeContext(runtime=context if context is not None else HealthRuntime({}))
+    # The config travels with the context, not just inside each spec: the canary
+    # consults ``api.providers.<name>`` itself to tell a config-only provider
+    # from an unknown one, and must read the same config this category was
+    # handed rather than the process-default singleton.
+    ctx = ProbeContext(runtime=context if context is not None else HealthRuntime({}), config=cfg)
 
     async def _run() -> list[CheckResult]:
         api = cfg.get("api", {}) or {}
@@ -106,17 +113,31 @@ def providers(
                     details=str(outcome),
                 )
             if name == own and row.status is not Status.OK:
-                # Not advisory: this is the provider the agent runs on, so a
-                # failure here is every terminal and the dispatch worker down.
-                row = replace(
-                    row,
-                    status=Status.ERROR,
-                    message=(
-                        f"{row.message} — {own} is this deployment's agent provider "
-                        "(claude_code.provider); every web terminal and the dispatch "
-                        "worker authenticate with it"
-                    ),
-                )
+                if row.status in (Status.WARNING, Status.ERROR) and row.probed:
+                    # Not advisory: this is the provider the agent runs on, so a
+                    # failed probe here is every terminal and the dispatch
+                    # worker down.
+                    row = replace(
+                        row,
+                        status=Status.ERROR,
+                        message=(
+                            f"{row.message} — {own} is this deployment's agent provider "
+                            "(claude_code.provider); every web terminal and the dispatch "
+                            "worker authenticate with it"
+                        ),
+                    )
+                else:
+                    # Nothing was contacted, so there is no reachability fact to
+                    # escalate — grading the absence of an adapter class as a
+                    # failure exits 2 on a deployment whose agent is running.
+                    # The row keeps its status and says it went unverified.
+                    row = replace(
+                        row,
+                        message=(
+                            f"{row.message} — {own} is this deployment's agent provider "
+                            "(claude_code.provider), left unverified by this run"
+                        ),
+                    )
             rows.append(row)
         return rows
 
