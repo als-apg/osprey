@@ -240,6 +240,11 @@ class CIContext:
         deploy_path: The checkout's absolute path on that host.
         service_images: Profile-owned services that get an image-build job.
         external_projects: Other projects' images this deployment also pulls.
+        environment_url: The address browsers open this deployment at, or
+            ``None`` when it has no web tier to link to. The forge shows it as
+            the environment's link, so it is derived from the one origin
+            authority rather than assembled here (see
+            :func:`_environment_url`).
         runs_verify_on_up: Whether ``osprey up`` runs the health check itself.
             True only with the web tier enabled — the post-up hook that runs
             ``scripts/verify.sh`` sits on the deploy's web-terminal branch, so
@@ -259,6 +264,7 @@ class CIContext:
     deploy_path: str
     service_images: list[str] = field(default_factory=list)
     external_projects: list[dict[str, str]] = field(default_factory=list)
+    environment_url: str | None = None
     runs_verify_on_up: bool = False
 
     @property
@@ -505,8 +511,59 @@ def build_ci_context(
             }
             for project in deploy.external_projects
         ],
+        environment_url=_environment_url(profile),
         runs_verify_on_up=_web_terminals(profile) is not None,
     )
+
+
+def _environment_url(profile: dict[str, Any]) -> str | None:
+    """The address browsers open this deployment at, or ``None``.
+
+    The forge renders this as the environment's link, so it is the same
+    browser-facing address the landing page carries and every terminal checks a
+    write against — which the deployment already derives once
+    (:func:`osprey.deployment.web_terminals.render._external_origin`). Deriving
+    it a second time here is what produced ``https://$DEPLOY_HOST``: the SSH
+    coordinate under an asserted scheme, with the published port dropped.
+
+    A profile's ``config:`` overlay is a flat bag of dotted keys rather than a
+    rendered config, so it is re-wrapped into the shape the resolver takes —
+    the same re-wrap the landing-page probe does.
+
+    Args:
+        profile: The resolved raw profile dict.
+
+    Returns:
+        The origin, or ``None`` when this deployment has no web tier, names no
+        ``deploy.fqdn`` and declares no ``external_origin`` — there is then no
+        address to link to, and the pipeline emits no ``url:`` at all rather
+        than one nothing answers on.
+    """
+    from osprey.deployment.web_terminals.render import (
+        _auth_tls_context,
+        _external_origin,
+        resolve_nginx_port,
+    )
+
+    web = _web_terminals(profile)
+    if web is None:
+        return None
+    profile_config = _config_block(profile)
+    root = {
+        "deployment": {"port_base": _dotted(profile_config, PORT_BASE_CONFIG_KEY)},
+        "modules": {"web_terminals": web},
+        "deploy": {"fqdn": _dotted(profile_config, "deploy.fqdn")},
+    }
+    tls = _auth_tls_context(web)
+    try:
+        return _external_origin(
+            root,
+            resolve_nginx_port(root),
+            tls_enabled=bool(tls["tls_enabled"]),
+            tls_port=int(tls["tls_port"]),
+        )
+    except ValueError:
+        return None
 
 
 def build_verify_context(
