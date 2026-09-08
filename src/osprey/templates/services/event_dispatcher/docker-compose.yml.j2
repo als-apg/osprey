@@ -112,20 +112,23 @@ services:
     on attribute access against an undefined name, so testing `claude_code.telemetry`
     on a config that omits the whole `claude_code:` block would fail the render
     rather than fall through to the off state. #}
-{% if 'openobserve' in (deployed_services | default([])) and claude_code is defined and claude_code.telemetry is defined and claude_code.telemetry and claude_code.telemetry.enabled %}
+{% if 'openobserve' in (deployed_services | default([])) and claude_code is defined and claude_code.telemetry is defined and claude_code.telemetry and claude_code.telemetry.enabled and osprey_telemetry_host %}
       # Browser-reachable base URL of the telemetry store, so the dashboard can
-      # link a run to its own OTEL records. Deliberately localhost-and-host-port,
-      # NOT the `openobserve` compose DNS name the containers talk to: the value
-      # is rendered into a link the OPERATOR's browser follows, and the browser
-      # is outside the compose network. This mirrors how the store's UI is
-      # reached today (the service binds to localhost by design).
+      # link a run to its own OTEL records. The host is `osprey_telemetry_host`,
+      # derived at render time from the same external-origin authority every
+      # other browser-facing URL comes from — NOT the `openobserve` compose DNS
+      # name the containers talk to, because the value is rendered into a link
+      # the OPERATOR's browser follows and the browser is outside the compose
+      # network. The store publishes its own host port directly, so the scheme
+      # stays http and the port is the store's.
       #
-      # Emitted only when the store is deployed AND agent telemetry is on —
-      # either being off leaves the var unset, which the dashboard reads as
-      # "hide the link" rather than offering one that resolves to nothing.
-      # Render-time gate: toggling telemetry in config.yml afterwards needs a
-      # redeploy to take effect here, same as every other value in this block.
-      OSPREY_TELEMETRY_URL: "http://localhost:{{ services.openobserve.port | default(osprey_ports.openobserve, true) }}"
+      # Emitted only when the store is deployed, agent telemetry is on, AND a
+      # host is derivable — any of the three being false leaves the var unset,
+      # which the dashboard reads as "hide the link" rather than offering one
+      # that resolves to nothing. Render-time gate: toggling telemetry in
+      # config.yml afterwards needs a redeploy to take effect here, same as
+      # every other value in this block.
+      OSPREY_TELEMETRY_URL: "http://{{ osprey_telemetry_host }}:{{ services.openobserve.port | default(osprey_ports.openobserve, true) }}"
 {% endif %}
       TZ: {{ system.timezone }}
 {{- hostenv.passthrough(services.event_dispatcher) }}
