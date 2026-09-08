@@ -76,15 +76,48 @@ def _service_name() -> str:
     return "claude-code"
 
 
-def _org() -> str:
-    """OpenObserve org, parsed from the OTLP endpoint ``.../api/<org>``."""
-    endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-    marker = "/api/"
-    if marker in endpoint:
-        tail = endpoint.split(marker, 1)[1].strip("/")
-        if tail:
-            return tail.split("/", 1)[0]
-    return "default"
+#: Backend whose records are addressed by an organization and a stream. Any
+#: other backend is addressed some other way, and OpenObserve's coordinates
+#: would be meaningless in it.
+_OPENOBSERVE_BACKEND = "openobserve"
+
+#: The stream OSPREY's OTLP records land in. One value, spelled once — it is
+#: not derived from anything yet, and inventing a key for it would be a knob
+#: nothing turns.
+_DEFAULT_STREAM = "default"
+
+
+def _store_coordinates() -> dict[str, str]:
+    """Store-specific coordinates for the configured telemetry backend.
+
+    Read from ``claude_code.telemetry`` rather than re-parsed out of the OTLP
+    endpoint URL: the org is a configured value, and deriving it a second time
+    from a URL the exporter built out of it is a producer that can disagree with
+    the store it points at. The org itself comes from
+    :func:`osprey.deployment.openobserve_provision.store_org`, the one resolver
+    the provisioner and the exporter already share — a hand-rolled read here
+    would be a third producer, and one that gets the empty-org case wrong: the
+    default belongs to an ABSENT key, and an explicit ``org: ""`` is a value.
+
+    Only ``openobserve`` is addressed by an org and a stream. Every other
+    backend gets neither key at all — not a null, and not a placeholder: a
+    consumer templating these into a filed issue must not be able to render an
+    empty coordinate that reads as a real one.
+
+    Returns:
+        ``{"org": …, "stream": …}`` for the OpenObserve backend, else ``{}``.
+    """
+    try:
+        from osprey.deployment.openobserve_provision import store_org
+        from osprey.utils.workspace import load_osprey_config
+
+        config = load_osprey_config()
+        telemetry = ((config.get("claude_code") or {}).get("telemetry")) or {}
+        if str(telemetry.get("backend") or "").strip().lower() != _OPENOBSERVE_BACKEND:
+            return {}
+        return {"org": store_org(config), "stream": _DEFAULT_STREAM}
+    except Exception:
+        return {}
 
 
 @mcp.tool()
@@ -96,9 +129,11 @@ async def provenance_locator() -> str:
     truth) instead of trusting a reconstructed narration. No parameters.
 
     Returns:
-        JSON ``{session_id, service_name, org, stream, since, emitted_at}``.
-        ``session_id`` is ``null`` (with a ``note``) when no id resolves or
-        telemetry is unavailable/degraded for this run. Never raises.
+        JSON ``{session_id, service_name, since, emitted_at}``, plus ``org`` and
+        ``stream`` when the configured telemetry backend is addressed by them
+        (:func:`_store_coordinates`). ``session_id`` is ``null`` (with a
+        ``note``) when no id resolves or telemetry is unavailable/degraded for
+        this run. Never raises.
     """
     emitted_at = datetime.now(UTC).isoformat()
     try:
@@ -125,8 +160,7 @@ async def provenance_locator() -> str:
             {
                 "session_id": session_id,
                 "service_name": _service_name(),
-                "org": _org(),
-                "stream": "default",
+                **_store_coordinates(),
                 "since": os.environ.get(OSPREY_TELEMETRY_SESSION_START_ENV) or None,
                 "emitted_at": emitted_at,
             },
