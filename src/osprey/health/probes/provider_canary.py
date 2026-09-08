@@ -13,7 +13,10 @@ produces an ``error`` row:
 
 * ``check_health`` returns ``(True, msg)`` → ``ok``;
 * ``check_health`` returns ``(False, msg)`` → ``warning``;
-* an unknown provider name → ``warning`` ``"Unknown provider"`` (never a crash);
+* a name with an ``api.providers`` block but no adapter class → ``skip``
+  (a config-only provider: there is nothing to probe it *with*);
+* a name with neither a class nor a config block → ``warning``
+  ``"Unknown provider"`` (never a crash);
 * a raised exception, or a timeout while the daemon thread is abandoned →
   ``warning`` (an unreachable provider must not fail the suite).
 
@@ -153,6 +156,18 @@ async def run(
     reg = registry if registry is not None else get_provider_registry()
     provider_class = reg.get_provider(provider_name)
     if provider_class is None:
+        # No adapter class is not the same fact as no provider. The documented
+        # no-code route to a new endpoint is an ``api.providers`` block and
+        # nothing else, and there is no class to instantiate for one — so a
+        # configured name is skipped (nothing to probe with), and only a name
+        # that is configured nowhere either is unknown.
+        if _provider_block(provider_name, ctx.config):
+            return CheckResult(
+                result_name,
+                category,
+                Status.SKIP,
+                "config-only provider — no code adapter to probe",
+            )
         return CheckResult(result_name, category, Status.WARNING, "Unknown provider")
 
     # Consult the config block only for fields the spec does not already supply,
@@ -164,8 +179,12 @@ async def run(
     base_url = _resolve_secret(spec["base_url"] if "base_url" in spec else block.get("base_url"))
 
     t0 = perf_counter()
+    probed = False
     try:
         provider = provider_class()
+        # Past this point the endpoint was contacted (or the attempt to contact
+        # it is what failed), so every row below states a reachability fact.
+        probed = True
         success, message = await run_sync(
             provider.check_health,
             api_key,
@@ -182,6 +201,7 @@ async def run(
             Status.WARNING,
             f"health check timed out after {timeout_s:g}s",
             latency_ms=latency_ms,
+            probed=probed,
         )
     except Exception as exc:  # noqa: BLE001 - an unreachable provider is a warning, never error
         latency_ms = (perf_counter() - t0) * 1000.0
@@ -192,6 +212,7 @@ async def run(
             "health check failed",
             latency_ms=latency_ms,
             details=str(exc),
+            probed=probed,
         )
 
     latency_ms = (perf_counter() - t0) * 1000.0
@@ -201,4 +222,5 @@ async def run(
         Status.OK if success else Status.WARNING,
         message,
         latency_ms=latency_ms,
+        probed=probed,
     )

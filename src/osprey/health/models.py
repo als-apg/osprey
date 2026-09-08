@@ -42,6 +42,12 @@ class CheckResult:
         value: Measured value, e.g. ``"401.2 mA"`` (optional).
         latency_ms: Elapsed time for the check in milliseconds (optional).
         details: Extended diagnostic or error information (optional).
+        probed: Whether the check actually contacted what it grades. ``False``
+            means the row states a fact about the *configuration* (nothing was
+            reachable to try, or there was nothing to try it with), so a caller
+            deciding how loudly to report a non-``ok`` row knows there is no
+            reachability fact behind it. In-process only: it is not part of
+            :meth:`to_dict`'s locked wire shape.
     """
 
     name: str
@@ -51,6 +57,7 @@ class CheckResult:
     value: str = ""
     latency_ms: float = 0.0
     details: str = ""
+    probed: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to the wire shape, omitting empty optional fields.

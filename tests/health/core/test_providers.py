@@ -85,8 +85,24 @@ async def test_mixed_results_ok_and_warning() -> None:
     assert all(r.status in (Status.OK, Status.WARNING) for r in by_name.values())
 
 
-async def test_unknown_provider_is_warning() -> None:
+async def test_a_config_only_provider_is_skipped() -> None:
+    """A configured endpoint with no adapter class cannot be probed.
+
+    The documented no-code route to a new provider is an ``api.providers``
+    block and nothing else, so "no Python class" is a normal deployment shape,
+    not a fault to report.
+    """
     config = {"api": {"providers": {"made_up": {"api_key": "k"}}}}
+    rows = await _run(config, _StubRegistry({}))
+
+    assert len(rows) == 1
+    assert rows[0].name == "made_up"
+    assert rows[0].status is Status.SKIP
+    assert "no code adapter" in rows[0].message
+
+
+async def test_unknown_provider_without_a_block_is_warning() -> None:
+    config = {"api": {"providers": {"made_up": {}}}}
     rows = await _run(config, _StubRegistry({}))
 
     assert len(rows) == 1
