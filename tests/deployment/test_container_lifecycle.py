@@ -3387,6 +3387,40 @@ def test_compression_comes_from_the_service_block_not_the_knobs(
     assert staged_archiver["seeded"][0]["kwargs"]["compression"] == expected
 
 
+def test_the_graph_store_wait_outlasts_its_own_healthcheck_start_period():
+    """The deploy's bolt wait must cover the first start the template budgets for.
+
+    The template's ``start_period`` is the container's own estimate of how long
+    a first start takes — fetch the n10s jar, initialize a fresh store, wait out
+    the JVM. The host-side wait was shorter than that, so on a first deploy it
+    gave up while the store was doing exactly what the template says it does,
+    and the corpus seed was skipped. Nothing failed: the deployment came up with
+    an empty graph, which reads as a store nobody seeded rather than a wait that
+    was too short. Pinned as a pair, because either number alone looks fine.
+    """
+    import re
+
+    import osprey
+
+    template = (
+        Path(osprey.__file__).parent
+        / "templates"
+        / "services"
+        / "graphdb"
+        / "docker-compose.yml.j2"
+    ).read_text(encoding="utf-8")
+
+    match = re.search(r"start_period:\s*(\d+)s", template)
+    assert match, "no healthcheck start_period found in the graphdb template"
+    start_period_s = float(match.group(1))
+
+    assert start_period_s < container_lifecycle._GRAPHDB_HEALTH_TIMEOUT_S, (
+        f"the bolt wait ({container_lifecycle._GRAPHDB_HEALTH_TIMEOUT_S}s) must outlast the "
+        f"store's own healthcheck start_period ({start_period_s}s), or a first deploy "
+        f"gives up on a container that is still coming up and skips the corpus seed"
+    )
+
+
 def test_the_auth_grace_sits_between_the_healthcheck_and_the_reachability_budget():
     """The 15/45/180 ordering documented at ``_ARCHIVER_AUTH_GRACE_S`` IS the design.
 
