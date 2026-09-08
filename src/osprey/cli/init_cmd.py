@@ -502,6 +502,14 @@ MCP_SERVER_SOURCE_DIR: str = "mcp_servers"
 #: a second seeded directory joins every one of them by being listed here.
 WRITE_ONCE_DIRS: Mapping[str, str] = {MCP_SERVER_SOURCE_DIR: "mcp_servers"}
 
+#: The convention directory holding the facility description a deployment
+#: rewrites in its own words. Source zone, but in neither table above: it is not
+#: materialized (a re-materialization must not replace the operator's own
+#: facility text) and it is not seeded from the bundle (it is rendered from the
+#: framework template, by `osprey init` and by the first build that finds it
+#: missing). Named here so the README's zone table can say where it is.
+FACILITY_RULE_DIR: str = "rules"
+
 
 def _source_zone_prose(seeded: tuple[str, ...] = ()) -> str:
     """The SOURCE row of the README's zone table, derived from the categories above.
@@ -536,6 +544,7 @@ def _source_zone_prose(seeded: tuple[str, ...] = ()) -> str:
         f"{name}/" if not Path(name).suffix else name for name in MATERIALIZED_SOURCE_ENTRIES
     ]
     entries.extend(f"{name}/" for name in seeded)
+    entries.append(f"{FACILITY_RULE_DIR}/")
     entries.extend(WRITE_ONCE_FILES)
     entries.extend(CI_EMITTED_PATHS)
     return ", ".join(f"`{name}`" for name in entries)
@@ -555,6 +564,7 @@ PRESERVED_BY_FORCE: tuple[str, ...] = (
     *WRITE_ONCE_FILES,
     *CI_EMITTED_PATHS,
     *(f"{name}/" for name in WRITE_ONCE_DIRS),
+    f"{FACILITY_RULE_DIR}/",
 )
 
 _PRESERVED_PROSE = ", ".join(PRESERVED_BY_FORCE)

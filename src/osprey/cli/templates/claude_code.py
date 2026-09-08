@@ -2072,11 +2072,17 @@ def create_claude_code_integration(
         files_created += 1
 
     # 2b. Create facility.md -- user-owned artifact
-    # During init, render the template in-place and auto-register as
-    # user-owned so regen never overwrites user customizations.
+    # Create-only, and auto-registered as user-owned, so a re-render never
+    # overwrites what an operator wrote. This is the path for a render with no
+    # profile behind it: a deployment's facility description lives in the
+    # profile's own `rules/` convention directory, and the build says so with
+    # `profile_owns_facility_rule` — rendering a second copy here would leave
+    # the operator two files and no way to tell which one the agent reads.
     facility_md = project_dir / ".claude" / "rules" / "facility.md"
     facility_j2 = claude_code_dir / "claude" / "rules" / "facility.md.j2"
-    if allowed_outputs is not None and ".claude/rules/facility.md" not in allowed_outputs:
+    if ctx.get("profile_owns_facility_rule"):
+        pass  # Skip -- the profile's copy is carried in by the convention copy
+    elif allowed_outputs is not None and ".claude/rules/facility.md" not in allowed_outputs:
         pass  # Skip -- not in manifest
     elif is_user_owned(".claude/rules/facility.md", ctx):
         pass  # Skip -- user owns it
