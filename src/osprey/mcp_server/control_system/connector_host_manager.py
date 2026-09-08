@@ -51,13 +51,19 @@ of them could not tell which it had been promised.
 Reconciling to the record
 -------------------------
 :meth:`ConnectorHostManager.reconcile` is the one entry point the reconcile
-loop uses, and it has three answers:
+loop uses, and it has four answers:
 
-* **No live child** — the target and the generation are adopted in memory and
-  nothing is published. There is no child whose binding could be wrong, and the
-  first launch (:meth:`ConnectorHostManager.ensure_started`) then comes up on
-  the adopted values and reports *them*, so a fresh server joining a deployment
-  already on generation 7 reports 7 rather than minting a 0 nobody asked for.
+* **No live child, not asked to launch** — the target and the generation are
+  adopted in memory and nothing is published. There is no child whose binding
+  could be wrong, and the first launch
+  (:meth:`ConnectorHostManager.ensure_started`) then comes up on the adopted
+  values and reports *them*, so a fresh server joining a deployment already on
+  generation 7 reports 7 rather than minting a 0 nobody asked for.
+* **No live child, asked to launch** — the first child comes up on the record's
+  target with the record's generation assigned, published like any swap. The
+  caller asks for this when the record moved *under* a running server: an
+  operator made that move and is watching for the fleet to arrive, and a
+  server that adopted silently would have nothing to report.
 * **Same target** — the generation is adopted and republished against the child
   already serving it. Nothing is spawned and nothing is retired: a change of
   generation on the target this server is already on is a change of what
@@ -1172,7 +1178,9 @@ class ConnectorHostManager:
                 force=True,
             )
 
-    async def reconcile(self, target: str, generation: int) -> dict[str, Any]:
+    async def reconcile(
+        self, target: str, generation: int, *, launch: bool = False
+    ) -> dict[str, Any]:
         """Bring this server into line with the record, under the lock.
 
         The reconcile loop's one entry point. *target* and *generation* are the
@@ -1180,15 +1188,27 @@ class ConnectorHostManager:
         them; this method never decides either, it only makes this server agree
         with them and says what it did.
 
-        Three answers, and the difference between them is what is running:
+        Four answers, and the difference between them is what is running and
+        whether the caller asked for a child:
 
-        * **No live child.** Both values are adopted in memory and nothing is
-          published. Nothing is bound to a generation, so nothing can be bound
-          to the wrong one, and a report claiming otherwise would let the fleet
-          count a server that has launched nothing as arrived. The first launch
-          then comes up on the adopted target and reports the adopted
-          generation, which is how a server joining a deployment already on
-          generation 7 reports 7 and mints nothing.
+        * **No live child, not asked to launch.** Both values are adopted in
+          memory and nothing is published. Nothing is bound to a generation, so
+          nothing can be bound to the wrong one, and a report claiming
+          otherwise would let the fleet count a server that has launched
+          nothing as arrived. The first launch then comes up on the adopted
+          target and reports the adopted generation, which is how a server
+          joining a deployment already on generation 7 reports 7 and mints
+          nothing.
+        * **No live child, asked to launch.** The first child comes up on
+          *target* with *generation* assigned and is published like any swap.
+          This is a record that moved UNDER a running server: the operator who
+          moved it is waiting for every live server to report the generation,
+          and a server that adopted silently would keep that wait open until
+          the client's own deadline. The launch is not probed, for the reason
+          the deployment's first launch never is — nothing is serving, so
+          there is no working session to protect from a target that cannot
+          answer, and the failure is reported per call instead. A launch that
+          does not come up is reported ``failed`` against *generation*.
         * **A live child on this target.** The generation is adopted and
           republished against the child already serving it: nothing is spawned,
           nothing is retired, and the connections the session holds survive. A
@@ -1216,7 +1236,7 @@ class ConnectorHostManager:
             previous_target = self._target
             previous_generation = self._generation
             child = self._live_child()
-            if child is None:
+            if child is None and not launch:
                 self._target = target
                 self._generation = int(generation)
                 logger.info(
@@ -1226,6 +1246,23 @@ class ConnectorHostManager:
                     generation,
                 )
                 return self._reconciled(previous_target, previous_generation, published=False)
+            if child is None:
+                result = await self._switch_locked(
+                    target,
+                    cause=(
+                        f"launching the connector host on the control-context record's "
+                        f"target {target!r} (generation {generation})"
+                    ),
+                    probe=False,
+                    generation=generation,
+                )
+                return self._reconciled(
+                    previous_target,
+                    previous_generation,
+                    published=bool(result["published"]),
+                    child_pid=result["child_pid"],
+                    respawned=True,
+                )
             if target == self._target:
                 self._generation = int(generation)
                 published = False

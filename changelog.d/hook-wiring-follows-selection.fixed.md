@@ -1,0 +1,1 @@
+Hook wiring in `settings.json` now follows the profile's `hooks:` list. Dropping a hook used to leave an entry pointing at a script the build had not installed, so the hook silently did nothing. A build that arms writes while leaving out the approval, writes-check or limits hook is now refused, naming the hook and the server whose write tools it was meant to guard.

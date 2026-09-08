@@ -58,6 +58,7 @@ from osprey.services.channel_finder.graph_index.builder import (
     build_from_rows,
     build_graph_index,
     channels_from_rows,
+    parse_corpus,
 )
 from osprey.services.channel_finder.graph_index.reader import (
     GraphIndex,
@@ -100,6 +101,15 @@ BUILD_BUDGET_SECONDS = 20.0
 #: runner in the shared lane, with a 156-second sibling on the same worker,
 #: which is the measurement that moved this guard here from ``test_build.py``.
 DEMO_BUILD_SECONDS = 5.0
+
+#: Parsing the shipped demo corpus alone -- the read-and-derive half of the
+#: build above, before anything is written. A workstation takes about half a
+#: second. It is measured separately from the build so a regression in the
+#: parser and one in the writer show up as different lines in the history; a
+#: build that slows while the parse does not is the columnar path, and the
+#: other way round is the corpus walk. Held below the build budget because it
+#: is a strict part of it.
+DEMO_PARSE_SECONDS = 3.0
 
 #: The median of twenty varied searches over the hundred-thousand-row index.
 #: The finder redraws its page on every filter click, so this is the number the
@@ -591,6 +601,30 @@ class TestDemoCorpusOverTheParityMatrix:
     @pytest.fixture(scope="class")
     def demo_index_path(self, demo_build: tuple[Path, float]) -> Path:
         return demo_build[0]
+
+    @pytest.fixture(scope="class")
+    def demo_text(self) -> str:
+        resource = (
+            files("osprey.templates")
+            .joinpath("apps")
+            .joinpath("control_assistant")
+            .joinpath("data")
+            .joinpath("demo_machine.ttl")
+        )
+        with as_file(resource) as path:
+            return path.read_text(encoding="utf-8")
+
+    def test_parsing_the_demo_corpus_alone_stays_inside_its_budget(self, demo_text: str):
+        started = time.perf_counter()
+        parse_corpus(demo_text)
+        elapsed = time.perf_counter() - started
+
+        line = f"parse_corpus over the demo corpus: {elapsed:.2f} s"
+        print(line)
+        logger.info(line)
+        assert elapsed < DEMO_PARSE_SECONDS, (
+            f"parsing the demo corpus took {elapsed:.2f} s, budget {DEMO_PARSE_SECONDS} s"
+        )
 
     def test_building_the_demo_corpus_stays_inside_its_budget(self, demo_build: tuple[Path, float]):
         _, elapsed = demo_build

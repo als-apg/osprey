@@ -103,6 +103,8 @@ import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
  * @property {string|null} applied_target  where its connector host actually
  *   is, `null` until it has got anywhere
  * @property {number|null} applied_generation  the generation it arrived at
+ * @property {number[]} [children]  the connector-host PIDs it holds; an empty
+ *   list is a server serving nothing, which the convergence wait passes over
  * @property {{status: 'applying'|'applied'|'failed'|string,
  *             generation?: number|null, detail?: string|null}|null} last_switch
  *   its progress through the swap the record is coordinating

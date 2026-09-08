@@ -38,6 +38,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from tests.interfaces.conftest import _run_app_server
 
@@ -113,17 +114,30 @@ def dashboard_url() -> Iterator[str]:
 def _open_and_settle(page: Page, url: str, selector: str) -> str:
     """Load ``url`` and return ``selector``'s text once the 401 has been handled.
 
-    Waits on the empty-state element rather than a fixed delay: the page renders
-    once on load and again when the first poll rejects, so a sleep would race the
-    second render on a slow runner.
+    The page paints twice. ``init()`` renders synchronously from its empty
+    initial state before the first poll is sent, and that paint is an
+    ``.empty-state`` reading ``FALSE_EMPTY_CLAIM`` with nothing read yet; the
+    poll's 401 then repaints it as the authorisation explanation. Waiting for an
+    empty-state to *exist* is satisfied by the first paint, so the condition is
+    an empty-state that is not the pre-poll placeholder. A page that never moves
+    past that placeholder is reported as the false-empty claim it is, not as a
+    bare timeout.
     """
     page.goto(url, wait_until="domcontentloaded")
-    page.wait_for_function(
-        "sel => { const e = document.querySelector(sel);"
-        "  return e && e.querySelector('.empty-state') !== null; }",
-        arg=selector,
-        timeout=15_000,
-    )
+    try:
+        page.wait_for_function(
+            "([sel, placeholder]) => { const e = document.querySelector(sel);"
+            "  const s = e && e.querySelector('.empty-state');"
+            "  return s !== null && s.innerText.trim() !== placeholder; }",
+            arg=[selector, FALSE_EMPTY_CLAIM],
+            timeout=15_000,
+        )
+    except PlaywrightTimeoutError:
+        text = page.evaluate("sel => document.querySelector(sel)?.innerText ?? ''", selector)
+        raise AssertionError(
+            f"{selector} never repainted after the 401 -- still showing the pre-poll "
+            f"placeholder: {text!r}"
+        ) from None
     return page.evaluate("sel => document.querySelector(sel).innerText", selector)
 
 

@@ -2652,6 +2652,13 @@ def _server_rows(reports: Sequence[Any]) -> list[dict[str, Any]]:
     first child has answered its init frame. Null is not "baseline" — it is
     "this server has not got there yet" — and a reader that treats the two the
     same reports a swap as complete before anything moved.
+
+    ``children`` is the row's word for whether that ever has to happen:
+    a server publishing an empty list serves nothing, so nothing it runs can
+    still touch the target the deployment left, and the chip's convergence
+    wait passes over it — the same stance ``converged()`` takes on a null
+    binding. A row with children is a connector serving or mid-launch, and is
+    owed to the wait.
     """
     rows: list[dict[str, Any]] = []
     for report in sorted(reports, key=lambda r: _stamp_epoch(r.updated_at)):
@@ -2661,6 +2668,7 @@ def _server_rows(reports: Sequence[Any]) -> list[dict[str, Any]]:
                 "session": report.session,
                 "applied_target": report.applied_target,
                 "applied_generation": report.applied_generation,
+                "children": list(report.children),
                 "last_switch": _aged(report.last_switch),
                 "last_posture_realign": report.last_posture_realign,
                 "updated_at": report.updated_at,
@@ -3033,10 +3041,11 @@ async def get_terminal_posture(request: Request, session_id: str | None = None):
       which is exactly when the write routes answer ``409
       context_owned_elsewhere`` and the roster has to render read-only.
     * ``servers`` — one row per running controls server: ``pid``, ``session``,
-      ``applied_target``, ``applied_generation``, ``last_switch`` (aged),
-      ``last_posture_realign`` and ``updated_at``. A switch has landed when
-      every one of them reports the generation it was asked for; a row reporting
-      ``failed`` names the pid an operator has to go and look at.
+      ``applied_target``, ``applied_generation``, ``children``, ``last_switch``
+      (aged), ``last_posture_realign`` and ``updated_at``. A switch has landed
+      when every one of them holding a connector (``children`` non-empty)
+      reports the generation it was asked for; a row reporting ``failed`` names
+      the pid an operator has to go and look at.
     * ``execution_in_flight`` — one row per live execution marker, carrying
       ``session``, ``surface`` and ``kernel_id`` so the surface can say WHOSE
       run is holding the target rather than only that something is.

@@ -94,6 +94,12 @@ with:
 **Nothing restarts.** Switch the control target from the chip, or turn writes
 on or off, and the next cell you run is routed by the new state.
 
+Inside the web terminal the header chip is the only place to do that; the
+JUPYTER tab carries no chip of its own. A notebook opened in its own window —
+popped out of the terminal, or opened at its own address — has no header above
+it, so that page shows the same chip in its top-right corner. It is the same
+switch either way: a change made from either place lands deployment-wide.
+
 A cell already running is not re-routed --- but taking writes away still
 reaches it. The two directions are not symmetric, and the difference is worth
 knowing:

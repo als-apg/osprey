@@ -1007,6 +1007,7 @@ class TestAutoLaunchLogging:
         assert any(r.levelno == logging.WARNING for r in caplog.records)
 
 
+@pytest.mark.real_server_launch
 class TestServerLauncherRetry:
     """Tests for server launcher crash recovery."""
 

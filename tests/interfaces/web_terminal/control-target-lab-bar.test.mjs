@@ -324,6 +324,63 @@ describe('mount', () => {
   });
 });
 
+/* ---- framed inside the hub ---------------------------------------------- */
+
+describe('framed inside the hub', () => {
+  /** Boot the module again with the page framed, the way the JUPYTER tab is. */
+  async function bootFramed() {
+    barModule.teardownControlTargetLabBar();
+    fetchCalls.length = 0;
+    FakeEventSource.opened = [];
+    vi.resetModules();
+    // Any `top` that is not `self` is a frame; the hub's iframe is one.
+    vi.stubGlobal('top', {});
+    barModule = await import(MODULE);
+    await flush();
+  }
+
+  test('isEmbedded reads self against top, and treats an unreadable top as framed', () => {
+    const same = {};
+    expect(barModule.isEmbedded({ self: same, top: same })).toBe(false);
+    expect(barModule.isEmbedded({ self: same, top: {} })).toBe(true);
+    const strict = {
+      self: same,
+      get top() {
+        throw new Error('blocked');
+      },
+    };
+    expect(barModule.isEmbedded(strict)).toBe(true);
+  });
+
+  test('the self-boot mounts nothing: no bar, no styles, no read, no stream', async () => {
+    await bootFramed();
+
+    expect(barModule.isEmbedded()).toBe(true);
+    expect(barEl()).toBeNull();
+    expect(chipEl()).toBeNull();
+    expect(document.getElementById(barModule.STYLE_ID)).toBeNull();
+    expect(document.getElementById(barModule.TERMINAL_CSS_ID)).toBeNull();
+    expect(document.getElementById(barModule.TOKENS_CSS_ID)).toBeNull();
+    expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
+    // The header chip on the hub page is the one reader and the one socket.
+    expect(getCount()).toBe(0);
+    expect(FakeEventSource.opened).toHaveLength(0);
+  });
+
+  test('init answers null while framed, and the override mounts as its own window would', async () => {
+    await bootFramed();
+
+    expect(barModule.initControlTargetLabBar()).toBeNull();
+    expect(barEl()).toBeNull();
+
+    const bar = barModule.initControlTargetLabBar({ embedded: false });
+    await flush();
+    expect(bar).not.toBeNull();
+    expect(barEl()).toBe(bar);
+    expect(chipEl()).not.toBeNull();
+  });
+});
+
 /* ---- what the page has to load ------------------------------------------ */
 
 describe('stylesheets', () => {

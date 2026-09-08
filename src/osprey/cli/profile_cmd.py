@@ -1767,6 +1767,31 @@ def _materialize_profile_directory(
                 CONTEXT_BASELINE_FILENAME,
             )
 
+        # The facility description, in the convention directory the operator
+        # edits it in. Seeded here rather than left to the build for the same
+        # reason the context baseline is: it is text this deployment ships, and
+        # it belongs in the repo from the first minute rather than appearing in
+        # a generated tree that `rm -rf build/` is documented to remove.
+        # Imported here, not at module scope: `osprey --help` must not pull in
+        # the build pipeline (the lazy-import budget test pins this).
+        from .build_persistence import FACILITY_RULE_NAME, ensure_profile_facility_rule
+        from .init_cmd import FACILITY_RULE_DIR
+
+        if FACILITY_RULE_NAME in resolved.rules:
+            rules_dir = target / FACILITY_RULE_DIR
+            fresh = not rules_dir.exists()
+            written = ensure_profile_facility_rule(
+                target, build_dir=None, enabled_agents=resolved.agents
+            )
+            if written:
+                logger.debug("  %s", written)
+                if fresh:
+                    # This run created the directory, so this run owns it: a
+                    # failure below removes it again rather than leaving half a
+                    # profile behind. A directory that was already there is the
+                    # operator's, whatever else is in it.
+                    run_written.append(FACILITY_RULE_DIR)
+
         if persona_texts:
             # Validity was settled by `_parsed_persona_deltas` above, before the
             # first mkdir — nothing reaching here is unparsed, so these writes
