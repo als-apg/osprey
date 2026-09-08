@@ -39,6 +39,7 @@
  */
 
 import { installFocusTrap, removeFocusTrap } from '/design-system/js/focus-trap.js';
+import { isMacPlatform, paletteChord } from '/design-system/js/platform.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { isLive } from './bar-host.js';
 import { capabilitySentence, chipRow, starterPrompts } from './first-contact.js';
@@ -280,11 +281,21 @@ const STEPS = [
   {
     anchor: () => document.querySelector('#command-palette-btn'),
     title: 'Search everything',
-    body: () => [
-      'Press ',
-      strong('⌘K'),
-      ' to search settings, panels, and actions. The fastest way to find anything in this terminal.',
-    ],
+    body: () => {
+      // The chord this viewer's platform actually binds (palette-boot.js reads
+      // the same helper), never the macOS spelling on every machine.
+      const parts = [
+        'Press ',
+        strong(paletteChord()),
+        ' to search settings, panels, and actions. The fastest way to find anything in this terminal.',
+      ];
+      if (!isMacPlatform()) {
+        // Off macOS the chord is Ctrl+K, which inside the terminal stays
+        // readline's kill-line — so it is bound outside the terminal only.
+        parts.push(' It works outside the terminal; inside it, use this button.');
+      }
+      return parts;
+    },
   },
   {
     anchor: () => document.querySelector('.panel-rail-button[data-panel-id="artifacts"]'),
