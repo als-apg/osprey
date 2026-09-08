@@ -218,7 +218,7 @@ class TestPtySessionPathAugmentation:
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir()
 
-        with patch("osprey.utils.shell_resolver._USER_BIN_CANDIDATES", [bin_dir]):
+        with patch("osprey.utils.shell_resolver._user_bin_candidates", lambda: [bin_dir]):
             with patch.dict(os.environ, {"PATH": "/usr/bin"}, clear=False):
                 session = PtySession("/bin/sh")
                 session.start()

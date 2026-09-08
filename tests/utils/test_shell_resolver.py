@@ -7,6 +7,7 @@ are missing from the default PATH.
 
 import os
 import stat
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -24,7 +25,7 @@ class TestUserBinDirs:
         missing = tmp_path / "nope"
 
         candidates = [existing, missing]
-        with patch("osprey.utils.shell_resolver._USER_BIN_CANDIDATES", candidates):
+        with patch("osprey.utils.shell_resolver._user_bin_candidates", lambda: candidates):
             with patch.dict(os.environ, {"PATH": "/usr/bin"}, clear=False):
                 result = user_bin_dirs()
 
@@ -37,7 +38,7 @@ class TestUserBinDirs:
         d.mkdir()
 
         candidates = [d]
-        with patch("osprey.utils.shell_resolver._USER_BIN_CANDIDATES", candidates):
+        with patch("osprey.utils.shell_resolver._user_bin_candidates", lambda: candidates):
             with patch.dict(os.environ, {"PATH": str(d)}, clear=False):
                 result = user_bin_dirs()
 
@@ -49,7 +50,7 @@ class TestUserBinDirs:
         d.mkdir()
 
         candidates = [d]
-        with patch("osprey.utils.shell_resolver._USER_BIN_CANDIDATES", candidates):
+        with patch("osprey.utils.shell_resolver._user_bin_candidates", lambda: candidates):
             with patch.dict(os.environ, {"PATH": "/usr/bin"}, clear=False):
                 result = user_bin_dirs()
 
@@ -75,7 +76,7 @@ class TestResolveShellCommand:
         fake_cmd.chmod(fake_cmd.stat().st_mode | stat.S_IEXEC)
 
         candidates = [bin_dir]
-        with patch("osprey.utils.shell_resolver._USER_BIN_CANDIDATES", candidates):
+        with patch("osprey.utils.shell_resolver._user_bin_candidates", lambda: candidates):
             with patch.dict(os.environ, {"PATH": "/usr/bin"}, clear=False):
                 result = resolve_shell_command("my-shell")
 
@@ -99,13 +100,63 @@ class TestResolveShellCommand:
     def test_not_found_anywhere_raises(self, tmp_path):
         """Commands not on PATH or in user dirs raise FileNotFoundError."""
         candidates = [tmp_path / "empty"]
-        with patch("osprey.utils.shell_resolver._USER_BIN_CANDIDATES", candidates):
+        with patch("osprey.utils.shell_resolver._user_bin_candidates", lambda: candidates):
             with pytest.raises(FileNotFoundError, match="not found on PATH"):
                 resolve_shell_command("this-command-definitely-does-not-exist-anywhere")
 
     def test_error_message_includes_config_hint(self, tmp_path):
         """The error message mentions config.yml as an escape hatch."""
         candidates = [tmp_path / "empty"]
-        with patch("osprey.utils.shell_resolver._USER_BIN_CANDIDATES", candidates):
+        with patch("osprey.utils.shell_resolver._user_bin_candidates", lambda: candidates):
             with pytest.raises(FileNotFoundError, match="web_terminal.shell"):
                 resolve_shell_command("nonexistent-cmd")
+
+
+class TestAnAccountWithNoHome:
+    """A uid with no passwd entry and no ``HOME`` degrades; it does not raise.
+
+    A random-uid cluster policy gives a container neither. ``Path.home()`` then
+    raises ``RuntimeError``, and this module used to make that call twice at
+    import — so a module that merely imports this one (``agent_runner.clean_env``
+    does, at module scope) failed as an ImportError chain rather than running
+    with a shorter PATH, which is all this list is for.
+    """
+
+    def _no_home(self, monkeypatch):
+        monkeypatch.delenv("HOME", raising=False)
+        monkeypatch.delenv("USERPROFILE", raising=False)
+        monkeypatch.setattr(
+            "osprey.utils.shell_resolver.Path.home",
+            staticmethod(lambda: (_ for _ in ()).throw(RuntimeError("no home"))),
+        )
+
+    def test_user_bin_dirs_still_answers(self, monkeypatch):
+        self._no_home(monkeypatch)
+        monkeypatch.setenv("PATH", "/usr/bin")
+
+        assert isinstance(user_bin_dirs(), list)
+
+    def test_the_home_relative_entries_are_skipped(self, monkeypatch):
+        from osprey.utils import shell_resolver
+
+        self._no_home(monkeypatch)
+
+        candidates = shell_resolver._user_bin_candidates()
+
+        assert candidates == [Path("/usr/local/bin")]
+
+    def test_a_command_on_path_still_resolves(self, monkeypatch, tmp_path):
+        self._no_home(monkeypatch)
+        binary = tmp_path / "tool"
+        binary.write_text("#!/bin/sh\n")
+        binary.chmod(binary.stat().st_mode | stat.S_IEXEC)
+        monkeypatch.setenv("PATH", str(tmp_path))
+
+        assert resolve_shell_command("tool") == str(binary)
+
+    def test_the_not_found_message_still_renders(self, monkeypatch):
+        self._no_home(monkeypatch)
+        monkeypatch.setenv("PATH", "/nonexistent")
+
+        with pytest.raises(FileNotFoundError, match="not found on PATH"):
+            resolve_shell_command("definitely-not-a-real-command")
