@@ -860,27 +860,38 @@ def _print_endpoints_section(config, compose_files, repo_root=None):
 def _auth_availability(secret_env, repo_root):
     """Where this deployment's provider credential can be found, if anywhere.
 
-    Both places count, and which one it came from matters. The exported shell
-    environment is what ``osprey chat`` authenticates from; the repo's ``.env``
-    is the deployment's own secret store and what every container reads. A
-    check against ``os.environ`` alone would report "NOT FOUND" for a
-    perfectly-configured deployment whose key lives only in ``.env``.
+    Every place that carries it counts, and which one it came from matters. The
+    exported shell environment is what ``osprey chat`` authenticates from; the
+    env chain — ``.env.shared`` then ``.env``, later file wins — is the
+    deployment's own store and what every container reads. A check against
+    ``os.environ`` alone would report "NOT FOUND" for a perfectly-configured
+    deployment whose key lives only in a file, and a check against ``.env``
+    alone would do the same for one whose value the provider spec beside this
+    row resolves out of ``.env.shared``.
+
+    ``.env.shared`` is committed, so a secret found there is reported as found
+    *and* flagged: the row upholds that file's own header rather than
+    contradicting it.
 
     :return: ``(available, where)`` — *where* is a phrase, empty when not found
     """
     import os
 
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey.utils.dotenv import ENV_LOCAL_FILENAME, chain_files, parse_dotenv_file
 
     if os.environ.get(secret_env):
         return True, "exported in this shell"
-    env_path = Path(repo_root) / ".env"
-    if env_path.is_file():
+    # Descending precedence: the file whose value actually wins is the one to
+    # name, so the operator edits the file the deployment is reading.
+    for env_path in reversed(chain_files(Path(repo_root))):
         try:
-            if parse_dotenv_file(env_path).get(secret_env):
-                return True, f"set in {env_path.name}"
+            if not parse_dotenv_file(env_path).get(secret_env):
+                continue
         except OSError:
-            pass
+            continue
+        if env_path.name == ENV_LOCAL_FILENAME:
+            return True, f"set in {env_path.name}"
+        return True, f"set in {env_path.name} — a committed file; move the secret to .env"
     return False, ""
 
 
@@ -1011,6 +1022,7 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
 
     from osprey.build.claude_code_resolver import AGENT_DEFAULT_TIERS, load_provider_spec
     from osprey.build.claude_code_telemetry import ObservabilityCredentialError
+    from osprey.utils.dotenv import ENV_CHAIN_FILENAMES
 
     rows: list[tuple[str, object]] = []
     notes: list[str] = []
@@ -1021,7 +1033,7 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
     if not provider_name:
         rows.append(("provider", "not configured"))
         notes.append(
-            "Set claude_code.provider in profile.yml and rebuild to resolve models "
+            "Set `provider:` in profile.yml and rebuild to resolve models "
             "and provider environment automatically."
         )
     else:
@@ -1031,8 +1043,8 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
             # durable state and never live in the disposable build zone, so a
             # custom provider's ``base_url: ${ARGO_PROD_URL}`` would otherwise
             # be reported as the literal placeholder. Same pairing as
-            # ``_auth_availability`` below, which already looks for the
-            # credential in ``repo_root/.env``.
+            # ``_auth_availability`` below, which looks for the credential in
+            # the same env chain this expansion reads.
             spec = load_provider_spec(build_dir, env_dir=repo_root)
         except ObservabilityCredentialError:
             # Ahead of the broad handler on purpose, and load-bearing: resolving
@@ -1085,7 +1097,7 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
                     (
                         "auth",
                         f"✗ ${spec.auth_secret_env} not found in this shell or in "
-                        f"{repo_root / '.env'}",
+                        f"{', '.join(ENV_CHAIN_FILENAMES)} under {repo_root}",
                     )
                 )
 
