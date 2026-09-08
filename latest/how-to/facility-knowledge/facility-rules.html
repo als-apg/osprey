@@ -615,11 +615,13 @@ concrete correct procedure rather than a prohibition alone.</p>
 <section id="changing-a-rule">
 <h2>Changing a rule<a class="headerlink" href="#changing-a-rule" title="Link to this heading">#</a></h2>
 <p>There are two ways to edit a rule.</p>
-<p><strong>Edit the Markdown directly.</strong> Each rule is a file under <code class="docutils literal notranslate"><span class="pre">.claude/rules/</span></code>.
-<code class="docutils literal notranslate"><span class="pre">facility.md</span></code> is yours to edit — it is user-owned, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
-never overwrites it. The framework-generated rules <em>are</em> re-rendered by
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>; to keep an edit to one of those, claim it into the profile
-first with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">claim</span> <span class="pre">rules/safety</span></code> (<a class="reference internal" href="../build-profiles.html#profile-claim"><span class="std std-ref">Taking ownership of a framework artifact</span></a>).</p>
+<p><strong>Edit the Markdown directly.</strong> Each rule the agent loads is a file under
+<code class="docutils literal notranslate"><span class="pre">build/.claude/rules/</span></code>, and <code class="docutils literal notranslate"><span class="pre">build/</span></code> is disposable — so the facility
+description you edit is the copy in your repo, at <code class="docutils literal notranslate"><span class="pre">rules/facility.md</span></code>.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes it there, and every build copies it into the render.
+The framework-generated rules <em>are</em> re-rendered by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>; to keep an
+edit to one of those, claim it into the profile first with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span>
+<span class="pre">claim</span> <span class="pre">rules/safety</span></code> (<a class="reference internal" href="../build-profiles.html#profile-claim"><span class="std std-ref">Taking ownership of a framework artifact</span></a>).</p>
 <p><strong>Through the web terminal.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> exposes the agent’s <code class="docutils literal notranslate"><span class="pre">.claude/</span></code>
 files in the browser: edit a rule in the setup editor, or use the scaffold
 gallery to override a framework-generated rule (which claims it for you). See

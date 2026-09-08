@@ -153,7 +153,7 @@ Quick edits (one-off tweaks)
 For small in-place adjustments to a project you just built, edit files
 directly:
 
-1. **Edit** ``.claude/rules/facility.md``. The default ships with a thin
+1. **Edit** ``rules/facility.md`` in the repo. The default ships with a thin
    placeholder for the "Example Research Facility (ERF)" --- a facility-identity
    stub (name, type, mission) plus a pointer to the ``facility_knowledge`` tools
    (``list_concepts``/``read_concept``/``search``) for deeper content. Replace
@@ -163,9 +163,9 @@ directly:
 
    .. note::
 
-      ``.claude/rules/facility.md`` is auto-registered as user-owned
-      during ``osprey build``. ``osprey build`` will preserve your
-      edits.
+      ``rules/facility.md`` is source, not build output. Each build copies
+      it into ``build/.claude/rules/``, so your edits survive a rebuild and
+      a wiped ``build/`` alike.
 
 2. **Set provider credentials in the repository's ``.env``** (e.g.
    ``ANTHROPIC_API_KEY`` or ``CBORG_API_KEY``). The default provider is
