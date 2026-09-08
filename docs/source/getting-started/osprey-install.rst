@@ -2,8 +2,10 @@
 Install and Set Up
 ====================
 
-The ``/osprey:install`` skill is OSPREY's installer, run as a conversation with the
-Osprey agent. It installs OSPREY if it is missing, starts from what you already
+The ``/osprey:install`` skill is OSPREY's installer, run as a conversation with a
+coding agent you bring — Claude Code in the commands below. That agent is not the
+Osprey agent: the installer builds the deployment the Osprey agent later runs
+from. It installs OSPREY if it is missing, starts from what you already
 have, agrees each step with you, and ends on a deployment repository for your
 accelerator, beamline, or detector that validates and builds. You can stop and
 resume at any point.
@@ -12,8 +14,9 @@ resume at any point.
    :color: info
    :icon: list-unordered
 
-   * **The Osprey agent CLI** — the installer runs inside an Osprey agent session.
-     Install it from `claude.ai/code <https://claude.ai/code>`_ and make sure
+   * **A coding-agent CLI** — the installer runs inside a coding-agent session;
+     the commands here use Claude Code. Install it from
+     `claude.ai/code <https://claude.ai/code>`_ and make sure
      ``claude --version`` works in your terminal.
    * **uv** — the installer puts OSPREY on your ``PATH`` with ``uv tool install``.
      :doc:`installation` covers installing ``uv``; OSPREY itself can wait for the
@@ -47,7 +50,7 @@ Run it
    cd ~/my-osprey-project
    claude
 
-In the Osprey agent session, type:
+In the agent session, type:
 
 .. code-block:: text
 
