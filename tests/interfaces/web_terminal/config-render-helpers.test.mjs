@@ -19,7 +19,10 @@
 import { test, expect, describe } from 'vitest';
 
 import { qs } from '../_support/dom.mjs';
-import { _renderHookEvents } from '../../../src/osprey/interfaces/web_terminal/static/js/config-render-helpers.js';
+import {
+  _groupPermissions,
+  _renderHookEvents,
+} from '../../../src/osprey/interfaces/web_terminal/static/js/config-render-helpers.js';
 
 /** Render into a container so class queries work on a rooted tree.
  * @param {Record<string, Array<{matcher?: string, hooks?: Array<{command?: string, timeout?: number}>}>>} hooks
@@ -84,5 +87,28 @@ describe('_renderHookEvents', () => {
     expect(container.querySelector('img')).toBeNull();
     const nameSpan = qs(container, '.config-hook-event-header').children[1];
     expect(nameSpan.textContent).toBe('<img src=x onerror=hack()>');
+  });
+});
+
+describe('_groupPermissions', () => {
+  test('path-scoped file rules land in the file access group', () => {
+    const groups = _groupPermissions([
+      'Read(var/agent_data/**)',
+      'Edit(var/agent_data/notebooks/**)',
+      'mcp__control_system__channel_read',
+      'Task(data-visualizer)',
+    ]);
+
+    expect(groups['file access'].map((g) => g.display)).toEqual([
+      'Read: var/agent_data/**',
+      'Edit: var/agent_data/notebooks/**',
+    ]);
+    expect(groups['file access'].map((g) => g.raw)).toEqual([
+      'Read(var/agent_data/**)',
+      'Edit(var/agent_data/notebooks/**)',
+    ]);
+    expect(groups.control_system).toHaveLength(1);
+    expect(groups.agents[0].display).toBe('data-visualizer');
+    expect(groups._ungrouped).toBeUndefined();
   });
 });

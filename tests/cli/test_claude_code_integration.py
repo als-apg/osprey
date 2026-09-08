@@ -207,10 +207,14 @@ class TestClaudeCodeFileContents:
         assert "WebFetch" in deny
         assert "WebSearch" in deny
 
-        # NotebookEdit moved to allow (restricted to artifacts dir)
+        # NotebookEdit is not denied; it is scoped to the agent-data trees via
+        # Edit(path) allow rules, the only rule form Claude Code consults for
+        # file-editing tools (a NotebookEdit(path) rule is ignored and warned on).
         assert "NotebookEdit" not in deny
         allow = data["permissions"]["allow"]
-        assert any("NotebookEdit" in a for a in allow)
+        assert "Edit(var/agent_data/artifacts/**)" in allow
+        assert "Edit(var/agent_data/notebooks/**)" in allow
+        assert not any(a.startswith("NotebookEdit(") for a in allow)
 
         # Channel-finder tools not in deny (server is agent-exclusive via inline mcpServers)
         assert "mcp__channel-finder__*" not in deny

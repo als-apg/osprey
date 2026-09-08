@@ -78,8 +78,15 @@
 {%- set _ = allow_entries.append('"' ~ entry ~ '"') -%}
 {%- endfor -%}
 {%- endfor -%}
-{%- set _ = allow_entries.append('"NotebookEdit(' ~ agent_data_root ~ '/artifacts/**)"') -%}
-{%- set _ = allow_entries.append('"NotebookEdit(' ~ agent_data_root ~ '/notebooks/**)"') -%}
+{#- NotebookEdit is scoped to the agent's own notebook trees. Claude Code
+    checks every file-editing tool (Write, MultiEdit, NotebookEdit) against
+    `Edit(path)` rules only, so the rule is spelled `Edit(...)`; a
+    `NotebookEdit(path)` rule grants nothing and is reported as a
+    misconfiguration at every agent start. The bare `Edit` in the deny floor
+    outranks these, so the Edit tool itself stays denied, and the memory-guard
+    hook still refuses Write/MultiEdit under these trees. -#}
+{%- set _ = allow_entries.append('"Edit(' ~ agent_data_root ~ '/artifacts/**)"') -%}
+{%- set _ = allow_entries.append('"Edit(' ~ agent_data_root ~ '/notebooks/**)"') -%}
 {#- Per-agent Task() permissions -#}
 {%- for a in agents if a.enabled -%}
 {%- set _ = allow_entries.append('"Task(' ~ a.name ~ ')"') -%}
