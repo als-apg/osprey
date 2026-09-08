@@ -745,7 +745,14 @@ class TestBuiltinPanelRegistryDrift:
             project_name="okf-panel-e2e",
             output_dir=tmp_path,
             data_bundle="control_assistant",
-            artifacts={"hooks": ["memory-guard"], "web_panels": ["okf", "channel-finder"]},
+            # The hooks are the build's own gates, not this test's subject:
+            # memory-guard satisfies the write-tool lint, and the three write
+            # gates are what the control-assistant preset's armed writes
+            # require of any profile that selects hooks at all.
+            artifacts={
+                "hooks": ["memory-guard", "approval", "writes-check", "limits"],
+                "web_panels": ["okf", "channel-finder"],
+            },
         )
         panels = yaml.safe_load((project_dir / "config.yml").read_text())["web"]["panels"]
 

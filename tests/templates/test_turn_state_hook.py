@@ -61,6 +61,19 @@ TOKEN_ENV = "OSPREY_PANEL_TOKEN"
 POOL_KEY = "11111111-2222-3333-4444-555555555555"
 TRANSCRIPT_ID = "99999999-8888-7777-6666-555555555555"
 
+
+def _full_framework_event_hooks() -> dict[str, list[dict[str, Any]]]:
+    """The framework's session-event rules with nothing deselected."""
+    from osprey.cli.templates.claude_code import (
+        _FRAMEWORK_EVENT_HOOKS,
+        _build_framework_event_rules,
+    )
+
+    return _build_framework_event_rules(
+        [name for _event, _matcher, entries in _FRAMEWORK_EVENT_HOOKS for name, _timeout in entries]
+    )
+
+
 #: Context sufficient to render ``settings.json.j2``. Keys the hooks block does
 #: not read are supplied only because the permissions block above it would fail
 #: on an undefined mapping.
@@ -75,6 +88,11 @@ _BASE_CTX: dict[str, Any] = {
     "declared_extra_events": [],
     "framework_pre_hooks": [],
     "framework_post_hooks": [],
+    # The framework's session-event wiring for a profile that selects every
+    # hook, built by the renderer rather than spelled here: what this module
+    # asserts is where the turn hook is registered, and a literal would keep
+    # answering after the wiring it describes had moved.
+    "framework_event_hooks": _full_framework_event_hooks(),
 }
 
 

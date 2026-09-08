@@ -121,7 +121,15 @@ def _render_output_style(tmp_path) -> str:
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
-        artifacts={"hooks": ["memory-guard"], "output_styles": ["control-operator"]},
+        # The hooks are along for the build's own gates, not for this test:
+        # memory-guard is what keeps the write-tool lint from refusing a
+        # profile whose PreToolUse chain never matches `Write`, and the three
+        # write gates are what the control-assistant preset's armed writes
+        # require of any profile that selects hooks at all.
+        artifacts={
+            "hooks": ["memory-guard", "approval", "writes-check", "limits"],
+            "output_styles": ["control-operator"],
+        },
     )
     return (project_dir / ".claude" / "output-styles" / "control-operator.md").read_text()
 

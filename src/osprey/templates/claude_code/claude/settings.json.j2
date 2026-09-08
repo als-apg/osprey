@@ -1,9 +1,14 @@
 {%- set ns = namespace() -%}
-{#- Wiring the profile DECLARED for the custom hooks it ships (claude_code.hooks,
-    resolved in claude_code.py). Purely additive: every block below emits the
-    framework's own entries unconditionally and unaltered, then appends these. -#}
+{#- Two sources of session-event wiring, in this order: the framework's own
+    entries (`framework_event_hooks`, built in claude_code.py from the profile's
+    `hooks:` selection) and then the wiring the profile DECLARED for the custom
+    hooks it ships (claude_code.hooks, resolved in the same module). The
+    declared half is purely additive — it is appended, never merged into the
+    framework's entries. Both render through `hook_entry` below, so the two
+    cannot drift into different shapes. -#}
 {%- set declared = declared_hooks | default({}) -%}
-{%- macro declared_entry(rule, py) %}
+{%- set framework_events = framework_event_hooks | default({}) -%}
+{%- macro hook_entry(rule, py) %}
       {
 {%- if rule.matcher %}
         "matcher": {{ rule.matcher | tojson }},
@@ -142,75 +147,19 @@
   },
   "hooks": {
     "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_config_drift.py" 2>/dev/null || true') | tojson }},
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_panels_context.py" 2>/dev/null || true') | tojson }},
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_control_context.py" 2>/dev/null || true') | tojson }},
-            "timeout": 3
-          }
-        ]
-      },
-{#- The only framework entry here that carries a matcher, and it has to. A
-    SessionStart fires for four sources and `compact` is not a turn edge:
-    auto-compaction happens INSIDE a running turn, so an idle report for it
-    would tell the server the process is between turns at the moment it is
-    busiest, and a view flip would tear down a turn in flight. Naming the three
-    real starts is what keeps `compact` out; the hook refuses a compact payload
-    as well, for a settings.json someone edited by hand. #}
-      {
-        "matcher": "startup|resume|clear",
-        "hooks": [
-          {
-            "type": "command",
-            "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_turn_state.py" 2>/dev/null || true') | tojson }},
-            "timeout": 3
-          }
-        ]
-      }{% for rule in declared.get('SessionStart', []) %},{{ declared_entry(rule, current_python_env) }}{% endfor %}
+{%- set rules = framework_events.get('SessionStart', []) + declared.get('SessionStart', []) -%}
+{%- for rule in rules %}{{ hook_entry(rule, current_python_env) }}{% if not loop.last %},{% endif %}{% endfor %}
     ],
     "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_focus_validate.py" 2>/dev/null || true') | tojson }},
-            "timeout": 2
-          },
-          {
-            "type": "command",
-            "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_workspace_delta.py" 2>/dev/null || true') | tojson }},
-            "timeout": 3
-          },
-          {
-            "type": "command",
-            "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_control_context.py" 2>/dev/null || true') | tojson }},
-            "timeout": 3
-          },
-          {
-            "type": "command",
-            "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_turn_state.py" 2>/dev/null || true') | tojson }},
-            "timeout": 3
-          }
-        ]
-      }{% for rule in declared.get('UserPromptSubmit', []) %},{{ declared_entry(rule, current_python_env) }}{% endfor %}
+{%- set rules = framework_events.get('UserPromptSubmit', []) + declared.get('UserPromptSubmit', []) -%}
+{%- for rule in rules %}{{ hook_entry(rule, current_python_env) }}{% if not loop.last %},{% endif %}{% endfor %}
     ],
     "PreToolUse": [
 {%- set pre_rules = [] -%}
 {%- for rule in framework_pre_hooks | default([]) -%}
 {%- set _ = pre_rules.append(rule) -%}
 {%- endfor -%}
-{%- for s in servers if s.enabled -%}
+{%- for s in wired_servers | default(servers) if s.enabled -%}
 {%- for rule in s.hooks_pre -%}
 {%- set _ = pre_rules.append(rule) -%}
 {%- endfor -%}
@@ -238,7 +187,7 @@
     ],
     "PostToolUse": [
 {%- set post_rules = [] -%}
-{%- for s in servers if s.enabled -%}
+{%- for s in wired_servers | default(servers) if s.enabled -%}
 {%- for rule in s.hooks_post -%}
 {%- set _ = post_rules.append(rule) -%}
 {%- endfor -%}
@@ -270,26 +219,12 @@
     in which the web terminal may move the conversation to its other surface.
     A CLI build that emits no `StopFailure` simply never runs that entry. -#}
     "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_turn_state.py" 2>/dev/null || true') | tojson }},
-            "timeout": 3
-          }
-        ]
-      }{% for rule in declared.get('Stop', []) %},{{ declared_entry(rule, current_python_env) }}{% endfor %}
+{%- set rules = framework_events.get('Stop', []) + declared.get('Stop', []) -%}
+{%- for rule in rules %}{{ hook_entry(rule, current_python_env) }}{% if not loop.last %},{% endif %}{% endfor %}
     ],
     "StopFailure": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_turn_state.py" 2>/dev/null || true') | tojson }},
-            "timeout": 3
-          }
-        ]
-      }{% for rule in declared.get('StopFailure', []) %},{{ declared_entry(rule, current_python_env) }}{% endfor %}
+{%- set rules = framework_events.get('StopFailure', []) + declared.get('StopFailure', []) -%}
+{%- for rule in rules %}{{ hook_entry(rule, current_python_env) }}{% if not loop.last %},{% endif %}{% endfor %}
     ]
 {#- Events the framework wires nothing on exist as keys only when declared. The
     two above are now framework-wired and take their declared entries inline,
@@ -300,7 +235,7 @@
     must not depend on that constant staying in step with this file. -#}
 {%- for event in declared_extra_events | default([]) if event not in ('Stop', 'StopFailure') %},
     "{{ event }}": [
-{%- for rule in declared[event] %}{{ declared_entry(rule, current_python_env) }}{% if not loop.last %},{% endif %}{% endfor %}
+{%- for rule in declared[event] %}{{ hook_entry(rule, current_python_env) }}{% if not loop.last %},{% endif %}{% endfor %}
     ]
 {%- endfor %}
   }
