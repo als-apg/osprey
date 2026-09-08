@@ -56,11 +56,17 @@ class ProviderRegistration:
     :type module_path: str
     :param class_name: Provider class name within the module (e.g., 'AnthropicProviderAdapter')
     :type class_name: str
+    :param name: The name this provider is resolved by — the same name a config
+        names in ``claude_code.provider`` or ``models.*.provider``. REQUIRED in
+        practice: a registration without one registers nothing, and a name that
+        matches a built-in replaces it.
+    :type name: str | None
 
     Example:
         >>> ProviderRegistration(
         ...     module_path="osprey.models.providers.anthropic",
-        ...     class_name="AnthropicProviderAdapter"
+        ...     class_name="AnthropicProviderAdapter",
+        ...     name="anthropic",
         ... )
 
         The registry will load this class and introspect metadata like:

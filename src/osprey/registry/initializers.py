@@ -64,24 +64,51 @@ def initialize_providers(
 
     Delegates to ``ProviderRegistry.load_providers()`` for the actual import
     loop, then stores the results in *registries* for backward compatibility.
-    Custom providers from ``config.providers`` (non-built-in) are registered
-    first so they participate in the bulk load.
+    Providers from ``config.providers`` are registered first so they participate
+    in the bulk load — including one whose name shadows a built-in, which
+    replaces it (logged) rather than being dropped.
 
     Uses config-driven filtering to skip imports for unconfigured providers,
     avoiding costly module-level network calls on air-gapped machines.
     """
     # LAYERING NOTE: upward import from models (L5)
-    from osprey.models.provider_registry import get_provider_registry
+    from osprey.models.provider_registry import _BUILTIN_PROVIDERS, get_provider_registry
 
     pr = get_provider_registry()
 
+    # Register every named entry unconditionally. `register_provider` documents
+    # overwrite-by-name and `override_providers` documents "replace framework
+    # versions (by name)" — but the registry is pre-seeded with every built-in,
+    # so a name check against it dropped exactly the registrations meant to
+    # replace one, and dropped them silently.
+    registered: set[str] = set()
+    builtin_names = set(_BUILTIN_PROVIDERS)
     for registration in config.providers:
-        if registration.name and registration.name not in pr.list_providers():
-            pr.register_provider(
+        if not registration.name:
+            logger.warning(
+                "Provider registration %s.%s has no name; set name=… — this registration is inert",
+                registration.module_path,
+                registration.class_name,
+            )
+            continue
+        if registration.name in builtin_names:
+            logger.info(
+                "Application registry overrides built-in provider '%s' with %s.%s",
                 registration.name,
                 registration.module_path,
                 registration.class_name,
             )
+        pr.register_provider(
+            registration.name,
+            registration.module_path,
+            registration.class_name,
+        )
+        registered.add(registration.name)
+
+    # An override of an excluded built-in is the override, not nothing: a
+    # facility replacing `openai` excludes the framework's version and ships its
+    # own under the same name, and the exclusion must not then drop its own.
+    excluded_names = set(excluded_provider_names or ()) - registered
 
     configured_providers = _get_configured_provider_names()
 
@@ -92,7 +119,7 @@ def initialize_providers(
 
     loaded = pr.load_providers(
         configured_names=configured_providers,
-        excluded_names=excluded_provider_names or None,
+        excluded_names=excluded_names or None,
     )
 
     for name, provider_class in loaded.items():

@@ -198,7 +198,10 @@ def generate_explicit_registry_code(
     for prov in framework.providers:
         code_lines.append("                ProviderRegistration(")
         code_lines.append(f'                    module_path="{prov.module_path}",')
-        code_lines.append(f'                    class_name="{prov.class_name}"')
+        code_lines.append(f'                    class_name="{prov.class_name}",')
+        # The name is what the provider is resolved by; a registration without
+        # one registers nothing.
+        code_lines.append(f'                    name="{prov.name}"')
         code_lines.append("                ),")
 
     code_lines.extend(["            ],", "        )", ""])
