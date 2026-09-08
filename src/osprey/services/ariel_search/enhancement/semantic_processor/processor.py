@@ -33,6 +33,11 @@ class SemanticProcessorResult(BaseModel):
     summary: str = Field(description="Concise summary capturing the main point of the entry")
 
 
+#: How much of an entry is sent for keyword extraction and summarising when
+#: ``ariel.enhancement_modules.semantic_processor.max_input_chars`` is unset.
+#: Roughly two thousand tokens, which every provider OSPREY talks to serves.
+DEFAULT_MAX_INPUT_CHARS = 8000
+
 DEFAULT_PROMPT_TEMPLATE = """Extract keywords and generate a summary from this logbook entry.
 
 Entry text:
@@ -68,6 +73,7 @@ class SemanticProcessorModule(BaseEnhancementModule):
         """Initialize the module."""
         self._model_config: dict[str, Any] = {}
         self._prompt_template: str = DEFAULT_PROMPT_TEMPLATE
+        self._max_input_chars: int = DEFAULT_MAX_INPUT_CHARS
 
     @property
     def name(self) -> str:
@@ -87,11 +93,16 @@ class SemanticProcessorModule(BaseEnhancementModule):
         default — ``ariel.embedding.provider`` names an embedding endpoint and is
         not a stand-in for it.
 
+        ``max_input_chars`` bounds how much of an entry reaches the model. It is
+        a facility's to set: how long a logbook entry runs, and how big a
+        context window the provider serves, are both site properties.
+
         Args:
             config: The enhancement_modules.semantic_processor config dict
 
         Raises:
-            ValueError: If no provider is configured for the module.
+            ValueError: If no provider is configured for the module, or if
+                ``max_input_chars`` is not a positive integer.
         """
         provider = config.get("provider")
         if not provider:
@@ -109,6 +120,18 @@ class SemanticProcessorModule(BaseEnhancementModule):
         self._model_config = model
         if config.get("prompt_template"):
             self._prompt_template = config["prompt_template"]
+
+        max_input_chars = config.get("max_input_chars", DEFAULT_MAX_INPUT_CHARS)
+        if (
+            not isinstance(max_input_chars, int)
+            or isinstance(max_input_chars, bool)
+            or max_input_chars < 1
+        ):
+            raise ValueError(
+                "ariel.enhancement_modules.semantic_processor.max_input_chars must be "
+                f"an integer >= 1 (got {max_input_chars!r})"
+            )
+        self._max_input_chars = max_input_chars
 
     async def enhance(
         self,
@@ -128,7 +151,7 @@ class SemanticProcessorModule(BaseEnhancementModule):
             return
 
         try:
-            result = await self._process_text(raw_text)
+            result = await self._process_text(raw_text, entry_id=entry.get("entry_id"))
 
             if result:
                 await self._store_results(
@@ -147,11 +170,15 @@ class SemanticProcessorModule(BaseEnhancementModule):
         except Exception as e:
             logger.warning(f"Failed to process entry {entry.get('entry_id')}: {e}")
 
-    async def _process_text(self, text: str) -> SemanticProcessorResult | None:
+    async def _process_text(
+        self, text: str, entry_id: Any = None
+    ) -> SemanticProcessorResult | None:
         """Process text using LLM to extract keywords and summary.
 
         Args:
             text: Entry text to process
+            entry_id: The entry this text came from, named in the log line when
+                the text is longer than ``max_input_chars`` and gets cut.
 
         Returns:
             SemanticProcessorResult or None if processing failed
@@ -159,7 +186,20 @@ class SemanticProcessorModule(BaseEnhancementModule):
         try:
             from osprey.models.completion import get_chat_completion
 
-            prompt = self._prompt_template.format(text=text[:8000])
+            if len(text) > self._max_input_chars:
+                # Said out loud, and per entry: the keywords and summary stored
+                # for this entry describe its opening only, and an operator
+                # reading them has no other way to know that.
+                logger.info(
+                    "Entry %s is %d characters; only the first %d were sent for "
+                    "keywords and summary (raise "
+                    "ariel.enhancement_modules.semantic_processor.max_input_chars "
+                    "to send more)",
+                    entry_id,
+                    len(text),
+                    self._max_input_chars,
+                )
+            prompt = self._prompt_template.format(text=text[: self._max_input_chars])
 
             response = get_chat_completion(
                 message=prompt,
