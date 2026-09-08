@@ -46,10 +46,59 @@ ConfigLookup = Callable[[str, Any], Any]
 #: agree on how, so the caller that is about to write supplies its own.
 CurrentValueReader = Callable[[str], Any]
 
-#: Ceiling on the fresh read a ``max_step`` check makes, in seconds. The check
-#: sits in front of a write an operator is waiting on, so a channel that does
-#: not answer must fail closed quickly rather than hold the write open.
-STEP_READ_TIMEOUT_SECONDS = 2.0
+#: Ceiling on the fresh read a ``max_step`` check makes, in seconds, when the
+#: deployment names none. The check sits in front of a write an operator is
+#: waiting on, so a channel that does not answer must fail closed quickly
+#: rather than hold the write open: running out of budget answers ``None``,
+#: which refuses the write.
+#:
+#: How long that read takes is a property of the facility's control network,
+#: exactly like the connector's own ``timeout`` — a gateway two hops away
+#: answers slower than a soft IOC on the same host — so a deployment overrides
+#: it with ``control_system.connector.<type>.step_read_timeout_s``.
+DEFAULT_STEP_READ_TIMEOUT_SECONDS = 2.0
+
+#: The per-connector key that overrides it, spelled once so the connector and
+#: the python-executor sandbox cannot read two different names.
+STEP_READ_TIMEOUT_KEY = "step_read_timeout_s"
+
+
+def step_read_timeout_seconds(
+    config: Mapping[str, Any] | None, connector_type: str | None = None
+) -> float:
+    """The ``max_step`` fresh-read budget one connector block declares.
+
+    Args:
+        config: A connector's own config section — the mapping
+            ``control_system.connector.<type>`` resolves to.
+        connector_type: The type that block belongs to, so a warning names the
+            key an operator has to go and fix. ``None`` leaves the type a
+            placeholder in that message.
+
+    Returns:
+        The declared budget, or :data:`DEFAULT_STEP_READ_TIMEOUT_SECONDS` when
+        the block declares none or declares something that is not a positive
+        number. A value that cannot be used is warned about, naming the key and
+        what was found, and then falls back rather than raising: this resolves
+        on the write path, and a typo in a tuning key must not be the thing
+        that takes writes down.
+    """
+    if not isinstance(config, Mapping):
+        return DEFAULT_STEP_READ_TIMEOUT_SECONDS
+    declared = config.get(STEP_READ_TIMEOUT_KEY)
+    if declared is None:
+        return DEFAULT_STEP_READ_TIMEOUT_SECONDS
+    if isinstance(declared, bool) or not isinstance(declared, int | float) or declared <= 0:
+        logger.warning(
+            "control_system.connector.%s.%s must be a positive number of seconds, "
+            "got %r — falling back to %s",
+            connector_type or "<type>",
+            STEP_READ_TIMEOUT_KEY,
+            declared,
+            DEFAULT_STEP_READ_TIMEOUT_SECONDS,
+        )
+        return DEFAULT_STEP_READ_TIMEOUT_SECONDS
+    return float(declared)
 
 
 def mapping_config_lookup(config: Mapping[str, Any]) -> ConfigLookup:

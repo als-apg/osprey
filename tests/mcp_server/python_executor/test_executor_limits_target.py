@@ -22,6 +22,7 @@ import pytest
 
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import control_context
+from osprey_connectors.control_system import limits_validator
 from osprey_connectors.control_system.limits_validator import LimitsValidator
 
 pytestmark = pytest.mark.unit
@@ -170,3 +171,97 @@ class TestLoadLimitsValidator:
         monkeypatch.setattr(LimitsValidator, "from_config", boom)
 
         assert host_executor._load_limits_validator(target=None) is None
+
+
+class TestStepReadTimeout:
+    """The ``max_step`` fresh-read budget follows the same target as the policy.
+
+    The budget bounds a read the embedded policy makes before a write. It is
+    authored per connector block, beside that connector's own ``timeout``, so
+    resolving it from the deployment's baseline type would hand a run that
+    switched targets one connector's budget while its connector reads with
+    another's — the disagreement between the script's check and the connector's
+    that the key exists to prevent.
+    """
+
+    @staticmethod
+    def _config(section):
+        """Patch ``get_config_value`` to serve one ``control_system`` section."""
+
+        def get_config_value(key, default=None):
+            return section if key == "control_system" else default
+
+        return get_config_value
+
+    #: A deployment baselined on its simulator that also describes a real
+    #: machine — the shape a target switch exists for, and the one where a
+    #: baseline read and a target read disagree.
+    SWITCHABLE = {
+        "type": "virtual_accelerator",
+        "connector": {
+            "virtual_accelerator": {"step_read_timeout_s": 9.0},
+            "epics": {"step_read_timeout_s": 0.5},
+        },
+    }
+
+    def test_the_budget_comes_from_the_stamped_targets_block(self, monkeypatch):
+        """A run switched onto the live machine reads with the live block's value."""
+        monkeypatch.setattr(
+            "osprey_connectors.config.get_config_value", self._config(self.SWITCHABLE)
+        )
+
+        assert host_executor._step_read_timeout_seconds("live") == 0.5
+        assert host_executor._step_read_timeout_seconds("va") == 9.0
+
+    def test_the_baseline_reads_the_deployments_own_block(self, monkeypatch):
+        """A target that names no machine here gets the deployment-wide reading."""
+        monkeypatch.setattr(
+            "osprey_connectors.config.get_config_value", self._config(self.SWITCHABLE)
+        )
+
+        assert (
+            host_executor._step_read_timeout_seconds(host_executor.CONTROL_TARGET_BASELINE) == 9.0
+        )
+
+    def test_a_block_declaring_none_takes_the_packages_default(self, monkeypatch):
+        """A deployment that never authored the key still bounds the read."""
+        monkeypatch.setattr(
+            "osprey_connectors.config.get_config_value",
+            self._config({"type": "epics", "connector": {"epics": {}}}),
+        )
+
+        assert host_executor._step_read_timeout_seconds("live") == (
+            limits_validator.DEFAULT_STEP_READ_TIMEOUT_SECONDS
+        )
+
+    def test_a_config_that_cannot_be_read_still_bounds_the_read(self, monkeypatch):
+        """Config that will not load must not be what takes the bound off the read."""
+
+        def explode(key, default=None):
+            raise RuntimeError("no config here")
+
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", explode)
+
+        assert host_executor._step_read_timeout_seconds("live") == (
+            limits_validator.DEFAULT_STEP_READ_TIMEOUT_SECONDS
+        )
+
+    def test_the_stamped_target_is_what_the_sandbox_is_built_with(self, tmp_path, monkeypatch):
+        """The run resolves the budget once, for the target it stamped.
+
+        The wiring, not the resolution: the generated source carries the number
+        the helper answered for the stamped target, so a sandbox cannot end up
+        holding a budget resolved for a machine it was not pointed at.
+        """
+        asked: list[str] = []
+
+        def fake_budget(target: str) -> float:
+            asked.append(target)
+            return 0.125
+
+        monkeypatch.setattr(host_executor, "_step_read_timeout_seconds", fake_budget)
+
+        run = _run_local(tmp_path, monkeypatch)
+
+        assert asked == ["va"]
+        assert "_step_read_timeout = 0.125" in run.script

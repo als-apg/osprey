@@ -906,6 +906,20 @@ keys:
   control_system.connector.mock.noise_level: {rendered: false, evidence: 'noise_level', default: 0.01}
   control_system.connector.epics: {covered-by: control_system.connector, default: n/a}
   control_system.connector.epics.timeout: {covered-by: control_system.connector.epics, default: 5.0}
+  control_system.connector.epics.step_read_timeout_s:
+    rendered: false
+    evidence: 'config\.get\(STEP_READ_TIMEOUT_KEY\)'
+    note: >-
+      Ceiling on the fresh read a `max_step` check makes before a write, in
+      seconds. A facility-network fact like `timeout` beside it — a gateway two
+      hops away answers slower than a soft IOC on the deploy host — and read
+      from the same connector block, by the connector and by the python
+      executor's sandbox alike, so a script's step check and the connector's
+      wait the same length of time. Running out of budget answers `None`, which
+      REFUSES the write, so raising this buys a slow channel room and never a
+      weaker check. No preset ships a value: the default suits a control system
+      the deployment can reach directly.
+    default: 2.0
   # The nine EPICS gateway keys are `rendered: false` together, for one reason:
   # a facility's Channel Access gateways cannot be guessed and shipping someone
   # else's would point a control system at a stranger's machine. control-
@@ -942,6 +956,10 @@ keys:
   control_system.connector.epics.gateways.write_access.use_name_server: {rendered: false, evidence: 'use_name_server', default: false}
   control_system.connector.virtual_accelerator: {covered-by: control_system.connector, default: n/a}
   control_system.connector.virtual_accelerator.timeout: {covered-by: control_system.connector.virtual_accelerator, default: 5.0}
+  # The VA connector subclasses the EPICS one and hands its own block to
+  # `super().connect()`, so the step-read budget above is read from this type's
+  # block too; the evidence is that one site.
+  control_system.connector.virtual_accelerator.step_read_timeout_s: {rendered: false, covered-by: control_system.connector.virtual_accelerator, default: 2.0}
   control_system.connector.virtual_accelerator.simulation_file: {evidence: 'simulation_file', default: derived, default_note: falls through to control_system.connector.mock.simulation_file}
   control_system.connector.virtual_accelerator.gateways:
     evidence: 'gateways = config\.get\("gateways"\)'
@@ -2524,7 +2542,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 357
+  expected_union_size: 355
   note_union_size: >-
     Informational, not an assertion — it moves whenever the framework template
     or a preset gains or loses a key, and the guard reports a diff against it

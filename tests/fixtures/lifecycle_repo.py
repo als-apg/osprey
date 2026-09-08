@@ -451,6 +451,10 @@ config:
   #
   # Channel Access timeout in seconds.
   control_system.connector.epics.timeout: 5.0
+  # How long the pre-write `max_step` check waits for a channel's present
+  # value, in seconds. Running out of budget refuses the write, so raise this
+  # for a slow gateway — it buys room, never a weaker check.
+  # control_system.connector.epics.step_read_timeout_s: 2.0
   # Write posture for the live machine. Stating it pins it: a type with its
   # own posture never falls back to the master switch.
   # control_system.connector.epics.writes_enabled: false

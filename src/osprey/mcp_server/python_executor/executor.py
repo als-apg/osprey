@@ -413,6 +413,55 @@ def _load_limits_validator(target: str | None):
         return None
 
 
+def _step_read_timeout_seconds(target: str) -> float:
+    """The ``max_step`` fresh-read budget the run's own connector reads with.
+
+    Resolved here, beside the limits posture and from the same target, because
+    both answer to the machine this run was stamped for: the budget bounds the
+    fresh read the ``max_step`` half of that policy makes, and taking it from a
+    different connector's block would be exactly the disagreement between the
+    script's check and the connector's that the key exists to prevent. The
+    sandbox is a fresh process holding no config, so the resolved number
+    travels into its source as a literal.
+
+    Args:
+        target: The control target this run is stamped against, as
+            :func:`_apply_target_stamp` resolved it. A target that names no
+            machine on this deployment reads the deployment's own connector
+            block — the same reading
+            :func:`osprey_connectors.types.target_limits_posture` takes for the
+            posture, so the two cannot describe different machines.
+
+    Returns:
+        The budget that block declares, or the connectors package's own default
+        when no config is reachable, the block declares none, or what it
+        declares is unusable. A config that cannot be read must not be what
+        takes the bound off the read, and the default fails closed just as
+        quickly.
+    """
+    from osprey_connectors.control_system.limits_validator import (
+        DEFAULT_STEP_READ_TIMEOUT_SECONDS,
+        step_read_timeout_seconds,
+    )
+
+    try:
+        from osprey_connectors.config import get_config_value
+        from osprey_connectors.types import resolve_target
+
+        raw = get_config_value("control_system", {})
+        section = raw if isinstance(raw, dict) else {}
+        try:
+            connector_type = resolve_target(section, target)
+        except ValueError:
+            connector_type = section.get("type")
+        table = section.get("connector")
+        block = table.get(connector_type) if isinstance(table, dict) else None
+    except Exception:
+        logger.debug("No config available for step_read_timeout_s", exc_info=True)
+        return DEFAULT_STEP_READ_TIMEOUT_SECONDS
+    return step_read_timeout_seconds(block, connector_type)
+
+
 class _SwitchInProgress(Exception):
     """A run that cannot be admitted because the deployment is mid-switch.
 
@@ -842,6 +891,12 @@ async def _execute_via_local(
         # renderer's caveat rather than any stronger one this module could
         # claim.
         perimeter_denied_ports=_perimeter_denied_ports(os.environ),
+        # Resolved from the target this run was just stamped with, for the same
+        # reason the limits posture above is: the budget bounds a read that
+        # policy makes, and the connector the sandbox builds reads with its own
+        # block's value. Deriving it inside the child would find the baseline
+        # block rather than the stamped one.
+        step_read_timeout_s=_step_read_timeout_seconds(control_target),
     )
     wrapped_code = wrapper.create_wrapper(code, execution_folder)
 
