@@ -1,1 +1,0 @@
-The `osprey` plugin installs under Codex again: the marketplace manifest's authentication policy used a value the Codex CLI rejects, and the documented `codex plugin marketplace add` command passed two paths to one `--sparse` flag.
