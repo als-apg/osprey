@@ -931,7 +931,8 @@ def _resolve_qmd_render_context(config, repo_root):
     :type config: dict
     :param repo_root: The deployment repo root, for relative bind sources
     :type repo_root: str
-    :return: ``port``, ``bind_address``, ``interval_seconds`` and ``corpora``
+    :return: ``port``, ``bind_address``, ``interval_seconds``,
+        ``first_index_grace_seconds`` and ``corpora``
     :rtype: dict
     """
     from osprey.deployment.qmd_service import (
@@ -947,6 +948,7 @@ def _resolve_qmd_render_context(config, repo_root):
         "port": resolved.port,
         "bind_address": resolved.bind_address,
         "interval_seconds": resolved.interval_seconds,
+        "first_index_grace_seconds": resolved.first_index_grace_seconds,
         "corpora": _resolve_qmd_corpora(config, repo_root),
     }
 

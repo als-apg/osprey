@@ -8,6 +8,7 @@ from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.host_ports import _SERVICE_REMEDY_KEYS
 from osprey.deployment.qmd_service import (
     DEFAULT_BIND_ADDRESS,
+    DEFAULT_FIRST_INDEX_GRACE_SECONDS,
     DEFAULT_INTERVAL_SECONDS,
     DEFAULT_PORT,
     MODEL_FILENAMES,
@@ -65,6 +66,18 @@ class TestDefaults:
         assert (resolved.port, resolved.interval_seconds) == (9999, 300)
         assert resolved.bind_address == "0.0.0.0"
 
+    def test_first_index_grace_defaults(self) -> None:
+        """An unstated grace period keeps the number the template has always used."""
+        resolved = resolve_qmd_service_config({"services": {"qmd": {}}})
+        assert resolved is not None
+        assert resolved.first_index_grace_seconds == DEFAULT_FIRST_INDEX_GRACE_SECONDS
+
+    def test_first_index_grace_is_read(self) -> None:
+        """A facility whose corpus takes longer than an hour to index says so."""
+        resolved = resolve_qmd_service_config({"services": {"qmd": {"first_index_grace": 14400}}})
+        assert resolved is not None
+        assert resolved.first_index_grace_seconds == 14400
+
 
 class TestBindAddress:
     """``bind_address`` is project-wide, never a per-service key."""
@@ -113,6 +126,12 @@ class TestValidation:
     def test_bad_interval_raises(self, bad: object) -> None:
         with pytest.raises(ValueError, match=r"services\.qmd\.interval"):
             resolve_qmd_service_config({"services": {"qmd": {"interval": bad}}})
+
+    @pytest.mark.parametrize("bad", [0, -30, "3600", 3600.0, True])
+    def test_bad_first_index_grace_raises(self, bad: object) -> None:
+        """A zero or malformed grace period would fail the container on first boot."""
+        with pytest.raises(ValueError, match=r"services\.qmd\.first_index_grace"):
+            resolve_qmd_service_config({"services": {"qmd": {"first_index_grace": bad}}})
 
 
 class TestBaseUrl:

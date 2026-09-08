@@ -103,6 +103,14 @@ _WILDCARD_LOOPBACK = {"::": "::1"}
 #: marker-driven updates keep freshness regardless.
 DEFAULT_INTERVAL_SECONDS = 30
 
+#: Seconds Docker waits before an unhealthy sidecar counts against its retry
+#: budget, when ``services.qmd.first_index_grace`` is unset. The entrypoint
+#: refuses to open the port until the index is built and provably non-empty, so
+#: a first boot is unhealthy for as long as the full build takes — an hour is
+#: generous for a corpus of a few hundred thousand documents. A corpus much
+#: larger than that needs more, and a small one can have far less.
+DEFAULT_FIRST_INDEX_GRACE_SECONDS = 3600
+
 #: Config key an operator edits to move the published host port. Spelled once
 #: so the deploy-time port-conflict remedy and the schema cannot drift apart.
 PORT_CONFIG_KEY = f"services.{QMD_SERVICE_NAME}.port"
@@ -142,6 +150,9 @@ class QMDServiceConfig:
             project-wide ``deployment.bind_address``.
         interval_seconds: Fallback corpus-sweep period for the sidecar's
             update loop.
+        first_index_grace_seconds: How long the container's healthcheck holds
+            off before an unhealthy result counts, covering the first full
+            index build.
         models_dir: Absolute host directory holding the pre-staged GGUF models,
             or ``None`` (the default) to bake them into the image at build
             time. Validated for shape here and for contents by
@@ -151,6 +162,7 @@ class QMDServiceConfig:
     port: int = DEFAULT_PORT
     bind_address: str = DEFAULT_BIND_ADDRESS
     interval_seconds: int = DEFAULT_INTERVAL_SECONDS
+    first_index_grace_seconds: int = DEFAULT_FIRST_INDEX_GRACE_SECONDS
     models_dir: str | None = None
 
     @property
@@ -207,6 +219,11 @@ def resolve_qmd_service_config(config: Mapping[str, Any] | None) -> QMDServiceCo
         bind_address=resolve_bind_address(config),
         interval_seconds=_positive_int(
             block.get("interval"), DEFAULT_INTERVAL_SECONDS, "services.qmd.interval"
+        ),
+        first_index_grace_seconds=_positive_int(
+            block.get("first_index_grace"),
+            DEFAULT_FIRST_INDEX_GRACE_SECONDS,
+            "services.qmd.first_index_grace",
         ),
         models_dir=_absolute_path(block.get("models_dir"), MODELS_DIR_CONFIG_KEY),
     )

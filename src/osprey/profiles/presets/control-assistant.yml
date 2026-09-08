@@ -703,6 +703,11 @@ config:
   # is the primary re-index trigger, so this is the ceiling on staleness.
   # Raise it on a large corpus, where a no-op sweep is not free.
   services.qmd.interval: 30
+  # How long the container's healthcheck holds off, in seconds, while the first
+  # full index is built — the sidecar does not open its port until the index
+  # exists and is non-empty, so until then it is legitimately unhealthy. Scale
+  # it with the corpus: too short reports a working container as failed.
+  # services.qmd.first_index_grace: 3600
   # Neo4j graph store holding a DISPOSABLE mirror of an RDF/Turtle corpus. The
   # TTL on disk stays the source of truth and `osprey knowledge seed-graph`
   # rebuilds the graph from it. It answers the multi-hop questions keyword and

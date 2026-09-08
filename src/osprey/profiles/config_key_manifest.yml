@@ -341,6 +341,17 @@ keys:
       primary trigger. Default 30 s; a no-op sweep costs ~12.5 s at 135k
       documents, so a large corpus should raise it.
     default: 30
+  services.qmd.first_index_grace:
+    rendered: false
+    evidence: 'block\.get\("first_index_grace"\)'
+    note: >-
+      Seconds the container healthcheck holds off before an unhealthy result
+      counts, covering the first full index build. Commented in the two presets
+      that deploy the sidecar, because how long that build takes scales with
+      the corpus. The entrypoint does not open the port until the index exists
+      and is non-empty, so a grace period shorter than the build reports a
+      working container as failed. Rendered as the template's `start_period`.
+    default: 3600
   services.qmd.models_dir:
     rendered: false
     evidence: '_absolute_path\(block\.get\("models_dir"\)'
