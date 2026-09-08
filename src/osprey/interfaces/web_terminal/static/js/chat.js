@@ -22,6 +22,8 @@
  * simply hidden in expert mode — never torn down or toggled from here.
  */
 
+import { uuid4 } from '/design-system/js/uuid.js';
+
 import { fetchHistory, interrupt, requestHandoff, sendPrompt } from './chat-client.js';
 import { createChatRenderer, elem } from './chat-render.js';
 import { buildEmptyState, onKindChange, onSettled, renderEmptyStateContent } from './first-contact.js';
@@ -298,7 +300,7 @@ export function initChat(containerId = 'operator-container') {
    * slot, so a second key here would be a second conversation.
    * @type {string}
    */
-  let boundKey = adopted ?? crypto.randomUUID();
+  let boundKey = adopted ?? uuid4();
   if (!adopted) setPointer(boundKey);
 
   /** Which hand-off attempt is current; a retry supersedes the one before it. */
@@ -639,7 +641,7 @@ export function initChat(containerId = 'operator-container') {
    * left alone — it is a session the operator can still resume.
    */
   function newConversation() {
-    const key = crypto.randomUUID();
+    const key = uuid4();
     // Claim it before the pointer notifies, so the subscription below sees the
     // key the console is already on and does not replay an empty transcript.
     boundKey = key;
@@ -680,4 +682,24 @@ export function initChat(containerId = 'operator-container') {
     if (adopted) void bindTo(adopted);
     else notifySessionChange(boundKey);
   }
+}
+
+/**
+ * Put a visible failure where the operator console would have been.
+ *
+ * A console that threw during init leaves an EMPTY container, and in Simple
+ * view an empty container is indistinguishable from an agent with nothing to
+ * say — the operator waits at a page that is never going to answer. A console
+ * log line is not a user-facing surface; this is.
+ *
+ * @param {string} containerId
+ */
+export function renderChatBootFailure(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const notice = document.createElement('p');
+  notice.className = 'chat-boot-failure';
+  notice.textContent =
+    'The operator console failed to start. Reload the page, or switch to the Expert view.';
+  container.replaceChildren(notice);
 }
