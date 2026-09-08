@@ -132,9 +132,33 @@ Nine safety layers are applied in sequence:
    in **every** execution mode.
 
 7. **Limits monkeypatch** (``ExecutionWrapper`` /
-   ``LimitsValidator``)---at runtime, direct client writes this build knows
-   how to intercept (pyepics, p4p, Tango, caproto and DOOCS) are validated
-   against the channel limits database. Out-of-range values are blocked.
+   ``LimitsValidator``)---at runtime, a write this build knows how to
+   intercept is checked against the channel limits database before it
+   leaves, and an out-of-range value never reaches the machine. That covers
+   pyepics, aioca, pvaPy, all four p4p clients including the raw one
+   underneath them, caproto's ``sync.client.write`` and threading
+   ``PV.write``, Tango attribute writes and DOOCS. A structured payload is
+   checked on the number it carries; a p4p payload written as JSON is
+   decoded first, ``bytes`` included --- which p4p itself would not decode,
+   so such a write is checked on the number it *would* become rather than
+   waved through for not looking like one.
+
+   Writes that cannot be checked are refused outright instead, in range or
+   not: p4p's ``rpc``, a p4p value passed as a builder callback, pvaPy's
+   ``parsePut``/``parsePutGet``, Tango commands---on ``DeviceProxy`` and on
+   the ``Connection`` class that defines them---and every Tango ``Group``
+   write, which fans one value out to many devices with no single channel
+   to bound it under.
+
+   A few routes are neither checked nor refused: Tango's asynchronous and
+   read-write attribute spellings, ``AttributeProxy`` writes, caproto's
+   ``Batch``, asyncio and ``read_write_read`` writes, and the ctypes
+   binding underneath aioca, ``epicscorelibs.ca.cadef.ca_array_put``. The
+   code names the first group ``_LIMITS_NOT_YET_WRAPPED`` and the ctypes
+   binding ``_LIMITS_UNWRAPPABLE``, rather than leaving the gap
+   implicit---a ``readwrite`` run reaches hardware through any of them
+   without passing the limits database, while a ``readonly`` run refuses
+   them like everything else.
 
 8. **Process isolation**---code always runs in a separate subprocess, never
    inside the MCP server process.

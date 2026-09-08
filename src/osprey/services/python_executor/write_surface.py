@@ -67,6 +67,15 @@ differently by the *static* import check:
   out of the denylist.
 * :data:`_ESCAPE_ROUTES` — routes out of Python that reach a control system
   without importing a client at all.
+
+Refusing a write is one question; letting an *approved* write through only
+within the channel's limits is another, and the second is answered for fewer
+entry points than the first. :data:`_LIMITS_WRAPPED`, :data:`_LIMITS_REFUSED`,
+:data:`_LIMITS_UNWRAPPABLE` and :data:`_LIMITS_NOT_YET_WRAPPED` partition
+:data:`_CLIENT_WRITE_TARGETS` by what a limits-checked run does with each entry
+point, so "which client writes are bounded" has a written answer instead of
+being read out of the generated monkeypatch. ``tests/services/python_executor/
+execution/test_limits_parity.py`` holds the partition to the table.
 """
 
 #: Control-system client libraries, as ``(dotted target, attributes)``. Also
@@ -268,10 +277,137 @@ READONLY_DENIED_IMPORTS: frozenset[str] = frozenset(
     dotted.split(".")[0] for dotted, _attrs in _CLIENT_WRITE_TARGETS
 )
 
+#: What a *limits-checked* run does with each client entry point, wrapped in
+#: :data:`_LIMITS_WRAPPED`: the value is how the check is reached, either
+#: ``"direct"`` — the guard patches this very name — or the name it is checked
+#: through. The four buckets below partition :data:`_CLIENT_WRITE_TARGETS`
+#: exactly, and are keyed by the canonical ``tango`` spelling: a
+#: ``PyTango.DeviceProxy`` row resolves to the same class object, so its fate is
+#: the ``tango.DeviceProxy`` row's fate and it carries no separate entry.
+_LIMITS_WRAPPED: dict[tuple[str, str], str] = {
+    ("epics", "caput"): "via epics.ca.put — caput() puts through a PV",
+    ("epics", "caput_many"): "via epics.ca.put — one PV.put() per pair",
+    ("epics.PV", "put"): "via epics.ca.put",
+    ("epics.ca", "put"): (
+        "direct — the choke point every pyepics spelling reaches; the channel "
+        "is asked for by name because a chid is opaque"
+    ),
+    ("aioca", "caput"): "direct — the package re-export is rebound to the checked coroutine",
+    ("aioca._catools", "caput"): (
+        "direct — the defining module is rebound too, which is also what gets "
+        "the array form checked: it writes each pair through this global"
+    ),
+    ("p4p.client.raw.Context", "put"): (
+        "direct, but only for a put whose receiver IS the raw Context. A "
+        "subclass receiver is forwarded unvalidated — that is a flavour "
+        "Context re-entering through super().put after its own check, and "
+        "equally a subclass a script writes itself, which is therefore checked "
+        "nowhere"
+    ),
+    ("p4p.client.thread.Context", "put"): "direct",
+    ("p4p.client.asyncio.Context", "put"): "direct",
+    ("p4p.client.cothread.Context", "put"): "direct",
+    ("caproto.sync.client", "write"): "direct",
+    ("caproto.threading.client.PV", "write"): "direct — the PV knows its own channel",
+    ("pvaccess.Channel", "put"): "direct — swept by the put prefix",
+    ("pvaccess.Channel", "putGet"): "direct — swept by the put prefix",
+    ("pvaccess.Channel", "asyncPut"): "direct — swept by the asyncPut prefix",
+    ("doocs4py", "set"): "direct",
+    ("tango.DeviceProxy", "write_attribute"): (
+        "direct — the channel is rebuilt as dev_name()/attribute"
+    ),
+    ("tango.DeviceProxy", "write_attributes"): "direct — one check per (attribute, value) pair",
+}
+
+#: Entry points a limits-checked run refuses outright, in range or not, with
+#: the reason no bound can be put on them.
+_LIMITS_REFUSED: dict[tuple[str, str], str] = {
+    ("p4p.client.raw.Context", "rpc"): "an rpc payload is arbitrary; limits cannot apply",
+    ("p4p.client.thread.Context", "rpc"): "an rpc payload is arbitrary; limits cannot apply",
+    ("p4p.client.asyncio.Context", "rpc"): "an rpc payload is arbitrary; limits cannot apply",
+    ("p4p.client.cothread.Context", "rpc"): "an rpc payload is arbitrary; limits cannot apply",
+    ("pvaccess.Channel", "parsePut"): (
+        "a list of JSON strings parsed against the channel's own structure — "
+        "nothing says which string carries the field the limits are about"
+    ),
+    ("pvaccess.Channel", "parsePutGet"): (
+        "a list of JSON strings parsed against the channel's own structure — "
+        "nothing says which string carries the field the limits are about"
+    ),
+    ("tango.DeviceProxy", "command_inout"): (
+        "a command is an action on the device, not a channel write: no address "
+        "to look limits up under and no number to bound"
+    ),
+    ("tango.DeviceProxy", "command_inout_asynch"): (
+        "a command is an action on the device, not a channel write: no address "
+        "to look limits up under and no number to bound"
+    ),
+    ("tango.Connection", "command_inout"): (
+        "the class that DEFINES the command; refusing here closes the unbound "
+        "spelling and every other Connection subclass with it"
+    ),
+    ("tango.Connection", "command_inout_asynch"): (
+        "the class that DEFINES the command; refusing here closes the unbound "
+        "spelling and every other Connection subclass with it"
+    ),
+    ("tango.Group", "command_inout"): "a group command is an action on many devices",
+    ("tango.Group", "command_inout_asynch"): "a group command is an action on many devices",
+    ("tango.Group", "write_attribute"): (
+        "a group write fans one value out to every device the group matched: "
+        "no single channel to bound it under and no one device to step against"
+    ),
+    ("tango.Group", "write_attribute_asynch"): (
+        "a group write fans one value out to every device the group matched: "
+        "no single channel to bound it under and no one device to step against"
+    ),
+}
+
+#: Entry points a limits check cannot be attached to at all. Listed so the
+#: partition stays honest about them: a readonly run still refuses every one.
+_LIMITS_UNWRAPPABLE: dict[tuple[str, str], str] = {
+    ("epicscorelibs.ca.cadef", "ca_array_put"): (
+        "a patch would have a floor under it, because "
+        "cadef.libca['ca_array_put'] re-fetches the function pointer out of "
+        "the shared library"
+    ),
+    ("epicscorelibs.ca.cadef", "ca_array_put_callback"): (
+        "a patch would have a floor under it, because "
+        "cadef.libca['ca_array_put_callback'] re-fetches the function pointer "
+        "out of the shared library"
+    ),
+    ("p4p.server.raw.SharedPV", "post"): "server side — serves a PV, writes no device",
+    ("p4p.server.raw.SharedPV", "open"): "server side — serves a PV, writes no device",
+    ("p4p.server.thread.SharedPV", "post"): "server side — serves a PV, writes no device",
+    ("p4p.server.thread.SharedPV", "open"): "server side — serves a PV, writes no device",
+    ("p4p.server.asyncio.SharedPV", "post"): "server side — serves a PV, writes no device",
+    ("p4p.server.asyncio.SharedPV", "open"): "server side — serves a PV, writes no device",
+    ("tango.DeviceProxy", "put_property"): "writes the Tango database, not a channel",
+}
+
+#: Entry points that COULD be limits-checked and are not yet. A readwrite run
+#: reaches the machine through any of them without passing the limits database,
+#: which is why the bucket is named rather than left implicit.
+_LIMITS_NOT_YET_WRAPPED: dict[tuple[str, str], str] = {
+    ("tango.DeviceProxy", "write_attribute_asynch"): "followups-897 item 16",
+    ("tango.DeviceProxy", "write_attributes_asynch"): "followups-897 item 16",
+    ("tango.DeviceProxy", "write_read_attribute"): "followups-897 item 16",
+    ("tango.DeviceProxy", "write_read_attributes"): "followups-897 item 16",
+    ("tango.AttributeProxy", "write"): "followups-897 item 16",
+    ("tango.AttributeProxy", "write_asynch"): "followups-897 item 16",
+    ("tango.AttributeProxy", "write_read"): "followups-897 item 16",
+    ("caproto.sync.client", "read_write_read"): "followups-897 item 16",
+    ("caproto.threading.client.Batch", "write"): "followups-897 item 16",
+    ("caproto.asyncio.client.PV", "write"): "followups-897 item 16",
+}
+
 __all__ = [
     "READONLY_DENIED_IMPORTS",
     "_CLIENT_WRITE_TARGETS",
     "_ESCAPE_ROUTES",
     "_FRAMEWORK_WRITE_TARGETS",
+    "_LIMITS_NOT_YET_WRAPPED",
+    "_LIMITS_REFUSED",
+    "_LIMITS_UNWRAPPABLE",
+    "_LIMITS_WRAPPED",
     "_READONLY_WRITE_TARGETS",
 ]
