@@ -8,17 +8,15 @@ import threading
 import time
 from typing import Any
 
+#: The two wire protocols a provider entry may declare, imported from the
+#: catalog contract that owns them rather than kept as a second copy.
+from osprey.profiles.providers import VALID_API_PROTOCOLS
+
 logger = logging.getLogger("osprey.infrastructure.proxy")
 
 # Providers known to speak Anthropic Messages API natively.
 # Everything else is assumed to be OpenAI-compatible and needs the proxy.
 _ANTHROPIC_NATIVE_PROVIDERS = frozenset({"anthropic", "cborg", "als-apg"})
-
-#: The two wire protocols a provider entry may declare. The comparison against
-#: ``"anthropic"`` is exact, so a misspelling — ``Anthropic``, ``antropic`` —
-#: used to read as "not Anthropic" and silently insert the translation hop the
-#: config template warns about. Two values, checked as an enum.
-VALID_API_PROTOCOLS = frozenset({"anthropic", "openai"})
 
 _state: dict[str, Any] = {
     "server": None,
@@ -43,10 +41,13 @@ def is_proxy_needed(
 
     An absent ``api_protocol`` means OpenAI, which is right for nine of the
     twelve proxied built-ins. A PRESENT one is checked against
-    :data:`VALID_API_PROTOCOLS`: the old exact comparison meant a typo took the
-    step-3 branch, so a provider written ``api_protocol: Anthropic`` was routed
-    through the translation proxy the config template explicitly warns against
-    — with nothing said about it.
+    :data:`~osprey.profiles.providers.VALID_API_PROTOCOLS`: the old exact
+    comparison meant a typo took the step-3 branch, so a provider written
+    ``api_protocol: Anthropic`` was routed through the translation proxy the
+    config template explicitly warns against — with nothing said about it.
+    The catalog loader refuses such a value at load; this check stays because
+    an ``api.providers`` block can reach a build without passing through the
+    catalog — a hand-edited ``build/config.yml``, for one.
 
     Args:
         provider_name: The provider being resolved.

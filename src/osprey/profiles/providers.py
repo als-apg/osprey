@@ -33,6 +33,14 @@ PROVIDERS_FILENAME = "providers.yml"
 #: future file-level keys without a provider named after one of them.
 _PROVIDERS_KEY = "providers"
 
+#: The two wire protocols an entry may declare. The framework compares against
+#: ``"anthropic"`` exactly, so a misspelling — ``Anthropic``, ``antropic`` —
+#: reads as "not Anthropic" and silently inserts the translation hop the config
+#: template warns about. Two values, checked as an enum where the catalog is
+#: read; :mod:`osprey.infrastructure.proxy.lifecycle` imports this set rather
+#: than keeping a second copy of it.
+VALID_API_PROTOCOLS = frozenset({"anthropic", "openai"})
+
 #: Keys the contract documents. ``base_url`` is the only required one — an entry
 #: without it names no endpoint, so nothing downstream can call it. ``api_key``,
 #: ``models`` and ``api_protocol`` are optional, and an entry may carry further
@@ -162,6 +170,12 @@ def _validate_entry(path: Path, name: str, entry: Any) -> None:
     # than refused: the entries are rendered verbatim into `api.providers`, and
     # an operator's gateway may legitimately carry a key this framework version
     # does not read yet.
+    protocol = entry.get("api_protocol")
+    if protocol is not None and protocol not in VALID_API_PROTOCOLS:
+        raise BuildProfileError(
+            f"Provider catalog {path}: `{_PROVIDERS_KEY}.{name}.api_protocol` is "
+            f"{protocol!r}; expected one of {', '.join(sorted(VALID_API_PROTOCOLS))}."
+        )
     models = entry.get("models")
     if models is not None and not isinstance(models, dict):
         raise BuildProfileError(

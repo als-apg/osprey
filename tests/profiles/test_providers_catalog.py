@@ -156,6 +156,24 @@ class TestValidationRefusals:
         message = self._refuses(tmp_path, "providers:\n  gw:\n    base_url: '   '\n")
         assert "providers.gw.base_url" in message
 
+    def test_misspelled_api_protocol_refused(self, tmp_path):
+        """The value decides whether a translation hop is inserted, so a
+        misspelling is refused where the catalog is read rather than read as
+        "not Anthropic" further downstream."""
+        message = self._refuses(
+            tmp_path,
+            "providers:\n  gw:\n    base_url: https://x\n    api_protocol: Anthropic\n",
+        )
+        assert "providers.gw.api_protocol" in message
+        assert "anthropic" in message and "openai" in message
+
+    def test_both_accepted_api_protocols_load(self, tmp_path):
+        for protocol in ("anthropic", "openai"):
+            _write_catalog(
+                tmp_path, {"gw": {"base_url": "https://example.test", "api_protocol": protocol}}
+            )
+            assert load_provider_catalog(tmp_path).entries["gw"]["api_protocol"] == protocol
+
     def test_non_mapping_models_refused(self, tmp_path):
         message = self._refuses(
             tmp_path, "providers:\n  gw:\n    base_url: https://x\n    models: haiku\n"
