@@ -132,7 +132,6 @@ class TestPlan:
         "ref",
         [
             "refs/tags/v2026.7",
-            "refs/tags/v1.0.0rc1",
             "refs/tags/v1.0.0-rc1",
             "refs/tags/osprey-connectors-v0.1.0",
             "refs/tags/checkpoint-final",
@@ -143,6 +142,32 @@ class TestPlan:
         result = docs_publish.plan(ref, "push", "", ["v2026.6.2"])
         assert result == docs_publish.Plan(
             version="dev", deploy_dir="pr-preview", is_latest=False, deploy=False
+        )
+
+    # -- rule 2, pre-release half ---------------------------------------------
+
+    def test_pre_release_tag_deploys_to_its_own_directory_only(self):
+        """A pre-release owns its directory; the root belongs to full releases."""
+        result = docs_publish.plan(
+            "refs/tags/v2026.9.0b1", "push", "", ["v2026.6.2", "v2026.9.0b1"]
+        )
+        assert result == docs_publish.Plan(
+            version="2026.9.0b1", deploy_dir="v2026.9.0b1", is_latest=False, deploy=True
+        )
+
+    def test_pre_release_is_not_latest_even_as_the_newest_tag(self):
+        """Newest by version still never rewrites the site root."""
+        result = docs_publish.plan("refs/tags/v2026.9.0b1", "push", "", ["v2026.9.0b1"])
+        assert result.deploy is True
+        assert result.is_latest is False
+
+    def test_pre_release_input_tag_is_accepted(self):
+        """A pre-release can be re-published via workflow_dispatch."""
+        result = docs_publish.plan(
+            "refs/heads/main", "workflow_dispatch", "v2026.9.0b1", ["v2026.6.2"]
+        )
+        assert result == docs_publish.Plan(
+            version="2026.9.0b1", deploy_dir="v2026.9.0b1", is_latest=False, deploy=True
         )
 
     # -- rule 5: everything else ----------------------------------------------
@@ -287,6 +312,7 @@ class TestStage:
                 "_static/old.css": "old css",
                 "latest/index.html": "development build",
                 "v2026.6.1/index.html": "archived release",
+                "v2026.9.0b1/index.html": "beta docs",
             },
         )
         deployment = tmp_path / "deployment"
@@ -297,6 +323,7 @@ class TestStage:
             _release_plan("v2026.6.2", is_latest=True),
         )
 
+        assert (deployment / "v2026.9.0b1" / "index.html").read_text() == "beta docs"
         assert not (deployment / "how-to").exists()
         assert not (deployment / "_static" / "old.css").exists()
         assert (deployment / "index.html").read_text() == "new root"
@@ -466,6 +493,34 @@ class TestVersions:
         _seed(tmp_path, {"v2026.6.2/index.html": "", "v2026.6.1/index.html": ""})
         entries = docs_publish.versions(["v2026.6.1", "v2026.6.2"], tmp_path)
         assert [entry["name"] for entry in entries] == ["v2026.6.2 (stable)", "v2026.6.1"]
+
+    def test_pre_release_appears_labeled_and_never_preferred(self, tmp_path):
+        """A published pre-release is offered, but the stable root stays preferred."""
+        _seed(tmp_path, {"v2026.9.0b1/index.html": "", "v2026.6.1/index.html": ""})
+        entries = docs_publish.versions(["v2026.6.1", "v2026.6.2", "v2026.9.0b1"], tmp_path)
+        assert [entry["name"] for entry in entries] == [
+            "v2026.6.2 (stable)",
+            "v2026.9.0b1 (pre-release)",
+            "v2026.6.1",
+        ]
+        assert [entry for entry in entries if entry.get("preferred")][0]["name"] == (
+            "v2026.6.2 (stable)"
+        )
+
+    def test_pre_release_without_a_directory_is_skipped(self, tmp_path):
+        """A pre-release tag with no published tree must not become a dead link."""
+        entries = docs_publish.versions(["v2026.6.2", "v2026.9.0b1"], tmp_path)
+        assert all("pre-release" not in str(entry["name"]) for entry in entries)
+
+    def test_pre_release_ranks_below_its_own_full_release(self, tmp_path):
+        """Once vX.Y.Z ships, its pre-releases sort beneath it, not above."""
+        _seed(tmp_path, {"v2026.9.0/index.html": "", "v2026.9.0b1/index.html": ""})
+        entries = docs_publish.versions(["v2026.9.0", "v2026.9.0b1", "v2026.10.0"], tmp_path)
+        assert [entry["name"] for entry in entries] == [
+            "v2026.10.0 (stable)",
+            "v2026.9.0",
+            "v2026.9.0b1 (pre-release)",
+        ]
 
     def test_stray_and_non_release_tags_are_ignored(self, tmp_path):
         """The switcher must not offer a backup tag as a documentation version."""
