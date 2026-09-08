@@ -1445,7 +1445,13 @@ async def run_reembed(
         if not table_exists:
             if progress:
                 progress(f"Creating embedding table: {table_name}")
-            migration = TextEmbeddingMigration([(model, dimension)])
+            embedding_config = config.enhancement_modules.get("text_embedding")
+            migration = TextEmbeddingMigration(
+                [(model, dimension)],
+                index_lists=(
+                    embedding_config.settings.get("index_lists") if embedding_config else None
+                ),
+            )
             async with service.pool.connection() as conn:
                 await migration.up(conn)
             if progress:

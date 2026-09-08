@@ -1643,6 +1643,18 @@ keys:
   ariel.enhancement_modules.text_embedding.enabled: {covered-by: ariel.enhancement_modules.text_embedding, default: false}
   ariel.enhancement_modules.text_embedding.provider: {covered-by: ariel.enhancement_modules.text_embedding, default: null}
   ariel.enhancement_modules.text_embedding.models: {covered-by: ariel.enhancement_modules.text_embedding, default: null}
+  ariel.enhancement_modules.text_embedding.index_lists:
+    rendered: false
+    evidence: 'module_config\.settings\.get\("index_lists"\)'
+    note: >-
+      IVFFlat `lists` for the pgvector index, fixed when the index is created.
+      Commented in the two presets that ship an `ariel:` block: the rule of
+      thumb is rows/1000, and how many entries a facility's logbook holds is
+      not something the migration can see — `osprey ariel migrate` runs against
+      an empty table. Changing it afterwards needs the index dropped and
+      recreated; a value that is not a positive integer is refused when the
+      migration is built.
+    default: 224
   # The markdown mirror the qmd sidecar indexes — one file per logbook entry,
   # written during ingestion. Paired with `ariel.search_modules.hybrid` above: the
   # export without the search mode indexes a corpus nobody queries, and the
