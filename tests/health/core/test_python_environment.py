@@ -76,9 +76,28 @@ def test_virtual_environment_warns_when_absent(monkeypatch) -> None:
     monkeypatch.delattr(sys, "real_prefix", raising=False)
     monkeypatch.setattr(sys, "base_prefix", "/usr")
     monkeypatch.setattr(sys, "prefix", "/usr")
+    monkeypatch.setattr("osprey.health.core.python_environment._in_container", lambda: False)
     row = _run()["virtual_environment"]
     assert row.status is Status.WARNING
     assert "Not in a virtual environment" in row.message
+
+
+def test_system_interpreter_inside_a_container_is_ok(monkeypatch) -> None:
+    """The shipped image installs into system Python, so this row is a false alarm.
+
+    The isolation a virtualenv provides on a shared host is what the image
+    itself provides: nothing else lives in it. Warning here put a permanent
+    amber row on the core category of every containerised deployment, for a
+    condition that is the deployment working as designed. Whether OSPREY can
+    actually run is ``core_dependencies``, which is untouched.
+    """
+    monkeypatch.delattr(sys, "real_prefix", raising=False)
+    monkeypatch.setattr(sys, "base_prefix", "/usr")
+    monkeypatch.setattr(sys, "prefix", "/usr")
+    monkeypatch.setattr("osprey.health.core.python_environment._in_container", lambda: True)
+    row = _run()["virtual_environment"]
+    assert row.status is Status.OK
+    assert "container" in row.message
 
 
 def test_core_dependencies_ok_when_all_present() -> None:
