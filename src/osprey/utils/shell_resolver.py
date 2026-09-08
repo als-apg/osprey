@@ -12,18 +12,38 @@ import os
 import shutil
 from pathlib import Path
 
-# Well-known user-local bin directories, checked in order.
-_USER_BIN_CANDIDATES = [
-    Path.home() / ".local" / "bin",
-    Path.home() / ".cargo" / "bin",
-    Path("/usr/local/bin"),
-]
+#: Bin directories under the invoking user's home, relative to it.
+_HOME_RELATIVE_BINS = (Path(".local") / "bin", Path(".cargo") / "bin")
+
+#: Bin directories that exist independently of any account.
+_SYSTEM_BINS = (Path("/usr/local/bin"),)
+
+
+def _user_bin_candidates() -> list[Path]:
+    """Well-known user-local bin directories, in search order.
+
+    Built on call rather than at import, and tolerant of an account with no
+    home: a uid with no passwd entry and no ``HOME`` — ordinary under a
+    random-uid cluster policy — makes ``Path.home()`` raise, and doing that at
+    import turned a shorter PATH into an ImportError in every module that
+    imports this one at module scope. The same degrade-not-raise posture
+    :func:`osprey.utils.identity.resolve_identity` takes.
+
+    Returns:
+        The home-relative directories followed by the system ones, or only the
+        system ones when no home resolves.
+    """
+    try:
+        home = Path.home()
+    except (RuntimeError, OSError):
+        return list(_SYSTEM_BINS)
+    return [home / relative for relative in _HOME_RELATIVE_BINS] + list(_SYSTEM_BINS)
 
 
 def user_bin_dirs() -> list[str]:
     """Return existing user-local bin directories not already on PATH."""
     current = set(os.environ.get("PATH", "").split(os.pathsep))
-    return [str(d) for d in _USER_BIN_CANDIDATES if d.is_dir() and str(d) not in current]
+    return [str(d) for d in _user_bin_candidates() if d.is_dir() and str(d) not in current]
 
 
 def resolve_shell_command(command: str) -> str:
@@ -66,7 +86,7 @@ def resolve_shell_command(command: str) -> str:
 
     raise FileNotFoundError(
         f"{command!r} not found on PATH or in common install locations "
-        f"({', '.join(str(d) for d in _USER_BIN_CANDIDATES)}). "
+        f"({', '.join(str(d) for d in _user_bin_candidates())}). "
         f"Install it, or set web_terminal.shell to an absolute path under "
         f"`config:` in profile.yml and run `osprey build`."
     )
