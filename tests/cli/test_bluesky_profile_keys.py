@@ -99,6 +99,8 @@ def test_every_valid_key_is_accepted_and_read() -> None:
             "device_page_size": 250,
             "settle_timeout_s": 30.0,
             "settle_tolerance": 0.001,
+            "live_max_runs": 4,
+            "live_max_rows_per_run": 200,
         },
     }
 
@@ -115,6 +117,8 @@ def test_every_valid_key_is_accepted_and_read() -> None:
         device_page_size=250,
         settle_timeout_s=30.0,
         settle_tolerance=0.001,
+        live_max_runs=4,
+        live_max_rows_per_run=200,
     )
 
 
@@ -181,6 +185,27 @@ def test_settle_tolerance_rejects_a_value_that_is_not_a_non_negative_number(valu
     message = str(excinfo.value)
     assert "bluesky.settle_tolerance" in message
     assert repr(value) in message
+
+
+@pytest.mark.parametrize("key", ["live_max_runs", "live_max_rows_per_run"])
+@pytest.mark.parametrize("value", [0, -5, True, "abc"])
+def test_live_buffer_caps_reject_a_value_that_is_not_a_positive_int(key: str, value: Any) -> None:
+    """Retaining zero runs or zero rows evicts everything the moment it lands."""
+    with pytest.raises(BuildProfileError) as excinfo:
+        _parse_profile({"name": "x", "data": "data", "bluesky": {key: value}})
+
+    message = str(excinfo.value)
+    assert f"bluesky.{key}" in message
+    assert repr(value) in message
+
+
+def test_live_buffer_caps_default_when_unstated() -> None:
+    """Unstated caps take the dataclass defaults the bridge falls back to."""
+    profile = _parse_profile({"name": "x", "data": "data", "bluesky": {}})
+
+    assert profile.bluesky is not None
+    assert profile.bluesky.live_max_runs == BlueskyConfig.live_max_runs
+    assert profile.bluesky.live_max_rows_per_run == BlueskyConfig.live_max_rows_per_run
 
 
 def test_settle_keys_read_an_authored_integer_as_a_float() -> None:

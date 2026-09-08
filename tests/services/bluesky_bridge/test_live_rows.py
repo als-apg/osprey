@@ -126,7 +126,7 @@ def test_event_missing_an_already_known_column_records_none() -> None:
 def test_row_storage_cap_stops_appending_but_total_seen_keeps_counting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(live_rows, "_MAX_ROWS_PER_RUN", 3)
+    monkeypatch.setenv(live_rows.MAX_ROWS_PER_RUN_ENV, "3")
 
     recorder = LiveRowRecorder()
     recorder("start", _start_doc("run-1"))
@@ -138,15 +138,34 @@ def test_row_storage_cap_stops_appending_but_total_seen_keeps_counting(
     assert buf["total_seen"] == 5
 
 
+def test_the_row_cap_is_resolved_at_the_start_document_not_per_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One run keeps the cap it began under, whatever the env says later."""
+    monkeypatch.setenv(live_rows.MAX_ROWS_PER_RUN_ENV, "3")
+
+    recorder = LiveRowRecorder()
+    recorder("start", _start_doc("run-1"))
+    recorder("event", _event_doc({"x": 0.0}))
+
+    monkeypatch.setenv(live_rows.MAX_ROWS_PER_RUN_ENV, "10")
+    for i in range(1, 6):
+        recorder("event", _event_doc({"x": float(i)}))
+
+    buf = live_rows.get("run-1")
+    assert len(buf["rows"]) == 3
+    assert buf["total_seen"] == 6
+
+
 # =========================================================================
-# Run buffer retention: LRU eviction past _MAX_RUNS
+# Run buffer retention: LRU eviction past max_runs()
 # =========================================================================
 
 
 def test_oldest_run_buffer_evicted_once_max_runs_exceeded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(live_rows, "_MAX_RUNS", 2)
+    monkeypatch.setenv(live_rows.MAX_RUNS_ENV, "2")
 
     for uid in ("run-1", "run-2", "run-3"):
         recorder = LiveRowRecorder()
@@ -160,7 +179,7 @@ def test_oldest_run_buffer_evicted_once_max_runs_exceeded(
 def test_writing_to_a_run_moves_it_to_the_front_of_the_eviction_order(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(live_rows, "_MAX_RUNS", 2)
+    monkeypatch.setenv(live_rows.MAX_RUNS_ENV, "2")
 
     first = LiveRowRecorder()
     first("start", _start_doc("run-1"))
@@ -233,3 +252,43 @@ def test_get_returns_a_copy_not_a_live_reference() -> None:
     buf = live_rows.get("run-1")
     assert buf["rows"] == [[1.0]]
     assert buf["columns"] == ["x"]
+
+
+# =========================================================================
+# The two caps are read from the environment, not fixed in the module
+# =========================================================================
+
+
+def test_caps_default_when_the_env_is_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With nothing in the environment the module's own defaults are in force."""
+    monkeypatch.delenv(live_rows.MAX_RUNS_ENV, raising=False)
+    monkeypatch.delenv(live_rows.MAX_ROWS_PER_RUN_ENV, raising=False)
+
+    assert live_rows.max_runs() == live_rows.DEFAULT_MAX_RUNS
+    assert live_rows.max_rows_per_run() == live_rows.DEFAULT_MAX_ROWS_PER_RUN
+
+
+def test_caps_read_the_env_on_every_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The value in force is whatever the environment says now, never at import."""
+    monkeypatch.setenv(live_rows.MAX_RUNS_ENV, "4")
+    monkeypatch.setenv(live_rows.MAX_ROWS_PER_RUN_ENV, "200")
+
+    assert live_rows.max_runs() == 4
+    assert live_rows.max_rows_per_run() == 200
+
+    monkeypatch.setenv(live_rows.MAX_RUNS_ENV, "7")
+    assert live_rows.max_runs() == 7
+
+
+@pytest.mark.parametrize("raw", ["", "abc", "0", "-1"])
+@pytest.mark.parametrize("env_var", ["MAX_RUNS_ENV", "MAX_ROWS_PER_RUN_ENV"])
+def test_caps_refuse_a_value_below_one(
+    monkeypatch: pytest.MonkeyPatch, env_var: str, raw: str
+) -> None:
+    """A cap of zero would evict every buffer the moment it was created."""
+    name = getattr(live_rows, env_var)
+    monkeypatch.setenv(name, raw)
+    reader = live_rows.max_runs if env_var == "MAX_RUNS_ENV" else live_rows.max_rows_per_run
+
+    with pytest.raises(ValueError, match=name):
+        reader()

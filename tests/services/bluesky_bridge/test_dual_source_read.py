@@ -21,7 +21,7 @@ Exercised here:
   never called. The fallback trigger is `buf is None`, never falsy rows — a
   present-but-empty in-flight buffer must NOT be diverted to Tiled.
 - Both buffer keyings resolve through the same lookup.
-- Live buffer evicted (`live_rows._MAX_RUNS` exceeded), and never created at
+- Live buffer evicted (`live_rows.max_runs()` exceeded), and never created at
   all: both fall back to `_from_tiled(run_id, ...)`.
 - Neither source has the run: 404, not a 200-empty (the MCP tool maps 404 to
   `unknown_run`; a 200-empty would make a nonexistent run look like a valid
@@ -185,11 +185,11 @@ def test_the_live_path_reports_run_uid_as_none_rather_than_inventing_one(
 def test_evicted_live_buffer_falls_back_to_tiled(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`live_rows._MAX_RUNS` eviction retires a buffer for a run whose data is
+    """`live_rows.max_runs()` eviction retires a buffer for a run whose data is
     still durable in Tiled."""
-    monkeypatch.setattr(live_rows, "_MAX_RUNS", 1)
+    monkeypatch.setenv(live_rows.MAX_RUNS_ENV, "1")
     _feed("run-evicted-a", [{"x": 1.0}], stop=True)
-    # A second run's start doc evicts run A's buffer (_MAX_RUNS=1).
+    # A second run's start doc evicts run A's buffer (max_runs()==1).
     _feed("run-evicted-b", [{"x": 9.0}], stop=True)
     assert live_rows.get("run-evicted-a") is None  # sanity: eviction happened
 

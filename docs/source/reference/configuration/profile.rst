@@ -1303,6 +1303,14 @@ build** and prints the valid set:
        an absolute difference (default ``1e-9``). The default is a float-noise
        bound, right for a setpoint a controller echoes back exactly and far
        too strict for a magnet or a gap.
+   * - ``live_max_runs``
+     - How many runs' live data the bridge keeps in memory, oldest dropped
+       first (default 50). This is what decides how long a finished run stays
+       readable in the web panel.
+   * - ``live_max_rows_per_run``
+     - How many rows of one run the bridge stores (default 10000). Rows past
+       the cap are still counted, so a long run reports its true length over a
+       truncated buffer.
 
 Whether a deployment can execute plans at all is not set here: it follows from
 the control system the deployment runs. See :doc:`/how-to/bluesky/queue` for

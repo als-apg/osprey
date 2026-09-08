@@ -712,3 +712,42 @@ def test_settle_keys_stop_at_the_worker(tmp_path: Path) -> None:
     bridge = rendered["services"]["bluesky-bridge"]["environment"] or {}
     assert "BLUESKY_SETTLE_TIMEOUT_S" not in bridge
     assert "BLUESKY_SETTLE_TOLERANCE" not in bridge
+
+
+# ---------------------------------------------------------------------------
+# Live-run buffer caps through the rendered compose file.
+#
+# The buffers live in the bridge process, so these two land where the page
+# size does and never reach the worker.
+# ---------------------------------------------------------------------------
+
+
+def test_live_buffer_caps_round_trip_through_compose(tmp_path: Path) -> None:
+    """Authored caps reach the bridge under the names `live_rows` reads."""
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_bluesky(BlueskyConfig(live_max_runs=4, live_max_rows_per_run=200), project_path)
+    config = _read_config(project_path)
+    rendered = _render_copied_compose(project_path, config)
+
+    bridge = rendered["services"]["bluesky-bridge"]
+    assert bridge["environment"]["BLUESKY_LIVE_MAX_RUNS"] == "4"
+    assert bridge["environment"]["BLUESKY_LIVE_MAX_ROWS_PER_RUN"] == "200"
+
+
+def test_default_live_buffer_caps_omit_the_env(tmp_path: Path) -> None:
+    """An unauthored cap renders neither key anywhere at all."""
+    import yaml as pyyaml
+
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_bluesky(BlueskyConfig(), project_path)
+    config = _read_config(project_path)
+    text = pyyaml.safe_dump(_render_copied_compose(project_path, config))
+
+    assert "BLUESKY_LIVE_MAX_RUNS" not in text
+    assert "BLUESKY_LIVE_MAX_ROWS_PER_RUN" not in text

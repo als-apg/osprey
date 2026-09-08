@@ -1043,6 +1043,10 @@ def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
         keys["settle_timeout_s"] = bluesky.settle_timeout_s
     if bluesky.settle_tolerance != BlueskyConfig.settle_tolerance:
         keys["settle_tolerance"] = bluesky.settle_tolerance
+    if bluesky.live_max_runs != BlueskyConfig.live_max_runs:
+        keys["live_max_runs"] = bluesky.live_max_runs
+    if bluesky.live_max_rows_per_run != BlueskyConfig.live_max_rows_per_run:
+        keys["live_max_rows_per_run"] = bluesky.live_max_rows_per_run
     return keys
 
 

@@ -1028,6 +1028,27 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             raise BuildProfileError(
                 f"bluesky.settle_timeout_s must be a number > 0 (got {settle_timeout_s!r})"
             )
+        live_max_runs = bluesky_raw.get("live_max_runs", BlueskyConfig.live_max_runs)
+        if (
+            not isinstance(live_max_runs, int)
+            or isinstance(live_max_runs, bool)
+            or live_max_runs < 1
+        ):
+            raise BuildProfileError(
+                f"bluesky.live_max_runs must be an integer >= 1 (got {live_max_runs!r})"
+            )
+        live_max_rows_per_run = bluesky_raw.get(
+            "live_max_rows_per_run", BlueskyConfig.live_max_rows_per_run
+        )
+        if (
+            not isinstance(live_max_rows_per_run, int)
+            or isinstance(live_max_rows_per_run, bool)
+            or live_max_rows_per_run < 1
+        ):
+            raise BuildProfileError(
+                "bluesky.live_max_rows_per_run must be an integer >= 1 "
+                f"(got {live_max_rows_per_run!r})"
+            )
         settle_tolerance = bluesky_raw.get("settle_tolerance", BlueskyConfig.settle_tolerance)
         if (
             not isinstance(settle_tolerance, int | float)
@@ -1073,6 +1094,8 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             device_page_size=device_page_size,
             settle_timeout_s=float(settle_timeout_s),
             settle_tolerance=float(settle_tolerance),
+            live_max_runs=live_max_runs,
+            live_max_rows_per_run=live_max_rows_per_run,
             external=external,
         )
 
