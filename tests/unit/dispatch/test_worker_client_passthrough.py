@@ -194,3 +194,32 @@ async def test_dispatch_500_still_retryable():
             )
     assert exc_info.value.retryable is True
     assert "HTTP 500" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_passthrough_forwards_a_trigger_turn_ceiling():
+    """A trigger's own ``max_turns`` reaches the worker as a request field."""
+    captured: dict[str, Any] = {}
+    transport = _capturing_transport(captured)
+    with _patch_asyncclient(transport):
+        await dispatch_to_worker(
+            url="http://worker:9190",
+            prompt="hi",
+            allowed_tools=[],
+            token="tok",
+            max_turns=60,
+        )
+    assert captured["json"]["max_turns"] == 60
+
+
+@pytest.mark.asyncio
+async def test_dispatch_passthrough_omits_max_turns_when_absent():
+    """No trigger ceiling -> the key is absent, so the worker applies the
+    deployment's own ``dispatch.max_turns`` rather than a caller's restatement."""
+    captured: dict[str, Any] = {}
+    transport = _capturing_transport(captured)
+    with _patch_asyncclient(transport):
+        await dispatch_to_worker(
+            url="http://worker:9190", prompt="hi", allowed_tools=[], token="tok"
+        )
+    assert "max_turns" not in captured["json"]

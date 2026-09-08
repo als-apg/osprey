@@ -66,6 +66,13 @@ logger = logging.getLogger("osprey.mcp_server.dispatch_worker")
 # ---------------------------------------------------------------------------
 
 DISPATCH_TIMEOUT_SEC = int(os.environ.get("DISPATCH_TIMEOUT_SEC", "300"))
+
+#: How many agentic turns one dispatched run may take when the request names no
+#: ceiling of its own. Authored per facility as ``dispatch.max_turns`` in the
+#: build profile and rendered into this container's environment, beside the two
+#: clock budgets — a facility whose triggers ask for a multi-step investigation
+#: needs a different number from one that dispatches single-shot summaries.
+DISPATCH_MAX_TURNS = int(os.environ.get("DISPATCH_MAX_TURNS", "25"))
 _QUEUE_TTL_SEC = 60  # discard unconsumed SSE queues after this many seconds post-completion
 
 # Explicit request-body ceiling. A legit /dispatch body carrying an input-files
@@ -465,11 +472,15 @@ class DispatchRequest(BaseModel):
     ``input_files`` is likewise additive and defaults to ``None``. When present
     it is validated fail-closed at request time (see :func:`dispatch`); this
     model only carries the batch — ingestion is a downstream task.
+
+    ``max_turns`` defaults to :data:`DISPATCH_MAX_TURNS`, this deployment's own
+    ceiling, so a caller that names none gets the facility's number rather than
+    a framework literal.
     """
 
     prompt: str
     allowed_tools: list[str]
-    max_turns: int = 25
+    max_turns: int = DISPATCH_MAX_TURNS
     surface_prompt: str | None = None
     surface_tools: list[str] | None = None
     input_files: list[InputFile] | None = None

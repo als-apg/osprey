@@ -638,6 +638,7 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
         "workspace_mode": dispatch.workspace_mode,
         "timeout_sec": dispatch.timeout_sec,
         "inactivity_sec": dispatch.inactivity_sec,
+        "max_turns": dispatch.max_turns,
     }
     if declared_env:
         dispatcher_config["env"] = list(declared_env)

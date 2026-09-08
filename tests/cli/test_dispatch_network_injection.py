@@ -32,6 +32,10 @@ from osprey.cli.build_profile import DispatchConfig
 # writer, whose style indents block sequences under their key. Any byte of
 # drift in the default (bridge) render is a regression, not a refresh: the
 # axis is opt-in and unset means unchanged.
+#
+# ``max_turns`` sits in the worker's block beside the two clock budgets and is
+# written on every deploy exactly as they are, so it belongs in the pinned
+# bytes rather than in an exception beside them.
 PRE_AXIS_CONFIG_YML = """\
 deployed_services:
   - postgresql
@@ -54,6 +58,7 @@ services:
     workspace_mode: isolated
     timeout_sec: 300
     inactivity_sec: 120
+    max_turns: 25
 web:
   panels:
     events:

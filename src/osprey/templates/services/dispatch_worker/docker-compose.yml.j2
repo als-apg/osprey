@@ -125,6 +125,9 @@ services:
 {%- endif %}
       DISPATCH_TIMEOUT_SEC: "{{ services.dispatch_worker.timeout_sec | default(300) }}"
       DISPATCH_INACTIVITY_SEC: "{{ services.dispatch_worker.inactivity_sec | default(120) }}"
+      # The third budget: how many agentic turns one dispatched run may take
+      # when the trigger names no ceiling of its own.
+      DISPATCH_MAX_TURNS: "{{ services.dispatch_worker.max_turns | default(25) }}"
       OSPREY_PROJECT_DIR: /app/{{ osprey_labels.project_name }}
       # WHO this worker's audit records are written as, and WHERE. The audit
       # mount follows the MIDDLEWARE, not the interface app: this container

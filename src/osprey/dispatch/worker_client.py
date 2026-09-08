@@ -112,6 +112,7 @@ async def dispatch_to_worker(
     surface_prompt: str | None = None,
     surface_tools: list[str] | None = None,
     input_files: list[dict[str, Any]] | None = None,
+    max_turns: int | None = None,
 ) -> dict[str, Any]:
     """POST a prompt to a dispatch worker's /dispatch endpoint.
 
@@ -134,6 +135,9 @@ async def dispatch_to_worker(
             each item ``{"filename", "mime", "content_b64", "ingest"}``. Omitted from
             the payload when ``None`` or empty, so a worker predating the field sees an
             unchanged request.
+        max_turns: Optional per-trigger ceiling on agentic turns. Omitted from the
+            payload when ``None``, in which case the worker applies the deployment's
+            own ``dispatch.max_turns``.
 
     Returns:
         Response JSON dict (typically contains ``run_id`` and ``status``).
@@ -157,6 +161,8 @@ async def dispatch_to_worker(
         payload["surface_tools"] = surface_tools
     if input_files:
         payload["input_files"] = input_files
+    if max_turns is not None:
+        payload["max_turns"] = max_turns
 
     # A dispatch body carrying input_files can reach ~24 MB. httpx's single-float
     # timeout would apply that same short window to the write phase and abort the

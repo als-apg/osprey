@@ -89,6 +89,9 @@ services:
       DISPATCH_WORKER_BIND: "127.0.0.1"
       DISPATCH_TIMEOUT_SEC: "300"
       DISPATCH_INACTIVITY_SEC: "120"
+      # The third budget: how many agentic turns one dispatched run may take
+      # when the trigger names no ceiling of its own.
+      DISPATCH_MAX_TURNS: "25"
       OSPREY_PROJECT_DIR: /app/golden-project
       # WHO this worker's audit records are written as, and WHERE. The audit
       # mount follows the MIDDLEWARE, not the interface app: this container
