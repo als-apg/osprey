@@ -29,7 +29,9 @@ from osprey.services.auth_sidecar import app as app_mod
 from osprey.services.auth_sidecar.app import (
     DEFAULT_OIDC_CLIENT_ID_ENV,
     DEFAULT_OIDC_CLIENT_SECRET_ENV,
+    DEFAULT_OIDC_SCOPES,
     DEFAULT_SESSION_LIFETIME,
+    ENV_OIDC_SCOPES,
     HEALTH_PATH,
     OWNER_ONLY,
     STATE_COOKIE_MAX_AGE,
@@ -1205,3 +1207,51 @@ class TestRouteExtensionPoint:
         monkeypatch.setattr(app_mod, "import_module", _raise)
         with pytest.raises(ModuleNotFoundError, match="joserfc"):
             create_app(PASSWORD_ENV)
+
+
+# ---------------------------------------------------------------------------
+# OIDC scopes: authored per deployment, with one scope that may not be dropped.
+# ---------------------------------------------------------------------------
+
+
+def test_oidc_scopes_default_when_the_env_names_none() -> None:
+    """No env line means the sidecar's own list, which is the only default."""
+    settings = AuthSettings.from_env(OIDC_ENV)
+
+    assert settings.oidc_scopes == DEFAULT_OIDC_SCOPES
+
+
+def test_oidc_scopes_are_read_as_the_space_separated_list_oauth_spells() -> None:
+    """The env carries one string; the settings carry the scopes it names."""
+    settings = AuthSettings.from_env(
+        dict(OIDC_ENV, OSPREY_AUTH_OIDC_SCOPES="openid  profile groups")
+    )
+
+    assert settings.oidc_scopes == ("openid", "profile", "groups")
+
+
+def test_a_scope_list_without_openid_takes_the_sidecar_down() -> None:
+    """Refused, not repaired: without `openid` there is no ID token to check.
+
+    Reported under the env var's own name, so the operator is sent to the line
+    they have to fix rather than to a generic misconfiguration.
+    """
+    settings = AuthSettings.from_env(dict(OIDC_ENV, OSPREY_AUTH_OIDC_SCOPES="profile email"))
+
+    assert ENV_OIDC_SCOPES in settings.missing_requirements()
+    assert not settings.configured
+
+
+def test_a_scope_list_keeping_openid_serves() -> None:
+    """The same deployment with `openid` back in the list is servable."""
+    settings = AuthSettings.from_env(dict(OIDC_ENV, OSPREY_AUTH_OIDC_SCOPES="openid groups"))
+
+    assert settings.missing_requirements() == ()
+    assert settings.oidc_scopes == ("openid", "groups")
+
+
+def test_a_password_deployment_is_never_refused_over_scopes() -> None:
+    """The scope rule belongs to the OIDC method and to no other."""
+    settings = AuthSettings.from_env(dict(PASSWORD_ENV, OSPREY_AUTH_OIDC_SCOPES="profile"))
+
+    assert ENV_OIDC_SCOPES not in settings.missing_requirements()

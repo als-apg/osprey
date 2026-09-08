@@ -745,6 +745,12 @@ services:
          one place instead of being restated by the renderer. #}
       - OSPREY_AUTH_OIDC_CLAIM={{ auth_oidc_claim }}
 {%- endif %}
+{%- if auth_oidc_scopes %}
+      {#- Only when the facility names them: with no line here the sidecar
+         applies its own documented default (`openid profile email`). A list
+         that drops `openid` is refused by the sidecar, not repaired. #}
+      - OSPREY_AUTH_OIDC_SCOPES={{ auth_oidc_scopes }}
+{%- endif %}
 {%- set role_claim = authorization_claim | default("") %}
 {%- set role_map = authorization_claim_map | default({}) %}
 {%- if role_claim and role_map %}

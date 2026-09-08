@@ -2636,6 +2636,7 @@ _AUTH_CODES = frozenset(
         "web_terminals.auth_insecure_http",
         "web_terminals.auth_oidc_missing_issuer",
         "web_terminals.auth_oidc_invalid_client_env",
+        "web_terminals.auth_oidc_invalid_scopes",
         "web_terminals.auth_oidc_unresolvable_origin",
         "web_terminals.auth_oidc_subject_unsafe",
         "web_terminals.auth_credential_collision",
@@ -3228,6 +3229,58 @@ def test_lint_auth_oidc_non_string_client_secret_env_is_an_error() -> None:
     errors = _errors(findings)
     assert any(f.code == "web_terminals.auth_oidc_invalid_client_env" for f in errors)
     assert any("client_secret_env" in f.message for f in errors)
+
+
+def test_lint_auth_oidc_omitted_scopes_report_no_error() -> None:
+    """The sidecar ships `openid profile email`, so omitting the key is valid."""
+    # Arrange
+    config = _auth_config({"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.auth_oidc_invalid_scopes" for f in _errors(findings))
+
+
+@pytest.mark.parametrize(
+    "scopes",
+    [["openid", 3], {"openid": True}, [], "   ", 7],
+    ids=["list-with-a-non-string", "mapping", "empty-list", "blank-string", "number"],
+)
+def test_lint_auth_oidc_unreadable_scopes_are_an_error(scopes: object) -> None:
+    """Render emits no scopes line for these, so what was authored never ships."""
+    # Arrange
+    config = _auth_config(
+        {"method": "oidc", "oidc": {"issuer": "https://idp.example.org", "scopes": scopes}}
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.auth_oidc_invalid_scopes" for f in errors)
+    assert any("auth.oidc.scopes" in f.message for f in errors)
+
+
+@pytest.mark.parametrize(
+    "scopes",
+    [["openid", "profile"], "openid profile", ["openid"]],
+    ids=["list", "joined-string", "one-scope"],
+)
+def test_lint_auth_oidc_readable_scopes_report_no_error(scopes: object) -> None:
+    """Both authored shapes reach the sidecar, so neither is a finding."""
+    # Arrange
+    config = _auth_config(
+        {"method": "oidc", "oidc": {"issuer": "https://idp.example.org", "scopes": scopes}}
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.auth_oidc_invalid_scopes" for f in _errors(findings))
 
 
 def test_lint_auth_oidc_without_deploy_fqdn_is_an_error() -> None:

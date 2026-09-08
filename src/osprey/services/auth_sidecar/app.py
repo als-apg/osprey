@@ -144,6 +144,12 @@ ENV_OIDC_ISSUER = "OSPREY_AUTH_OIDC_ISSUER"
 ENV_OIDC_CLIENT_ID_ENV = "OSPREY_AUTH_OIDC_CLIENT_ID_ENV"
 ENV_OIDC_CLIENT_SECRET_ENV = "OSPREY_AUTH_OIDC_CLIENT_SECRET_ENV"
 ENV_OIDC_CLAIM = "OSPREY_AUTH_OIDC_CLAIM"
+ENV_OIDC_SCOPES = "OSPREY_AUTH_OIDC_SCOPES"
+"""Space-separated scopes to request at the authorization endpoint.
+
+Set from the rendered ``modules.web_terminals.auth.oidc.scopes``. Absent means
+the sidecar's own :data:`~osprey.services.auth_sidecar.app.DEFAULT_OIDC_SCOPES`
+apply, so the default lives in one place."""
 ENV_OIDC_SUBJECT_PREFIX = "OSPREY_AUTH_OIDC_SUBJECT_"
 """Per-user expected IdP identity: ``OSPREY_AUTH_OIDC_SUBJECT_<SUFFIX>``."""
 
@@ -200,6 +206,25 @@ _ACCESS_VALUE_LOG_LIMIT = 80
 DEFAULT_OIDC_CLIENT_ID_ENV = "OSPREY_AUTH_OIDC_CLIENT_ID"
 DEFAULT_OIDC_CLIENT_SECRET_ENV = "OSPREY_AUTH_OIDC_CLIENT_SECRET"
 DEFAULT_OIDC_CLAIM = "sub"
+
+DEFAULT_OIDC_SCOPES = ("openid", "profile", "email")
+"""Scopes requested at the authorization endpoint when a deployment names none.
+
+``openid`` is what makes this OIDC rather than bare OAuth2 (it is also what
+makes Authlib generate and check a nonce). ``profile`` and ``email`` are asked
+for because the claim a facility maps onto a roster user is commonly
+``preferred_username`` or ``email``, and a claim that was never requested is
+simply absent from the token — which the callback reads as "deny". A facility
+whose IdP publishes the identity claim under some other scope authors the list
+it needs through ``modules.web_terminals.auth.oidc.scopes``."""
+
+REQUIRED_OIDC_SCOPE = "openid"
+"""The one scope a deployment may not drop.
+
+Without it the IdP issues no ID token, so there is nothing for the nonce and
+audience checks to run against and every identity guarantee this sidecar rests
+on is gone. A list that omits it is refused in
+:meth:`AuthSettings.missing_requirements` rather than silently repaired."""
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _FALSE_VALUES = frozenset({"0", "false", "no", "off"})
@@ -427,6 +452,7 @@ class AuthSettings:
     oidc_client_id_var: str = DEFAULT_OIDC_CLIENT_ID_ENV
     oidc_client_secret_var: str = DEFAULT_OIDC_CLIENT_SECRET_ENV
     oidc_claim: str = DEFAULT_OIDC_CLAIM
+    oidc_scopes: tuple[str, ...] = DEFAULT_OIDC_SCOPES
     oidc_subjects: Mapping[str, str] = field(default_factory=dict)
     roster_access: Mapping[str, frozenset[str]] = field(default_factory=dict)
     web_theme: str = ""
@@ -457,6 +483,13 @@ class AuthSettings:
             The parsed settings.
         """
         source: Mapping[str, str] = os.environ if env is None else env
+
+        # Scopes cross the wire the way OAuth spells them: one space-separated
+        # string. An entirely blank value is "the deployment named none", which
+        # takes the sidecar's own default; a non-blank list is taken verbatim,
+        # `openid` included or not, so that `missing_requirements` can refuse a
+        # list missing it instead of this parser quietly putting it back.
+        oidc_scopes = tuple((source.get(ENV_OIDC_SCOPES) or "").split()) or DEFAULT_OIDC_SCOPES
 
         users = _roster(source.get(ENV_USERS))
         password_hashes: dict[str, str] = {}
@@ -497,6 +530,7 @@ class AuthSettings:
             oidc_client_id_var=client_id_var,
             oidc_client_secret_var=client_secret_var,
             oidc_claim=(source.get(ENV_OIDC_CLAIM) or "").strip() or DEFAULT_OIDC_CLAIM,
+            oidc_scopes=oidc_scopes,
             oidc_subjects=oidc_subjects,
             roster_access=roster_access,
             web_theme=(source.get(ENV_WEB_THEME) or "").strip(),
@@ -553,6 +587,14 @@ class AuthSettings:
                 missing.add(self.oidc_client_id_var)
             if not self.oidc_client_secret:
                 missing.add(self.oidc_client_secret_var)
+            # A scope list without `openid` is not a narrower login, it is a
+            # different protocol: the IdP issues no ID token, so the nonce and
+            # audience checks this module rests on have nothing to check. It is
+            # reported here — rather than silently re-added — so the operator
+            # who removed it is told, and every login stays refused until they
+            # put it back.
+            if REQUIRED_OIDC_SCOPE not in self.oidc_scopes:
+                missing.add(ENV_OIDC_SCOPES)
         return tuple(sorted(missing))
 
     def roster_collisions(self) -> dict[str, list[str]]:
