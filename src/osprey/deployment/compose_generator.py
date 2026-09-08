@@ -21,6 +21,7 @@ import stat
 import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
 
 import yaml
 from jinja2 import Environment, FileSystemLoader
@@ -1280,6 +1281,43 @@ def _standin_perturbation(config, repo_root):
     return lattice, default_bpm_errors_for_lattice(lattice)
 
 
+def _telemetry_link_host(config):
+    """The host the dashboard's per-run telemetry link names, or ``None``.
+
+    The link is rendered into the dispatcher's compose file and followed in the
+    OPERATOR's browser, which is outside the compose network — so it cannot use
+    the store's compose DNS name, and ``localhost`` is only right when the
+    browser runs on the host that publishes the store. Which host it should name
+    instead is a question this deployment already answers once, for the landing
+    page and for the origin every terminal checks a write against
+    (:func:`~osprey.deployment.web_terminals.render.deployment_external_origin`),
+    so the link is derived from that rather than from a second rule.
+
+    Three outcomes, and the third is deliberate: a store published on loopback
+    is reached at ``localhost`` (a browser reaching that dashboard is on the
+    host anyway); a store published on an interface takes the declared origin's
+    host; and a store published on an interface by a deployment that declares no
+    origin renders nothing at all. An unset variable is already the dashboard's
+    "hide the link" signal, which beats a link that resolves to the operator's
+    own machine.
+
+    :param config: The project config being rendered.
+    :return: The host to render, or ``None`` to emit no variable.
+    :rtype: str | None
+    """
+    from osprey.deployment.qmd_service import is_loopback_bind, resolve_bind_address
+
+    if is_loopback_bind(resolve_bind_address(config)):
+        return "localhost"
+    try:
+        from osprey.deployment.web_terminals.render import deployment_external_origin
+
+        origin = deployment_external_origin(config)
+    except Exception:
+        return None
+    return urlsplit(origin).hostname or None
+
+
 def _inject_project_metadata(config):
     """Add project tracking metadata for container labels.
 
@@ -1591,6 +1629,13 @@ def _inject_project_metadata(config):
     # (the template gates it on the stand-in branch), so this is inert for every
     # project that has not asked for a second instance.
     _, config_with_labels["standin_bpm_errors_default"] = _standin_perturbation(config, repo_root)
+
+    # The host the dispatcher dashboard's per-run telemetry link names, derived
+    # from the one external-origin authority (:func:`_telemetry_link_host`).
+    # ``None`` renders no variable at all, which the dashboard reads as "hide
+    # the link" — the honest answer for a deployment that publishes the store on
+    # the network but declares no origin a browser can resolve.
+    config_with_labels["osprey_telemetry_host"] = _telemetry_link_host(config)
 
     return config_with_labels
 
