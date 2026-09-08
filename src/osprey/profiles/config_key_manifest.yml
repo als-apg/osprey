@@ -1439,6 +1439,17 @@ keys:
   channel_finder.pipelines.middle_layer.database: {covered-by: channel_finder.pipelines.middle_layer, default: {}}
   channel_finder.pipelines.middle_layer.database.type: {covered-by: channel_finder.pipelines.middle_layer.database, default: template}
   channel_finder.pipelines.middle_layer.database.path: {covered-by: channel_finder.pipelines.middle_layer.database, default: ''}
+  channel_finder.query_max_rows:
+    evidence: 'positive_int\(\s*cf_config\.get\("query_max_rows"\)'
+    note: >-
+      Rows one `run_sql` answer carries before it is truncated; the tool reports
+      the truncation and names this key, so a partial answer is never mistaken
+      for a complete one. Bounds what a question costs the AGENT's context
+      window rather than what it costs DuckDB, which is why it is a query-time
+      key and not a pipeline one — it sits outside the derived
+      `channel_finder.pipelines` prefix a profile may not spell, beside
+      `services.graphdb.query_max_rows`, the same bound for the graph paradigm.
+    default: 500
   channel_finder.benchmark:
     evidence: 'channel_finder\.benchmark\.dataset_path'
     note: >-

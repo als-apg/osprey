@@ -16,12 +16,23 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from osprey.mcp_server.channel_finder_common import load_cf_config, resolve_cf_path
+from osprey.mcp_server.config_values import positive_int
 from osprey.utils.facility import resolve_facility_name
 
 if TYPE_CHECKING:
     from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
 
 logger = logging.getLogger("osprey.mcp_server.channel_finder_middle_layer.server_context")
+
+#: Rows one ``run_sql`` answer may carry. A cap rather than an agent-supplied
+#: limit because the caller is a language model writing SQL: a ``SELECT *`` over
+#: a facility's channel table answers with tens of thousands of rows, and the
+#: cost of that lands in the agent's context rather than in the database.
+QUERY_MAX_ROWS_CONFIG_KEY = "channel_finder.query_max_rows"
+
+#: Used when the key is unset. Enough that a normal exploratory query is never
+#: cut, small enough that a runaway one does not fill a turn.
+DEFAULT_QUERY_MAX_ROWS = 500
 
 
 class ChannelFinderMLContext:
@@ -39,6 +50,7 @@ class ChannelFinderMLContext:
         self._database: MiddleLayerDatabase | None = None
         self._facility_name: str = "control system"
         self._duckdb_path: str | None = None
+        self._query_max_rows: int = DEFAULT_QUERY_MAX_ROWS
         self._initialized = False
 
     def initialize(self) -> None:
@@ -77,6 +89,13 @@ class ChannelFinderMLContext:
             self._duckdb_path = resolve_cf_path(duckdb_path)
             logger.info("ChannelFinderMLContext: DuckDB path configured at %s", self._duckdb_path)
 
+        self._query_max_rows = positive_int(
+            cf_config.get("query_max_rows"),
+            DEFAULT_QUERY_MAX_ROWS,
+            QUERY_MAX_ROWS_CONFIG_KEY,
+            logger=logger,
+        )
+
         self._facility_name = resolve_facility_name(self._raw_config, "control system")
 
         self._initialized = True
@@ -106,6 +125,16 @@ class ChannelFinderMLContext:
     def duckdb_path(self) -> str | None:
         """Path to the DuckDB channel database, or None if not configured."""
         return self._duckdb_path
+
+    @property
+    def query_max_rows(self) -> int:
+        """Rows one ``run_sql`` answer may carry (``channel_finder.query_max_rows``).
+
+        How many rows are worth a turn of the agent's context is a facility's
+        call: a small namespace can afford to hand back more of it than a large
+        one, and the number that fits also depends on how wide the rows are.
+        """
+        return self._query_max_rows
 
 
 # ---------------------------------------------------------------------------

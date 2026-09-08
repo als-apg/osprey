@@ -11,12 +11,13 @@ import duckdb
 from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.channel_finder_middle_layer.server import make_error, mcp
-from osprey.mcp_server.channel_finder_middle_layer.server_context import get_cf_ml_context
+from osprey.mcp_server.channel_finder_middle_layer.server_context import (
+    QUERY_MAX_ROWS_CONFIG_KEY,
+    get_cf_ml_context,
+)
 from osprey.services.channel_finder.databases.duckdb_fts import ensure_fts
 
 logger = logging.getLogger("osprey.mcp_server.channel_finder_middle_layer.tools.run_sql")
-
-_MAX_ROWS = 500
 
 
 @mcp.tool()
@@ -46,7 +47,9 @@ def run_sql(sql: str) -> str:
         ORDER BY score DESC
         LIMIT 20
 
-    Only SELECT queries are allowed.  Results are capped at 500 rows.
+    Only SELECT queries are allowed.  Results are capped at the deployment's
+    ``channel_finder.query_max_rows``; a truncated answer says the number it was
+    cut at.
 
     Args:
         sql: A SQL SELECT statement to execute.
@@ -75,26 +78,36 @@ def run_sql(sql: str) -> str:
                 ["Rewrite your query as a SELECT statement."],
             )
 
+        # Read per call rather than baked into the docstring above: a
+        # docstring is fixed at decoration time, and a deployment that raised
+        # the cap would otherwise have the tool advertising the old number.
+        max_rows = ctx.query_max_rows
+
         con = duckdb.connect(duckdb_path, read_only=True)
         try:
             ensure_fts(con)
             result = con.execute(stripped)
             columns = [desc[0] for desc in result.description]
-            rows = result.fetchmany(_MAX_ROWS)
+            rows = result.fetchmany(max_rows)
             row_count = len(rows)
 
             # Convert to list of dicts for JSON serialisation
             data = [dict(zip(columns, row, strict=True)) for row in rows]
 
-            return json.dumps(
-                {
-                    "columns": columns,
-                    "rows": data,
-                    "row_count": row_count,
-                    "truncated": row_count >= _MAX_ROWS,
-                },
-                default=str,
-            )
+            truncated = row_count >= max_rows
+            payload: dict[str, object] = {
+                "columns": columns,
+                "rows": data,
+                "row_count": row_count,
+                "truncated": truncated,
+            }
+            if truncated:
+                payload["guidance"] = [
+                    f"Result was cut at {QUERY_MAX_ROWS_CONFIG_KEY} = {max_rows} rows; "
+                    "add a LIMIT, aggregate, or narrow the WHERE clause."
+                ]
+
+            return json.dumps(payload, default=str)
         finally:
             con.close()
 

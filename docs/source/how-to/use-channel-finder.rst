@@ -139,7 +139,11 @@ Middle Layer Pipeline
 A React agent explores the database using query tools
 (``list_systems``, ``list_families``, ``inspect_fields``,
 ``list_channels``, ``get_common_names``, ``statistics``, ``validate``, and —
-when DuckDB is installed — ``run_sql``).
+when DuckDB is installed — ``run_sql``). What ``run_sql`` hands back is bounded
+by ``channel_finder.query_max_rows`` (default 500): a longer result is cut and
+flagged, naming the key, so the agent narrows the query instead of presenting a
+partial list. The cap is on the agent's context, not on the database, which is
+why it is set per deployment.
 
 The database follows MATLAB Middle Layer (MML) functional organization
 (System -> Family -> Field -> ChannelNames). Convert from MML exports:

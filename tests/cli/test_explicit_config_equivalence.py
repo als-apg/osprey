@@ -397,6 +397,38 @@ def _retired_upstream_link_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+def _query_max_rows_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The middle-layer SQL row cap the presets now state.
+
+    ``run_sql`` capped its answer at a number fixed in the tool, so a facility
+    could not decide how much of its channel table was worth a turn of the
+    agent's context. The cap is now ``channel_finder.query_max_rows``, stated at
+    its previous value in the two presets that carry a ``channel_finder`` block,
+    so every document they render gains the leaf. The fixtures were frozen
+    before the key existed, which is why it reads as a difference here rather
+    than as a render that changed.
+
+    ``hello-world`` and ``ariel-standalone`` name no ``channel_finder`` block
+    and gain nothing, so their cells are absent below.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(
+            document=document,
+            path="channel_finder.query_max_rows",
+            fixture=ABSENT,
+            live=500,
+        )
+        for document in documents
+    )
+
+
 def _dispatch_max_turns_deltas() -> tuple[Delta, ...]:
     """The dispatch worker's turn ceiling, now written into its service block.
 
@@ -450,31 +482,38 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _rail_tool_deltas("root")
     + _retired_upstream_link_deltas("root"),
     "channel-finder-standalone/in_context": _standalone_catalog_delta()
-    + _retired_upstream_link_deltas("root"),
+    + _retired_upstream_link_deltas("root")
+    + _query_max_rows_deltas("root"),
     "channel-finder-standalone/hierarchical": _standalone_catalog_delta()
-    + _retired_upstream_link_deltas("root"),
+    + _retired_upstream_link_deltas("root")
+    + _query_max_rows_deltas("root"),
     "channel-finder-standalone/middle_layer": _standalone_catalog_delta()
-    + _retired_upstream_link_deltas("root"),
+    + _retired_upstream_link_deltas("root")
+    + _query_max_rows_deltas("root"),
     "control-assistant/in_context": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _dispatch_max_turns_deltas(),
+    + _dispatch_max_turns_deltas()
+    + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _dispatch_max_turns_deltas(),
+    + _dispatch_max_turns_deltas()
+    + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _dispatch_max_turns_deltas(),
+    + _dispatch_max_turns_deltas()
+    + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/graph": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _dispatch_max_turns_deltas(),
+    + _dispatch_max_turns_deltas()
+    + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
 }
 
 
