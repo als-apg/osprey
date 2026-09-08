@@ -1,0 +1,1112 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Write Your Own Plans &#8212; Osprey Framework 2026.9.0b1 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=1819b4a7" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=d680cfb3"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/bluesky/write-plans';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.9.0b1';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/bluesky/write-plans.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Architecture" href="../../architecture/index.html" />
+    <link rel="prev" title="Plans and the Queue" href="queue.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="2026.9.0b1" />
+    <meta name="docbuild:last-update" content="Sep 08, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/project-image.html">The Project Image</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../llm-providers/index.html">LLM Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/login.html">Require a Login</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../agent-interfaces/index.html">Agent Interfaces</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../agent-interfaces/chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/standalone-deployment.html">Standalone Deployment</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Bluesky Plans</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="run-first-plan.html">Run Your First Plan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="queue.html">Plans and the Queue</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Write Your Own Plans</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">How-To Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Bluesky Plans</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Write Your Own Plans</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="write-your-own-plans">
+<h1>Write Your Own Plans<a class="headerlink" href="#write-your-own-plans" title="Link to this heading">#</a></h1>
+<p>OSPREY ships three plans — an n-dimensional <strong>grid scan</strong>, an <strong>orbit
+response matrix</strong> sweep, and a closed <strong>orbit bump</strong> sweep — and they are
+deliberately generic. Your machine has its own measurements, and there are two
+ways to add them: ask the agent to write one during a session, or install a
+plan library that belongs to your facility.</p>
+<p>The orbit bump is asked for in orbit space rather than in corrector currents:
+name the three or four correctors allowed to act, the BPMs the beam should
+move at and by how much, and the ones it must not move at all, and the plan
+finds the kicks that do it — no lattice model needed. It walks the bump up and
+back down step by step across the profile, verifying each step against the
+tolerance you asked for — a tolerance narrower than the BPMs’ own noise is
+refused before anything moves.</p>
+<section id="who-is-trusted-in-one-paragraph">
+<h2>Who is trusted, in one paragraph<a class="headerlink" href="#who-is-trusted-in-one-paragraph" title="Link to this heading">#</a></h2>
+<p>Plans are trusted by where they come from. Plans shipped with OSPREY, with a
+preset, or installed by your facility run as they are. A plan the agent
+writes mid-conversation — a <strong>session plan</strong> — is different: it runs only
+after passing validation, and only as the <em>exact</em> version that passed. Change
+one character and it must pass again. Nobody has to remember this rule; the
+queue enforces it and refuses anything unvalidated, with a message that says
+what to do.</p>
+</section>
+<section id="two-ways-to-add-a-plan">
+<h2>Two ways to add a plan<a class="headerlink" href="#two-ways-to-add-a-plan" title="Link to this heading">#</a></h2>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-0">
+Ask the agent</label><div class="sd-tab-content docutils">
+<p>Describe the measurement and let the agent do the authoring — it has a
+bundled skill (<code class="docutils literal notranslate"><span class="pre">writing-bluesky-plans</span></code>) for exactly this:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Write me a plan that ramps one corrector while logging every
+BPM, and holds each setpoint for a settling time I can choose.
+</pre></div>
+</div>
+<p>The agent writes the plan file, runs it through the validator, and
+tells you the result. From there it is a normal plan: it appears in
+BLUESKY’s Plans view, you review its parameters, and it queues and runs like
+any other — with its session-tier badge visible, so a reviewer always
+knows what they are looking at.</p>
+<p>Session plans are working drafts, not durable installations: they live
+with the running deployment, and after a restart of the bridge they
+must be validated again before they can run. A plan that earns its
+keep should graduate to your facility’s library.</p>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-1">
+Install a facility library</label><div class="sd-tab-content docutils">
+<p>Put your plan files in a directory and name it in your build profile:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">bluesky</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">plan_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">plans/</span>
+</pre></div>
+</div>
+<p>Every plan in it is installed read-only into the plan stack and
+trusted at <strong>facility</strong> tier — no per-session validation, available in
+every deployment built from the profile, listed in BLUESKY’s Plans
+view and the agent’s catalog like the shipped plans.</p>
+<p>To <em>remove</em> a plan from the catalog — shipped or otherwise — list it
+under <code class="docutils literal notranslate"><span class="pre">excluded_plans</span></code> in the same block, and it becomes invisible
+and non-runnable everywhere.</p>
+</div>
+</div>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-file-code" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 1.75C4 .784 4.784 0 5.75 0h5.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v8.586A1.75 1.75 0 0 1 14.25 15h-9a.75.75 0 0 1 0-1.5h9a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 10 4.25V1.5H5.75a.25.25 0 0 0-.25.25v2.5a.75.75 0 0 1-1.5 0Zm1.72 4.97a.75.75 0 0 1 1.06 0l2 2a.75.75 0 0 1 0 1.06l-2 2a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l1.47-1.47-1.47-1.47a.75.75 0 0 1 0-1.06ZM3.28 7.78 1.81 9.25l1.47 1.47a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018l-2-2a.75.75 0 0 1 0-1.06l2-2a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042Zm8.22-6.218V4.25c0 .138.112.25.25.25h2.688l-.011-.013-2.914-2.914-.013-.011Z"></path></svg></span><span class="sd-summary-text">Anatomy of a plan file</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text">A plan file is a small Python module with three parts:</p>
+<ul class="simple">
+<li><p class="sd-card-text"><strong>Metadata</strong> — three things and no more: the plan’s name, a human
+description, and whether it moves anything on the machine.</p></li>
+<li><p class="sd-card-text"><strong>Parameters</strong> — a schema describing the knobs (names, types, limits).
+This is what BLUESKY’s Plans view turns into a form, so a
+well-described parameter becomes a well-labeled field. Each parameter
+that holds channel names also says what the plan does with them — see
+<em>A plan says what it touches</em> below.</p></li>
+<li><p class="sd-card-text"><strong>The plan function</strong> — builds the actual Bluesky plan from the
+parameters and the resolved devices.</p></li>
+</ul>
+<p class="sd-card-text">Plus an optional fourth: <strong>the view</strong> — a <code class="docutils literal notranslate"><span class="pre">render</span></code> function that turns
+the run’s rows into the plan’s own plots. See <em>Give a plan its own view</em>
+below.</p>
+<p class="sd-card-text">The agent’s <code class="docutils literal notranslate"><span class="pre">writing-bluesky-plans</span></code> skill carries the full, current
+template — the fastest way to see one is to ask the agent to write a
+minimal plan and read the result.</p>
+</div>
+</details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-check-circle" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm1.5 0a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm10.28-1.72-4.5 4.5a.75.75 0 0 1-1.06 0l-2-2a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l1.47 1.47 3.97-3.97a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042Z"></path></svg></span><span class="sd-summary-text">What the validator checks</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text">Validation is static scrutiny first, then a rehearsal:</p>
+<ol class="arabic simple">
+<li><p class="sd-card-text"><strong>Static checks</strong> — the file may only import what is on the
+validator’s allowlist, and anything that reaches for the control
+system directly is rejected — all before a single line runs.</p></li>
+<li><p class="sd-card-text"><strong>A dry run</strong> — the plan is executed against mock devices in an
+isolated process, with all control-system access switched off. It has
+to run to completion there.</p></li>
+</ol>
+<p class="sd-card-text">A pass is recorded against the exact content of the file — its
+fingerprint — which is what makes the “exact bytes” rule enforceable.</p>
+</div>
+</details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-history" viewBox="0 0 16 16" aria-hidden="true"><path d="m.427 1.927 1.215 1.215a8.002 8.002 0 1 1-1.6 5.685.75.75 0 1 1 1.493-.154 6.5 6.5 0 1 0 1.18-4.458l1.358 1.358A.25.25 0 0 1 3.896 6H.25A.25.25 0 0 1 0 5.75V2.104a.25.25 0 0 1 .427-.177ZM7.75 4a.75.75 0 0 1 .75.75v2.992l2.028.812a.75.75 0 0 1-.557 1.392l-2.5-1A.751.751 0 0 1 7 8.25v-3.5A.75.75 0 0 1 7.75 4Z"></path></svg></span><span class="sd-summary-text">Why an edited plan must pass again</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text">The pass belongs to the fingerprint, not to the filename. Editing the file
+changes the fingerprint, so the old pass no longer applies — and the queue
+checks the fingerprint again both when a plan is added <em>and</em> when the
+queue starts, so there is no window where edited-but-unvalidated code can
+reach the machine. A bridge restart clears the recorded passes too, which
+is why a session plan that outlived a restart asks to be validated once
+more. Facility-tier plans carry no fingerprint bookkeeping — their trust
+comes from being installed by you.</p>
+</div>
+</details></section>
+<section id="declare-the-devices-a-plan-may-drive">
+<h2>Declare the devices a plan may drive<a class="headerlink" href="#declare-the-devices-a-plan-may-drive" title="Link to this heading">#</a></h2>
+<p>A plan names channels through its parameters, but <em>which</em> devices exist at all
+is the deployment’s answer, not the plan’s. One short file gives it: a list of
+every device the queue server may drive or record, named in the build profile
+by <code class="docutils literal notranslate"><span class="pre">bluesky.devices_file</span></code> — <code class="docutils literal notranslate"><span class="pre">data/bluesky_devices.yml</span></code> inside your project
+unless you point it elsewhere.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># data/bluesky_devices.yml</span>
+<span class="nt">settables</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:HCM:01</span>
+<span class="w">    </span><span class="nt">setpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:HCM:01:CURRENT:SP</span>
+<span class="w">    </span><span class="nt">readback</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:HCM:01:CURRENT:RB</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BTS:QF3</span>
+<span class="w">    </span><span class="nt">setpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BTS:QF3,PS:CURRENT:SP</span><span class="w">   </span><span class="c1"># a comma in an address is fine, and</span>
+<span class="w">                                      </span><span class="c1"># no readback means &quot;read the setpoint&quot;</span>
+
+<span class="nt">readables</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:DIAG:BPM:01:X</span>
+<span class="w">    </span><span class="nt">pv</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:DIAG:BPM:01:X:RB</span>
+</pre></div>
+</div>
+<p><strong>Settables</strong> are devices a plan may drive: a name, the channel a value is
+written to, and — optionally — a separate channel it is read back from. Leave
+the readback out and the device reads its own setpoint. <strong>Readables</strong> are
+recorded and never written. The name is what a plan and the agent refer to, and
+it is also the column heading in the run’s data, so each name may appear only
+once across both lists.</p>
+<p>Nothing in the file is split on any character, which is the point of writing it
+this way: an address containing a comma — as some real magnet power supplies
+have — is written out plainly and needs no escaping.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> reads the file and refuses to build on an entry it cannot use,
+naming <code class="docutils literal notranslate"><span class="pre">bluesky.devices_file</span></code> and the entry at fault. That refusal is
+deliberate: the queue server itself skips a bad entry with a warning, so a
+deployment built from an unchecked file would come up looking healthy while
+missing exactly the devices you meant to add.</p>
+<p>A deployment ends up with its device set in one of three ways:</p>
+<ul>
+<li><p><strong>You write the file.</strong> The normal case at a real facility. A path inside the
+project travels with the built deployment; an absolute path is yours alone —
+OSPREY reads it where it is and never rewrites or moves it. Either way the
+build takes its own copy for the queue server to mount, so an edit to your
+file reaches a running deployment at the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p></li>
+<li><p><strong>The build derives one from your facility’s own description.</strong> A deployment
+on a real control system, with no file yet at a project path, gets a device
+set derived from the same description of the machine the channel finder
+reads: the knowledge graph corpus in graph mode, and otherwise the
+channel-finder database for the paradigm in force —
+<code class="docutils literal notranslate"><span class="pre">channel_finder.pipeline_mode</span></code> where it is set, and otherwise whichever
+pipeline has a database configured. That source says which channels exist.
+Which of them are <em>settable</em> depends on which source it is, and the two
+differ:</p>
+<ul class="simple">
+<li><p><strong>A graph corpus says so itself.</strong> Every binding carries a direction —
+<code class="docutils literal notranslate"><span class="pre">writesSignal</span></code> or <code class="docutils literal notranslate"><span class="pre">readsSignal</span></code> — so the split into settables and
+readables is read out of the corpus rather than inferred.</p></li>
+<li><p><strong>A channel-finder database does not.</strong> No paradigm database records a
+direction, so the build derives one: from the write-limits file
+(<code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.database_path</span></code>) when the deployment has
+one, read exactly as the write path reads it; failing that, from the
+address grammar, where a final <code class="docutils literal notranslate"><span class="pre">:SP</span></code> token is a setpoint and everything
+else is read. With neither — no limits file, and no <code class="docutils literal notranslate"><span class="pre">:SP</span></code> address in the
+database — the build stages nothing and says the channels are known but
+their directions are not.</p></li>
+</ul>
+<p>A settable’s readback is address grammar in both cases: the final <code class="docutils literal notranslate"><span class="pre">:SP</span></code>
+becomes <code class="docutils literal notranslate"><span class="pre">:RB</span></code>, and that readback is adopted only if the source enumerates
+that address as a read channel. Where it does not, the device carries no
+readback and the worker reads the setpoint back. The build says which source
+it read and how many devices came out of it — and, where some channels’
+directions could not be stated, how many it left out, so a smaller device set
+is never a silently smaller machine. The derived set is written straight into
+the build output and rewritten every time you build, so it is not a file to
+edit — to take over, put your own file at the path the key names. An
+<strong>absolute</strong> <code class="docutils literal notranslate"><span class="pre">devices_file</span></code> with no file at it derives nothing: that path
+says an operator supplies the file, so its absence means “not staged yet”,
+not “choose a device set for me”.</p>
+</li>
+<li><p><strong>Neither.</strong> The queue server comes up able to browse and describe plans and
+to run none of them. That is a plain statement about the deployment, not a
+fault, and the build says so in its output, in the words of whatever was
+missing: no channel source configured at all, no <code class="docutils literal notranslate"><span class="pre">bluesky.devices_file</span></code>
+configured, graph mode naming no readable corpus, a source that is not there,
+one that was read and declares no channel, or one whose channels are known
+while which of them are settable is not. A deployment pointed at the <code class="docutils literal notranslate"><span class="pre">mock</span></code>
+control system is browse-only this way whatever file is present.</p></li>
+</ul>
+<p>One case is neither derived nor browse-only: a roster source that is <strong>there
+and unreadable</strong> refuses the build. An absent source is a facility this project
+did not describe; a corrupt one is a facility it meant to describe and got
+wrong, and deriving past it would stage a partial device set that looks exactly
+like a complete one.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>The limits database is not the channel list.</strong> <code class="docutils literal notranslate"><span class="pre">channel_limits.json</span></code>
+states the range a write to a listed channel has to fall inside. It gates
+writes over a subset of the machine, and nothing <em>enumerates</em> the facility
+from it: a file listing a few hundred writable channels says nothing about
+the few thousand the facility has. It does still answer one question about a
+derived set — outside graph mode it is what says which of the enumerated
+channels are settable, as above. That is the practical argument for a graph
+corpus where you have one: it carries the direction itself, so the device
+set does not inherit the shape of a limits file.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>Two lanes, one device file.</strong> A profile that turns on <code class="docutils literal notranslate"><span class="pre">second_lane</span></code> runs
+one plan lane for the live machine and one for the virtual accelerator — and
+both mount the <em>same</em> device file, because a facility has one namespace, not
+one per lane. So a lane can only drive the devices that file names: a file
+written for the live machine leaves the virtual-accelerator lane with
+nothing to address unless those channels are served there too.</p>
+</div>
+<section id="deriving-for-a-live-lane-is-deliberate">
+<h3>Deriving for a live lane is deliberate<a class="headerlink" href="#deriving-for-a-live-lane-is-deliberate" title="Link to this heading">#</a></h3>
+<p>The derived set is the facility’s namespace, and the live lane mounts it like
+any other. That is a decision, not an oversight. A device in the worker’s
+namespace is a name a plan <em>may</em> reference; it is not a write that has
+happened. The gates deciding whether a write lands sit on the write path — the
+connector’s per-write check and the bridge’s arming and limits — and holding
+the machine’s own channels out of the namespace would add no gate to them. It
+would only hide from the agent the channels it is allowed to <em>read</em>, and push
+you back to hand-written device files that nothing keeps in step with the
+facility.</p>
+<p>Two things stand behind that decision, and both are worth knowing:</p>
+<p><strong>The build refuses an armed lane with no limits.</strong> When a lane’s device set is
+derived, and a <em>deployed</em> lane’s control target has writes armed while limits
+checking is not switched on for the same target, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> stops and
+names both keys. A lane the profile does not deploy is not examined. Limits checking that is off builds no validator at all, so every derived
+device would take whatever value a plan asked for with no database consulted.
+Authored device files are exempt — that set is your own list. The refusal is
+per lane and per target: a virtual-accelerator lane with limits on does not
+excuse a live lane without them.</p>
+<p><strong>A run is refused before it moves anything.</strong> A device file names channels; it
+cannot promise the IOC serving them is up, and an unreachable channel used to
+surface mid-plan — as a connection error out of the first read, with setpoints
+already applied. The worker asks that question one message earlier instead:
+before the plan is constructed, it probes every address the run’s declared
+devices touch — each setpoint, each readback, each recorded channel — on that
+lane’s own connector, and refuses the run if any of them does not answer.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>refusing plan &#39;bump&#39; before it moves anything — lane bluesky_live (target live):
+2 declared channels did not respond within 5 s: SR:MAG:HCM:07:CURRENT:SP, SR:MAG:HCM:07:CURRENT:RB
+</pre></div>
+</div>
+<p>Nothing has been written when that arrives, so nothing is half-done. Each
+address gets five seconds and one retry, and a channel that misses the first
+probe and answers the second runs. The sweep as a whole is bounded too — 20
+seconds for a small plan, up to 90 for one naming thousands of addresses — and
+whatever it did not reach inside that bound is reported separately from what it
+asked and got no answer from. Both refuse the run; they are different findings
+and the message keeps them apart. It is asked per <em>run</em> rather than at enqueue
+time: what a queued plan needs is channels that are alive when it runs, and the
+gap between the two can be an IOC restart.</p>
+</section>
+<section id="listed-as-settable-refused-at-write-time">
+<h3>Listed as settable, refused at write time<a class="headerlink" href="#listed-as-settable-refused-at-write-time" title="Link to this heading">#</a></h3>
+<p>Being a settable says the facility describes the channel as one that is
+written. It does not say a write to it will be accepted. Those are two
+questions, answered in two places, and a facility whose two answers differ is a
+normal deployment rather than a misconfiguration:</p>
+<ul class="simple">
+<li><p>The <strong>facility’s description</strong> — the graph corpus, or the channel-finder
+database — answers membership: which channels exist. In graph mode it answers
+direction too, from the binding’s own <code class="docutils literal notranslate"><span class="pre">writesSignal</span></code>/<code class="docutils literal notranslate"><span class="pre">readsSignal</span></code>.</p></li>
+<li><p>The <strong>limits database</strong> answers permission, at the moment a write is
+attempted: what range the value has to be in, and whether a channel it does
+not list may be written at all
+(<code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.allow_unlisted_channels</span></code>).</p></li>
+</ul>
+<p>So a graph corpus may mark a channel settable that the limits database refuses
+— a facility’s structural description and its enforced write ranges are
+maintained separately, and OSPREY does not reconcile them at build time. The
+plan may name that device, and the write is refused when it is attempted, by
+the target that refused it, with a message saying so. The build does not
+intersect the two lists, and it does not drop a channel from the namespace
+because the limits file omits it — that would report a smaller machine than the
+facility has. (On a database paradigm the same limits file is what supplied the
+direction in the first place, so the two agree on which channels are settable
+by construction; what they can still disagree about is the value.)</p>
+<p>Which channels count as scan devices is no longer a separate answer from which
+channels your facility has: the queue server’s device set and the channel
+finder read the same source, the one the paradigm in force selects. In graph
+mode that source <em>is</em> the corpus, so the device set, the channel finder and the
+knowledge graph are three views of one description and cannot drift apart. On a
+database paradigm the graph is generated from the same channel database
+(<a class="reference internal" href="../facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>), so the three agree as long
+as the corpus is regenerated when the database changes.</p>
+</section>
+</section>
+<section id="a-plan-says-what-it-touches">
+<h2>A plan says what it touches<a class="headerlink" href="#a-plan-says-what-it-touches" title="Link to this heading">#</a></h2>
+<p>A plan’s parameters name channels, but a list of names on its own does not say
+whether the plan will <em>drive</em> those channels or only <em>record</em> them. Every plan
+file answers that outright: a parameter holding channel names is marked either
+<strong>movable</strong> — the plan drives it to a value — or <strong>readable</strong> — the plan
+records it without changing it.</p>
+<p>That one marking is what the rest of OSPREY works from. It decides which
+stand-in devices the validator builds for the rehearsal, which names are
+checked against your machine before a plan is queued, what the approval prompt
+shows the human who is about to say yes, and which channel the default plot
+uses for its x axis. Each of those used to guess from how a parameter was
+spelled. Now the plan says it once, and everything reads the same answer.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 346" role="img" aria-labelledby="plan-marking-title plan-marking-desc">
+  <title id="plan-marking-title">What a plan's parameter marking decides</title>
+  <desc id="plan-marking-desc">A plan marks each parameter holding channel names as either movable, meaning the plan drives it, or readable, meaning the plan only records it. That single marking is read by four independent consumers: the validator's stand-in devices, the pre-queue channel check, the approval prompt shown to the human, and the default plot's x axis.</desc>
+  <defs>
+    <marker id="plan-marking-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <line class="e" x1="480" y1="76" x2="480" y2="110" marker-end="url(#plan-marking-arr)"/>
+  <path class="e" d="M480,186 V206 Q480,214 472,214 H143 Q135,214 135,222 V230" marker-end="url(#plan-marking-arr)"/>
+  <path class="e" d="M480,186 V206 Q480,214 472,214 H373 Q365,214 365,222 V230" marker-end="url(#plan-marking-arr)"/>
+  <path class="e" d="M480,186 V206 Q480,214 488,214 H587 Q595,214 595,222 V230" marker-end="url(#plan-marking-arr)"/>
+  <path class="e" d="M480,186 V206 Q480,214 488,214 H817 Q825,214 825,222 V230" marker-end="url(#plan-marking-arr)"/>
+
+  <rect class="nb-in" x="380" y="24" width="200" height="52" rx="6"/>
+  <text class="tn" x="480" y="46" text-anchor="middle">your plan file</text>
+  <text class="ts" x="480" y="62" text-anchor="middle">says it once, outright</text>
+
+  <rect class="nb-foc" x="360" y="110" width="240" height="76" rx="6"/>
+  <text class="tn" x="480" y="136" text-anchor="middle">parameter marking</text>
+  <text class="ts" x="480" y="155" text-anchor="middle">movable — the plan drives it</text>
+  <text class="ts" x="480" y="171" text-anchor="middle">readable — it only records it</text>
+
+  <rect class="nb" x="30" y="230" width="210" height="70" rx="6"/>
+  <text class="tn" x="135" y="254" text-anchor="middle">the validator</text>
+  <text class="ts" x="135" y="272" text-anchor="middle">which stand-in devices</text>
+  <text class="ts" x="135" y="288" text-anchor="middle">to build for the rehearsal</text>
+
+  <rect class="nb" x="260" y="230" width="210" height="70" rx="6"/>
+  <text class="tn" x="365" y="254" text-anchor="middle">the pre-queue check</text>
+  <text class="ts" x="365" y="272" text-anchor="middle">which names are checked</text>
+  <text class="ts" x="365" y="288" text-anchor="middle">against your machine</text>
+
+  <rect class="nb" x="490" y="230" width="210" height="70" rx="6"/>
+  <text class="tn" x="595" y="254" text-anchor="middle">the approval prompt</text>
+  <text class="ts" x="595" y="272" text-anchor="middle">what the human is told</text>
+  <text class="ts" x="595" y="288" text-anchor="middle">is about to move</text>
+
+  <rect class="nb" x="720" y="230" width="210" height="70" rx="6"/>
+  <text class="tn" x="825" y="254" text-anchor="middle">the default plot</text>
+  <text class="ts" x="825" y="272" text-anchor="middle">which channel becomes</text>
+  <text class="ts" x="825" y="288" text-anchor="middle">the x axis</text>
+
+  <text class="ta ta-warn" x="480" y="330" text-anchor="middle">each of these used to guess from how a parameter was spelled — now they all read the same answer</text>
+</svg>
+</div>
+<p>Two consequences you will notice:</p>
+<ul class="simple">
+<li><p><strong>The names are yours.</strong> Call the parameters whatever your facility calls
+them — correctors, BPMs, setpoints, monitors. The marking carries the
+meaning, so nothing downstream depends on the spelling.</p></li>
+<li><p><strong>A plan that moves the machine has to show what it moves.</strong> A plan whose
+metadata says it writes, but which marks nothing as movable, is refused when
+the catalog loads it and never appears — with a message saying exactly that.
+Such a plan must also open a run and state how many points that run will
+take; that number is what live progress counts against. A plan built on top
+of one of Bluesky’s own scans inherits the run and its point count from that
+scan, so it states neither itself — but it still marks its own parameters,
+because those markings are what everything else reads.</p></li>
+</ul>
+</section>
+<section id="give-a-plan-its-own-view">
+<h2>Give a plan its own view<a class="headerlink" href="#give-a-plan-its-own-view" title="Link to this heading">#</a></h2>
+<p>Every run gets a figure in the BLUESKY panel, and by default it is drawn for
+you: every numeric column the run recorded, plotted against the channel the
+plan drives — or simply in the order the readings were taken, when a plan
+drives more than one. That <strong>default view</strong> is honest and, for a
+straightforward measurement, enough.</p>
+<p>A plan that measures something the raw columns cannot show can bring its own
+view instead — a small <code class="docutils literal notranslate"><span class="pre">render</span></code> function that receives the run’s rows and its
+parameters and returns the plots the plan itself designs. The shipped <code class="docutils literal notranslate"><span class="pre">orm</span></code>
+plan does exactly that: a trace per corrector while the sweep runs, then the
+fitted response matrix and per-device scores once there is enough data. So does
+<code class="docutils literal notranslate"><span class="pre">orbit_bump_sweep</span></code>: the orbit shift across the BPMs at each amplitude step,
+the residual against its tolerance band, and where the correctors sat while it
+walked — plus the monitors’ response, on a run that was given extra monitor
+channels at all. A panel with nothing to draw is left out rather than drawn
+empty.</p>
+<p>The vocabulary is small on purpose. A figure is a list of <strong>panels</strong>; each
+panel has a title, axis labels and units, any notes worth printing beside it,
+and exactly one <strong>mark</strong>:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 18.0%" />
+<col style="width: 82.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Mark</p></th>
+<th class="head"><p>What it draws</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>Lines</strong></p></td>
+<td><p>Named series of x/y points — a sweep, a trend, one line per monitor. A
+reading the run never took stays a gap in the line, never a zero.</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Bars</strong></p></td>
+<td><p>One value per named category — a score or a total per device.</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Heatmap</strong></p></td>
+<td><p>A labelled 2-D grid — for example BPMs against correctors, each cell a
+fitted slope.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Three rules keep a view honest, and the framework enforces all three:</p>
+<ul class="simple">
+<li><p><strong>Drawing never disturbs a plan.</strong> A view is computed from data already
+recorded, after the fact. If it fails, the run and its numbers are untouched
+and the panel simply shows the default view with a note saying why.</p></li>
+<li><p><strong>Views name no facility.</strong> Labels come from the plan’s parameters and the
+columns the run recorded, so the same plan draws correct device names at any
+facility that installs it.</p></li>
+<li><p><strong>Only installed plans draw their own view.</strong> A plan’s <code class="docutils literal notranslate"><span class="pre">render</span></code> runs inside
+the bridge every time a panel refreshes, so it is honored for plans shipped
+with OSPREY, with a preset, or installed by your facility — not for session
+plans the agent writes mid-conversation. A session plan queues, runs and
+records data exactly as any other; its runs just show the default view. A
+view is one more reason for a plan that earns its keep to graduate into your
+facility’s library.</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>Views apply going forward.</strong> A figure is computed by the plan code that
+owns the plan’s name <em>now</em>, so adding a <code class="docutils literal notranslate"><span class="pre">render</span></code> — or fixing one — shows
+up on the next run with nothing to migrate. The exception is old data: a run
+recorded before OSPREY kept track of which plan produced it has nothing to
+tie it back to plan code, so it keeps showing the default view whatever you
+add later. Its numbers are all still there; only the plan’s own view is out
+of reach.</p>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="queue.html"><span class="doc">Plans and the Queue</span></a></dt><dd><p>How a queued plan actually runs, and what refusals mean.</p>
+</dd>
+<dt><a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a></dt><dd><p>The build profile that owns <code class="docutils literal notranslate"><span class="pre">plan_dir</span></code>, <code class="docutils literal notranslate"><span class="pre">excluded_plans</span></code> and
+<code class="docutils literal notranslate"><span class="pre">devices_file</span></code>.</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="queue.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Plans and the Queue</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../../architecture/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Architecture</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#who-is-trusted-in-one-paragraph">Who is trusted, in one paragraph</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#two-ways-to-add-a-plan">Two ways to add a plan</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#declare-the-devices-a-plan-may-drive">Declare the devices a plan may drive</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#deriving-for-a-live-lane-is-deliberate">Deriving for a live lane is deliberate</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#listed-as-settable-refused-at-write-time">Listed as settable, refused at write time</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-plan-says-what-it-touches">A plan says what it touches</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#give-a-plan-its-own-view">Give a plan its own view</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/bluesky/write-plans.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

@@ -1,0 +1,541 @@
+Run the Web Terminal
+====================
+
+Start the Web Terminal from any OSPREY project directory:
+
+.. code-block:: bash
+
+   osprey web
+
+It boots a local server on ``http://127.0.0.1:10100`` and prints a login URL of
+the form ``http://127.0.0.1:10100/?token=…``. Opening that URL (your browser
+opens it for you) signs you in and then redirects to the clean
+``http://127.0.0.1:10100`` address; every later request rides the cookie it
+sets. That cookie is good for 12 hours by default and outlives closing the
+browser, so on a console other people sit at, shorten it — set
+``modules.web_terminals.auth.session_lifetime`` in the deployment's config
+(see :doc:`multi-user/login`). The URL is printed once, but the token in it is
+the server's own secret and keeps working for as long as that server runs —
+treat it like a password rather than a one-shot code.
+
+If ``OSPREY_TERMINAL_SECRET`` is already set in the environment you launch
+from, ``osprey web`` uses that value rather than minting one, and says so
+instead of printing a URL — the URL was printed wherever that secret came from.
+Unset it and start again to get a freshly minted one.
+
+Override the defaults, or point it at another project, with ``--host``,
+``--port``, and ``--repo``.
+
+To keep it running after you close the terminal, start it in the background:
+
+.. code-block:: bash
+
+   osprey web --detach     # start in the background
+   osprey web stop         # stop it again
+
+In background mode the process id and logs are written to
+``var/osprey-web.pid`` and ``var/osprey-web.log`` in the project directory. The
+login token lives only in the running process's memory and is never written to
+disk, so if you lose the printed URL there is no way to recover it: stop the
+server and start it again (``osprey web stop`` then ``osprey web --detach``) to
+mint a fresh one. Browsers already signed in stay signed in across that
+restart — their sessions live in a store on disk; ``osprey web sessions clear``
+(with the server stopped) forgets them.
+
+What you get
+------------
+
+The window has three working areas plus a header:
+
+- **Terminal** (right) — a real terminal running the Osprey agent. It survives
+  reconnects, and you can keep a few background conversations alive and hop
+  between them.
+- **Workspace** (left) — a live view of your project files. New artifacts,
+  plots, and data files appear as the agent creates them, with no refresh.
+  On a fresh deployment the list is not empty: the control-assistant preset
+  ships one interactive example plot (synthetic data), listed under
+  **Examples** at the bottom. It is there for you, not the agent, which
+  never lists or cites it. Delete it from the gallery when you no longer
+  want it; it does not come back. It is switched on by
+  ``artifact_server.example_artifact`` in ``config.yml``.
+- **Side panels** — your control-system tools (Channel Finder, ARIEL, the
+  lattice dashboard, and so on), opened from the icon rail and arranged as
+  dockable tiles. See :doc:`panels`.
+- **Utility controls** — pinned to the far end of the same rail, a
+  **Documentation** link and a **Feedback** button that lets whoever is at the
+  terminal report a problem without leaving it. See
+  :doc:`send-feedback`.
+- **Header** — the :ref:`control-target chip <web-terminal-session-posture>`
+  (which machine this deployment writes to, and whether it may), the display menu
+  (a small dot holding the light/dark, Expert/Simple, and theme controls — see
+  :doc:`theming`), a settings drawer, and an optional name badge to tell one
+  deployment from another.
+- **Status bar** — a thin strip along the bottom: a clock at the right, and
+  before it, where the deployment runs the SYSTEM panel, a **System health**
+  dot for the health checks that panel runs. Both bars are yours to rearrange
+  — see :ref:`web-terminal-bars`. The dot is the worst outcome across the
+  checks; click it for a card with one row per check category, and **Open
+  SYSTEM** for the full dashboard. Its options add the outcome in a word beside
+  the dot and switch the card to one row per check.
+  Where a deployment runs the Bluesky panel, a **Bluesky queue** item is on offer
+  for either bar: a dot and a word for what the queue is doing, the running
+  plan and how far it is, and a card with the queued plans, **Open Bluesky**
+  and — if you switch them on in its options — the panel's own Start, Stop and
+  Abort.
+
+The settings drawer lets you read and edit the project's ``config.yml`` — and
+the agent's own setup and memory files — from the browser, so you rarely need
+to drop back to an editor. Changes prompt you to restart the terminal so the
+agent picks them up.
+
+Copying text works the way it does in a desktop terminal: drag over the
+agent's output and the selection is already on your clipboard — no key to
+press. To grab raw screen text instead (say, while the agent is busy), hold
+Option (macOS) or Shift while dragging, then copy with Cmd+C or Ctrl+Shift+C;
+plain Ctrl+C always interrupts the agent. Serve the terminal over HTTPS for
+this to work in every browser — on a plain ``http://`` page copying falls
+back to an older browser mechanism that Safari may refuse.
+
+.. _web-terminal-one-session:
+
+One session, both views
+-----------------------
+
+Expert and Simple are two windows onto the same conversation. Pick the other
+one from the display menu and the agent you were talking to comes with you: the
+terminal and the chat share one session, one write state and one transcript,
+and only the view you are looking at runs the agent.
+
+Handing it over waits for the work in flight. Switch while the agent is
+mid-turn and the view you arrive in reads *Finishing in the other view* with
+the time you have been waiting, and offers **Stop and switch now**. Let it
+finish and the conversation reappears where it left off, with everything said
+so far already in the log. Nothing is ended on a clock: only the turn
+finishing, closing the page, or that button ends it. The button interrupts the
+agent, and stops it outright if it has not yielded within five seconds.
+
+A refusal can meet you instead of the wait. *This session is in use in
+another tab or view.* means another browser tab holds it, so close that tab or
+work there instead. *The previous agent is still shutting down.* is the one
+worth retrying, and the card offers **Retry**.
+
+Running ``/clear`` in the terminal starts a new conversation without starting a
+new session: the write state and the machine you are standing on carry over,
+and the chat shows the cleared conversation too. A prompt you send in the chat
+while a turn is still running waits for that turn rather than being refused,
+and goes as soon as the agent is free.
+
+.. note::
+
+   **Deployments built before this release.** The wait needs the
+   ``turn-state`` hook, which tells the web terminal when a turn starts and
+   ends, and a deployment scaffolded earlier does not have it: add
+   ``turn-state`` to the profile's ``hooks:`` list and run ``osprey build``.
+   Without it, switching away from a terminal that might be working never
+   waits. It says *The other view may still be working.* and offers only
+   **Stop and switch now**, and a terminal that was idle all along can still
+   take the full five seconds to hand over.
+
+One version pin is worth keeping current now that the two views share a
+conversation. The terminal runs the exact agent CLI version
+``claude_code.cli_version`` names, and the chat runs the one the Agent SDK
+bundles, so a pin that has drifted from the bundle makes the same conversation
+behave differently either side of a switch. The server names both versions in
+its log at startup, and warns when they disagree.
+
+.. _web-terminal-session-posture:
+
+The control-target chip
+-----------------------
+
+The header carries a chip that answers, at a glance, the question every write
+depends on: *if the agent writes now, which machine does it land on, and may
+it?* It reads like this::
+
+   ● Rehearsal · writes on ▾
+
+The first part names the machine this deployment stands on, by what it **is**:
+
+- **Real machine** --- the facility's own. Writes move hardware.
+- **Rehearsal** --- a copy of the real machine's controls, same channel names,
+  no hardware behind it. Nothing moves.
+- **Simulator** --- the virtual accelerator: a physics model with beam in it.
+  Nothing moves.
+- **Demo** --- mock data. Nothing moves.
+
+A deployment can put its own names on its machines
+(``control_system.target_display_names`` in ``config.yml`` --- *ALS storage
+ring* rather than *Real machine*); what the machine is stays behind the small
+ⓘ beside its name either way, and that tooltip also keeps the controls
+server's own technical label.
+
+The second part is the write state **on that machine**, for the whole
+deployment:
+
+- **writes on** --- the agent may write there, under whatever write gates the
+  deployment configures.
+- **writes off** --- somebody turned writes off on that machine. Reads are
+  untouched: the agent keeps its full view of the control system and of the
+  project, and can still run analysis, plots and read-only Python. One click
+  turns writes back on.
+- **writes locked** --- the deployment does not arm writes on that target, or
+  the whole deployment is running read-only. Nothing in the browser lifts
+  this.
+
+Click the chip and a popover opens on **every** control target the deployment
+configures, not only the one you are standing on.
+
+The machine you are on, and the others
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The machine the agent stands on is a card at the top: its name and its writes
+switch. Every other machine is a row below the card with the same shape and
+the actions. What writing to a machine means (*Writes move hardware*, or one
+of the *nothing moves* lines) sits with its endpoint and the server's own
+label behind the small ⓘ beside each name, on hover or keyboard focus:
+
+- **The writes switch** --- per machine, for the whole deployment. The switch
+  position is the write state and clicking it is the gesture that changes it;
+  where writes are locked the switch is disabled, with the reason on hover.
+- **Switch to** --- moves the deployment onto that machine. Where a switch is
+  not available, the button's place is taken by a short phrase for the reason
+  --- ``not set up``, ``needs gateway ack`` --- with the server's full
+  sentence on the tooltip. On a fresh deployment the real machine reading
+  ``not set up`` is the normal state, not a fault: authoring its gateways is
+  the go-live edit.
+
+A machine that stops answering says so --- ``not answering``, in red, next to
+its name. A machine that answers says nothing about it. Endpoints, gateway
+roles and the age of the last probe stay on the tooltips and in the
+confirmation dialogs, where the decision is actually made.
+
+The foot has **Turn all writes off**, which takes writes away from every
+machine it can in one click.
+
+Take writes away, or give them back
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The write state is **per machine**. Turn writes off on the real machine and
+work on the simulator carries on, which is the point: you put the machine you
+are worried about out of reach without giving up the one you are working on.
+
+Taking writes away applies as you click --- it needs no ceremony. Turning
+writes back on asks you to confirm first, and the confirmation names the
+machine and the endpoint the agent would then be able to write to. Tick
+*Don't ask again for this machine* to skip the dialog from then on
+(Shift-click brings it back). The real machine always asks.
+
+**Nothing is restarted.** Every gate reads the write state at the moment of
+the write, so the change lands on every conversation that is already running:
+each agent obeys it on its very next write, and no turn in flight is
+interrupted. Taking writes away reaches a running notebook cell the same way,
+on its very next write; giving them back waits for the next cell, because a
+cell can never write more than it was allowed when it started
+(:doc:`notebooks`). One lag is worth knowing about: turn writes off on the
+machine the deployment is *on* and the change reaches the agent when the
+connector is rebuilt, which waits for a running execution to finish --- and
+the card says so rather than leaving a button that appears to have done
+nothing.
+
+**The chip only takes writes away.** What you set here tightens what the
+deployment permits; it can never hand out writes the deployment did not arm.
+Where the state is locked the button stays on screen, disabled, and the
+reason is on its tooltip:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 65
+
+   * - Reason (on the tooltip)
+     - What it means
+   * - *kept read-only by the deployment*
+     - This deployment does not arm writes on that machine at all. Only a
+       rebuild changes that, not a click.
+   * - *the whole deployment is running read-only*
+     - ``OSPREY_EXECUTION_MODE=readonly`` is set, which sits above any one
+       conversation.
+   * - *held by another terminal*, *held by the controls server*
+     - Something else holds the deployment's control context, and only the
+       holder writes to it: another web terminal running against the same
+       deployment data, or --- for the moment before this terminal has claimed
+       it --- the agent's own control-system server. The roster still renders,
+       and it is worth reading, but the buttons here govern nothing. A banner
+       across the top of the popover names the holder, with its port where
+       there is one, so you know where to go instead.
+   * - *changes cannot be recorded right now*
+     - The folder where the control context is recorded is missing or
+       unreadable, so there is nowhere to keep a setting the agent would read
+       back. Nothing was changed.
+   * - *no read-only endpoint configured*
+     - Read-only on this machine would route it through a gateway the
+       deployment has not configured, leaving the machine unusable. You are
+       told before you act, not after.
+
+One more refusal can meet the click itself: you cannot turn writes back on
+while the agent is still running something. The run keeps the write state it
+started with, so wait for it to finish, or stop it, and try again.
+
+Switch the deployment to another machine
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**Switch to** on a row moves the whole deployment onto that machine, after a
+confirmation that says where every control read and write goes next and
+whether writes are on or off there --- the write state is per machine, and it
+does not travel with you. This dialog too can be skipped with *Don't ask again
+for this machine*. The page that holds the control context runs the same
+checks the agent's own switch runs --- that the move is allowed, and that
+nothing is mid-flight on the machine you are leaving --- and records the
+outcome; the deployment's control-system servers then move themselves onto it
+and report when they have arrived. The row reads ``switching…`` until every
+one of them has, and then ``✓ switched``, or ``✗`` with the phrase for the
+refusal --- the same refusal, for the same reason, the agent is given. A
+server that could not make the move says so by name, so you know which one to
+look at. If nothing answers within 30 seconds the row reads
+``request_expired``: nothing that could carry out the switch was alive to pick
+it up. The outcome line leaves the row after about a minute --- an outcome is
+news for as long as someone is watching for it.
+
+Ask for a second switch while one is still landing and it is refused rather
+than queued, naming the servers still working. Wait for the chip to settle and
+ask again.
+
+What the switch itself is gated on --- the approval prompt, the limits
+posture, the archive --- is :doc:`../control-systems/switch-control-target`.
+
+Where the control target and the write state live
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Both belong to **the deployment**, not to any one session, and nothing is
+written to ``config.yml``. Two people working on the same deployment see the
+same machine and the same write states: one of them turning writes off on a
+machine takes them away from everyone, and a switch made in one window applies
+in the other. That is the point --- a write state you can only see from the
+page you happen to be on is not a safety control.
+
+Both are recorded together in
+``var/agent_data/control_target/control_context.json``, written as soon as you
+click and read back when a server starts, so restarting the container never
+quietly turns writes back on or moves the deployment off the machine somebody
+put it on. Coming back to the deployment baseline is a switch like any other.
+
+On a multi-user deployment every user has their own container and their own
+volumes (:doc:`multi-user/index`), so "the deployment" here means the stack
+that user is working in.
+
+What refuses a write, and how firmly
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Turning writes off is not a single choke point --- each write route is
+refused by the layer that owns it. The difference between those layers is
+worth knowing, because one of them is best-effort rather than enforced:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 30 40
+
+   * - What the agent tries
+     - What refuses it
+     - What that means
+   * - ``channel_write`` --- any control-system write
+     - The connector, before the control system is asked
+     - **Enforced.** The writes-check hook denies it first as well, but the
+       connector is the layer that holds if the hook does not run.
+   * - ``execute`` with ``execution_mode="readwrite"``
+     - The Python executor's own gate
+     - **Enforced.** The run is refused outright; a ``readonly`` ``execute``
+       is unaffected and runs normally.
+   * - Any other write tool the writes-check hook covers --- for example the
+       Bluesky queue's arming tools, where that server is enabled
+     - The writes-check hook
+     - **Best-effort.** It is the first hook in the chain and the only
+       state-aware layer those tools have; a hook that fails to run does not
+       refuse.
+
+Each layer says which gate refused, in its own words, so the message never
+sends you to the wrong control:
+
+- The hook --- *"WRITES OFF --- this deployment refuses control-system writes
+  to the <target> target. Turn writes back on from the control-target chip in
+  the header; config.yml is not the gate here."*
+- The connector --- *"Write to '<channel>' blocked: writes are off for the
+  '<target>' control target --- turned off from the control-target chip in the
+  header; applies deployment-wide. Turn writes back on for '<target>' from the
+  chip if the write is intended; config.yml is not the gate here."*
+- The executor --- *"Writes are off for the '<target>' control target ---
+  turned off from the control-target chip in the header; applies
+  deployment-wide."* --- offering a re-run as ``readonly``, and saying to turn
+  writes back on from the chip if the write is intended.
+
+Those three are what writes you turned off from the chip sound like, and the
+chip is where you turn them back on. A **deployment-wide read-only run** is a
+different story and says so, because no click lifts that one:
+
+- The connector --- *"Write to '<channel>' blocked: this deployment is running
+  in readonly execution mode (OSPREY_EXECUTION_MODE=readonly), which refuses
+  control-system writes for every session. The control-target chip in the
+  header cannot lift it."*
+- The executor --- *"This deployment is running in readonly execution mode,
+  which refuses control-system writes regardless of what the run asks for."*
+  --- offering the same re-run as ``readonly``, and saying that writes need
+  the deployment started without the variable.
+
+The chip shows the same thing: every button locked, with *the whole
+deployment is running read-only* as the reason.
+
+No writes-off refusal mentions the deployment's ``writes_enabled`` keys,
+deliberately: changing one would not lift it, and a message that pointed at
+one would send an operator to rebuild a deployment when a single click was
+the remedy. The reverse holds too --- a write refused because this target is
+not armed says so in its own words, names the key that would arm it, and
+says nothing about the chip.
+
+.. note::
+
+   **The other surfaces.** Simple mode's chat and the operator websocket run
+   their agent through the Agent SDK rather than a terminal, and notebook
+   kernels run no agent at all. All of them read the deployment's control
+   context at write time, so a write state you set and a switch you make reach
+   every one of them --- and the full chip works in both views, because what it
+   changes is the deployment's own record rather than anything belonging to the
+   window you are looking at.
+
+   A notebook kernel is the one surface where *when* is worth knowing. It takes
+   a narrowing at once --- turning writes off refuses the running cell's next
+   write --- and takes a widening, or a switch, on the next cell you run. See
+   :doc:`notebooks`.
+
+.. _web-terminal-bars:
+
+The header and status bar
+-------------------------
+
+Both bars are built the same way: each holds one ordered list of small items,
+drawn from one catalog. The header starts with the wordmark, the identity block
+where the deployment renders one, the
+:ref:`control-target chip <web-terminal-session-posture>`, the command palette
+button and the display menu. The status bar starts nearly bare: a space, the
+**System health** dot where the SYSTEM panel is enabled, and a clock at the
+right. The **Docs** link and the rest of the catalog are one drag away. Which items sit in which bar, and in what order, is yours
+to change.
+
+Rearranging the bars
+~~~~~~~~~~~~~~~~~~~~
+
+Open **Customize bars** in any of three ways: right-click either bar, pick it
+from the display menu, or run it from the command palette. The bars tint and
+name themselves (**Header** at the top, **Status bar** at the bottom), every
+item in them picks up a dashed outline, and a sheet opens showing every item
+there is, drawn as it will look in the bar. From there:
+
+- **Drag a tile onto a bar** to add that item, or click it to add it to the
+  header. Drag an item already in a bar to move it, within its own bar or
+  across to the other one.
+- **Drag an item off both bars** to take it away.
+- **Click an item** to open its options — the clock's zone, 24- or 12-hour
+  format and seconds, a space's width, what the Bluesky queue shows and which
+  of its controls it offers, what the system-health chip says and lists — along
+  with **Move to status bar** (or back to the
+  header) and **Remove**. Every item can go in either bar: the control-target
+  chip, the command palette button and the display menu work from the status
+  bar exactly as they do from the header, drawn smaller, and their cards open
+  upward from there.
+- **Drag either end of a space** to set its width. A space at width 0 takes
+  whatever room is left in the bar; that is what pushes the items after it to
+  the right.
+- **Hide header** and **Hide status bar**, on that bar's own right-click menu
+  or as the checkboxes in the sheet, withdraw a bar and bring it back. The
+  items you put there are still there when it returns. A hidden bar has
+  nothing left to right-click, so **Show header** and **Show status bar**
+  appear on the right-click menu of every panel's title bar, the terminal's
+  included, in Simple mode as well. **Customize bars** in the command palette
+  is another way back in; editing shows every bar.
+- **Default**, at the foot of the sheet, throws your arrangement away and puts
+  back the one this deployment ships (``web.bar_items``).
+
+**Done** or **Esc** ends customizing. Every change applies as you make it.
+
+Some edits are refused, and the sheet says why rather than failing quietly.
+Most items go in once: a tile that is already in a bar is dimmed, and says
+where it is on hover. A tile for something this
+deployment does not render is disabled and carries the reason. If an
+arrangement cannot be saved the sheet reads **Layout not saved**, and your edit
+was not stored.
+
+Customizing works the same in Simple and Expert view. Simple simplifies the
+workspace — one service tile, the operator console in place of the terminal —
+and leaves the bars, and your hand on them, exactly as they are in Expert.
+
+Where the arrangement lives
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Your bar arrangement is kept on the server, so it follows you to any browser
+you sign in from. It is the only web terminal preference that does: the theme,
+Expert or Simple view, and the panel layout are each remembered by the browser
+you set them in, so a different browser or a different machine starts those
+from the deployment's own defaults. The panel layout is remembered once per
+view: Simple starts from a single panel beside the console and Expert from the
+full workspace, and each keeps the arrangement you make of it.
+
+The view is a preference; the conversation is not tied to it. Switching between
+Expert and Simple hands the same session over rather than starting a second
+one. See :ref:`web-terminal-one-session`.
+
+With nothing saved yet you get the deployment's arrangement, which an operator
+sets with ``web.bar_items``. The keys, and what each one does, are in
+:ref:`config-bar-items`.
+
+Documentation and feedback settings
+-----------------------------------
+
+Five ``web`` keys aim the rail's **Documentation** link and **Feedback** button
+— including the issue trackers the dialog offers — and bound the feedback
+store. The table, the shipped defaults, and what a blank value means are in
+:ref:`config-web`.
+
+.. dropdown:: Under the hood
+   :icon: gear
+
+   .. tab-set::
+
+      .. tab-item:: Settings
+
+         Two sections in ``config.yml`` are easy to confuse. ``web_terminal:``
+         is the terminal **process** — which shell to launch, which directory to
+         watch for live files, how many background conversations to keep alive —
+         and command-line flags override those for a single run. ``web:`` is the
+         browser **UI** the process renders, including the header name badge and
+         the bounds on the Simple-mode chat pool; those keys are catalogued in
+         :ref:`config-web`.
+
+         One key sits outside both, in the multi-user ``modules.web_terminals``
+         block: ``modules.web_terminals.auth.session_lifetime`` sets how long a
+         login cookie stays valid, in whole seconds, and defaults to ``43200``
+         (12 hours). It is the only key ``osprey web`` reads from that block.
+
+      .. tab-item:: Companion servers
+
+         The panels are powered by small companion servers OSPREY launches for
+         you — an artifact gallery always, and a domain server for each enabled
+         panel. You normally never touch them.
+
+      .. tab-item:: For developers
+
+         Every feature above is backed by a REST and WebSocket API. The endpoints
+         are discoverable directly in the source
+         (``src/osprey/interfaces/web_terminal/``); a coding agent working in the
+         codebase can wire against them without a hand-maintained list here.
+
+.. seealso::
+
+   :doc:`theming`
+      Choose or design the theme every OSPREY interface uses.
+
+   :doc:`panels`
+      Add your own tools as side panels.
+
+   :doc:`send-feedback`
+      The feedback dialog these settings configure, and the ``osprey feedback``
+      verbs that read the results back.
+
+   :ref:`config-web`
+      Every ``web`` key, with its default and what a blank value means.

@@ -1,0 +1,1258 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Search Modes &#8212; Osprey Framework 2026.9.0b1 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=1819b4a7" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=d680cfb3"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/ariel/search-modes';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.9.0b1';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/ariel/search-modes.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Web Interface" href="web-interface.html" />
+    <link rel="prev" title="Data Ingestion" href="data-ingestion.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="2026.9.0b1" />
+    <meta name="docbuild:last-update" content="Sep 08, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/project-image.html">The Project Image</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../llm-providers/index.html">LLM Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/login.html">Require a Login</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../agent-interfaces/index.html">Agent Interfaces</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../agent-interfaces/chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Logbook Search Service (ARIEL)</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="standalone-deployment.html">Standalone Deployment</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-plan.html">Run Your First Plan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/queue.html">Plans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/write-plans.html">Write Your Own Plans</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">How-To Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Logbook Search Service (ARIEL)</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Search Modes</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="search-modes">
+<h1>Search Modes<a class="headerlink" href="#search-modes" title="Link to this heading">#</a></h1>
+<p>ARIEL’s search system is built around <strong>search modules</strong> — leaf-level functions that each implement a single retrieval strategy over the logbook. The framework ships three: keyword full-text search, embedding-based semantic similarity, and <code class="docutils literal notranslate"><span class="pre">hybrid</span></code>, a merge of the two answered by a separate search sidecar container (qmd). All three produce a common <code class="docutils literal notranslate"><span class="pre">ARIELSearchResult</span></code>. Higher-level reasoning over results — multi-step retrieval, answer synthesis, custom prompting — lives in the Osprey agent layer, which calls these search modules through ARIEL’s MCP tools.</p>
+<p><strong>Dispatch is registry-driven.</strong> A search request names a mode as a plain string — <code class="docutils literal notranslate"><span class="pre">&quot;keyword&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;semantic&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;hybrid&quot;</span></code>. The <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> looks that name up in Osprey’s central registry and calls the module’s own <code class="docutils literal notranslate"><span class="pre">execute</span></code>; it carries no per-mode branch of its own. The registry is the only source of routable modes, so the service, the web interface’s capabilities API and the agent’s MCP tools cannot disagree about which modes exist, and adding a module needs no change to the service.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code class="docutils literal notranslate"><span class="pre">sql_query</span></code> is a <strong>tool, not a search mode.</strong> It runs read-only SQL against the same database, which is precision filtering — exact matches, exhaustive date and author ranges, counts — not ranked retrieval. It has no relevance score to merge with the others, so it is exposed only as its own MCP tool and never appears as a <code class="docutils literal notranslate"><span class="pre">--mode</span></code> value.</p>
+</div>
+<section id="search-architecture">
+<h2>Search Architecture<a class="headerlink" href="#search-architecture" title="Link to this heading">#</a></h2>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 208" role="img" aria-labelledby="ariel-search-modes-title ariel-search-modes-desc">
+  <title id="ariel-search-modes-title">Search-mode dispatch</title>
+  <desc id="ariel-search-modes-desc">A query enters the ARIEL search service with a mode name; the registry resolves the mode to its module — refusing unknown or disabled modes rather than falling back — and that module's execute produces the search result.</desc>
+  <defs>
+    <marker id="ariel-search-modes-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <line class="e" x1="180" y1="92" x2="228" y2="92" marker-end="url(#ariel-search-modes-arr)"/>
+  <line class="e" x1="364" y1="92" x2="412" y2="92" marker-end="url(#ariel-search-modes-arr)"/>
+  <line class="e" x1="548" y1="92" x2="596" y2="92" marker-end="url(#ariel-search-modes-arr)"/>
+  <line class="e" x1="732" y1="92" x2="780" y2="92" marker-end="url(#ariel-search-modes-arr)"/>
+  <rect class="mask" x="372" y="72" width="32" height="12" rx="2"/>
+  <text class="ta" x="388" y="81" text-anchor="middle">MODE</text>
+
+  <rect class="mask" x="44" y="64" width="136" height="56" rx="6"/>
+  <rect class="nb-in" x="44" y="64" width="136" height="56" rx="6"/>
+  <text class="tn" x="112" y="88" text-anchor="middle">user query</text>
+  <text class="ts" x="112" y="104" text-anchor="middle">cli · mcp · web</text>
+  <rect class="mask" x="228" y="64" width="136" height="56" rx="6"/>
+  <rect class="nb" x="228" y="64" width="136" height="56" rx="6"/>
+  <text class="tn" x="296" y="88" text-anchor="middle">search service</text>
+  <text class="ts" x="296" y="104" text-anchor="middle">search(mode=…)</text>
+  <rect class="mask" x="412" y="64" width="136" height="56" rx="6"/>
+  <rect class="nb-foc" x="412" y="64" width="136" height="56" rx="6"/>
+  <text class="tn" x="480" y="88" text-anchor="middle">registry</text>
+  <text class="ts" x="480" y="104" text-anchor="middle">no silent fallback</text>
+  <rect class="mask" x="596" y="64" width="136" height="56" rx="6"/>
+  <rect class="nb" x="596" y="64" width="136" height="56" rx="6"/>
+  <text class="tn" x="664" y="88" text-anchor="middle">module</text>
+  <text class="ts" x="664" y="104" text-anchor="middle">execute()</text>
+  <rect class="mask" x="780" y="64" width="136" height="56" rx="6"/>
+  <rect class="nb-st" x="780" y="64" width="136" height="56" rx="6"/>
+  <text class="tn" x="848" y="88" text-anchor="middle">result</text>
+  <text class="ts" x="848" y="104" text-anchor="middle">entries · modes used</text>
+</svg>
+</div>
+<p>The service refuses a mode that is not registered, or is registered but disabled in configuration, rather than quietly falling back to another one.</p>
+<p><strong>CLI usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w">                  </span><span class="c1"># ariel.default_search_mode</span>
+osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w"> </span>--mode<span class="w"> </span>keyword
+osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w"> </span>--mode<span class="w"> </span>semantic
+osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w"> </span>--mode<span class="w"> </span>hybrid
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">--mode</span></code> choices are read from the registry when the command runs, so a facility that registers its own search module gets it as a choice — and in <code class="docutils literal notranslate"><span class="pre">--help</span></code> — without any code change.</p>
+<section id="search-modules">
+<h3>Search Modules<a class="headerlink" href="#search-modules" title="Link to this heading">#</a></h3>
+<p>Search modules are leaf-level functions that execute a single search strategy against the database. Each module exports a <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function that describes its capabilities, input schema, and execution function. The web interface discovers modules through this descriptor via ARIEL’s capabilities API; each built-in module is exposed to the Osprey agent through its own ARIEL MCP tool (<code class="docutils literal notranslate"><span class="pre">keyword_search</span></code>, <code class="docutils literal notranslate"><span class="pre">semantic_search</span></code>, <code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code>). The framework ships with the following built-in search modules:</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-0">
+Keyword Search</label><div class="sd-tab-content docutils">
+<p><strong>Module:</strong> <code class="docutils literal notranslate"><span class="pre">search/keyword.py</span></code></p>
+<p>PostgreSQL full-text search with optional fuzzy matching fallback. Best for specific terms, equipment names, PV names, and exact phrases.</p>
+<p><strong>Query syntax:</strong></p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span># Simple terms (implicit AND)
+RF cavity fault
+
+# Boolean operators
+RF AND cavity
+vacuum OR pressure
+beam NOT injection
+
+# Quoted phrases
+&quot;RF cavity trip&quot;
+
+# Field prefixes
+author:smith
+date:2024-06
+
+# Combined
+author:jones &quot;beam loss&quot; date:2024-01
+
+# Pattern tokens
+SR01C___BPM*
+/SR0[1-4]C___BPM\d+/
+</pre></div>
+</div>
+<p>Pattern tokens and query expansion are covered in <a class="reference internal" href="#vocabulary-expansion"><span class="std std-ref">Vocabulary Expansion and Pattern Search</span></a>.</p>
+<p><strong>How it works:</strong></p>
+<ol class="arabic">
+<li><p>Validates and preprocesses the query — empty queries return immediately, queries longer than 1,000 characters are truncated, and unbalanced quotes are auto-balanced by removing the last unmatched quote</p></li>
+<li><p>Parses the query to extract field filters (<code class="docutils literal notranslate"><span class="pre">author:</span></code>, <code class="docutils literal notranslate"><span class="pre">date:</span></code>), quoted phrases, and remaining search terms</p></li>
+<li><p>Builds a PostgreSQL <code class="docutils literal notranslate"><span class="pre">tsquery</span></code> using the function appropriate for the query shape:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">plainto_tsquery</span></code> — for simple terms (implicit AND)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">websearch_to_tsquery</span></code> — for queries with Boolean operators (AND, OR, NOT)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">phraseto_tsquery</span></code> — for quoted phrases</p></li>
+</ul>
+<p>When multiple components are present (e.g. terms <em>and</em> phrases), they are combined with <code class="docutils literal notranslate"><span class="pre">&amp;&amp;</span></code> (tsquery AND).</p>
+</li>
+<li><p>Executes full-text search against the <code class="docutils literal notranslate"><span class="pre">raw_text</span></code> column with <code class="docutils literal notranslate"><span class="pre">ts_rank</span></code> scoring, applying any field filters (<code class="docutils literal notranslate"><span class="pre">author</span> <span class="pre">ILIKE</span></code>, date range) and time range constraints</p></li>
+<li><p>If no results and fuzzy fallback is enabled, falls back to <code class="docutils literal notranslate"><span class="pre">pg_trgm</span></code> trigram similarity (default threshold: 0.3)</p></li>
+<li><p>Returns results as <code class="docutils literal notranslate"><span class="pre">(entry,</span> <span class="pre">score,</span> <span class="pre">highlights)</span></code> tuples — highlights are generated via <code class="docutils literal notranslate"><span class="pre">ts_headline</span></code></p></li>
+</ol>
+<p><strong>Configuration:</strong></p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ariel</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">search_modules</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">keyword</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">      </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">patterns_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># default: true</span>
+<span class="w">        </span><span class="nt">pattern_timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span><span class="w">   </span><span class="c1"># default: 10.0</span>
+</pre></div>
+</div>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-1">
+Semantic Search</label><div class="sd-tab-content docutils">
+<p><strong>Module:</strong> <code class="docutils literal notranslate"><span class="pre">search/semantic.py</span></code></p>
+<p>Embedding-based similarity search using pgvector. Best for conceptual queries where exact keywords may not appear in the text.</p>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p>Resolves the similarity threshold using a 3-tier priority:</p>
+<ol class="loweralpha simple">
+<li><p>Per-query <code class="docutils literal notranslate"><span class="pre">similarity_threshold</span></code> parameter (highest)</p></li>
+<li><p>Config value (<code class="docutils literal notranslate"><span class="pre">search_modules.semantic.settings.similarity_threshold</span></code>)</p></li>
+<li><p>Hardcoded default: 0.5 (lowest)</p></li>
+</ol>
+</li>
+<li><p>Determines the embedding model from config (<code class="docutils literal notranslate"><span class="pre">search_modules.semantic.model</span></code>) and resolves provider credentials via Osprey’s centralized <code class="docutils literal notranslate"><span class="pre">api.providers</span></code> configuration</p></li>
+<li><p>Generates a query embedding using the configured provider, with a dimension-mismatch warning if the returned embedding size does not match the configured <code class="docutils literal notranslate"><span class="pre">embedding_dimension</span></code></p></li>
+<li><p>Searches the per-model embedding table using cosine distance (<code class="docutils literal notranslate"><span class="pre">&lt;=&gt;</span></code> operator)</p></li>
+<li><p>Filters results by similarity threshold and optional time range</p></li>
+<li><p>Returns results as <code class="docutils literal notranslate"><span class="pre">(entry,</span> <span class="pre">similarity_score)</span></code> tuples</p></li>
+</ol>
+<p><strong>Configuration:</strong></p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ariel</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">search_modules</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">semantic</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">      </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ollama</span>
+<span class="w">      </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nomic-embed-text</span>
+<span class="w">      </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">similarity_threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.5</span>
+<span class="w">        </span><span class="nt">embedding_dimension</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">768</span>
+</pre></div>
+</div>
+<p><strong>Requirements:</strong> Ollama (or another embedding provider) running with the configured model, embedding table populated via the <code class="docutils literal notranslate"><span class="pre">text_embedding</span></code> <a class="reference internal" href="data-ingestion.html#enhancement-pipeline"><span class="std std-ref">enhancement module</span></a>, and the pgvector extension installed in PostgreSQL.</p>
+</div>
+<input id="sd-tab-item-2" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-2">
+hybrid (qmd sidecar)</label><div class="sd-tab-content docutils">
+<p><strong>Module:</strong> <code class="docutils literal notranslate"><span class="pre">search/qmd.py</span></code></p>
+<p>Hybrid keyword-plus-semantic search, answered by the <strong>qmd search sidecar</strong> — a separate container that indexes a markdown mirror of the logbook and returns one merged ranking. Best when a question mixes specific terms with a described situation, or when keyword search returned too little.</p>
+<p>Unlike the other two modes, <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> does not search PostgreSQL. It needs two things running together:</p>
+<ol class="arabic simple">
+<li><p>the <code class="docutils literal notranslate"><span class="pre">services.qmd</span></code> sidecar (see <a class="reference internal" href="search-sidecar.html#qmd-search-sidecar"><span class="std std-ref">The Search Sidecar (qmd)</span></a>), and</p></li>
+<li><p>the <code class="docutils literal notranslate"><span class="pre">qmd_export</span></code> <a class="reference internal" href="data-ingestion.html#enhancement-pipeline"><span class="std std-ref">enhancement module</span></a>, which writes the markdown mirror the sidecar indexes.</p></li>
+</ol>
+<p>Either one alone is useless: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. The shipped <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> and <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> templates enable both, together with the sidecar itself. A web-terminal persona deploys no sidecar of its own and reaches the hosting deployment’s through <code class="docutils literal notranslate"><span class="pre">services.qmd.port</span></code> instead — a key the build copies from the hosting deployment’s render into every persona, so nothing pins it by hand — and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a persona that keeps <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> on with no sidecar to dial (<a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">hybrid</span></code> also does not degrade the way semantic search does. A query against a sidecar that is not there is reported as <em>search is down</em>, deliberately, so that the agent cannot read an outage as “nothing matched”.</p>
+<p><strong>Configuration:</strong></p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ariel</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">search_modules</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">hybrid</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">      </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">rerank</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># default</span>
+<span class="w">        </span><span class="nt">candidate_limit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">40</span><span class="w">   </span><span class="c1"># default</span>
+</pre></div>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>The knobs <strong>must</strong> stay under <code class="docutils literal notranslate"><span class="pre">settings:</span></code>. ARIEL’s search-config loader keeps only <code class="docutils literal notranslate"><span class="pre">enabled</span></code>, <code class="docutils literal notranslate"><span class="pre">provider</span></code>, <code class="docutils literal notranslate"><span class="pre">model</span></code> and <code class="docutils literal notranslate"><span class="pre">settings</span></code>, and drops every other key without a word. A knob written as a sibling of <code class="docutils literal notranslate"><span class="pre">enabled</span></code> is inert forever — no error, no warning, just the defaults.</p>
+</div>
+<p><strong>The rerank decision.</strong> <code class="docutils literal notranslate"><span class="pre">rerank</span></code> turns on qmd’s LLM reranker, which reorders candidates for quality. It is the single most important knob here, because it is the dominant latency term. Measured against a 134,996-entry logbook:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 40.0%" />
+<col style="width: 30.0%" />
+<col style="width: 30.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Corpus</p></th>
+<th class="head"><p>p95, <code class="docutils literal notranslate"><span class="pre">rerank:</span> <span class="pre">false</span></code></p></th>
+<th class="head"><p>p95, <code class="docutils literal notranslate"><span class="pre">rerank:</span> <span class="pre">true</span></code></p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>135,000 entries</p></td>
+<td><p>811 ms</p></td>
+<td><p>3927 ms</p></td>
+</tr>
+<tr class="row-odd"><td><p>2,000 entries</p></td>
+<td><p>–</p></td>
+<td><p>1587 ms</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>An LLM reviews every candidate before the results come back, which is what makes reranking the dominant term: its cost is dominated by the candidate pool and grows far more slowly than the corpus does, so no logbook is small enough to outrun it. Both surfaces ship with the quality path on.</p>
+<p><strong>One key, both surfaces.</strong> <code class="docutils literal notranslate"><span class="pre">search_modules.hybrid.settings.rerank</span></code> governs the agent-facing <code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code> tool <em>and</em> the web interface’s search panel — and <code class="docutils literal notranslate"><span class="pre">candidate_limit</span></code> likewise. There is no separate panel key. The two surfaces override it differently. The panel’s <strong>Rerank Results</strong> toggle opens showing whatever the deployment configured, and clicking it overrides that value for every search you run from then on, until <strong>Reset</strong> returns the panel to the deployment’s value. On the agent side, <code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code> takes a <code class="docutils literal notranslate"><span class="pre">rerank</span></code> argument that applies to the one call: leave it unset and the tool follows the configured key, pass <code class="docutils literal notranslate"><span class="pre">false</span></code> and that one search takes the fast path and nothing else changes. Set the key itself to <code class="docutils literal notranslate"><span class="pre">false</span></code> only when you want the fast path for every search, on both surfaces. (The OKF bundle is a different key over a different corpus and defaults the other way; see <a class="reference internal" href="../facility-knowledge/okf-bundle.html"><span class="doc">The OKF Bundle</span></a>.)</p>
+<p><strong>What the panel does with a reranked search.</strong> Rather than hold an empty screen for the length of a reranked query, the panel runs it in two phases: it fetches and paints the fast ranking first, under a status line saying the results are being reranked, then replaces them with the reranked ranking under a line saying they were updated. The second response is drawn from a larger candidate pool, so <em>which</em> entries come back can change, not only the order they come back in.</p>
+<p><strong>Reranking is never load-bearing.</strong> A reranked query that fails, for any reason, is retried once without the reranker; the results come back normally, carrying a WARNING diagnostic that says the ranking was not improved. The panel keeps the fast results on screen and says so in its status line. Only a failure of that retry is a failed search.</p>
+<p><code class="docutils literal notranslate"><span class="pre">candidate_limit</span></code> is how many candidates the reranker considers. Lowering it trades recall for latency.</p>
+<p><strong>Filtering is best-effort.</strong> <code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code> ranks the corpus first and applies the date, author and source filters <em>afterwards</em>, to the top of that ranking — not inside the database. A selective filter can therefore return fewer entries than you asked for even when more matching entries exist. Read a short result set as “the ranked window ran out”, not as “there is nothing else”. When a filter has to be exhaustive, use <code class="docutils literal notranslate"><span class="pre">keyword_search</span></code> or <code class="docutils literal notranslate"><span class="pre">sql_query</span></code>, which filter in the database.</p>
+<div class="note admonition">
+<p class="admonition-title">The first reranked query after a sidecar start is slow</p>
+<p>The first query with <code class="docutils literal notranslate"><span class="pre">rerank:</span> <span class="pre">true</span></code> loads a 610 MB model on CPU, and that load commonly runs past the client’s 30-second request timeout. That first query is not lost: it falls back to the non-reranked ordering with a warning, and every query after the model is resident is reranked normally. This is the ordinary first-run experience after starting or restarting the sidecar, not a fault to chase. Run one throwaway query when the sidecar comes up if you want the first real one to be fast.</p>
+</div>
+<div class="note admonition">
+<p class="admonition-title">Known limitation — entry IDs that are not numeric</p>
+<p>qmd normalises the document paths it reports: <code class="docutils literal notranslate"><span class="pre">_</span></code> and <code class="docutils literal notranslate"><span class="pre">%</span></code> both become <code class="docutils literal notranslate"><span class="pre">-</span></code>, runs collapse, and a leading one is dropped. ARIEL rehydrates each hit from the document’s title rather than the reported path, so the entries you get back are correct. But two entry IDs that differ <em>only</em> in characters qmd collapses — <code class="docutils literal notranslate"><span class="pre">beam_current_setpoint</span></code> and <code class="docutils literal notranslate"><span class="pre">beam-current-setpoint</span></code>, say — index as one document, and one of them becomes unreachable through this mode.</p>
+<p>Over the real 134,996-entry ALS logbook the measured collision rate is <strong>0.0000%</strong>: every ALS entry ID is a 4-6 digit decimal string, so no real pair can collide. This matters only for a facility whose entry IDs are not numeric.</p>
+</div>
+</div>
+</div>
+<p><strong>Registering a custom search module:</strong></p>
+<p>To add your own search module, create a Python module that exports <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> (and optionally <code class="docutils literal notranslate"><span class="pre">get_parameter_descriptors()</span></code>), then register it through your application’s registry configuration:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry.helpers</span><span class="w"> </span><span class="kn">import</span> <span class="n">extend_framework_registry</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArielSearchModuleRegistration</span>
+
+<span class="n">app_config</span> <span class="o">=</span> <span class="n">extend_framework_registry</span><span class="p">(</span>
+    <span class="n">ariel_search_modules</span><span class="o">=</span><span class="p">[</span>
+        <span class="n">ArielSearchModuleRegistration</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_search&quot;</span><span class="p">,</span>
+            <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;my_app.search.my_module&quot;</span><span class="p">,</span>
+            <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Custom search module for my facility&quot;</span><span class="p">,</span>
+        <span class="p">),</span>
+    <span class="p">],</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Once registered and enabled in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (<code class="docutils literal notranslate"><span class="pre">search_modules.my_search.enabled:</span> <span class="pre">true</span></code>), the module is routable by name — through <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">search</span> <span class="pre">--mode</span> <span class="pre">my_search</span></code> and through the web interface’s capabilities API — with no change to <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code>. Making it callable by the Osprey agent additionally requires a matching ARIEL MCP tool (contributions welcome). The <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function must return a <code class="docutils literal notranslate"><span class="pre">SearchToolDescriptor</span></code>, whose <code class="docutils literal notranslate"><span class="pre">search_mode</span></code> field is simply the registered module name:</p>
+<p><code class="xref py py-class docutils literal notranslate"><span class="pre">SearchToolDescriptor</span></code> — a frozen dataclass whose key fields are <code class="docutils literal notranslate"><span class="pre">execute</span></code> (the async search function), <code class="docutils literal notranslate"><span class="pre">format_result</span></code> (formats results for agent consumption), and <code class="docutils literal notranslate"><span class="pre">args_schema</span></code> (a Pydantic model for input validation). See the class definition in the source for the full field list.</p>
+<p>Modules may also export <code class="docutils literal notranslate"><span class="pre">get_parameter_descriptors()</span></code> to declare tunable parameters for the frontend capabilities API. Each <code class="xref py py-class docutils literal notranslate"><span class="pre">ParameterDescriptor</span></code> describes a single knob — its name, type, default, range, and UI grouping — so the web interface can render controls dynamically.</p>
+<p><strong>What a module returns.</strong> <code class="docutils literal notranslate"><span class="pre">execute</span></code> may return a plain list of entries, as it always could, or a <code class="docutils literal notranslate"><span class="pre">ModuleOutput(entries,</span> <span class="pre">diagnostics,</span> <span class="pre">expansion)</span></code> when it has something to report alongside them: <code class="docutils literal notranslate"><span class="pre">diagnostics</span></code> for the notices the caller should see (a truncated query, a skipped step), and <code class="docutils literal notranslate"><span class="pre">expansion</span></code> for the <a class="reference internal" href="#vocabulary-expansion"><span class="std std-ref">vocabulary groups</span></a> that actually reached the query it ran. A bare list stays valid and needs no change.</p>
+<p><strong>Opting into the shared query work.</strong> Two descriptor fields, both off by default, let a module receive work the service has already done. Declare neither and the module is called with exactly the arguments it is called with today.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">accepts_expansion</span></code> — set it to <code class="docutils literal notranslate"><span class="pre">True</span></code> and the service passes <code class="docutils literal notranslate"><span class="pre">query_expansion=</span></code> when, and only when, expansion was resolved for that request. The module never sees the <code class="docutils literal notranslate"><span class="pre">expand_query</span></code> request argument itself: whether to expand is settled once, in the service.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">query_parser</span></code> — an optional callable that takes the raw query string and returns a <code class="docutils literal notranslate"><span class="pre">ParsedKeywordQuery</span></code> (search text, field filters, phrases, pattern spans, diagnostics). The service calls it once and hands the result to the module as <code class="docutils literal notranslate"><span class="pre">parsed=</span></code>. Keyword search declares its own <code class="docutils literal notranslate"><span class="pre">parse_keyword_query</span></code> here; a module that wants a different query language supplies its own parser, and one that wants none is never given ARIEL’s.</p></li>
+</ul>
+<div class="outreach admonition">
+<p class="admonition-title">Collaboration Welcome</p>
+<p>If you implement a search module that could benefit other facilities — for example, a structured-metadata search, a time-series correlation search, or a cross-entry linking search — we encourage you to open a pull request so it becomes natively available in Osprey.</p>
+</div>
+</section>
+<section id="vocabulary-expansion-and-pattern-search">
+<span id="vocabulary-expansion"></span><h3>Vocabulary Expansion and Pattern Search<a class="headerlink" href="#vocabulary-expansion-and-pattern-search" title="Link to this heading">#</a></h3>
+<p>Control rooms search in shorthand and write logbook entries in words. A search
+for <code class="docutils literal notranslate"><span class="pre">t/s</span> <span class="pre">the</span> <span class="pre">bpm</span> <span class="pre">offset</span></code> will not find the entry that says “troubleshoot the
+beam position monitor offset” — stemming clips word endings, it does not know
+that <code class="docutils literal notranslate"><span class="pre">bpm</span></code> and “beam position monitor” are the same thing.</p>
+<p>A <strong>vocabulary</strong> is where a facility says that they are. It is a data file
+listing each concept once: the words your prose uses, and the spellings your
+operators type. Before a search runs, ARIEL rewrites the query using that file,
+so the shorthand spelling reaches the prose spelling and the other way round.
+It is plain dictionary matching — no model, no network call, microseconds —
+and every rewrite is reported back with the results, so a hit that looks
+surprising always arrives with the reason it appeared.</p>
+<p>Nothing is built in. With no vocabulary configured, no query is ever rewritten.
+The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> template ships a twenty-concept example at
+<code class="docutils literal notranslate"><span class="pre">data/ariel/vocabulary.yml</span></code> as a starting point and a format tutorial; it is
+meant to be edited down to what your control room actually says.</p>
+<section id="the-vocabulary-file">
+<h4>The vocabulary file<a class="headerlink" href="#the-vocabulary-file" title="Link to this heading">#</a></h4>
+<p>One top-level key, <code class="docutils literal notranslate"><span class="pre">concepts</span></code>, holding a non-empty list. Each entry has three
+required keys and no others:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">concepts</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">canonical</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">beam position monitor</span><span class="w">   </span><span class="c1"># the words logbook prose uses</span>
+<span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">acronym</span><span class="w">                      </span><span class="c1"># acronym | shorthand</span>
+<span class="w">    </span><span class="nt">forms</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">bpm</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">bpms</span><span class="p p-Indicator">]</span><span class="w">                 </span><span class="c1"># what operators type instead</span>
+
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">canonical</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">troubleshoot</span>
+<span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">shorthand</span>
+<span class="w">    </span><span class="nt">forms</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">ts</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">t/s</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">canonical</span></code></dt><dd><p>Write it exactly as it appears in entry text. It is what a matched form is
+rewritten into. Canonicals must be unique.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">kind</span></code></dt><dd><p><code class="docutils literal notranslate"><span class="pre">acronym</span></code> for a genuine initialism, <code class="docutils literal notranslate"><span class="pre">shorthand</span></code> for a clipped or slang
+spelling of an ordinary word. It selects a direction gate (below).</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">forms</span></code></dt><dd><p>One or more spellings operators type. A form may not repeat its own
+canonical.</p>
+</dd>
+</dl>
+<p>Anything else is refused rather than ignored — an unknown key, a missing
+field, an unknown <code class="docutils literal notranslate"><span class="pre">kind</span></code>, a duplicate canonical, an empty list, a file that is
+not a YAML mapping. The check reports <strong>every</strong> problem in one pass, so a file
+with three mistakes takes one run to fix, not three.</p>
+<p><strong>How text is matched.</strong> The file and the query go through the same rule before
+anything is compared: lowercase; <code class="docutils literal notranslate"><span class="pre">-</span></code> becomes a space (so <code class="docutils literal notranslate"><span class="pre">Beam-Position</span>
+<span class="pre">Monitor</span></code> and <code class="docutils literal notranslate"><span class="pre">beam</span> <span class="pre">position</span> <span class="pre">monitor</span></code> are one phrase); <code class="docutils literal notranslate"><span class="pre">/</span></code> is <strong>kept</strong> (so
+<code class="docutils literal notranslate"><span class="pre">t/s</span></code> and <code class="docutils literal notranslate"><span class="pre">i/o</span></code> stay a single token); runs of whitespace collapse to one.
+Nothing else is stripped, and no stemming happens here — PostgreSQL’s stemmer
+runs afterwards, on the text this produces. Forms match on whole tokens;
+multi-word forms match as phrases, longest first, left to right, and a stretch
+of text that has already matched is never matched again.</p>
+<p><strong>The two direction gates.</strong> Matching a form and adding its canonical is
+<em>always</em> on: type <code class="docutils literal notranslate"><span class="pre">bpm</span></code> and the search also finds “beam position monitor”.
+The reverse direction — spelling the canonical out and <em>also</em> searching the
+short form — is what <code class="docutils literal notranslate"><span class="pre">kind</span></code> gates:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 45.0%" />
+<col style="width: 30.0%" />
+<col style="width: 25.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Setting</p></th>
+<th class="head"><p>Applies to</p></th>
+<th class="head"><p>Default</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.canonical_to_acronym</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">kind:</span> <span class="pre">acronym</span></code> concepts</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.canonical_to_shorthand</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">kind:</span> <span class="pre">shorthand</span></code> concepts</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The defaults are deliberately asymmetric. An initialism means one thing, so a
+search for “beam position monitor” should also reach the entries that wrote
+“BPM”. An ordinary word is not so lucky: expanding “calibration” into <code class="docutils literal notranslate"><span class="pre">cal</span></code>
+pulls in every entry that abbreviated something else that way.</p>
+<p><strong>Forms that mean two things.</strong> Binding one form to two concepts is legal, and a
+query containing it expands to <em>both</em> canonicals rather than picking a winner.
+<code class="docutils literal notranslate"><span class="pre">vocab-check</span></code> warns about it and lists every canonical the form reaches, so
+the widening is a decision you made rather than something you discover from odd
+results. Two other things warn without failing: a form that can never fire
+because a longer form always wins on the same text, and a word PostgreSQL’s
+English text search discards outright, which would make expanding to it match
+nothing.</p>
+</section>
+<section id="what-gets-expanded-and-where">
+<h4>What gets expanded, and where<a class="headerlink" href="#what-gets-expanded-and-where" title="Link to this heading">#</a></h4>
+<p>Expansion runs once, in the search service, before the request reaches a search
+module. What it looks at depends on the mode:</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">keyword</span></code></dt><dd><p>The search terms and quoted phrases only. The values of <code class="docutils literal notranslate"><span class="pre">author:</span></code> and
+<code class="docutils literal notranslate"><span class="pre">date:</span></code> filters are never expanded, and neither is the body of a pattern
+token — <code class="docutils literal notranslate"><span class="pre">author:ts</span> <span class="pre">bpm</span></code> expands <code class="docutils literal notranslate"><span class="pre">bpm</span></code> and leaves the author alone. A
+query carrying explicit boolean operators (<code class="docutils literal notranslate"><span class="pre">AND</span></code>, <code class="docutils literal notranslate"><span class="pre">OR</span></code>, <code class="docutils literal notranslate"><span class="pre">NOT</span></code>) runs
+unexpanded, with an INFO diagnostic saying so: that query syntax cannot group
+the alternatives. Keyword queries are also truncated at 1,000 characters, so
+a form past that point is not seen.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">semantic</span></code> and <code class="docutils literal notranslate"><span class="pre">hybrid</span></code></dt><dd><p>The whole query, because the whole query is what gets embedded or sent to the
+sidecar.</p>
+</dd>
+</dl>
+<p>The same query can therefore report different expansions in different modes.
+<code class="docutils literal notranslate"><span class="pre">expand_modes</span></code> limits which modes expand at all; unset — the default —
+means every enabled search module.</p>
+<div class="note admonition">
+<p class="admonition-title">Hybrid feeds the expanded query to a reranker</p>
+<p><code class="docutils literal notranslate"><span class="pre">hybrid</span></code> hands its query to the qmd sidecar’s LLM reranker, so expansion
+changes what the reranker sees and can change the order of the results, not
+only which ones come back. If your reranked ordering gets worse with
+expansion on, drop that one mode rather than the feature:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ariel</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">vocabulary</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">expand_modes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">keyword</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">semantic</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+</div>
+</section>
+<section id="turning-expansion-off-for-a-deployment-or-for-one-search">
+<h4>Turning expansion off, for a deployment or for one search<a class="headerlink" href="#turning-expansion-off-for-a-deployment-or-for-one-search" title="Link to this heading">#</a></h4>
+<p><code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.enabled:</span> <span class="pre">false</span></code> switches the whole thing off: nothing is
+read, and a stale <code class="docutils literal notranslate"><span class="pre">path</span></code> left behind is inert rather than a startup failure.</p>
+<p>For a single search, every surface takes an <code class="docutils literal notranslate"><span class="pre">expand_query</span></code> argument — the
+<strong>Expand vocabulary</strong> toggle in the web interface’s advanced options, and an
+argument on the <code class="docutils literal notranslate"><span class="pre">keyword_search</span></code>, <code class="docutils literal notranslate"><span class="pre">semantic_search</span></code> and <code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code>
+MCP tools. Leave it unset and it follows <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.expand_by_default</span></code>;
+pass <code class="docutils literal notranslate"><span class="pre">false</span></code> and that one search runs on exactly the words you typed, with no
+expansions reported. It is the switch to reach for when you want to see what a
+query finds on its own, and the Osprey agent can use it the same way when a
+rewrite looks like it widened a search too far. With the vocabulary disabled the
+toggle is not advertised at all and the argument does nothing.</p>
+</section>
+<section id="what-you-see-when-a-query-expands">
+<h4>What you see when a query expands<a class="headerlink" href="#what-you-see-when-a-query-expands" title="Link to this heading">#</a></h4>
+<p>Results carry an <code class="docutils literal notranslate"><span class="pre">expanded_terms</span></code> list — one entry per rewritten span, each
+pairing the matched span, as normalized, with the terms that were added:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">[{</span><span class="nt">&quot;original&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ts&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;alternatives&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;troubleshoot&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;timing system&quot;</span><span class="p">]}]</span>
+</pre></div>
+</div>
+<p>It reports only what the search actually used: a mode that skipped expansion, or
+a request that turned it off, reports an empty list. In the web interface the
+pairs render as a strip above the results in expert mode. The MCP tools carry
+the same list in their result envelopes, and <code class="docutils literal notranslate"><span class="pre">keyword_search</span></code> and
+<code class="docutils literal notranslate"><span class="pre">semantic_search</span></code> also carry <code class="docutils literal notranslate"><span class="pre">diagnostics</span></code> — the notices explaining a
+truncated query, a skipped expansion, or a pattern searched as text.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">search</span></code> does not print the expansion — use the panel or an MCP
+tool to see it.</p>
+</section>
+<section id="pattern-tokens-in-keyword-search">
+<h4>Pattern tokens in keyword search<a class="headerlink" href="#pattern-tokens-in-keyword-search" title="Link to this heading">#</a></h4>
+<p>Keyword search accepts two ways of writing a control-system name you only partly
+know. A glob is matched at word boundaries; an explicit <code class="docutils literal notranslate"><span class="pre">/…/</span></code> regular
+expression matches anywhere in the entry text unless you anchor it yourself.
+Both are case-insensitive, and both work alongside expansion in the same query.</p>
+<p><strong>Globs.</strong> A token is a glob only if it contains <code class="docutils literal notranslate"><span class="pre">*</span></code>. Inside such a token
+<code class="docutils literal notranslate"><span class="pre">?</span></code> matches a single character; on its own it is ordinary text, so
+<code class="docutils literal notranslate"><span class="pre">did</span> <span class="pre">the</span> <span class="pre">BPM</span> <span class="pre">trip?</span></code> and <code class="docutils literal notranslate"><span class="pre">SR01C___BPM?</span></code> are just words.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>SR01C___BPM*     matches SR01C___BPM3 and bare SR01C___BPM, not XSR01C___BPM3
+SR0?C___BPM*     matches SR01C___BPM3 and SR02C___BPM, not SR011C___BPM3
+</pre></div>
+</div>
+<p><strong>Explicit regular expressions.</strong> A <code class="docutils literal notranslate"><span class="pre">/…/</span></code> token is a PostgreSQL regular
+expression. The slashes must start and end a whole token, which is what keeps a
+slash <em>inside</em> a word from opening one — <code class="docutils literal notranslate"><span class="pre">t/s</span></code> and <code class="docutils literal notranslate"><span class="pre">i/o</span></code> stay shorthand.
+Spaces and escaped slashes are allowed inside the body, so <code class="docutils literal notranslate"><span class="pre">/beam</span> <span class="pre">loss/</span></code> is
+one pattern.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/SR0[1-4]C___BPM\d+/       one pattern
+t/s /SR0[1-4]C___BPM\d+/   one pattern, plus the t/s expansion
+</pre></div>
+</div>
+<p>One trailing <code class="docutils literal notranslate"><span class="pre">?</span></code> is stripped from the query before patterns are read, so
+asking <code class="docutils literal notranslate"><span class="pre">/SR0[1-4]C___BPM\d+/?</span></code> as a question still works; a <code class="docutils literal notranslate"><span class="pre">?</span></code> <em>inside</em> the
+body is left alone (<code class="docutils literal notranslate"><span class="pre">/BPMs?/</span></code> keeps it).</p>
+<p><strong>A pattern that is too generic is searched as text.</strong> A pattern needs at least
+three consecutive literal characters to use the trigram index; below that it
+would scan the whole logbook. Such a token is neither rejected nor dropped — it
+goes back into the query as ordinary search text (a rejected <code class="docutils literal notranslate"><span class="pre">/…/</span></code> contributes
+the words of its body, without the slashes), and the search says so in its
+diagnostics. That is why <code class="docutils literal notranslate"><span class="pre">test</span> <span class="pre">UNION</span> <span class="pre">SELECT</span> <span class="pre">*</span> <span class="pre">FROM</span> <span class="pre">users</span> <span class="pre">--</span></code>, <code class="docutils literal notranslate"><span class="pre">5</span> <span class="pre">*</span> <span class="pre">3</span></code> and
+<code class="docutils literal notranslate"><span class="pre">flow</span> <span class="pre">rate</span> <span class="pre">5</span> <span class="pre">/</span> <span class="pre">6</span> <span class="pre">/</span> <span class="pre">7</span></code> produce no pattern at all. The one exception is an empty
+pattern (<code class="docutils literal notranslate"><span class="pre">//</span></code>), which is ignored outright with an INFO notice.</p>
+<p><strong>When a pattern is too slow, you are told.</strong> A pattern query runs under
+<code class="docutils literal notranslate"><span class="pre">pattern_timeout_seconds</span></code>; an ordinary keyword search never opens that
+envelope. On expiry the search returns a timeout diagnostic — through MCP, a
+<code class="docutils literal notranslate"><span class="pre">search_timeout</span></code> error envelope — rather than an empty result, so the agent
+can tell “too slow” from “nothing matched”. A regular expression PostgreSQL
+cannot compile comes back the same way, as an <code class="docutils literal notranslate"><span class="pre">invalid_pattern</span></code> error naming
+the pattern. Both carry the expansion groups the query was going to use.</p>
+<p>Setting <code class="docutils literal notranslate"><span class="pre">patterns_enabled:</span> <span class="pre">false</span></code> makes <code class="docutils literal notranslate"><span class="pre">*</span></code> and <code class="docutils literal notranslate"><span class="pre">/…/</span></code> ordinary words again
+— the escape hatch for a logbook whose prose is full of literal asterisks.</p>
+</section>
+<section id="configuration">
+<h4>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">#</a></h4>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ariel</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">vocabulary</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                       </span><span class="c1"># default: false</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/ariel/vocabulary.yml</span><span class="w">     </span><span class="c1"># required when enabled</span>
+<span class="w">    </span><span class="nt">expand_by_default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">             </span><span class="c1"># default: true</span>
+<span class="w">    </span><span class="nt">canonical_to_acronym</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># default: true</span>
+<span class="w">    </span><span class="nt">canonical_to_shorthand</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">       </span><span class="c1"># default: false</span>
+<span class="w">    </span><span class="c1"># expand_modes: [keyword, semantic] # default: every enabled module</span>
+
+<span class="w">  </span><span class="nt">search_modules</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">keyword</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">      </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">patterns_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># default: true</span>
+<span class="w">        </span><span class="nt">pattern_timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span><span class="w">   </span><span class="c1"># default: 10.0</span>
+</pre></div>
+</div>
+<p>A relative <code class="docutils literal notranslate"><span class="pre">path</span></code> resolves against the project root of the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
+that was loaded (the deployment repo, not its <code class="docutils literal notranslate"><span class="pre">build/</span></code> render) — the same
+rule as <code class="docutils literal notranslate"><span class="pre">qmd_export.mirror_path</span></code> and <code class="docutils literal notranslate"><span class="pre">facility_knowledge.bundle_path</span></code> —
+so the panel, the CLI and the MCP server all read the same file no matter
+where the process was started.</p>
+<p><code class="docutils literal notranslate"><span class="pre">enabled:</span> <span class="pre">true</span></code> with no <code class="docutils literal notranslate"><span class="pre">path</span></code>, an <code class="docutils literal notranslate"><span class="pre">expand_modes</span></code> entry naming a module
+that is unknown or not enabled, and a malformed pattern knob are all
+configuration errors that name the offending key. Nothing is quietly defaulted.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>The two keyword knobs <strong>must</strong> stay under <code class="docutils literal notranslate"><span class="pre">settings:</span></code>. ARIEL’s
+search-config loader keeps only <code class="docutils literal notranslate"><span class="pre">enabled</span></code>, <code class="docutils literal notranslate"><span class="pre">provider</span></code>, <code class="docutils literal notranslate"><span class="pre">model</span></code> and
+<code class="docutils literal notranslate"><span class="pre">settings</span></code>, and drops every other key without a word. A knob written as a
+sibling of <code class="docutils literal notranslate"><span class="pre">enabled</span></code> is inert forever — no error, no warning, just the
+defaults.</p>
+</div>
+</section>
+<section id="checking-the-file-and-reading-the-status">
+<h4>Checking the file, and reading the status<a class="headerlink" href="#checking-the-file-and-reading-the-status" title="Link to this heading">#</a></h4>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>vocab-check<span class="w">                            </span><span class="c1"># the configured file</span>
+osprey<span class="w"> </span>ariel<span class="w"> </span>vocab-check<span class="w"> </span>data/ariel/vocabulary.yml<span class="w">  </span><span class="c1"># any file</span>
+osprey<span class="w"> </span>ariel<span class="w"> </span>vocab-check<span class="w"> </span>--json<span class="w">                     </span><span class="c1"># one JSON document</span>
+</pre></div>
+</div>
+<p>Neither this command nor the vocabulary line of <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> needs a
+database. <code class="docutils literal notranslate"><span class="pre">vocab-check</span></code> exits <code class="docutils literal notranslate"><span class="pre">0</span></code> when the file loads and <code class="docutils literal notranslate"><span class="pre">1</span></code> when it does
+not, listing every error it found. Warnings are printed either way and never
+fail the check.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> reports one line — <code class="docutils literal notranslate"><span class="pre">Vocabulary:</span> <span class="pre">OK</span> <span class="pre">(20</span> <span class="pre">concepts)</span></code>,
+<code class="docutils literal notranslate"><span class="pre">Vocabulary:</span> <span class="pre">INVALID</span> <span class="pre">(1</span> <span class="pre">errors).</span> <span class="pre">Run:</span> <span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">vocab-check</span></code>, or
+<code class="docutils literal notranslate"><span class="pre">Vocabulary:</span> <span class="pre">disabled</span></code> — and its <code class="docutils literal notranslate"><span class="pre">--json</span></code> output carries the same verdict
+under <code class="docutils literal notranslate"><span class="pre">vocabulary</span></code>. Run <code class="docutils literal notranslate"><span class="pre">vocab-check</span></code> on every edit, before you deploy: the
+file is read once, when the configuration is parsed, so a mistake in it is a
+startup problem rather than a search that quietly stops expanding.</p>
+</section>
+<section id="when-the-vocabulary-is-broken">
+<h4>When the vocabulary is broken<a class="headerlink" href="#when-the-vocabulary-is-broken" title="Link to this heading">#</a></h4>
+<p>A vocabulary that cannot be loaded takes search down, loudly, and leaves
+everything else running:</p>
+<ul class="simple">
+<li><p>The web panel starts in <strong>CONFIGURATION INVALID</strong> mode. A banner names the
+errors and the fix, and the search form is disabled — it does not look like
+a search that found nothing.</p></li>
+<li><p>A search request returns <code class="docutils literal notranslate"><span class="pre">503</span></code> naming <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.path</span></code>, not a
+generic failure.</p></li>
+<li><p>Browsing entries, status and publishing keep working, and so does the settings
+editor — which is the point: you can set <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.enabled:</span> <span class="pre">false</span></code>
+or repoint <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.path</span></code> from the panel itself, then restart.</p></li>
+<li><p>The MCP server refuses to start, naming the same key, so the Osprey agent
+never gets a half-working search.</p></li>
+</ul>
+<p>If the broken file is baked into a deployed image, the panel’s editor cannot
+reach it: <code class="docutils literal notranslate"><span class="pre">vocabulary.yml</span></code> ships inside the image, like the channel databases.
+Fix the file in the project source, then re-run the build and deploy again.</p>
+<div class="note admonition">
+<p class="admonition-title">What expansion does not do</p>
+<ul class="simple">
+<li><p><strong>Forms are literal text.</strong> A form cannot be a regular expression or a
+wildcard; write out the spellings you want matched.</p></li>
+<li><p><strong>No fuzzy matching.</strong> A misspelled form is simply not a form. (Keyword
+search’s own trigram fallback still applies to the query as a whole.)</p></li>
+<li><p><strong>No disambiguation by context.</strong> A form bound to two concepts always
+expands to both. Split the forms (<code class="docutils literal notranslate"><span class="pre">t/s</span></code> versus <code class="docutils literal notranslate"><span class="pre">ts</span></code>) or drop a binding
+if that is too wide.</p></li>
+<li><p><strong>Boolean keyword queries are never expanded</strong> — the syntax cannot group
+the alternatives.</p></li>
+<li><p><strong>Pattern matches are not highlighted.</strong> Result highlights come from
+full-text search; a pattern match contributes none.</p></li>
+<li><p><strong>The vocabulary is not editable from the panel.</strong> It is project data, not
+a runtime setting: edit it in the source and redeploy.</p></li>
+</ul>
+</div>
+</section>
+</section>
+<section id="choosing-between-semantic-and-hybrid">
+<span id="choosing-semantic-or-hybrid"></span><h3>Choosing Between Semantic and Hybrid<a class="headerlink" href="#choosing-between-semantic-and-hybrid" title="Link to this heading">#</a></h3>
+<p>Both modes retrieve by meaning rather than by matching words, and a deployment
+can run either, both, or neither. They differ in what they depend on, what they
+cost per query, and how much of their ranking you can inspect.</p>
+<p><code class="docutils literal notranslate"><span class="pre">hybrid</span></code> is the stronger default for most deployments. It combines BM25 with
+vector search and an LLM reranker, and its models ship inside the qmd sidecar’s
+image, so it needs no embedding provider on the host and no pgvector extension
+in the logbook database. It is also the mode the shipped templates set as
+<code class="docutils literal notranslate"><span class="pre">default_search_mode</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">semantic</span></code> is worth keeping — or choosing — when any of the following applies:</p>
+<ul class="simple">
+<li><p><strong>You want a stronger embedding model than the sidecar bakes in.</strong> <code class="docutils literal notranslate"><span class="pre">semantic</span></code>
+takes its embeddings from a configured provider, so a facility with its own
+inference endpoint can point it at a far larger model than the 300M embedder
+qmd ships.</p></li>
+<li><p><strong>You need the ranking to be inspectable.</strong> <code class="docutils literal notranslate"><span class="pre">semantic</span></code> is cosine distance
+over a pgvector column and nothing else — no reranker. It does apply
+deterministic <a class="reference internal" href="#vocabulary-expansion"><span class="std std-ref">vocabulary expansion</span></a> when one is
+configured, and reports every term it added; drop <code class="docutils literal notranslate"><span class="pre">semantic</span></code> from
+<code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.expand_modes</span></code> for the pure path. Any result can then be
+explained with a single SQL query, which matters where retrieval has to be
+auditable.</p></li>
+<li><p><strong>You want it composable with structured filters.</strong> The embeddings live in
+<code class="docutils literal notranslate"><span class="pre">text_embeddings_*</span></code> tables in the logbook database, so they join against
+ordinary columns and are reachable from the <code class="docutils literal notranslate"><span class="pre">sql_query</span></code> tool. <code class="docutils literal notranslate"><span class="pre">hybrid</span></code>
+ranks a markdown mirror and post-filters instead.</p></li>
+<li><p><strong>Query latency matters more than ranking quality.</strong> Reranking dominates a
+hybrid query’s cost; a pure vector lookup is the fast path. (<code class="docutils literal notranslate"><span class="pre">hybrid</span></code> can
+also be run with <code class="docutils literal notranslate"><span class="pre">rerank:</span> <span class="pre">false</span></code>.)</p></li>
+</ul>
+<p>Running both is a reasonable configuration: they are independent modules, and
+<code class="docutils literal notranslate"><span class="pre">default_search_mode</span></code> decides only which one answers when the caller names no
+mode.</p>
+<p>Need behavior beyond these search modules — multi-step reasoning, answer
+synthesis, custom prompting? That lives in the Osprey agent layer; see
+<a class="reference internal" href="../../reference/contracts/ariel.html"><span class="doc">ARIEL Contracts</span></a> under “Extending the integration.”</p>
+</section>
+<section id="see-also">
+<h3>See Also<a class="headerlink" href="#see-also" title="Link to this heading">#</a></h3>
+<dl class="simple">
+<dt><a class="reference internal" href="data-ingestion.html"><span class="doc">Data Ingestion</span></a></dt><dd><p>How data gets into the system — facility adapters, enhancement modules, and database schema</p>
+</dd>
+<dt><a class="reference internal" href="../../reference/contracts/ariel.html"><span class="doc">ARIEL Contracts</span></a></dt><dd><p>MCP tools, service factory, and search result structure</p>
+</dd>
+<dt><a class="reference internal" href="web-interface.html"><span class="doc">Web Interface</span></a></dt><dd><p>Web interface architecture and capabilities API</p>
+</dd>
+<dt><a class="reference internal" href="../../architecture/retrieval-paths.html#retrieval-paths"><span class="std std-ref">Retrieval Paths</span></a></dt><dd><p>How these modes relate to OSPREY’s other retrieval stacks, and which of them
+need an embedding provider reachable at query time</p>
+</dd>
+</dl>
+</section>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="data-ingestion.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Data Ingestion</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="web-interface.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Web Interface</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#search-architecture">Search Architecture</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#search-modules">Search Modules</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#vocabulary-expansion-and-pattern-search">Vocabulary Expansion and Pattern Search</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#the-vocabulary-file">The vocabulary file</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#what-gets-expanded-and-where">What gets expanded, and where</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#turning-expansion-off-for-a-deployment-or-for-one-search">Turning expansion off, for a deployment or for one search</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#what-you-see-when-a-query-expands">What you see when a query expands</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#pattern-tokens-in-keyword-search">Pattern tokens in keyword search</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#checking-the-file-and-reading-the-status">Checking the file, and reading the status</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#when-the-vocabulary-is-broken">When the vocabulary is broken</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#choosing-between-semantic-and-hybrid">Choosing Between Semantic and Hybrid</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See Also</a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/ariel/search-modes.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

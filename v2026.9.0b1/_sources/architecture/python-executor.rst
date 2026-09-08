@@ -1,0 +1,436 @@
+.. _architecture-python-executor:
+
+===============
+Python Executor
+===============
+
+The Python Execution Service runs user-provided code in a separate host
+subprocess with layered safety checks, a process boundary, and timeout
+enforcement. It is a process boundary on the host, not a sandbox or container:
+the code runs with the executor's own environment (from which sensitive
+credentials are stripped), not inside an isolated machine. Code it runs can
+write anywhere the executor process can, apart from the deployment's own
+sources and render --- see :ref:`python-executor-protected-paths`, which also
+says plainly how far that protection goes.
+The Osprey agent uses it via the ``execute`` MCP tool to perform data analysis,
+plotting, and control-system interactions on behalf of the operator.
+
+What It Does
+============
+
+The service accepts Python source code, applies layered safety checks, and
+runs it as a **subprocess** on the host (``ExecutionWrapper``).
+Results---stdout, stderr, figures, and saved artifacts---are returned as
+structured JSON.
+
+.. raw:: html
+   :file: ../_diagrams/python-executor.html
+
+Executed code can import whatever is installed in the project's environment;
+see :ref:`executor-environment` for how to find out what that is.
+A ``save_artifact(obj, title="Untitled", description="", artifact_type=None, category="")``
+helper is injected into the subprocess namespace for saving objects to the
+artifact gallery. The ``artifact_type`` parameter overrides automatic type
+detection (e.g., ``"figure"``, ``"dataframe"``); ``category`` is a free-form
+grouping label used by the gallery UI.
+
+The ``execute`` and ``execute_file`` tool parameters and the JSON they return
+are documented in :doc:`/reference/contracts/python-executor`.
+
+Where Code Runs
+===============
+
+Agent-authored Python runs as a subprocess on the same host as the Osprey
+agent. It is the only execution backend, so there is nothing to choose
+between:
+
+.. code-block:: yaml
+
+   # config.yml
+   execution:
+     execution_method: subprocess
+
+``subprocess`` is the default and the key can be left out entirely. Two other
+spellings load: ``local`` is an alias for this same backend and is accepted
+silently, and ``container`` is treated as ``subprocess`` and logs a one-time
+warning naming the config file it came from. Any other value is a
+configuration error.
+
+The ``ExecutionWrapper`` wraps user code with safety monkeypatches (e.g.
+``epics.caput()`` validation against the limits database), writes the wrapped
+script to an execution folder, and runs it. The subprocess working directory is
+set to the project root so that relative workspace paths (e.g.
+``_agent_data/data/002_archiver_read.json``) resolve correctly.
+
+.. _executor-environment:
+
+The Execution Environment
+=========================
+
+Executed code runs in the project's own virtual environment
+(``<project>/.venv``) when the project has one, and otherwise in the
+interpreter running Osprey. ``config.yml`` records no interpreter path and
+offers no setting to point execution somewhere else --- which environment
+exists is decided when the project is built, from the build profile's
+``environment:`` block (see :doc:`/how-to/build-profiles`).
+
+Anything installed in that environment is importable by executed code:
+
+.. code-block:: bash
+
+   cd my-project
+   uv pip list             # what executed code can import
+   uv pip install lmfit    # importable by the next execution
+
+The description the agent sees for the ``execute`` tool is generated from this
+environment rather than from a fixed list, so the agent is told what is really
+installed. It is computed once when the MCP server starts: a package installed
+mid-session is importable straight away, but the agent will not know about it
+until the next session. If the environment cannot be read at startup, the
+description names no packages at all instead of guessing.
+
+A container image built from the project installs the same package set as the
+project's own environment, so executed code sees the same imports either way.
+
+Security Model
+==============
+
+Nine safety layers are applied in sequence:
+
+1. **Static safety check** (``quick_safety_check``)---blocks dangerous
+   patterns such as dynamic code evaluation, dynamic imports, and
+   ``subprocess`` calls before execution begins.
+
+2. **Protected-path policy** (``path_policy_issues``)---reads the submitted
+   source and refuses code that aims a write at the deployment's own
+   sources or render. Applied in **every** execution mode; see
+   :ref:`python-executor-protected-paths`.
+
+3. **Readonly import denylist** (``check_readonly_imports``)---a
+   ``readonly`` run may not import control-system client libraries
+   (``epics``, ``epicscorelibs``, ``aioca``, ``p4p``, ``caproto``,
+   ``pvaccess``, ``tango``, ``doocs4py``) at all. Reads go through
+   ``read_channel()``. The list is derived from the client half of the write
+   surface below, so a client added there is denied at import in the same
+   change.
+
+4. **Control-system pattern detection**
+   (``detect_control_system_operations``)---identifies read and write
+   patterns. In ``readonly`` mode, detected writes cause immediate
+   rejection.
+
+5. **Readonly runtime guard**---the declared mode is exported into the
+   subprocess as ``OSPREY_EXECUTION_MODE``. In a ``readonly`` run every
+   entry point listed under :ref:`python-executor-write-surface` is
+   replaced with a refusing function, the connectors refuse
+   ``write_channel``, and the EPICS connector stays on the ``read_only``
+   gateway --- so a write is refused at runtime and at the network layer
+   however it is spelled.
+
+6. **Filesystem guard**---the runtime half of layer 2, patched into the
+   subprocess so it also sees paths the source did not spell out. Emitted
+   in **every** execution mode.
+
+7. **Limits monkeypatch** (``ExecutionWrapper`` /
+   ``LimitsValidator``)---at runtime, a write this build knows how to
+   intercept is checked against the channel limits database before it
+   leaves, and an out-of-range value never reaches the machine. That covers
+   pyepics, aioca, pvaPy, all four p4p clients including the raw one
+   underneath them, caproto's ``sync.client.write`` and threading
+   ``PV.write``, Tango attribute writes and DOOCS. A structured payload is
+   checked on the number it carries; a p4p payload written as JSON is
+   decoded first, ``bytes`` included --- which p4p itself would not decode,
+   so such a write is checked on the number it *would* become rather than
+   waved through for not looking like one.
+
+   Writes that cannot be checked are refused outright instead, in range or
+   not: p4p's ``rpc``, a p4p value passed as a builder callback, pvaPy's
+   ``parsePut``/``parsePutGet``, Tango commands---on ``DeviceProxy`` and on
+   the ``Connection`` class that defines them---and every Tango ``Group``
+   write, which fans one value out to many devices with no single channel
+   to bound it under.
+
+   A few routes are neither checked nor refused: Tango's asynchronous and
+   read-write attribute spellings, ``AttributeProxy`` writes, caproto's
+   ``Batch``, asyncio and ``read_write_read`` writes, and the ctypes
+   binding underneath aioca, ``epicscorelibs.ca.cadef.ca_array_put``. The
+   code names the first group ``_LIMITS_NOT_YET_WRAPPED`` and the ctypes
+   binding ``_LIMITS_UNWRAPPABLE``, rather than leaving the gap
+   implicit---a ``readwrite`` run reaches hardware through any of them
+   without passing the limits database, while a ``readonly`` run refuses
+   them like everything else.
+
+8. **Process isolation**---code always runs in a separate subprocess, never
+   inside the MCP server process.
+
+9. **Execution timeout**---configurable via
+   ``python_executor.execution_timeout_seconds`` (default 600 s). The
+   process is killed if it exceeds the limit.
+
+.. code-block:: yaml
+
+   python_executor:
+     execution_timeout_seconds: 300
+
+.. _python-executor-write-surface:
+
+What counts as a control-system write
+-------------------------------------
+
+A ``readonly`` run refuses all of the following. The list is generated from
+one table in the code (``services/python_executor/write_surface.py``), so
+adding a library there is all it takes to enforce it --- the runtime guard,
+the import denylist and this page all read that one table.
+
+**Approved API** --- the path everything should use:
+
+- ``write_channel()`` / ``write_channels()`` from ``osprey.runtime``, and
+  ``connector.write_channel()`` beneath them.
+
+**Control-system clients**, refused whether they are imported, aliased, or
+resolved dynamically:
+
+- **pyepics** --- ``caput``, ``caput_many``, ``PV.put``, ``ca.put``
+- **aioca** --- ``caput``. Every OSPREY environment carries it: it is the
+  Channel Access backend of ``ophyd-async[ca]``
+- **epicscorelibs** --- ``ca.cadef.ca_array_put`` and
+  ``ca_array_put_callback``, the ctypes binding aioca loads ``libca``
+  through
+- **p4p** --- ``Context.put``/``rpc`` for the raw, thread, asyncio and
+  cothread clients; ``SharedPV.post``/``open`` on the server side
+- **caproto** --- ``sync.client.write`` and ``sync.client.read_write_read``,
+  ``threading.client.PV.write``, ``Batch.write``, ``asyncio.client.PV.write``
+- **pvaPy** --- every ``Channel.put*`` method, including the typed setters
+  such as ``putDouble`` and ``putScalarArray``, and ``asyncPut``,
+  ``parsePut`` and ``parsePutGet`` alongside them
+- **doocs4py** --- ``set``, the call the DOOCS connector writes through
+- **Tango** --- ``DeviceProxy.write_attribute`` and its variants,
+  ``AttributeProxy.write``, ``Group`` attribute writes, and ``command_inout``
+  (a Tango command acts on the device rather than reading it), refused on the
+  ``Connection`` base that defines it as well as on ``DeviceProxy``
+
+**Acquisition frameworks.** These drive hardware through a client below them,
+so their write entry points refuse --- but they are also ordinary document and
+analysis libraries, so *importing* them stays allowed in a ``readonly`` run:
+
+- **ophyd-async** --- ``SignalW.set`` / ``SignalRW.set``, and ``SignalX``
+  execution
+- **Bluesky** --- ``RunEngine.__call__``, which is how a plan is run
+
+**Routes out of Python.** These reach a control system without importing a
+client at all, so they are refused in ``readonly`` runs too:
+
+- Starting a process --- ``subprocess.run``/``Popen``/``call``/
+  ``check_output``, ``os.system``, ``os.popen``, and the ``os.exec*``,
+  ``os.spawn*`` and ``posix_spawn`` families. This is what stops a
+  shelled-out ``caput``.
+- Loading a shared library --- ``ctypes.CDLL`` and friends, which could
+  otherwise open ``libca`` directly.
+
+``os.fork`` is deliberately left working: forking alone cannot start a new
+program, and the ``exec`` half of every fork-and-exec is already refused.
+
+.. note::
+
+   The consequence of the second group is that a ``readonly`` script cannot
+   shell out or load a shared library *at all*, even for something unrelated
+   to the control system. ``readwrite`` is not a way around it: ``import
+   subprocess`` is refused before execution in **every** mode, by the
+   prohibited-import check. Work that genuinely needs a child process belongs
+   outside the executor.
+
+.. _python-executor-protected-paths:
+
+What executed code may not change
+---------------------------------
+
+Refusing control-system writes is one boundary; this is a different one. Whatever
+mode a run is submitted in, it may not rewrite the deployment that runs it.
+Three locations are protected:
+
+- **The render zone** (``build/``) --- rebuilt wholesale by every
+  ``osprey build``, and the rendered ``config.yml`` inside it is where the next
+  run reads its own permissions from. A write here is either lost at the next
+  build or, worse, survives as a rendered setting nobody wrote.
+- **The profile sources** --- what the build reads to produce that render:
+  ``profile.yml`` (with ``triggers.yml``, ``ci-extra.yml`` and
+  ``osprey.service`` beside it), the ``personas/``,
+  ``profiles/``, ``data/`` and ``scripts/`` directories, the convention
+  directories (``rules/``, ``skills/``, ``agents/``, ``commands/``,
+  ``output-styles/``, ``hooks/``, ``web-terminal-context/``, ``mcp_servers/``,
+  ``services/``) and the ``project/`` mirror.
+- **The audit ledger** (``var/audit/``) --- the record of what was refused. A
+  run that could rewrite it could erase the evidence of its own refusal.
+
+A protected entry that does not exist yet is protected all the same: in a repo
+with no ``personas/`` directory, creating one is exactly the write to refuse.
+
+This boundary is about *zones* — whole trees, wherever inside them a path lands.
+A companion boundary, :ref:`the protected set <config-protected-set>`, closes
+named files and config keys to every agent-side writer (the settings panels,
+the galleries, the ``setup_patch`` tool) rather than to executed code.
+
+The agent's own data zone (``var/agent_data/``) and the run's execution folder
+are carved back out, so analysis output, figures and saved artifacts keep
+working normally --- as does everything else on disk the executor process can
+reach.
+
+**Both modes, same answer.** ``readwrite`` buys a run human approval to move a
+magnet; it buys no approval to rewrite ``profile.yml``. Only the wording of the
+refusal changes --- a ``readonly`` run is told the mode, a ``readwrite`` run is
+told the path --- and re-running as ``readwrite`` never lifts it. To change any
+of these, edit the profile source yourself and run ``osprey build``.
+
+``.env`` is deliberately **not** in this set. What matters about the secrets
+zone is that executed code should not *read* it, and this is a write-side
+guard; listing the path here would advertise it while protecting nothing that
+matters. Read that omission as "a different problem, not yet solved", not as a
+verdict that ``.env`` is safe for executed code to touch.
+
+Two layers enforce the set:
+
+1. **Before the run.** The submitted source is walked for write calls ---
+   ``open()`` in a write mode, ``Path.write_text``/``Path.open``, the
+   ``shutil`` copy/move/remove family, ``os.remove``/``rename``/``mkdir`` and
+   friends --- and any whose path is written out as a literal landing inside a
+   protected location is refused before anything is spawned, so the agent gets
+   a readable message instead of a traceback. A path the code computes at
+   runtime is deliberately *not* guessed at here; it is left to layer 2.
+   The same pass refuses code that names the runtime guard's own internals,
+   which is the one thing that guard cannot police for itself.
+
+2. **During the run.** A guard is emitted into the subprocess, ahead of the
+   submitted code, that intercepts the filesystem entry points (``open``,
+   ``io.open``, ``os.open``, ``os.truncate``, ``os.remove``, ``os.unlink``,
+   ``os.rmdir``, ``os.removedirs``, ``os.rename``, ``os.replace``,
+   ``os.makedirs``, ``os.mkdir``, ``os.symlink``, ``os.link``, and
+   ``shutil.copy``, ``copy2``, ``copyfile``, ``move`` and ``rmtree``) and
+   raises ``PermissionError`` for a write landing in a protected location,
+   however the path was assembled. The protected locations are resolved by
+   the parent process and baked into the guard as fixed strings; the
+   subprocess never works them out for itself.
+
+.. warning::
+
+   The runtime guard is **defense in depth, not a security boundary.** It runs
+   inside the same process as the code it is guarding, so code written to
+   defeat it can simply switch it off --- nothing placed *inside* a process can
+   be hidden from that process. What the guard reliably stops is the honest
+   miss: the computed or concatenated path the pre-run pass cannot see, and the
+   everyday accident of writing output one directory too high.
+
+   What contains code that is deliberately attacking this boundary is the
+   operating system. In a container deployment the render zone and the profile
+   sources are owned by a different user than the one the agent runs as, so the
+   refusal is the kernel's rather than Python's. On a bare host, treat the
+   guard as a safety net and not as a wall.
+
+.. note::
+
+   The workspace server's visualization sandbox is built from the same guard
+   with the verdict inverted --- nothing is reachable unless a directory says
+   so. It intercepts only ``open`` and ``io.open``, and ``io.open`` for write
+   modes alone: CPython routes ``pathlib`` through it, so guarding reads there
+   would change what plotting code is allowed to *read* today.
+
+.. _python-executor-session-posture:
+
+Write posture
+-------------
+
+An operator can turn writes off on one control target from the control-target
+chip in the header (see :ref:`web-terminal-session-posture`). The setting is
+the deployment's, not one conversation's. This server reads it at the moment a
+run asks for writes --- not from the environment it was started with, so a
+change made mid-conversation applies to the next run --- and a ``readwrite``
+``execute`` on such a target is refused by the executor's own posture gate,
+whatever the deployment itself permits:
+
+   Writes are off for the '<target>' control target --- turned off from the
+   control-target chip in the header; applies deployment-wide.
+
+Where the run's target cannot be identified, the most restrictive state
+recorded for the deployment decides, and the message says so --- *"Writes are off
+for at least one control target (the run's target could not be identified, so
+the most restrictive decides) --- turned off from the control-target chip in
+the header."* --- rather than granting the run the most permissive answer.
+
+The agent is told to re-run as ``readonly`` --- reads are untouched --- or to
+turn writes back on from the chip. The deployment's ``config.yml`` is not the
+gate here and the message says so.
+
+A run that has already started cannot be *widened*: it keeps the launch pin it
+started under, so a script cannot gain write access to a machine the operator
+took away from it while it was running. A narrowing that lands mid-run is
+honoured by the reference monitor inside the sandbox at the moment of the write.
+
+A run is also refused outright while a control-target switch has not yet
+reached every control-system server. The sandbox is stamped with the target and
+the switch generation it was launched for, and a run that could be routed to
+either of two machines is not launched at all --- the refusal names the servers
+still working, and the run is worth retrying once the chip settles.
+
+When a write is refused
+-----------------------
+
+Three things happen, at whichever layer catches it:
+
+1. The agent gets an error naming the mode and what to do instead.
+2. The operator is alerted --- the Web Terminal reports that a write was
+   attempted and blocked, not merely that a script failed.
+3. The attempt is recorded in the audit trail, at
+   ``var/audit/<identity>/executor.jsonl`` --- one JSON object per line, with a
+   timestamp, who was acting, the write posture in force, the layer that refused
+   (the record's ``reason``), and the offending source kept verbatim. That
+   directory is durable: builds never touch it, and ``osprey reset`` keeps
+   it unless you pass ``--purge-audit``.
+
+The record is filed under the identity that was acting, so on a multi-user
+deployment each person's refusals sit in their own file. The pre-run pass
+records in both execution modes --- the path policy refuses a write into the
+protected set whether the run asked for ``readonly`` or ``readwrite``, and the
+record's ``detail`` says which mode the run was submitted under, so a readwrite
+refusal is never presented as a readonly one.
+
+One case is still deliberately unrecorded: a protected-path write the *runtime*
+guard catches mid-run inside a ``readwrite`` run. The audit path is reached
+through the readonly marker, and carrying that marker in a run approved for
+writes would put "readonly execution mode" in front of the wrong operator. The
+refusal still holds and still reaches the agent, in the run's stderr; the record
+and the operator alert are what is missing.
+
+.. note::
+
+   **This is the one ledger that holds a payload.** Everywhere else OSPREY
+   records identifiers and config keys only --- never a value, a prompt or an
+   agent message. Here the refused code *is* what the record is about, so it is
+   kept whole (up to 8000 characters, flagged as truncated beyond that). Give
+   ``executor.jsonl`` the same care you would give the code itself, and expect
+   it to be the file that grows. See :ref:`the audit trail <reference-audit-trail>`
+   for what the rest of it contains.
+
+.. admonition:: Control system operations in user code
+
+   Python code interacts with control systems using
+   ``osprey.runtime`` utilities (``read_channel()``, ``write_channel()``),
+   not direct connector imports. The execution wrapper configures these
+   automatically from the deployment context, so code works with any
+   connector (EPICS, Mock, etc.) and notebooks remain reproducible.
+
+.. note::
+
+   There is no in-framework code-generation pipeline. The Osprey agent generates
+   Python code itself and invokes the ``execute`` MCP tool directly.
+
+.. note::
+
+   Write approval is handled by the ``execution_mode`` parameter. The Osprey agent
+   requests user confirmation before calling ``execute`` with
+   ``execution_mode="readwrite"``---there is no separate approval API.
+
+.. seealso::
+
+   - :doc:`/reference/contracts/python-executor` --- the ``execute`` and
+     ``execute_file`` tool parameters, return shape, and installation note.
+   - :doc:`/how-to/control-systems/index` --- the control-system tasks that
+     executed code is usually written to perform.

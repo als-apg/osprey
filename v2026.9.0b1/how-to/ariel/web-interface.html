@@ -1,0 +1,874 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Web Interface &#8212; Osprey Framework 2026.9.0b1 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=1819b4a7" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=d680cfb3"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/ariel/web-interface';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.9.0b1';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/ariel/web-interface.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="The Search Sidecar (qmd)" href="search-sidecar.html" />
+    <link rel="prev" title="Search Modes" href="search-modes.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="2026.9.0b1" />
+    <meta name="docbuild:last-update" content="Sep 08, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/project-image.html">The Project Image</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../llm-providers/index.html">LLM Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/login.html">Require a Login</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../agent-interfaces/index.html">Agent Interfaces</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../agent-interfaces/chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Logbook Search Service (ARIEL)</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="search-modes.html">Search Modes</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="standalone-deployment.html">Standalone Deployment</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-plan.html">Run Your First Plan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/queue.html">Plans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/write-plans.html">Write Your Own Plans</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">How-To Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Logbook Search Service (ARIEL)</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Web Interface</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="web-interface">
+<h1>Web Interface<a class="headerlink" href="#web-interface" title="Link to this heading">#</a></h1>
+<p>ARIEL ships with a browser-based search interface that provides the same search capabilities as the CLI in a more approachable form. The interface is a FastAPI application serving a JavaScript single-page application (SPA). It connects to the same <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> as the CLI and the ARIEL MCP tools, so any search module you register is automatically available in the UI.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 304" role="img" aria-labelledby="ariel-web-interface-title ariel-web-interface-desc">
+  <title id="ariel-web-interface-title">ARIEL web interface</title>
+  <desc id="ariel-web-interface-desc">A JavaScript single-page app in the browser talks over a REST API to the FastAPI application, whose endpoints all sit on the same ARIELSearchService the CLI and MCP tools use.</desc>
+  <defs>
+    <marker id="ariel-web-interface-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <text class="te" x="88" y="56">BROWSER · SPA</text>
+  <text class="te" x="568" y="56">SERVER · FASTAPI</text>
+  <!-- arrows -->
+  <line class="e" x1="392" y1="144" x2="568" y2="144" marker-end="url(#ariel-web-interface-arr)"/>
+  <line class="e e-dash" x1="568" y1="192" x2="392" y2="192" marker-end="url(#ariel-web-interface-arr)"/>
+  <rect class="mask" x="452" y="124" width="56" height="12" rx="2"/>
+  <text class="ta" x="480" y="133" text-anchor="middle">REST API</text>
+  <rect class="mask" x="460" y="200" width="40" height="12" rx="2"/>
+  <text class="ta" x="480" y="209" text-anchor="middle">JSON</text>
+  <!-- boxes -->
+  <rect class="mask" x="88" y="72" width="304" height="192" rx="6"/>
+  <rect class="nb" x="88" y="72" width="304" height="192" rx="6"/>
+  <text class="tn" x="240" y="100" text-anchor="middle">single-page app</text>
+  <line class="divider" x1="104" y1="116" x2="376" y2="116"/>
+  <text class="ts" x="104" y="140">index.html</text>
+  <text class="ts" x="104" y="160">js/app.js · js/search.js</text>
+  <text class="ts" x="104" y="180">js/entries.js · js/dashboard.js</text>
+  <text class="ts" x="104" y="200">css/*.css</text>
+  <rect class="mask" x="568" y="72" width="304" height="192" rx="6"/>
+  <rect class="nb" x="568" y="72" width="304" height="192" rx="6"/>
+  <text class="tn" x="720" y="100" text-anchor="middle">create_app()</text>
+  <line class="divider" x1="584" y1="116" x2="856" y2="116"/>
+  <text class="ts" x="584" y="140">/api/capabilities</text>
+  <text class="ts" x="584" y="160">/api/search</text>
+  <text class="ts" x="584" y="180">/api/entries</text>
+  <text class="ts" x="584" y="200">/api/status</text>
+  <text class="ts t-acc" x="584" y="220" style="font-weight:500">ARIELSearchService</text>
+</svg>
+</div>
+<section id="views">
+<h2>Views<a class="headerlink" href="#views" title="Link to this heading">#</a></h2>
+<p>The interface has four views, accessible via the navigation bar. All views are rendered client-side using hash-based routing (<code class="docutils literal notranslate"><span class="pre">#search</span></code>, <code class="docutils literal notranslate"><span class="pre">#browse</span></code>, <code class="docutils literal notranslate"><span class="pre">#create</span></code>, <code class="docutils literal notranslate"><span class="pre">#status</span></code>).</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-0">
+Search</label><div class="sd-tab-content docutils">
+<p>The primary view. A search bar with mode tabs (Keyword, Semantic — only enabled modes are shown) and an expandable advanced options panel. Results display as entry cards with relevance scores and highlights. Press <code class="docutils literal notranslate"><span class="pre">Enter</span></code> to submit a query; searches always include the current advanced options and filters.</p>
+<figure class="align-center" id="id1">
+<a class="reference internal image-reference" href="../../_images/ariel_search.png"><img alt="ARIEL Search View" src="../../_images/ariel_search.png" style="width: 90%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Search view with Keyword mode selected.</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-1">
+Browse</label><div class="sd-tab-content docutils">
+<p>Chronological, paginated listing of logbook entries (newest first) – use Previous/Next to page back through older entries. Each entry shows its timestamp, author, and a text preview. Click an entry to view its full content.</p>
+<figure class="align-center" id="id2">
+<a class="reference internal image-reference" href="../../_images/ariel_browse.png"><img alt="ARIEL Browse View" src="../../_images/ariel_browse.png" style="width: 90%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Browse view showing paginated entries sorted newest-first.</span><a class="headerlink" href="#id2" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+</div>
+<input id="sd-tab-item-2" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-2">
+New Entry</label><div class="sd-tab-content docutils">
+<p>Form for creating new logbook entries directly from the interface. Fields include subject, details, author, logbook, shift, and tags. When the configured logbook adapter is read-only (the common case for the standalone interface), entries are saved locally with <code class="docutils literal notranslate"><span class="pre">source_system:</span> <span class="pre">&quot;ARIEL</span> <span class="pre">Web&quot;</span></code> and a generated <code class="docutils literal notranslate"><span class="pre">entry_id</span></code> of the form <code class="docutils literal notranslate"><span class="pre">ariel-&lt;12-hex&gt;</span></code>. When a write-capable facility adapter is configured, the entry is published to that logbook and takes the facility’s <code class="docutils literal notranslate"><span class="pre">source_system</span></code> and <code class="docutils literal notranslate"><span class="pre">entry_id</span></code>. Created entries are searchable immediately.</p>
+<figure class="align-center" id="id3">
+<a class="reference internal image-reference" href="../../_images/ariel_create.png"><img alt="ARIEL New Entry View" src="../../_images/ariel_create.png" style="width: 90%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">New entry form for creating logbook entries from the web interface.</span><a class="headerlink" href="#id3" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+</div>
+<input id="sd-tab-item-3" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-3">
+Status</label><div class="sd-tab-content docutils">
+<p>Dashboard showing service health, database connection, entry count, embedding tables, enabled modules, and last ingestion timestamp. The dashboard polls <code class="docutils literal notranslate"><span class="pre">/api/status</span></code> on load, making it useful for verifying that the service is configured correctly after deployment.</p>
+<figure class="align-center" id="id4">
+<a class="reference internal image-reference" href="../../_images/ariel_status.png"><img alt="ARIEL Status View" src="../../_images/ariel_status.png" style="width: 90%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Status dashboard showing service health and configuration.</span><a class="headerlink" href="#id4" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+</div>
+</div>
+<p>The four ARIEL views above were captured with OSPREY v2026.6.2.post1352+geab911034.d20260819 from the
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> tutorial’s seeded logbook.</p>
+</section>
+<section id="advanced-options">
+<h2>Advanced Options<a class="headerlink" href="#advanced-options" title="Link to this heading">#</a></h2>
+<p>The <strong>Filters &amp; Options</strong> panel is built from whatever the enabled search
+modules declare, so the controls in it depend on the deployment. Two things
+about how it behaves are worth knowing before you tune anything.</p>
+<p><strong>Every knob shows its own explanation.</strong> The description a module writes for a
+parameter is rendered as a line of hint text under the control, rather than
+hidden behind a hover tooltip — readable on a touch screen, and readable
+without having to discover that there was something to hover over.</p>
+<p><strong>Knobs you have not touched follow the deployment’s configuration.</strong> The panel
+opens on the deployment’s configured value for every control that has one, and
+on the shipped default for the rest; a search sends only the controls you
+actually changed. Anything you left alone is not sent at all, so it resolves on
+the server to whatever the configuration says — which means a change to the
+deployment’s config reaches the panel without anyone re-picking anything, after
+the service restarts and the page is reloaded. <strong>Reset</strong> clears the whole set:
+values return to the configured defaults, and every knob counts as untouched
+again.</p>
+<p>That is also why the reranking control behaves the way it does. <strong>Rerank
+Results</strong> opens showing <code class="docutils literal notranslate"><span class="pre">search_modules.hybrid.settings.rerank</span></code> exactly as the
+deployment set it, and clicking it overrides the configured value for your
+searches from then on, without changing the deployment. <strong>Reset</strong> returns it to
+the deployment’s value. The key itself is described in <a class="reference internal" href="search-modes.html"><span class="doc">Search Modes</span></a>.</p>
+<section id="watching-a-reranked-search-run">
+<h3>Watching a reranked search run<a class="headerlink" href="#watching-a-reranked-search-run" title="Link to this heading">#</a></h3>
+<p>Reranking costs seconds, and the interface does not ask you to spend them
+looking at a spinner. A search that will be reranked runs in two phases: the
+fast ranking is fetched and drawn first, then the reranked ranking replaces it
+when it arrives. A status line above the results says which of the two you are
+looking at. Expert view names the mechanism — <em>Search complete — reranking
+with LLM…</em>, then <em>Results updated after reranking</em>. Simple view says the same
+thing in one plain line — <em>Showing quick results — improving the order
+now…</em>, then <em>Order improved — best matches first</em>.</p>
+<p>The second response is drawn from a larger candidate pool, so entries can appear
+or drop out between the phases: the list is redrawn, not merely reordered.</p>
+<p>If the reranker cannot answer — most often on the first query after the search
+sidecar starts, while its model is still loading — the fast results stay on
+screen under <em>Could not improve the ranking — showing fast results</em>. Nothing
+is lost, and there is nothing to do about it; the next query is normally
+reranked.</p>
+</section>
+</section>
+<section id="display-preferences">
+<h2>Display Preferences<a class="headerlink" href="#display-preferences" title="Link to this heading">#</a></h2>
+<p>The button at the top right of the header — the one drawn as three sliders
+— opens a small card holding everything about how the interface looks, plus
+the way in to its settings:</p>
+<dl class="simple">
+<dt><strong>Appearance</strong></dt><dd><p>Light or Dark. It flips the shade without changing which theme you are in.</p>
+</dd>
+<dt><strong>View</strong></dt><dd><p>Expert or Simple. Expert is the full interface. Simple clears away the
+extras — the four-tab strip becomes a single “Browse all entries” link,
+the search mode tabs and advanced options disappear, and results lose their
+relevance scores — leaving a search box and a list of entries.</p>
+</dd>
+<dt><strong>Theme</strong></dt><dd><p>One button per theme family: Main, DESY, High Contrast, and Retro. Picking
+a family keeps whichever appearance you are already in, so a switch from
+Main to High Contrast in dark stays dark.</p>
+</dd>
+<dt><strong>Settings</strong></dt><dd><p>Opens the settings drawer, where you can read and edit ARIEL’s
+configuration block.</p>
+</dd>
+</dl>
+<p>Appearance, View, and Theme take effect straight away and leave the card open,
+so you can compare two looks without re-opening the menu. Settings closes it,
+because it takes you to a different surface. Click anywhere outside the card,
+or press <code class="docutils literal notranslate"><span class="pre">Escape</span></code>, to dismiss it.</p>
+<p><strong>Your picks follow you.</strong> The theme and view you choose here are remembered by
+your browser and shared with every OSPREY interface served from the same
+address — pick a dark High Contrast look in ARIEL and the OSPREY web terminal
+comes up that way the next time you load it, and the other way round too. There
+is no separate preference to keep in step.</p>
+<p>ARIEL running <em>inside</em> the web terminal, as a panel, behaves differently on
+purpose. The terminal passes its own theme and view to the panel in the page
+address, and an address always outranks the remembered preference, so an
+embedded panel matches the terminal it sits in no matter what was set
+elsewhere. The embedded panel has no header of its own either — the
+terminal’s tile bar is the one header — so the sliders button does not
+appear there.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/capabilities</span></code> endpoint the interface calls at startup, and the
+parameter descriptors it returns, are documented in
+<a class="reference internal" href="../../reference/contracts/ariel.html"><span class="doc">ARIEL Contracts</span></a>.</p>
+</section>
+<section id="running-the-web-interface">
+<h2>Running the Web Interface<a class="headerlink" href="#running-the-web-interface" title="Link to this heading">#</a></h2>
+<p><strong>CLI mode</strong> (recommended for development):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>web<span class="w">                      </span><span class="c1"># http://localhost:10300</span>
+osprey<span class="w"> </span>ariel<span class="w"> </span>web<span class="w"> </span>--port<span class="w"> </span><span class="m">8080</span><span class="w">          </span><span class="c1"># Custom port</span>
+osprey<span class="w"> </span>ariel<span class="w"> </span>web<span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w">       </span><span class="c1"># Bind to all interfaces</span>
+osprey<span class="w"> </span>ariel<span class="w"> </span>web<span class="w"> </span>--reload<span class="w">             </span><span class="c1"># Auto-reload on code changes</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The web UI runs in-process via <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">web</span></code> and is also exposed
+as a panel under <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>. There is no shipped container service
+template for it — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> only brings up dependencies
+such as PostgreSQL.</p>
+</div>
+<p><strong>Programmatic usage:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.interfaces.ariel.app</span><span class="w"> </span><span class="kn">import</span> <span class="n">create_app</span>
+
+<span class="n">app</span> <span class="o">=</span> <span class="n">create_app</span><span class="p">(</span><span class="n">config_path</span><span class="o">=</span><span class="s2">&quot;config.yml&quot;</span><span class="p">)</span>
+
+<span class="c1"># Use with uvicorn</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">uvicorn</span>
+<span class="n">uvicorn</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">app</span><span class="p">,</span> <span class="n">host</span><span class="o">=</span><span class="s2">&quot;0.0.0.0&quot;</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="mi">10300</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="outreach admonition">
+<p class="admonition-title">Collaboration Welcome</p>
+<p>The web interface is a great place to contribute — whether that is a new view, improved accessibility, mobile-responsive layouts, or better error handling. If you build something useful, we encourage you to open a pull request so it becomes part of Osprey.</p>
+</div>
+</section>
+<section id="see-also">
+<h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading">#</a></h2>
+<dl class="simple">
+<dt><a class="reference internal" href="search-modes.html"><span class="doc">Search Modes</span></a></dt><dd><p>Search module architecture</p>
+</dd>
+<dt><a class="reference internal" href="../../reference/contracts/ariel.html"><span class="doc">ARIEL Contracts</span></a></dt><dd><p>MCP tools, the capabilities API, and the database schema</p>
+</dd>
+<dt><a class="reference internal" href="../../reference/cli.html"><span class="doc">CLI Reference</span></a></dt><dd><p>CLI reference for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">web</span></code> and all other ARIEL commands</p>
+</dd>
+</dl>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="search-modes.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Search Modes</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="search-sidecar.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#views">Views</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#advanced-options">Advanced Options</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#watching-a-reranked-search-run">Watching a reranked search run</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#display-preferences">Display Preferences</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-the-web-interface">Running the Web Interface</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See Also</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/ariel/web-interface.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

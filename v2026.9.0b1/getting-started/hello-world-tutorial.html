@@ -1,0 +1,898 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Hello World Tutorial &#8212; Osprey Framework 2026.9.0b1 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=1819b4a7" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=d680cfb3"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'getting-started/hello-world-tutorial';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.9.0b1';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/getting-started/hello-world-tutorial.html" />
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Install and Set Up" href="osprey-install.html" />
+    <link rel="prev" title="Conceptual Tutorial" href="conceptual-tutorial.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="2026.9.0b1" />
+    <meta name="docbuild:last-update" content="Sep 08, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation &amp; Setup</a></li>
+<li class="toctree-l1"><a class="reference internal" href="conceptual-tutorial.html">Conceptual Tutorial</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Hello World Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="osprey-install.html">Install and Set Up</a></li>
+<li class="toctree-l1"><a class="reference internal" href="control-assistant.html">Production Control Systems Tutorial</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Getting Started</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Hello World Tutorial</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="hello-world-tutorial">
+<h1>Hello World Tutorial<a class="headerlink" href="#hello-world-tutorial" title="Link to this heading">#</a></h1>
+<p>Build and run your first OSPREY agent in about five minutes, with no containers
+and no hardware. The <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> preset is the smallest deployment that
+still shows the whole write-safety chain: a mock control system that invents
+channel values, ten safety and bookkeeping hooks, and a browser interface.</p>
+<p>Three <code class="docutils literal notranslate"><span class="pre">osprey</span></code> commands take you from nothing to a running agent:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>my-first-agent<span class="w"> </span>--preset<span class="w"> </span>hello-world
+<span class="nb">cd</span><span class="w"> </span>my-first-agent
+osprey<span class="w"> </span>build
+osprey<span class="w"> </span>web
+</pre></div>
+</div>
+<p>The rest of this tutorial walks that path slowly, because the point is not the
+agent — it is the <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> you get along the way, which doubles as the
+syllabus for everything OSPREY can grow into.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-list-unordered" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.75 2.5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5ZM2 14a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm1-6a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM2 4a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg></span><span class="sd-summary-text"><strong>Prerequisites</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text"><strong>Required:</strong></p>
+<ul class="simple">
+<li><p class="sd-card-text">Python 3.11+</p></li>
+<li><p class="sd-card-text"><a class="reference external" href="https://docs.anthropic.com/en/docs/claude-code/overview">Claude Code</a> CLI installed</p></li>
+<li><p class="sd-card-text">Osprey framework installed (<code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">tool</span> <span class="pre">install</span> <span class="pre">osprey-framework</span></code>, or
+<code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">sync</span> <span class="pre">--extra</span> <span class="pre">dev</span></code> if working from a clone)</p></li>
+<li><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code> set in your environment</p></li>
+</ul>
+<p class="sd-card-text">If you haven’t installed the framework yet, follow the <a class="reference internal" href="installation.html"><span class="doc">installation guide</span></a>.</p>
+</div>
+</details><section id="step-1-create-the-project">
+<h2>Step 1: Create the Project<a class="headerlink" href="#step-1-create-the-project" title="Link to this heading">#</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>my-first-agent<span class="w"> </span>--preset<span class="w"> </span>hello-world
+<span class="nb">cd</span><span class="w"> </span>my-first-agent
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes one git repository. Everything the preset configures is
+spelled out in files you own — nothing is hidden or inherited:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>✓ Created my-first-agent
+
+  profile.yml   your assistant&#39;s settings; edit this
+  data/         channel lists and facility docs; edit these
+  .env          from your shell: ANTHROPIC_API_KEY. Not in git
+  .env.shared   settings shared by every host; your .env wins
+  README.md     what everything here does
+</pre></div>
+</div>
+<p>The repo has four zones, and knowing which is which is most of what there is
+to learn about OSPREY’s layout:</p>
+<ul class="simple">
+<li><p><strong>Source</strong> — <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">data/</span></code>: yours to edit, kept in git.</p></li>
+<li><p><strong>Secrets</strong> — <code class="docutils literal notranslate"><span class="pre">.env</span></code>: your API keys. Not in git; rebuilds never touch it.</p></li>
+<li><p><strong>Output</strong> — <code class="docutils literal notranslate"><span class="pre">build/</span></code>: generated by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. Never edit it;
+deleting it is safe.</p></li>
+<li><p><strong>State</strong> — <code class="docutils literal notranslate"><span class="pre">var/</span></code>: the agent’s memory and audit log. Not in git.</p></li>
+</ul>
+</section>
+<section id="step-2-read-profile-yml-it-is-the-curriculum">
+<h2>Step 2: Read profile.yml — It Is the Curriculum<a class="headerlink" href="#step-2-read-profile-yml-it-is-the-curriculum" title="Link to this heading">#</a></h2>
+<p>Open <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. This one file is the manifest for the whole deployment,
+and the preset deliberately leaves most of it unset — because every key it
+leaves unset is emitted into your copy as a <strong>commented block</strong> you can turn on
+later. The hello-world preset’s minimalism yields exactly <strong>13</strong> such blocks,
+covering everything from a channel database to event dispatch to a virtual
+accelerator. Growing this project into a production deployment is, quite
+literally, uncommenting one block at a time and rebuilding.</p>
+<p>The parts that <em>are</em> set are short. The agent’s capabilities are lists of
+named artifacts from the OSPREY library — eleven hooks (three of which form the
+write-safety chain), three rules, and one output style:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">hooks</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hook-log</span><span class="w">       </span><span class="c1"># Append every tool call to a structured JSONL audit log</span>
+<span class="w">  </span><span class="l l-Scalar l-Scalar-Plain">...</span>
+<span class="w">  </span><span class="c1"># The next three are the write-safety chain, and no write reaches the control</span>
+<span class="w">  </span><span class="c1"># system until all three agree. Removing any one of them removes a guard.</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">writes-check</span><span class="w">   </span><span class="c1"># Kill switch: refuse every write while writes_enabled is false</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">approval</span><span class="w">       </span><span class="c1"># Gate hardware-write tool calls on human approval prompt</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">limits</span><span class="w">         </span><span class="c1"># Enforce per-channel min/max limits, from data/channel_limits.json</span>
+</pre></div>
+</div>
+<p>And all remaining configuration lives in the <code class="docutils literal notranslate"><span class="pre">config:</span></code> block, one dotted key
+per line:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="c1"># Which control system to talk to. &quot;mock&quot; invents channels in-process, so</span>
+<span class="w">  </span><span class="c1"># reads work with no hardware and no containers behind them.</span>
+<span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mock</span>
+<span class="w">  </span><span class="c1"># Writes are refused until this is on. Uncomment it, rebuild, and the limits</span>
+<span class="w">  </span><span class="c1"># and approval hooks above take over from there.</span>
+<span class="w">  </span><span class="c1"># control_system.writes_enabled: true</span>
+<span class="w">  </span><span class="c1"># ...</span>
+</pre></div>
+</div>
+<p>That commented <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code> line is the one this tutorial
+comes back to in Step 7. For everything the profile can hold, see
+<a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is the <strong>only durable edit surface</strong>. The <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>
+you are about to generate is output — every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> wipes and
+re-renders it, so an edit made there is lost on the next build (and a
+session-start check warns you when the build has gone stale). Make changes
+in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and rebuild.</p>
+</div>
+</section>
+<section id="step-3-build-it">
+<h2>Step 3: Build It<a class="headerlink" href="#step-3-build-it" title="Link to this heading">#</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> takes no arguments: it walks up from wherever you run it to
+the nearest <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and renders that repo’s <code class="docutils literal notranslate"><span class="pre">build/</span></code> directory —
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, the agent’s <code class="docutils literal notranslate"><span class="pre">.claude/</span></code> tree (rules, hooks, settings), the
+<code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> that wires up the MCP servers the agent can call (the
+<code class="docutils literal notranslate"><span class="pre">controls</span></code> server among them), and a copy of your <code class="docutils literal notranslate"><span class="pre">data/</span></code> files. The render is complete and disposable: nothing durable lives
+in <code class="docutils literal notranslate"><span class="pre">build/</span></code>.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The first build may take 1–2 minutes to create a virtual environment and
+install dependencies. Subsequent builds are near-instant.</p>
+</div>
+</section>
+<section id="step-4-launch-the-web-terminal">
+<h2>Step 4: Launch the Web Terminal<a class="headerlink" href="#step-4-launch-the-web-terminal" title="Link to this heading">#</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>web
+</pre></div>
+</div>
+<p>This starts the OSPREY Web Terminal on <a class="reference external" href="http://127.0.0.1:10100">http://127.0.0.1:10100</a> — a browser
+interface with the agent in a terminal pane on the left and a live workspace
+viewer on the right, where plots and other artifacts the agent produces appear.
+The command prints a login URL (<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10100/?token=…</span></code>) once, at
+startup; opening it sets a session cookie and redirects to the clean address.
+The token is the server’s own secret, so treat that URL like a password.
+No containers are involved; it is a local process serving your <code class="docutils literal notranslate"><span class="pre">build/</span></code>.
+It refuses to start if there is no build yet, so run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> first.</p>
+<p>Useful variations: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">--port</span> <span class="pre">9000</span></code> picks another port,
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">--repo</span> <span class="pre">~/my-first-agent</span></code> serves the deployment from anywhere, and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">stop</span></code> stops a backgrounded (<code class="docutils literal notranslate"><span class="pre">--detach</span></code>) instance. See
+<a class="reference internal" href="../how-to/web-terminal/index.html"><span class="doc">Web Terminal</span></a> for the full tour.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Prefer to stay in your terminal? <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> starts the same agent
+against the same build as a plain CLI session — see
+<a class="reference internal" href="../how-to/agent-interfaces/cli-agent.html"><span class="doc">Run the Agent from the Command Line</span></a>. The remaining steps work
+identically there; this tutorial assumes the web terminal.</p>
+</div>
+</section>
+<section id="step-5-read-some-channels">
+<h2>Step 5: Read Some Channels<a class="headerlink" href="#step-5-read-some-channels" title="Link to this heading">#</a></h2>
+<p>The mock connector accepts <strong>any</strong> channel name and invents a plausible value
+for it — that is the whole trick behind a five-minute first session. Try:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Read channel SR:BEAM:CURRENT
+</pre></div>
+</div>
+<p>The OSPREY agent calls the <code class="docutils literal notranslate"><span class="pre">channel_read</span></code> tool on the <code class="docutils literal notranslate"><span class="pre">controls</span></code> MCP server
+and reports back a value with units and a status. The exact wording varies with
+the agent’s output style, but it looks roughly like:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>SR:BEAM:CURRENT  250.3 mA  OK
+</pre></div>
+</div>
+<p>Reads need no approval — only writes are gated. Ask for several at once:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Read SR:BEAM:CURRENT and SR:MAG:QF:01:CURRENT:RB
+</pre></div>
+</div>
+<p>Historical questions work too — “plot the beam current over the last hour” —
+because a mock archiver backs the <code class="docutils literal notranslate"><span class="pre">archiver_read</span></code> tool with synthetic
+history, and the plot lands in the workspace pane beside the terminal.</p>
+</section>
+<section id="step-6-attempt-a-write-and-get-refused">
+<h2>Step 6: Attempt a Write — and Get Refused<a class="headerlink" href="#step-6-attempt-a-write-and-get-refused" title="Link to this heading">#</a></h2>
+<p>Now ask for a write:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Set SR:MAG:QF:01:CURRENT:SP to 150
+</pre></div>
+</div>
+<p>The write is refused before it reaches the control system: the agent reports
+that writes are disabled in this deployment. The exact wording is the agent’s
+own, because the refusal happens a layer below it — with the switch off,
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders the write tool into the agent’s denied permissions,
+so the tool call is blocked before it even executes.</p>
+<p>This is the first of <strong>three guards</strong> that every write must pass:</p>
+<ol class="arabic simple">
+<li><p><strong>Master switch</strong> (<code class="docutils literal notranslate"><span class="pre">writes-check</span></code> hook) — <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code>
+is <code class="docutils literal notranslate"><span class="pre">false</span></code> by default, so all writes are refused outright. This is what
+just fired: the build bakes the switch into the agent’s denied permissions,
+and the <code class="docutils literal notranslate"><span class="pre">writes-check</span></code> hook enforces the same switch again as defense in
+depth.</p></li>
+<li><p><strong>Limits</strong> (<code class="docutils literal notranslate"><span class="pre">limits</span></code> hook) — the value is checked against per-channel
+bounds and writable flags in <code class="docutils literal notranslate"><span class="pre">data/channel_limits.json</span></code>.</p></li>
+<li><p><strong>Approval</strong> (<code class="docutils literal notranslate"><span class="pre">approval</span></code> hook) — a write that passes both still pauses
+for your explicit yes/no before anything is executed.</p></li>
+</ol>
+<p>Safety is not optional equipment here: the three hooks are declared in your
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, and removing any one of them removes a guard.</p>
+</section>
+<section id="step-7-enable-writes-in-profile-yml">
+<h2>Step 7: Enable Writes — in profile.yml<a class="headerlink" href="#step-7-enable-writes-in-profile-yml" title="Link to this heading">#</a></h2>
+<p>Open <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, find the <code class="docutils literal notranslate"><span class="pre">config:</span></code> block from Step 2, and uncomment
+one line:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mock</span>
+<span class="w">  </span><span class="nt">control_system.writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">   </span><span class="c1"># ← was commented out</span>
+</pre></div>
+</div>
+<p>Then re-render and relaunch:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build
+osprey<span class="w"> </span>web
+</pre></div>
+</div>
+<p>Do <strong>not</strong> edit <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> to flip this switch — that file is
+generated output, and your edit would vanish on the next build. The profile is
+where the change belongs, and the rebuild carries it into the render.</p>
+</section>
+<section id="step-8-write-with-the-guards-watching">
+<h2>Step 8: Write with the Guards Watching<a class="headerlink" href="#step-8-write-with-the-guards-watching" title="Link to this heading">#</a></h2>
+<p>The limits database that ships with this preset, <code class="docutils literal notranslate"><span class="pre">data/channel_limits.json</span></code>,
+declares three channels: two writable quadrupole setpoints with bounds, and one
+read-only measurement. With writes enabled, all three remaining behaviors are
+now observable.</p>
+<p><strong>A write inside its limits</strong> — pauses for your approval:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Set SR:MAG:QF:01:CURRENT:SP to 150
+</pre></div>
+</div>
+<p>150 sits inside the 0–300 range declared for this channel, so the limits
+check passes and the approval prompt appears in the terminal, naming the
+channel and value. Approve it, and the mock connector accepts the write.
+Nothing is ever written without this step.</p>
+<p><strong>A write outside its limits</strong> — blocked:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Set SR:MAG:QF:01:CURRENT:SP to 500
+</pre></div>
+</div>
+<p>500 is above the channel’s maximum of 300, so the write is refused: the
+<code class="docutils literal notranslate"><span class="pre">limits</span></code> hook denies it, and the connector checks the same limits database
+once more at execution time — so even an approved write cannot carry an
+out-of-range value to the (mock) hardware. Approval is a gate on writes the
+limits allow; it is not a way around them.</p>
+<p><strong>A write to a read-only channel</strong> — blocked regardless of value:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Set SR:BEAM:CURRENT to 1.0
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">SR:BEAM:CURRENT</span></code> is a measurement, marked <code class="docutils literal notranslate"><span class="pre">&quot;writable&quot;:</span> <span class="pre">false</span></code> in the
+limits database, so the write is refused whatever the value.</p>
+</section>
+<section id="step-9-edit-the-limits-database">
+<h2>Step 9: Edit the Limits Database<a class="headerlink" href="#step-9-edit-the-limits-database" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">data/channel_limits.json</span></code> is your first editable safety artifact. The
+shipped file looks like this (comments abridged):</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;defaults&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;writable&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;confirm&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;SR:MAG:QF:01:CURRENT:SP&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;min_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;max_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">300.0</span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;SR:MAG:QD:01:CURRENT:SP&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;min_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;max_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">250.0</span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;SR:BEAM:CURRENT&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;writable&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">confirm:</span> <span class="pre">true</span></code> means every write is checked: the connector reads the
+channel back once and compares what it finds with the value that was sent, so a
+write that did not land is reported rather than assumed.</p>
+<p>Channels not listed here are still writable — the preset sets
+<code class="docutils literal notranslate"><span class="pre">allow_unlisted_channels:</span> <span class="pre">true</span></code> so the mock’s invented channels stay usable;
+a production deployment sets it <code class="docutils literal notranslate"><span class="pre">false</span></code> so an unknown channel fails closed.
+Listing a channel is how you put bounds on it. Add one:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="nt">&quot;SR:MAG:CORR:01:CURRENT:SP&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;min_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">-5.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;max_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">5.0</span><span class="p">}</span>
+</pre></div>
+</div>
+<p>Then <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> to carry the change into the render, and try writes on
+either side of the new bounds. This edit-rebuild-observe loop — in <code class="docutils literal notranslate"><span class="pre">data/</span></code>
+or in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — is the same loop every real deployment is grown with.</p>
+</section>
+<section id="step-10-first-containers-deploy-the-telemetry-store">
+<h2>Step 10: First Containers — Deploy the Telemetry Store<a class="headerlink" href="#step-10-first-containers-deploy-the-telemetry-store" title="Link to this heading">#</a></h2>
+<p>Everything so far ran container-free. The preset declares exactly one
+containerized service, and this is the deployment lesson:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>up<span class="w"> </span>-d
+</pre></div>
+</div>
+<p>This needs a container runtime (Docker or Podman) and starts <strong>OpenObserve</strong>, a
+local telemetry store bound to localhost, with its UI at
+<a class="reference external" href="http://localhost:10050">http://localhost:10050</a> (<code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code> + 50). The agent already
+emits its logs and metrics there, so
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> plus <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> gives you a queryable record of every
+session out of the box — see <a class="reference internal" href="../how-to/health-and-monitoring/monitor-agent.html"><span class="doc">Monitor Your OSPREY Agent</span></a>. Stop the stack
+with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code>; the agent itself keeps working without it.</p>
+<p>The commands you now know are the complete lifecycle, and they are the same
+for a production facility deployment: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> once, then edit →
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> → <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> / <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> forever after.</p>
+<section id="next-steps">
+<h3>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading">#</a></h3>
+<p>You have a working agent, and — more importantly — a <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> whose
+commented blocks map everything it can become.</p>
+<ul class="simple">
+<li><p><strong>The production tutorial</strong>: <a class="reference internal" href="control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a> builds the
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset, which adds a channel database with
+natural-language channel finding, a seeded electronic logbook, a real
+archive, sub-agents, and operator skills — on the same safety model.</p></li>
+<li><p><strong>How it works</strong>: <a class="reference internal" href="conceptual-tutorial.html"><span class="doc">Conceptual Tutorial</span></a> explains the MCP server
+architecture, the connector system, and the safety mechanisms in depth.</p></li>
+<li><p><strong>The profile format</strong>: <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a> documents every key
+those 12 commented blocks can hold.</p></li>
+<li><p><strong>CLI reference</strong>: <a class="reference internal" href="../reference/cli.html"><span class="doc">CLI Reference</span></a> covers all <code class="docutils literal notranslate"><span class="pre">osprey</span></code>
+commands.</p></li>
+</ul>
+<p>The deployment repo that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> created also contains
+<code class="docutils literal notranslate"><span class="pre">mcp_servers/example_server/</span></code>, a small working MCP server; its
+<code class="docutils literal notranslate"><span class="pre">example_status</span></code> tool is one the agent already has. Copying that directory
+is the quickest way to start your own. The repo’s <code class="docutils literal notranslate"><span class="pre">README.md</span></code> has a
+“Common questions” section that explains how to add your own server, panel,
+or volume.</p>
+</section>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="conceptual-tutorial.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Conceptual Tutorial</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="osprey-install.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Install and Set Up</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-1-create-the-project">Step 1: Create the Project</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-2-read-profile-yml-it-is-the-curriculum">Step 2: Read profile.yml — It Is the Curriculum</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-build-it">Step 3: Build It</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-4-launch-the-web-terminal">Step 4: Launch the Web Terminal</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-5-read-some-channels">Step 5: Read Some Channels</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-6-attempt-a-write-and-get-refused">Step 6: Attempt a Write — and Get Refused</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-7-enable-writes-in-profile-yml">Step 7: Enable Writes — in profile.yml</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-8-write-with-the-guards-watching">Step 8: Write with the Guards Watching</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-9-edit-the-limits-database">Step 9: Edit the Limits Database</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-10-first-containers-deploy-the-telemetry-store">Step 10: First Containers — Deploy the Telemetry Store</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#next-steps">Next Steps</a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/getting-started/hello-world-tutorial.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

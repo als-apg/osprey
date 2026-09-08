@@ -1,0 +1,971 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Plans and the Queue &#8212; Osprey Framework 2026.9.0b1 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=1819b4a7" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=d680cfb3"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/bluesky/queue';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.9.0b1';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/bluesky/queue.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Write Your Own Plans" href="write-plans.html" />
+    <link rel="prev" title="Run Your First Plan" href="run-first-plan.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="2026.9.0b1" />
+    <meta name="docbuild:last-update" content="Sep 08, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/project-image.html">The Project Image</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../llm-providers/index.html">LLM Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/login.html">Require a Login</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../agent-interfaces/index.html">Agent Interfaces</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../agent-interfaces/chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/standalone-deployment.html">Standalone Deployment</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Bluesky Plans</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="run-first-plan.html">Run Your First Plan</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Plans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="write-plans.html">Write Your Own Plans</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">How-To Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Bluesky Plans</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Plans and the Queue</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="plans-and-the-queue">
+<h1>Plans and the Queue<a class="headerlink" href="#plans-and-the-queue" title="Link to this heading">#</a></h1>
+<p>Three sentences carry everything on this page. Plans live in a <strong>queue
+server</strong> that survives restarts — not in the agent, not in the panels. The
+queue is either <strong>armed</strong> — a plan you add runs at once, and so does every
+plan added after it — or <strong>stopped</strong>, where plans wait until someone starts
+it; sending a plan toward the machine is the guarded step, whichever click
+does it. <strong>Stopping is never locked</strong> — no token, no switch, no state can
+take the stop and abort buttons away.</p>
+<p>A project built from the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset comes up armed
+(<code class="docutils literal notranslate"><span class="pre">bluesky.queue_autostart</span></code>), so the everyday flow is one click: <strong>Run</strong>.
+Stop or Abort leaves the queue stopped until the next <strong>Start</strong>.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 240" role="img" aria-labelledby="bluesky-queue-title bluesky-queue-desc">
+  <title id="bluesky-queue-title">Scans and the queue</title>
+  <desc id="bluesky-queue-desc">A shared draft is added to the durable, ordered queue; an armed queue sends plans to the machine one at a time, and starting a stopped queue is the armed step that makes it so, while stop and abort remain available in every state.</desc>
+  <defs>
+    <marker id="bluesky-queue-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <line class="e" x1="272" y1="92" x2="392" y2="92" marker-end="url(#bluesky-queue-arr)"/>
+  <line class="e" x1="568" y1="92" x2="688" y2="92" marker-end="url(#bluesky-queue-arr)"/>
+  <path class="e-warn e-dash" d="M776,120 V152 Q776,160 768,160 H488 Q480,160 480,152 V120" marker-end="url(#bluesky-queue-arr)"/>
+  <rect class="mask" x="316" y="72" width="32" height="12" rx="2"/>
+  <text class="ta" x="332" y="81" text-anchor="middle">ADD</text>
+  <rect class="mask" x="588" y="72" width="80" height="12" rx="2"/>
+  <text class="ta" x="628" y="81" text-anchor="middle">START (ARMED)</text>
+  <rect class="mask" x="590" y="168" width="76" height="12" rx="2"/>
+  <text class="ta ta-warn" x="628" y="177" text-anchor="middle">STOP / ABORT</text>
+
+  <rect class="mask" x="96" y="64" width="176" height="56" rx="6"/>
+  <rect class="nb-in" x="96" y="64" width="176" height="56" rx="6"/>
+  <text class="tn" x="184" y="88" text-anchor="middle">shared draft</text>
+  <text class="ts" x="184" y="104" text-anchor="middle">compose &amp; review</text>
+  <rect class="mask" x="392" y="64" width="176" height="56" rx="6"/>
+  <rect class="nb-st" x="392" y="64" width="176" height="56" rx="6"/>
+  <text class="tn" x="480" y="88" text-anchor="middle">queue</text>
+  <text class="ts" x="480" y="104" text-anchor="middle">durable · ordered</text>
+  <rect class="mask" x="688" y="64" width="176" height="56" rx="6"/>
+  <rect class="nb" x="688" y="64" width="176" height="56" rx="6"/>
+  <text class="tn" x="776" y="88" text-anchor="middle">machine</text>
+  <text class="ts" x="776" y="104" text-anchor="middle">one plan at a time</text>
+
+  <text class="aside" x="96" y="212">always available — no state can lock it out</text>
+  <path class="lead" d="M368,208 Q440,200 512,176"/>
+  <circle cx="516" cy="172" r="2" fill="var(--od-warn)"/>
+</svg>
+</div>
+<p>Everything below is the same queue seen from three sides — pick the one you
+work in.</p>
+<section id="one-queue-three-ways-to-drive-it">
+<h2>One queue, three ways to drive it<a class="headerlink" href="#one-queue-three-ways-to-drive-it" title="Link to this heading">#</a></h2>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-0">
+Panels</label><div class="sd-tab-content docutils">
+<p>The <strong>PLAN</strong> tab composes; the <strong>BLUESKY</strong> tab runs and watches. A
+badge in BLUESKY’s status strip names the queue’s state on every tab —
+<em>ready</em>, <em>running</em>, <em>stopped</em>, <em>stopping after current</em> — and a <strong>?</strong>
+beside it explains the buttons.</p>
+<ul class="simple">
+<li><p><strong>Run</strong> (PLAN) — on an armed queue, queues exactly the draft on your
+screen after a confirming click, and it runs now. On a stopped queue
+the same button reads <strong>Add to queue</strong>: the plan waits.</p></li>
+<li><p><strong>Start</strong> (BLUESKY, Queue tab) — arms a stopped queue: it runs
+everything waiting, in order, and whatever is added later.</p></li>
+<li><p><strong>Stop</strong> and <strong>Abort</strong> (BLUESKY) — never disabled. Stop lets the
+current plan finish; Abort stops it right now, after a second,
+confirming click. Both leave the queue stopped. They sit on the Queue
+tab always, quiet while nothing moves, and appear on the other tabs
+whenever a plan is moving or the state is in doubt.</p></li>
+<li><p><strong>Clear</strong> (BLUESKY, Queue tab) — drops every waiting plan, after a
+confirming click. The running plan is Abort’s.</p></li>
+<li><p>Every queued row has reorder (↑ ↓) and remove (✕) buttons — the queue
+is editable right up until it runs.</p></li>
+<li><p><strong>History</strong> lists finished runs. Each row’s ✕ removes that run from
+the list, and the card’s <strong>Clear</strong> removes them all after a
+confirming click; the Results view offers <strong>Remove from history</strong> for
+the run on screen. Run data is kept — see <em>Where the data lives</em>.</p></li>
+<li><p>A <strong>Simple mode</strong> hides the expert details and leaves the essentials:
+the form, the queue, the results, and the halts.</p></li>
+</ul>
+<p>See <a class="reference internal" href="../web-terminal/panels.html"><span class="doc">Panels</span></a> for where these tabs live.</p>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-1">
+Chat with the agent</label><div class="sd-tab-content docutils">
+<p>Ask in plain language — “queue that plan and start it”, “stop the
+queue”, “abort the plan” — and the agent drives the same queue with a
+small set of tools:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">get_draft</span></code> / <code class="docutils literal notranslate"><span class="pre">set_draft</span></code> — compose the shared draft you see in
+BLUESKY’s Plans view.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">queue_add</span></code> — queues the pinned draft; on an armed queue that runs
+it. <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> — arms a stopped queue. Both ask for your
+approval, and both are switched off entirely while the project’s
+control-system writes are disabled.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">queue_stop</span></code> / <code class="docutils literal notranslate"><span class="pre">stop_run</span></code> — the two halts. Never switched off.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">queue_list</span></code> / <code class="docutils literal notranslate"><span class="pre">queue_status</span></code> / <code class="docutils literal notranslate"><span class="pre">list_runs</span></code> / <code class="docutils literal notranslate"><span class="pre">get_run_data</span></code>
+— read what is queued, running, and measured.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_run_figure</span></code> — read the same figure the BLUESKY panel is
+drawing, so you and the agent are discussing one picture.</p></li>
+</ul>
+<p>A bundled skill (<code class="docutils literal notranslate"><span class="pre">operating-bluesky-plans</span></code>) teaches the agent this
+flow, so you rarely need to name a tool yourself.</p>
+</div>
+<input id="sd-tab-item-2" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-2">
+HTTP API</label><div class="sd-tab-content docutils">
+<p>The panels and the agent both talk to the <strong>Bluesky bridge</strong>, and your
+own tooling can too:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>POST   /queue/items        add the current draft revision (runs at once
+                           on an armed queue — then needs the launch token)
+POST   /queue/start        arm the queue (needs the launch token)
+POST   /queue/stop         stop after the running item, and disarm
+POST   /queue/abort        abort the running plan, and disarm — never gated
+DELETE /queue/items        drop every waiting item
+GET    /queue              what is queued and running
+GET    /runs               recent runs; /runs/&lt;id&gt;/data for the numbers,
+                           /runs/&lt;id&gt;/figure for the plotted view
+DELETE /runs/&lt;id&gt;          remove one finished run from the list
+DELETE /history            remove every finished run from the list
+</pre></div>
+</div>
+<p>Every refusal comes back with a <code class="docutils literal notranslate"><span class="pre">detail</span></code> object of the form
+<code class="docutils literal notranslate"><span class="pre">{&quot;code&quot;:</span> <span class="pre">...,</span> <span class="pre">&quot;detail&quot;:</span> <span class="pre">...}</span></code> — a stable code for software to
+branch on, a sentence for a human to read. The panels and the agent
+show that same sentence, so every surface describes the same event
+the same way.</p>
+</div>
+</div>
+</section>
+<section id="managing-the-queue">
+<h2>Managing the queue<a class="headerlink" href="#managing-the-queue" title="Link to this heading">#</a></h2>
+<p>The queue is a plan of what the machine is about to do, and it stays
+editable while idle: reorder items, remove them, keep adding. Two honest
+quirks worth knowing:</p>
+<ul class="simple">
+<li><p><strong>Progress can be absent, and absent is not zero.</strong> Plans that cannot
+predict their total point count report “N points so far” rather than a
+made-up percentage.</p></li>
+<li><p><strong>The run list is recent history, not the archive.</strong> A run the list has
+forgotten still has its data — see <em>Where the data lives</em> below.</p></li>
+</ul>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-shield-check" viewBox="0 0 16 16" aria-hidden="true"><path d="m8.533.133 5.25 1.68A1.75 1.75 0 0 1 15 3.48V7c0 1.566-.32 3.182-1.303 4.682-.983 1.498-2.585 2.813-5.032 3.855a1.697 1.697 0 0 1-1.33 0c-2.447-1.042-4.049-2.357-5.032-3.855C1.32 10.182 1 8.566 1 7V3.48a1.75 1.75 0 0 1 1.217-1.667l5.25-1.68a1.748 1.748 0 0 1 1.066 0Zm-.61 1.429.001.001-5.25 1.68a.251.251 0 0 0-.174.237V7c0 1.36.275 2.666 1.057 3.859.784 1.194 2.121 2.342 4.366 3.298a.196.196 0 0 0 .154 0c2.245-.957 3.582-2.103 4.366-3.297C13.225 9.666 13.5 8.358 13.5 7V3.48a.25.25 0 0 0-.174-.238l-5.25-1.68a.25.25 0 0 0-.153 0ZM11.28 6.28l-3.5 3.5a.75.75 0 0 1-1.06 0l-1.5-1.5a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215l.97.97 2.97-2.97a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042Z"></path></svg></span><span class="sd-summary-text">What needs arming — the full picture</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text">The <strong>launch token</strong> is a credential the deployment holds; it guards
+exactly the operations that send work toward hardware.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 55.0%" />
+<col style="width: 45.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p class="sd-card-text">Operation</p></th>
+<th class="head"><p class="sd-card-text">What it needs</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p class="sd-card-text">Compose or edit the shared draft</p></td>
+<td><p class="sd-card-text">Nothing — composing never touches hardware.</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text">Add to a <strong>stopped</strong> queue</p></td>
+<td><p class="sd-card-text">Nothing — the item just waits.</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text">Add to an <strong>armed</strong> or <strong>running</strong> queue</p></td>
+<td><p class="sd-card-text">The launch token — this hands work straight to the machine. On the
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset the queue is armed by default, so this
+is the everyday case.</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text">Start (arm) the queue</p></td>
+<td><p class="sd-card-text">The launch token.</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text">Stop the queue / abort the running plan</p></td>
+<td><p class="sd-card-text">Nothing. Ever. Anywhere.</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text">Withdraw a pending stop</p></td>
+<td><p class="sd-card-text">The launch token — it lets the queue keep draining.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p class="sd-card-text">The agent is held to a harder rule on top of this: where the project may
+write to no control target at all, its <code class="docutils literal notranslate"><span class="pre">queue_add</span></code> and <code class="docutils literal notranslate"><span class="pre">queue_start</span></code>
+tools are denied outright — it cannot queue or start anything, even on an
+idle queue. Its halts and its read tools are never taken away.</p>
+<p class="sd-card-text">Write posture is per control target, and each queue lane is bound at build
+time to one target, so a deployment can arm the lane that drives the
+simulator and leave the lane that drives the live machine unarmed. Nothing
+is denied up front on such a deployment — the deny list is written once,
+before a session picks a target — and <code class="docutils literal notranslate"><span class="pre">queue_add</span></code> and <code class="docutils literal notranslate"><span class="pre">queue_start</span></code>
+refuse per call instead, with <code class="docutils literal notranslate"><span class="pre">writes_disabled</span></code>, naming the lane’s machine.</p>
+<p class="sd-card-text">In a deployed control room the agent holds the launch token only where the
+deployment grants it, and it is granted <strong>per lane</strong>: to a persona whose
+config arms writes for the machine that lane drives and that also runs the
+bluesky MCP server. A persona can hold the simulator lane’s token and none
+for the live one. Where it is granted, the agent’s
+<code class="docutils literal notranslate"><span class="pre">queue_start</span></code> arms the queue itself, and your approval of that tool call
+is the arming decision. Where it is not, <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> is refused with
+<code class="docutils literal notranslate"><span class="pre">launch_token_required</span></code> and the start stays with you, from the BLUESKY
+queue panel’s own <strong>Start</strong> button.</p>
+<p class="sd-card-text">On a two-lane deployment the BLUESKY panel carries a <strong>lane picker</strong> in its
+status strip, labelled by the machine each lane drives. The panel is bound
+to one lane at a time — plans, shared draft, queue and results all follow
+the picked lane, and its Start button arms with that lane’s own token —
+so what you see and what a click starts can never belong to two different
+machines.</p>
+</div>
+</details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-alert" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path></svg></span><span class="sd-summary-text">When something is refused</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text">A refusal always says why. The codes you will actually meet:</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">stale_draft_revision</span></code> / <code class="docutils literal notranslate"><span class="pre">draft_revision_already_launched</span></code></dt><dd><p class="sd-card-text">The draft changed since you looked, or that exact revision has already
+been queued once. Re-read the draft; edit it to mint a fresh revision
+for a repeat.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">launch_token_required</span></code></dt><dd><p class="sd-card-text">The operation was armed and the caller held no valid token. Nothing was
+started. An agent meets this where the deployment did not grant it a
+token, where the token it holds does not match the bridge’s, or where
+no launch token is configured at all — hand the start to the operator.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">browse_only_connector</span></code></dt><dd><p class="sd-card-text">This deployment cannot execute plans at all — it is pointed at the
+<code class="docutils literal notranslate"><span class="pre">mock</span></code> control system. Composing still works; the refusal names the
+command that switches to an executing connector.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">session_plan_unvalidated</span></code></dt><dd><p class="sd-card-text">An agent-written plan must pass validation, byte for byte, before it
+runs — see <a class="reference internal" href="write-plans.html"><span class="doc">Write Your Own Plans</span></a>.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">interrupted_item_in_queue</span></code></dt><dd><p class="sd-card-text">The queue still holds a plan someone stopped — see the next dropdown.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">manager_unreachable</span></code></dt><dd><p class="sd-card-text">The queue server is not answering — often it is simply still starting.
+Wait a moment and retry.</p>
+</dd>
+</dl>
+</div>
+</details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-stop" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.47.22A.749.749 0 0 1 5 0h6c.199 0 .389.079.53.22l4.25 4.25c.141.14.22.331.22.53v6a.749.749 0 0 1-.22.53l-4.25 4.25A.749.749 0 0 1 11 16H5a.749.749 0 0 1-.53-.22L.22 11.53A.749.749 0 0 1 0 11V5c0-.199.079-.389.22-.53Zm.84 1.28L1.5 5.31v5.38l3.81 3.81h5.38l3.81-3.81V5.31L10.69 1.5ZM8 4a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 8 4Zm0 8a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg></span><span class="sd-summary-text">After an emergency stop</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text">A stopped plan does not vanish. The queue server records the run in
+history <strong>and puts a copy of the item back at the front of the queue</strong>, so
+a human can decide what happens next. Until that copy is removed, every
+attempt to start the queue is refused — a plan someone emergency-stopped
+can never sneak back onto the machine.</p>
+<p class="sd-card-text">Removing it is the deliberate step: the ✕ on its queue row, or the
+assistant’s <code class="docutils literal notranslate"><span class="pre">queue_remove</span></code> tool — which asks for your approval, so the
+decision stays yours either way. To actually run it again afterwards,
+stage it through the draft and add it afresh.</p>
+</div>
+</details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-database" viewBox="0 0 16 16" aria-hidden="true"><path d="M1 3.5c0-.626.292-1.165.7-1.59.406-.422.956-.767 1.579-1.041C4.525.32 6.195 0 8 0c1.805 0 3.475.32 4.722.869.622.274 1.172.62 1.578 1.04.408.426.7.965.7 1.591v9c0 .626-.292 1.165-.7 1.59-.406.422-.956.767-1.579 1.041C11.476 15.68 9.806 16 8 16c-1.805 0-3.475-.32-4.721-.869-.623-.274-1.173-.62-1.579-1.04-.408-.426-.7-.965-.7-1.591Zm1.5 0c0 .133.058.318.282.551.227.237.591.483 1.101.707C4.898 5.205 6.353 5.5 8 5.5c1.646 0 3.101-.295 4.118-.742.508-.224.873-.471 1.1-.708.224-.232.282-.417.282-.55 0-.133-.058-.318-.282-.551-.227-.237-.591-.483-1.101-.707C11.102 1.795 9.647 1.5 8 1.5c-1.646 0-3.101.295-4.118.742-.508.224-.873.471-1.1.708-.224.232-.282.417-.282.55Zm0 4.5c0 .133.058.318.282.551.227.237.591.483 1.101.707C4.898 9.705 6.353 10 8 10c1.646 0 3.101-.295 4.118-.742.508-.224.873-.471 1.1-.708.224-.232.282-.417.282-.55V5.724c-.241.15-.503.286-.778.407C11.475 6.68 9.805 7 8 7c-1.805 0-3.475-.32-4.721-.869a6.15 6.15 0 0 1-.779-.407Zm0 2.225V12.5c0 .133.058.318.282.55.227.237.592.484 1.1.708 1.016.447 2.471.742 4.118.742 1.647 0 3.102-.295 4.117-.742.51-.224.874-.47 1.101-.707.224-.233.282-.418.282-.551v-2.275c-.241.15-.503.285-.778.406-1.247.549-2.917.869-4.722.869-1.805 0-3.475-.32-4.721-.869a6.327 6.327 0 0 1-.779-.406Z"></path></svg></span><span class="sd-summary-text">Where the data lives</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<ul class="simple">
+<li><p class="sd-card-text"><strong>While a plan runs</strong>, the panels and the agent read live rows from the
+bridge’s own buffer.</p></li>
+<li><p class="sd-card-text"><strong>After that</strong>, the data is durable in <strong>Tiled</strong>, the deployment’s data
+store (part of the tutorial preset; optional elsewhere) — it outlives
+the run list, the queue server’s history, and any restart. A run id
+whose entry has aged out of the list still answers with its data.</p></li>
+<li><p class="sd-card-text"><strong>The queue itself</strong> lives in the queue server’s own storage, so a
+bridge restart changes nothing about what is queued. The one gap: live
+rows of a run that is happening <em>during</em> a bridge restart are missing
+from the live view until the next run starts — the run itself keeps
+going and its data still lands in Tiled.</p></li>
+<li><p class="sd-card-text"><strong>Removing a run from History</strong> forgets the list entry, not the data.
+Clearing the history clears the queue server’s own record; removing one
+run hides it from OSPREY’s list — the panel and the agent alike — and the
+bridge remembers that across its own restarts.</p></li>
+</ul>
+</div>
+</details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-server" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v4c0 .372-.116.717-.314 1 .198.283.314.628.314 1v4a1.75 1.75 0 0 1-1.75 1.75H1.75A1.75 1.75 0 0 1 0 12.75v-4c0-.358.109-.707.314-1a1.739 1.739 0 0 1-.314-1v-4C0 1.784.784 1 1.75 1ZM1.5 2.75v4c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-4a.25.25 0 0 0-.25-.25H1.75a.25.25 0 0 0-.25.25Zm.25 5.75a.25.25 0 0 0-.25.25v4c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-4a.25.25 0 0 0-.25-.25ZM7 4.75A.75.75 0 0 1 7.75 4h4.5a.75.75 0 0 1 0 1.5h-4.5A.75.75 0 0 1 7 4.75ZM7.75 10h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM3 4.75A.75.75 0 0 1 3.75 4h.5a.75.75 0 0 1 0 1.5h-.5A.75.75 0 0 1 3 4.75ZM3.75 10h.5a.75.75 0 0 1 0 1.5h-.5a.75.75 0 0 1 0-1.5Z"></path></svg></span><span class="sd-summary-text">For deployers — what is running</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text">A project built from the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset brings the whole
+stack up with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>: the <strong>bridge</strong> (the HTTP front door,
+port 10080), the <strong>queue server</strong> with its own storage, the <strong>bluesky-web</strong>
+sidecar serving the BLUESKY panel (port 10071), the <strong>Virtual Accelerator</strong> (the
+preset’s default control system), and — when enabled — <strong>Tiled</strong> (port
+10070). Those are the deployment’s port layout at its default base
+(<a class="reference internal" href="../../reference/ports.html#reference-ports"><span class="std std-ref">Ports</span></a>). The launch token is minted automatically at deploy
+time and stored in the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>.</p>
+<p class="sd-card-text">The build profile’s <code class="docutils literal notranslate"><span class="pre">bluesky:</span></code> block can pin those ports, and sets the
+Tiled store, which plans the catalog carries, and the device file plans may
+drive or record — see <a class="reference internal" href="../../reference/configuration/profile.html"><span class="doc">Build Profile — profile.yml</span></a>. Whether the
+queue comes up armed is <code class="docutils literal notranslate"><span class="pre">bluesky.queue_autostart</span></code>: on in the
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset, off unless a deployment says so.</p>
+<p class="sd-card-text">Whether a deployment can execute plans at all is decided by its control
+system. The queue worker builds its devices over Channel Access, so the
+connectors that speak it execute plans — <code class="docutils literal notranslate"><span class="pre">epics</span></code>, <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>
+and the live stand-in — and every other one browses. <code class="docutils literal notranslate"><span class="pre">mock</span></code> browses
+because it moves nothing; a connector for another protocol browses because
+no device layer for it exists yet, which is a gap in the plan stack rather
+than a property of the facility. The panels and the agent both surface this
+as a capability banner; on the <code class="docutils literal notranslate"><span class="pre">mock</span></code> connector it names the flip:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">connector</span><span class="o">=</span>virtual_accelerator
+</pre></div>
+</div>
+<p class="sd-card-text">Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> afterwards to carry the change into
+the running stack. That switch needs a real archive behind it: a deployment
+created from the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset has one and the flip just
+works; one still reading the mock archiver is refused at build time, and told
+to point <code class="docutils literal notranslate"><span class="pre">archiver.type</span></code> at a store its deployment writes first — see
+<a class="reference internal" href="../control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p>
+<p class="sd-card-text">One timing detail worth knowing: the channel limits a plan’s writes are
+checked against come from the file
+<code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.database_path</span></code> names, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+stages its <strong>own copy</strong> of that file for the plan lane. So widening or
+tightening a limit in your deployment repository reaches the queue server at
+the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> (and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>) — not the moment you save the
+file.</p>
+</div>
+</details><div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="run-first-plan.html"><span class="doc">Run Your First Plan</span></a></dt><dd><p>The worked example, from asking to watching points land.</p>
+</dd>
+<dt><a class="reference internal" href="write-plans.html"><span class="doc">Write Your Own Plans</span></a></dt><dd><p>Trust tiers and adding plans of your own.</p>
+</dd>
+<dt><a class="reference internal" href="../control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a></dt><dd><p>The connector that makes a deployment able to execute.</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="run-first-plan.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Run Your First Plan</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="write-plans.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Write Your Own Plans</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-queue-three-ways-to-drive-it">One queue, three ways to drive it</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#managing-the-queue">Managing the queue</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/bluesky/queue.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

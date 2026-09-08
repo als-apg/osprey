@@ -1,0 +1,399 @@
+/* Custom CSS for Osprey Framework Documentation - Minimal Original Theme Style */
+
+/* Fix for project names that are parsed as links */
+div.downstream-project-links a {
+  text-decoration: none !important;
+  color: inherit !important;
+}
+
+/* Custom admonition for v0.7+ changes (all versions 0.7.0 and later) - SEARCH MARKER: version-07plus-change */
+.admonition.version-07plus-change {
+  border-left: 4px solid #00BCD4;
+  background-color: rgba(0, 188, 212, 0.05);
+}
+
+.admonition.version-07plus-change .admonition-title {
+  background-color: rgba(0, 188, 212, 0.1);
+  color: #0097A7;
+}
+
+/* Custom admonition for collaboration/outreach - SEARCH MARKER: outreach */
+/* Uses default bell icon with purple color scheme */
+.admonition.outreach {
+  border-left: 4px solid #9C27B0;
+  background-color: rgba(156, 39, 176, 0.05);
+}
+
+.admonition.outreach .admonition-title {
+  background-color: rgba(156, 39, 176, 0.1);
+  color: #7B1FA2;
+}
+
+/* Dark mode adjustments for outreach admonition */
+html[data-theme="dark"] .admonition.outreach {
+  border-left: 4px solid #BA68C8;
+  background-color: rgba(186, 104, 200, 0.1);
+}
+
+html[data-theme="dark"] .admonition.outreach .admonition-title {
+  background-color: rgba(186, 104, 200, 0.15);
+  color: #CE93D8;
+}
+
+/* Clean table styling that matches original theme */
+table.docutils {
+  border-collapse: collapse;
+  margin: 1em 0;
+  width: 100%;
+}
+
+table.docutils th,
+table.docutils td {
+  border: 1px solid var(--pst-color-border);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+table.docutils th {
+  background-color: var(--pst-color-surface);
+  font-weight: 600;
+}
+
+/* Global Header Font Size Reduction */
+/* Main page titles (h1) */
+.bd-content h1 {
+  font-size: 2rem !important;  /* Reduced from default ~2.5rem */
+  font-weight: 700;
+  margin-top: 0;
+  margin-bottom: 1.5rem;
+}
+
+/* Section headers (h2) */
+.bd-content h2 {
+  font-size: 1.6rem !important;  /* Reduced from default ~2rem */
+  font-weight: 600;
+  margin-top: 2.5rem;
+  margin-bottom: 1.2rem;
+  border-bottom: 1px solid var(--pst-color-border);
+  padding-bottom: 0.3rem;
+}
+
+/* Subsection headers (h3) */
+.bd-content h3 {
+  font-size: 1.3rem !important;  /* Reduced from default ~1.6rem */
+  font-weight: 600;
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+}
+
+/* Sub-subsection headers (h4) */
+.bd-content h4 {
+  font-size: 1.1rem !important;  /* Reduced from default ~1.3rem */
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.8rem;
+}
+
+/* Minor headers (h5, h6) */
+.bd-content h5 {
+  font-size: 1rem !important;   /* Reduced from default ~1.1rem */
+  font-weight: 600;
+  margin-top: 1.2rem;
+  margin-bottom: 0.6rem;
+}
+
+.bd-content h6 {
+  font-size: 0.9rem !important; /* Reduced from default ~1rem */
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  color: var(--pst-color-text-muted);
+}
+
+/* Special styling for step headers that start with "Step" */
+.bd-content h3[id*="step"] {
+  color: var(--pst-color-primary);
+  border-bottom: 1px solid var(--pst-color-border);
+  padding-bottom: 0.5rem;
+}
+
+/* ── OSPREY diagram system ──────────────────────────────────────────────
+   Hand-authored inline SVG diagrams (docs/source/_diagrams/*.html,
+   included via `.. raw:: html :file:`). Tokens flip with the pydata
+   theme via html[data-theme="dark"]; paper/mask surfaces inherit the
+   page background so the diagrams blend into both themes. The palette
+   matches docs/diagrams/retrieval_map.html. */
+
+.osprey-diagram {
+  --od-paper: var(--pst-color-background, #ffffff);
+  --od-box: #ffffff;
+  --od-ink: #1b2420;
+  --od-muted: #5d6b65;
+  --od-soft: #7e8b84;
+  --od-line: #c6cfca;
+  --od-rule: rgba(27, 36, 32, 0.12);
+  --od-accent: #0e7a6e;
+  --od-accent-tint: rgba(14, 122, 110, 0.08);
+  --od-warn: #b26a08;
+  --od-warn-tint: rgba(178, 106, 8, 0.08);
+  --od-warn-soft: rgba(178, 106, 8, 0.60);
+  --od-wash: rgba(27, 36, 32, 0.05);
+  --od-wash-lt: rgba(27, 36, 32, 0.02);
+  --od-input: rgba(93, 107, 101, 0.10);
+  --od-ext: rgba(27, 36, 32, 0.03);
+  --od-ext-stroke: rgba(27, 36, 32, 0.30);
+  --od-lifeline: rgba(27, 36, 32, 0.20);
+  --od-act: rgba(27, 36, 32, 0.06);
+  margin: 1.5rem 0;
+}
+
+html[data-theme="dark"] .osprey-diagram {
+  --od-box: #1a211d;
+  --od-ink: #e4eae6;
+  --od-muted: #93a29b;
+  --od-soft: #778680;
+  --od-line: #35413b;
+  --od-rule: rgba(228, 234, 230, 0.12);
+  --od-accent: #33c9b4;
+  --od-accent-tint: rgba(51, 201, 180, 0.10);
+  --od-warn: #e9a23b;
+  --od-warn-tint: rgba(233, 162, 59, 0.10);
+  --od-warn-soft: rgba(233, 162, 59, 0.60);
+  --od-wash: rgba(228, 234, 230, 0.05);
+  --od-wash-lt: rgba(228, 234, 230, 0.02);
+  --od-input: rgba(147, 162, 155, 0.12);
+  --od-ext: rgba(228, 234, 230, 0.04);
+  --od-ext-stroke: rgba(228, 234, 230, 0.30);
+  --od-lifeline: rgba(228, 234, 230, 0.22);
+  --od-act: rgba(228, 234, 230, 0.07);
+}
+
+.osprey-diagram svg {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* node treatments */
+.osprey-diagram .nb      { fill: var(--od-box); stroke: var(--od-line); stroke-width: 1.2; }
+.osprey-diagram .nb-in   { fill: var(--od-input); stroke: var(--od-soft); stroke-width: 1.2; }
+.osprey-diagram .nb-st   { fill: var(--od-wash); stroke: var(--od-line); stroke-width: 1.2; }
+.osprey-diagram .nb-ext  { fill: var(--od-ext); stroke: var(--od-ext-stroke); stroke-width: 1; }
+.osprey-diagram .nb-foc  { fill: var(--od-accent-tint); stroke: var(--od-accent); stroke-width: 1.4; }
+.osprey-diagram .nb-warn { fill: var(--od-warn-tint); stroke: var(--od-warn); stroke-width: 1.2; }
+.osprey-diagram .nb-bnd  { fill: var(--od-warn-tint); stroke: var(--od-warn-soft); stroke-width: 1.2; stroke-dasharray: 4 4; }
+.osprey-diagram .nb-acc-stroke { stroke: var(--od-accent); stroke-width: 1.4; }
+.osprey-diagram .zone    { fill: var(--od-wash-lt); stroke: var(--od-rule); stroke-width: 0.8; }
+.osprey-diagram .mask    { fill: var(--od-paper); }
+.osprey-diagram .divider { stroke: var(--od-rule); stroke-width: 0.8; }
+
+/* text */
+.osprey-diagram .tn { font-family: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif; font-size: 12px; font-weight: 600; fill: var(--od-ink); }
+.osprey-diagram .ts { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 9px; fill: var(--od-muted); }
+.osprey-diagram .te { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 8px; font-weight: 500; fill: var(--od-soft); letter-spacing: 0.14em; }
+.osprey-diagram .ta { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 8px; fill: var(--od-muted); letter-spacing: 0.06em; }
+.osprey-diagram .ta-acc { fill: var(--od-accent); }
+.osprey-diagram .ta-warn { fill: var(--od-warn); }
+.osprey-diagram .t-acc  { fill: var(--od-accent); }
+.osprey-diagram .aside { font-family: "IBM Plex Serif", Georgia, serif; font-style: italic; font-size: 14px; fill: var(--od-warn); }
+
+/* edges */
+.osprey-diagram .e      { stroke: var(--od-muted); stroke-width: 1.2; fill: none; }
+.osprey-diagram .e-thin { stroke: var(--od-line); stroke-width: 1; fill: none; }
+.osprey-diagram .e-acc  { stroke: var(--od-accent); stroke-width: 1.4; fill: none; }
+.osprey-diagram .e-warn { stroke: var(--od-warn); stroke-width: 1.4; fill: none; }
+.osprey-diagram .e-dash { stroke-dasharray: 5 4; }
+.osprey-diagram .ll     { stroke: var(--od-lifeline); stroke-width: 1; stroke-dasharray: 3 3; fill: none; }
+.osprey-diagram .act    { fill: var(--od-act); stroke: var(--od-muted); stroke-width: 0.8; }
+.osprey-diagram .lead   { stroke: var(--od-warn-soft); stroke-width: 1; stroke-dasharray: 4 3; fill: none; }
+
+/* Learning Path Component Styling */
+.learning-path {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  margin: 2rem 0;
+  padding: 2rem;
+  background: var(--pst-color-surface);
+  border-radius: 8px;
+  border: 1px solid var(--pst-color-border);
+}
+
+.path-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.5rem;
+  background: var(--pst-color-background);
+  border-radius: 6px;
+  border: 1px solid var(--pst-color-border);
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.path-step:hover {
+  border-color: var(--pst-color-primary);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.step-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: var(--pst-color-primary);
+  color: white;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  margin-top: 0.2rem;
+}
+
+.step-content {
+  flex: 1;
+}
+
+.step-content h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--pst-color-text-base);
+}
+
+.step-content p {
+  margin: 0 0 1rem 0;
+  color: var(--pst-color-text-muted);
+  line-height: 1.5;
+}
+
+.step-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--pst-color-primary);
+  color: white !important;
+  text-decoration: none !important;
+  border-radius: 4px;
+  font-weight: 500;
+  transition: background-color 0.2s ease;
+}
+
+.step-link:hover {
+  background: var(--pst-color-primary-dark);
+  color: white !important;
+}
+
+/* Add connecting lines between steps */
+.path-step:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 40px;
+  bottom: -1.5rem;
+  width: 2px;
+  height: 1.5rem;
+  background: var(--pst-color-border);
+}
+
+/* Responsive design for smaller screens */
+@media (max-width: 768px) {
+  .learning-path {
+    padding: 1rem;
+  }
+
+  .path-step {
+    flex-direction: column;
+    text-align: center;
+    padding: 1rem;
+  }
+
+  .path-step::after {
+    display: none;
+  }
+
+  .step-number {
+    margin: 0 auto 1rem auto;
+  }
+}
+
+/* Equal-width tabs for learning paths navigation - works with any number of tabs */
+.sd-tab-set {
+  width: 100%;
+}
+
+/* Force equal width distribution for all tab labels */
+.sd-tab-set > label,
+.sd-tab-set label[for*="sd-tab-item"] {
+  flex: 1 1 0% !important;
+  text-align: center !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  justify-content: center !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+/* Target sphinx-design tab structure more specifically */
+.sd-tab-set > input[type="radio"] + label {
+  flex: 1 1 0% !important;
+  text-align: center !important;
+  justify-content: center !important;
+}
+
+/* Adaptive equal distribution - no hardcoded percentages */
+.sd-tab-set > .sd-tab-label {
+  flex: 1 1 0% !important;
+  min-width: 0 !important;
+  text-align: center !important;
+}
+
+/* Natural-width tabs for multi-tab navigation - allows wrapping */
+.sd-tab-set.natural-width > label,
+.sd-tab-set.natural-width label[for*="sd-tab-item"] {
+  flex: 0 1 auto !important;
+  min-width: fit-content !important;
+  max-width: none !important;
+  text-align: center !important;
+  justify-content: center !important;
+  padding: 0.5rem 1rem !important;
+  white-space: nowrap !important;
+}
+
+.sd-tab-set.natural-width > input[type="radio"] + label {
+  flex: 0 1 auto !important;
+  min-width: fit-content !important;
+}
+
+.sd-tab-set.natural-width > .sd-tab-label {
+  flex: 0 1 auto !important;
+  min-width: fit-content !important;
+}
+
+/* Allow tab wrapping for natural-width variant */
+.sd-tab-set.natural-width {
+  flex-wrap: wrap !important;
+}
+
+.sd-tab-set.natural-width > label {
+  margin-bottom: 0.25rem !important;
+}
+
+/* Theme-aware dropdown styling - Override sphinx-design "light" color */
+/* Makes :color: light dropdowns adapt to both light and dark themes */
+
+/* Light theme: subtle light colors that blend with page */
+html[data-theme="light"] {
+  --sd-color-light: #f8f9fa;
+  --sd-color-light-text: #212529;
+  --sd-color-light-highlight: #dee2e6;
+}
+
+/* Dark theme: subtle dark colors that blend with page */
+html[data-theme="dark"] {
+  --sd-color-light: #2b3035;
+  --sd-color-light-text: #e9ecef;
+  --sd-color-light-highlight: #495057;
+}
