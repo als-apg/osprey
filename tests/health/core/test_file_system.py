@@ -216,6 +216,24 @@ class TestRegistryFile:
         by_name = _by_name(_run({"registry_path": "${REG_FILE}"}, tmp_path))
         assert by_name["registry_file"].status is Status.OK
 
+    def test_nested_spelling_is_resolved(self, tmp_path: Path) -> None:
+        """``application.registry_path`` loads a registry, so it gets a row.
+
+        The row and the loader read the same resolver, so a registry that
+        loaded can never be missing from the report.
+        """
+        (tmp_path / "registry.yml").write_text("components: []\n")
+        by_name = _by_name(_run({"application": {"registry_path": "registry.yml"}}, tmp_path))
+        assert by_name["registry_file"].status is Status.OK
+        assert str(tmp_path / "registry.yml") in by_name["registry_file"].message
+
+    def test_registry_path_env_var_outranks_the_config(self, monkeypatch, tmp_path: Path) -> None:
+        (tmp_path / "from_env.yml").write_text("components: []\n")
+        monkeypatch.setenv("REGISTRY_PATH", str(tmp_path / "from_env.yml"))
+        by_name = _by_name(_run({"registry_path": "registry.yml"}, tmp_path))
+        assert by_name["registry_file"].status is Status.OK
+        assert str(tmp_path / "from_env.yml") in by_name["registry_file"].message
+
     def test_a_config_yml_on_disk_is_not_read(self, tmp_path: Path) -> None:
         """The regression guard for the anchor bug this row used to have.
 
