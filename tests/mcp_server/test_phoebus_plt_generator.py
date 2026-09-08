@@ -7,7 +7,9 @@ must be facility-neutral: no default archiver URL, and no ALS-specific string
 anywhere in the migrated source.
 """
 
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import defusedxml.ElementTree as ET
 
@@ -164,3 +166,22 @@ def test_file_written_under_workspace_dir_with_plt_suffix(tmp_path):
     assert p.exists()
     assert p.suffix == ".plt"
     assert p.parent == tmp_path
+
+
+def test_default_time_window_is_facility_local(tmp_path, monkeypatch):
+    """With no explicit range the default 24 h window is facility wall-clock."""
+    tokyo = ZoneInfo("Asia/Tokyo")  # UTC+9, no DST
+    monkeypatch.setattr(
+        "osprey.mcp_server.phoebus.plt_generator.get_facility_timezone",
+        lambda: tokyo,
+    )
+    plt_path = plt_generator.create_plt_from_config(
+        _minimal_config(time_range=None), workspace_dir=tmp_path
+    )
+    root = ET.fromstring(Path(plt_path).read_text())
+
+    end = datetime.strptime(root.find("end").text, "%Y-%m-%d %H:%M:%S.%f")
+    start = datetime.strptime(root.find("start").text, "%Y-%m-%d %H:%M:%S.%f")
+    expected = datetime.now(tokyo).replace(tzinfo=None)
+    assert abs((end - expected).total_seconds()) < 60
+    assert abs((end - start).total_seconds() - 24 * 3600) < 1

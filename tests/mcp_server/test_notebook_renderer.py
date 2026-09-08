@@ -7,6 +7,8 @@ Covers:
 """
 
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import nbformat
 import pytest
@@ -177,3 +179,22 @@ class TestGetOrRenderHtml:
         html, html_path2 = get_or_render_html(nb_path, cache_dir=cache_dir)
         assert html_path2.stat().st_mtime > first_mtime
         assert "STALE_UPDATED_MARKER" in html
+
+
+TOKYO = ZoneInfo("Asia/Tokyo")  # UTC+9, no DST
+
+
+@pytest.mark.unit
+def test_header_timestamp_is_in_the_facility_zone(monkeypatch):
+    """The header an operator opens carries the facility offset, not a UTC literal."""
+    monkeypatch.setattr(
+        "osprey.utils.config.get_facility_timezone",
+        lambda: TOKYO,
+    )
+    nb = create_notebook_from_code(code="print(1)", description="Zone test")
+    line = next(ln for ln in nb.cells[0].source.splitlines() if ln.startswith("**Timestamp:**"))
+    stamp = line.removeprefix("**Timestamp:**").strip()
+
+    parsed = datetime.fromisoformat(stamp)
+    assert parsed.utcoffset().total_seconds() == 9 * 3600
+    assert "UTC" not in stamp
