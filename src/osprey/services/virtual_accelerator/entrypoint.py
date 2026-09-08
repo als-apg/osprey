@@ -77,7 +77,11 @@ from collections.abc import Container
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from osprey.services.virtual_accelerator.ioc.engine_source import EngineSource
+from osprey.services.virtual_accelerator.ioc.engine_source import (
+    DEFAULT_NOISE_LEVEL,
+    DEFAULT_POLL_INTERVAL_S,
+    EngineSource,
+)
 from osprey.services.virtual_accelerator.manifest import (
     PARTITION_SP_ECHO,
     READBACK_SUBFIELD,
@@ -96,7 +100,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from lume.model import LUMEModel
 
 DEFAULT_DATA_DIR = "/data/simulation"
-ENGINE_POLL_INTERVAL_S = 1.0
 
 # The line this process prints once it is serving, and the marker everything
 # that waits on that boot greps for: the image boot check
@@ -213,6 +216,52 @@ def _parse_bpm_errors(env_var: str = "VA_BPM_ERRORS") -> dict[str, dict[str, flo
             fields[field] = value
         result[device] = fields
     return result
+
+
+def _positive_float_env(env_var: str, default: float) -> float:
+    """Read *env_var* as a float greater than zero, or fall back to *default*.
+
+    Args:
+        env_var: Name of the variable to read.
+        default: Value used when the variable is unset or empty.
+
+    Returns:
+        The configured value, or *default*.
+
+    Raises:
+        SystemExit: If the variable is set to something that is not a number,
+            or to a value at or below zero — a poll interval of zero is a busy
+            loop, and a negative one is not a duration at all. Refused at boot
+            rather than clamped, so a typo is visible in ``docker logs``.
+    """
+    return _float_env(env_var, default, minimum=0.0, inclusive=False)
+
+
+def _non_negative_float_env(env_var: str, default: float) -> float:
+    """Read *env_var* as a float of zero or more, or fall back to *default*.
+
+    Zero is meaningful here — it asks for no noise at all — so it is accepted
+    where :func:`_positive_float_env` refuses it.
+    """
+    return _float_env(env_var, default, minimum=0.0, inclusive=True)
+
+
+def _float_env(env_var: str, default: float, *, minimum: float, inclusive: bool) -> float:
+    """Shared reader behind the two float-env helpers above."""
+    raw = os.environ.get(env_var, "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        raise SystemExit(
+            f"FATAL: {env_var}={raw!r} is not a number. Set it to a decimal "
+            f"value, or unset it for the default of {default}."
+        ) from None
+    if value < minimum or (value == minimum and not inclusive):
+        bound = f">= {minimum}" if inclusive else f"> {minimum}"
+        raise SystemExit(f"FATAL: {env_var}={raw!r} must be {bound}.")
+    return value
 
 
 def _resolve_channels_file(data_dir: Path) -> Path:
@@ -398,6 +447,12 @@ def main() -> None:
     configure_logging()
 
     data_dir = Path(os.environ.get("VA_DATA_DIR", DEFAULT_DATA_DIR))
+    # Two facility-network facts, read here rather than fixed in the image: how
+    # often the telemetry thread republishes engine values, and how much noise
+    # the synthesised channels carry. Both default to the `engine_source`
+    # constants, which are the one place either number is written down.
+    poll_interval_s = _positive_float_env("VA_POLL_INTERVAL_S", DEFAULT_POLL_INTERVAL_S)
+    noise_level = _non_negative_float_env("VA_NOISE_LEVEL", DEFAULT_NOISE_LEVEL)
     state_dir = Path(os.environ.get("VA_STATE_DIR", "").strip() or data_dir)
     machine_path = data_dir / "machine.json"
     if not machine_path.is_file():
@@ -536,6 +591,7 @@ def main() -> None:
         records.static_noisy,
         data_dir,
         state_dir=state_dir,
+        noise_level=noise_level,
         setpoint_echo_records=setpoint_echoes,
     )
 
@@ -559,7 +615,7 @@ def main() -> None:
     # Telemetry starts only once the driver is attached, so its first tick
     # posts monitor events to the server rather than editing boot specs
     # behind it.
-    _start_engine_source(engine_source, ENGINE_POLL_INTERVAL_S)
+    _start_engine_source(engine_source, poll_interval_s)
 
     _install_shutdown_signals()
     print(_ready_line(len(records.all)), flush=True)

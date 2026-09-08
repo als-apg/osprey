@@ -81,6 +81,12 @@ services:
       # Passthrough from the project .env; unset -> no fault.
       VA_BPM_ERRORS: "${VA_BPM_ERRORS:-}"
       VA_CORR_GAIN: "${VA_CORR_GAIN:-}"
+      # How often the telemetry thread republishes engine values, and how much
+      # noise the synthesised channels carry. Empty means the entrypoint's own
+      # defaults (1.0 s, 0.01); a value out of range is refused at boot rather
+      # than clamped, so a typo shows up in `docker logs`.
+      VA_POLL_INTERVAL_S: "${VA_POLL_INTERVAL_S:-}"
+      VA_NOISE_LEVEL: "${VA_NOISE_LEVEL:-}"
       # Facility-neutral source configuration (entrypoint.py + Dockerfile CMD
       # read these): the entrypoint module to run, the channel manifest, and
       # whether the PyAT lattice is constructed. Passthrough from the project

@@ -36,6 +36,7 @@ from lume.model import LUMEModel
 from lume.variables import ScalarVariable
 
 from osprey.services.virtual_accelerator import entrypoint as ep
+from osprey.services.virtual_accelerator.ioc import engine_source as engine_source_module
 from osprey.services.virtual_accelerator.manifest import (
     PARTITION_PYAT_COUPLED,
     PARTITION_SP_ECHO,
@@ -265,6 +266,7 @@ class FakeEngineSource:
     static_noisy: dict[str, Any]
     data_dir: Path
     state_dir: Path | None = None
+    noise_level: float | None = None
     setpoint_echo_records: dict[str, Any] | None = None
 
 
@@ -512,7 +514,52 @@ class TestBootOrder:
         boot = _boot(monkeypatch, facility)
         source, interval = boot.one("engine-thread")
         assert source is boot.engine_source
-        assert interval == ep.ENGINE_POLL_INTERVAL_S
+        assert interval == engine_source_module.DEFAULT_POLL_INTERVAL_S
+
+    def test_the_poll_interval_is_read_from_the_environment(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """A facility that wants livelier telemetry sets VA_POLL_INTERVAL_S."""
+        boot = _boot(monkeypatch, facility, env={"VA_POLL_INTERVAL_S": "0.25"})
+        _source, interval = boot.one("engine-thread")
+
+        assert interval == 0.25
+
+    def test_the_noise_level_reaches_the_engine_source(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """VA_NOISE_LEVEL is forwarded; before, the constructor never saw one."""
+        boot = _boot(monkeypatch, facility, env={"VA_NOISE_LEVEL": "0.05"})
+
+        assert boot.engine_source.noise_level == 0.05
+
+    def test_the_noise_level_defaults_to_the_engine_source_constant(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """One place the number is written down, and the entrypoint reads it."""
+        boot = _boot(monkeypatch, facility)
+
+        assert boot.engine_source.noise_level == engine_source_module.DEFAULT_NOISE_LEVEL
+
+    def test_an_unusable_poll_interval_refuses_the_boot(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """Refused, not clamped: a typo has to be visible in the container log."""
+        with pytest.raises(SystemExit, match="VA_POLL_INTERVAL_S"):
+            _boot(monkeypatch, facility, env={"VA_POLL_INTERVAL_S": "0"})
+
+        with pytest.raises(SystemExit, match="VA_POLL_INTERVAL_S"):
+            _boot(monkeypatch, facility, env={"VA_POLL_INTERVAL_S": "fast"})
+
+    def test_a_negative_noise_level_refuses_the_boot(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """Zero noise is a legitimate ask; below zero is not a fraction."""
+        with pytest.raises(SystemExit, match="VA_NOISE_LEVEL"):
+            _boot(monkeypatch, facility, env={"VA_NOISE_LEVEL": "-0.1"})
+
+        boot = _boot(monkeypatch, facility, env={"VA_NOISE_LEVEL": "0"})
+        assert boot.engine_source.noise_level == 0.0
 
     def test_stop_signals_are_installed_only_once_the_servers_are_up(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path
