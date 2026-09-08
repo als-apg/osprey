@@ -22,7 +22,6 @@ directory — module-level skip when docker is unavailable, exact-named teardown
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import uuid
 from pathlib import Path
@@ -32,20 +31,14 @@ import pytest
 from osprey.deployment.web_terminals.artifacts import auth_env_digest
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
 from osprey.deployment.web_terminals.render import AUTH_ENV_DIGEST_LABEL
+from tests._container_support import docker_cli_unavailable_reason
 
-
-def _docker_available() -> bool:
-    if shutil.which("docker") is None:
-        return False
-    try:
-        return subprocess.run(["docker", "info"], capture_output=True, timeout=10).returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
 
 
 pytestmark = [
     pytest.mark.dockerbuild,
-    pytest.mark.skipif(not _docker_available(), reason="docker not available"),
+    pytest.mark.skipif(_DOCKER_UNAVAILABLE is not None, reason=_DOCKER_UNAVAILABLE or ""),
 ]
 
 # Already pulled by this directory's other dockerbuild tests, so no extra image

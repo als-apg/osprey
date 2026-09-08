@@ -85,7 +85,6 @@ import http.cookiejar
 import json
 import os
 import re
-import shutil
 import subprocess
 import time
 import urllib.error
@@ -105,15 +104,9 @@ from osprey.deployment.web_terminals.seeding import seed_user_containers
 from osprey.deployment.wheel_build import _copy_local_framework_for_override
 from osprey.port_layout import default_port
 from osprey.utils.workspace import container_image_context
+from tests._container_support import docker_cli_unavailable_reason
 
-
-def _docker_available() -> bool:
-    if shutil.which("docker") is None:
-        return False
-    try:
-        return subprocess.run(["docker", "info"], capture_output=True, timeout=10).returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
 
 
 #: The port the project image serves on INSIDE the container: the ``web`` slot
@@ -126,7 +119,7 @@ pytestmark = [
     pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.dockerbuild,
-    pytest.mark.skipif(not _docker_available(), reason="docker binary or daemon not available"),
+    pytest.mark.skipif(_DOCKER_UNAVAILABLE is not None, reason=_DOCKER_UNAVAILABLE or ""),
 ]
 
 PRESET = "control-assistant"
