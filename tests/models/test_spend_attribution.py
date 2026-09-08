@@ -52,6 +52,25 @@ class TestGatewayFor:
     def test_unknown_provider_is_unattributed(self):
         assert gateway_for("no-such-provider") is None
 
+    def test_a_declared_gateway_wins_over_the_builtin_table(self):
+        """The table is a default for a name with nothing said about it. A
+        deployment that declares what fronts its own endpoint is not overruled
+        by a framework table that cannot know."""
+        providers = {"cborg": {"base_url": "https://gw.example/v1", "gateway": "none"}}
+        assert gateway_for("cborg", providers) is None
+
+    def test_a_builtin_can_be_pointed_at_a_different_gateway(self):
+        providers = {"als-apg": {"base_url": "https://gw.example/v1", "gateway": "house-gw"}}
+        assert gateway_for("als-apg", providers) == "house-gw"
+
+    def test_a_block_that_says_nothing_falls_back_to_the_table(self):
+        providers = {"cborg": {"base_url": "https://gw.example/v1"}}
+        assert gateway_for("cborg", providers) == LITELLM_GATEWAY
+
+    def test_an_empty_declaration_means_direct(self):
+        providers = {"cborg": {"gateway": ""}}
+        assert gateway_for("cborg", providers) is None
+
 
 class TestActingSurface:
     def test_terminal_user_wins(self, monkeypatch):
