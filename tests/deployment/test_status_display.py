@@ -409,3 +409,54 @@ def test_the_endpoints_section_resolves_personas_against_the_live_checkout(
     status_display._print_endpoints_section({"project_name": "demo"}, [], tmp_path)
 
     assert seen["project_root"] == tmp_path
+
+
+class TestNoRuntimeInstalled:
+    """ "No runtime here" and "the runtime is not answering" are different facts.
+
+    ``_query_containers`` reported both as ``Could not query container status``,
+    so a deployment that declares no containerized services — a perfectly
+    supported shape — carried a permanent red banner on every ``osprey status``
+    for a tool it does not need. The distinction is a conjunction: nothing
+    installed AND nothing declared. "Installed but down" and "no runtime but
+    services declared" both stay failures, because both are.
+    """
+
+    def _query(self, monkeypatch, config, *, installed: bool) -> object:
+        def _refuse(*_a, **_kw):
+            raise RuntimeError("No container runtime found.")
+
+        monkeypatch.setattr(status_display, "get_ps_command", _refuse)
+        monkeypatch.setattr(
+            "osprey.deployment.runtime_helper.no_container_runtime_installed",
+            lambda: not installed,
+        )
+        return status_display._query_containers(config)
+
+    def test_nothing_installed_and_nothing_declared_is_a_note(self, monkeypatch, rendered) -> None:
+        assert self._query(monkeypatch, {"deployed_services": []}, installed=False) is None
+
+        printed = rendered.export_text()
+        assert "declares no containerized services" in printed
+        assert "Could not query container status" not in printed
+
+    def test_no_config_at_all_is_also_nothing_declared(self, monkeypatch, rendered) -> None:
+        assert self._query(monkeypatch, None, installed=False) is None
+
+        assert "declares no containerized services" in rendered.export_text()
+
+    def test_services_declared_still_fails(self, monkeypatch, rendered) -> None:
+        """A deployment that needs a runtime and has none is broken, and says so."""
+        result = self._query(monkeypatch, {"deployed_services": ["openobserve"]}, installed=False)
+        assert result is None
+
+        printed = rendered.export_text()
+        assert "Could not query container status" in printed
+        assert "declares no containerized services" not in printed
+
+    def test_installed_but_not_answering_still_fails(self, monkeypatch, rendered) -> None:
+        assert self._query(monkeypatch, {"deployed_services": []}, installed=True) is None
+
+        printed = rendered.export_text()
+        assert "Could not query container status" in printed
+        assert "declares no containerized services" not in printed
