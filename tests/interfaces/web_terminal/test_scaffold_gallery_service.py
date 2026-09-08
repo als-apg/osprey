@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 from pathlib import Path
@@ -15,6 +16,7 @@ from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.cli.profile_conventions import NOT_PROJECT_RELATIVE_CHANNEL
 from osprey.interfaces.web_terminal.ownership import (
+    Ownership,
     OwnershipMode,
     OwnershipStore,
     reserved_write_channel,
@@ -3712,3 +3714,77 @@ class TestRestoreRefusesBodiesThatEscapeTheStore:
         svc.save_override(WRITABLE_ARTIFACT, "# Channel finder\nMine.\n")
 
         assert restore_scaffold_bodies(pristine) == [WRITABLE_ARTIFACT]
+
+
+class TestNoDurableStoreIsSaidOutLoud:
+    """A container deployment with nowhere durable to write says so, once.
+
+    ``CLAUDE_CONFIG_DIR`` is the only variable that names the per-user store.
+    Without it a containerised deployment resolves DEGRADED or CONFIG and every
+    claim is silently lost on the next container recreation — with no log line
+    naming the variable that would have fixed it, and a deploy guide calling it
+    optional.
+    """
+
+    def _in_a_container(self, ownership_module, **extra):
+        return {ownership_module.RENDER_ZONE_READONLY_ENV: "1", **extra}
+
+    def test_a_missing_store_names_the_variable_it_needs(self, tmp_path, caplog):
+        from osprey.interfaces.web_terminal import ownership as ownership_module
+
+        ownership_module._reset_store_notice()
+        with caplog.at_level(logging.WARNING, logger=ownership_module.__name__):
+            resolve_ownership(tmp_path, env=self._in_a_container(ownership_module))
+
+        assert ownership_module.CLAUDE_CONFIG_ENV in caplog.text
+        assert "durable" in caplog.text
+
+    def test_it_is_said_once_per_process(self, tmp_path, caplog):
+        from osprey.interfaces.web_terminal import ownership as ownership_module
+
+        ownership_module._reset_store_notice()
+        with caplog.at_level(logging.WARNING, logger=ownership_module.__name__):
+            resolve_ownership(tmp_path, env=self._in_a_container(ownership_module))
+            resolve_ownership(tmp_path, env=self._in_a_container(ownership_module))
+
+        assert caplog.text.count(ownership_module.CLAUDE_CONFIG_ENV) == 1
+
+    def test_a_mounted_store_says_nothing(self, tmp_path, caplog):
+        from osprey.interfaces.web_terminal import ownership as ownership_module
+
+        ownership_module._reset_store_notice()
+        env = self._in_a_container(
+            ownership_module, **{ownership_module.CLAUDE_CONFIG_ENV: str(tmp_path)}
+        )
+        with caplog.at_level(logging.WARNING, logger=ownership_module.__name__):
+            resolve_ownership(tmp_path, env=env)
+
+        assert ownership_module.CLAUDE_CONFIG_ENV not in caplog.text
+
+    def test_a_bare_host_project_says_nothing(self, tmp_path, caplog):
+        """CONFIG on a host is config.yml, which nothing recreates.
+
+        The notice is about a container's writable layer. A pre-profile project
+        on a bare host resolves the same mode for an entirely different reason,
+        and telling that operator their claims are lost on recreation would be
+        a warning about a machine they are not running.
+        """
+        from osprey.interfaces.web_terminal import ownership as ownership_module
+
+        ownership_module._reset_store_notice()
+        with caplog.at_level(logging.WARNING, logger=ownership_module.__name__):
+            assert resolve_ownership(tmp_path, env={}).mode is OwnershipMode.CONFIG
+
+        assert ownership_module.CLAUDE_CONFIG_ENV not in caplog.text
+
+    def test_the_gallery_refusal_carries_the_same_sentence(self):
+        from osprey.interfaces.web_terminal.ownership import NO_DURABLE_STORE
+
+        service = ScaffoldGalleryService.__new__(ScaffoldGalleryService)
+        service._ownership = Ownership(OwnershipMode.DEGRADED)
+        service.project_dir = Path("/srv/demo")
+
+        with pytest.raises(Exception) as excinfo:
+            service._require_durable_config_surface()
+
+        assert NO_DURABLE_STORE in str(excinfo.value)

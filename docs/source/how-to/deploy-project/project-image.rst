@@ -521,15 +521,19 @@ Two kinds of state are worth persisting across container restarts:
   it lands in the same place whether the project is flat, a deployment
   repository, or this image — unless the deployment relocates
   ``agent_data.base_dir``, which moves the backups with it.
-- ``/home/osprey`` — the agent CLI's per-user state (sessions, credentials);
-  set ``CLAUDE_CONFIG_DIR`` if you want it somewhere more explicit.
+- ``/home/osprey`` — the agent CLI's per-user state (sessions, credentials).
+  Set ``CLAUDE_CONFIG_DIR`` to this directory: it is the only variable that
+  names the durable store scaffold claims are recorded in, and without it a
+  claim made from the running deployment is lost when the container is
+  recreated. The deployment logs a warning at startup when it is unset.
 
 Kubernetes notes
 ----------------
 
-- Give each user/instance a PVC for ``/home/osprey`` (or
-  ``CLAUDE_CONFIG_DIR``) and one for ``var/agent_data/`` — session state does
-  not survive pod rescheduling otherwise.
+- Give each user/instance a PVC for ``/home/osprey`` and one for
+  ``var/agent_data/`` — session state does not survive pod rescheduling
+  otherwise. Point ``CLAUDE_CONFIG_DIR`` at that first PVC; scaffold claims are
+  recorded there and nowhere else.
 - The image has no ``USER``: it starts as root and drops to uid 1000 itself
   (see `The Privilege Split`_). A ``securityContext`` with
   ``runAsNonRoot: true`` therefore refuses the pod, and one pinning
