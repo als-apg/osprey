@@ -229,6 +229,10 @@ config:
   # point adapter and source_url at your logbook system and run
   # `osprey ariel ingest`.
   ariel.ingestion.adapter: generic_json
+  # Largest file one entry may attach, in MB. Attachments are stored as rows in
+  # the same Postgres the logbook lives in, so this number is a storage
+  # decision in both directions.
+  # ariel.attachments.max_file_mb: 10
   ariel.ingestion.source_url: data/logbook_seed/demo_logbook.json
   # TLS on the logbook fetch. Verification is ON — an ingest that cannot verify
   # the logbook's certificate fails rather than trusting whatever answered.

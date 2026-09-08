@@ -4,8 +4,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from osprey.services.ariel_search import attachments as attachments_module
 from osprey.services.ariel_search.attachments import (
-    MAX_ATTACHMENT_SIZE,
+    DEFAULT_MAX_ATTACHMENT_MB,
     AttachmentValidationError,
     generate_attachment_id,
     guess_mime_type,
@@ -13,6 +14,8 @@ from osprey.services.ariel_search.attachments import (
     read_local_file,
     validate_file_size,
 )
+
+_DEFAULT_MAX_BYTES = DEFAULT_MAX_ATTACHMENT_MB * 1024 * 1024
 
 
 class TestValidateFileSize:
@@ -26,13 +29,13 @@ class TestValidateFileSize:
     @pytest.mark.unit
     def test_exact_limit(self):
         """Files at exactly the limit pass validation."""
-        validate_file_size(MAX_ATTACHMENT_SIZE, "exact.bin")
+        validate_file_size(_DEFAULT_MAX_BYTES, "exact.bin")
 
     @pytest.mark.unit
     def test_exceeds_limit(self):
         """Files over the limit raise AttachmentValidationError."""
         with pytest.raises(AttachmentValidationError, match="exceeds"):
-            validate_file_size(MAX_ATTACHMENT_SIZE + 1, "big.bin")
+            validate_file_size(_DEFAULT_MAX_BYTES + 1, "big.bin")
 
 
 class TestGuessMimeType:
@@ -107,7 +110,7 @@ class TestReadLocalFile:
     def test_oversized_file(self, tmp_path):
         """Files exceeding the size limit are rejected."""
         f = tmp_path / "huge.bin"
-        f.write_bytes(b"\x00" * (MAX_ATTACHMENT_SIZE + 1))
+        f.write_bytes(b"\x00" * (_DEFAULT_MAX_BYTES + 1))
 
         with pytest.raises(AttachmentValidationError, match="exceeds"):
             read_local_file(str(f))
@@ -161,3 +164,47 @@ class TestProcessAttachmentsForEntry:
 
         # No store calls should have been made
         mock_repo.store_attachment.assert_not_called()
+
+
+class TestTheAttachmentCapIsAConfigKey:
+    """``ariel.attachments.max_file_mb``: default, override, refusal.
+
+    Attachments are BYTEA rows in the same Postgres the logbook lives in, so
+    both directions of this number are a site storage decision.
+    """
+
+    @pytest.mark.unit
+    def test_default_when_no_config_is_primed(self, monkeypatch):
+        """A standalone ARIEL reads no config and still has a bound."""
+        monkeypatch.setattr(
+            "osprey.utils.config.get_config_value",
+            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no config")),
+        )
+
+        assert attachments_module.max_attachment_bytes() == _DEFAULT_MAX_BYTES
+
+    @pytest.mark.unit
+    def test_configured_value_is_read_in_megabytes(self, monkeypatch):
+        """The key is authored in MB; validation compares bytes."""
+        monkeypatch.setattr("osprey.utils.config.get_config_value", lambda *a, **k: 50)
+
+        assert attachments_module.max_attachment_bytes() == 50 * 1024 * 1024
+        validate_file_size(40 * 1024 * 1024, "trace.bin")
+        with pytest.raises(AttachmentValidationError, match="exceeds"):
+            validate_file_size(50 * 1024 * 1024 + 1, "trace.bin")
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("bad", [0, -1, True, "10", None])
+    def test_an_unusable_cap_falls_back_to_the_default(self, monkeypatch, bad):
+        """A nonsense cap keeps the documented bound rather than removing it."""
+        monkeypatch.setattr("osprey.utils.config.get_config_value", lambda *a, **k: bad)
+
+        assert attachments_module.max_attachment_bytes() == _DEFAULT_MAX_BYTES
+
+    @pytest.mark.unit
+    def test_the_refusal_names_the_configured_limit(self, monkeypatch):
+        """The operator is told the number in force, not a framework literal."""
+        monkeypatch.setattr("osprey.utils.config.get_config_value", lambda *a, **k: 50)
+
+        with pytest.raises(AttachmentValidationError, match="50 MB limit"):
+            validate_file_size(60 * 1024 * 1024, "trace.bin")

@@ -11,15 +11,50 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from osprey.utils.logger import get_logger
+
 if TYPE_CHECKING:
     from osprey.services.ariel_search.database.repository import ARIELRepository
     from osprey.services.ariel_search.models import AttachmentInfo
 
-MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10 MB
+logger = get_logger("ariel")
+
+#: Used when ``ariel.attachments.max_file_mb`` is unset.
+DEFAULT_MAX_ATTACHMENT_MB = 10
 
 
 class AttachmentValidationError(Exception):
     """Raised when an attachment fails validation."""
+
+
+def max_attachment_bytes() -> int:
+    """Largest attachment an entry may carry, in bytes.
+
+    Attachments are stored as ``BYTEA`` in the same Postgres the logbook lives
+    in, so both directions of this number are a site storage decision: a
+    facility that attaches raw scope traces raises it and pays for the space, a
+    facility that wants the database small lowers it.
+
+    Read on every call — never cached at import — so a test and a re-primed
+    process see the value their config declares.
+    """
+    megabytes = DEFAULT_MAX_ATTACHMENT_MB
+    try:
+        from osprey.utils.config import get_config_value
+
+        configured = get_config_value("ariel.attachments.max_file_mb", DEFAULT_MAX_ATTACHMENT_MB)
+    except Exception:
+        logger.debug("No config available for ariel.attachments.max_file_mb", exc_info=True)
+        configured = None
+    if isinstance(configured, int) and not isinstance(configured, bool) and configured > 0:
+        megabytes = configured
+    elif configured is not None and configured != DEFAULT_MAX_ATTACHMENT_MB:
+        logger.warning(
+            "ariel.attachments.max_file_mb must be an integer >= 1 (got %r); using %d MB",
+            configured,
+            DEFAULT_MAX_ATTACHMENT_MB,
+        )
+    return megabytes * 1024 * 1024
 
 
 def validate_file_size(size: int, filename: str) -> None:
@@ -30,10 +65,12 @@ def validate_file_size(size: int, filename: str) -> None:
         filename: Filename for error messages.
 
     Raises:
-        AttachmentValidationError: If file exceeds MAX_ATTACHMENT_SIZE.
+        AttachmentValidationError: If the file exceeds
+            ``ariel.attachments.max_file_mb``.
     """
-    if size > MAX_ATTACHMENT_SIZE:
-        max_mb = MAX_ATTACHMENT_SIZE / (1024 * 1024)
+    limit = max_attachment_bytes()
+    if size > limit:
+        max_mb = limit / (1024 * 1024)
         actual_mb = size / (1024 * 1024)
         raise AttachmentValidationError(
             f"File '{filename}' is {actual_mb:.1f} MB, exceeds {max_mb:.0f} MB limit."
