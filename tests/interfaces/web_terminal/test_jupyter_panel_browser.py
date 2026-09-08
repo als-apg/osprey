@@ -641,7 +641,10 @@ def _publish_fleet(root: Path, *, applied_target: str, applied_generation: int) 
     answer ``reachability_unknown``, and that refusal is only visible in the
     audit log, so the browser would just show an unexplained dialog error.
     After a switch, rewriting it at the new generation is the fleet arriving,
-    which is what ends ``switching…``.
+    which is what ends ``switching…``. The report carries a connector-host
+    child because the chip's wait is scoped to servers holding a connector: a
+    server that serves nothing has nothing left on the old target, so the wait
+    passes over it instead of holding for it, and step 3 would never happen.
     """
     import os as _os
 
@@ -650,6 +653,7 @@ def _publish_fleet(root: Path, *, applied_target: str, applied_generation: int) 
         _os.getpid(),
         applied_target=applied_target,
         applied_generation=applied_generation,
+        children=[4242],
         reachability=_reachability_sweep(),
     )
 
