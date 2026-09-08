@@ -434,3 +434,45 @@ describe('prompt chips', () => {
     expect(term.paste).not.toHaveBeenCalled();
   });
 });
+
+describe('the palette chord it teaches', () => {
+  /**
+   * Walk the tour to the palette step and return that card's body text.
+   * @returns {string}
+   */
+  function paletteStepBody() {
+    mountFullShell();
+    applyTourConfig({ tour: { policy: 'never' } });
+    startTour();
+    for (let i = 0; i < 4; i += 1) {
+      click(nextBtn());
+      vi.advanceTimersByTime(200);
+    }
+    expect(cardTitle()).toBe('Search everything');
+    return cardBody();
+  }
+
+  /** @param {string} value */
+  function stubPlatform(value) {
+    Object.defineProperty(navigator, 'platform', { value, configurable: true });
+    Object.defineProperty(navigator, 'userAgentData', { value: undefined, configurable: true });
+  }
+
+  test('macOS is taught the chord macOS binds', () => {
+    stubPlatform('MacIntel');
+
+    expect(paletteStepBody()).toContain('⌘K');
+  });
+
+  test('everywhere else is taught Ctrl+K, and where it works', () => {
+    stubPlatform('Linux x86_64');
+
+    const body = paletteStepBody();
+
+    expect(body).toContain('Ctrl+K');
+    expect(body).not.toContain('⌘');
+    // Off macOS the palette binds the chord outside the terminal only, so the
+    // tour has to say what to do inside it.
+    expect(body).toContain('outside the terminal');
+  });
+});

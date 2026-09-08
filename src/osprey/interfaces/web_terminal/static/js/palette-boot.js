@@ -40,14 +40,8 @@ import { openPalette, closePalette, isOpen } from './palette.js';
 import { enterEditMode } from './bar-customize.js';
 import { logout } from './logout.js';
 import { pickUiMode } from '/design-system/js/frame-params.js';
+import { isMacPlatform } from '/design-system/js/platform.js';
 import { isFeedbackModalOpen } from './feedback-modal.js';
-
-/** True on macOS/iPadOS, where the palette hotkey is Cmd+K instead of Ctrl+K. */
-function isMacPlatform() {
-  const nav = /** @type {Navigator & { userAgentData?: { platform?: string } }} */ (navigator);
-  const platform = nav.userAgentData?.platform || nav.platform || '';
-  return /Mac|iPhone|iPad|iPod/i.test(platform);
-}
 
 /** @returns {'expert'|'simple'} the resolved ui mode from the authoritative <html> attribute. */
 function currentUiMode() {
