@@ -902,6 +902,11 @@ config:
   # thing that stops it. `host` has no env override.
   artifact_server.host: 127.0.0.1
   artifact_server.auto_launch: true
+  # Largest timeseries data file the gallery will chart or tabulate, in MB.
+  # The handler loads the whole file to build the view, so raising this spends
+  # memory on the machine serving the gallery. Over the cap the browser views
+  # refuse with a 413; the file itself stays downloadable either way.
+  # artifact_server.max_timeseries_file_mb: 200
   # Extra artifact categories on top of the ones the gallery ships, so a badge
   # reads in this facility's own vocabulary. One dotted line per category, each
   # value a `label` and a `#RRGGBB` `color`. An artifact handed in under a

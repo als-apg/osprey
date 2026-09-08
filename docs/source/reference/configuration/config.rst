@@ -710,6 +710,15 @@ restart.
 The four commented stanzas in the shipped presets have nothing to do but say
 this: a shipped value would be one facility's vocabulary handed to every other.
 
+One other key sits in this block. ``artifact_server.max_timeseries_file_mb``
+(default 200) is the largest timeseries data file the gallery will draw as a
+chart or lay out as a table. Over it, those two views refuse with a ``413`` and
+say so; the file itself stays downloadable either way. The handler reads the
+whole file into memory to build the view, so raising the number spends that
+much memory on the machine serving the gallery — which is why it is a facility's
+to set rather than a fixed bound: how big an export gets is a property of your
+archiver, and how much memory the gallery host has is a property of your site.
+
 .. _config-python-executor:
 
 ``python_executor:`` — how long one agent script may run
