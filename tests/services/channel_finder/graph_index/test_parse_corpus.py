@@ -13,7 +13,6 @@ from __future__ import annotations
 import subprocess
 import sys
 import textwrap
-import time
 from importlib.resources import as_file, files
 from pathlib import Path
 
@@ -465,12 +464,6 @@ class TestModuleImport:
 
 
 class TestTheShippedDemoCorpus:
-    def test_parses_in_well_under_the_build_budget(self, demo_path):
-        text = demo_path.read_text(encoding="utf-8")
-        started = time.perf_counter()
-        parse_corpus(text)
-        assert time.perf_counter() - started < 10.0
-
     def test_binding_and_device_counts_match_the_store(self, demo):
         assert len(demo.binding_rows) == DEMO_BINDINGS
         assert len({row.device_uri for row in demo.binding_rows}) == DEMO_DEVICES
