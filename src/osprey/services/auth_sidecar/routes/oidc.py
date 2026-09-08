@@ -129,15 +129,6 @@ One entry, not a map: Authlib's Starlette integration drops every previous
 have one handshake it could complete. A second entry here would outlive the
 Authlib data it is paired with and could only ever fail the state check."""
 
-DEFAULT_SCOPE = "openid profile email"
-"""Requested scopes.
-
-``openid`` is what makes this OIDC rather than bare OAuth2 (it is also what
-makes Authlib generate and check a nonce). ``profile`` and ``email`` are asked
-for because the claim a facility maps onto a roster user is commonly
-``preferred_username`` or ``email``, and a claim that was never requested is
-simply absent from the token — which this module reads as "deny"."""
-
 ENV_ROLE_CLAIM = "OSPREY_AUTH_ROLE_CLAIM"
 """Names the ID-token claim carrying group membership, e.g. ``groups``.
 
@@ -738,7 +729,9 @@ def _oauth_client(request: Request) -> Any:
         server_metadata_url=_discovery_url(settings.oidc_issuer or ""),
         client_id=settings.oidc_client_id,
         client_secret=settings.oidc_client_secret,
-        client_kwargs={"scope": DEFAULT_SCOPE},
+        # The scope list the deployment authored (or the sidecar's default when
+        # it authored none). Authlib takes it as one space-separated string.
+        client_kwargs={"scope": " ".join(settings.oidc_scopes)},
     )
     client = registry.create_client(CLIENT_NAME)
     request.app.state.oidc_client = client

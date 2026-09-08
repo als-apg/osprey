@@ -2080,6 +2080,15 @@ keys:
   modules.web_terminals.auth.allow_insecure_http:
     evidence: 'bool\(auth\.get\("allow_insecure_http", False\)\)'
     default: false
+  modules.web_terminals.auth.oidc.scopes:
+    rendered: false
+    evidence: 'oidc\.get\("scopes"\)'
+    note: >-
+      Scopes requested at the IdP's authorization endpoint. Rendered only by a
+      profile that authors an `auth.oidc:` stanza, which no preset ships, so no
+      shipped deployment carries the key. `openid` may not be dropped: the auth
+      sidecar refuses a list without it rather than putting it back.
+    default: [openid, profile, email]
   modules.web_terminals.landing: {evidence: 'as_dict\(web_terminals\.get\("landing"\)\)', default: {}}
   modules.web_terminals.landing.notices:
     evidence: 'if "notices" not in landing_cfg'

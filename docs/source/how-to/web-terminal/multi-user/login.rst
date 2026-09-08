@@ -110,10 +110,19 @@ user's terminal:
            client_id_env: OSPREY_AUTH_OIDC_CLIENT_ID      # names in .env.auth
            client_secret_env: OSPREY_AUTH_OIDC_CLIENT_SECRET
            claim: sub
+           scopes: [openid, profile, email]
        users:
          - name: alice
            index: 0
            oidc_subject: "8f4c1e02-..."     # alice's value of that claim
+
+``scopes`` is what is asked for at the authorization endpoint, and it decides
+which claims the provider releases: a claim that was never requested is simply
+absent, and an absent claim is a denied login. The three above are the default,
+so a deployment whose provider publishes its identity claim under ``profile``
+or ``email`` can leave the line out. ``openid`` may not be dropped — without it
+the provider issues no ID token at all, and the sidecar refuses to serve rather
+than run a login it cannot check.
 
 A login matches when the asserted claim equals the card's ``oidc_subject``.
 The comparison is exact for every claim except ``email``, which is compared

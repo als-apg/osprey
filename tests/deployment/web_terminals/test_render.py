@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import re
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -3636,6 +3637,59 @@ def test_auth_context_reads_the_oidc_claim_and_leaves_it_none_when_unusable() ->
         ]
         is None
     )
+
+
+def test_auth_context_reads_the_oidc_scopes_and_leaves_them_none_when_unusable() -> None:
+    """A list, or a pre-joined string, becomes the space-separated OAuth spelling.
+
+    Anything unusable — absent, empty, wrong-typed — resolves to None, which is
+    what makes the sidecar's own default list apply instead of this renderer
+    restating it.
+    """
+
+    # Arrange
+    def _with(oidc: dict[str, Any]) -> dict[str, Any]:
+        web_terminals = copy.deepcopy(_MULTI_USER_CONFIG)["modules"]["web_terminals"]
+        web_terminals["auth"] = {"method": "oidc", "oidc": oidc}
+        return web_terminals
+
+    # Act / Assert
+    assert (
+        _auth_tls_context(_with({"scopes": ["openid", "profile", "groups"]}))["auth_oidc_scopes"]
+        == "openid profile groups"
+    )
+    assert (
+        _auth_tls_context(_with({"scopes": "openid  groups"}))["auth_oidc_scopes"]
+        == "openid groups"
+    )
+    assert _auth_tls_context(_with({"scopes": []}))["auth_oidc_scopes"] is None
+    assert _auth_tls_context(_with({"scopes": {"openid": True}}))["auth_oidc_scopes"] is None
+    assert _auth_tls_context(_with({}))["auth_oidc_scopes"] is None
+
+
+def test_authored_oidc_scopes_reach_the_sidecar_service() -> None:
+    """The authored list renders as one env line the sidecar reads."""
+    # Act
+    auth_env = _compose(
+        _auth_config(
+            method="oidc",
+            oidc={"issuer": "https://sso.example.org", "scopes": ["openid", "profile", "groups"]},
+        )
+    )["services"]["auth"]["environment"]
+
+    # Assert
+    assert "OSPREY_AUTH_OIDC_SCOPES=openid profile groups" in auth_env
+
+
+def test_unauthored_oidc_scopes_render_no_env_line() -> None:
+    """With no list authored the sidecar's own default is the only default."""
+    # Act
+    auth_env = _compose(_auth_config(method="oidc", oidc={"issuer": "https://sso.example.org"}))[
+        "services"
+    ]["auth"]["environment"]
+
+    # Assert
+    assert not any(str(entry).startswith("OSPREY_AUTH_OIDC_SCOPES=") for entry in auth_env)
 
 
 def test_auth_sidecar_service_healthcheck_probes_its_own_health_route() -> None:
