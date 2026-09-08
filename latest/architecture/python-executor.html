@@ -560,7 +560,7 @@ project’s own environment, so executed code sees the same imports either way.<
 <section id="security-model">
 <h2>Security Model<a class="headerlink" href="#security-model" title="Link to this heading">#</a></h2>
 <p>Nine safety layers are applied in sequence:</p>
-<ol class="arabic simple">
+<ol class="arabic">
 <li><p><strong>Static safety check</strong> (<code class="docutils literal notranslate"><span class="pre">quick_safety_check</span></code>)—blocks dangerous
 patterns such as dynamic code evaluation, dynamic imports, and
 <code class="docutils literal notranslate"><span class="pre">subprocess</span></code> calls before execution begins.</p></li>
@@ -570,10 +570,11 @@ sources or render. Applied in <strong>every</strong> execution mode; see
 <a class="reference internal" href="#python-executor-protected-paths"><span class="std std-ref">What executed code may not change</span></a>.</p></li>
 <li><p><strong>Readonly import denylist</strong> (<code class="docutils literal notranslate"><span class="pre">check_readonly_imports</span></code>)—a
 <code class="docutils literal notranslate"><span class="pre">readonly</span></code> run may not import control-system client libraries
-(<code class="docutils literal notranslate"><span class="pre">epics</span></code>, <code class="docutils literal notranslate"><span class="pre">aioca</span></code>, <code class="docutils literal notranslate"><span class="pre">p4p</span></code>, <code class="docutils literal notranslate"><span class="pre">caproto</span></code>, <code class="docutils literal notranslate"><span class="pre">pvaccess</span></code>, <code class="docutils literal notranslate"><span class="pre">tango</span></code>,
-<code class="docutils literal notranslate"><span class="pre">doocs4py</span></code>) at all. Reads go through <code class="docutils literal notranslate"><span class="pre">read_channel()</span></code>. The list is
-derived from the client half of the write surface below, so a client
-added there is denied at import in the same change.</p></li>
+(<code class="docutils literal notranslate"><span class="pre">epics</span></code>, <code class="docutils literal notranslate"><span class="pre">epicscorelibs</span></code>, <code class="docutils literal notranslate"><span class="pre">aioca</span></code>, <code class="docutils literal notranslate"><span class="pre">p4p</span></code>, <code class="docutils literal notranslate"><span class="pre">caproto</span></code>,
+<code class="docutils literal notranslate"><span class="pre">pvaccess</span></code>, <code class="docutils literal notranslate"><span class="pre">tango</span></code>, <code class="docutils literal notranslate"><span class="pre">doocs4py</span></code>) at all. Reads go through
+<code class="docutils literal notranslate"><span class="pre">read_channel()</span></code>. The list is derived from the client half of the write
+surface below, so a client added there is denied at import in the same
+change.</p></li>
 <li><p><strong>Control-system pattern detection</strong>
 (<code class="docutils literal notranslate"><span class="pre">detect_control_system_operations</span></code>)—identifies read and write
 patterns. In <code class="docutils literal notranslate"><span class="pre">readonly</span></code> mode, detected writes cause immediate
@@ -589,9 +590,32 @@ however it is spelled.</p></li>
 subprocess so it also sees paths the source did not spell out. Emitted
 in <strong>every</strong> execution mode.</p></li>
 <li><p><strong>Limits monkeypatch</strong> (<code class="docutils literal notranslate"><span class="pre">ExecutionWrapper</span></code> /
-<code class="docutils literal notranslate"><span class="pre">LimitsValidator</span></code>)—at runtime, direct client writes this build knows
-how to intercept (pyepics, p4p, Tango, caproto and DOOCS) are validated
-against the channel limits database. Out-of-range values are blocked.</p></li>
+<code class="docutils literal notranslate"><span class="pre">LimitsValidator</span></code>)—at runtime, a write this build knows how to
+intercept is checked against the channel limits database before it
+leaves, and an out-of-range value never reaches the machine. That covers
+pyepics, aioca, pvaPy, all four p4p clients including the raw one
+underneath them, caproto’s <code class="docutils literal notranslate"><span class="pre">sync.client.write</span></code> and threading
+<code class="docutils literal notranslate"><span class="pre">PV.write</span></code>, Tango attribute writes and DOOCS. A structured payload is
+checked on the number it carries; a p4p payload written as JSON is
+decoded first, <code class="docutils literal notranslate"><span class="pre">bytes</span></code> included — which p4p itself would not decode,
+so such a write is checked on the number it <em>would</em> become rather than
+waved through for not looking like one.</p>
+<p>Writes that cannot be checked are refused outright instead, in range or
+not: p4p’s <code class="docutils literal notranslate"><span class="pre">rpc</span></code>, a p4p value passed as a builder callback, pvaPy’s
+<code class="docutils literal notranslate"><span class="pre">parsePut</span></code>/<code class="docutils literal notranslate"><span class="pre">parsePutGet</span></code>, Tango commands—on <code class="docutils literal notranslate"><span class="pre">DeviceProxy</span></code> and on
+the <code class="docutils literal notranslate"><span class="pre">Connection</span></code> class that defines them—and every Tango <code class="docutils literal notranslate"><span class="pre">Group</span></code>
+write, which fans one value out to many devices with no single channel
+to bound it under.</p>
+<p>A few routes are neither checked nor refused: Tango’s asynchronous and
+read-write attribute spellings, <code class="docutils literal notranslate"><span class="pre">AttributeProxy</span></code> writes, caproto’s
+<code class="docutils literal notranslate"><span class="pre">Batch</span></code>, asyncio and <code class="docutils literal notranslate"><span class="pre">read_write_read</span></code> writes, and the ctypes
+binding underneath aioca, <code class="docutils literal notranslate"><span class="pre">epicscorelibs.ca.cadef.ca_array_put</span></code>. The
+code names the first group <code class="docutils literal notranslate"><span class="pre">_LIMITS_NOT_YET_WRAPPED</span></code> and the ctypes
+binding <code class="docutils literal notranslate"><span class="pre">_LIMITS_UNWRAPPABLE</span></code>, rather than leaving the gap
+implicit—a <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run reaches hardware through any of them
+without passing the limits database, while a <code class="docutils literal notranslate"><span class="pre">readonly</span></code> run refuses
+them like everything else.</p>
+</li>
 <li><p><strong>Process isolation</strong>—code always runs in a separate subprocess, never
 inside the MCP server process.</p></li>
 <li><p><strong>Execution timeout</strong>—configurable via
@@ -617,18 +641,23 @@ the import denylist and this page all read that one table.</p>
 resolved dynamically:</p>
 <ul class="simple">
 <li><p><strong>pyepics</strong> — <code class="docutils literal notranslate"><span class="pre">caput</span></code>, <code class="docutils literal notranslate"><span class="pre">caput_many</span></code>, <code class="docutils literal notranslate"><span class="pre">PV.put</span></code>, <code class="docutils literal notranslate"><span class="pre">ca.put</span></code></p></li>
-<li><p><strong>aioca</strong> — <code class="docutils literal notranslate"><span class="pre">caput</span></code>, <code class="docutils literal notranslate"><span class="pre">caput_many</span></code>. Every OSPREY environment carries
-it: it is the Channel Access backend of <code class="docutils literal notranslate"><span class="pre">ophyd-async[ca]</span></code></p></li>
-<li><p><strong>p4p</strong> — <code class="docutils literal notranslate"><span class="pre">Context.put</span></code>/<code class="docutils literal notranslate"><span class="pre">rpc</span></code> for the thread, asyncio and cothread
-clients; <code class="docutils literal notranslate"><span class="pre">SharedPV.post</span></code>/<code class="docutils literal notranslate"><span class="pre">open</span></code> on the server side</p></li>
-<li><p><strong>caproto</strong> — <code class="docutils literal notranslate"><span class="pre">sync.client.write</span></code>, <code class="docutils literal notranslate"><span class="pre">threading.client.PV.write</span></code>,
-<code class="docutils literal notranslate"><span class="pre">Batch.write</span></code>, <code class="docutils literal notranslate"><span class="pre">asyncio.client.PV.write</span></code></p></li>
+<li><p><strong>aioca</strong> — <code class="docutils literal notranslate"><span class="pre">caput</span></code>. Every OSPREY environment carries it: it is the
+Channel Access backend of <code class="docutils literal notranslate"><span class="pre">ophyd-async[ca]</span></code></p></li>
+<li><p><strong>epicscorelibs</strong> — <code class="docutils literal notranslate"><span class="pre">ca.cadef.ca_array_put</span></code> and
+<code class="docutils literal notranslate"><span class="pre">ca_array_put_callback</span></code>, the ctypes binding aioca loads <code class="docutils literal notranslate"><span class="pre">libca</span></code>
+through</p></li>
+<li><p><strong>p4p</strong> — <code class="docutils literal notranslate"><span class="pre">Context.put</span></code>/<code class="docutils literal notranslate"><span class="pre">rpc</span></code> for the raw, thread, asyncio and
+cothread clients; <code class="docutils literal notranslate"><span class="pre">SharedPV.post</span></code>/<code class="docutils literal notranslate"><span class="pre">open</span></code> on the server side</p></li>
+<li><p><strong>caproto</strong> — <code class="docutils literal notranslate"><span class="pre">sync.client.write</span></code> and <code class="docutils literal notranslate"><span class="pre">sync.client.read_write_read</span></code>,
+<code class="docutils literal notranslate"><span class="pre">threading.client.PV.write</span></code>, <code class="docutils literal notranslate"><span class="pre">Batch.write</span></code>, <code class="docutils literal notranslate"><span class="pre">asyncio.client.PV.write</span></code></p></li>
 <li><p><strong>pvaPy</strong> — every <code class="docutils literal notranslate"><span class="pre">Channel.put*</span></code> method, including the typed setters
-such as <code class="docutils literal notranslate"><span class="pre">putDouble</span></code> and <code class="docutils literal notranslate"><span class="pre">putScalarArray</span></code></p></li>
+such as <code class="docutils literal notranslate"><span class="pre">putDouble</span></code> and <code class="docutils literal notranslate"><span class="pre">putScalarArray</span></code>, and <code class="docutils literal notranslate"><span class="pre">asyncPut</span></code>,
+<code class="docutils literal notranslate"><span class="pre">parsePut</span></code> and <code class="docutils literal notranslate"><span class="pre">parsePutGet</span></code> alongside them</p></li>
 <li><p><strong>doocs4py</strong> — <code class="docutils literal notranslate"><span class="pre">set</span></code>, the call the DOOCS connector writes through</p></li>
 <li><p><strong>Tango</strong> — <code class="docutils literal notranslate"><span class="pre">DeviceProxy.write_attribute</span></code> and its variants,
-<code class="docutils literal notranslate"><span class="pre">AttributeProxy.write</span></code>, and <code class="docutils literal notranslate"><span class="pre">command_inout</span></code> (a Tango command acts on
-the device rather than reading it)</p></li>
+<code class="docutils literal notranslate"><span class="pre">AttributeProxy.write</span></code>, <code class="docutils literal notranslate"><span class="pre">Group</span></code> attribute writes, and <code class="docutils literal notranslate"><span class="pre">command_inout</span></code>
+(a Tango command acts on the device rather than reading it), refused on the
+<code class="docutils literal notranslate"><span class="pre">Connection</span></code> base that defines it as well as on <code class="docutils literal notranslate"><span class="pre">DeviceProxy</span></code></p></li>
 </ul>
 <p><strong>Acquisition frameworks.</strong> These drive hardware through a client below them,
 so their write entry points refuse — but they are also ordinary document and
