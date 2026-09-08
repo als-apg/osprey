@@ -19,7 +19,7 @@ from types import SimpleNamespace
 import pytest
 from starlette.applications import Starlette
 
-from osprey.interfaces import web_auth
+from osprey.interfaces import common_middleware, web_auth
 from osprey.interfaces.common_middleware import WEB_PORT_ENV
 from osprey.interfaces.web_auth import (
     _SESSION_DECOY,
@@ -1700,3 +1700,50 @@ def test_configure_interface_app_resolves_before_it_closes(
     configure_interface_app(app, static_dir=tmp_path)
 
     assert get_web_credentials().operator_secret == "the-value-nginx-forwards"
+
+
+class TestAnnouncedOriginFollowsTheConfiguredOne:
+    """The announcement names the origin the app actually checks writes against.
+
+    ``OSPREY_TERMINAL_EXTERNAL_ORIGIN`` is where a deployment declares the
+    address browsers really reach it at — a TLS terminator in front of this
+    process, whose scheme and host nothing derivable from the bind can name. The
+    origin gate reads it (``common_middleware._resolve_external_origin``) and so
+    does the ``Secure`` decision on the session cookie, so an announcement built
+    from the bind address alone was a second producer of one origin: it handed
+    out ``http://127.0.0.1:8765/?token=`` for a deployment whose every request
+    from that URL would be refused.
+    """
+
+    def test_configured_origin_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(common_middleware.EXTERNAL_ORIGIN_ENV, "https://terminals.example.org")
+
+        url = web_auth.mint_and_announce("127.0.0.1", 8765)
+
+        assert url.startswith("https://terminals.example.org/?token=")
+
+    def test_the_path_is_kept(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(
+            common_middleware.EXTERNAL_ORIGIN_ENV, "https://terminals.example.org:8443"
+        )
+
+        url = web_auth.mint_and_announce("127.0.0.1", 8765, path="static/session.html")
+
+        assert url.startswith("https://terminals.example.org:8443/static/session.html?token=")
+
+    @pytest.mark.parametrize("value", ["", "   "])
+    def test_an_empty_declaration_falls_back_to_the_bind(
+        self, monkeypatch: pytest.MonkeyPatch, value: str
+    ) -> None:
+        monkeypatch.setenv(common_middleware.EXTERNAL_ORIGIN_ENV, value)
+
+        url = web_auth.mint_and_announce("127.0.0.1", 8765)
+
+        assert url.startswith("http://127.0.0.1:8765/?token=")
+
+    def test_unset_falls_back_to_the_bind(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv(common_middleware.EXTERNAL_ORIGIN_ENV, raising=False)
+
+        url = web_auth.mint_and_announce("127.0.0.1", 8765)
+
+        assert url.startswith("http://127.0.0.1:8765/?token=")

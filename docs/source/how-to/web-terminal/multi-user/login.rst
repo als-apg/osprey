@@ -475,6 +475,12 @@ it as a bare origin — scheme, host, port if non-default, no path.
 host; with nothing terminating TLS, anyone watching the traffic can become
 that user.
 
+A single-user ``osprey web`` behind the same kind of TLS terminator sets
+``OSPREY_TERMINAL_EXTERNAL_ORIGIN`` to that address instead. It is the same
+origin every terminal checks a state-changing request against, and the login
+URL ``osprey web`` prints is built from it — without it the printed URL names
+the bind address, and a browser arriving from it has every write refused.
+
 Passwords, and where they live
 ==============================
 
