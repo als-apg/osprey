@@ -5193,10 +5193,18 @@ def _stage_ariel_store(config, compose_files, env, project_dir, *, provider=None
 # ---------------------------------------------------------------------------
 
 # How long the staged graph store gets to accept a bolt connection. The same
-# budget ARIEL's store gets, and for the same reason: Neo4j opens its port only
-# once the store is recovered and the plugins the image fetches at every start
-# are loaded, so what this waits out is a refusal rather than a slow answer.
-_GRAPHDB_HEALTH_TIMEOUT_S = 90.0
+# budget the archiver's store gets, and for the same reason: Neo4j opens its
+# port only once the store is recovered and the plugins the image fetches at
+# every start are loaded, so what this waits out is a refusal rather than a slow
+# answer.
+#
+# It must OUTLAST the graphdb template's own healthcheck ``start_period``, which
+# is the container's own estimate of how long that first start takes. Under it,
+# this wait gives up while the store is still doing exactly what the template
+# says it does, and the corpus seed is skipped on a deployment that was working
+# — silently, because nothing is wrong. ``test_the_graph_store_wait_outlasts_
+# its_own_healthcheck_start_period`` pins the pair so the two cannot drift.
+_GRAPHDB_HEALTH_TIMEOUT_S = 180.0
 _GRAPHDB_HEALTH_POLL_S = 2.0
 
 # Trivial round-trip that proves the store is up, authenticated and answering
