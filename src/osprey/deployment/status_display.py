@@ -362,8 +362,34 @@ def _query_containers(config):
         output.fail("Could not parse container data", str(e))
         return None
     except Exception as e:
+        if _no_runtime_and_none_needed(config):
+            output.note(
+                "this deployment declares no containerized services; no container runtime installed"
+            )
+            return None
         output.fail("Could not query container status", str(e))
         return None
+
+
+def _no_runtime_and_none_needed(config):
+    """Whether "no containers" is this deployment's declared state, not a fault.
+
+    Both halves are required. A host with no runtime that HAS declared services
+    is broken and keeps its failure; so does a host whose runtime is installed
+    but not answering, whatever it declares. Only the conjunction — nothing
+    installed and nothing declared — describes a deployment that never wanted a
+    container runtime, and reporting that as a failure leaves a permanent red
+    banner on a status that is entirely correct.
+
+    :param config: Rendered config, or ``None``
+    :return: ``True`` when a missing runtime is the declared state
+    :rtype: bool
+    """
+    from osprey.deployment.runtime_helper import no_container_runtime_installed
+
+    if (config or {}).get("deployed_services"):
+        return False
+    return no_container_runtime_installed()
 
 
 def _existing_volume_names(config):

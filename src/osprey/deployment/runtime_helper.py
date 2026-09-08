@@ -166,6 +166,22 @@ def get_runtime_command(config: Mapping[str, Any] | None = None) -> list[str]:
         )
 
 
+def no_container_runtime_installed() -> bool:
+    """Whether neither container runtime is on this host's PATH.
+
+    The narrower half of the failure :func:`get_runtime_command` raises: "no
+    runtime is installed" and "a runtime is installed but is not answering" both
+    leave a caller without a runtime, but only the first can be a deliberate
+    state — a deployment that runs no containers has no use for one. Exposed as
+    a predicate so a caller distinguishes them by asking rather than by matching
+    on the message text.
+
+    Returns:
+        ``True`` when neither ``docker`` nor ``podman`` resolves on ``PATH``.
+    """
+    return shutil.which("docker") is None and shutil.which("podman") is None
+
+
 def reset_runtime_cache() -> None:
     """Clear every memoized runtime command so the next call re-detects.
 
