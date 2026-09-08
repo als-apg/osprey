@@ -771,7 +771,15 @@ if not _execution_dir.exists():
         The table covers three kinds of route: the control-system client
         libraries themselves, the process-spawning surface that could shell out
         to ``caput``, and ``ctypes``, which reaches Channel Access without
-        importing any client package at all. It is emitted into the script
+        importing any client package at all. Each patched attribute is also
+        followed back to the module that defined it, so a write a package
+        merely re-exports refuses under both of its spellings. That step is
+        what covers the defining modules no table can enumerate — PyTango
+        defines its writes in ``tango.device_proxy`` and ``tango.connection``
+        and binds them onto ``DeviceProxy``, and every binding has its own
+        such layout; the one row that does name a private module
+        (``aioca._catools``) is belt-and-braces for the single library whose
+        second spelling is known. It is emitted into the script
         rather than applied here because the objects to patch only exist in the
         subprocess.
 
@@ -788,6 +796,7 @@ if not _execution_dir.exists():
             # every route out of Python that could reach one. Installed before
             # user code, so an alias bound later resolves here.
             import importlib as _osprey_importlib
+            import sys as _osprey_sys
 
             # CPython resolves ``platform.uname().processor`` lazily, by
             # shelling out to ``uname -p`` on first read — and h5py reads it
@@ -840,14 +849,60 @@ if not _execution_dir.exists():
                     if _osprey_obj is None:
                         continue
                     for _osprey_attr in _osprey_attrs:
-                        if hasattr(_osprey_obj, _osprey_attr):
-                            setattr(_osprey_obj, _osprey_attr, _osprey_readonly_refuse)
+                        if not hasattr(_osprey_obj, _osprey_attr):
+                            continue
+                        _osprey_original = getattr(_osprey_obj, _osprey_attr)
+                        setattr(_osprey_obj, _osprey_attr, _osprey_readonly_refuse)
+                        # A re-export leaves a second spelling behind that no
+                        # table can name for every binding: PyTango defines
+                        # its writes in ``tango.device_proxy`` and
+                        # ``tango.connection`` and binds them onto
+                        # ``DeviceProxy``, so patching the class attribute
+                        # alone leaves the module-level function writing.
+                        # Follow the original back to the module that defined
+                        # it and refuse there too. The identity check is what
+                        # makes this safe to run generically: ``__module__``
+                        # and ``__name__`` are metadata a decorator or a rebind
+                        # can leave pointing at a module holding something else
+                        # entirely, and replacing an attribute on a name match
+                        # alone could silently refuse an unrelated read.
+                        try:
+                            _osprey_home = _osprey_sys.modules.get(
+                                getattr(_osprey_original, "__module__", None)
+                            )
+                            _osprey_name = getattr(_osprey_original, "__name__", None)
+                            if (
+                                _osprey_home is not None
+                                and isinstance(_osprey_name, str)
+                                and getattr(_osprey_home, _osprey_name, None)
+                                is _osprey_original
+                            ):
+                                setattr(
+                                    _osprey_home, _osprey_name, _osprey_readonly_refuse
+                                )
+                        except Exception as _osprey_home_error:
+                            # Secondary, best-effort step: the attribute the
+                            # table names already refuses. A failure here — an
+                            # unhashable ``__module__``, a module ``__getattr__``
+                            # that raises — must name the attribute and let the
+                            # REST of the row be patched, so it is caught here
+                            # rather than at the row level.
+                            print(
+                                "⚠️  readonly guard "
+                                f"({{_osprey_dotted}}.{{_osprey_attr}}) "
+                                f"defining-module step failed: {{_osprey_home_error}}"
+                            )
                     # pvaPy spells one typed setter per scalar and array type
                     # (putDouble, putScalarArray, ...). Enumerating them would
-                    # go stale against the binding; the prefix will not.
+                    # go stale against the binding; the prefix will not. Three
+                    # writes sit outside that prefix — asyncPut, parsePut and
+                    # parsePutGet — and they reach the machine exactly as the
+                    # rest do, so they are swept with them.
                     if _osprey_dotted == "pvaccess.Channel":
                         for _osprey_attr in dir(_osprey_obj):
-                            if _osprey_attr.startswith("put"):
+                            if _osprey_attr.startswith(
+                                ("put", "asyncPut", "parsePut")
+                            ):
                                 setattr(_osprey_obj, _osprey_attr, _osprey_readonly_refuse)
                 except Exception as _osprey_guard_error:
                     # A target that cannot be patched must not stop the ones
@@ -856,7 +911,7 @@ if not _execution_dir.exists():
                         f"⚠️  readonly guard ({{_osprey_dotted}}) failed: {{_osprey_guard_error}}"
                     )
 
-            del _osprey_importlib, _osprey_targets, _osprey_resolve
+            del _osprey_importlib, _osprey_sys, _osprey_targets, _osprey_resolve
         """
         return textwrap.dedent(guard).strip().replace("@@REFUSAL@@", READONLY_REFUSAL)
 

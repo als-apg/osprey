@@ -8,22 +8,29 @@ user code runs. Late binding makes this spelling-independent: an alias such as
 ``from epics import caput as _w`` resolves to the refusing function because the
 patch is already in place when the alias is bound.
 
-Like the limits monkeypatch tests, these execute the generated *source text*
-against fake ``epics``/``p4p`` modules injected into ``sys.modules``.
+Like the limits monkeypatch tests, most of these execute the generated *source
+text* against fake ``epics``/``p4p`` modules injected into ``sys.modules``. A
+fake proves the guard patches the name the table spells; it cannot prove the
+guard reached the object a real library defines that write on, so the last test
+in the file runs the guard in a subprocess against whatever is installed.
 """
 
 import asyncio
 import importlib
+import json
 import platform
 import re
+import subprocess
 import sys
 from types import ModuleType
 
 import pytest
 
+from osprey.services.python_executor.execution import wrapper as wrapper_module
 from osprey.services.python_executor.execution.wrapper import (
     _READONLY_WRITE_TARGETS,
     READONLY_REFUSAL,
+    READONLY_REFUSAL_MARKER,
     ExecutionWrapper,
 )
 
@@ -76,8 +83,20 @@ def _restore_patched_targets():
         if target is None:
             continue
         for attr in attrs:
-            if hasattr(target, attr):
-                saved.append((target, attr, getattr(target, attr)))
+            if not hasattr(target, attr):
+                continue
+            original = getattr(target, attr)
+            saved.append((target, attr, original))
+            # The guard patches the second spelling of a re-exported write as
+            # well — the module that defined it, reached by following the
+            # original back through ``__module__``/``__name__`` — so snapshot
+            # it on the same rule the guard patches it on, or it stays
+            # refusing for the rest of the session.
+            home = sys.modules.get(getattr(original, "__module__", ""))
+            name = getattr(original, "__name__", None)
+            if home is not None and isinstance(name, str):
+                if getattr(home, name, None) is original:
+                    saved.append((home, name, original))
     yield
     for target, attr, value in saved:
         setattr(target, attr, value)
@@ -363,7 +382,12 @@ def test_readonly_refuses_caproto_threading_pv_write(monkeypatch):
 
 
 def test_readonly_refuses_pvaccess_typed_setters(monkeypatch):
-    """pvaPy spells one setter per type; the ``put`` prefix is swept wholesale."""
+    """pvaPy spells one setter per type, plus three writes off the prefix.
+
+    ``put``/``putDouble``/… are swept wholesale, and ``asyncPut``,
+    ``parsePut`` and ``parsePutGet`` are swept with them: they are writes
+    whose names simply do not begin with ``put``.
+    """
     mod = ModuleType("pvaccess")
     writes: list = []
 
@@ -377,6 +401,12 @@ def test_readonly_refuses_pvaccess_typed_setters(monkeypatch):
         def putDouble(self, value):  # noqa: N802 — pvaPy's own spelling
             writes.append(("putDouble", value))
 
+        def asyncPut(self, value, callback=None):  # noqa: N802 — pvaPy's own spelling
+            writes.append(("asyncPut", value))
+
+        def parsePut(self, args):  # noqa: N802 — pvaPy's own spelling
+            writes.append(("parsePut", args))
+
         def get(self):
             return 1.0
 
@@ -389,6 +419,12 @@ def test_readonly_refuses_pvaccess_typed_setters(monkeypatch):
         channel.put(150)
     with pytest.raises(RuntimeError, match=_REFUSAL):
         channel.putDouble(150.0)
+    # The three writes pvaPy spells outside the ``put`` prefix are the same
+    # write to the machine, and are refused with it.
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        channel.asyncPut(150.0, lambda _r: None)
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        channel.parsePut(["value=150.0"])
     assert writes == []
     assert channel.get() == 1.0, "reads must survive the guard untouched"
 
@@ -605,3 +641,500 @@ def test_guard_is_silent_when_optional_libraries_are_absent(capsys, monkeypatch)
         monkeypatch.setitem(sys.modules, name, None)
     _run_guard("readonly")
     assert capsys.readouterr().out == ""
+
+
+# The defining module both tests below use. It must stay OUT of the table: a
+# row naming it would patch it directly, and the assertions would then observe
+# the row instead of the generic defining-module step they exist to pin down.
+_HOME = "aioca._impl"
+
+
+def test_readonly_refuses_the_module_that_defines_a_reexported_write(monkeypatch):
+    """A re-exported write has two spellings, and both have to refuse.
+
+    A package re-exports what a private module defines, and the two names are
+    one function object: patching only the attribute the table names leaves
+    ``from aioca._impl import caput`` writing to the machine. So the guard
+    follows each original attribute back to the module that defined it and
+    refuses there too — generically, for the defining modules no row can
+    enumerate (PyTango's ``tango.device_proxy`` among them).
+    """
+    assert not any(dotted == _HOME for dotted, _ in _READONLY_WRITE_TARGETS), (
+        f"{_HOME} must stay absent from the write table, or this test passes "
+        "on the row rather than on the defining-module step"
+    )
+    package = ModuleType("aioca")
+    impl = ModuleType(_HOME)
+    writes: list = []
+
+    async def caput(pv, value, **kwargs):
+        writes.append((pv, value))
+
+    caput.__module__ = _HOME
+    impl.caput = caput
+    package.caput = caput
+    package._impl = impl
+    monkeypatch.setitem(sys.modules, "aioca", package)
+    monkeypatch.setitem(sys.modules, _HOME, impl)
+
+    _run_guard("readonly")
+
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        package.caput("SR:MAG:QF:01:CURRENT:SP", 150)
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        impl.caput("SR:MAG:QF:01:CURRENT:SP", 150)
+    assert writes == []
+
+
+def test_defining_module_step_needs_identity_not_a_name_match(monkeypatch):
+    """The step follows the object, never the name.
+
+    ``__module__``/``__name__`` are metadata a decorator or a rebind can leave
+    pointing at a module that holds something else entirely under that name.
+    Patching on a name match alone would silently replace an unrelated
+    attribute — including a read — so the step fires only when the defining
+    module still holds this exact object.
+    """
+    assert not any(dotted == _HOME for dotted, _ in _READONLY_WRITE_TARGETS), (
+        f"{_HOME} must stay absent from the write table, or this test observes "
+        "the row rather than the defining-module step"
+    )
+    package = ModuleType("aioca")
+    impl = ModuleType(_HOME)
+    reads: list = []
+
+    async def caput(pv, value, **kwargs):
+        pass
+
+    async def unrelated(pv, **kwargs):
+        reads.append(pv)
+        return 1.0
+
+    # Same ``__name__``/``__module__`` as the patched attribute, different
+    # object: the module's ``caput`` is not the one the table reached.
+    caput.__module__ = _HOME
+    unrelated.__name__ = "caput"
+    unrelated.__module__ = _HOME
+    impl.caput = unrelated
+    package.caput = caput
+    monkeypatch.setitem(sys.modules, "aioca", package)
+    monkeypatch.setitem(sys.modules, _HOME, impl)
+
+    _run_guard("readonly")
+
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        package.caput("SR:MAG:QF:01:CURRENT:SP", 150)
+    assert impl.caput is unrelated
+    assert asyncio.run(impl.caput("SR:MAG:QF:01:CURRENT")) == 1.0
+    assert reads == ["SR:MAG:QF:01:CURRENT"]
+
+
+def test_defining_module_failure_does_not_skip_the_rest_of_the_row(capsys, monkeypatch):
+    """A failing defining-module step costs its own attribute, nothing more.
+
+    The step is secondary — the attribute the table names already refuses when
+    it runs — but it touches metadata a library controls, so it can raise:
+    an unhashable ``__module__``, or a PEP 562 module ``__getattr__`` that
+    raises something other than ``AttributeError``. If that escaped to the row
+    handler, every LATER attribute of the row would be left unpatched, which
+    for a row like ``os`` means ``execv`` still spawning after ``system`` was
+    caught.
+    """
+    module = ModuleType("osprey_fake_client")
+
+    def write_a(*args, **kwargs):
+        return "wrote a"
+
+    def write_b(*args, **kwargs):
+        return "wrote b"
+
+    # Unhashable ``__module__``: ``sys.modules.get`` raises TypeError.
+    write_a.__module__ = ["not", "a", "name"]
+    module.write_a = write_a
+    module.write_b = write_b
+    monkeypatch.setitem(sys.modules, "osprey_fake_client", module)
+    monkeypatch.setattr(
+        wrapper_module,
+        "_READONLY_WRITE_TARGETS",
+        (("osprey_fake_client", ("write_a", "write_b")),),
+    )
+
+    _run_guard("readonly")
+
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        module.write_a()
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        # The attribute AFTER the one whose step raised must still refuse.
+        module.write_b()
+    warning = capsys.readouterr().out
+    assert "osprey_fake_client.write_a" in warning, (
+        "the operator has to be told which attribute's step failed"
+    )
+
+
+# ---------------------------------------------------------------------------
+# The installed libraries
+#
+# Everything above runs the guard's source in this process against fakes, which
+# is what makes a spelling assertion readable — but a fake cannot tell us
+# whether the guard reaches the object a REAL client library defines its write
+# on. aioca re-exports ``caput`` from ``aioca._catools``; every p4p client
+# flavour inherits ``put`` from ``p4p.client.raw.Context``; ophyd-async defines
+# ``set`` on a base of ``SignalRW``. A guard that patches only the name the
+# table spells leaves each of those originals reachable, and no fake would
+# notice.
+#
+# So this runs in a real interpreter against whatever is installed: snapshot
+# every resolvable row first, exec the guard, then assert the original survives
+# nowhere — not at its defining module, and not in any base class that still
+# holds it. A subprocess rather than this process because the guard patches
+# ``os``, ``subprocess`` and ``ctypes`` for real, and because two of the checks
+# have to call a write for real.
+# ---------------------------------------------------------------------------
+
+#: Last line of the probe's stdout, so anything the guard itself printed — it
+#: warns about a row it could not patch — stays distinguishable from the report.
+_REPORT_MARKER = "@@REPORT@@"
+
+_INSTALLED_LIBRARY_PROBE = """
+# Snapshot the write surface as the installed libraries actually define it,
+# install the guard, then report what survived. A report rather than bare
+# assertions, so the parent test can also check the run had teeth: a probe that
+# silently checked nothing must not read as a pass.
+#
+# argv[1] is the guard source; argv[2] is the substring every refusal carries.
+import importlib
+import json
+import pathlib
+import sys
+
+from osprey.services.python_executor.write_surface import (
+    _CLIENT_WRITE_TARGETS,
+    _FRAMEWORK_WRITE_TARGETS,
+)
+
+TABLE = _CLIENT_WRITE_TARGETS + _FRAMEWORK_WRITE_TARGETS
+REFUSE = "_osprey_readonly_refuse"
+REPORT_MARKER = "@@REPORT@@"
+MARKER = sys.argv[2]
+
+# Py_TPFLAGS_IMMUTABLETYPE. A C-extension type carrying it refuses setattr, so
+# the guard cannot patch it and the MRO walk must not demand that it did.
+IMMUTABLE_TYPE = 1 << 8
+
+
+def resolve(dotted):
+    # The guard's own resolver, restated: the emitted guard has to be
+    # self-contained in the subprocess it runs in, so there is none to share.
+    parts = dotted.split(".")
+    for cut in range(len(parts), 0, -1):
+        try:
+            obj = importlib.import_module(".".join(parts[:cut]))
+        except ImportError:
+            continue
+        for attr in parts[cut:]:
+            try:
+                obj = getattr(obj, attr)
+            except AttributeError:
+                return None
+        return obj
+    return None
+
+
+def refusing(value):
+    return getattr(value, "__name__", None) == REFUSE
+
+
+# --- before the guard ------------------------------------------------------
+# Only attributes that exist NOW are checked afterwards. The guard skips an
+# attribute a library does not have, and a row may name a client flavour that
+# is not installed; neither is a finding.
+snapshot = []
+absent = []
+for dotted, attrs in TABLE:
+    obj = resolve(dotted)
+    if obj is None:
+        absent.append(dotted)
+        continue
+    for attr in attrs:
+        if not hasattr(obj, attr):
+            continue
+        original = getattr(obj, attr)
+        try:
+            home = sys.modules.get(getattr(original, "__module__", None))
+        except TypeError:
+            # An unhashable ``__module__``; the guard tolerates it too.
+            home = None
+        name = getattr(original, "__name__", None)
+        # Conditional: most originals are not module-level names at all
+        # (``epics.PV.put`` is a method), and a name that resolves to a
+        # DIFFERENT object is not this write's definition.
+        defines_it = (
+            home is not None
+            and isinstance(name, str)
+            and getattr(home, name, None) is original
+        )
+        bases = []
+        if isinstance(obj, type):
+            # ``__mro__[:-1]`` drops ``object``, which defines none of these.
+            bases = [base for base in obj.__mro__[:-1] if attr in vars(base)]
+        snapshot.append(
+            {
+                "dotted": dotted,
+                "attr": attr,
+                "home": home,
+                "name": name,
+                "defines_it": defines_it,
+                "bases": bases,
+            }
+        )
+
+# --- the guard -------------------------------------------------------------
+exec(compile(pathlib.Path(sys.argv[1]).read_text(), "<osprey-readonly-guard>", "exec"), globals())
+
+# --- after the guard -------------------------------------------------------
+failures = []
+checked_home = []
+checked_mro = []
+skipped_mro = []
+
+for row in snapshot:
+    label = row["dotted"] + "." + row["attr"]
+    if row["defines_it"]:
+        home_label = row["home"].__name__ + "." + row["name"]
+        checked_home.append(home_label)
+        if not refusing(getattr(row["home"], row["name"], None)):
+            failures.append(
+                "(a) " + label + ": the module that defines it, " + home_label
+                + ", still holds the original write"
+            )
+    for base in row["bases"]:
+        base_label = base.__module__ + "." + base.__qualname__ + "." + row["attr"]
+        if base.__flags__ & IMMUTABLE_TYPE:
+            # A C-extension type refuses setattr. That floor is stated in
+            # write_surface's docstring and covered by the import denylist.
+            skipped_mro.append(base_label + " (immutable C type)")
+            continue
+        if getattr(base, "_is_protocol", False):
+            # A typing.Protocol member is a stub nobody calls; patching it
+            # would say nothing about the class that implements it.
+            skipped_mro.append(base_label + " (typing.Protocol)")
+            continue
+        checked_mro.append(base_label)
+        if not refusing(vars(base).get(row["attr"])):
+            failures.append(
+                "(b) " + label + ": base class " + base_label
+                + " still holds the original write"
+            )
+
+# --- the rows this hotfix exists for ---------------------------------------
+NAMED = (
+    ("aioca._catools", "caput"),
+    ("p4p.client.raw.Context", "put"),
+    ("epicscorelibs.ca.cadef", "ca_array_put"),
+    ("bluesky.run_engine.RunEngine", "__call__"),
+    ("ophyd_async.core.SignalRW", "set"),
+)
+checked_named = []
+for dotted, attr in NAMED:
+    obj = resolve(dotted)
+    if obj is None:
+        failures.append("(c) " + dotted + " did not resolve in the probe")
+        continue
+    checked_named.append(dotted + "." + attr)
+    if not refusing(getattr(obj, attr, None)):
+        failures.append("(c) " + dotted + "." + attr + " is not the refusing function")
+
+
+def expect_refusal(label, call):
+    # A real call, not an identity check: the two frameworks reach their write
+    # through a dunder and through a base class, which is exactly where an
+    # identity check on the spelled name passes while the write still runs.
+    try:
+        call()
+    except RuntimeError as exc:
+        if MARKER not in str(exc):
+            failures.append(
+                "(d) " + label + " raised a RuntimeError that is not the refusal: " + str(exc)
+            )
+        return
+    except BaseException as exc:
+        failures.append(
+            "(d) " + label + " raised " + type(exc).__name__ + " instead of refusing: " + str(exc)
+        )
+        return
+    failures.append("(d) " + label + " returned instead of refusing")
+
+
+import bluesky.run_engine
+
+# ``__new__`` without ``__init__``: running a plan is what has to refuse, and a
+# fully built RunEngine would open an event loop to find that out.
+expect_refusal(
+    "RunEngine(plan)",
+    lambda: bluesky.run_engine.RunEngine.__new__(bluesky.run_engine.RunEngine)([]),
+)
+
+import ophyd_async.core
+
+expect_refusal(
+    "soft_signal_rw(float, 0.0).set(1.0)",
+    lambda: ophyd_async.core.soft_signal_rw(float, 0.0).set(1.0),
+)
+
+# --- the read path the guard must NOT close --------------------------------
+# ``p4p.client.raw`` subclasses the immutable C operation type at import time
+# and hands the SAME object out for get as for put, so a row naming either of
+# those two names refuses every PVAccess read — the path readonly mode exists
+# to keep open. Pinned here: a get against a PV nobody serves has to time out,
+# and only the put has to refuse.
+import p4p.client.thread
+
+context = p4p.client.thread.Context("pva")
+try:
+    try:
+        context.get("OSPREY:READONLY:PROBE:NO:SUCH:PV", timeout=0.3)
+        read_outcome = "returned a value"
+    except TimeoutError:
+        read_outcome = "TimeoutError"
+    except BaseException as exc:
+        read_outcome = type(exc).__name__ + ": " + str(exc)
+    if read_outcome != "TimeoutError":
+        failures.append(
+            "(read) p4p Context.get under the guard: " + read_outcome
+            + " -- a readonly run must still be able to read PVAccess"
+        )
+    expect_refusal(
+        "p4p thread Context.put",
+        lambda: context.put("OSPREY:READONLY:PROBE:NO:SUCH:PV", 1.0, timeout=0.3),
+    )
+finally:
+    context.close()
+
+print(
+    REPORT_MARKER
+    + json.dumps(
+        {
+            "failures": failures,
+            "absent": absent,
+            "checked_home": checked_home,
+            "checked_mro": checked_mro,
+            "skipped_mro": skipped_mro,
+            "checked_named": checked_named,
+            "attributes": [row["dotted"] + "." + row["attr"] for row in snapshot],
+        }
+    )
+)
+"""
+
+#: Appended AFTER the guard source, in a cold interpreter. Bluesky's import
+#: chain reads ``platform.uname().processor``, which CPython answers by
+#: shelling out on first read — under a guard that refuses spawning and forgot
+#: to pre-warm it, importing Bluesky at all would fail. So this checks the
+#: import the guard has to leave working, in the one ordering where it breaks.
+_COLD_IMPORT_PROBE = """
+import importlib
+
+run_engine = importlib.import_module("bluesky.run_engine")
+assert run_engine.RunEngine.__call__.__name__ == "_osprey_readonly_refuse", (
+    "a framework imported after the guard must still refuse its write"
+)
+print("@@COLD-OK@@")
+"""
+
+
+def _run_probe(tmp_path, name, source, *args):
+    """Run *source* in a real interpreter and return its stdout."""
+    script = tmp_path / name
+    script.write_text(source)
+    result = subprocess.run(
+        [sys.executable, str(script), *args], capture_output=True, text=True, timeout=300
+    )
+    assert result.returncode == 0, (
+        f"{name} exited {result.returncode}\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    )
+    return result.stdout
+
+
+def test_guard_holds_against_installed_libraries(tmp_path):
+    """Every installed write the table names refuses at the object defining it.
+
+    The in-process tests above prove the guard patches the name each row
+    spells. This proves the harder half against the real libraries: that the
+    original is not still reachable one level down — at the private module a
+    package re-exports it from, or in a base class the spelled class inherits
+    it from. Both were open on the pre-fix table, and neither is visible to a
+    fake.
+
+    Rows for libraries that are not installed contribute nothing, which is the
+    ordinary case; the named rows are guarded by ``importorskip`` so a missing
+    library skips loudly instead of passing quietly.
+    """
+    for library in ("aioca", "p4p", "epicscorelibs", "bluesky", "ophyd_async"):
+        pytest.importorskip(library, reason=f"{library} is not installed in this environment")
+
+    guard_path = tmp_path / "readonly_guard.py"
+    guard_path.write_text(ExecutionWrapper(execution_mode="readonly")._get_readonly_guard())
+
+    stdout = _run_probe(
+        tmp_path,
+        "probe_installed_libraries.py",
+        _INSTALLED_LIBRARY_PROBE,
+        str(guard_path),
+        READONLY_REFUSAL_MARKER,
+    )
+
+    assert _REPORT_MARKER in stdout, f"the probe produced no report:\n{stdout}"
+    noise, _, payload = stdout.partition(_REPORT_MARKER)
+    assert noise.strip() == "", (
+        f"the guard warned about a row it could not patch against the installed libraries:\n{noise}"
+    )
+    report = json.loads(payload)
+
+    assert report["failures"] == [], "\n".join(["the guard did not hold:", *report["failures"]])
+
+    # --- the run has to have had teeth --------------------------------------
+    # Every check above is a loop over what resolved, so all of them pass
+    # vacuously if nothing did. The rows this hotfix was written for are named
+    # here: the libraries are importorskip'd above, so their absence from the
+    # report is a broken probe rather than a thin environment.
+    assert set(report["checked_named"]) == {
+        "aioca._catools.caput",
+        "p4p.client.raw.Context.put",
+        "epicscorelibs.ca.cadef.ca_array_put",
+        "bluesky.run_engine.RunEngine.__call__",
+        "ophyd_async.core.SignalRW.set",
+    }
+    assert "aioca._catools.caput" in report["checked_home"], (
+        "the defining-module check must have run for aioca, the re-export that "
+        "reached the machine before this fix"
+    )
+    assert "p4p.client.raw.Context.put" in report["checked_mro"], (
+        "the MRO check must have run for the p4p base every client flavour inherits its put from"
+    )
+    assert "ophyd_async.core._signal.SignalW.set" in report["checked_mro"], (
+        "the MRO check must have run for the ophyd-async base SignalRW inherits set from"
+    )
+
+    # --- and the skips have to be the two named reasons ---------------------
+    # A skip is how a check stops being a check, so an unexplained one is the
+    # quiet way this test would lose its teeth.
+    for skipped in report["skipped_mro"]:
+        assert skipped.endswith(("(immutable C type)", "(typing.Protocol)")), (
+            f"a base was skipped for an unnamed reason: {skipped}"
+        )
+    assert any(s.startswith("p4p._p4p.SharedPV.") for s in report["skipped_mro"]), (
+        "p4p's immutable C base is the floor write_surface documents; it has to "
+        "be reached and skipped, not silently absent"
+    )
+    assert any(s.startswith("bluesky.protocols.Movable.set") for s in report["skipped_mro"]), (
+        "the Movable protocol stub has to be reached and skipped"
+    )
+
+    # --- the guard must not break the import --------------------------------
+    cold_stdout = _run_probe(
+        tmp_path, "probe_cold_import.py", guard_path.read_text() + _COLD_IMPORT_PROBE
+    )
+    assert cold_stdout.strip() == "@@COLD-OK@@", (
+        f"importing Bluesky under the guard is not clean:\n{cold_stdout}"
+    )

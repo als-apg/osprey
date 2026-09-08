@@ -108,10 +108,11 @@ Nine safety layers are applied in sequence:
 
 3. **Readonly import denylist** (``check_readonly_imports``)---a
    ``readonly`` run may not import control-system client libraries
-   (``epics``, ``aioca``, ``p4p``, ``caproto``, ``pvaccess``, ``tango``,
-   ``doocs4py``) at all. Reads go through ``read_channel()``. The list is
-   derived from the client half of the write surface below, so a client
-   added there is denied at import in the same change.
+   (``epics``, ``epicscorelibs``, ``aioca``, ``p4p``, ``caproto``,
+   ``pvaccess``, ``tango``, ``doocs4py``) at all. Reads go through
+   ``read_channel()``. The list is derived from the client half of the write
+   surface below, so a client added there is denied at import in the same
+   change.
 
 4. **Control-system pattern detection**
    (``detect_control_system_operations``)---identifies read and write
@@ -166,18 +167,23 @@ the import denylist and this page all read that one table.
 resolved dynamically:
 
 - **pyepics** --- ``caput``, ``caput_many``, ``PV.put``, ``ca.put``
-- **aioca** --- ``caput``, ``caput_many``. Every OSPREY environment carries
-  it: it is the Channel Access backend of ``ophyd-async[ca]``
-- **p4p** --- ``Context.put``/``rpc`` for the thread, asyncio and cothread
-  clients; ``SharedPV.post``/``open`` on the server side
-- **caproto** --- ``sync.client.write``, ``threading.client.PV.write``,
-  ``Batch.write``, ``asyncio.client.PV.write``
+- **aioca** --- ``caput``. Every OSPREY environment carries it: it is the
+  Channel Access backend of ``ophyd-async[ca]``
+- **epicscorelibs** --- ``ca.cadef.ca_array_put`` and
+  ``ca_array_put_callback``, the ctypes binding aioca loads ``libca``
+  through
+- **p4p** --- ``Context.put``/``rpc`` for the raw, thread, asyncio and
+  cothread clients; ``SharedPV.post``/``open`` on the server side
+- **caproto** --- ``sync.client.write`` and ``sync.client.read_write_read``,
+  ``threading.client.PV.write``, ``Batch.write``, ``asyncio.client.PV.write``
 - **pvaPy** --- every ``Channel.put*`` method, including the typed setters
-  such as ``putDouble`` and ``putScalarArray``
+  such as ``putDouble`` and ``putScalarArray``, and ``asyncPut``,
+  ``parsePut`` and ``parsePutGet`` alongside them
 - **doocs4py** --- ``set``, the call the DOOCS connector writes through
 - **Tango** --- ``DeviceProxy.write_attribute`` and its variants,
-  ``AttributeProxy.write``, and ``command_inout`` (a Tango command acts on
-  the device rather than reading it)
+  ``AttributeProxy.write``, ``Group`` attribute writes, and ``command_inout``
+  (a Tango command acts on the device rather than reading it), refused on the
+  ``Connection`` base that defines it as well as on ``DeviceProxy``
 
 **Acquisition frameworks.** These drive hardware through a client below them,
 so their write entry points refuse --- but they are also ordinary document and
