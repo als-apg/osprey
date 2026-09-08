@@ -107,6 +107,12 @@ DENIED: tuple[Denied, ...] = (
         ),
         sample="  epics_gateway: cagw-alsdmz.example-site.org:5064",
     ),
+    Denied(
+        name="maintainers' gateway host",
+        pattern=re.compile(r"gianluca[-.]?martino", re.IGNORECASE),
+        why="a maintainer's own gateway endpoint is not one another deployment can call",
+        sample="  base_url: https://llm.gianluca-martino.com/v1",
+    ),
 )
 
 
