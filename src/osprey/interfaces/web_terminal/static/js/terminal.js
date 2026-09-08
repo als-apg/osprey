@@ -393,15 +393,16 @@ export function startTerminal(sessionId = null, mode = 'new', { interrupt = fals
             // agent (or the one an interrupt forces) would read as a dead id
             // and drop the key both views are on.
             autoResumeFailoverId = null;
-            // The other view still holds the session and its agent is mid-turn.
-            // The server waits for that turn to end rather than killing it, so
-            // this connection has no bound on how long it sits here — show the
-            // wait, and the way to end it: ask for the same session again with
-            // `interrupt=1`, which ends that turn instead of waiting it out.
+            // The other view still holds the session. Idle, its agent is only
+            // restarted here; mid-turn (`busy`), the server waits for that turn
+            // to end rather than killing it, so this connection has no bound
+            // on how long it sits here — show the wait, and the way to end it:
+            // ask for the same session again with `interrupt=1`, which ends
+            // that turn instead of waiting it out.
             showHandoffPending(() => {
               dropConnection();
               startExpert({ interrupt: true });
-            });
+            }, { busy: msg.busy === true });
           } else if (msg.type === 'session_info') {
             // On resume, msg.session_id is the id ACTUALLY attached, which
             // may differ from the stale id we asked for (the server

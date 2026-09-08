@@ -1195,8 +1195,10 @@ def test_handoff_expert_to_simple_and_back_keeps_one_session(tmp_path, chromium_
         expect(page.locator(f"{_OP} .op-entry.assistant")).to_contain_text("the earlier answer")
         # ...the input is usable again...
         expect(page.locator(f"{_OP} .op-input-area textarea")).to_be_enabled()
-        # ...and the wait was on screen while it happened.
-        assert any("Finishing in the other view" in line for line in _handoff_log(page)), (
+        # ...and the restart was on screen while it happened. The terminal was
+        # idle, so what the operator watched was the agent moving, not a turn
+        # finishing.
+        assert any("Restarting the agent in this view" in line for line in _handoff_log(page)), (
             f"the transitional state was never shown: {_handoff_log(page)}"
         )
 
@@ -1330,7 +1332,12 @@ def _flip_into_a_busy_terminal(base_url: str, chromium_browser) -> tuple[Page, s
 
     overlay = page.locator(f"{_OP} .op-handoff")
     expect(overlay).to_be_visible(timeout=10_000)
-    expect(overlay.locator(".op-handoff-message")).to_contain_text("Finishing in the other view")
+    # The console has no word from the server on whether the terminal is
+    # mid-turn, so it shows the restart first and the wait once the restart
+    # budget is spent — the copy below arrives a few seconds in.
+    expect(overlay.locator(".op-handoff-message")).to_contain_text(
+        "Finishing in the other view", timeout=15_000
+    )
     expect(overlay.locator(".op-handoff-elapsed")).to_have_text(re.compile(r"^\d+:\d{2}$"))
     # The input stays out of reach: the session is not this view's yet.
     expect(page.locator(f"{_OP} .op-input-area textarea")).to_be_disabled()

@@ -18,6 +18,8 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import { HANDOFF_RESTART_BUDGET_MS } from '../../../src/osprey/interfaces/web_terminal/static/js/terminal-handoff.js';
+
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js')} */
 let terminal;
 
@@ -264,7 +266,7 @@ describe('startExpert settles when the acquire has an answer', () => {
   test('a pending hand-off does not settle it', async () => {
     const settled = flipToExpert();
     openSocket();
-    receive({ type: 'handoff_pending' });
+    receive({ type: 'handoff_pending', busy: true });
 
     const race = await Promise.race([
       settled.then(() => 'settled'),
@@ -363,7 +365,7 @@ describe('handoff_pending: the transitional state', () => {
     localStorage.setItem(STORAGE_KEY, 'shared-key');
     terminal.initTerminal('terminal-container');
     openSocket();
-    receive({ type: 'handoff_pending' });
+    receive({ type: 'handoff_pending', busy: true });
   }
 
   test('says what is happening and how long it has been', () => {
@@ -465,13 +467,97 @@ describe('handoff_pending: the transitional state', () => {
   });
 });
 
+describe('handoff_pending on an idle chat: a restart, not a wait', () => {
+  // The server says whether the chat holding the key is mid-turn. When it is
+  // not, nothing is being finished anywhere: the session's agent is stopped
+  // in the other view and started in this one, which takes about a second.
+  // Showing that as a wait with a clock and a way out would be untrue.
+
+  /** Flip to Expert on a stored key; the server reports the chat idle. */
+  function idle() {
+    localStorage.setItem(STORAGE_KEY, 'shared-key');
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    receive({ type: 'handoff_pending', busy: false });
+  }
+
+  test('says the agent is restarting here, with no clock and no way out', () => {
+    idle();
+
+    expect(overlayText()).toBe('Restarting the agent in this view…');
+    expect(document.querySelector('.terminal-handoff-elapsed')).toBeNull();
+    expect(overlayAction()?.hidden).toBe(true);
+  });
+
+  test('a frame that says nothing about the turn is read as idle', () => {
+    localStorage.setItem(STORAGE_KEY, 'shared-key');
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    receive({ type: 'handoff_pending' });
+
+    expect(overlayText()).toBe('Restarting the agent in this view…');
+  });
+
+  test('a restart that outlasts its budget becomes the wait, clocked from the flip', () => {
+    vi.useFakeTimers();
+    try {
+      idle();
+      vi.advanceTimersByTime(HANDOFF_RESTART_BUDGET_MS - 1);
+      expect(overlayText()).toBe('Restarting the agent in this view…');
+
+      vi.advanceTimersByTime(1);
+
+      expect(overlayText()).toBe('Finishing in the other view · 0:04');
+      expect(overlayAction()?.hidden).toBe(false);
+      expect(overlayAction()?.textContent).toBe('Stop and switch now');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('session_info in budget clears it, and no wait appears afterwards', () => {
+    vi.useFakeTimers();
+    try {
+      idle();
+      receive({ type: 'session_info', session_id: 'shared-key' });
+      vi.advanceTimersByTime(HANDOFF_RESTART_BUDGET_MS * 2);
+
+      expect(document.querySelector('.terminal-handoff')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('a busy frame after the wait is up keeps the wait, and so does an idle one', () => {
+    // An interrupt's reconnect brings a second frame. The chat it cut short
+    // may report idle by then; the operator is already watching a wait, and
+    // that state never steps back to a restart.
+    vi.useFakeTimers();
+    try {
+      localStorage.setItem(STORAGE_KEY, 'shared-key');
+      terminal.initTerminal('terminal-container');
+      openSocket();
+      receive({ type: 'handoff_pending', busy: true });
+      vi.advanceTimersByTime(3_000);
+      /** @type {HTMLButtonElement} */ (overlayAction()).click();
+      openSocket();
+      receive({ type: 'handoff_pending', busy: false });
+
+      expect(overlayText()).toBe('Finishing in the other view · 0:03');
+      expect(overlayAction()?.hidden).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('"Stop and switch now"', () => {
   /** Reach the pending state and press the button. */
   function interrupt() {
     localStorage.setItem(STORAGE_KEY, 'shared-key');
     terminal.initTerminal('terminal-container');
     openSocket();
-    receive({ type: 'handoff_pending' });
+    receive({ type: 'handoff_pending', busy: true });
     /** @type {HTMLButtonElement} */ (overlayAction()).click();
   }
 
@@ -488,7 +574,7 @@ describe('"Stop and switch now"', () => {
     localStorage.setItem(STORAGE_KEY, 'shared-key');
     terminal.initTerminal('terminal-container');
     openSocket();
-    receive({ type: 'handoff_pending' });
+    receive({ type: 'handoff_pending', busy: true });
     const socketsBefore = FakeWebSocket.created;
 
     /** @type {HTMLButtonElement} */ (overlayAction()).click();
@@ -508,11 +594,11 @@ describe('"Stop and switch now"', () => {
       localStorage.setItem(STORAGE_KEY, 'shared-key');
       terminal.initTerminal('terminal-container');
       openSocket();
-      receive({ type: 'handoff_pending' });
+      receive({ type: 'handoff_pending', busy: true });
       vi.advanceTimersByTime(30_000);
       /** @type {HTMLButtonElement} */ (overlayAction()).click();
       openSocket();
-      receive({ type: 'handoff_pending' });
+      receive({ type: 'handoff_pending', busy: true });
 
       // 0:30 and counting, not back to 0:00.
       expect(overlayText()).toBe('Finishing in the other view · 0:30');
@@ -647,10 +733,10 @@ describe('a refused connection', () => {
     terminal.initTerminal('terminal-container');
     const abandoned = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
     openSocket();
-    receive({ type: 'handoff_pending' });
+    receive({ type: 'handoff_pending', busy: true });
     /** @type {HTMLButtonElement} */ (overlayAction()).click();
     openSocket();
-    receive({ type: 'handoff_pending' });
+    receive({ type: 'handoff_pending', busy: true });
 
     // The abandoned socket's refusal lands late.
     /** @type {(ev: any) => void} */ (abandoned.onclose)({
@@ -665,7 +751,7 @@ describe('a refused connection', () => {
     localStorage.setItem(STORAGE_KEY, 'shared-key');
     terminal.initTerminal('terminal-container');
     openSocket();
-    receive({ type: 'handoff_pending' });
+    receive({ type: 'handoff_pending', busy: true });
 
     refuse(WS_CLOSE_OUTGOING_RUNNING);
 
