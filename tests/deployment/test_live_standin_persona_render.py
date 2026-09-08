@@ -52,7 +52,11 @@ from osprey.cli.build_cmd import build as build_command
 from osprey.deployment.reach import reach_errors
 from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
 from osprey_connectors.standin import archive_belongs_to_standin
-from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
+from tests.fixtures.lifecycle_repo import (
+    EXEMPLAR_DIRNAME,
+    build_exemplar_repo,
+    preserved_environ,
+)
 
 #: Every test here renders a deployment and its personas for real.
 pytestmark = pytest.mark.slow
@@ -103,7 +107,8 @@ def _build_exemplar(dest: Path, *, standin: int | None) -> Path:
     previous = Path.cwd()
     os.chdir(repo)
     try:
-        result = CliRunner().invoke(build_command, CI_FLAGS)
+        with preserved_environ():
+            result = CliRunner().invoke(build_command, CI_FLAGS)
     finally:
         os.chdir(previous)
     assert result.exit_code == 0, result.output

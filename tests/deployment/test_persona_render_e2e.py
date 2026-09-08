@@ -40,7 +40,11 @@ from osprey.cli.repo_resolver import PROFILE_FILENAME
 from osprey.deployment.staleness import DriftState, check_drift
 from osprey.deployment.web_terminals.persona_images import verify_persona_renders
 from osprey.deployment.web_terminals.personas import resolve_personas
-from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
+from tests.fixtures.lifecycle_repo import (
+    EXEMPLAR_DIRNAME,
+    build_exemplar_repo,
+    preserved_environ,
+)
 
 #: Every test here renders for real — seconds each, not milliseconds — which is
 #: the property that makes them worth having and the reason they are marked.
@@ -61,7 +65,8 @@ def _run_build(repo: Path) -> None:
     previous = Path.cwd()
     os.chdir(repo)
     try:
-        result = CliRunner().invoke(build_command, CI_FLAGS)
+        with preserved_environ():
+            result = CliRunner().invoke(build_command, CI_FLAGS)
     finally:
         os.chdir(previous)
     assert result.exit_code == 0, result.output
@@ -300,7 +305,8 @@ def test_a_persona_that_will_not_resolve_leaves_the_previous_build_untouched(bui
     previous = Path.cwd()
     os.chdir(built_repo)
     try:
-        result = CliRunner().invoke(build_command, CI_FLAGS)
+        with preserved_environ():
+            result = CliRunner().invoke(build_command, CI_FLAGS)
     finally:
         os.chdir(previous)
     assert result.exit_code != 0, result.output

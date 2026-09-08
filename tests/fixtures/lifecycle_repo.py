@@ -74,6 +74,7 @@ Usage::
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import subprocess
@@ -3019,6 +3020,27 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
     if with_ci:
         files.update(CI_PIPELINE_FILES)
     return {path: expand_sentinels(text) for path, text in files.items()}
+
+
+@contextlib.contextmanager
+def preserved_environ():
+    """Confine a repo's ``.env`` to the code run inside this block.
+
+    Loading a project config exports its ``.env`` into ``os.environ``
+    (``ConfigBuilder`` → ``load_dotenv(override=True)``) — correct for the real
+    CLI, where the process exits afterwards, but an in-process build in a test
+    shares its process with every test after it. A leaked seeded token then
+    changes later tests' behavior: the service-token mint treats a var already
+    present in the process env as operator-provided and writes no ``.env`` at
+    all. Wrap every in-process ``osprey build`` (or config load) of a repo that
+    carries a ``.env`` in this guard.
+    """
+    snapshot = os.environ.copy()
+    try:
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(snapshot)
 
 
 def build_exemplar_repo(
