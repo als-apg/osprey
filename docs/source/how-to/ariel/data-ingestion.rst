@@ -153,9 +153,16 @@ The built-in enhancement modules:
              semantic_processor:
                enabled: true
                provider: cborg
+               max_input_chars: 8000
                model:
                  model_id: anthropic/claude-haiku
                  max_tokens: 256
+
+      ``max_input_chars`` (default 8000) is how much of an entry is sent. A
+      longer entry is cut at that point and the cut is logged, naming the
+      entry, so a summary that describes only an opening says so somewhere.
+      Raise it if your entries run long and your provider's context window has
+      the room.
 
    .. tab-item:: qmd Export
 

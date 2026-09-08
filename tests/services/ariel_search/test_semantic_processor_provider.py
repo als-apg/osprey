@@ -18,6 +18,9 @@ from typing import Any
 import pytest
 
 from osprey.services.ariel_search.config import ARIELConfig
+from osprey.services.ariel_search.enhancement.semantic_processor import (
+    processor as processor_module,
+)
 from osprey.services.ariel_search.enhancement.semantic_processor.processor import (
     SemanticProcessorModule,
 )
@@ -231,3 +234,93 @@ class TestEndToEndThroughConfig:
 
         with pytest.raises(ValueError, match="semantic_processor.provider"):
             SemanticProcessorModule().configure(module_config)
+
+
+class TestTheInputBudgetIsAConfigKey:
+    """``max_input_chars``: how much of an entry reaches the model.
+
+    Long entries are common at some facilities and rare at others, and the
+    context window a provider serves is a site property too — so the slice is
+    authored rather than fixed, and a slice that happens is said out loud.
+    """
+
+    def test_default_when_the_key_is_unstated(self, provider_models) -> None:
+        module = SemanticProcessorModule()
+        module.configure(_config())
+
+        assert module._max_input_chars == processor_module.DEFAULT_MAX_INPUT_CHARS
+
+    def test_configured_value_is_read(self, provider_models) -> None:
+        module = SemanticProcessorModule()
+        module.configure(_config(max_input_chars=32000))
+
+        assert module._max_input_chars == 32000
+
+    @pytest.mark.parametrize("bad", [0, -1, True, "8000", 1.5])
+    def test_an_unusable_budget_is_refused_naming_the_key(self, provider_models, bad) -> None:
+        """Refused at configure time, where the operator can still see the line."""
+        module = SemanticProcessorModule()
+
+        with pytest.raises(ValueError, match="max_input_chars"):
+            module.configure(_config(max_input_chars=bad))
+
+    @pytest.mark.asyncio
+    async def test_the_prompt_carries_only_the_budget(self, provider_models, monkeypatch) -> None:
+        """The slice is the configured one, not a fixed 8000."""
+        module = SemanticProcessorModule()
+        module.configure(_config(max_input_chars=10))
+
+        captured: dict[str, Any] = {}
+
+        def fake_completion(message: str, model_config: Any = None) -> str:
+            captured["message"] = message
+            return '{"keywords": [], "summary": ""}'
+
+        import osprey.models.completion as completion_module
+
+        monkeypatch.setattr(completion_module, "get_chat_completion", fake_completion)
+
+        await module._process_text("x" * 50, entry_id="e-1")
+
+        assert "x" * 10 in captured["message"]
+        assert "x" * 11 not in captured["message"]
+
+    @pytest.mark.asyncio
+    async def test_a_cut_entry_is_logged_by_id(self, provider_models, monkeypatch, caplog) -> None:
+        """An operator reading the summary can tell it describes an opening."""
+        module = SemanticProcessorModule()
+        module.configure(_config(max_input_chars=10))
+
+        import osprey.models.completion as completion_module
+
+        monkeypatch.setattr(
+            completion_module,
+            "get_chat_completion",
+            lambda message, model_config=None: '{"keywords": [], "summary": ""}',
+        )
+
+        with caplog.at_level("INFO", logger="ariel"):
+            await module._process_text("x" * 50, entry_id="entry-42")
+
+        assert any("entry-42" in record.getMessage() for record in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_an_entry_within_the_budget_is_not_logged(
+        self, provider_models, monkeypatch, caplog
+    ) -> None:
+        """No line for the normal case, which is every entry at most sites."""
+        module = SemanticProcessorModule()
+        module.configure(_config(max_input_chars=100))
+
+        import osprey.models.completion as completion_module
+
+        monkeypatch.setattr(
+            completion_module,
+            "get_chat_completion",
+            lambda message, model_config=None: '{"keywords": [], "summary": ""}',
+        )
+
+        with caplog.at_level("INFO", logger="ariel"):
+            await module._process_text("x" * 50, entry_id="entry-42")
+
+        assert not any("entry-42" in record.getMessage() for record in caplog.records)

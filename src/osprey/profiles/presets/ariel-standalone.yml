@@ -302,6 +302,10 @@ config:
   ariel.enhancement_modules.semantic_processor.enabled: false
   # Token budget for each of its LLM calls.
   ariel.enhancement_modules.semantic_processor.model.max_tokens: 256
+  # How much of an entry is sent for keywords and summary. Longer entries are
+  # cut here — the cut is logged, naming the entry — so this is what a facility
+  # with long entries and a roomy context window raises.
+  # ariel.enhancement_modules.semantic_processor.max_input_chars: 8000
   # Text embedding for semantic search. Degrades gracefully when Ollama or
   # pgvector is unavailable.
   ariel.enhancement_modules.text_embedding.enabled: true
