@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
 import time
 from collections.abc import Sequence
@@ -52,6 +53,28 @@ class FileEventBroadcaster:
 # Patterns to ignore in file watching
 _IGNORE_PATTERNS = {".git", "__pycache__", ".DS_Store", "_notebook_cache"}
 _IGNORE_EXTENSIONS = {".pyc", ".pyo"}
+
+
+def _one_level_listing(directory: Path) -> dict[str, tuple[bool, int, int]]:
+    """One level of *directory* as ``{name: (is_dir, mtime_ns, size)}``.
+
+    The tuple is a change stamp, not metadata anyone reads: two listings of the
+    same directory differ at exactly the names that were added, removed, or
+    written to. A directory that has gone away between the frame and the scan
+    lists as empty rather than raising — the frame is a report about the past.
+    """
+    listing: dict[str, tuple[bool, int, int]] = {}
+    try:
+        entries = list(os.scandir(directory))
+    except OSError:
+        return listing
+    for entry in entries:
+        try:
+            stat = entry.stat()
+            listing[entry.name] = (entry.is_dir(), stat.st_mtime_ns, stat.st_size)
+        except OSError:  # vanished mid-scan
+            continue
+    return listing
 
 
 def filesystem_is_case_insensitive(directory: Path) -> bool:
@@ -189,24 +212,14 @@ class _WorkspaceHandler(FileSystemEventHandler):
         )
         self._last_event: dict[str, float] = {}
         self._debounce_seconds = 0.1
+        self._listings: dict[str, dict[str, tuple[bool, int, int]]] = {}
 
     def on_any_event(self, event: FileSystemEvent) -> None:
         src_path = Path(event.src_path)
 
         # Filter ignored paths
-        for part in src_path.parts:
-            if part in _IGNORE_PATTERNS:
-                return
-        if src_path.suffix in _IGNORE_EXTENSIONS:
+        if self._is_ignored(src_path):
             return
-
-        # Debounce: skip duplicate events for the same path within 100ms
-        now = time.monotonic()
-        key = str(src_path)
-        last = self._last_event.get(key, 0)
-        if now - last < self._debounce_seconds:
-            return
-        self._last_event[key] = now
 
         event_type_map = {
             "created": "created",
@@ -225,13 +238,27 @@ class _WorkspaceHandler(FileSystemEventHandler):
             return
 
         # Conceal the server-side stores: drop the event rather than broadcast it.
-        if self._concealed_parts:
-            parts = relative.parts
-            if self._fold_case:
-                parts = tuple(part.casefold() for part in parts)
-            for store_parts in self._concealed_parts:
-                if parts[: len(store_parts)] == store_parts:
-                    return
+        if self._is_concealed(relative):
+            return
+
+        # A coalesced frame: FSEvents may report a burst of writes inside a
+        # directory as one ``modified`` event on the directory itself, with no
+        # per-file event behind it. Forwarded as-is it says a directory changed
+        # and nothing about what is in it, so the listing on the other end
+        # never learns about the file. Say what changed instead.
+        #
+        # The frame skips the path debounce below: it is the whole report of
+        # the change, so a frame dropped on the clock is a change lost rather
+        # than a duplicate suppressed. What keeps a repeat frame quiet is the
+        # listing diff, which announces only names that differ, and every name
+        # it does announce claims its own slot.
+        if event.is_directory and simple_type == "modified":
+            self._broadcast_directory_diff(src_path, relative)
+            return
+
+        # Debounce: skip duplicate events for the same path within 100ms
+        if not self._claim_debounce_slot(str(src_path)):
+            return
 
         self._broadcaster.broadcast(
             {
@@ -240,6 +267,99 @@ class _WorkspaceHandler(FileSystemEventHandler):
                 "is_dir": event.is_directory,
             }
         )
+
+    def _is_ignored(self, path: Path) -> bool:
+        """Whether *path* is one of the paths the file panel never shows."""
+        return any(part in _IGNORE_PATTERNS for part in path.parts) or (
+            path.suffix in _IGNORE_EXTENSIONS
+        )
+
+    def _is_concealed(self, relative: Path) -> bool:
+        """Whether *relative* is at or below one of the server-side stores."""
+        if not self._concealed_parts:
+            return False
+        parts = relative.parts
+        if self._fold_case:
+            parts = tuple(part.casefold() for part in parts)
+        return any(parts[: len(store)] == store for store in self._concealed_parts)
+
+    def _broadcast_directory_diff(self, directory: Path, relative: Path) -> None:
+        """Broadcast what one level of *directory* holds that it did not before.
+
+        The rescan stops at one level because that is what the frame names: a
+        write deeper in the tree produces its own frame for its own directory,
+        and recursing here would turn a single coalesced event into a walk of
+        the whole workspace.
+
+        The first frame for a directory has no earlier listing to compare
+        against, so its contents are announced as ``created``. A file panel
+        converges on what is there either way, and re-announcing a file that
+        was already listed costs a redundant frame — where staying silent
+        would lose the change the frame was reporting.
+
+        One listing is kept per directory that still exists: a directory that
+        has gone away is dropped after its contents are announced as deleted,
+        so a workspace that churns cannot grow the map without bound.
+        """
+        key = str(directory)
+        previous = self._listings.get(key)
+        current = _one_level_listing(directory)
+        if directory.is_dir():
+            self._listings[key] = current
+        else:
+            self._listings.pop(key, None)
+
+        if previous is None:
+            for name, stamp in current.items():
+                self._broadcast_child(directory, relative, name, "created", stamp[0])
+            return
+
+        for name, stamp in current.items():
+            if name not in previous:
+                self._broadcast_child(directory, relative, name, "created", stamp[0])
+            elif previous[name] != stamp:
+                self._broadcast_child(directory, relative, name, "modified", stamp[0])
+        for name in sorted(previous.keys() - current.keys()):
+            self._broadcast_child(directory, relative, name, "deleted", previous[name][0])
+
+    def _broadcast_child(
+        self, directory: Path, relative: Path, name: str, simple_type: str, is_dir: bool
+    ) -> None:
+        """Broadcast one child of a rescanned directory, ignore rules applied.
+
+        The rescan reaches children the per-file path never filtered, so the
+        same two predicates run again here — a rescan is not a way past the
+        ignore list or past concealment.
+
+        The child shares one debounce slot with its own per-file event: a write
+        delivers both that event and a frame for the parent directory, and
+        whichever arrives first is the one that announces the change.
+        """
+        child = directory / name
+        if self._is_ignored(child):
+            return
+        child_relative = relative / name
+        if self._is_concealed(child_relative):
+            return
+        if not self._claim_debounce_slot(str(child)):
+            return
+        self._broadcaster.broadcast(
+            {"type": simple_type, "path": str(child_relative), "is_dir": is_dir}
+        )
+
+    def _claim_debounce_slot(self, key: str) -> bool:
+        """Whether *key* may be announced now, claiming its slot if so.
+
+        One slot per path, held for the debounce window: the pair of events a
+        single write produces — the per-file event and the frame for its parent
+        directory — describes one change, and the first of the two to arrive is
+        the one that announces it.
+        """
+        now = time.monotonic()
+        if now - self._last_event.get(key, 0) < self._debounce_seconds:
+            return False
+        self._last_event[key] = now
+        return True
 
 
 class WorkspaceWatcher:

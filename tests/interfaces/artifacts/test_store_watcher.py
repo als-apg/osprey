@@ -9,12 +9,14 @@ Covers:
 """
 
 import json
+import shutil
 import time
 from unittest.mock import MagicMock
 
 import pytest
+from watchdog.events import DirModifiedEvent, FileModifiedEvent
 
-from osprey.interfaces.artifacts.store_watcher import StoreIndexWatcher
+from osprey.interfaces.artifacts.store_watcher import StoreIndexWatcher, _IndexFileHandler
 from osprey.stores.artifact_store import ArtifactStore
 from tests.interfaces.fsevents_wait import poke_until
 
@@ -190,3 +192,150 @@ class TestStoreWatcher:
             # Should not crash — watcher logs warning and skips
         finally:
             watcher.stop()
+
+
+@pytest.mark.unit
+class TestACoalescedDirectoryFrame:
+    """The index write can arrive as a frame about its directory.
+
+    macOS FSEvents coalesces: writes inside a directory can reach watchdog as
+    one ``modified`` event on the directory itself. The handler used to return
+    on every directory event, so an ``artifacts.json`` written that way was
+    never reloaded and the artifact it announced never reached a browser. The
+    directory is listed one level deep instead, and every index file that
+    changed takes the path a per-file event would have taken.
+    """
+
+    def _handler(self, tmp_path, broadcaster):
+        watcher = StoreIndexWatcher(
+            workspace_root=tmp_path,
+            broadcaster=broadcaster,
+            artifact_store=ArtifactStore(workspace_root=tmp_path),
+        )
+        handler = _IndexFileHandler(watcher._index_configs, broadcaster)
+        # The 100 ms debounce keys on the path; these tests deliver frames back
+        # to back on purpose.
+        handler._debounce_seconds = 0
+        return handler
+
+    def test_a_bare_directory_frame_announces_the_new_entry(self, tmp_path):
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+        artifacts_dir = tmp_path / "artifacts"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        handler.on_modified(DirModifiedEvent(str(artifacts_dir)))
+        broadcaster.reset_mock()
+
+        ArtifactStore(workspace_root=tmp_path).save_file(
+            file_content=b"<html>coalesced</html>",
+            filename="coalesced.html",
+            artifact_type="plot_html",
+            title="Written Behind A Directory Frame",
+            description="the per-file event never arrived",
+            mime_type="text/html",
+            tool_source="test",
+        )
+
+        handler.on_modified(DirModifiedEvent(str(artifacts_dir)))
+
+        announced = [call.args[0] for call in broadcaster.broadcast.call_args_list]
+        assert [e for e in announced if e.get("title") == "Written Behind A Directory Frame"]
+
+    def test_an_unchanged_directory_announces_nothing(self, tmp_path):
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+        artifacts_dir = tmp_path / "artifacts"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        handler.on_modified(DirModifiedEvent(str(artifacts_dir)))
+        broadcaster.reset_mock()
+
+        handler.on_modified(DirModifiedEvent(str(artifacts_dir)))
+
+        assert broadcaster.broadcast.call_count == 0
+
+    def test_a_directory_frame_ignores_files_that_are_not_the_index(self, tmp_path):
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+        artifacts_dir = tmp_path / "artifacts"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        handler.on_modified(DirModifiedEvent(str(artifacts_dir)))
+        broadcaster.reset_mock()
+
+        (artifacts_dir / "random_file.json").write_text('{"data": "test"}')
+        handler.on_modified(DirModifiedEvent(str(artifacts_dir)))
+
+        assert broadcaster.broadcast.call_count == 0
+
+    def test_a_frame_for_a_vanished_directory_is_survivable(self, tmp_path):
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+
+        handler.on_modified(DirModifiedEvent(str(tmp_path / "never_existed")))
+
+        assert broadcaster.broadcast.call_count == 0
+
+    def test_the_listing_of_a_directory_that_is_gone_is_dropped(self, tmp_path):
+        """One entry per directory that still exists, so the map cannot grow
+        for the life of the watcher."""
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+        artifacts_dir = tmp_path / "artifacts"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        handler.on_modified(DirModifiedEvent(str(artifacts_dir)))
+        assert str(artifacts_dir) in handler._listings
+
+        shutil.rmtree(artifacts_dir)
+        handler.on_modified(DirModifiedEvent(str(artifacts_dir)))
+
+        assert str(artifacts_dir) not in handler._listings
+
+    def test_a_stale_frame_does_not_swallow_the_write_behind_it(self, tmp_path):
+        """A frame that found nothing new must not spend the write's slot.
+
+        The directory frame and the per-file event for one write arrive
+        milliseconds apart, and a frame delivered before the index is on disk
+        reads it unchanged and announces nothing. Debouncing on the clock alone
+        would then drop the event that did carry the entry, and no third event
+        follows to make up for it. The window closes on a change already read,
+        not on the reader.
+        """
+        broadcaster = MagicMock()
+        watcher = StoreIndexWatcher(
+            workspace_root=tmp_path,
+            broadcaster=broadcaster,
+            artifact_store=ArtifactStore(workspace_root=tmp_path),
+        )
+        handler = _IndexFileHandler(watcher._index_configs, broadcaster)
+        # Both events below land inside one window by construction, rather than
+        # by being fast enough on the day.
+        handler._debounce_seconds = 30.0
+        artifacts_dir = tmp_path / "artifacts"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        index = artifacts_dir / "artifacts.json"
+        index.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "updated": "2024-01-01T00:00:00",
+                    "entry_count": 0,
+                    "entries": [],
+                    "created": "2024-01-01T00:00:00",
+                }
+            )
+        )
+        handler.on_modified(DirModifiedEvent(str(artifacts_dir)))
+        assert broadcaster.broadcast.call_count == 0
+
+        ArtifactStore(workspace_root=tmp_path).save_file(
+            file_content=b"<html>behind a stale frame</html>",
+            filename="behind.html",
+            artifact_type="plot_html",
+            title="Behind A Stale Frame",
+            description="the frame ahead of it read nothing",
+            mime_type="text/html",
+            tool_source="test",
+        )
+        handler.on_modified(FileModifiedEvent(str(index)))
+
+        announced = [call.args[0] for call in broadcaster.broadcast.call_args_list]
+        assert [e for e in announced if e.get("title") == "Behind A Stale Frame"]
