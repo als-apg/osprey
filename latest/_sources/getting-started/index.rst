@@ -3,6 +3,14 @@ Getting Started
 
 Welcome to Osprey Framework! This comprehensive guide will take you from zero to building production-ready control system agents, with working results at every step.
 
+.. tip::
+
+   The fastest path to a deployment for your own facility is the **guided
+   installer** — a conversation with your coding agent that inventories what
+   you have and builds the project with you: :doc:`osprey-install`. The
+   step-by-step tutorials cover the same ground and remain the best way to
+   learn the concepts.
+
 **What You'll Accomplish**
 --------------------------
 
@@ -65,7 +73,7 @@ By following this comprehensive learning path, you'll have:
       **Outcome:**
       Your first working agent
 
-   .. grid-item-card:: 🎯 3. Install and Set Up
+   .. grid-item-card:: 🎯 3. Install and Set Up — ⭐ recommended
       :link: osprey-install
       :link-type: doc
       :class-header: bg-success text-white
