@@ -669,6 +669,29 @@ class BlueskyConfig:
     the bridge falls back to the same default when the env var is absent.
     """
 
+    live_max_runs: int = 50
+    """How many run buffers the bridge keeps in memory, oldest evicted first.
+
+    This is what lets a completed run's data stay readable after the run ends.
+    Authored per facility because how many runs are worth holding is a property
+    of how a facility uses the data — and of how much memory the deployment
+    host has.
+
+    At the default value this key renders NOTHING into the compose file, and
+    the bridge falls back to the same default when the env var is absent.
+    """
+
+    live_max_rows_per_run: int = 10_000
+    """How many rows one run's buffer stores before it stops growing.
+
+    A safety valve against a runaway or never-ending plan, not a normal-case
+    limit: rows past the cap are still COUNTED, so the run-data route keeps
+    reporting the true total over a truncated buffer.
+
+    At the default value this key renders NOTHING into the compose file, and
+    the bridge falls back to the same default when the env var is absent.
+    """
+
     external: BlueskyExternalConfig | None = None
     """Attach this lane to an externally-run RE Manager instead of deploying
     one (``bluesky.external:``) — see :class:`BlueskyExternalConfig`. ``None``

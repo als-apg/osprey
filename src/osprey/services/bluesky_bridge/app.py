@@ -240,8 +240,10 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
       `BLUESKY_DEVICES_FILE`: the posture it guards against is a property of
       the project config, not of whether this deployment wires up any devices
       at all, and a gated guard leaves whole classes of deployment unchecked.
-      Alongside it, `queue.device_page_size()` is parsed once so a malformed
-      `BLUESKY_DEVICE_PAGE_SIZE` fails the boot instead of the first request.
+      Alongside it, `queue.device_page_size()` and the two `live_rows` caps are
+      parsed once so a malformed `BLUESKY_DEVICE_PAGE_SIZE`,
+      `BLUESKY_LIVE_MAX_RUNS` or `BLUESKY_LIVE_MAX_ROWS_PER_RUN` fails the boot
+      instead of the first request.
     - The document plane: the 0MQ proxy the queueserver's Publisher connects
       to, and the dispatcher that turns that stream into live rows.
       Unconfigured is a no-op; see `document_plane.start_from_env`.
@@ -265,6 +267,13 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # read per request downstream, so parsing it once here turns a bad env var
     # into a failed start rather than a surprise 500 on the first caller.
     queue.device_page_size()
+
+    # The live-row buffer caps, for the same reason and one more: the recorder
+    # that reads them handles every document inside a try/except, so a bad
+    # value there would silently drop every run buffer instead of announcing
+    # itself. Parsing both here makes an unusable value fail the start.
+    live_rows.max_runs()
+    live_rows.max_rows_per_run()
 
     # The document plane's 0MQ proxy — the binding element the queueserver's
     # Publisher connects to, and the RemoteDispatcher that turns that stream
@@ -1641,7 +1650,7 @@ def _tiled_run_snapshot(run_id: str) -> dict[str, Any] | None:
     Two situations fall through the live path in `get_run_data` and land here: a
     run with no live buffer at all (a bridge restart drops every buffer, so a
     run that started before it — even one still executing — has nothing in
-    memory), and one whose buffer was evicted past `live_rows._MAX_RUNS`. The
+    memory), and one whose buffer was evicted past `live_rows.max_runs()`. The
     search keys on `osprey_run_id`, the durable stamp the enqueue path threads
     into the item metadata and the worker records onto the start document.
 
