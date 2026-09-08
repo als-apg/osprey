@@ -184,6 +184,225 @@ class TestValidateSqlQueryRejects:
         assert "enhanced_entries" in str(exc_info.value)
 
 
+class TestFromListRule:
+    """The FROM/JOIN shape rule.
+
+    The allowlist resolves one identifier per ``FROM``/``JOIN``. Every shape
+    below reaches a second table that resolution never sees, so the validator
+    refuses the shape rather than trying to resolve it.
+    """
+
+    def test_comma_list_after_from(self):
+        with pytest.raises(
+            ValueError, match="comma-separated FROM lists are not allowed; use JOIN"
+        ):
+            validate_sql_query("SELECT * FROM enhanced_entries, pg_shadow")
+
+    def test_comma_list_with_aliases(self):
+        """An alias between the table and the comma does not change the shape."""
+        with pytest.raises(
+            ValueError, match="comma-separated FROM lists are not allowed; use JOIN"
+        ):
+            validate_sql_query("SELECT * FROM enhanced_entries e, pg_shadow s")
+
+    def test_comma_after_a_join_condition(self):
+        """``ON`` does not end the FROM clause, so the comma is still a FROM list."""
+        with pytest.raises(
+            ValueError, match="comma-separated FROM lists are not allowed; use JOIN"
+        ):
+            validate_sql_query(
+                "SELECT * FROM enhanced_entries e "
+                "JOIN text_embeddings_nomic t ON t.entry_id = e.entry_id, pg_shadow"
+            )
+
+    def test_comma_after_a_parenthesised_subquery(self):
+        """Closing the subquery returns to a FROM clause that is still open."""
+        with pytest.raises(
+            ValueError, match="comma-separated FROM lists are not allowed; use JOIN"
+        ):
+            validate_sql_query(
+                "SELECT * FROM (SELECT entry_id FROM enhanced_entries) AS sub, pg_shadow"
+            )
+
+    def test_comma_before_a_set_returning_function(self):
+        """The second FROM item need not be a table at all."""
+        with pytest.raises(
+            ValueError, match="comma-separated FROM lists are not allowed; use JOIN"
+        ):
+            validate_sql_query("SELECT * FROM enhanced_entries e, pg_ls_dir('/') d")
+
+    def test_quoted_identifier_is_refused(self):
+        """A quoted name is invisible to an unquoted-identifier scan."""
+        with pytest.raises(ValueError, match="Quoted identifiers are not allowed"):
+            validate_sql_query('SELECT * FROM enhanced_entries, "pg_shadow"')
+
+    def test_block_comment_is_refused(self):
+        """A comment can carry a parenthesis that would desynchronise the scan."""
+        with pytest.raises(ValueError, match="Block comments are not allowed"):
+            validate_sql_query("SELECT * FROM enhanced_entries /* ( */ , pg_shadow")
+
+    def test_line_comment_is_refused(self):
+        with pytest.raises(ValueError, match="Line comments are not allowed"):
+            validate_sql_query("SELECT * FROM enhanced_entries -- (\n, pg_shadow")
+
+    def test_backslash_is_refused(self):
+        """An ``E'...'`` string treats ``\\'`` as an escaped quote; the scan does not.
+
+        After ``E'\\''`` the scan and Postgres disagree on where the string
+        ends, so the FROM/JOIN targets Postgres reads are inside a literal to
+        the scan. The query below read ``pg_shadow`` on the pre-fix code.
+        """
+        with pytest.raises(ValueError, match="Backslash escapes are not allowed"):
+            validate_sql_query(
+                "SELECT E'\\'' FROM pg_shadow WHERE usename <> ' FROM enhanced_entries '"
+            )
+
+    def test_parenthesised_join_is_refused(self):
+        """``FROM (`` may only open a subquery, never a join expression."""
+        with pytest.raises(ValueError, match="must be a subquery starting with SELECT or WITH"):
+            validate_sql_query("SELECT * FROM (pg_shadow s JOIN enhanced_entries e ON true)")
+
+    # Postgres's ``TABLE name`` is ``SELECT * FROM name`` with neither keyword,
+    # legal as a CTE body, a set-operation branch and a subquery. The scan reads
+    # it as a third binder, so the name after it is a table the allowlist checks.
+
+    def test_table_command_as_a_cte_body_is_checked(self):
+        with pytest.raises(ValueError, match="Table 'pg_shadow' is not in the allowlist"):
+            validate_sql_query("WITH x AS (TABLE pg_shadow) SELECT * FROM x")
+
+    def test_table_command_as_a_cte_body_is_checked_behind_a_decoy_read(self):
+        """The decoy ``FROM enhanced_entries`` satisfied the allowlist; the body did not."""
+        with pytest.raises(ValueError, match="Table 'pg_shadow' is not in the allowlist"):
+            validate_sql_query(
+                "WITH x AS (TABLE pg_shadow) SELECT usename FROM enhanced_entries JOIN x ON true"
+            )
+
+    def test_table_command_as_a_union_branch_is_checked(self):
+        with pytest.raises(ValueError, match="Table 'pg_shadow' is not in the allowlist"):
+            validate_sql_query("SELECT * FROM enhanced_entries UNION ALL TABLE pg_shadow")
+
+    def test_table_command_as_a_from_subquery_is_refused(self):
+        """``FROM (TABLE ...)`` stays on the paren rule: only SELECT/WITH open a subquery."""
+        with pytest.raises(ValueError, match="must be a subquery starting with SELECT or WITH"):
+            validate_sql_query("SELECT * FROM (TABLE pg_shadow) s")
+
+    def test_table_command_with_a_comma_list_is_refused(self):
+        with pytest.raises(ValueError, match="comma-separated FROM lists are not allowed"):
+            validate_sql_query("WITH x AS (TABLE enhanced_entries, pg_shadow) SELECT * FROM x")
+
+    def test_table_command_on_an_allowlisted_table_is_allowed(self):
+        validate_sql_query("WITH x AS (TABLE enhanced_entries) SELECT * FROM x")
+
+    def test_multi_cte_query_is_allowed(self):
+        """Every ``, name AS (`` in a WITH list binds a CTE name, not just the first."""
+        validate_sql_query(
+            "WITH a AS (SELECT entry_id FROM enhanced_entries), "
+            "b AS (SELECT entry_id FROM enhanced_entries) "
+            "SELECT * FROM a JOIN b ON a.entry_id = b.entry_id"
+        )
+
+    def test_commas_outside_a_from_clause_are_allowed(self):
+        """Select lists and ORDER BY are comma-separated by construction."""
+        validate_sql_query(
+            "SELECT entry_id, author FROM enhanced_entries ORDER BY entry_id, author"
+        )
+
+    def test_comma_inside_an_in_list_is_allowed(self):
+        validate_sql_query("SELECT * FROM enhanced_entries WHERE entry_id IN (1, 2)")
+
+    def test_function_read_on_an_allowlisted_table_still_passes(self):
+        """EXPECTED PASS, pinned deliberately.
+
+        Naming an allowlisted table satisfies the allowlist, so a server-side
+        function call in the select list goes through. Bounding what the
+        session may read is the read-only database role's job — task A2
+        ``sql-readonly-role`` — not the allowlist's, and this case is pinned
+        here so that gap is recorded rather than implied closed.
+        """
+        validate_sql_query("SELECT pg_read_file('/etc/passwd') FROM enhanced_entries LIMIT 1")
+
+
+class TestCteNameBinding:
+    """Only a real ``WITH`` list binds a name the allowlist then skips.
+
+    A bound CTE name is removed from the allowlist check, so anything that
+    binds a name a query did not declare hands a joined table a free pass. The
+    FROM/JOIN targets and the CTE names come out of one token pass, which
+    consumes a single-quoted string whole, and a name only binds inside an open
+    WITH list.
+    """
+
+    def test_literal_mimicking_a_later_cte_binds_no_name(self):
+        """A `, name AS (` inside a literal must not launder a joined table."""
+        with pytest.raises(ValueError, match="Table 'pg_shadow' is not in the allowlist"):
+            validate_sql_query(
+                "SELECT ', pg_shadow AS (' FROM enhanced_entries JOIN pg_shadow ON true"
+            )
+
+    def test_literal_mimicking_a_with_clause_binds_no_name(self):
+        """Same bypass through the first CTE's `WITH name AS` spelling."""
+        with pytest.raises(ValueError, match="Table 'pg_shadow' is not in the allowlist"):
+            validate_sql_query(
+                "SELECT 'WITH pg_shadow AS ' FROM enhanced_entries JOIN pg_shadow ON true"
+            )
+
+    def test_window_alias_does_not_bind_a_cte_name(self):
+        """``, name AS (`` binds a CTE only inside a WITH list, not in a WINDOW list."""
+        with pytest.raises(ValueError, match="Table 'pg_shadow' is not in the allowlist"):
+            validate_sql_query(
+                "SELECT * FROM enhanced_entries JOIN pg_shadow ON true "
+                "WINDOW w AS (), pg_shadow AS ()"
+            )
+
+    # Postgres scopes a CTE to the query that declares it: a name bound inside a
+    # subquery is a real relation at the outer level, so the allowlist must
+    # resolve each FROM/JOIN reference against the declarations visible THERE.
+
+    def test_cte_declared_in_a_from_subquery_does_not_cover_an_outer_join(self):
+        with pytest.raises(ValueError, match="Table 'pg_shadow' is not in the allowlist"):
+            validate_sql_query(
+                "SELECT * FROM (WITH pg_shadow AS (SELECT 1 AS n) "
+                "SELECT * FROM enhanced_entries) s JOIN pg_shadow ON true"
+            )
+
+    def test_cte_declared_in_a_scalar_subquery_does_not_cover_an_outer_join(self):
+        with pytest.raises(ValueError, match="Table 'pg_shadow' is not in the allowlist"):
+            validate_sql_query(
+                "SELECT (WITH pg_shadow AS (SELECT 1 AS n) SELECT n FROM pg_shadow) "
+                "FROM enhanced_entries JOIN pg_shadow ON true"
+            )
+
+    def test_cte_declared_in_an_in_subquery_does_not_cover_a_union_branch(self):
+        with pytest.raises(ValueError, match="Table 'pg_authid' is not in the allowlist"):
+            validate_sql_query(
+                "SELECT * FROM enhanced_entries WHERE x IN (WITH pg_authid AS (SELECT 1) "
+                "SELECT 1) UNION SELECT * FROM pg_authid"
+            )
+
+    def test_non_recursive_cte_body_cannot_see_its_own_name(self):
+        """Without RECURSIVE a CTE's name is bound only after its body closes.
+
+        Inside the body the name is the real table, so a CTE named after a
+        catalog table reads that table from its own body.
+        """
+        with pytest.raises(ValueError, match="Table 'pg_shadow' is not in the allowlist"):
+            validate_sql_query(
+                "WITH pg_shadow AS (SELECT usename FROM pg_shadow) "
+                "SELECT * FROM enhanced_entries JOIN pg_shadow ON true"
+            )
+
+    def test_cte_declared_in_a_subquery_covers_a_reference_in_that_subquery(self):
+        validate_sql_query(
+            "SELECT * FROM (WITH x AS (SELECT * FROM enhanced_entries) SELECT * FROM x) s"
+        )
+
+    def test_outer_cte_covers_a_reference_inside_a_subquery(self):
+        validate_sql_query(
+            "WITH x AS (SELECT entry_id FROM enhanced_entries) "
+            "SELECT * FROM enhanced_entries WHERE entry_id IN (SELECT entry_id FROM x)"
+        )
+
+
 class TestValidateSqlQueryVariantSets:
     """The two constants are read at call time — swap in copies, never mutate."""
 
