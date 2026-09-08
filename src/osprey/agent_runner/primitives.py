@@ -27,6 +27,7 @@ if TYPE_CHECKING:
         ClaudeSDKClient,
         PermissionMode,
         ResultMessage,
+        SettingSource,
         SystemMessage,
         ToolResultBlock,
     )
@@ -407,24 +408,38 @@ class SDKWorkflowResult:
 # ---------------------------------------------------------------------------
 
 
-def resolve_default_model(project_dir: Path) -> str:
-    """Resolve the haiku-tier model name for the given project.
+#: Upstream Anthropic model per tier, used only when a project resolves no
+#: provider spec at all — a deployment on a gateway names its own ids.
+_TIER_FALLBACK_MODELS = {
+    "haiku": "claude-haiku-4-5-20251001",
+    "sonnet": "claude-sonnet-5",
+    "opus": "claude-opus-5",
+}
 
-    Reads ``config.yml`` and returns the provider's haiku-tier model id,
+
+def resolve_default_model(project_dir: Path, tier: str = "haiku") -> str:
+    """Resolve a tier's model name for the given project.
+
+    Reads ``config.yml`` and returns the provider's model id for *tier*,
     falling back to the upstream Anthropic default when no spec is
     configured.
 
     Args:
         project_dir: Path to an initialized OSPREY project.
+        tier: Which tier to resolve — ``"haiku"`` (the default, for the cheap
+            headless paths), ``"sonnet"`` or ``"opus"``. Resolving through the
+            project's own tier map is what keeps a caller from naming a bare
+            vendor id that a gateway-fronted deployment does not serve.
 
     Returns:
         Model identifier string suitable for passing to the Claude Agent SDK
         ``model=`` argument.
     """
+    fallback = _TIER_FALLBACK_MODELS.get(tier, _TIER_FALLBACK_MODELS["haiku"])
     spec = _resolve_project_spec(project_dir)
     if spec is not None:
-        return str(spec.tier_to_model.get("haiku", "claude-haiku-4-5-20251001"))
-    return "claude-haiku-4-5-20251001"
+        return str(spec.tier_to_model.get(tier, fallback))
+    return fallback
 
 
 def sdk_env(project_dir: Path | None = None, *, provider: str | None = None) -> dict[str, str]:
@@ -531,6 +546,7 @@ def build_agent_options(
     max_budget_usd: float = 2.0,
     model: str | None = None,
     permission_mode: PermissionMode = "bypassPermissions",
+    setting_sources: list[SettingSource] | None = None,
 ) -> ClaudeAgentOptions:
     """Build ``ClaudeAgentOptions`` routed to a project's configured provider.
 
@@ -552,6 +568,12 @@ def build_agent_options(
         permission_mode: SDK permission mode. ``"bypassPermissions"`` for the
             read-only headless path; ``"default"`` when an approval callback
             should mediate tool use.
+        setting_sources: Which settings layers the SDK loads. ``None`` (the
+            default) means the project's own ``.claude`` settings — its hooks,
+            agents and permissions — which is right for every path that runs
+            *as* the deployment. Pass ``[]`` for a run that must not adopt the
+            target project's settings, such as a reviewer pointed at a project
+            it is only reading.
 
     Returns:
         Configured ``ClaudeAgentOptions`` ready to open a ``ClaudeSDKClient``.
@@ -590,7 +612,7 @@ def build_agent_options(
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
         env=env,
-        setting_sources=["project"],
+        setting_sources=["project"] if setting_sources is None else setting_sources,
         disallowed_tools=disallowed_tools,
     )
 

@@ -33,7 +33,6 @@ _SDK_AVAILABLE = False
 try:
     from claude_agent_sdk import (
         AssistantMessage,
-        ClaudeAgentOptions,
         ResultMessage,
         TextBlock,
         query,
@@ -76,6 +75,25 @@ def _extract_json(text: str) -> str | None:
     return None
 
 
+def _reviewer_options(project_dir: Path, model: str, budget: float):
+    """Build the reviewer's SDK options from the audited project's own provider.
+
+    Separate from :func:`_run_audit` so the wiring can be read — and pinned —
+    without opening an event loop.
+    """
+    from osprey.agent_runner.primitives import build_agent_options
+
+    return build_agent_options(
+        project_dir,
+        disallowed_tools=[],
+        model=model,
+        permission_mode="bypassPermissions",
+        max_turns=30,
+        max_budget_usd=budget,
+        setting_sources=[],
+    )
+
+
 async def _run_audit(
     prompt: str,
     model: str,
@@ -85,16 +103,22 @@ async def _run_audit(
 ) -> tuple[str, float | None, int | None]:
     """Run the audit agent and collect its output.
 
+    The reviewer runs on the audited deployment's own provider: the options come
+    from the shared builder, which resolves that provider's endpoint, auth and
+    model ids from the project's ``config.yml`` (and starts the translation
+    proxy when the provider needs one). Hand-building the options here left the
+    SDK to fall through to ambient ``ANTHROPIC_*`` variables, so an audit of a
+    gateway-fronted deployment ran against whatever endpoint the operator's
+    shell happened to hold — or nothing at all.
+
+    ``setting_sources=[]`` is deliberate: the reviewer reads the target, it does
+    not run as it, so the audited project's own hooks and settings stay out of
+    the reviewing agent.
+
     Returns:
         Tuple of (collected_text, total_cost, num_turns).
     """
-    options = ClaudeAgentOptions(
-        model=model,
-        cwd=str(cwd),
-        permission_mode="bypassPermissions",
-        max_turns=30,
-        max_budget_usd=budget,
-    )
+    options = _reviewer_options(cwd, model, budget)
 
     collected_text: list[str] = []
     total_cost: float | None = None
@@ -188,14 +212,18 @@ def _display_report(report, json_output: bool, verbose: bool, cost=None, turns=N
 @click.command()
 @click.argument("target", type=click.Path(exists=True))
 @click.option("--build", "build_first", is_flag=True, help="Build profile in temp dir, then audit")
-@click.option("--model", default="claude-sonnet-5", help="Model for reviewer agent")
+@click.option(
+    "--model",
+    default=None,
+    help="Model for the reviewer (default: the project's sonnet tier)",
+)
 @click.option("--budget", default=5.0, type=float, help="Max budget in USD")
 @click.option("--verbose", "-v", is_flag=True, help="Show verbose output")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 def audit(
     target: str,
     build_first: bool,
-    model: str,
+    model: str | None,
     budget: float,
     verbose: bool,
     json_output: bool,
@@ -235,6 +263,11 @@ def audit(
 
         target_type = _detect_target_type(target)
         target_dir = Path(target)
+        # Where the reviewer runs, and the project its provider is resolved
+        # from. For a project target that is the target itself; for a profile it
+        # is whatever holds a resolvable provider — the temporary build below,
+        # or the deployment repo the profile lives in.
+        audit_root = target_dir
 
         # Optionally build the profile first
         tmpdir = None
@@ -265,25 +298,67 @@ def audit(
                 stream=False,
             )
             target_dir = Path(tmpdir) / project_name
+            audit_root = target_dir
             target_type = "project"
 
+        if target_type == "profile":
+            # A profile is a document, not a project: it has no config.yml, so
+            # no provider can be resolved from it. Its deployment repo can
+            # answer for it -- through the render under `build/`, which is where
+            # the repo keeps its config.yml and what every other runtime caller
+            # resolves a provider from. Without one there is nothing to run on,
+            # and falling through to ambient ANTHROPIC_* variables is how an
+            # audit ends up reviewing a deployment's safety config through an
+            # endpoint that has nothing to do with it.
+            from osprey.deployment.staleness import BUILD_DIRNAME
+
+            from .repo_resolver import RepoNotFoundError, find_repo_root
+
+            try:
+                repo_root = find_repo_root(target_dir.resolve().parent)
+            except RepoNotFoundError:
+                output.fail(
+                    "The reviewer has no provider to run on",
+                    f"{target} is a profile, and it is not inside a deployment repo "
+                    "whose build could say which provider to use.",
+                    "pass --build so the provider can be resolved",
+                )
+                raise SystemExit(1) from None
+
+            audit_root = repo_root / BUILD_DIRNAME
+            if not (audit_root / "config.yml").exists():
+                output.fail(
+                    "The reviewer has no provider to run on",
+                    f"{target} is a profile, and {audit_root} holds no config.yml: "
+                    "its repo has not been built, so nothing there says which "
+                    "provider to use.",
+                    "pass --build so the provider can be resolved",
+                )
+                raise SystemExit(1)
+
         try:
+            from osprey.agent_runner.primitives import resolve_default_model
+
+            # The deployment's own sonnet tier, not a bare vendor id: a
+            # gateway-fronted deployment serves its own model names.
+            resolved_model = model or resolve_default_model(audit_root, tier="sonnet")
+
             if not json_output:
                 output.section(
                     "",
                     [
                         ("Auditing", f"{target_type}: {target_dir}"),
-                        ("Model", model),
+                        ("Model", resolved_model),
                         ("Budget", f"${budget:.2f}"),
                     ],
                 )
 
-            file_listing = _list_files(target_dir)
+            file_listing = _list_files(audit_root)
             prompt = build_audit_prompt(target_type, target_dir, file_listing)
 
             # Run the agent
             raw_text, cost, turns = asyncio.run(
-                _run_audit(prompt, model, target_dir, budget, verbose)
+                _run_audit(prompt, resolved_model, audit_root, budget, verbose)
             )
 
             # Parse the result
