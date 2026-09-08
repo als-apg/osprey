@@ -21,7 +21,7 @@ import { initCommandPalette } from './palette-boot.js';
 import { getFamily, initTheme, subscribe as subscribeTheme } from '/design-system/js/theme-manager.js';
 import { onModeChange } from '/design-system/js/frame-params.js';
 import '/design-system/js/components/osprey-display-menu.js';
-import { initChat, enterFromExpert } from './chat.js';
+import { initChat, enterFromExpert, renderChatBootFailure } from './chat.js';
 import { initDockWorkspace, applyDockMode } from './dock-workspace.js';
 import { initHeaderContrib } from './tile-header-contrib.js';
 import { initIdentityMenu } from './identity-menu.js';
@@ -63,6 +63,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initChat('operator-container');
   } catch (err) {
     console.error('Failed to init operator chat:', err);
+    renderChatBootFailure('operator-container');
   }
   // Before the panel manager creates any iframe, so no contribution can
   // arrive without a listener.

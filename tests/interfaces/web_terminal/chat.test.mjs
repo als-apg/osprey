@@ -553,3 +553,68 @@ describe('a prompt refused by the other view', () => {
     expect(logEntries()).toEqual(['status?']);
   });
 });
+
+describe('minting a session key without crypto.randomUUID', () => {
+  /** @type {any} */
+  let savedRandomUUID;
+
+  beforeEach(() => {
+    savedRandomUUID = globalThis.crypto?.randomUUID;
+    if (globalThis.crypto) {
+      // A plain-http, non-localhost origin is a documented OSPREY topology,
+      // and there the property is simply absent.
+      delete (/** @type {any} */ (globalThis.crypto).randomUUID);
+    }
+  });
+
+  afterEach(() => {
+    if (globalThis.crypto && savedRandomUUID) {
+      /** @type {any} */ (globalThis.crypto).randomUUID = savedRandomUUID;
+    }
+  });
+
+  test('the console still mounts', async () => {
+    await mountChat();
+
+    expect(container.querySelector('.op-send-btn')).toBeTruthy();
+  });
+
+  test('the minted key keeps the bare-UUID grammar the store keys on', async () => {
+    await mountChat();
+
+    const key = localStorage.getItem(STORAGE_KEY);
+    expect(key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
+  test('a new conversation mints one too', async () => {
+    await mountChat();
+    const first = localStorage.getItem(STORAGE_KEY);
+
+    /** @type {HTMLButtonElement} */ (one('.op-session-new')).click();
+
+    const second = localStorage.getItem(STORAGE_KEY);
+    expect(second).not.toBe(first);
+    expect(second).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+});
+
+describe('renderChatBootFailure', () => {
+  test('a console that never mounted says so where it would have been', async () => {
+    const { renderChatBootFailure } = await import(CHAT_JS);
+    const host = document.createElement('div');
+    host.id = 'operator-container';
+    host.textContent = 'stale';
+    document.body.append(host);
+
+    renderChatBootFailure('operator-container');
+
+    expect(host.textContent).toContain('failed to start');
+    expect(host.textContent).not.toContain('stale');
+  });
+
+  test('a missing container is not an error of its own', async () => {
+    const { renderChatBootFailure } = await import(CHAT_JS);
+
+    expect(() => renderChatBootFailure('nothing-here')).not.toThrow();
+  });
+});
