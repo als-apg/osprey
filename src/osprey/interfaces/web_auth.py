@@ -1023,7 +1023,11 @@ def mint_and_announce(host: str, port: int, *, path: str = "/") -> str:
             appended, so a path already carrying a query would produce two.
 
     Returns:
-        ``http://<host>:<port><path>?token=<operator secret>``.
+        ``<origin><path>?token=<operator secret>``. The origin is
+        :data:`~osprey.interfaces.common_middleware.EXTERNAL_ORIGIN_ENV` when
+        that is set — the address a deployment declares browsers actually reach
+        it at, and the one the origin gate and the session cookie's ``Secure``
+        flag are derived from — and ``http://<host>:<port>`` otherwise.
 
     **The token in the URL is the operator secret itself**, not a second
     credential the holder tracks alongside it. That is forced by how the
@@ -1090,12 +1094,23 @@ def mint_and_announce(host: str, port: int, *, path: str = "/") -> str:
 
     if not path.startswith("/"):
         path = f"/{path}"
-    authority = f"[{host}]" if ":" in host and not host.startswith("[") else host
     # A minted secret is already URL-safe, so this is a no-op for one. A
     # deployment-supplied secret is not: it comes out of a ``.env`` and may
     # hold anything, and an unescaped ``&`` or ``#`` there would truncate the
     # token the browser sends back into something that authenticates nobody.
     token = urllib.parse.quote(credentials.operator_secret, safe="")
+    # A declared external origin is the address browsers actually reach this
+    # process at, and it is the one the origin gate and the cookie's ``Secure``
+    # flag are already derived from (``common_middleware``). Announcing the bind
+    # address instead would hand out a URL from which every write is refused.
+    # Imported here, not at module scope: ``common_middleware`` imports this
+    # module, so the dependency only runs in one direction at import time.
+    from osprey.interfaces.common_middleware import EXTERNAL_ORIGIN_ENV
+
+    configured = os.environ.get(EXTERNAL_ORIGIN_ENV, "").strip()
+    if configured:
+        return f"{configured.rstrip('/')}{path}?token={token}"
+    authority = f"[{host}]" if ":" in host and not host.startswith("[") else host
     return f"http://{authority}:{port}{path}?token={token}"
 
 
