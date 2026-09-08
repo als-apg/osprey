@@ -294,6 +294,9 @@ class ServiceDef:
       :data:`DEFAULT_NETWORK_MODE`; read through :meth:`network_mode`.
     - ``env:`` — host environment variable NAMES the service passes through to
       its container, defaulting to none; read through :meth:`env_names`.
+    - ``http:`` — whether the service answers HTTP on the port it publishes, so
+      the deploy summary shows its address as a link; defaults to
+      :data:`DEFAULT_SPEAKS_HTTP`, read through :meth:`speaks_http`.
     """
 
     template: str  # Path to template dir (relative to profile dir)
@@ -339,6 +342,56 @@ class ServiceDef:
         if not isinstance(names, list):
             return []
         return [name for name in names if isinstance(name, str)]
+
+    def speaks_http(self) -> bool:
+        """Whether the service answers HTTP on the port it publishes.
+
+        The framework's own services are recognised by name; a facility's are
+        not, and nothing about a service definition says what protocol sits
+        behind its port. This is the service telling the deploy summary, so its
+        address is printed as a link an operator can open rather than as a bare
+        ``host:port``.
+
+        Returns:
+            The declared value, or :data:`DEFAULT_SPEAKS_HTTP` when the service
+            declares none. A non-boolean means the profile never passed
+            :meth:`BuildProfile.validate`; it reads as the default rather than
+            being coerced, since the wrong direction hands out a dead link.
+        """
+        if not isinstance(self.config, dict):
+            return DEFAULT_SPEAKS_HTTP
+        declared = self.config.get("http", DEFAULT_SPEAKS_HTTP)
+        return declared if isinstance(declared, bool) else DEFAULT_SPEAKS_HTTP
+
+
+DEFAULT_SPEAKS_HTTP = False
+"""Whether a declared service is fronted by HTTP when it says nothing.
+
+False, because that is the safe direction: a binary-protocol service shown as a
+bare address is merely terse, while one shown as ``http://…`` hands an operator
+a link that cannot open."""
+
+
+def http_errors(value: Any, key: str) -> list[str]:
+    """Return the problems with one ``http:`` declaration (empty when valid).
+
+    The twin of :func:`network_mode_errors`, and accumulating for the same
+    reason: :meth:`BuildProfile.validate` reports every axis problem at once.
+
+    Args:
+        value: The declared value, exactly as it came out of the YAML.
+        key: Dotted path of the declaration (e.g.
+            ``"services.facility-mcp.http"``), used verbatim in the message.
+
+    Returns:
+        Human-readable error messages; empty when *value* is a boolean.
+    """
+    if isinstance(value, bool):
+        return []
+    return [
+        f"{key} must be true or false — whether this service answers HTTP on the "
+        f"port it publishes (got {value!r})"
+    ]
 
 
 @dataclass

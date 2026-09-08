@@ -61,6 +61,7 @@ from .build_profile_schema import (
     ServiceDef,
     VAConfig,
     env_names_errors,
+    http_errors,
     network_mode_errors,
 )
 from .build_profile_va_faults import (
@@ -679,6 +680,24 @@ class BuildProfile:
             else:
                 errors.extend(network_mode_errors(value, key))
 
+        return errors
+
+    def _validate_http_axis(self) -> list[str]:
+        """Return validation errors for every ``http:`` declaration.
+
+        Same two authoring surfaces as the network axis, and the same
+        as-authored timing. Unlike ``network:`` there is no dispatch-pair rule:
+        the pair's halves are framework services the summary already recognises
+        by name, so a declaration on one is merely redundant rather than
+        something the build would overwrite.
+
+        Returns:
+            Human-readable error messages; empty when every declaration is a
+            boolean.
+        """
+        errors: list[str] = []
+        for _name, value, key in self._service_axis_declarations("http"):
+            errors.extend(http_errors(value, key))
         return errors
 
     def _validate_env_axis(self) -> list[str]:
@@ -1414,6 +1433,7 @@ class BuildProfile:
         errors.extend(self._validate_service_key_shapes())
         errors.extend(self._validate_network_axis())
         errors.extend(self._validate_env_axis())
+        errors.extend(self._validate_http_axis())
 
         # Validate lifecycle steps
         for phase_name in ("pre_build", "post_build", "validate"):
