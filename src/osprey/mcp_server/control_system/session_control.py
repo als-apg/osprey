@@ -23,8 +23,11 @@ publishes ``last_switch{status: applying}`` into this server's own report
 first, so that no other session's launch is admitted into the window where this
 process is between two targets. The move itself is
 :meth:`~osprey.mcp_server.control_system.connector_host_manager.ConnectorHostManager.reconcile`,
-which adopts silently when no child is running (nothing is bound, so nothing
-can be bound wrongly, and the first launch comes up on the adopted values) and
+which adopts silently when no child is running *on the first pass only*
+(nothing is bound, so nothing can be bound wrongly, and the first launch comes
+up on the adopted values), launches the child on the record's values when a
+childless server sees the record move on a later pass (that move is an
+operator's gesture, and a silent adoption would answer it with nothing), and
 otherwise adopts the generation against the running child or spawns the new
 target. It publishes its own ``applied`` terminus, which is what releases the
 ``applying`` block written here; a failed swap files ``failed`` at the

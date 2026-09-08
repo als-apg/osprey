@@ -51,13 +51,19 @@ of them could not tell which it had been promised.
 Reconciling to the record
 -------------------------
 :meth:`ConnectorHostManager.reconcile` is the one entry point the reconcile
-loop uses, and it has three answers:
+loop uses, and it has four answers:
 
-* **No live child** — the target and the generation are adopted in memory and
-  nothing is published. There is no child whose binding could be wrong, and the
-  first launch (:meth:`ConnectorHostManager.ensure_started`) then comes up on
-  the adopted values and reports *them*, so a fresh server joining a deployment
-  already on generation 7 reports 7 rather than minting a 0 nobody asked for.
+* **No live child, not asked to launch** — the target and the generation are
+  adopted in memory and nothing is published. There is no child whose binding
+  could be wrong, and the first launch
+  (:meth:`ConnectorHostManager.ensure_started`) then comes up on the adopted
+  values and reports *them*, so a fresh server joining a deployment already on
+  generation 7 reports 7 rather than minting a 0 nobody asked for.
+* **No live child, asked to launch** — the first child comes up on the record's
+  target with the record's generation assigned, published like any swap. The
+  caller asks for this when the record moved *under* a running server: an
+  operator made that move and is watching for the fleet to arrive, and a
+  server that adopted silently would have nothing to report.
 * **Same target** — the generation is adopted and republished against the child
   already serving it. Nothing is spawned and nothing is retired: a change of
   generation on the target this server is already on is a change of what

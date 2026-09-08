@@ -409,13 +409,17 @@ def _publish_report(
 
     ``applied_generation`` is what makes a report interesting: a row still on
     the generation before the record's is a server that has not caught up, and
-    that lag is the whole of what keeps the chip in ``switching…``.
+    that lag is the whole of what keeps the chip in ``switching…``. The row
+    publishes a connector-host child for the same reason — the chip's wait is
+    scoped to servers holding a connector, and a report bound at a generation
+    with nothing serving would be passed over instead of waited on.
     """
     return write_server_report(
         root,
         os.getpid() if server_pid is None else server_pid,
         applied_target=applied_target,
         applied_generation=applied_generation,
+        children=[4242],
         last_switch=last_switch,
         reachability=_reachability_sweep(),
     )

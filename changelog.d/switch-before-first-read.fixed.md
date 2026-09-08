@@ -3,4 +3,6 @@ read no longer sits on `switching…` for 30 s and then reports
 `request_expired`. A controls server that has not launched its connector yet
 now brings it up on the new target when the record moves, so the switch is
 reported like any other instead of waiting on a server that could never
-answer.
+answer. The header chip also stops waiting on servers that hold no connector
+at all, so a switch settles the moment every server actually serving has
+arrived — regardless of how the childless state arose.
