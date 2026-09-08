@@ -193,6 +193,24 @@ class TestBaseMigration:
         migration = TextEmbeddingMigration(models=models)
         assert migration._get_models() == models
 
+    def test_text_embedding_index_lists_defaults(self) -> None:
+        """With no key the migration keeps the number it has always written."""
+        from osprey.services.ariel_search.enhancement.text_embedding.migration import (
+            DEFAULT_INDEX_LISTS,
+        )
+
+        assert TextEmbeddingMigration()._index_lists == DEFAULT_INDEX_LISTS
+
+    def test_text_embedding_index_lists_is_read(self) -> None:
+        """A facility sizes the IVFFlat index for the corpus it expects."""
+        assert TextEmbeddingMigration(index_lists=40)._index_lists == 40
+
+    @pytest.mark.parametrize("bad", [0, -1, True, "224", 2.5])
+    def test_text_embedding_index_lists_refuses_a_non_positive_int(self, bad) -> None:
+        """Refused where the operator can still see the line, naming the key."""
+        with pytest.raises(ValueError, match="index_lists"):
+            TextEmbeddingMigration(index_lists=bad)
+
 
 class TestMigrationTopologicalSort:
     """Tests for migration topological sorting (no database required)."""
@@ -512,6 +530,41 @@ class TestMigrationRunnerLogic:
 
         text_emb = next(m for m in migrations if m.name == "text_embedding")
         assert text_emb._get_models() == [("mxbai-embed-large", 1024)]
+
+    def test_get_enabled_migrations_defaults_the_index_lists(self) -> None:
+        """An unstated `index_lists` leaves the migration's own default in force."""
+        from osprey.services.ariel_search.database.migrations import MigrationRunner
+        from osprey.services.ariel_search.enhancement.text_embedding.migration import (
+            DEFAULT_INDEX_LISTS,
+        )
+
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost:5432/test"},
+                "enhancement_modules": {"text_embedding": {"enabled": True}},
+            }
+        )
+
+        runner = MigrationRunner(pool=None, config=config)  # type: ignore[arg-type]
+        text_emb = next(m for m in runner._get_enabled_migrations() if m.name == "text_embedding")
+
+        assert text_emb._index_lists == DEFAULT_INDEX_LISTS
+
+    def test_get_enabled_migrations_passes_the_configured_index_lists(self) -> None:
+        """A facility sizing the index for its own corpus reaches the CREATE INDEX."""
+        from osprey.services.ariel_search.database.migrations import MigrationRunner
+
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost:5432/test"},
+                "enhancement_modules": {"text_embedding": {"enabled": True, "index_lists": 40}},
+            }
+        )
+
+        runner = MigrationRunner(pool=None, config=config)  # type: ignore[arg-type]
+        text_emb = next(m for m in runner._get_enabled_migrations() if m.name == "text_embedding")
+
+        assert text_emb._index_lists == 40
 
 
 class TestRepositoryInitialization:

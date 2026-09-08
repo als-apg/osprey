@@ -16,6 +16,14 @@ if TYPE_CHECKING:
     from psycopg import AsyncConnection
 
 
+#: Used when ``ariel.enhancement_modules.text_embedding.index_lists`` is unset.
+#: The IVFFlat rule of thumb is rows/1000 for corpora up to a million entries;
+#: this suits a few hundred thousand entries and is a workable index for far
+#: fewer. It cannot be derived at migration time — ``osprey ariel migrate``
+#: runs against an empty table.
+DEFAULT_INDEX_LISTS = 224
+
+
 class TextEmbeddingMigration(BaseMigration):
     """Text embedding enhancement migration.
 
@@ -25,15 +33,33 @@ class TextEmbeddingMigration(BaseMigration):
     - IVFFlat vector indexes
     """
 
-    def __init__(self, models: list[tuple[str, int]] | None = None) -> None:
+    def __init__(
+        self,
+        models: list[tuple[str, int]] | None = None,
+        index_lists: int | None = None,
+    ) -> None:
         """Initialize the migration.
 
         Args:
             models: List of (model_name, dimension) tuples to create tables for.
                    If None, uses a default for testing.
+            index_lists: IVFFlat ``lists`` for the vector index, from
+                ``ariel.enhancement_modules.text_embedding.index_lists``. None
+                uses :data:`DEFAULT_INDEX_LISTS`.
+
+        Raises:
+            ValueError: If ``index_lists`` is not a positive integer.
         """
         super().__init__()
         self._models = models
+        if index_lists is not None and (
+            not isinstance(index_lists, int) or isinstance(index_lists, bool) or index_lists < 1
+        ):
+            raise ValueError(
+                "ariel.enhancement_modules.text_embedding.index_lists must be an "
+                f"integer >= 1 (got {index_lists!r})"
+            )
+        self._index_lists = DEFAULT_INDEX_LISTS if index_lists is None else index_lists
 
     @property
     def name(self) -> str:
@@ -96,12 +122,14 @@ class TextEmbeddingMigration(BaseMigration):
             )
 
             index_name = f"idx_{table_name}_vector"
+            # `lists` is baked into the index at creation, so changing the key
+            # later needs the index dropped and recreated — it is not re-read.
             await conn.execute(
                 f"""
                 CREATE INDEX IF NOT EXISTS {index_name}
                 ON {table_name}
                 USING ivfflat (embedding vector_cosine_ops)
-                WITH (lists = 224)
+                WITH (lists = {self._index_lists})
                 """  # noqa: S608
             )
 

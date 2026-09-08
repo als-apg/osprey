@@ -141,9 +141,16 @@ The built-in enhancement modules:
              text_embedding:
                enabled: true
                provider: ollama
+               index_lists: 224
                models:
                  - name: nomic-embed-text
                    dimension: 768
+
+      ``index_lists`` (default 224) sizes the pgvector IVFFlat index. The rule of
+      thumb is roughly one list per 1000 entries, up to about a million entries.
+      It cannot be worked out for you --- ``osprey ariel migrate`` creates the
+      index before a single entry is embedded --- and the value is baked in at
+      creation, so changing it later means dropping the index and recreating it.
 
       **Requirements:** Ollama (or another embedding provider) running with the specified model.
 
