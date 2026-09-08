@@ -723,8 +723,8 @@ def _default_opus_model(repo: Path) -> str:
     """
     spec = _resolve_project_spec(render_dir(repo))
     if spec is not None:
-        return spec.tier_to_model.get("opus", "claude-opus-4-7")
-    return "claude-opus-4-7"
+        return spec.tier_to_model.get("opus", "claude-opus-5")
+    return "claude-opus-5"
 
 
 def find_png_files(root: Path) -> list[Path]:

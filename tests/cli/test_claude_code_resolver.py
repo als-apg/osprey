@@ -94,8 +94,8 @@ class TestCBORGProvider:
     def test_model_tiers(self):
         spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
         assert spec.tier_to_model["haiku"] == "claude-haiku-4-5"
-        assert spec.tier_to_model["sonnet"] == "claude-sonnet-4-6"
-        assert spec.tier_to_model["opus"] == "claude-opus-4-7"
+        assert spec.tier_to_model["sonnet"] == "claude-sonnet-5"
+        assert spec.tier_to_model["opus"] == "claude-opus-5"
 
 
 class TestAlsApgProvider:
@@ -337,11 +337,11 @@ class TestAgentModel:
         spec = ClaudeCodeModelResolver.resolve(
             {"provider": "cborg", "agent_models": {"channel-finder": "sonnet"}}
         )
-        assert spec.agent_model("channel-finder") == "claude-sonnet-4-6"
+        assert spec.agent_model("channel-finder") == "claude-sonnet-5"
 
     def test_unknown_agent_returns_sonnet(self):
         spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
-        assert spec.agent_model("unknown-agent") == "claude-sonnet-4-6"
+        assert spec.agent_model("unknown-agent") == "claude-sonnet-5"
 
     def test_logbook_deep_research_default_opus(self):
         spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
@@ -512,8 +512,8 @@ class TestEnvBlockTierModels:
     def test_cborg_has_all_tier_model_vars(self):
         spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
         assert spec.env_block["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == "claude-haiku-4-5"
-        assert spec.env_block["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "claude-sonnet-4-6"
-        assert spec.env_block["ANTHROPIC_DEFAULT_OPUS_MODEL"] == "claude-opus-4-7"
+        assert spec.env_block["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "claude-sonnet-5"
+        assert spec.env_block["ANTHROPIC_DEFAULT_OPUS_MODEL"] == "claude-opus-5"
 
     def test_custom_tier_override_propagates_to_env_block(self):
         spec = ClaudeCodeModelResolver.resolve(
@@ -522,7 +522,7 @@ class TestEnvBlockTierModels:
         assert spec.env_block["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "anthropic/claude-sonnet-v2"
         # Others unchanged
         assert spec.env_block["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == "claude-haiku-4-5"
-        assert spec.env_block["ANTHROPIC_DEFAULT_OPUS_MODEL"] == "claude-opus-4-7"
+        assert spec.env_block["ANTHROPIC_DEFAULT_OPUS_MODEL"] == "claude-opus-5"
 
     def test_all_three_vars_always_present(self):
         for provider_name in CLAUDE_CODE_PROVIDERS:

@@ -24,12 +24,13 @@ class CBorgProviderAdapter(LiteLLMDelegatingProvider):
     default_model_id = "anthropic/claude-haiku"  # Claude Haiku via CBORG for general use
     health_check_model_id = "anthropic/claude-haiku"  # Fast and cost-effective for health checks
     available_models = [
+        "anthropic/claude-opus",
         "anthropic/claude-sonnet",
         "anthropic/claude-haiku",
-        "google/gemini-flash",
-        "google/gemini-pro",
-        "openai/gpt-4o",
-        "openai/gpt-4o-mini",
+        "gemini-pro",
+        "gemini-flash",
+        "gpt-4o",
+        "gpt-4o-mini",
     ]
 
     # API key acquisition information

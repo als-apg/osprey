@@ -54,9 +54,9 @@ class TestBranchTwoExplicitModelId:
 
     def test_builtin_provider_model_id_passes_through(self):
         spec = ClaudeCodeModelResolver.resolve(
-            {"provider": "cborg", "default_model": "claude-opus-4-7"}
+            {"provider": "cborg", "default_model": "claude-opus-5"}
         )
-        assert spec.env_block["ANTHROPIC_MODEL"] == "claude-opus-4-7"
+        assert spec.env_block["ANTHROPIC_MODEL"] == "claude-opus-5"
 
     def test_model_id_from_api_providers_map_is_accepted(self):
         spec = ClaudeCodeModelResolver.resolve(
@@ -82,10 +82,10 @@ class TestBranchTwoExplicitModelId:
         ``channel_finder/benchmarks/sdk.py`` both do exactly this lookup.
         """
         spec = ClaudeCodeModelResolver.resolve(
-            {"provider": "cborg", "default_model": "claude-opus-4-7"}
+            {"provider": "cborg", "default_model": "claude-opus-5"}
         )
         assert spec.default_model_tier == "opus"
-        assert spec.tier_to_model[spec.default_model_tier] == "claude-opus-4-7"
+        assert spec.tier_to_model[spec.default_model_tier] == "claude-opus-5"
 
 
 class TestBranchFourFreeFormPassThrough:
@@ -125,7 +125,7 @@ class TestBranchFourFreeFormPassThrough:
         for cc_config in (
             {"provider": "cborg"},
             {"provider": "cborg", "default_model": "sonnet"},
-            {"provider": "cborg", "default_model": "claude-opus-4-7"},
+            {"provider": "cborg", "default_model": "claude-opus-5"},
         ):
             spec = ClaudeCodeModelResolver.resolve(cc_config)
             assert spec.default_model_id is None, cc_config
