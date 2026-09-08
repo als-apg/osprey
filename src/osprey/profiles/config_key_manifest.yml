@@ -1236,7 +1236,7 @@ keys:
   execution.environment.inherit_exclude: {forward-declared: true, default: no-fallback, default_note: "the build derives it from the deployment's Python environment; no runtime reader"}
   python_executor:
     rendered: false
-    evidence: 'config\.get\("python_executor", \{\}\)\.get\("execution_timeout_seconds", 600\)'
+    evidence: 'config\.get\("python_executor", \{\}\)\.get\(\s*"execution_timeout_seconds", DEFAULT_EXECUTION_TIMEOUT_SECONDS'
     note: >-
       The sandbox's own block. One key today, carried commented in all four
       presets — the ceiling is a facility property (how long a legitimate

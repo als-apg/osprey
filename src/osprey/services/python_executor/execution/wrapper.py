@@ -1799,7 +1799,7 @@ if not _execution_dir.exists():
             """
             # Execution metadata
             execution_metadata = {
-                "start_time": _datetime.now().isoformat(),
+                "start_time": _datetime.now().astimezone().isoformat(),
                 "success": True,
                 "error": None,
                 "traceback": None,
@@ -1863,14 +1863,14 @@ if not _execution_dir.exists():
         # Mark successful execution
         execution_metadata["success"] = True
         execution_metadata["error_type"] = None
-        execution_metadata["end_time"] = _datetime.now().isoformat()
+        execution_metadata["end_time"] = _datetime.now().astimezone().isoformat()
 
     except Exception as user_code_error:
         # Capture user code errors
         execution_metadata["success"] = False
         execution_metadata["error_type"] = type(user_code_error).__name__
         execution_metadata["error_message"] = str(user_code_error)
-        execution_metadata["end_time"] = _datetime.now().isoformat()
+        execution_metadata["end_time"] = _datetime.now().astimezone().isoformat()
         raise
 """
 
@@ -1924,7 +1924,7 @@ if not _execution_dir.exists():
 
                 execution_metadata["stdout"] = stdout_capture.getvalue()
                 execution_metadata["stderr"] = stderr_capture.getvalue()
-                execution_metadata["end_time"] = _datetime.now().isoformat()
+                execution_metadata["end_time"] = _datetime.now().astimezone().isoformat()
 
                 # Switch to execution directory for file persistence (results,
                 # figures, metadata).  User code ran with cwd=project_root;
