@@ -50,6 +50,7 @@ from osprey.services.auth_sidecar.app import (
     ENV_STATE_SECRET,
     ENV_TLS_ENABLED,
     ENV_USERS,
+    ENV_WEB_APP_NAME,
 )
 from osprey.utils.workspace import agent_data_base_dir
 
@@ -3332,6 +3333,10 @@ def test_auth_sidecar_service_environment_is_exactly_the_non_secret_settings() -
     # Assert
     assert _env_names(auth) == [
         "TZ",
+        # What the login page wears. Non-secret and deployment-wide: the theme
+        # id (absent here, since this config names none) and the facility name
+        # the terminals behind the sidecar already carry.
+        ENV_WEB_APP_NAME,
         # The sidecar's audit identity and the directory it writes its login and
         # denial events to. Neither is a secret: one is the fixed name
         # `sidecar`, the other a container path.
