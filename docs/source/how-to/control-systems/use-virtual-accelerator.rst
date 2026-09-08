@@ -259,6 +259,33 @@ boundary. The project's ``virtual_accelerator`` connector block is configured to
 match and sets ``EPICS_CA_NAME_SERVERS`` itself, so no client-side EPICS
 environment setup is needed.
 
+What the IOC serves, and how often
+==================================
+
+Two numbers about the served values are set in the deployment's ``.env`` rather
+than fixed in the image, because both are properties of the machine you are
+standing in for rather than of OSPREY:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Variable
+     - What it does
+   * - ``VA_POLL_INTERVAL_S``
+     - Seconds between telemetry ticks --- how often the IOC republishes the
+       values it reads out of the simulation engine. Default ``1.0``. Lower it
+       for a demo that should look live; raise it on a very large namespace.
+   * - ``VA_NOISE_LEVEL``
+     - Fractional noise on the synthesised channel values, default ``0.01``.
+       ``0`` serves them flat, which is what a test that compares readings
+       wants.
+
+Both are refused at boot if they are not a number, or out of range, rather than
+being clamped --- so a typo shows up in ``docker logs`` instead of quietly
+changing what the machine looks like. Leave either empty and the default
+applies.
+
 Running from a source checkout
 ==============================
 
