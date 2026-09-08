@@ -1692,6 +1692,18 @@ keys:
       startup and from the artifact gallery's app factory; a malformed leaf is
       skipped with a warning rather than failing the launch.
     default: {}
+  artifact_server.max_timeseries_file_mb:
+    rendered: false
+    evidence: 'get_config_value\(\s*"artifact_server\.max_timeseries_file_mb"'
+    note: >-
+      Largest timeseries data file the gallery renders as a chart or a table,
+      in megabytes. Commented in all four presets, because the number that
+      fits is a property of the host serving the gallery and of the exports a
+      facility's archiver produces. The handler loads the whole file to build
+      the view, so raising it costs that much resident memory; over the cap the
+      two parsed formats refuse with a 413 and the raw download is unaffected.
+      A value that is not a positive integer is logged and the default kept.
+    default: 200
   artifact_server.example_artifact:
     evidence: 'get_config_value\("artifact_server\.example_artifact"'
 

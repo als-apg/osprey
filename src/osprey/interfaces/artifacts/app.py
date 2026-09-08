@@ -426,7 +426,45 @@ class _SSEBroadcaster:
                     pass  # Drop if client is too slow
 
 
-MAX_TIMESERIES_FILE_BYTES = 200 * 1024 * 1024  # 200 MB
+#: Used when ``artifact_server.max_timeseries_file_mb`` is unset.
+DEFAULT_MAX_TIMESERIES_FILE_MB = 200
+
+
+def _max_timeseries_file_bytes() -> int:
+    """Largest timeseries file the chart/table views will render, in bytes.
+
+    The handler reads the WHOLE file into memory to build a chart or a table,
+    so this bound is about the gallery host's memory rather than about the
+    data: raising it lets a bigger run be plotted in the browser and costs that
+    much resident memory on the machine serving the gallery. A facility whose
+    archiver exports run larger than the default says so with
+    ``artifact_server.max_timeseries_file_mb``; the file itself is always
+    downloadable whatever this says.
+
+    Read on every call — never cached at import — so a test and a re-primed
+    process see the value their config declares.
+    """
+    megabytes = DEFAULT_MAX_TIMESERIES_FILE_MB
+    try:
+        from osprey.utils.config import get_config_value
+
+        configured = get_config_value(
+            "artifact_server.max_timeseries_file_mb", DEFAULT_MAX_TIMESERIES_FILE_MB
+        )
+    except Exception:
+        logger.debug(
+            "No config available for artifact_server.max_timeseries_file_mb", exc_info=True
+        )
+        configured = None
+    if isinstance(configured, int) and not isinstance(configured, bool) and configured > 0:
+        megabytes = configured
+    elif configured is not None and configured != DEFAULT_MAX_TIMESERIES_FILE_MB:
+        logger.warning(
+            "artifact_server.max_timeseries_file_mb must be an integer >= 1 (got %r); using %d MB",
+            configured,
+            DEFAULT_MAX_TIMESERIES_FILE_MB,
+        )
+    return megabytes * 1024 * 1024
 
 
 def _union_timestamp_axis(series: dict[str, dict]) -> Collection:
@@ -804,7 +842,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             )
 
         file_size = filepath.stat().st_size
-        if file_size > MAX_TIMESERIES_FILE_BYTES:
+        if file_size > _max_timeseries_file_bytes():
             raise HTTPException(
                 status_code=413,
                 detail=(
