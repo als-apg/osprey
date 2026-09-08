@@ -202,12 +202,16 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "phoebus_open_panel",
             "phoebus_open_databrowser",
         ],
-        # Driving a live panel actuates hardware-facing controls — gate on approval.
+        # Driving a live panel actuates hardware-facing controls — a widget
+        # write is a control-system write, so it carries the writes kill
+        # switch ahead of the approval gate, like every other write path.
+        # The panel itself carries no target binding, so the check is keyed
+        # the same way channel_write's is: the control-context record.
         permissions_ask=["phoebus_drive"],
         hooks_pre=[
             HookRule(
                 matcher="mcp__phoebus__phoebus_drive",
-                hooks=[_APPROVAL],
+                hooks=[_WRITES_CHECK, _APPROVAL],
             ),
         ],
         hooks_post=[_post_error("mcp__phoebus__.*")],

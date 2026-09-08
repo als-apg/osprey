@@ -28,6 +28,7 @@ _FALLBACK_WRITE_TOOLS = [
     "mcp__bluesky__queue_add",
     "mcp__bluesky__queue_start",
     "mcp__controls__channel_write",
+    "mcp__phoebus__phoebus_drive",
     "mcp__python__execute",
     "mcp__python__execute_file",
 ]
