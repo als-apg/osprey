@@ -272,6 +272,39 @@ def _build_harness_image(tmp_path: Path) -> str:
     return tag
 
 
+#: Registry pulls are retried this many times before the stack gives up. The
+#: image is public and small; what fails here is the registry, not the image.
+_PULL_ATTEMPTS = 3
+_PULL_BACKOFF_S = 5.0
+
+
+def _ensure_image(reference: str) -> None:
+    """Have *reference* present locally before a ``docker run`` depends on it.
+
+    ``docker run`` pulls a missing image implicitly, and a registry error in
+    that pull surfaces as the container failing to start — indistinguishable,
+    from the assertion's side, from the rendered config it was about to test.
+    Pulling up front with a bounded retry keeps a registry hiccup from being
+    reported as a failure of the perimeter.
+    """
+    present = subprocess.run(["docker", "image", "inspect", reference], capture_output=True)
+    if present.returncode == 0:
+        return
+    pulled = None
+    for attempt in range(1, _PULL_ATTEMPTS + 1):
+        pulled = subprocess.run(
+            ["docker", "pull", reference], capture_output=True, text=True, timeout=600
+        )
+        if pulled.returncode == 0:
+            return
+        if attempt < _PULL_ATTEMPTS:
+            time.sleep(_PULL_BACKOFF_S * attempt)
+    assert pulled is not None
+    raise AssertionError(
+        f"could not pull {reference} after {_PULL_ATTEMPTS} attempts:\n{pulled.stderr}"
+    )
+
+
 TERMINAL_STAND_IN_MARKER = "osprey-terminal-stand-in"
 """Element id the stub serves at the app root, for a browser to look for.
 
@@ -852,6 +885,7 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
         # user's operator secret, and this container is the real one.
         assert nginx_tmpfs, "the rendered nginx service declares no envsubst tmpfs"
 
+        _ensure_image(nginx_service["image"])
         nginx_started = subprocess.run(
             [
                 "docker",
