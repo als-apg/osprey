@@ -1338,7 +1338,7 @@ class EPICSConnector(ControlSystemConnector):
         Returns:
             True if channel can be accessed
         """
-        timeout = 2.0
+        timeout = self._timeout
         try:
             if self._is_pva_channel(channel_address):
                 await asyncio.to_thread(self._read_metadata_pva, channel_address, timeout)
