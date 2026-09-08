@@ -368,12 +368,13 @@ class TestGetMetadataOverPva:
 
 class TestValidateChannelOverPva:
     @pytest.mark.asyncio
-    async def test_reachable_channel_validates_true_with_a_short_timeout(self):
+    async def test_reachable_channel_validates_true_with_the_configured_timeout(self):
+        """The probe is bounded by the connector's own ``timeout``, not a literal."""
         context = FakeContext(reply=_metadata_value())
         connector = _pva_connector(context=context)
 
         assert await connector.validate_channel(PVA_ADDRESS) is True
-        assert context.gets == [{"name": PVA_ADDRESS, "request": METADATA_REQUEST, "timeout": 2.0}]
+        assert context.gets == [{"name": PVA_ADDRESS, "request": METADATA_REQUEST, "timeout": 3.0}]
 
     @pytest.mark.asyncio
     async def test_timeout_validates_false(self):
