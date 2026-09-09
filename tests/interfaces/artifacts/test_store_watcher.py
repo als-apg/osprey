@@ -16,6 +16,7 @@ import pytest
 
 from osprey.interfaces.artifacts.store_watcher import StoreIndexWatcher
 from osprey.stores.artifact_store import ArtifactStore
+from tests.interfaces.fsevents_wait import poke_until
 
 
 def _make_watcher(tmp_path):
@@ -31,39 +32,55 @@ def _make_watcher(tmp_path):
     return watcher, broadcaster, artifact_store
 
 
-def _wait_for_broadcast(broadcaster, expected_calls=1, timeout=10.0):
-    """Wait until the broadcaster has been called at least expected_calls times.
+def _wait_for_broadcast(broadcaster, external_store, expected_calls=1, *, what):
+    """Wait until the broadcaster has been called at least *expected_calls* times.
 
-    The timeout is generous (10s) because this polls for a filesystem watcher to
-    fire — debounce + OS event latency varies widely on loaded CI runners, and
-    the loop returns the instant the broadcast arrives, so a high ceiling adds
-    headroom for slow runners without slowing the happy path.
+    Not a longer timeout. The observer's stream can still be arming when the
+    external write lands, and a change made inside that window is delivered late
+    or not at all — no ceiling recovers an event the stream never saw. So this
+    re-applies the stimulus by calling ``_save_index()`` on the store that made
+    it: the same tempfile-plus-``os.replace`` the real save and delete go
+    through, writing the identical index the test already produced.
+
+    The write path matters more than the file does. An atomic replace is
+    delivered by Linux inotify as ``on_moved`` and nothing else — that is why
+    ``StoreIndexWatcher`` overrides ``on_moved`` and routes on ``dest_path``.
+    Poking with a plain in-place rewrite would substitute an ``on_modified``,
+    and a regression in the ``on_moved`` route would then be answered by the
+    poke's own event class and pass on CI. Going back through the store keeps
+    the poke indistinguishable from the stimulus under test.
+
+    The handler answers each replace by re-reading the index and diffing against
+    the ids it snapshotted at ``start()``, so a re-save re-delivers exactly the
+    addition or removal the test made — the poke carries no state of its own.
+
+    Args:
+        broadcaster: The ``MagicMock`` standing in for the SSE broadcaster.
+        external_store: The store whose write produced the change under test.
+        expected_calls: Broadcasts to wait for.
+        what: Named in the failure message.
     """
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if broadcaster.broadcast.call_count >= expected_calls:
-            return True
-        time.sleep(0.05)
-    return broadcaster.broadcast.call_count >= expected_calls
+    poke_until(
+        lambda: broadcaster.broadcast.call_count >= expected_calls,
+        external_store._save_index,
+        what=what,
+    )
 
 
 @pytest.mark.unit
 class TestStoreWatcher:
     """Tests for StoreIndexWatcher."""
 
-    # Filesystem-watcher tests depend on the OS delivering an inotify/FSEvents
-    # change event after observer startup. On loaded CI runners that event is
-    # occasionally missed entirely (not merely late — the poll wait below is
-    # already condition-based with a 10s ceiling), so re-run to re-initialize
-    # the observer rather than flake the whole suite.
-    @pytest.mark.flaky(reruns=2, reruns_delay=1)
+    # No ``flaky`` marker any more. These two used to carry ``reruns=2`` because
+    # the OS occasionally missed the change event entirely, and a rerun was the
+    # only way to get a freshly armed observer. ``_wait_for_broadcast`` now
+    # re-applies the stimulus instead, which arms in-test and converges without
+    # a second attempt — so a red here is a real regression again, not weather.
     def test_detects_new_artifact_entry(self, tmp_path):
         """External write to artifacts.json triggers SSE broadcast."""
         watcher, broadcaster, artifact_store = _make_watcher(tmp_path)
         watcher.start()
         try:
-            time.sleep(0.3)
-
             # Simulate external process saving an artifact
             external_store = ArtifactStore(workspace_root=tmp_path)
             external_store.save_file(
@@ -76,16 +93,17 @@ class TestStoreWatcher:
                 tool_source="test",
             )
 
-            assert _wait_for_broadcast(broadcaster, 1)
+            _wait_for_broadcast(
+                broadcaster,
+                external_store,
+                what="the broadcast for an externally saved artifact",
+            )
             call_data = broadcaster.broadcast.call_args_list[0][0][0]
             assert call_data["type"] == "artifact"
             assert call_data["title"] == "External Plot"
         finally:
             watcher.stop()
 
-    @pytest.mark.flaky(
-        reruns=2, reruns_delay=1
-    )  # same inotify-miss risk as test_detects_new_artifact_entry
     def test_detects_deleted_entry(self, tmp_path):
         """Removing an entry from the index externally triggers delete broadcast."""
         # Pre-populate with an artifact
@@ -103,13 +121,15 @@ class TestStoreWatcher:
         watcher, broadcaster, artifact_store = _make_watcher(tmp_path)
         watcher.start()
         try:
-            time.sleep(0.3)
-
             # Simulate external process deleting the entry
             external_store = ArtifactStore(workspace_root=tmp_path)
             external_store.delete_entry(entry.id)
 
-            assert _wait_for_broadcast(broadcaster, 1)
+            _wait_for_broadcast(
+                broadcaster,
+                external_store,
+                what="the broadcast for an externally deleted artifact",
+            )
             call_data = broadcaster.broadcast.call_args_list[0][0][0]
             assert call_data["type"] == "artifact_deleted"
             assert call_data["id"] == entry.id

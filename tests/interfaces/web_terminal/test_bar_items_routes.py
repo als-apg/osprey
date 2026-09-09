@@ -37,7 +37,6 @@ import inspect
 import json
 import os
 import re
-import time
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
@@ -56,8 +55,29 @@ from osprey.interfaces.web_terminal.app import (
 from osprey.interfaces.web_terminal.bar_items_store import LAYOUT_FILENAME
 from osprey.interfaces.web_terminal.routes import bar_items as bar_items_routes
 from osprey.interfaces.web_terminal.routes.bar_items import MAX_REQUEST_BYTES
+from tests.interfaces.fsevents_wait import collect_paths
 
 # ── fixtures ───────────────────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def no_companion_servers():
+    """No companion web server is launched for any app this module boots.
+
+    The lifespan auto-launches the framework's web servers, and the artifact
+    server writes ``agent_data/artifacts`` under the shared data root as soon
+    as it starts. The concealment tests below site that root *inside* the
+    watched tree, so those writes reach the file watcher as frames under
+    ``agent_data/`` — the very prefix their absence assertions check — and a
+    test about the bar-items store then fails on a path it never wrote.
+
+    Patched on the launcher module rather than on ``app``: the lifespan
+    imports the name at call time, so that is the binding it resolves. Autouse
+    because both entry points into the app — the ``client`` fixture and
+    :func:`_app_over` — boot it the same way.
+    """
+    with patch("osprey.infrastructure.server_launcher.ensure_web_server", lambda key: None):
+        yield
 
 
 @pytest.fixture
@@ -657,30 +677,47 @@ class TestAStoredDocumentThisBuildCannotRead:
 # ── the watcher does not announce a save ───────────────────────────────────
 
 
-def _broadcast_paths(queue, *, until: str, timeout: float = 15.0) -> list[str]:
+def _broadcast_paths(queue, *, until: str, poke) -> list[str]:
     """Every path broadcast up to and shortly after *until* arrives.
 
     The control write is made **after** the save, so its frame arriving is
     proof the observer has caught up past the save — the ordering that makes an
-    assertion about the save's *absence* a real one rather than a race. A short
-    drain afterwards catches a coalesced frame delivered a beat late.
+    assertion about the save's *absence* a real one rather than a race.
+
+    *poke* rewrites the file *until* names, and it is what makes that proof
+    obtainable rather than hoped for. A watchdog observer is not delivering the
+    moment the lifespan's ``start()`` returns; a control write made while its
+    stream is still arming is delivered late or not at all, and waiting longer
+    cannot recover a stimulus the stream never saw. So the wait re-applies the
+    stimulus instead of extending — see ``tests/interfaces/fsevents_wait.py``,
+    which also owns the trailing drain that catches a coalesced frame arriving a
+    beat behind the sentinel.
+
+    Rewriting an ordinary workspace note can only add more of the frames these
+    tests require to be *present*. It cannot manufacture one they require to be
+    absent, so the assertions below keep their full strength.
     """
-    paths: list[str] = []
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            paths.append(queue.get_nowait()["path"])
-        except asyncio.QueueEmpty:
-            time.sleep(0.05)
-            continue
-        if paths[-1] == until:
-            break
-    time.sleep(0.5)
-    while True:
-        try:
-            paths.append(queue.get_nowait()["path"])
-        except asyncio.QueueEmpty:
-            return paths
+    return collect_paths(queue, until=until, poke=poke)
+
+
+def _arm(queue, workspace) -> None:
+    """Block until this queue's observer is proven to be delivering.
+
+    A poke re-applies the write it is given, and the only write these tests can
+    safely re-apply is an ordinary note — never the save, which must happen
+    exactly once. So the save's own delivery cannot be waited for; what can be
+    waited for is the observer, *before* the save is made. This writes a note
+    and does not return until its frame arrives, so every PUT below lands on a
+    live stream instead of possibly into the arming window, where nothing is
+    broadcast whether the route conceals the store or not.
+
+    That is what keeps the absence assertions from going vacuous: a save whose
+    frames were lost while arming would satisfy them for the wrong reason, and
+    no later poke can re-issue a save to find out.
+    """
+    note = workspace / "settle-note.txt"
+    note.write_text("first")
+    _broadcast_paths(queue, until="settle-note.txt", poke=lambda: note.write_text("first"))
 
 
 @pytest.mark.real_workspace_watcher
@@ -727,16 +764,22 @@ class TestALayoutSaveIsNotAFileChange:
         # modifies its parent, and that parent frame belongs to the first-save
         # test below rather than to this one.
         watched_client.put("/api/bar-items", json=document(0))
-        (watched_workspace / "settle-note.txt").write_text("first")
-        _broadcast_paths(queue, until="settle-note.txt")
+        # Doubles as the arming probe: this returns only once the observer has
+        # actually delivered, so the save below is made against a live stream.
+        _arm(queue, watched_workspace)
 
         saved = watched_client.put(
             "/api/bar-items", json=document(1, status=[{"type": "separator"}])
         )
         assert saved.status_code == 200
-        (watched_workspace / "control-note.txt").write_text("ordinary workspace content")
+        control_note = watched_workspace / "control-note.txt"
+        control_note.write_text("ordinary workspace content")
 
-        paths = _broadcast_paths(queue, until="control-note.txt")
+        paths = _broadcast_paths(
+            queue,
+            until="control-note.txt",
+            poke=lambda: control_note.write_text("ordinary workspace content"),
+        )
 
         assert "control-note.txt" in paths, "the observer is live and the tree is watched"
         # Everything *below* the agent-data root, not the root's own directory
@@ -768,11 +811,17 @@ class TestALayoutSaveIsNotAFileChange:
             ) as unconcealed:
                 assert unconcealed.app.state.bar_items_rel is None
                 queue = unconcealed.app.state.broadcaster.subscribe()
+                _arm(queue, watched_workspace)
 
                 unconcealed.put("/api/bar-items", json=document(0))
-                (watched_workspace / "control-note.txt").write_text("ordinary content")
+                control_note = watched_workspace / "control-note.txt"
+                control_note.write_text("ordinary content")
 
-                paths = _broadcast_paths(queue, until="control-note.txt")
+                paths = _broadcast_paths(
+                    queue,
+                    until="control-note.txt",
+                    poke=lambda: control_note.write_text("ordinary content"),
+                )
 
         assert [path for path in paths if path.startswith("agent_data/")] != []
 
@@ -785,11 +834,20 @@ class TestALayoutSaveIsNotAFileChange:
         must never appear is the store or the document inside it: those are
         concealed, and they are the paths that would repeat on every edit."""
         queue = watched_client.app.state.broadcaster.subscribe()
+        # Before the save, not after: the absence assertions below are the ones
+        # that would go vacuous if the save's frames were lost while the stream
+        # was still arming, and the poke can only ever re-issue the note.
+        _arm(queue, watched_workspace)
 
         watched_client.put("/api/bar-items", json=document(0, status=[{"type": "separator"}]))
-        (watched_workspace / "control-note.txt").write_text("ordinary workspace content")
+        control_note = watched_workspace / "control-note.txt"
+        control_note.write_text("ordinary workspace content")
 
-        paths = _broadcast_paths(queue, until="control-note.txt")
+        paths = _broadcast_paths(
+            queue,
+            until="control-note.txt",
+            poke=lambda: control_note.write_text("ordinary workspace content"),
+        )
 
         assert "control-note.txt" in paths
         assert [path for path in paths if path.startswith("agent_data/bar_items")] == []
