@@ -56,7 +56,10 @@ enforces it.
 
 The `[Unreleased]` section of `CHANGELOG.md` is written only by the release
 fold, which turns every fragment here into a bullet and deletes the file. Adding
-a bullet by hand fails the check. To correct an entry that is already in
-`CHANGELOG.md`, open a pull request that changes nothing but that file.
+a bullet by hand fails the check, and so does deleting a fragment before the
+fold. Changing a fragment's type is a rename, not a deletion: keep the name,
+swap the type in the filename, and the check reports it as a retype. To correct
+an entry that is already in `CHANGELOG.md`, open a pull request that changes
+nothing but that file.
 
 This README is the only permanent file in this directory.
