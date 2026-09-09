@@ -700,10 +700,10 @@ async def channel_write(
                 # down, deliberately as late as possible. That connector makes
                 # the step check itself, on the write. Refusing here for want of
                 # a reader would take max_step off this path rather than
-                # enforcing it. `validate` remains the fallback for a validator
-                # older than this entry point.
-                check = getattr(validator, "validate_without_step_check", validator.validate)
-                check(channel, value)
+                # enforcing it. The validator above is imported from the same
+                # installed osprey as this tool, so this entry point is always
+                # the one it has — no version skew is reachable here.
+                validator.validate_without_step_check(channel, value)
             except Exception as exc:
                 violation = {
                     "channel": channel,

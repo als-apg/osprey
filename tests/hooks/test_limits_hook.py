@@ -820,9 +820,11 @@ def test_osprey_unimportable_allows_the_write(tmp_path, hook_module, monkeypatch
 
 # -- Branches only reachable from inside the interpreter --
 #
-# Three of the hook's decisions cannot be driven through `hook_runner`: a render
-# without the sibling target-state reader, that reader raising, and a framework
-# older than the render it is answering. All three are exercised in-process,
+# Five of the hook's decisions cannot be driven through `hook_runner`: a render
+# without the sibling target-state reader, that reader raising, a framework
+# older than the render it is answering, and the two shapes the check itself can
+# meet — a validator carrying `validate_without_step_check` and one that only
+# has `validate`. All five are exercised in-process,
 # against a stand-in validator rather than the real one, because config loading
 # is a process-wide singleton keyed on `CONFIG_FILE` at first use — a test that
 # pointed it at its own file would either read a config an earlier test cached
@@ -848,12 +850,17 @@ STAND_IN_POSTURES = {
 }
 
 
-def _stand_in_validator_class(calls, per_target_api=True):
+def _stand_in_validator_class(calls, per_target_api=True, checks=None, step_check_api=True):
     """A `LimitsValidator` stand-in that records which entry point was asked.
 
     With *per_target_api* false it exposes only the old no-arg `from_config` and
     no `from_config_most_restrictive` — the shape a service still running an
     older `osprey` image presents to a freshly rendered hook.
+
+    With *step_check_api* false it exposes only `validate`, the shape of a
+    validator predating `validate_without_step_check`. Either way the name of
+    the method the hook actually called is appended to *checks* when one is
+    given, so a test can say which of the two the hook chose.
     """
 
     class _StandIn:
@@ -861,13 +868,25 @@ def _stand_in_validator_class(calls, per_target_api=True):
             self._allow_unlisted = allow_unlisted
             self._key = key
 
-        def validate(self, channel, value):
+        def _checked(self, entry_point, channel):
+            if checks is not None:
+                checks.append(entry_point)
             if channel in KNOWN_DB or self._allow_unlisted:
                 return
             raise ValueError(
                 f"Channel '{channel}' not in limits database "
                 f"('{self._key}' does not allow unlisted channels)"
             )
+
+        def validate(self, channel, value):
+            self._checked("validate", channel)
+
+    if step_check_api:
+
+        def validate_without_step_check(self, channel, value):
+            self._checked("validate_without_step_check", channel)
+
+        _StandIn.validate_without_step_check = validate_without_step_check
 
     def _built(entry, target):
         calls.append((entry, target))
@@ -1007,4 +1026,64 @@ def test_an_older_framework_falls_back_to_the_deployment_wide_block(
     assert calls == [("deployment_wide", None)]
     assert decision["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert DEPLOYMENT_WIDE_KEY in decision["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "Traceback" not in stderr
+
+
+@pytest.mark.unit
+def test_the_hook_leaves_the_step_check_to_the_writer(tmp_path, hook_module, monkeypatch, capsys):
+    """Against a current framework the hook asks for every check but `max_step`.
+
+    The step check needs a fresh read of the channel over the client the write
+    goes through, and this hook is not the writer — the connector makes it
+    moments later. Asking `validate` here would either read the channel over
+    some other client or fail closed for want of a reader, and failing closed
+    would take `max_step` off the mediated write path instead of enforcing it.
+    """
+    # Arrange
+    hook = hook_module("osprey_limits")
+    monkeypatch.setattr(hook, "_target_state", None)
+    calls, checks = [], []
+
+    # Act
+    code, decision, _stderr = _run_in_process(
+        hook,
+        monkeypatch,
+        capsys,
+        tmp_path,
+        _stand_in_validator_class(calls, checks=checks),
+    )
+
+    # Assert
+    assert checks == ["validate_without_step_check"]
+    assert code == 0
+    assert decision["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+@pytest.mark.unit
+def test_a_framework_without_the_step_free_check_still_gets_checked(
+    tmp_path, hook_module, monkeypatch, capsys
+):
+    """A validator predating the step-free entry point is asked the one it has.
+
+    `osprey build` renders hooks onto the host while a service keeps the image
+    it was built with, so a render can meet a framework whose validator has
+    only `validate`. Calling the newer name unguarded there would raise inside
+    the hook and exit it non-zero with no decision, which the agent runtime
+    reads as no opinion — an unlisted write reaching the machine unchecked.
+    `validate` applies the same limits and reads the channel itself for the
+    step check, which is what that framework always did.
+    """
+    # Arrange
+    hook = hook_module("osprey_limits")
+    monkeypatch.setattr(hook, "_target_state", None)
+    calls, checks = [], []
+    older = _stand_in_validator_class(calls, checks=checks, step_check_api=False)
+
+    # Act
+    code, decision, stderr = _run_in_process(hook, monkeypatch, capsys, tmp_path, older)
+
+    # Assert
+    assert checks == ["validate"]
+    assert code == 0
+    assert decision["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert "Traceback" not in stderr
