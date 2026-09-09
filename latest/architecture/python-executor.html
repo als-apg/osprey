@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 08, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 09, 2026"/>
   </head>
   
   
@@ -594,8 +594,11 @@ in <strong>every</strong> execution mode.</p></li>
 intercept is checked against the channel limits database before it
 leaves, and an out-of-range value never reaches the machine. That covers
 pyepics, aioca, pvaPy, all four p4p clients including the raw one
-underneath them, caproto’s <code class="docutils literal notranslate"><span class="pre">sync.client.write</span></code> and threading
-<code class="docutils literal notranslate"><span class="pre">PV.write</span></code>, Tango attribute writes and DOOCS. A structured payload is
+underneath them, all three caproto clients — the sync client’s
+<code class="docutils literal notranslate"><span class="pre">write</span></code> and <code class="docutils literal notranslate"><span class="pre">read_write_read</span></code>, the threading client’s <code class="docutils literal notranslate"><span class="pre">PV</span></code> and
+<code class="docutils literal notranslate"><span class="pre">Batch</span></code>, and the asyncio client’s <code class="docutils literal notranslate"><span class="pre">PV</span></code> — the attribute-write
+spellings on Tango’s <code class="docutils literal notranslate"><span class="pre">DeviceProxy</span></code> and <code class="docutils literal notranslate"><span class="pre">AttributeProxy</span></code>, asynchronous
+and write-read forms included, and DOOCS. A structured payload is
 checked on the number it carries; a p4p payload written as JSON is
 decoded first, <code class="docutils literal notranslate"><span class="pre">bytes</span></code> included — which p4p itself would not decode,
 so such a write is checked on the number it <em>would</em> become rather than
@@ -606,15 +609,17 @@ not: p4p’s <code class="docutils literal notranslate"><span class="pre">rpc</s
 the <code class="docutils literal notranslate"><span class="pre">Connection</span></code> class that defines them—and every Tango <code class="docutils literal notranslate"><span class="pre">Group</span></code>
 write, which fans one value out to many devices with no single channel
 to bound it under.</p>
-<p>A few routes are neither checked nor refused: Tango’s asynchronous and
-read-write attribute spellings, <code class="docutils literal notranslate"><span class="pre">AttributeProxy</span></code> writes, caproto’s
-<code class="docutils literal notranslate"><span class="pre">Batch</span></code>, asyncio and <code class="docutils literal notranslate"><span class="pre">read_write_read</span></code> writes, and the ctypes
-binding underneath aioca, <code class="docutils literal notranslate"><span class="pre">epicscorelibs.ca.cadef.ca_array_put</span></code>. The
-code names the first group <code class="docutils literal notranslate"><span class="pre">_LIMITS_NOT_YET_WRAPPED</span></code> and the ctypes
-binding <code class="docutils literal notranslate"><span class="pre">_LIMITS_UNWRAPPABLE</span></code>, rather than leaving the gap
-implicit—a <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run reaches hardware through any of them
-without passing the limits database, while a <code class="docutils literal notranslate"><span class="pre">readonly</span></code> run refuses
-them like everything else.</p>
+<p>Two routes to hardware are neither checked nor refused: the ctypes
+bindings underneath aioca, <code class="docutils literal notranslate"><span class="pre">epicscorelibs.ca.cadef.ca_array_put</span></code> and
+<code class="docutils literal notranslate"><span class="pre">ca_array_put_callback</span></code>. By the time a call reaches either one the
+value has been marshalled into C memory and the channel is an opaque
+handle, so there is no number left to bound and no channel name to look
+the limits up under; pyepics loads a second <code class="docutils literal notranslate"><span class="pre">libca</span></code> of its own, so this
+binding is not the one place ctypes-level puts pass through either. The
+code lists them in <code class="docutils literal notranslate"><span class="pre">_LIMITS_UNWRAPPABLE</span></code> rather than leaving the gap
+implicit—a <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run reaches hardware through them without
+passing the limits database, while a <code class="docutils literal notranslate"><span class="pre">readonly</span></code> run refuses them like
+everything else.</p>
 </li>
 <li><p><strong>Process isolation</strong>—code always runs in a separate subprocess, never
 inside the MCP server process.</p></li>

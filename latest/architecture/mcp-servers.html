@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 08, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 09, 2026"/>
   </head>
   
   
@@ -684,9 +684,23 @@ them (<code class="docutils literal notranslate"><span class="pre">artifact_list
 <li><p><code class="docutils literal notranslate"><span class="pre">list_panels</span></code> – List the panels available in the Web Terminal (built-in and custom).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">open_panel</span></code> – Put a panel on screen in front of the operator.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">close_panel</span></code> – Take a panel’s tile off screen, leaving it on the rail.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">add_panel_to_rail</span></code> – Make a panel launchable from the rail in one click.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">remove_panel_from_rail</span></code> – Take a panel off the rail (and off screen with it).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">arrange_workspace</span></code> – State a whole layout: exactly these tiles on screen,
+in this order.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">add_panel_to_rail</span></code> – Make a panel launchable from the rail in one click
+(requires human approval).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">remove_panel_from_rail</span></code> – Take a panel off the rail (and off screen with it)
+(requires human approval).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">register_panel</span></code> – Add a rail entry at runtime for an upstream URL the Web
+Terminal proxies (requires human approval).</p></li>
 </ul>
+<p>The three rail tools ask because rail membership is their whole effect:
+removing an entry costs the operator the ability to launch that panel back, and
+adding or registering one puts a new entry in front of them. The layout tools
+say what is on screen and are auto-allowed, even where a layout implies a rail
+change: <code class="docutils literal notranslate"><span class="pre">open_panel</span></code> adds the rail entry when the panel is off the rail, and
+<code class="docutils literal notranslate"><span class="pre">arrange_workspace</span></code> adds any listed panel that was not on it (with a
+<code class="docutils literal notranslate"><span class="pre">preset</span></code>, it also drops non-members – the same pruning the operator gets by
+clicking that layout).</p>
 <p><strong>Screen Capture:</strong></p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">screenshot_capture</span></code> – Capture a screenshot (full screen, window, or region).</p></li>

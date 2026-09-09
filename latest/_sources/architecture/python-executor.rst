@@ -136,8 +136,11 @@ Nine safety layers are applied in sequence:
    intercept is checked against the channel limits database before it
    leaves, and an out-of-range value never reaches the machine. That covers
    pyepics, aioca, pvaPy, all four p4p clients including the raw one
-   underneath them, caproto's ``sync.client.write`` and threading
-   ``PV.write``, Tango attribute writes and DOOCS. A structured payload is
+   underneath them, all three caproto clients --- the sync client's
+   ``write`` and ``read_write_read``, the threading client's ``PV`` and
+   ``Batch``, and the asyncio client's ``PV`` --- the attribute-write
+   spellings on Tango's ``DeviceProxy`` and ``AttributeProxy``, asynchronous
+   and write-read forms included, and DOOCS. A structured payload is
    checked on the number it carries; a p4p payload written as JSON is
    decoded first, ``bytes`` included --- which p4p itself would not decode,
    so such a write is checked on the number it *would* become rather than
@@ -150,15 +153,17 @@ Nine safety layers are applied in sequence:
    write, which fans one value out to many devices with no single channel
    to bound it under.
 
-   A few routes are neither checked nor refused: Tango's asynchronous and
-   read-write attribute spellings, ``AttributeProxy`` writes, caproto's
-   ``Batch``, asyncio and ``read_write_read`` writes, and the ctypes
-   binding underneath aioca, ``epicscorelibs.ca.cadef.ca_array_put``. The
-   code names the first group ``_LIMITS_NOT_YET_WRAPPED`` and the ctypes
-   binding ``_LIMITS_UNWRAPPABLE``, rather than leaving the gap
-   implicit---a ``readwrite`` run reaches hardware through any of them
-   without passing the limits database, while a ``readonly`` run refuses
-   them like everything else.
+   Two routes to hardware are neither checked nor refused: the ctypes
+   bindings underneath aioca, ``epicscorelibs.ca.cadef.ca_array_put`` and
+   ``ca_array_put_callback``. By the time a call reaches either one the
+   value has been marshalled into C memory and the channel is an opaque
+   handle, so there is no number left to bound and no channel name to look
+   the limits up under; pyepics loads a second ``libca`` of its own, so this
+   binding is not the one place ctypes-level puts pass through either. The
+   code lists them in ``_LIMITS_UNWRAPPABLE`` rather than leaving the gap
+   implicit---a ``readwrite`` run reaches hardware through them without
+   passing the limits database, while a ``readonly`` run refuses them like
+   everything else.
 
 8. **Process isolation**---code always runs in a separate subprocess, never
    inside the MCP server process.
