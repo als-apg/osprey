@@ -545,6 +545,9 @@ config:
   # `archiver.type: epics_archiver`.
   # archiver.epics_archiver.url: https://your-archiver.example.com:8443
   # archiver.epics_archiver.timeout: 60
+  # Only when a reverse proxy in front of the appliance publishes its
+  # `/retrieval` servlet under another prefix; the bare appliance needs no line.
+  # archiver.epics_archiver.retrieval_path: /retrieval
   # MongoDB archiver pointed at a store this deployment does NOT run. The
   # coordinates above are derived from `va_archiver:`; spell them here instead
   # to read an archive someone else keeps, and drop the `va_archiver:` block so
