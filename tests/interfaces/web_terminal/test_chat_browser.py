@@ -87,6 +87,7 @@ from tests.interfaces.web_terminal.test_operator_session import (
 
 try:
     from playwright.sync_api import Page, expect
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
     _PLAYWRIGHT_AVAILABLE = True
 except ImportError:  # pragma: no cover
@@ -505,6 +506,66 @@ _PROBE_INIT_SCRIPT = """
 _DISMISS_TOUR = "try { localStorage.setItem('osprey-tour-dismissed-v1', '1') } catch (e) {}"
 
 
+#: Resolves once the dock has finished arranging the shell: the boot layout is
+#: announced final AND the console has held its place for a frame after it. The
+#: announcement lands in the same frame as the last re-parent, so the flag alone
+#: is the boundary rather than the far side of it.
+_DOCK_SETTLED_JS = """
+async (budgetMs) => {
+  const dock = await import('/static/js/dock-workspace.js');
+  const place = () => {
+    let out = '';
+    for (let n = document.querySelector('#operator-container'); n; n = n.parentElement) {
+      out += '>' + (n.id || n.className || n.tagName);
+    }
+    return out;
+  };
+  const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  const deadline = Date.now() + budgetMs;
+  let previous = null;
+  while (Date.now() < deadline) {
+    await frame();
+    const current = place();
+    if (dock.bootLayoutSettled() && current === previous) return true;
+    previous = current;
+  }
+  return false;
+}
+"""
+
+
+def _wait_for_dock_settled(page: Page) -> None:
+    """Block until the dock has finished arranging the shell.
+
+    The terminal card carrying both ``#terminal-container`` and
+    ``#operator-container`` is server-rendered into ``#dock-panel-sources`` and
+    re-parented twice on the way to its tile: once when the dock adopts the
+    subtree, and again when the boot layout is applied over the default
+    arrangement. The console mounts independently of either, so its textarea is
+    on screen and actionable before the shell is still.
+
+    Typing into it there is lost rather than delayed. Playwright checks
+    actionability and then writes, and a re-parent between those two steps takes
+    focus off the element, so the text is never inserted: the box reads empty,
+    ``submit`` finds no prompt and returns, and the turn never starts. The
+    equivalent hazard for a keystroke is the event landing on whatever the
+    detached node left behind.
+
+    Both moves are boot-only, so waiting for them here puts every re-parent
+    ahead of every interaction rather than between two of them.
+
+    Call this AFTER the page's own mount check, never before. The wait reads the
+    dock's state by importing its module, and a caller that has not yet waited
+    for anything makes that a cold fetch of a module graph still being loaded --
+    which fails outright rather than waiting, and reports a fetch error in place
+    of whatever the test was doing.
+    """
+    assert page.evaluate(_DOCK_SETTLED_JS, 10_000), (
+        "the dock never settled: the boot layout was not announced final, or the "
+        "console was still being re-parented when the wait ran out"
+    )
+
+
 def _open_chat_page(opener, base_url: str, query: str = "") -> Page:
     """Open a fresh page (on a browser or a context) and wait for the console."""
     page: Page = opener.new_page()
@@ -514,6 +575,7 @@ def _open_chat_page(opener, base_url: str, query: str = "") -> Page:
     # initChat builds the console on DOMContentLoaded; the input row is the
     # last thing appended, so its presence means the console is mounted.
     expect(page.locator(f"{_OP} .op-input-area textarea")).to_be_visible(timeout=10_000)
+    _wait_for_dock_settled(page)
     return page
 
 
@@ -524,6 +586,7 @@ def _open_expert_page(opener, base_url: str, query: str = "") -> Page:
     page.add_init_script(_PROBE_INIT_SCRIPT)
     page.goto(f"{base_url}{query}", wait_until="domcontentloaded")
     expect(page.locator("#terminal-container .xterm")).to_be_visible(timeout=10_000)
+    _wait_for_dock_settled(page)
     return page
 
 
@@ -639,6 +702,46 @@ def _pty_is_live(base_url: str, key: str) -> bool:
     resp = requests.get(f"{base_url}/__test__/pty-state", params={"session_id": key})
     resp.raise_for_status()
     return bool(resp.json()["live"])
+
+
+def _wait_for_attached_session(page: Page, timeout: float = 20.0) -> str:
+    """The key the terminal is attached to, once the server has confirmed it.
+
+    An Expert page writes the pointer twice on boot. The console mints a key
+    for a tab that has none, and the terminal then stores the id the server
+    confirms on the socket -- a different one, and a third when a page-load
+    resume's child exits early and the terminal falls back to a fresh session.
+    Only the last of those is a key a PTY is running under, and the gap between
+    the console's write and the terminal's is tens of milliseconds, well inside
+    the window between the xterm becoming visible and the first read: a page
+    that latched the first write names a session that never existed, and every
+    server-side question asked about it -- is its PTY live, what was it spawned
+    with -- answers no.
+
+    The session label is the terminal's own report of the id it attached to,
+    painted from the frame that stores it, so a pointer that agrees with the
+    label is a pointer the terminal is on.
+    """
+    deadline = time.monotonic() + timeout
+    label = page.locator("#terminal-label")
+    key: str | None = None
+    shown = ""
+    while time.monotonic() < deadline:
+        # Bounded well inside the deadline above. The default read waits half a
+        # minute for a label to attach, which on a page carrying no terminal
+        # outlives this helper and answers with a locator timeout instead of
+        # the message below, which names both halves of the condition.
+        try:
+            shown = (label.text_content(timeout=1_000) or "").strip()
+        except PlaywrightTimeoutError:
+            shown = ""
+        key = _pointer(page)
+        if key and shown == f"Session {key[:8]}":
+            return key
+        page.wait_for_timeout(50)
+    raise AssertionError(
+        f"the terminal never settled on a session: label {shown!r}, pointer {key!r}"
+    )
 
 
 def _wait_for_chat_options(base_url: str, timeout: float = 20.0) -> list[dict]:
@@ -1069,7 +1172,7 @@ def test_handoff_expert_to_simple_and_back_keeps_one_session(tmp_path, chromium_
     with _live_chat_server(tmp_path, ui_mode="expert") as (base_url, _app):
         _PLANS["and then"] = [("text", "the newer answer"), ("result",)]
         page = _open_expert_page(chromium_browser, base_url)
-        key = _wait_for_pointer(page)
+        key = _wait_for_attached_session(page)
 
         # Nothing to resume yet, so the terminal child was started under the key.
         first = _wait_for_pty_spawns(base_url, 1)[0]
@@ -1137,7 +1240,7 @@ def test_handoff_before_any_prompt_starts_the_chat_under_the_key(tmp_path, chrom
     """
     with _live_chat_server(tmp_path, ui_mode="expert") as (base_url, _app):
         page = _open_expert_page(chromium_browser, base_url)
-        key = _wait_for_pointer(page)
+        key = _wait_for_attached_session(page)
         first = _wait_for_pty_spawns(base_url, 1)[0]
         assert _identity_of(first) == ("--session-id", key)
 
@@ -1216,7 +1319,7 @@ def _flip_into_a_busy_terminal(base_url: str, chromium_browser) -> tuple[Page, s
     the fork: what the operator does about the wait is what differs.
     """
     page = _open_expert_page(chromium_browser, base_url)
-    key = _wait_for_pointer(page)
+    key = _wait_for_attached_session(page)
     _wait_for_pty_spawns(base_url, 1)
     assert _pty_is_live(base_url, key)
 
@@ -1300,8 +1403,10 @@ def test_handoff_refused_while_another_tab_holds_the_session(tmp_path, chromium_
         context = chromium_browser.new_context()
 
         holder = _open_expert_page(context, base_url)
-        key = _wait_for_pointer(holder)
         _wait_for_pty_spawns(base_url, 1)
+        # The key the second tab will adopt, which is the attached one rather
+        # than whatever the console minted on its way to it.
+        key = _wait_for_attached_session(holder)
 
         # A second tab, opened in the Simple view on the same pointer.
         second = _open_chat_page(context, base_url, "/?mode=simple")

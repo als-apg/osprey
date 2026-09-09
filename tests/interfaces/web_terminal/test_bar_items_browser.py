@@ -257,10 +257,48 @@ def _types(page: Page, host: str) -> list[str]:
     return page.eval_on_selector_all(selector, "els => els.map((el) => el.dataset.barItem)")
 
 
-def _center(locator: Locator) -> tuple[float, float]:
+def _box(locator: Locator) -> dict[str, float]:
+    """The layout box of an element, once it is actually on screen.
+
+    The wait is load-bearing. An item whose target is a per-deployment fact
+    ships ``hidden`` and is revealed only when boot applies that fact -- the
+    docs item is href-less and hidden until ``web.docs_url`` arrives in the
+    ``GET /api/panels`` payload -- so a shell is routinely in the document,
+    hydrated and keyed, several frames before it has a layout box.
+    ``bounding_box()`` does not wait for that: it answers ``None`` for an
+    element with no box and returns immediately, which reports a bar still
+    filling in as a bar missing an item.
+    """
+    locator.wait_for(state="visible", timeout=10_000)
     box = locator.bounding_box()
-    assert box is not None, "element has no bounding box -- is it rendered and visible?"
+    # Narrowing, not a check: the wait above is what an element with no box
+    # fails on, and it fails as a locator timeout naming the selector.
+    assert box is not None
+    return box
+
+
+def _center(locator: Locator) -> tuple[float, float]:
+    """The middle of an item, once it is actually on screen."""
+    box = _box(locator)
     return box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+
+
+def _settled(page: Page, host: str, types: list[str]) -> None:
+    """Wait until every item seeded into *host* is on screen.
+
+    A coordinate read from a bar that is still filling in is stale by the time
+    a gesture uses it: an item that ships hidden until boot resolves the fact it
+    renders joins the run late and moves everything already placed. Waiting for
+    the whole seeded arrangement puts the reflow before every measurement
+    rather than between two of them.
+
+    *types* must therefore be the host's ENTIRE seeded run, the items that ship
+    hidden until boot resolves their fact included. Naming only the items a
+    test goes on to measure leaves the rest to arrive mid-gesture, which is the
+    reflow this exists to put first.
+    """
+    for type_ in types:
+        expect(_shell(page, host, type_)).to_be_visible(timeout=10_000)
 
 
 def _drag(page: Page, start: tuple[float, float], end: tuple[float, float]) -> None:
@@ -334,8 +372,8 @@ def test_a_tile_dragged_from_the_sheet_lands_where_it_was_dropped(tmp_path, chro
 
         tile = _tile(page, "stopwatch")
         expect(tile).to_be_enabled()
-        clock_box = _shell(page, "status", "clock").bounding_box()
-        assert clock_box is not None
+        _settled(page, "status", ["clock", "docs"])
+        clock_box = _box(_shell(page, "status", "clock"))
         _drag(
             page,
             _center(tile),
@@ -375,9 +413,9 @@ def test_a_drag_inside_one_bar_reorders_it(tmp_path, chromium_browser):
         assert _types(page, "status") == ["clock", "stopwatch", "feedback"]
         _enter_edit_mode(page)
 
+        _settled(page, "status", ["clock", "stopwatch", "feedback"])
         feedback = _shell(page, "status", "feedback")
-        clock_box = _shell(page, "status", "clock").bounding_box()
-        assert clock_box is not None
+        clock_box = _box(_shell(page, "status", "clock"))
         _drag(
             page,
             _center(feedback),
@@ -852,6 +890,15 @@ def test_reset_to_default_discards_the_stored_arrangement(tmp_path, chromium_bro
 #: not on the tab around it, so the press lands on the session label -- the
 #: same way the panels suite reaches a service tile's menu through its title.
 TERMINAL_TILE_HEADER = ".tile-tab-terminal .terminal-label"
+#: A rendered rail entry -- the signal that panel-manager has run its
+#: registration pass. A tile header exists from the first paint, but its
+#: right-click is answered by the handler panel-manager hands to dock-tab
+#: (`setTileContextMenuHandler`) in the same pass that renders the rail, so a
+#: right-click before this is on screen opens nothing and reports no menu.
+#: The terminal entry rather than a panel's: `renderRail` emits it first and
+#: unconditionally, so the wait states panel-manager's progress and not one
+#: deployment's panel membership.
+PANEL_MANAGER_READY = 'button.panel-rail-button[data-panel-id="terminal"]'
 PANEL_MENU = ".rail-context-menu"
 PANEL_MENU_ITEM = ".rail-context-item"
 
@@ -881,6 +928,8 @@ def test_a_hidden_header_comes_back_from_the_terminal_tile_menu(tmp_path, chromi
         page.wait_for_selector(HYDRATED_SHELL, state="attached", timeout=15_000)
         expect(page.locator("html")).to_have_attribute("data-header-bar", "hidden")
         expect(page.locator(HEADER_HOST)).to_be_hidden()
+
+        expect(page.locator(PANEL_MANAGER_READY)).to_be_attached(timeout=15_000)
 
         page.locator(TERMINAL_TILE_HEADER).click(button="right")
         menu = page.locator(PANEL_MENU)
