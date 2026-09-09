@@ -121,6 +121,8 @@ AGENT_DEFAULT_TIERS: dict[str, str] = {
     "logbook-search": "sonnet",
     "logbook-deep-research": "opus",
     "data-visualizer": "sonnet",
+    "facility-knowledge": "sonnet",
+    "facility-knowledge-graph": "haiku",
     "pyat-specialist": "sonnet",
 }
 
