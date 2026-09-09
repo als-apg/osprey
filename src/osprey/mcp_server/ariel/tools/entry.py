@@ -15,7 +15,13 @@ from pathlib import Path
 
 from fastmcp.exceptions import ToolError
 
-from osprey.mcp_server.ariel.server import build_entry_url, make_error, mcp, serialize_entry
+from osprey.mcp_server.ariel.server import (
+    ARIEL_NATIVE_SOURCE_SYSTEM,
+    build_entry_url,
+    make_error,
+    mcp,
+    serialize_entry,
+)
 from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.http import notify_agent_activity_async
 
@@ -358,7 +364,7 @@ async def entry_create(
 
         entry = {
             "entry_id": entry_id,
-            "source_system": "ARIEL MCP",
+            "source_system": ARIEL_NATIVE_SOURCE_SYSTEM,
             "timestamp": now,
             "author": author or "Anonymous",
             "raw_text": f"{subject}\n\n{details}",
@@ -405,7 +411,7 @@ async def entry_create(
             {
                 "entry_id": entry_id,
                 "message": f"Entry {entry_id} created successfully",
-                "source_system": "ARIEL MCP",
+                "source_system": ARIEL_NATIVE_SOURCE_SYSTEM,
                 "attachment_count": attachment_count,
             },
             default=str,
