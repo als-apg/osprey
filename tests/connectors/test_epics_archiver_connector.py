@@ -914,3 +914,72 @@ class TestSubSecondPrecision:
         assert "lastSample" not in captured_urls[0]
 
         await connector.disconnect()
+
+
+class TestRetrievalPath:
+    """The retrieval servlet's mount point is configurable.
+
+    A bare appliance serves it at ``/retrieval``; a facility that fronts the
+    appliance with a reverse proxy may publish it under another prefix. The
+    connector must build the same request either way.
+    """
+
+    _WINDOW = {
+        "start_date": datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+        "end_date": datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+    }
+
+    @pytest.mark.asyncio
+    async def test_default_is_the_appliance_root(self, captured_urls):
+        """No ``retrieval_path`` means the appliance's own ``/retrieval`` servlet."""
+        connector = EPICSArchiverConnector()
+        await connector.connect({"url": "https://archiver.example.com"})
+
+        await connector.get_data(channels=["SR:DCCT"], **self._WINDOW)
+
+        assert captured_urls[0].startswith(
+            "https://archiver.example.com/retrieval/data/getData.json?"
+        )
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_proxied_prefix_replaces_the_default(self, captured_urls):
+        """A proxy that renames ``/retrieval`` is reached under its own prefix."""
+        connector = EPICSArchiverConnector()
+        await connector.connect(
+            {"url": "https://controls-web.example.com", "retrieval_path": "/archappl_retrieve"}
+        )
+
+        await connector.get_data(channels=["SR:DCCT"], **self._WINDOW)
+
+        assert captured_urls[0].startswith(
+            "https://controls-web.example.com/archappl_retrieve/data/getData.json?"
+        )
+        assert "/retrieval/" not in captured_urls[0]
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("url", "path"),
+        [
+            ("https://controls-web.example.com/", "/archappl_retrieve"),
+            ("https://controls-web.example.com", "archappl_retrieve"),
+            ("https://controls-web.example.com/", "archappl_retrieve/"),
+        ],
+        ids=["trailing_slash_on_url", "no_leading_slash", "both"],
+    )
+    async def test_slashes_are_normalized(self, captured_urls, url, path):
+        """Neither a trailing slash on ``url`` nor a missing one on the path
+        doubles or drops a separator."""
+        connector = EPICSArchiverConnector()
+        await connector.connect({"url": url, "retrieval_path": path})
+
+        await connector.get_data(channels=["SR:DCCT"], **self._WINDOW)
+
+        assert captured_urls[0].startswith(
+            "https://controls-web.example.com/archappl_retrieve/data/getData.json?"
+        )
+
+        await connector.disconnect()

@@ -503,6 +503,9 @@ config:
   # `archiver.type: epics_archiver`.
   # archiver.epics_archiver.url: https://your-archiver.example.com:8443
   # archiver.epics_archiver.timeout: 60
+  # Only when a reverse proxy in front of the appliance publishes its
+  # `/retrieval` servlet under another prefix; the bare appliance needs no line.
+  # archiver.epics_archiver.retrieval_path: /retrieval
 
   # ── Scan plans (Bluesky) ───────────────────────────────────────────────────
   # Both servers are off by default in OSPREY. Turn them on so the agent can

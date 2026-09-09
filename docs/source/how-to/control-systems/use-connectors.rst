@@ -309,6 +309,12 @@ independently of the control system:
            epics_archiver:
              url: https://archiver.facility.edu:8443   # required
              timeout: 60                                # seconds, default 60
+             retrieval_path: /retrieval                 # default; a reverse proxy may rename it
+
+      ``url`` is the appliance's root (or the reverse proxy's). The connector
+      reads through the appliance's retrieval servlet, mounted at ``/retrieval``
+      on a bare appliance; when a proxy in front of the appliance publishes that
+      servlet under a different prefix, name the prefix with ``retrieval_path``.
 
    .. tab-item:: DOOCS
       :sync: doocs

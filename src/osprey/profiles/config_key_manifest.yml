@@ -1128,6 +1128,9 @@ keys:
     default: {}
   archiver.epics_archiver.url: {covered-by: archiver.epics_archiver, rendered: false, default: 'no-fallback', default_note: "the connector raises ValueError('archiver URL is required for EPICS archiver')"}
   archiver.epics_archiver.timeout: {covered-by: archiver.epics_archiver, rendered: false, default: 60}
+  # The appliance mounts its retrieval servlet at /retrieval; a reverse proxy in
+  # front of it may publish the servlet under another prefix.
+  archiver.epics_archiver.retrieval_path: {covered-by: archiver.epics_archiver, rendered: false, default: '/retrieval'}
   # The stored archive's connection block, rendered by the control_assistant
   # template and written from the profile's `va_archiver:` block at build time.
   # The mongodb_archiver connection block is `rendered: false` as a set: the
