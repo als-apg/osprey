@@ -71,6 +71,8 @@ from osprey.audit.envelope import (
 )
 from osprey.utils.identity import acting_identity
 
+from .methods import METHOD_OIDC, METHOD_PASSWORD
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -307,8 +309,8 @@ REASON_OIDC_LOGIN = "oidc_login"
 
 
 _SUCCESS_REASONS: dict[str, str] = {
-    "password": REASON_PASSWORD_LOGIN,
-    "oidc": REASON_OIDC_LOGIN,
+    METHOD_PASSWORD: REASON_PASSWORD_LOGIN,
+    METHOD_OIDC: REASON_OIDC_LOGIN,
 }
 """The reason each supported method's success is recorded under.
 
