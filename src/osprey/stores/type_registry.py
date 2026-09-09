@@ -42,6 +42,12 @@ ARTIFACT_TYPES: dict[str, TypeDef] = {
     "image": TypeDef("image", "Image", "#a78bfa"),
     "text": TypeDef("text", "Text", "#8b9ab5"),
     "file": TypeDef("file", "File", "#506380"),
+    # What `serialize_object` stamps on raw bytes. Distinct from "file", which
+    # is a saved-from-disk artifact whose extension says what it holds: nothing
+    # can be inferred about these bytes, and the published `save_artifact()`
+    # contract names the type ("bytes -> binary file"), so remapping them onto
+    # "file" would break a promise the docstring makes.
+    "binary": TypeDef("binary", "Binary", "#64748b"),
     "notebook": TypeDef("notebook", "Notebook", "#e879f9"),
     "dashboard_html": TypeDef("dashboard_html", "Dashboard", "#06b6d4"),
 }
