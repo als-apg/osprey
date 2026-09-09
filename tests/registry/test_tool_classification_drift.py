@@ -11,9 +11,9 @@ facility logbook with no gate at all.
 This test walks the *live* servers rather than any list of names, so a tool
 added to a ``tools/`` module and forgotten in the registry fails here.
 
-The known gaps are recorded rather than waved through: the assertion is
-equality, so closing one shows up as a failure too, and nothing can be added
-to the baseline by accident.
+There are no known gaps left: the baseline is empty and the assertion is
+equality, so a tool that stops being classified fails here and a tool that
+starts being classified cannot be quietly left in a baseline.
 """
 
 import asyncio
@@ -28,22 +28,11 @@ pytestmark = pytest.mark.unit
 
 
 #: Tools registered by a framework server but named nowhere in its registry
-#: entry, as of this test's introduction. Pre-existing, and not this test's
-#: business to fix — recorded so that a NEW one is a failure rather than an
-#: eleventh line in a list nobody reads.
-_UNCLASSIFIED_BASELINE: dict[str, set[str]] = {
-    "osprey_workspace": {
-        "add_panel_to_rail",
-        "artifact_pin",
-        "lattice_clear_baseline",
-        "lattice_get_data",
-        "lattice_get_figure",
-        "lattice_get_settings",
-        "lattice_update_settings",
-        "register_panel",
-        "remove_panel_from_rail",
-    },
-}
+#: entry. Empty: the nine workspace tools this baseline used to carry are now
+#: classified — the rail verbs and ``register_panel`` ask, ``artifact_pin`` and
+#: the five lattice tools are allowed. Keep it empty; a tool belongs in a
+#: permission list, not in a list nobody reads.
+_UNCLASSIFIED_BASELINE: dict[str, set[str]] = {}
 
 
 def _registered_tool_names(module: str) -> set[str]:

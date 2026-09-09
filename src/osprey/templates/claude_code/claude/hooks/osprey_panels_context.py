@@ -314,12 +314,11 @@ def _build_inventory(data):
     return (
         f"Web terminal panels (right pane tabs): {panel_list}. "
         f"{active_part} "
-        "Put one in front of the operator with open_panel(id) and take it off "
-        "screen again with close_panel(id). Rail membership is separate: "
-        "add_panel_to_rail(id)/remove_panel_from_rail(id) control whether the "
-        "operator can launch a panel in one click. An off-rail panel is already "
-        "running — open_panel puts it on the rail and on screen in one step. "
-        "Add an ad-hoc URL tab with register_panel(...)."
+        "open_panel(id) puts one on screen and leaves it on the rail in one "
+        "step, close_panel(id) takes it off; add_panel_to_rail(id)/"
+        "remove_panel_from_rail(id) move only whether it is one click away, "
+        "and register_panel(...) adds an ad-hoc URL tab. Those three ask the "
+        "operator to approve the call unless the deployment says otherwise."
     )
 
 

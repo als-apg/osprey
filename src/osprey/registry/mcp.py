@@ -265,6 +265,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "artifact_read",
             "artifact_get",
             "artifact_focus",
+            "artifact_pin",
             "artifact_export",
             "create_static_plot",
             "create_interactive_plot",
@@ -282,21 +283,59 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "lattice_state",
             "lattice_set_param",
             "lattice_refresh",
+            "lattice_get_data",
+            "lattice_get_figure",
+            "lattice_get_settings",
+            "lattice_update_settings",
+            # Baseline and settings are the simulation's own scratch state:
+            # nothing here reaches hardware. lattice_init sets a fresh
+            # baseline, so lattice_clear_baseline is undone by re-running it;
+            # settings are carried across a re-init instead, so a settings
+            # change stands until it is set back. Neither is worth a prompt.
+            # lattice_clear_baseline is nonetheless auto-classified
+            # side-effecting by agent_runner.write_tools (it matches the
+            # "clear" destructive marker) and blocked under the headless
+            # read-only floor regardless of this allow-listing — expected
+            # posture; do not rename the tool to dodge it.
             "lattice_set_baseline",
+            "lattice_clear_baseline",
             "list_panels",
             # The on-screen axis: both halves are reversible in one operator
-            # click, so neither is worth a prompt. The rail axis
-            # (add_panel_to_rail/remove_panel_from_rail) is deliberately absent —
-            # taking a panel off the rail costs the operator the ability to
-            # launch it back, which is worth asking about.
+            # click, so neither is worth a prompt. The rail axis is the
+            # exception and asks instead — see permissions_ask below.
             "open_panel",
             "close_panel",
             "arrange_workspace",
         ],
-        permissions_ask=["setup_patch"],
+        # The rail axis changes what the operator can launch at all, which the
+        # on-screen verbs above do not: remove_panel_from_rail costs them the
+        # ability to launch the panel back, add_panel_to_rail puts an entry in
+        # front of them, and register_panel adds a proxied upstream. One
+        # literal matcher per tool, the shape every other approval rule here
+        # uses: the approval hook and the SDK's disallow engine match tool
+        # names exactly, so an alternation group would gate nothing — and it is
+        # the only shape check_config_keys.py's matcher extractor can read.
+        permissions_ask=[
+            "setup_patch",
+            "add_panel_to_rail",
+            "remove_panel_from_rail",
+            "register_panel",
+        ],
         hooks_pre=[
             HookRule(
                 matcher="mcp__osprey_workspace__setup_patch",
+                hooks=[_APPROVAL],
+            ),
+            HookRule(
+                matcher="mcp__osprey_workspace__add_panel_to_rail",
+                hooks=[_APPROVAL],
+            ),
+            HookRule(
+                matcher="mcp__osprey_workspace__remove_panel_from_rail",
+                hooks=[_APPROVAL],
+            ),
+            HookRule(
+                matcher="mcp__osprey_workspace__register_panel",
                 hooks=[_APPROVAL],
             ),
         ],

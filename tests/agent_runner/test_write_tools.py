@@ -637,10 +637,17 @@ def test_read_only_disallowed_covers_registry_side_effect_tools(tmp_path: Path) 
     """Drift guard: every framework-server permissions_ask tool and every
     writes-check-gated matcher in the registry must appear in the read-only
     disallow set. Adding a new approval-required tool to a server thus
-    auto-extends the read-only floor (or fails this test)."""
+    auto-extends the read-only floor (or fails this test).
+
+    The rail verbs and ``register_panel`` arrive through the walk below, since
+    they are ``permissions_ask``. ``lattice_clear_baseline`` does not — it is
+    auto-allowed and reaches the floor only through the destructive-name rule
+    ("clear"), so it is pinned by name."""
     from osprey.registry.mcp import _WRITES_CHECK, FRAMEWORK_SERVERS
 
     result = set(read_only_disallowed_tools(tmp_path))
+
+    assert "mcp__osprey_workspace__lattice_clear_baseline" in result
 
     for server in FRAMEWORK_SERVERS.values():
         # Both ask lists render into the interactive approval list → side-effecting.
