@@ -216,6 +216,24 @@ Step 5: Install OSPREY
 
          uv tool upgrade osprey-framework
 
+      **Pre-releases.** Both commands resolve to the newest *stable* release
+      and skip pre-releases (versions ending in ``b1``, ``rc1``, …), so a beta
+      announced for testing is not what they install. Ask for it explicitly:
+
+      .. code-block:: bash
+
+         # The newest version, pre-releases included
+         uv tool install --prerelease allow osprey-framework
+
+         # One specific pre-release
+         uv tool install --prerelease allow "osprey-framework==2026.9.0b2"
+
+      Pinning the version alone is not enough: ``osprey-connectors``, which
+      ships alongside the framework under the same number, is a pre-release
+      too, and ``--prerelease allow`` is what lets the resolver take it.
+      ``uv tool upgrade --prerelease allow osprey-framework`` moves an
+      installation on to the next pre-release.
+
    .. tab-item:: From source
 
       Clone the repository if you want to pin to a specific git ref, track

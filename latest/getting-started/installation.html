@@ -636,6 +636,21 @@ from the tool — you’ll create them in their own directories with
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>tool<span class="w"> </span>upgrade<span class="w"> </span>osprey-framework
 </pre></div>
 </div>
+<p><strong>Pre-releases.</strong> Both commands resolve to the newest <em>stable</em> release
+and skip pre-releases (versions ending in <code class="docutils literal notranslate"><span class="pre">b1</span></code>, <code class="docutils literal notranslate"><span class="pre">rc1</span></code>, …), so a beta
+announced for testing is not what they install. Ask for it explicitly:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># The newest version, pre-releases included</span>
+uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>--prerelease<span class="w"> </span>allow<span class="w"> </span>osprey-framework
+
+<span class="c1"># One specific pre-release</span>
+uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>--prerelease<span class="w"> </span>allow<span class="w"> </span><span class="s2">&quot;osprey-framework==2026.9.0b2&quot;</span>
+</pre></div>
+</div>
+<p>Pinning the version alone is not enough: <code class="docutils literal notranslate"><span class="pre">osprey-connectors</span></code>, which
+ships alongside the framework under the same number, is a pre-release
+too, and <code class="docutils literal notranslate"><span class="pre">--prerelease</span> <span class="pre">allow</span></code> is what lets the resolver take it.
+<code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">tool</span> <span class="pre">upgrade</span> <span class="pre">--prerelease</span> <span class="pre">allow</span> <span class="pre">osprey-framework</span></code> moves an
+installation on to the next pre-release.</p>
 </div>
 <input id="sd-tab-item-9" name="sd-tab-set-3" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-9">
