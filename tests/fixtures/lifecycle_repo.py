@@ -1472,7 +1472,9 @@ config:
   # deployment host and the copied ports are dialed there. The build renders
   # no services for this persona and writes `deployed_services: []` into its
   # config — every `services.*` key inherited from the base profile is dropped
-  # from this render — and a host that differs is named here.
+  # from this render, except the ones that name a file in the render's own
+  # data tree (the graph corpus and its search index), which stay as this
+  # render's own — and a host that differs is named here.
 """
 
 PERSONA_KNOWLEDGE_YML = """\
@@ -1588,7 +1590,9 @@ config:
   # deployment host and the copied ports are dialed there. The build renders
   # no services for this persona and writes `deployed_services: []` into its
   # config — every `services.*` key inherited from the base profile is dropped
-  # from this render — and a host that differs is named here.
+  # from this render, except the ones that name a file in the render's own
+  # data tree (the graph corpus and its search index), which stay as this
+  # render's own — and a host that differs is named here.
 """
 
 PERSONA_READONLY_YML = """\
@@ -1648,7 +1652,9 @@ config:
   # the build refuses the contradiction. The build renders no services for
   # this persona and writes `deployed_services: []` into its config — every
   # `services.*` key inherited from the base profile is dropped from this
-  # render — and a host that differs IS named here.
+  # render, except the ones that name a file in the render's own data tree
+  # (the graph corpus and its search index), which stay as this render's own
+  # — and a host that differs IS named here.
 """
 
 PERSONA_READWRITE_YML = """\
@@ -1709,8 +1715,10 @@ config:
   # every persona follows; spell a different one here and the build refuses
   # the contradiction. The build renders no services for this persona and
   # writes `deployed_services: []` into its config — every `services.*` key
-  # inherited from the base profile is dropped from this render — and a host
-  # that differs IS named here.
+  # inherited from the base profile is dropped from this render, except the
+  # ones that name a file in the render's own data tree (the graph corpus and
+  # its search index), which stay as this render's own — and a host that
+  # differs IS named here.
 """
 
 PERSONA_ADMIN_YML = """\
@@ -1798,7 +1806,9 @@ config:
   # the build refuses the contradiction. The build renders no services for
   # this persona and writes `deployed_services: []` into its config — every
   # `services.*` key inherited from the base profile is dropped from this
-  # render — and a host that differs IS named here.
+  # render, except the ones that name a file in the render's own data tree
+  # (the graph corpus and its search index), which stay as this render's own
+  # — and a host that differs IS named here.
 """
 
 

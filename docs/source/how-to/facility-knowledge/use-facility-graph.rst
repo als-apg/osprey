@@ -457,7 +457,9 @@ derivations of one corpus, and only that keeps them describing one machine:
 
 A channel finder already running on the host keeps the index it opened, so
 restart it to pick up a rebuilt one. A deployed stack needs nothing: its build
-writes the index into the image it starts from.
+writes the index into the image it starts from — one per render, so each
+per-user persona image carries an index derived from the corpus that render
+stages, not a copy borrowed from the deployment's.
 
 ``osprey health`` reports both halves under the channel finder category:
 
@@ -482,7 +484,10 @@ deploy no services of their own — so they have to be told which port that
 store is published on. Per-user web terminal containers run with
 ``network_mode: host``, so a container's ``localhost`` *is* the deployment
 host, and the build copies the bolt port from the hosting deployment's own
-render into each persona.
+render into each persona. The corpus is the one thing about the store a
+persona is *not* told: ``services.graphdb.ttl_path`` names a file in the
+``data/`` tree every render stages for itself, so each persona keeps the key
+as its own and the build derives that persona's search index from it.
 
 Two consequences worth knowing before you move anything:
 

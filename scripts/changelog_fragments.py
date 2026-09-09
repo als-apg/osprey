@@ -521,6 +521,29 @@ def _named_fragment_paths(paths: Iterable[str]) -> list[str]:
     return [path for path in _fragment_dir_paths(paths) if NAME_RE.match(path[len(prefix) :])]
 
 
+def _retyped_fragments(added: Iterable[str], deleted: Iterable[str]) -> dict[str, str]:
+    """Deleted fragment paths paired with the added path that carries the same name.
+
+    A fragment's type lives in its filename, so changing the type renames the
+    file. The diff is read without rename detection, and the change arrives as
+    one added and one deleted path with a common ``<name>``. Pairing them is
+    what tells a retype from a deletion: the entry is still there, under a new
+    heading.
+    """
+    prefix = f"{FRAGMENT_DIR}/"
+
+    def name_of(path: str) -> str | None:
+        match = NAME_RE.match(path[len(prefix) :])
+        return match.group("name") if match else None
+
+    added_by_name = {name_of(path): path for path in _named_fragment_paths(added)}
+    return {
+        path: added_by_name[name]
+        for path in _named_fragment_paths(deleted)
+        if (name := name_of(path)) in added_by_name
+    }
+
+
 def _listed(paths: Sequence[str], limit: int = 5) -> list[str]:
     """*paths* as detail lines, truncated to *limit* with a count of the rest.
 
@@ -574,7 +597,10 @@ def gate_failures(
        pull request that changes ``CHANGELOG.md`` and nothing else without
        growing the bullet count, which is a correction; and a head whose block
        is byte-identical to the base's.
-    3. Only that rotation deletes fragments.
+    3. Only that rotation deletes fragments. A fragment whose type changed is
+       renamed, not deleted: the same ``<name>`` reappears under the new type,
+       and that pair is reported as a retype. A retype adds no entry, so it
+       does not satisfy rule 1 either.
 
     The rotation is a *transition*, not a state: an empty ``[Unreleased]`` is
     what every pull request sees once fragments are carrying the changelog, so
@@ -598,13 +624,15 @@ def gate_failures(
     ok_lines: list[str] = []
     prefixes = ", ".join(GATED_PREFIXES)
 
+    retyped = _retyped_fragments(added, deleted)
     gated = [path for path in changed if needs_fragment((path,))]
     if not gated:
         ok_lines.append(
             f"✓ changelog gate: no {' or '.join(GATED_PREFIXES)} changes — no fragment required"
         )
     else:
-        fragments = sorted(_named_fragment_paths(added))
+        new_names = set(retyped.values())
+        fragments = sorted(path for path in _named_fragment_paths(added) if path not in new_names)
         if fragments:
             ok_lines.append(
                 f"✓ changelog gate: {fragments[0]} added for "
@@ -659,7 +687,12 @@ def gate_failures(
     # A head with no heading is not a rotation, whatever the empty block would
     # otherwise suggest: the fold writes into that heading, so a diff that has
     # removed it has not folded anything.
-    gone = _fragment_dir_paths(deleted)
+    if retyped:
+        ok_lines.append(
+            f"✓ {len(retyped)} fragment(s) retyped: "
+            + ", ".join(f"{old} → {new.rsplit('/', 1)[-1]}" for old, new in sorted(retyped.items()))
+        )
+    gone = [path for path in _fragment_dir_paths(deleted) if path not in retyped]
     if gone and not rotation:
         failures.append(
             "\n".join(

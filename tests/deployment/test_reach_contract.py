@@ -864,6 +864,27 @@ def test_every_always_resolving_consumer_is_refused_the_same_way():
         assert f"`{service}`" in errors[0], (service, errors)
 
 
+def test_every_render_local_key_names_its_own_services_file_and_is_not_projected():
+    """A render-local key belongs to its contract's service and is never also projected.
+
+    A render-local key survives the attached strip because it names a file in
+    the render's OWN data tree; a projected key is copied from the HOST. One key
+    cannot be both, or a persona would carry its own value and the host's at
+    once and the build would have to choose between them.
+    """
+    from osprey.deployment.reach import render_local_keys
+
+    declared: set[str] = set()
+    for contract in REACH_CONTRACTS.values():
+        projected = {projected.key for projected in contract.projected}
+        for key in contract.render_local:
+            assert key.startswith(f"services.{contract.service}."), key
+            assert key not in projected, f"{key} is both render-local and projected"
+            declared.add(key)
+    assert render_local_keys() == frozenset(declared)
+    assert {"services.graphdb.ttl_path", "services.graphdb.index_path"} <= declared
+
+
 def test_an_attached_render_is_told_its_hosts_service_and_is_not_refused():
     """An attached render (``deploy_services: false``) renders
     ``deployed_services: []``: its clients dial the HOSTING deployment's
