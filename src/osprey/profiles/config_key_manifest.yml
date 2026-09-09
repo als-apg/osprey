@@ -769,11 +769,16 @@ keys:
     note: >-
       Extra tool names a project folds into the writes kill switch, commented
       in the two presets that carry the stanza, so no preset's resolved
-      config carries it. The reader is the claude_code renderer, which hands the list
-      to `hook_config.json` as `control_system_write_tools`; the writes-check
-      hook reads it from there. Tools named here are refused per call and never
-      enter `permissions.deny`, which is why a mixed-posture render can gate
-      them at all.
+      config carries it. The reader is the claude_code renderer, which folds the
+      list into `hook_config.json`'s `write_tools` — the key the writes-check
+      hook, the headless disallow list and the audit middleware all read. The
+      entries the renderer actually appended (an extra that merely re-states a
+      server-derived matcher is not one) are ALSO emitted under
+      `control_system_write_tools`, read by the config-drift hook alone, which
+      subtracts them from the kill-switch set it compares against a
+      deployment's `permissions.deny`. That subtraction is needed because tools
+      named here are refused per call and never enter `permissions.deny`, which
+      is also why a mixed-posture render can gate them at all.
     default: []
   control_system.target_display_names:
     rendered: false

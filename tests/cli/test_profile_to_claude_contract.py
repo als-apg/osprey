@@ -721,6 +721,14 @@ def test_hook_config_write_tools_dedupe(tmp_path):
     assert write_tools == [*baseline, "mcp__facility__custom_write"], (
         f"expected only the new entry appended to {baseline}; got {write_tools}"
     )
+    # The appended-only semantics, on a real build path: the re-stated matcher
+    # is already in the writes kill switch's deny list, so it must NOT appear
+    # here — osprey_config_drift.py subtracts this key from the set it compares
+    # against a deployment's stale deny list, and an entry that IS denied
+    # belongs in that comparison.
+    assert _read_hook_config(project)["control_system_write_tools"] == [
+        "mcp__facility__custom_write"
+    ]
 
 
 def test_hook_config_with_no_enabled_servers(tmp_path):
@@ -756,6 +764,9 @@ def test_hook_config_with_no_enabled_servers(tmp_path):
         "server_prefixes": [],
         "approval_prefixes": [],
         "write_tools": [],
+        # Only the extras this render APPENDED to write_tools; the project
+        # names none, and with every server off there is nothing to append to.
+        "control_system_write_tools": [],
         "mixed_read_write_tools": [],
         # Not a per-server list: it names the tools the writes-check hook leaves
         # to their own lane gate, and renders whether or not any server is on.
