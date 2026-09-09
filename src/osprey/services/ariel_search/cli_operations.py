@@ -530,13 +530,29 @@ async def run_sync(
 async def run_ingest(
     config_dict: dict,
     source: str,
-    adapter: str,
+    adapter: str | None,
     since: datetime | None,
     limit: int | None,
     dry_run: bool,
     progress: _ProgressCb = None,
 ) -> IngestResult:
-    """Ingest logbook entries from a source."""
+    """Ingest logbook entries from a source.
+
+    Args:
+        config_dict: Raw ARIEL configuration mapping.
+        source: Source file path or URL; always an override.
+        adapter: Override for ``ingestion.adapter``. ``None`` leaves the
+            configured adapter in place — the same rule ``run_watch`` follows,
+            so a project that names its adapter in config.yml does not have to
+            repeat it on every ingest.
+        since: Only ingest entries after this date.
+        limit: Maximum entries to ingest.
+        dry_run: Parse entries without storing them.
+        progress: Optional callback for human-readable progress lines.
+
+    Returns:
+        The run's counts.
+    """
     from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.enhancement import create_enhancers_from_config
     from osprey.services.ariel_search.ingestion import get_adapter
@@ -544,7 +560,8 @@ async def run_ingest(
     if "ingestion" not in config_dict:
         config_dict["ingestion"] = {}
     config_dict["ingestion"]["source_url"] = source
-    config_dict["ingestion"]["adapter"] = adapter
+    if adapter:
+        config_dict["ingestion"]["adapter"] = adapter
 
     config = _ariel_config(config_dict)
     adapter_instance = get_adapter(config)

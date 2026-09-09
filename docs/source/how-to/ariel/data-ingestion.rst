@@ -51,7 +51,7 @@ Adapters are discovered through Osprey's central registry. The built-in ones bel
 
 **Using a custom adapter:**
 
-An adapter written and registered as described in :doc:`/contributing/extending-osprey` is selected the same way as a built-in one: set ``ariel.ingestion.adapter`` to its registered name in ``config.yml``.
+An adapter written and registered as described in :doc:`/contributing/extending-osprey` is selected the same way as a built-in one: set ``ariel.ingestion.adapter`` to its registered name in ``config.yml``, or pass it as ``--adapter`` --- both accept every registered name, the framework's and your own.
 
 .. admonition:: Collaboration Welcome
    :class: outreach
