@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from osprey.mcp_server.ariel.server import ARIEL_NATIVE_SOURCE_SYSTEM
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.port_layout import default_port
 from tests.mcp_server.ariel.conftest import get_tool_fn, make_mock_entry
@@ -118,12 +119,12 @@ async def test_entry_create_all_fields(tmp_path, monkeypatch):
 
     data = json.loads(result)
     assert data["entry_id"].startswith("ariel-")
-    assert data["source_system"] == "ARIEL MCP"
+    assert data["source_system"] == ARIEL_NATIVE_SOURCE_SYSTEM
     assert "created successfully" in data["message"]
 
     # Verify the upsert was called with correct data
     call_args = mock_service.repository.upsert_entry.call_args[0][0]
-    assert call_args["source_system"] == "ARIEL MCP"
+    assert call_args["source_system"] == ARIEL_NATIVE_SOURCE_SYSTEM
     assert call_args["author"] == "Bob"
     assert call_args["metadata"]["logbook"] == "Operations"
     assert call_args["metadata"]["shift"] == "Day"

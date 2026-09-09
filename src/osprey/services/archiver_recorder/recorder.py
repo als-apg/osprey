@@ -28,6 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from osprey_connectors.standin import DEPLOYED_SERVICES_KEY, LIVE_STANDIN_PORT_KEY
+from osprey_connectors.types import VIRTUAL_ACCELERATOR
 
 from .config import RecorderConfigError, RecorderSettings, read_recording_facts
 from .store import ArchiveWriter
@@ -65,7 +66,7 @@ logger = logging.getLogger(__name__)
 #: the roster's label uses. It is the one predicate the recorder's compose entry
 #: and the deploy-time archive seed bind to as well, so a machine that is still
 #: the stand-in cannot be quietly dropped out of its own archive.
-RECORDING_CONTROL_SYSTEM = "virtual_accelerator"
+RECORDING_CONTROL_SYSTEM = VIRTUAL_ACCELERATOR
 
 #: Reads a set of addresses and returns the ones that answered.
 ChannelReader = Callable[[Sequence[str]], Awaitable[Mapping[str, float]]]

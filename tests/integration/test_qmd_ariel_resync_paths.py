@@ -53,6 +53,7 @@ from typing import Any
 
 import pytest
 
+from osprey.mcp_server.ariel.server import ARIEL_NATIVE_SOURCE_SYSTEM
 from tests.integration._qmd_ariel_support import open_migrated_repository, qmd_ariel_config_dict
 
 pytestmark = [
@@ -362,7 +363,7 @@ class TestMcpEntryCreatePath:
         )
         entry_id = payload["entry_id"]
 
-        assert payload["source_system"] == "ARIEL MCP"
+        assert payload["source_system"] == ARIEL_NATIVE_SOURCE_SYSTEM
         assert lane.mirrored_ids() == set(), "the MCP write must bypass the enhancers"
 
         result = await lane.resync()
