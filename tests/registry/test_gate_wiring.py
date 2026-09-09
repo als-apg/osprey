@@ -74,7 +74,7 @@ def _registered_server_tool_names() -> set[str]:
         stop,
     )
 
-    tools = asyncio.run(bsky_server.mcp._list_tools())
+    tools = asyncio.run(bsky_server.mcp.list_tools())
     return {getattr(t, "name", t) for t in tools}
 
 

@@ -5,9 +5,10 @@ returns a FastMCP server exposing exactly ``health_check`` and
 ``health_check_full``, and ``__main__`` follows the shared ``run_mcp_server``
 idiom.
 
-The sibling ``server_context`` module is built concurrently; these tests stub
-it in ``sys.modules`` so they pass regardless of the sibling's timing while
-remaining correct once the real module lands.
+The sibling ``server_context`` module is stubbed in ``sys.modules`` so the
+anatomy tests never start a real health suite. The stub re-exports the real
+``HealthRefreshSuppressedError`` because the tool layer imports it by name and
+catches it — a look-alike would silently stop matching.
 """
 
 import importlib
@@ -23,9 +24,11 @@ def stub_server_context(monkeypatch):
     """Inject a stub ``health.server_context`` module and track init calls.
 
     ``create_server()`` imports ``initialize_server_context`` lazily, so a stub
-    installed here is picked up whether or not the real module exists yet. The
-    stub records that initialization was invoked.
+    installed here is picked up in place of the real module. The stub records
+    that initialization was invoked.
     """
+    from osprey.mcp_server.health.server_context import HealthRefreshSuppressedError
+
     state = {"initialized": 0}
 
     module = types.ModuleType("osprey.mcp_server.health.server_context")
@@ -43,6 +46,9 @@ def stub_server_context(monkeypatch):
     module.initialize_server_context = initialize_server_context
     module.get_server_context = get_server_context
     module.reset_server_context = reset_server_context
+    # The tool layer imports this by name and catches it; re-export the real
+    # class rather than a stand-in so ``except`` keeps matching.
+    module.HealthRefreshSuppressedError = HealthRefreshSuppressedError
 
     monkeypatch.setitem(sys.modules, "osprey.mcp_server.health.server_context", module)
     return state
@@ -50,7 +56,7 @@ def stub_server_context(monkeypatch):
 
 async def _tool_names(server) -> set[str]:
     """Return the set of registered tool names on a FastMCP server."""
-    tools = await server._list_tools()
+    tools = await server.list_tools()
     return {getattr(t, "name", t) for t in tools}
 
 

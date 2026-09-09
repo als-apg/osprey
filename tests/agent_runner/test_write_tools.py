@@ -666,6 +666,12 @@ def test_python_server_registers_only_execute_tools_we_block(tmp_path: Path) -> 
     Introspects the FastMCP singleton directly (importing the tool modules
     registers them) rather than running create_server(), which would do heavy
     config/workspace startup.
+
+    The listing comes from the public ``list_tools()``, which filters out
+    disabled, backend-only and auth-gated tools — so an empty or shrunken
+    result would make the loop below vacuously pass. The name floor pins the
+    two tools that must always be in the listing; the loop then proves every
+    listed tool is blocked.
     """
     import asyncio
 
@@ -675,9 +681,12 @@ def test_python_server_registers_only_execute_tools_we_block(tmp_path: Path) -> 
         python_execute_file,
     )
 
-    tools = asyncio.run(py_server.mcp._list_tools())
+    tools = asyncio.run(py_server.mcp.list_tools())
     registered = {getattr(t, "name", t) for t in tools}
-    assert registered, "expected the python server to register at least one tool"
+    assert {"execute", "execute_file"} <= registered, (
+        f"python executor server must register execute and execute_file; "
+        f"list_tools() returned {sorted(registered)}"
+    )
 
     result = set(read_only_disallowed_tools(tmp_path))
     for short in registered:
