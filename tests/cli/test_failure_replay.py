@@ -237,17 +237,27 @@ def alarm_sigint():
     inside the capture instead of after it. What the handler then raises is the
     genuine signal — the ``KeyboardInterrupt`` comes from Python's own SIGINT
     handling, not from the test.
+
+    Both dispositions are taken and given back, SIGINT included. A signal's
+    handler is process-global state with no owner, and the whole mechanism here
+    rests on SIGINT's being Python's own: a handler that merely records the
+    signal — a shutdown flag, an event loop's wakeup — absorbs it, and the
+    capture then runs to completion with nothing to show that an interrupt was
+    ever delivered. Installing the default handler for the duration makes the
+    test state its premise instead of inheriting it.
     """
 
     def fire(_signum, _frame):
         signal.raise_signal(signal.SIGINT)
 
-    previous = signal.signal(signal.SIGALRM, fire)
+    previous_alarm = signal.signal(signal.SIGALRM, fire)
+    previous_interrupt = signal.signal(signal.SIGINT, signal.default_int_handler)
     try:
         yield lambda seconds=0.4: signal.setitimer(signal.ITIMER_REAL, seconds)
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous)
+        signal.signal(signal.SIGINT, previous_interrupt)
+        signal.signal(signal.SIGALRM, previous_alarm)
 
 
 @pytest.mark.skipif(not hasattr(signal, "SIGALRM"), reason="POSIX signal delivery")
