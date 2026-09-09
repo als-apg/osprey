@@ -10,6 +10,7 @@ objects. To call the original async function in tests, use the `.fn` attribute:
 
 import asyncio
 import json
+import sys
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock
 
@@ -152,15 +153,29 @@ def registered_tool_names(mcp) -> list[str]:
     return [t.name for t in tools]
 
 
+def _reset_facility_knowledge_bundle() -> None:
+    """Clear the facility-knowledge bundle singletons, if that server was imported.
+
+    Looked up through ``sys.modules`` rather than imported outright: almost no
+    test in this directory touches the facility-knowledge server, and importing
+    it for all of them to clear state only a handful of them create is a cost
+    with no payer. A module nothing imported holds no state to clear.
+    """
+    module = sys.modules.get("osprey.mcp_server.facility_knowledge.server")
+    if module is not None:
+        module.reset_bundle()
+
+
 @pytest.fixture(autouse=True)
 def _reset_singletons(monkeypatch):
     """Reset the MCP registry, ArtifactStore, screen-capture backend and config caches.
 
-    Leak guarded: the server context, artifact store, screen-capture backend and
-    the ``osprey.utils.config`` caches are all process-wide singletons. Every one
-    of them is reset both before and after the test, so a directory that ran
-    earlier in the same worker cannot hand its state to the first test here, and
-    this directory cannot hand its state to whatever runs next.
+    Leak guarded: the server context, artifact store, screen-capture backend,
+    the facility-knowledge bundle and the ``osprey.utils.config`` caches are all
+    process-wide singletons. Every one of them is reset both before and after
+    the test, so a directory that ran earlier in the same worker cannot hand its
+    state to the first test here, and this directory cannot hand its state to
+    whatever runs next.
     """
     import osprey.utils.config as _cfg
 
@@ -168,6 +183,7 @@ def _reset_singletons(monkeypatch):
         reset_server_context()
         reset_artifact_store()
         reset_backend()
+        _reset_facility_knowledge_bundle()
         reset_config_cache()
         _cfg._config_cache.clear()
 
