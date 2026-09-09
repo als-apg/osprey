@@ -39,6 +39,19 @@ with a glow but puts nothing on screen, and removing takes the entry away (and
 with it any open tile — an unlaunchable panel is not left stranded). The chat is
 the SESSION tile, operator-only — never script the agent driving it.
 
+## The rail verbs ask
+
+On a stock build `add_panel_to_rail`, `remove_panel_from_rail` and
+`register_panel` each prompt the operator for approval, so a prompt appears
+inside every rail beat below. Narrate it rather than working around it — the
+same gate the audience is there to see — and let the operator answer it. The
+on-screen verbs `open_panel` and `close_panel` do not ask on a stock build.
+
+A deployment that wants those beats to run uninterrupted sets
+`approval.tools.add_panel_to_rail: skip` in its `config.yml`, and the same for
+the other two. `skip` is the only value that silences a prompt: the policies are
+`skip`, `always` and `selective`, and there is no `never`.
+
 ## Pick a workflow
 
 Ask which one, unless the request already names it or implies it:

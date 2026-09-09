@@ -3,10 +3,17 @@
 This module defines the abstract base class for ARIEL ingestion adapters.
 """
 
+import ssl
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import TYPE_CHECKING
+
+import aiohttp
+
+from osprey.services.ariel_search.exceptions import IngestionError
+from osprey.services.ariel_search.ingestion.http import build_ssl_context
+from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig
@@ -14,6 +21,8 @@ if TYPE_CHECKING:
         EnhancedLogbookEntry,
         FacilityEntryCreateRequest,
     )
+
+logger = get_logger(__name__)
 
 
 class FacilityAdapter(ABC):
@@ -32,10 +41,29 @@ class FacilityAdapter(ABC):
             otherwise get no metadata at all and say nothing about it. A name
             that never matches is simply a no-op, so this needs no enable
             switch beside it.
+        proxy_url: SOCKS proxy for outbound logbook requests, or ``None`` for a
+            direct connection.
+        verify_ssl: Whether outbound logbook requests verify TLS certificates.
+        ca_bundle: PEM bundle those requests verify against, or ``None`` to use
+            the trust store the image ships.
+
+    The three transport attributes are class-level defaults so that every
+    adapter answers the TLS and proxy questions the same way, whether or not it
+    remembered to read the ingestion config. An adapter that never sets them
+    still verifies certificates and still goes direct.
     """
 
     #: See the class docstring. Lower-case comparison, so case does not matter.
     metadata_sidecar_names: tuple[str, ...] = ("metadata.json",)
+
+    #: See the class docstring. Already resolved by ``IngestionConfig.from_dict``.
+    proxy_url: str | None = None
+
+    #: See the class docstring. Defaults on, so silence never means "off".
+    verify_ssl: bool = True
+
+    #: See the class docstring. ``None`` leaves aiohttp on the image trust store.
+    ca_bundle: str | None = None
 
     def __init__(self, config: "ARIELConfig") -> None:
         """Initialize the adapter with configuration.
@@ -44,6 +72,56 @@ class FacilityAdapter(ABC):
             config: ARIEL configuration
         """
         self.config = config
+        ingestion = config.ingestion
+        if ingestion is not None:
+            # A configured value wins; ``None`` falls through to the class
+            # default rather than overwriting it. A YAML key written with an
+            # empty value (``verify_ssl:``) arrives here as ``None``, and
+            # assigning it would turn certificate checking off by silence --
+            # exactly what the defaults above exist to prevent.
+            if ingestion.proxy_url is not None:
+                # Already resolved: IngestionConfig.from_dict folds
+                # ARIEL_SOCKS_PROXY in, so no adapter re-reads the environment.
+                self.proxy_url = ingestion.proxy_url
+            if ingestion.verify_ssl is not None:
+                self.verify_ssl = ingestion.verify_ssl
+            if ingestion.ca_bundle is not None:
+                self.ca_bundle = ingestion.ca_bundle
+
+    def _create_connector(self) -> aiohttp.BaseConnector:
+        """Create aiohttp connector with optional SOCKS proxy support.
+
+        Returns:
+            aiohttp connector (with proxy if configured)
+
+        Raises:
+            IngestionError: If proxy is configured but aiohttp-socks is not installed
+        """
+        if not self.proxy_url:
+            return aiohttp.TCPConnector()
+
+        try:
+            from aiohttp_socks import ProxyConnector
+        except ImportError as e:
+            raise IngestionError(
+                "SOCKS proxy configured but aiohttp-socks is not installed. "
+                "Install with: pip install osprey-framework",
+                source_system=self.source_system_name,
+            ) from e
+
+        logger.info(f"Using SOCKS proxy: {self.proxy_url}")
+        connector: aiohttp.BaseConnector = ProxyConnector.from_url(self.proxy_url)
+        return connector
+
+    def _ssl_context(self) -> ssl.SSLContext | bool:
+        """Return the ``ssl=`` argument for this adapter's outbound requests.
+
+        Returns:
+            Whatever :func:`build_ssl_context` makes of ``verify_ssl`` and
+            ``ca_bundle`` — one place decides, so no adapter can ship a quieter
+            answer of its own.
+        """
+        return build_ssl_context(self.verify_ssl, self.ca_bundle)
 
     @property
     @abstractmethod

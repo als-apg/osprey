@@ -216,6 +216,9 @@ def test_a_chat_held_key_is_handed_off_with_the_pending_frame_first(app, session
             frames = _json_frames_until(ws, "session_info")
 
     assert [f["type"] for f in frames] == ["handoff_pending", "session_info"]
+    # An idle chat has no turn to finish: the frame says so, and the client
+    # shows a restart rather than a wait.
+    assert frames[0] == {"type": "handoff_pending", "busy": False}
     assert frames[-1]["session_id"] == sid
     assert chat.teardowns == 1
     assert app.state.operator_registry.chats.get(sid) is None
@@ -315,7 +318,9 @@ def test_a_busy_chat_is_waited_on(app, sessions_dir):
         chat = _chats(app).hold(sid, Chat(busy=True))
         with client.websocket_connect(_resume_url(sid)) as ws:
             _send_resize(ws)
-            _recv_json(ws, "handoff_pending")
+            # Mid-turn: the frame says the wait is real, so the client shows
+            # it as one from the first moment.
+            assert _recv_json(ws, "handoff_pending")["busy"] is True
             time.sleep(0.3)
             assert spawns == []
             assert app.state.operator_registry.chats.get(sid) is chat

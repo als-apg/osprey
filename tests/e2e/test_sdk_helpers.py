@@ -8,17 +8,22 @@ about the model under test.
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from osprey.agent_runner.primitives import SDKWorkflowResult, ToolTrace
+from osprey.agent_runner.project_paths import claude_project_dir
 from tests.e2e.sdk_helpers import (
     _DEFAULT_ARIEL_DB_URI,
+    HOOK_ATTACHMENT_PREFIX,
     TRANSCRIPT_SUBDIR,
     HookEvent,
     _bind_approval_policy,
     _override_ariel_db_uri,
     dump_agent_transcript,
+    hook_attachments,
 )
 
 _PER_CELL_URI = "postgresql://ariel:ariel@localhost:5432/ariel_gpt-oss-20b_seed1"
@@ -117,7 +122,12 @@ def test_transcript_dump_is_inert_when_unarmed(tmp_path, monkeypatch):
     monkeypatch.delenv("OSPREY_CI_DIAG_DIR", raising=False)
     monkeypatch.chdir(tmp_path)
 
-    assert dump_agent_transcript("orbit_response", _result_with_a_long_tool_result()) is None
+    # ``render`` is passed to prove the transcript read is downstream of the
+    # arming check: an unarmed run must not go near the session directory.
+    assert (
+        dump_agent_transcript("orbit_response", _result_with_a_long_tool_result(), render=tmp_path)
+        is None
+    )
     assert list(tmp_path.iterdir()) == []
 
 
@@ -138,6 +148,9 @@ def test_transcript_dump_keeps_tool_results_whole(tmp_path, monkeypatch):
     payload = json.loads(target.read_text(encoding="utf-8"))
     assert len(payload["tool_traces"][0]["result"]) == 5000
     assert payload["response"] == "I measured the ring.\nThe response is linear."
+    # No render, no hook stdout: the six plan-stack dump sites that call this
+    # without one must keep exactly the payload they had.
+    assert "hook_attachments" not in payload
 
 
 @pytest.mark.unit
@@ -146,11 +159,15 @@ def test_transcript_dump_sanitises_the_name(tmp_path, monkeypatch):
     the diagnostics directory or produce an unopenable filename."""
     monkeypatch.setenv("OSPREY_CI_DIAG_DIR", str(tmp_path))
 
-    target = dump_agent_transcript("../grid[two_axis]", SDKWorkflowResult())
+    target = dump_agent_transcript("../grid[two_axis]", SDKWorkflowResult(), render=tmp_path)
 
     assert target is not None
     assert target.parent == tmp_path / TRANSCRIPT_SUBDIR
     assert target.name == ".._grid_two_axis_.json"
+    # A result with no session id resolves to no transcript, and the key is
+    # still written — an empty list says "looked, found none", which a missing
+    # key cannot.
+    assert json.loads(target.read_text(encoding="utf-8"))["hook_attachments"] == []
 
 
 @pytest.mark.unit
@@ -162,7 +179,156 @@ def test_transcript_dump_never_raises(tmp_path, monkeypatch):
     blocker.write_text("not a directory", encoding="utf-8")
     monkeypatch.setenv("OSPREY_CI_DIAG_DIR", str(blocker))
 
-    assert dump_agent_transcript("orbit_response", SDKWorkflowResult()) is None
+    assert dump_agent_transcript("orbit_response", SDKWorkflowResult(), render=blocker) is None
+
+
+# ---------------------------------------------------------------------------
+# Hook stdout read back out of the session transcript. Synthetic JSONL: the
+# layout is Claude Code's, not ours, so these pin what the reader tolerates
+# rather than what the CLI happens to write.
+# ---------------------------------------------------------------------------
+
+
+def _session_result(session_id: str) -> SDKWorkflowResult:
+    """A workflow result carrying nothing but the session id the reader needs."""
+    return SDKWorkflowResult(result=SimpleNamespace(session_id=session_id))  # type: ignore[arg-type]
+
+
+def _write_transcript(tmp_path, monkeypatch, session_id: str, records: list) -> Path:
+    """Plant a session transcript where `claude_project_dir` will look for it.
+
+    Returns the render directory to hand the reader. `CLAUDE_CONFIG_DIR` is
+    redirected so the test never reads — or creates — anything under the
+    developer's real ~/.claude.
+    """
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    render = (tmp_path / "render").resolve()
+    render.mkdir(parents=True, exist_ok=True)
+    transcript = claude_project_dir(render) / f"{session_id}.jsonl"
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text(
+        "\n".join(json.dumps(record) for record in records) + "\n", encoding="utf-8"
+    )
+    return render
+
+
+@pytest.mark.unit
+def test_hook_attachments_reads_every_hook_prefixed_attachment(tmp_path, monkeypatch):
+    """Prefix match, not an allow-list of one.
+
+    `hook_success` is the only spelling verified against CLI 2.1.241, so a hook
+    that failed or timed out is recorded under a type this test cannot name.
+    Matching the prefix is what keeps that hook's stdout in the CI artifact —
+    and a hook that died mid-approval is exactly the run someone needs to read.
+    """
+    render = _write_transcript(
+        tmp_path,
+        monkeypatch,
+        "sess-1",
+        [
+            {"type": "user", "message": {"role": "user", "content": "hi"}},
+            {"attachment": {"type": "selected_lines_in_ide", "stdout": "not a hook"}},
+            {
+                "attachment": {
+                    "type": "hook_success",
+                    "hookName": "PreToolUse:mcp__controls__channel_write",
+                    "hookEvent": "PreToolUse",
+                    "toolUseID": "tu_ok",
+                    "stdout": '{"hookSpecificOutput": {"permissionDecision": "ask"}}',
+                }
+            },
+            {
+                "attachment": {
+                    "type": "hook_error",
+                    "hookName": "PreToolUse:mcp__controls__channel_write",
+                    "hookEvent": "PreToolUse",
+                    "toolUseID": "tu_broken",
+                    "stdout": "Traceback (most recent call last):",
+                }
+            },
+        ],
+    )
+
+    found = hook_attachments(_session_result("sess-1"), render)
+
+    assert [a["toolUseID"] for a in found] == ["tu_ok", "tu_broken"]
+    assert all(a["type"].startswith(HOOK_ATTACHMENT_PREFIX) for a in found)
+    # The dicts come back raw — nothing is projected away, because a reader
+    # chasing an unexplained refusal does not know in advance which key holds
+    # the answer.
+    assert found[1]["stdout"] == "Traceback (most recent call last):"
+    assert found[1]["hookName"] == "PreToolUse:mcp__controls__channel_write"
+
+
+@pytest.mark.unit
+def test_hook_attachments_survives_a_malformed_transcript(tmp_path, monkeypatch):
+    """A truncated write or a bare JSON scalar must not raise out of a
+    diagnostic path — the run being diagnosed is the one that already failed."""
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    render = (tmp_path / "render").resolve()
+    render.mkdir(parents=True, exist_ok=True)
+    transcript = claude_project_dir(render) / "sess-2.jsonl"
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text(
+        "\n".join(
+            [
+                "{not json at all",
+                '"a bare string"',
+                "[1, 2, 3]",
+                json.dumps({"attachment": "not a dict"}),
+                json.dumps({"attachment": {"type": "hook_success", "toolUseID": "tu_1"}}),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert [a["toolUseID"] for a in hook_attachments(_session_result("sess-2"), render)] == ["tu_1"]
+
+
+@pytest.mark.unit
+def test_hook_attachments_empty_without_a_session_or_transcript(tmp_path, monkeypatch):
+    """No session id and no transcript both mean "nothing to read", not an error.
+
+    Callers assert on what they expected to find; a bare empty list is a
+    clearer failure than an exception raised from an observer.
+    """
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    render = (tmp_path / "render").resolve()
+    render.mkdir(parents=True, exist_ok=True)
+
+    assert hook_attachments(SDKWorkflowResult(), render) == []
+    assert hook_attachments(_session_result("never-written"), render) == []
+
+
+@pytest.mark.unit
+def test_transcript_dump_carries_the_hook_stdout_when_given_a_render(tmp_path, monkeypatch):
+    """The artifact reason this exists: tool traces alone cannot say why a call
+    was asked about, because the approval wording only ever reaches the
+    transcript."""
+    render = _write_transcript(
+        tmp_path,
+        monkeypatch,
+        "sess-3",
+        [
+            {
+                "attachment": {
+                    "type": "hook_success",
+                    "hookName": "PreToolUse:mcp__controls__channel_write",
+                    "hookEvent": "PreToolUse",
+                    "toolUseID": "tu_1",
+                    "stdout": '{"hookSpecificOutput": {"permissionDecisionReason": "live machine"}}',
+                }
+            }
+        ],
+    )
+    monkeypatch.setenv("OSPREY_CI_DIAG_DIR", str(tmp_path / "diag"))
+
+    target = dump_agent_transcript("switch_run", _session_result("sess-3"), render=render)
+
+    assert target is not None
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    assert [a["toolUseID"] for a in payload["hook_attachments"]] == ["tu_1"]
+    assert "live machine" in payload["hook_attachments"][0]["stdout"]
 
 
 # ---------------------------------------------------------------------------

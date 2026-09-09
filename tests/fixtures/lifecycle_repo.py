@@ -570,6 +570,11 @@ config:
   approval.tools.entry_create: always
   # Publishing it through to the facility's logbook does too.
   approval.tools.entry_publish: always
+  # The panel rail is the operator's own view. Adding or removing a panel, and
+  # registering a new one, changes what the next person sees, so each asks.
+  approval.tools.add_panel_to_rail: always
+  approval.tools.remove_panel_from_rail: always
+  approval.tools.register_panel: always
 
   # ── Hook observability ─────────────────────────────────────────────────────
   # On here. Every hook call logs one line to stderr and appends to

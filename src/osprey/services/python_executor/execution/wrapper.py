@@ -917,7 +917,18 @@ if not _execution_dir.exists():
                     import tango as _tango
 
                     def _tango_channel(_proxy, _attr):
-                        return f"{{_proxy.dev_name()}}/{{_attr}}"
+                        '''The device/attribute address a write is bounded under.
+
+                        PyTango takes the attribute as a name or as an object
+                        carrying one -- an ``AttributeInfo``, a
+                        ``DeviceAttribute``. Interpolating the object builds an
+                        address the limits database has never heard of, which
+                        on a deployment that allows unlisted channels is a
+                        write that passes with no bound applied, so the
+                        argument is reduced to its name first.
+                        '''
+                        _name = getattr(_attr, 'name', _attr)
+                        return f"{{_proxy.dev_name()}}/{{_name}}"
 
                     def _tango_current_value(_proxy):
                         '''A reader for the max_step check, bound to the writing proxy.
@@ -955,6 +966,126 @@ if not _execution_dir.exists():
                                 ) from _shape_error
                             _pairs.append((_attr, _value))
                         return _pairs
+
+                    def _tango_checked_write(_original):
+                        '''Wrap a DeviceProxy spelling that writes ONE attribute.
+
+                        Every ``(attribute, value)`` spelling shares this
+                        shape: the value is bounded against the full
+                        device/attribute address, and whatever the original
+                        answers -- nothing, a request id, a read-back
+                        attribute -- is passed back untouched.
+                        '''
+
+                        def _checked(self, attr_name, value, *args, **kwargs):
+                            _limits_validator.validate(
+                                _tango_channel(self, attr_name),
+                                value,
+                                read_current=_tango_current_value(self),
+                            )
+                            return _original(self, attr_name, value, *args, **kwargs)
+
+                        return _checked
+
+                    def _tango_checked_write_many(_original):
+                        '''Wrap a DeviceProxy spelling that writes MANY attributes.
+
+                        Every pair is bounded before any of them is written,
+                        and the answer is passed back untouched. PyTango names
+                        the pairs ``name_val`` on some spellings and
+                        ``attr_values`` on others, so they are taken
+                        positionally or under either name and forwarded the way
+                        they arrived; a guard that accepted one spelling would
+                        break the other with a TypeError naming its own
+                        internals.
+                        '''
+
+                        def _checked(self, *args, **kwargs):
+                            _keyword = None
+                            if args:
+                                _name_val = args[0]
+                            else:
+                                for _spelling in ('name_val', 'attr_values'):
+                                    if _spelling in kwargs:
+                                        _keyword = _spelling
+                                        break
+                                if _keyword is None:
+                                    raise ValueError(
+                                        "tango write_attributes requires (attribute, "
+                                        "value) pairs so each write can be "
+                                        "limits-checked"
+                                    )
+                                _name_val = kwargs[_keyword]
+                            _pairs = _tango_pairs(_name_val)
+                            _read_current = _tango_current_value(self)
+                            for _attr, _value in _pairs:
+                                _limits_validator.validate(
+                                    _tango_channel(self, _attr),
+                                    _value,
+                                    read_current=_read_current,
+                                )
+                            # The materialised pairs, not the argument: a
+                            # generator was consumed by the check above, and
+                            # forwarding it would write nothing at all.
+                            if _keyword is None:
+                                return _original(self, _pairs, *args[1:], **kwargs)
+                            _forwarded = dict(kwargs)
+                            _forwarded[_keyword] = _pairs
+                            return _original(self, **_forwarded)
+
+                        return _checked
+
+                    # An ``AttributeProxy`` addresses one attribute for its
+                    # whole life, so its writes carry a value alone. The
+                    # channel address is rebuilt from the device proxy behind
+                    # it and the attribute's own name.
+                    def _tango_attribute_channel(_proxy):
+                        return f"{{_proxy.get_device_proxy().dev_name()}}/{{_proxy.name()}}"
+
+                    def _tango_attribute_current_value(_proxy):
+                        '''A reader for the max_step check, bound to the writing proxy.
+
+                        The proxy already points at the attribute being
+                        written, so the address the validator passes names
+                        that same channel and nothing is looked up from it.
+                        '''
+                        if not hasattr(_proxy, 'read'):
+                            return None
+
+                        def _read(_address):
+                            _value = _proxy.read()
+                            return getattr(_value, 'value', _value)
+
+                        return _read
+
+                    def _tango_checked_attribute_write(_original):
+                        '''Wrap an AttributeProxy spelling that writes its attribute.'''
+
+                        def _checked(self, value, *args, **kwargs):
+                            _limits_validator.validate(
+                                _tango_attribute_channel(self),
+                                value,
+                                read_current=_tango_attribute_current_value(self),
+                            )
+                            return _original(self, value, *args, **kwargs)
+
+                        return _checked
+
+                    def _tango_wrap_on(_class_name, _spellings):
+                        '''Install a limits-checked wrapper per spelling the class carries.
+
+                        Answers the names installed, so the success line can
+                        say what this binding actually had; a tango without
+                        the class answers an empty list.
+                        '''
+                        _cls = getattr(_tango, _class_name, None)
+                        _installed = []
+                        if _cls is not None:
+                            for _name, _wrap in _spellings:
+                                if hasattr(_cls, _name):
+                                    setattr(_cls, _name, _wrap(getattr(_cls, _name)))
+                                    _installed.append(_name)
+                        return _installed
 
                     # A Tango COMMAND is not a channel write. It names an
                     # operation on the device, and its argument is whatever
@@ -1004,46 +1135,31 @@ if not _execution_dir.exists():
                         ('command_inout', _tango_refuse_command),
                         ('command_inout_asynch', _tango_refuse_command),
                     )
+                    # Every attribute-write spelling DeviceProxy carries.
+                    # The asynchronous and write-read spellings drive the same
+                    # device with the same value as the plain write, so each
+                    # one is checked; a spelling left out is a live unchecked
+                    # write under a guard reporting itself installed.
+                    _tango_device_writes = (
+                        ('write_attribute', _tango_checked_write),
+                        ('write_attribute_asynch', _tango_checked_write),
+                        ('write_read_attribute', _tango_checked_write),
+                        ('write_attributes', _tango_checked_write_many),
+                        ('write_attributes_asynch', _tango_checked_write_many),
+                        ('write_read_attributes', _tango_checked_write_many),
+                    )
+                    _tango_attribute_writes = (
+                        ('write', _tango_checked_attribute_write),
+                        ('write_asynch', _tango_checked_attribute_write),
+                        ('write_read', _tango_checked_attribute_write),
+                    )
                     _tango_wrapped = []
+                    _tango_attribute_wrapped = []
                     _tango_refused = []
                     _tango_refused_base = []
 
                     if hasattr(_tango, "DeviceProxy"):
-                        if hasattr(_tango.DeviceProxy, "write_attribute"):
-                            _orig_tango_write = _tango.DeviceProxy.write_attribute
-
-                            def _checked_tango_write(self, attr_name, value, *args, **kwargs):
-                                '''Limits-checked wrapper for DeviceProxy.write_attribute().'''
-                                _limits_validator.validate(
-                                    _tango_channel(self, attr_name),
-                                    value,
-                                    read_current=_tango_current_value(self),
-                                )
-                                return _orig_tango_write(self, attr_name, value, *args, **kwargs)
-
-                            _tango.DeviceProxy.write_attribute = _checked_tango_write
-                            _tango_wrapped.append("write_attribute")
-
-                        if hasattr(_tango.DeviceProxy, "write_attributes"):
-                            _orig_tango_write_many = _tango.DeviceProxy.write_attributes
-
-                            def _checked_tango_write_many(self, name_val, *args, **kwargs):
-                                '''Limits-checked wrapper for DeviceProxy.write_attributes().'''
-                                _pairs = _tango_pairs(name_val)
-                                _read_current = _tango_current_value(self)
-                                for _attr, _value in _pairs:
-                                    _limits_validator.validate(
-                                        _tango_channel(self, _attr),
-                                        _value,
-                                        read_current=_read_current,
-                                    )
-                                # The materialised pairs, not the argument: a
-                                # generator was consumed by the check above, and
-                                # forwarding it would write nothing at all.
-                                return _orig_tango_write_many(self, _pairs, *args, **kwargs)
-
-                            _tango.DeviceProxy.write_attributes = _checked_tango_write_many
-                            _tango_wrapped.append("write_attributes")
+                        _tango_wrapped = _tango_wrap_on('DeviceProxy', _tango_device_writes)
 
                         _tango_refused = _tango_refuse_on('DeviceProxy', _tango_commands)
 
@@ -1069,6 +1185,19 @@ if not _execution_dir.exists():
                         # nothing on it, and must not report it guarded.
                         print("⚠️  tango guard failed: no DeviceProxy class")
 
+                    # ``tango.AttributeProxy`` is its own class, bound to one
+                    # attribute rather than to a device, so neither install
+                    # above reaches it. It is patched on its own, outside the
+                    # DeviceProxy branch: an AttributeProxy is a write surface
+                    # whether or not a DeviceProxy sits beside it. Its writes
+                    # forward to the DeviceProxy methods wrapped above, so a
+                    # value is bounded twice and a max_step channel is read
+                    # twice; the outer check is kept deliberately, because it
+                    # is the only one left if the DeviceProxy install fails.
+                    _tango_attribute_wrapped = _tango_wrap_on(
+                        'AttributeProxy', _tango_attribute_writes
+                    )
+
                     # ``tango.Group`` is not a Connection subclass. It is a
                     # separate pure-Python class carrying its own commands AND
                     # its own attribute writes, so neither install above
@@ -1092,6 +1221,7 @@ if not _execution_dir.exists():
                         _tango_label + ", ".join(_n + "()" for _n in _tango_names)
                         for _tango_label, _tango_names in (
                             ("wrapped on DeviceProxy: ", _tango_wrapped),
+                            ("wrapped on AttributeProxy: ", _tango_attribute_wrapped),
                             ("refused on DeviceProxy: ", _tango_refused),
                             ("refused on Connection: ", _tango_refused_base),
                             ("refused on Group: ", _tango_refused_group),
@@ -1144,9 +1274,12 @@ if not _execution_dir.exists():
                 except Exception as _doocs_error:
                     print(f"⚠️  doocs4py guard failed: {{_doocs_error}}")
 
-                # --- caproto. Two entry points, in two modules: the sync
-                # client's module-level write() and the threading client's
-                # PV.write(), which knows its own channel name.
+                # --- caproto. Write entry points in three modules, one per
+                # concurrency flavor: the sync client's module-level functions,
+                # the threading client's PV and Batch classes, and the asyncio
+                # client's own PV. Each module is imported and patched in its
+                # OWN try/except - a flavor missing from this environment must
+                # not take the guards for the others with it.
                 def _caproto_scalar(_response):
                     '''The number in a caproto read response.
 
@@ -1164,8 +1297,16 @@ if not _execution_dir.exists():
                     import caproto.sync.client as _caproto_sync
 
                     def _caproto_sync_current_value(_address):
-                        '''A reader for the max_step check, over caproto's own client.'''
-                        return _caproto_scalar(_caproto_sync.read(_address))
+                        '''A reader for the max_step check, over caproto's own client.
+
+                        The step-read ceiling is passed explicitly rather than
+                        left to caproto's own default, so a channel that never
+                        answers fails the check closed quickly instead of
+                        holding the write open.
+                        '''
+                        return _caproto_scalar(
+                            _caproto_sync.read(_address, timeout=STEP_READ_TIMEOUT_SECONDS)
+                        )
 
                     _caproto_sync_reader = (
                         _caproto_sync_current_value
@@ -1173,19 +1314,56 @@ if not _execution_dir.exists():
                         else None
                     )
 
-                    if hasattr(_caproto_sync, "write"):
-                        _orig_caproto_write = _caproto_sync.write
+                    # Both module-level spellings lead with the channel name
+                    # and the value, and ``read_write_read`` differs only in
+                    # reading the channel back afterwards - it drives the
+                    # channel with the same value, so it is bounded the same
+                    # way. The pair is taken positionally or under the names
+                    # caproto gives it, and the call is forwarded exactly as
+                    # it arrived.
+                    def _caproto_sync_checked(_original):
+                        '''Wrap a sync-client spelling that writes a channel.'''
 
-                        def _checked_caproto_write(pv_name, data, *args, **kwargs):
-                            '''Limits-checked wrapper for caproto.sync.client.write().'''
+                        def _checked(*args, **kwargs):
+                            _pv_name = args[0] if args else kwargs.get('pv_name')
+                            _data = args[1] if len(args) > 1 else kwargs.get('data')
+                            if _pv_name is None:
+                                raise ValueError(
+                                    "caproto write requires a channel name so "
+                                    "the write can be limits-checked"
+                                )
                             _limits_validator.validate(
-                                pv_name, data, read_current=_caproto_sync_reader
+                                _pv_name, _data, read_current=_caproto_sync_reader
                             )
-                            return _orig_caproto_write(pv_name, data, *args, **kwargs)
+                            return _original(*args, **kwargs)
 
-                        _caproto_sync.write = _checked_caproto_write
+                        return _checked
 
-                    print("✅ Monkeypatched caproto.sync.client.write()")
+                    _caproto_sync_wrapped = []
+                    for _caproto_name in ('write', 'read_write_read'):
+                        if hasattr(_caproto_sync, _caproto_name):
+                            setattr(
+                                _caproto_sync,
+                                _caproto_name,
+                                _caproto_sync_checked(
+                                    getattr(_caproto_sync, _caproto_name)
+                                ),
+                            )
+                            _caproto_sync_wrapped.append(_caproto_name)
+
+                    # The success line is the operator's only evidence the
+                    # guard is on, so it names what this binding actually
+                    # carried rather than what the block can install.
+                    if _caproto_sync_wrapped:
+                        print(
+                            "✅ Monkeypatched caproto.sync.client: "
+                            + ", ".join(_n + "()" for _n in _caproto_sync_wrapped)
+                        )
+                    else:
+                        print(
+                            "⚠️  caproto.sync.client guard failed: "
+                            "no write function"
+                        )
                 except ImportError:
                     print(
                         "ℹ️  caproto.sync.client not available - "
@@ -1195,19 +1373,30 @@ if not _execution_dir.exists():
                     print(f"⚠️  caproto.sync.client guard failed: {{_caproto_error}}")
 
                 try:
-                    from caproto.threading.client import PV as _CaprotoPV
+                    import caproto.threading.client as _caproto_threading
 
                     def _caproto_pv_current_value(_pv):
-                        '''A reader for the max_step check, bound to the writing PV.'''
+                        '''A reader for the max_step check, bound to the writing PV.
+
+                        The step-read ceiling is passed explicitly rather than
+                        left to the client context's own timeout, which a
+                        script is free to set to None.
+                        '''
                         if not hasattr(_pv, 'read'):
                             return None
 
                         def _read(_address):
-                            return _caproto_scalar(_pv.read())
+                            return _caproto_scalar(
+                                _pv.read(timeout=STEP_READ_TIMEOUT_SECONDS)
+                            )
 
                         return _read
 
-                    if hasattr(_CaprotoPV, "write"):
+                    _caproto_threading_wrapped = []
+                    _CaprotoPV = getattr(_caproto_threading, 'PV', None)
+                    _CaprotoBatch = getattr(_caproto_threading, 'Batch', None)
+
+                    if _CaprotoPV is not None and hasattr(_CaprotoPV, "write"):
                         _orig_caproto_pv_write = _CaprotoPV.write
 
                         def _checked_caproto_pv_write(self, data, *args, **kwargs):
@@ -1218,8 +1407,46 @@ if not _execution_dir.exists():
                             return _orig_caproto_pv_write(self, data, *args, **kwargs)
 
                         _CaprotoPV.write = _checked_caproto_pv_write
+                        _caproto_threading_wrapped.append('PV.write')
 
-                    print("✅ Monkeypatched caproto.threading.client PV.write()")
+                    # A ``Batch`` groups requests it is handed and sends them
+                    # together, so its write carries the PV to drive rather
+                    # than being bound to one. The channel is that PV's own
+                    # name and the step is measured over that PV's own read -
+                    # the same two answers the PV.write wrapper uses, taken
+                    # from the argument instead of from ``self``.
+                    if _CaprotoBatch is not None and hasattr(_CaprotoBatch, "write"):
+                        _orig_caproto_batch_write = _CaprotoBatch.write
+
+                        def _checked_caproto_batch_write(self, *args, **kwargs):
+                            '''Limits-checked wrapper for caproto threading Batch.write().'''
+                            _pv = args[0] if args else kwargs.get('pv')
+                            _data = args[1] if len(args) > 1 else kwargs.get('data')
+                            if _pv is None:
+                                raise ValueError(
+                                    "caproto Batch.write requires a pv so the "
+                                    "write can be limits-checked"
+                                )
+                            _limits_validator.validate(
+                                getattr(_pv, 'name', _pv),
+                                _data,
+                                read_current=_caproto_pv_current_value(_pv),
+                            )
+                            return _orig_caproto_batch_write(self, *args, **kwargs)
+
+                        _CaprotoBatch.write = _checked_caproto_batch_write
+                        _caproto_threading_wrapped.append('Batch.write')
+
+                    if _caproto_threading_wrapped:
+                        print(
+                            "✅ Monkeypatched caproto.threading.client: "
+                            + ", ".join(_n + "()" for _n in _caproto_threading_wrapped)
+                        )
+                    else:
+                        print(
+                            "⚠️  caproto.threading.client guard failed: "
+                            "no write method"
+                        )
                 except ImportError:
                     print(
                         "ℹ️  caproto.threading.client not available - "
@@ -1227,6 +1454,58 @@ if not _execution_dir.exists():
                     )
                 except Exception as _caproto_error:
                     print(f"⚠️  caproto.threading.client guard failed: {{_caproto_error}}")
+
+                try:
+                    import caproto.asyncio.client as _caproto_asyncio
+
+                    _CaprotoAsyncPV = getattr(_caproto_asyncio, 'PV', None)
+
+                    if _CaprotoAsyncPV is not None and hasattr(_CaprotoAsyncPV, "write"):
+                        _orig_caproto_async_write = _CaprotoAsyncPV.write
+
+                        async def _checked_caproto_async_write(self, data, *args, **kwargs):
+                            '''Limits-checked wrapper for caproto asyncio PV.write().
+
+                            The guard is a coroutine, so unlike the synchronous
+                            clients it can await the max_step read itself and
+                            hand the validator a plain value. That read is
+                            bought only by a channel that configures max_step,
+                            and a read that fails answers None, which fails the
+                            step check closed. The ceiling is passed explicitly
+                            rather than left to the client context's own
+                            timeout, which a script is free to set to None.
+                            '''
+                            _cfg = _limits_validator.get_limits_config(self.name)
+                            _current = None
+                            if _cfg and _cfg['max_step'] is not None:
+                                try:
+                                    _current = _caproto_scalar(
+                                        await self.read(timeout=STEP_READ_TIMEOUT_SECONDS)
+                                    )
+                                except Exception:
+                                    _current = None
+
+                            _limits_validator.validate(
+                                self.name, data, read_current=lambda _address: _current
+                            )
+                            return await _orig_caproto_async_write(
+                                self, data, *args, **kwargs
+                            )
+
+                        _CaprotoAsyncPV.write = _checked_caproto_async_write
+                        print("✅ Monkeypatched caproto.asyncio.client PV.write()")
+                    else:
+                        print(
+                            "⚠️  caproto.asyncio.client guard failed: "
+                            "no PV.write method"
+                        )
+                except ImportError:
+                    print(
+                        "ℹ️  caproto.asyncio.client not available - "
+                        "caproto limits checking disabled"
+                    )
+                except Exception as _caproto_error:
+                    print(f"⚠️  caproto.asyncio.client guard failed: {{_caproto_error}}")
             except Exception as e:
                 print(f"⚠️  Limits checking setup failed: {{e}}")
                 import traceback

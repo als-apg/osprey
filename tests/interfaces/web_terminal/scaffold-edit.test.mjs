@@ -31,6 +31,7 @@ import { qs } from '../_support/dom.mjs';
 
 import { createScaffoldGalleryEditForm } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/edit-form.js';
 import { createScaffoldGalleryEdit } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/edit.js';
+import { createScaffoldGalleryDetail } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail.js';
 import { resetFetchCache } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/data.js';
 
 /**
@@ -491,12 +492,74 @@ describe('takeOwnership / releaseToFramework / handleEditFramework', () => {
     await edit.handleEditFramework();
 
     expect(gallery.reloadFull).toHaveBeenCalledOnce();
+    // Edit mode is an argument to the open, not a flip afterwards: the flip
+    // left a Preview render already in flight against the same pane.
     expect(gallery.openDetail).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'a', status: 'user-owned' })
+      expect.objectContaining({ name: 'a', status: 'user-owned' }),
+      'edit'
     );
+    expect(gallery.renderDetailModes).not.toHaveBeenCalled();
+    expect(gallery.renderDetailContent).not.toHaveBeenCalled();
+  });
+
+  test('handleEditFramework fetches the claimed file once, not once per render', async () => {
+    // The real detail shell and edit-form renderer, wired the way
+    // ArtifactGallery wires them: a stubbed openDetail issues no fetch, so it
+    // cannot tell one render from the two this flow used to start.
+    /** @type {string[]} */
+    const calls = [];
+    vi.stubGlobal('fetch', vi.fn((/** @type {string} */ url, /** @type {RequestInit} */ init) => {
+      calls.push(`${(init && init.method) || 'GET'} ${url}`);
+      return Promise.resolve({
+        ok: true, json: () => Promise.resolve({ content: 'framework body', language: 'text' }),
+      });
+    }));
+
+    const gallery = /** @type {any} */ ({
+      selectedArtifact: { name: 'a', status: 'framework' },
+      artifacts: [],
+      currentView: 'detail',
+      detailMode: 'preview',
+      detailRenderSeq: 0,
+      editDirty: false,
+      galleryView: document.createElement('div'),
+      detailView: document.createElement('div'),
+      detailHeaderEl: document.createElement('div'),
+      detailModesEl: document.createElement('div'),
+      detailContentEl: document.createElement('div'),
+      errorEl: document.createElement('div'),
+      onDetailOpen: null,
+      onDetailClose: null,
+      load: () => Promise.resolve(),
+      renderGallery: vi.fn(),
+      handleEditFramework: vi.fn(),
+      discardEdits: vi.fn(),
+      saveOverride: vi.fn(),
+      takeOwnership: vi.fn(),
+      releaseToFramework: vi.fn(),
+      closeDetail: vi.fn(),
+    });
+    gallery.reloadFull = vi.fn(async () => {
+      gallery.artifacts = [{ name: 'a', category: 'agents', status: 'user-owned' }];
+      gallery.renderGallery();
+    });
+    gallery.renderEdit = createScaffoldGalleryEditForm(gallery).renderEdit;
+
+    const detail = createScaffoldGalleryDetail(gallery);
+    gallery.openDetail = detail.openDetail;
+    gallery.renderDetailHeader = detail.renderDetailHeader;
+    gallery.renderDetailModes = detail.renderDetailModes;
+    gallery.renderDetailContent = detail.renderDetailContent;
+
+    const edit = createScaffoldGalleryEdit(gallery);
+    await edit.handleEditFramework();
+    // openDetail's render is started, not awaited.
+    for (let i = 0; i < 3; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+
     expect(gallery.detailMode).toBe('edit');
-    expect(gallery.renderDetailModes).toHaveBeenCalledOnce();
-    expect(gallery.renderDetailContent).toHaveBeenCalledOnce();
+    expect(calls).toContain('POST /api/scaffold/a/claim');
+    expect(calls.filter((c) => c === 'GET /api/scaffold/a')).toHaveLength(1);
+    expect(qs(gallery.detailContentEl, '.prompts-edit-textarea')).toBeTruthy();
   });
 });
 

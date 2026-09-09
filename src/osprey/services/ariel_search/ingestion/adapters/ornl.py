@@ -101,8 +101,8 @@ class ORNLLogbookAdapter(FacilityAdapter):
             try:
                 import aiohttp
 
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(self.source_url) as response:
+                async with aiohttp.ClientSession(connector=self._create_connector()) as session:
+                    async with session.get(self.source_url, ssl=self._ssl_context()) as response:
                         if response.status != 200:
                             raise IngestionError(
                                 f"HTTP request failed with status {response.status}",

@@ -112,7 +112,7 @@ from osprey_hook_log import (
 )
 
 #: Subdirectory of the agent-data root that holds the agent's notebooks. This
-#: is the ``notebooks`` in ``NotebookEdit(<agent_data_root>/notebooks/**)`` as
+#: is the ``notebooks`` in ``Edit(<agent_data_root>/notebooks/**)`` as
 #: rendered by ``settings.json.j2`` and gated by ``osprey_memory_guard.py``.
 _NOTEBOOKS_SUBDIR = "notebooks"
 

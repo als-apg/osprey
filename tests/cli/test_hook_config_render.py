@@ -49,6 +49,7 @@ _EXPECTED_KEYS = {
     "server_prefixes",
     "approval_prefixes",
     "write_tools",
+    "control_system_write_tools",
     "mixed_read_write_tools",
     "lane_addressed_tools",
 }
@@ -351,6 +352,30 @@ def test_write_tools_still_carries_exact_names_and_the_custom_regex(tmp_path):
     # aware `is_write_tool` gates every tool on that server off it, and
     # read_only_disallowed_tools is built from the same entry.
     assert "mcp__sitectl__.*" in write_tools
+
+
+# ---------------------------------------------------------------------------
+# control_system_write_tools: the appended extras, and nothing else
+# ---------------------------------------------------------------------------
+
+
+def test_control_system_write_tools_is_empty_when_the_project_names_no_extras(tmp_path):
+    """The default: a populated ``write_tools`` beside an EMPTY extras list.
+
+    ``control_system_write_tools`` names only what this render appended on top
+    of the server-derived matchers, so a project that sets no
+    ``control_system.write_tools`` renders it empty — while ``write_tools``
+    itself is full. Emitting the two the other way round (the whole write set,
+    or the whole configured list) would hand osprey_config_drift.py names that
+    ARE in the kill-switch deny and silence the drift warning it exists to
+    raise.
+    """
+    manager, project_dir = _create_project(tmp_path)
+    _reconfigure(project_dir, claude_code_servers=_MULTI_SERVER)
+    config = _regenerate(manager, project_dir)
+
+    assert config["control_system_write_tools"] == []
+    assert config["write_tools"], "vacuous: nothing was rendered to be excluded from"
 
 
 # ---------------------------------------------------------------------------

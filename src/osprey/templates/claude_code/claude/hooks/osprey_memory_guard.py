@@ -64,13 +64,14 @@ automatically.
 
 ``NotebookEdit`` is held to ``<agent_data_root>/artifacts/`` and
 ``<agent_data_root>/notebooks/`` instead, mirroring the scoped
-``NotebookEdit(<agent_data_root>/artifacts/**)`` and
-``NotebookEdit(<agent_data_root>/notebooks/**)`` allow rules that
-``settings.json.j2`` renders. Both trees hold the agent's own notebooks — the
-artifact tree the gallery serves, and the notebooks tree the Jupyter panel
-serves. Holding them to the memory directory would deny the agent its own
-notebooks, and holding them to nothing at all would reopen arbitrary writes
-under a different tool name.
+``Edit(<agent_data_root>/artifacts/**)`` and
+``Edit(<agent_data_root>/notebooks/**)`` allow rules that
+``settings.json.j2`` renders (Claude Code matches every file-editing tool,
+``NotebookEdit`` included, against ``Edit(path)`` rules). Both trees hold the
+agent's own notebooks — the artifact tree the gallery serves, and the
+notebooks tree the Jupyter panel serves. Holding them to the memory directory
+would deny the agent its own notebooks, and holding them to nothing at all
+would reopen arbitrary writes under a different tool name.
 
 All other targets are denied — the agent never sees a user prompt for a write
 this guard does not recognise.
@@ -124,8 +125,8 @@ _PATH_KEYS = {
 #: Subdirectories of the agent-data root that ``NotebookEdit`` may write into:
 #: ``artifacts`` for the agent's generated output, ``notebooks`` for the tree the
 #: Jupyter panel serves. These are the two subdirectories in the
-#: ``NotebookEdit(<agent_data_root>/artifacts/**)`` and
-#: ``NotebookEdit(<agent_data_root>/notebooks/**)`` allow rules as rendered by
+#: ``Edit(<agent_data_root>/artifacts/**)`` and
+#: ``Edit(<agent_data_root>/notebooks/**)`` allow rules as rendered by
 #: ``settings.json.j2``. The order is the order a refusal lists them in.
 _NOTEBOOK_SUBDIRS = ("artifacts", "notebooks")
 
@@ -169,7 +170,7 @@ def agent_data_base_dir(config: dict | None) -> str:
     is duplicated: the hook runs in user projects where ``osprey`` may not be
     importable. The key is the single spelling of the agent-data root, so a
     project that relocates it keeps this guard and the rendered
-    ``NotebookEdit`` allow rule pointing at the same tree.
+    ``Edit(...)`` allow rules pointing at the same tree.
 
     Args:
         config: Loaded ``config.yml`` mapping, or ``None``.

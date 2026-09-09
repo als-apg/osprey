@@ -27,6 +27,11 @@ import { createChatRenderer, elem } from './chat-render.js';
 import { buildEmptyState, onKindChange, onSettled, renderEmptyStateContent } from './first-contact.js';
 import { getPointer, setPointer, subscribe as subscribeToPointer } from './session-pointer.js';
 import { notifySessionChange } from './terminal.js';
+import {
+  HANDOFF_PENDING_MESSAGE,
+  HANDOFF_RESTART_BUDGET_MS,
+  HANDOFF_RESTARTING_MESSAGE,
+} from './terminal-handoff.js';
 
 /** Max textarea height (px) before it scrolls — matches operator.css. */
 const MAX_INPUT_HEIGHT = 120;
@@ -104,9 +109,6 @@ const HANDOFF_REFUSALS = {
 
 /** Overlay copy for a hand-off that failed with no reason this view knows. */
 const HANDOFF_FALLBACK = { message: 'The hand-off failed.', action: /** @type {'retry'} */ ('retry') };
-
-/** Copy shown while the outgoing view finishes the turn it is on. */
-const HANDOFF_PENDING_MESSAGE = 'Finishing in the other view · ';
 
 /**
  * Build the operator console interior — session bar, message list, hand-off
@@ -307,11 +309,17 @@ export function initChat(containerId = 'operator-container') {
   /** The in-flight hand-off request, so a retry can abandon it first. */
   let handoffAbort = /** @type {AbortController | null} */ (null);
 
-  /** When the current hand-off wait started, or null when none is showing. */
+  /** When the current hand-off began, or null when none is showing. */
   let waitStartedAt = /** @type {number | null} */ (null);
 
   /** The 1 Hz elapsed-time ticker, or null when nothing is counting. */
   let ticker = /** @type {number | null} */ (null);
+
+  /** The timer that turns a long restart into the wait, or null when none is armed. */
+  let escalation = /** @type {number | null} */ (null);
+
+  /** Whether the wait is on screen; it never steps back to a restart. */
+  let waiting = false;
 
   const isSimpleMode = () =>
     document.documentElement.getAttribute('data-ui-mode') === 'simple';
@@ -400,13 +408,23 @@ export function initChat(containerId = 'operator-container') {
     elapsed.textContent = `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
   }
 
-  /** Stop the elapsed counter and forget when the wait began. */
+  /** Stop the clock and the escalation, and forget when the hand-off began. */
   function stopTicker() {
     if (ticker !== null) {
       clearInterval(ticker);
       ticker = null;
     }
+    disarmEscalation();
     waitStartedAt = null;
+    waiting = false;
+  }
+
+  /** Cancel a pending restart-to-wait escalation. */
+  function disarmEscalation() {
+    if (escalation !== null) {
+      clearTimeout(escalation);
+      escalation = null;
+    }
   }
 
   /**
@@ -444,22 +462,48 @@ export function initChat(containerId = 'operator-container') {
   }
 
   /**
-   * Show the transitional state: the other view's agent is finishing its turn
-   * and this one is waiting for it. There is no bound on that wait, so the
-   * elapsed time is the honest thing to show, and the button is the way out.
+   * Show the transitional state. The hand-off route answers only once the
+   * session is this view's, so nothing here says up front whether the other
+   * view's agent is mid-turn: the restart is shown first — the agent is being
+   * stopped there and started here — and the wait, with its clock and its way
+   * out, once the restart outlasts its budget. A hand-off that cuts a running
+   * turn short is a wait from the start.
+   * @param {boolean} cutRunningTurn
    */
-  function showHandoffPending() {
-    // A retry continues the wait the operator is already watching rather than
-    // restarting its clock.
+  function showHandoffPending(cutRunningTurn) {
+    // A retry continues the hand-off the operator is already watching rather
+    // than restarting its clock.
     if (waitStartedAt === null) waitStartedAt = Date.now();
+    if (cutRunningTurn || waiting) {
+      showWait();
+    } else {
+      setOverlayMessage(HANDOFF_RESTARTING_MESSAGE, false);
+      setOverlayAction('', null);
+      if (escalation === null) {
+        escalation = window.setTimeout(() => {
+          escalation = null;
+          showWait();
+        }, HANDOFF_RESTART_BUDGET_MS);
+      }
+    }
+    overlay.hidden = false;
+    setTransitioning(true);
+  }
+
+  /**
+   * The wait: the other view's agent is finishing its turn and this one is
+   * waiting for it. There is no bound on that wait, so the elapsed time is
+   * the honest thing to show, and the button is the way out.
+   */
+  function showWait() {
+    waiting = true;
+    disarmEscalation();
     setOverlayMessage(HANDOFF_PENDING_MESSAGE, true);
     renderElapsed();
     if (ticker === null) ticker = window.setInterval(renderElapsed, 1000);
     setOverlayAction('Stop and switch now', () => {
       void runHandoff(true);
     });
-    overlay.hidden = false;
-    setTransitioning(true);
   }
 
   /**
@@ -545,7 +589,7 @@ export function initChat(containerId = 'operator-container') {
     handoffAbort = controller;
 
     const key = boundKey;
-    showHandoffPending();
+    showHandoffPending(cutRunningTurn);
     /** @type {{ state: string, session_id: string } | null} */
     let handed = null;
     try {

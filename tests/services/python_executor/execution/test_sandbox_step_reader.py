@@ -503,7 +503,7 @@ def _install_fake_caproto(monkeypatch, reads, writes):
         def __init__(self, name):
             self.name = name
 
-        def read(self):
+        def read(self, **kwargs):
             reads.append(self.name)
             return _CaprotoResponse(CURRENT)
 

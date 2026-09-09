@@ -56,7 +56,7 @@ def test_builtin_cborg_is_anthropic_native_no_proxy():
     assert spec.needs_proxy is False
     assert spec.upstream_base_url is None
     # Built-in cborg pins Claude models, not self-hosted ones:
-    assert spec.tier_to_model["sonnet"] == "claude-sonnet-4-6"
+    assert spec.tier_to_model["sonnet"] == "claude-sonnet-5"
 
 
 def test_auth_secret_env_is_derived_from_provider_name():

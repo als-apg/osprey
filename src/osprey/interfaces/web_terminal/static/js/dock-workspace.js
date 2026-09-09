@@ -140,6 +140,16 @@ export function setLayoutRestoredHook(fn) {
   if (layoutRestoredAlready) fn();
 }
 
+/**
+ * Whether the boot layout has settled: the arrangement on screen is the final
+ * one and no restore is pending that would re-apply it. False until the boot
+ * layout is announced, true from then on.
+ * @returns {boolean}
+ */
+export function bootLayoutSettled() {
+  return layoutRestoredAlready;
+}
+
 /** Announce the boot layout as final, latching it for any later subscriber. */
 function announceLayoutRestored() {
   layoutRestoredAlready = true;

@@ -1555,6 +1555,8 @@ def _materialize_profile_directory(
     """
     import shutil
 
+    from osprey.utils.dotenv import env_lock_path
+
     from .build_profile import (
         EXTENDS_OVERRIDE_REFUSAL,
         _normalize_preset_name,
@@ -1728,8 +1730,10 @@ def _materialize_profile_directory(
         if not env_pre_existed and (target / _PROFILE_ENV_FILENAME).exists():
             # The sibling lock file is created beside the `.env` by the shared
             # writer and deliberately never removed while the `.env` lives; a
-            # discarded `.env` takes it along.
-            run_written += [_PROFILE_ENV_FILENAME, f"{_PROFILE_ENV_FILENAME}.lock"]
+            # discarded `.env` takes it along. `_cleanup` joins these names onto
+            # `target`, so the name is what is wanted, un-resolved.
+            env_path = target / _PROFILE_ENV_FILENAME
+            run_written += [_PROFILE_ENV_FILENAME, env_lock_path(env_path).name]
         if shell_keys.skipped:
             # Debug only. `osprey init`'s summary prints the same sentence from
             # the same helper, and this is the only caller, so logging it here

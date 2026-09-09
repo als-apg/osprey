@@ -925,6 +925,11 @@ class TestThePreExchangeRefusalsAreBounded:
 
     def test_a_flood_of_login_starts_appends_once(self, zone: Path) -> None:
         app = _oidc_app(UNMAPPED_OIDC_ENV)
+        # The flood has to land in ONE window for "appends once" to be the claim
+        # being made, and the window is a real duration the throttle reads off a
+        # clock. Held still, so what is asserted is the fold and not how long
+        # fifty requests happened to take on the machine running them.
+        _with_movable_audit_window(app)
         for _ in range(50):
             assert _oidc_start(app, "bob").status_code == 403
         assert len(_records(zone)) == 1
@@ -960,6 +965,9 @@ class TestThePreExchangeRefusalsAreBounded:
         the second free to lose its bound unnoticed.
         """
         app = _oidc_app(env)
+        # Held still, so what is asserted is the fold and not how long twenty
+        # callbacks happened to take on the machine running them.
+        _with_movable_audit_window(app)
         for _ in range(20):
             assert _callback(app, user="bob").status_code == 403
         assert [record["reason"] for record in _records(zone)] == [reason]

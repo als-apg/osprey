@@ -4,7 +4,10 @@ Unit tests for DOOCSConnector.
 All tests mock doocs4py so no installed DOOCS environment is required.
 """
 
+import asyncio
 import sys
+import time
+from contextlib import suppress
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
@@ -372,6 +375,112 @@ class TestConfirmResolution:
 
         assert result.outcome is WriteOutcome.CONFIRMED
         mock_d4py.get.assert_called_once_with("FAC/DEV/LOC/PROP")
+
+
+class TestNonBlockingOffload:
+    """Limits validation and the send share ONE thread offload.
+
+    A max_step check reads the property's present value with a blocking
+    ``doocs4py.get()``, so running validation on the event loop would stall
+    every other coroutine in the process for the length of that read.
+    """
+
+    async def test_validate_runs_off_the_event_loop(self):
+        """A slow (blocking) validate() must NOT starve the event loop.
+
+        Stands in for max_step's blocking read with a 0.3 s ``time.sleep``
+        inside validate(). While the write is in flight, a concurrently awaited
+        0.05 s sleep must still finish promptly and a 0.005 s ticker must keep
+        advancing — neither is possible if validation runs on the loop.
+        """
+        validator = _make_limits_validator(confirm=False)
+
+        def slow_validate(_address, _value, *, read_current=None):
+            time.sleep(0.3)  # stand-in for max_step's blocking fresh read
+
+        validator.validate = MagicMock(side_effect=slow_validate)
+
+        mock_d4py = _make_doocs4py()
+
+        ticks = 0
+
+        async def ticker():
+            nonlocal ticks
+            while True:
+                await asyncio.sleep(0.005)
+                ticks += 1
+
+        with (
+            patch.dict(sys.modules, {"doocs4py": mock_d4py}),
+            patch(_LIMITS_PATCH, return_value=validator),
+            patch(_TZ_PATCH, return_value=UTC),
+            patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
+        ):
+            from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+
+            conn = DOOCSConnector()
+            await conn.connect({})
+
+            ticker_task = asyncio.create_task(ticker())
+            write_task = asyncio.create_task(
+                conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=False)
+            )
+
+            # Let the write reach its offload, then measure how long a short
+            # concurrent sleep takes while validate() blocks a worker thread.
+            start = time.monotonic()
+            await asyncio.sleep(0.05)
+            elapsed = time.monotonic() - start
+
+            result = await write_task
+            ticker_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await ticker_task
+            await conn.disconnect()
+
+        assert elapsed < 0.2, f"event loop was blocked for {elapsed:.3f}s"
+        assert ticks > 0, "concurrent coroutine was starved (loop blocked)"
+        # The check was still made, and the value still went out.
+        validator.validate.assert_called_once()
+        assert result.outcome is WriteOutcome.UNREQUESTED
+        mock_d4py.set.assert_called_once_with("FAC/DEV/LOC/PROP", 10.0)
+
+    async def test_a_limits_refusal_raised_in_the_offload_sends_nothing(self):
+        """A refusal from the worker thread reaches the caller as itself.
+
+        Validation and the send share one offload, so the refusal is raised off
+        the loop and has a thread boundary to cross. It must arrive carrying its
+        LIMITS meaning rather than flattened into a failed write, and the value
+        it refused must never reach ``doocs4py.set``.
+        """
+        from osprey_connectors.errors import ChannelLimitsViolationError
+
+        refusal = ChannelLimitsViolationError(
+            "FAC/DEV/LOC/PROP", 10.0, "max_value", "above the configured ceiling"
+        )
+        validator = _make_limits_validator()
+        validator.validate = MagicMock(side_effect=refusal)
+
+        mock_d4py = _make_doocs4py()
+
+        with (
+            patch.dict(sys.modules, {"doocs4py": mock_d4py}),
+            patch(_LIMITS_PATCH, return_value=validator),
+            patch(_TZ_PATCH, return_value=UTC),
+            patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
+        ):
+            from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+
+            conn = DOOCSConnector()
+            await conn.connect({})
+
+            with pytest.raises(ChannelLimitsViolationError) as raised:
+                await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=False)
+
+            await conn.disconnect()
+
+        assert raised.value is refusal
+        mock_d4py.set.assert_not_called()
 
 
 class _Incomparable:

@@ -286,13 +286,56 @@ class TestResolveServers:
         operator the ability to launch the panel back, and ``register_panel``
         adds a proxied upstream, so those stay behind a prompt. This pins that
         split rather than leaving it to the order of a list literal.
+
+        Disjointness alone would stay green if the three fell out of both
+        lists — unclassified, which is what they were — so their membership in
+        ``permissions_ask`` and their approval hooks are pinned by name too.
         """
         ctx = _base_ctx()
         servers = resolve_servers({}, ctx)
         workspace = [s for s in servers if s["name"] == "osprey_workspace"][0]
         allow = set(workspace["permissions_allow"])
+        ask = set(workspace["permissions_ask"])
+        gated = {"add_panel_to_rail", "remove_panel_from_rail", "register_panel"}
         assert {"list_panels", "open_panel", "close_panel", "arrange_workspace"} <= allow
-        assert allow.isdisjoint({"add_panel_to_rail", "remove_panel_from_rail", "register_panel"})
+        assert allow.isdisjoint(gated)
+        assert gated <= ask
+        # A literal matcher per tool: the approval hook and the SDK's disallow
+        # engine both match tool names exactly, so an alternation group would
+        # gate nothing — and it would blind check_config_keys.py's extractor.
+        matchers = {rule["matcher"] for rule in workspace["hooks_pre"]}
+        assert {f"mcp__osprey_workspace__{tool}" for tool in gated} <= matchers
+
+    def test_workspace_read_back_tools_are_auto_approved(self):
+        """The artifact and lattice read-backs resolve to silent-allow.
+
+        ``artifact_pin`` and the five lattice verbs below were unclassified —
+        in neither list — so nothing pinned which side of the split they land
+        on, and the disjointness assertion above stays green either way. They
+        are named here because each is either a read of state the agent just
+        produced or a write to the simulation's own scratch state, which
+        ``lattice_init`` restores; none of it reaches hardware, so a prompt per
+        call would buy nothing.
+
+        ``lattice_clear_baseline`` is allow-listed here and still blocked under
+        the headless read-only floor, which classifies it side-effecting from
+        its name — that is the intended posture, not a contradiction.
+        """
+        ctx = _base_ctx()
+        servers = resolve_servers({}, ctx)
+        workspace = [s for s in servers if s["name"] == "osprey_workspace"][0]
+        allow = set(workspace["permissions_allow"])
+        ask = set(workspace["permissions_ask"])
+        read_back = {
+            "artifact_pin",
+            "lattice_get_data",
+            "lattice_get_figure",
+            "lattice_get_settings",
+            "lattice_update_settings",
+            "lattice_clear_baseline",
+        }
+        assert read_back <= allow
+        assert ask.isdisjoint(read_back)
 
     def test_health_server_entry(self):
         """The health server is an opt-in, read-only server.

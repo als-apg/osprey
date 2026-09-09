@@ -47,32 +47,43 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # ARIEL server and has no approval table for it, so it alone stands still.
     # A rebuilt project prompts before a publish, so the staleness advisory
     # firing on already-deployed projects is the correct signal.
-    "ariel-standalone": ("sha256:2522f525c8850daf2915e59b898a13269d1c924d59d0d0f868b219a2b8e72c6d"),
+    # The fifth move, and again nine of ten: the panel-rail verbs
+    # (`add_panel_to_rail`, `remove_panel_from_rail`, `register_panel`) became
+    # approval-governed, and the three presets that ship an approval table —
+    # ariel-standalone, hello-world, control-assistant, whose six `extends`
+    # children inherit the lines — each gained an `always` entry for them.
+    # channel-finder-standalone ships no approval table at all: its rail verbs
+    # are governed too but fall to `default_policy`, so nothing in its resolved
+    # content moved and its digest alone stands still. Rewriting its approval
+    # comment did not move it either — the hash is over resolved content, not
+    # over the file's text. A rebuilt project prompts before the rail changes,
+    # so the staleness advisory firing on already-deployed projects is correct.
+    "ariel-standalone": ("sha256:53afe2c27732088ac35b8b3e044b946783f1eb147d831c32c3b11bcda504c62c"),
     "channel-finder-standalone": (
         "sha256:5c5d670fb6d048e854dfa5ecff9b02d6b9bf504a4cd574d6a5f66b34e18e3fa1"
     ),
     "control-assistant": (
-        "sha256:e1cd276ba9e3062452b5afe86daed341be5c8cfa12b6a992d7b4ea0e33c2ff05"
+        "sha256:b2719e48731ecf85e505686d4c929c72103091cb317b70d6845dc775c8d2186d"
     ),
     "control-assistant-admin": (
-        "sha256:c29f07d93cee491afda6276603d5a86a9cf0e919960ba598f78c8906e419eb3c"
+        "sha256:8ad7421b03092bd2aca4bf328975ff859424d7084dfdfcf709c1121216ed3091"
     ),
     "control-assistant-knowledge": (
-        "sha256:84fb320d701ef1d14d18155c0c59dfff4b2bcc2d5441175733f7fb6d2aad90f0"
+        "sha256:212af69627d533b4714bd838e82c99187e55c1ccfbaf2dec66ac518484dc066b"
     ),
     "control-assistant-logbook": (
-        "sha256:a63cee6c479a8bee82c1f6e261b921ea96708226cb9e0d331d52d9e800b195e4"
+        "sha256:40585b7f5b80f9b6794fee9726be84a093c65fcc956dfe7e592714df857ae53f"
     ),
     "control-assistant-readonly": (
-        "sha256:99a75fd3714a9114fd527724b77de6b7bd36aac571b821882b8903be6c626c3c"
+        "sha256:6f7bfd43d8e3765509247fbeca4282261b0a33d86630aabe8aa8f4e5601bd311"
     ),
     "control-assistant-readwrite": (
-        "sha256:3a8c88791900e5c0d7bff064db59f65a1244dd07425a90e1e17301311aa63a19"
+        "sha256:ca9356ff5249d68e8272e78a6616614c454f3bcbe0b3d98718a17750281de861"
     ),
     "control-assistant-va-readwrite": (
-        "sha256:93c34788a885b8013162c85bb9f39fd506b6950c210fc8f07ae1579e13f42f20"
+        "sha256:13904af0b3dff63d30e0dfb01fcb493590c50b39bfc47e015d0762bf9a4bace9"
     ),
-    "hello-world": ("sha256:5f23b2a31f03c885b20dae82781aa87efda81db3960d6865c3bc93e54e4ca837"),
+    "hello-world": ("sha256:10ce4bc73c7a244debbf355189dfbcd13feb7d31007c79e83c93aec978831b65"),
 }
 
 

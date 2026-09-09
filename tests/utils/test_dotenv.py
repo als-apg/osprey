@@ -15,12 +15,15 @@ one exception, ``BUILD_DERIVED_KEYS``, which the build owns outright.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from osprey.utils.dotenv import (
     BUILD_DERIVED_KEYS,
     VA_LATTICE_DEFAULT,
     _dotenv_raw_lines,
+    env_lock_path,
     merge_env_preserving_existing,
     parse_dotenv_file,
     resolved_va_lattice,
@@ -329,3 +332,25 @@ class TestResolvedVaLattice:
         build.mkdir(parents=True)
         (repo / ".env").write_text("VA_LATTICE=none\n")
         assert resolved_va_lattice(repo, build) == "none"
+
+
+class TestEnvLockPath:
+    """``env_lock_path`` — the one derivation of a ``.env``'s sibling lock name."""
+
+    def test_the_lock_is_the_env_s_name_plus_lock(self):
+        """The single spelling every call site now shares."""
+        assert env_lock_path(Path("a/.env")) == Path("a/.env.lock")
+
+    def test_a_symlinked_path_is_not_resolved(self, tmp_path):
+        """Callers pass this a path they already chose to resolve, or not.
+
+        ``env_file_lock`` resolves first and locks the real inode; the
+        name-shaped callers list files inside a directory they hold by name and
+        would be handed a path outside it if this resolved on their behalf.
+        """
+        real = tmp_path / "real"
+        real.mkdir()
+        link = tmp_path / "link"
+        link.symlink_to(real, target_is_directory=True)
+
+        assert env_lock_path(link / ".env") == link / ".env.lock"

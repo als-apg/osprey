@@ -134,10 +134,13 @@ config:
   # channel_finder.benchmark.dataset_path: data/benchmarks/queries.json
 
   # ── Approval ───────────────────────────────────────────────────────────────
-  # The channel finder is read-only, so no write tool is gated here. The
-  # approval hook reaches only hook-wired tools; in this deployment that is
-  # the workspace setup_patch tool alone. Everything else is gated by the
-  # rendered settings.json permissions.
+  # The channel finder is read-only, so no control-system write is gated here.
+  # The approval hook reaches only hook-wired tools; in this deployment that is
+  # the workspace `setup_patch` tool plus the three panel-rail verbs
+  # `add_panel_to_rail`, `remove_panel_from_rail` and `register_panel`, which
+  # change what the next operator sees. No `approval.tools` key names any of
+  # the four, so all of them fall to the default policy below. Everything else
+  # is gated by the rendered settings.json permissions.
   approval.enabled: true
   # Policy for any hook-wired tool not listed: "always" is fail-closed.
   approval.default_policy: always

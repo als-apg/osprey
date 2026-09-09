@@ -83,7 +83,6 @@ import yaml
 
 from osprey.agent_runner import await_mcp_ready, expected_mcp_servers, sdk_env
 from osprey.agent_runner.primitives import _ingest_tool_result
-from osprey.agent_runner.project_paths import claude_project_dir
 from osprey.mcp_server.control_system.connector_host_manager import baseline_target
 from osprey.mcp_server.control_system.target_state import (
     INFLIGHT_FILE_GLOB,
@@ -113,6 +112,7 @@ from tests.e2e.sdk_helpers import (
     _persist_mcp_sidecar,
     dump_agent_transcript,
     e2e_budget_scale,
+    hook_attachments,
     is_claude_code_available,
     render_dir,
     run_sdk_query_with_hooks,
@@ -796,9 +796,11 @@ async def run_switch_session(
 # Reading the approval prompt back
 # ---------------------------------------------------------------------------
 
-#: The transcript records that carry a hook's own stdout, and the event whose
-#: output can ask for approval.
-_HOOK_ATTACHMENT_TYPE = "hook_success"
+#: The attachment type of a hook that exited 0, and the event whose output can
+#: ask for approval. :func:`~tests.e2e.sdk_helpers.hook_attachments` hands back
+#: every ``hook_``-prefixed attachment, failures included; only a hook that
+#: succeeded had its decision honoured, so only those are approval prompts.
+_HOOK_SUCCESS_TYPE = "hook_success"
 _PRE_TOOL_USE = "PreToolUse"
 
 
@@ -835,36 +837,23 @@ def approval_prompts(result: HookObservedResult, render: Path) -> list[ApprovalP
     raw stdout into the session transcript as a ``hook_success`` attachment
     carrying the ``toolUseID`` it gated, so the prompt an operator would have
     read is recoverable exactly, and joins to a tool trace by id rather than by
-    guessing at ordering.
+    guessing at ordering. Reading the transcript is
+    :func:`~tests.e2e.sdk_helpers.hook_attachments`, which the CI artifact dump
+    also uses; what remains here is the approval-specific filter over it.
 
     **This helper is meant to retire.** When a CLI populates
     ``decision_reason``, that field becomes the preferred path — it needs no
-    disk, no session id, and no transcript layout — and this reader should move
-    into ``sdk_helpers`` or disappear. Until then it is the only channel that
-    carries the wording, so every scenario asserting on approval text goes
-    through it.
+    disk, no session id, and no transcript layout — and this filter disappears.
+    Until then it is the only channel that carries the wording, so every
+    scenario asserting on approval text goes through it.
 
     Returns an empty list when the session id or the transcript cannot be
     resolved: callers assert on what they expected to find, and a bare "no
     prompts" is a clearer failure than an exception from a diagnostic path.
     """
-    session_id = getattr(result.result, "session_id", None)
-    if not session_id:
-        return []
-    transcript = claude_project_dir(Path(render).resolve()) / f"{session_id}.jsonl"
-    if not transcript.is_file():
-        return []
-
     prompts: list[ApprovalPrompt] = []
-    for line in transcript.read_text(encoding="utf-8").splitlines():
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        attachment = record.get("attachment")
-        if not isinstance(attachment, dict):
-            continue
-        if attachment.get("type") != _HOOK_ATTACHMENT_TYPE:
+    for attachment in hook_attachments(result, render):
+        if attachment.get("type") != _HOOK_SUCCESS_TYPE:
             continue
         if attachment.get("hookEvent") != _PRE_TOOL_USE:
             continue
@@ -1134,7 +1123,9 @@ async def test_the_approval_prompt_text_reaches_the_test(
         max_turns=10,
         max_budget_usd=2.0,
     )
-    dump_agent_transcript("target_switch_agentic_fr7_smoke", result)
+    dump_agent_transcript(
+        "target_switch_agentic_fr7_smoke", result, render=switch_deployment.render
+    )
 
     assert result.hook_events, (
         "no hook events recorded — the approval hook never returned 'ask'. Either the agent "
@@ -1786,7 +1777,9 @@ async def test_agent_rehearses_on_the_simulator_then_moves_the_live_machine(
         between=_move_to_the_simulator,
     )
     result = conversation.result
-    dump_agent_transcript("target_switch_agentic_s1_rehearse_then_live", result)
+    dump_agent_transcript(
+        "target_switch_agentic_s1_rehearse_then_live", result, render=switch_deployment.render
+    )
 
     # -- floor: the roster was consulted, and it was consulted FIRST -----------
     rehearsal = conversation.phase(0)
@@ -1952,7 +1945,9 @@ async def test_a_refused_write_is_not_retried_on_the_live_machine(
         max_budget_usd=3.0,
         disallowed_tools=SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
     )
-    dump_agent_transcript("target_switch_agentic_s3_refused_channel", result)
+    dump_agent_transcript(
+        "target_switch_agentic_s3_refused_channel", result, render=switch_deployment.render
+    )
 
     traces = indexed(result)
     switches = traces_named(traces, CONTROL_TARGET_SET_TOOL)
@@ -2129,7 +2124,9 @@ async def test_the_agent_is_honest_when_the_live_machine_stops_answering(
             _wait_for_bench(switch_deployment, answering=True, timeout=BENCH_BOOT_TIMEOUT_S)
 
     result = conversation.result
-    dump_agent_transcript("target_switch_agentic_s4_live_outage", result)
+    dump_agent_transcript(
+        "target_switch_agentic_s4_live_outage", result, render=switch_deployment.render
+    )
 
     # -- floor: the session really was on the live machine when it died -------
     live_phase = conversation.phase(0)
@@ -2269,7 +2266,9 @@ async def test_a_denied_switch_leaves_the_session_where_it_was(
         max_budget_usd=3.0,
         disallowed_tools=SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
     )
-    dump_agent_transcript("target_switch_agentic_s6_denied_switch", result)
+    dump_agent_transcript(
+        "target_switch_agentic_s6_denied_switch", result, render=switch_deployment.render
+    )
 
     # -- floor: the switch was asked for, and refused -------------------------
     denials = [

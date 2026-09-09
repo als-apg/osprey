@@ -637,10 +637,17 @@ def test_read_only_disallowed_covers_registry_side_effect_tools(tmp_path: Path) 
     """Drift guard: every framework-server permissions_ask tool and every
     writes-check-gated matcher in the registry must appear in the read-only
     disallow set. Adding a new approval-required tool to a server thus
-    auto-extends the read-only floor (or fails this test)."""
+    auto-extends the read-only floor (or fails this test).
+
+    The rail verbs and ``register_panel`` arrive through the walk below, since
+    they are ``permissions_ask``. ``lattice_clear_baseline`` does not — it is
+    auto-allowed and reaches the floor only through the destructive-name rule
+    ("clear"), so it is pinned by name."""
     from osprey.registry.mcp import _WRITES_CHECK, FRAMEWORK_SERVERS
 
     result = set(read_only_disallowed_tools(tmp_path))
+
+    assert "mcp__osprey_workspace__lattice_clear_baseline" in result
 
     for server in FRAMEWORK_SERVERS.values():
         # Both ask lists render into the interactive approval list → side-effecting.
@@ -666,6 +673,12 @@ def test_python_server_registers_only_execute_tools_we_block(tmp_path: Path) -> 
     Introspects the FastMCP singleton directly (importing the tool modules
     registers them) rather than running create_server(), which would do heavy
     config/workspace startup.
+
+    The listing comes from the public ``list_tools()``, which filters out
+    disabled, backend-only and auth-gated tools — so an empty or shrunken
+    result would make the loop below vacuously pass. The name floor pins the
+    two tools that must always be in the listing; the loop then proves every
+    listed tool is blocked.
     """
     import asyncio
 
@@ -675,9 +688,12 @@ def test_python_server_registers_only_execute_tools_we_block(tmp_path: Path) -> 
         python_execute_file,
     )
 
-    tools = asyncio.run(py_server.mcp._list_tools())
+    tools = asyncio.run(py_server.mcp.list_tools())
     registered = {getattr(t, "name", t) for t in tools}
-    assert registered, "expected the python server to register at least one tool"
+    assert {"execute", "execute_file"} <= registered, (
+        f"python executor server must register execute and execute_file; "
+        f"list_tools() returned {sorted(registered)}"
+    )
 
     result = set(read_only_disallowed_tools(tmp_path))
     for short in registered:

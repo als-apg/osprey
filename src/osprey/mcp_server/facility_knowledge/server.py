@@ -270,6 +270,22 @@ def create_server() -> FastMCP:
     return mcp
 
 
+def reset_bundle() -> None:
+    """Clear the bundle singletons that :func:`create_server` resolves at startup.
+
+    Both ``_bundle`` and ``_bundle_error`` are process-wide, so a test that
+    starts the server hands its result to every test that runs after it in the
+    same worker. A startup that recorded ``bundle_not_configured`` left that
+    cause standing, and the next test asking for the genuine "the server was
+    never started" branch got the earlier test's answer instead. Tests reset on
+    both sides so that state stays inside the test that created it.
+    """
+    global _bundle, _bundle_error
+
+    _bundle = None
+    _bundle_error = None
+
+
 # ---------------------------------------------------------------------------
 # Tool error envelope
 # ---------------------------------------------------------------------------

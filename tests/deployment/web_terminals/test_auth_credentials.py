@@ -42,6 +42,7 @@ from osprey.utils.dotenv import (
     append_profile_env,
     dotenv_line_var,
     env_file_lock,
+    env_lock_path,
     parse_dotenv_file,
 )
 
@@ -1277,7 +1278,7 @@ def test_purge_leaves_no_temporary_file_and_keeps_the_mode(tmp_path: Path) -> No
 
     assert file_mode(tmp_path / ENV_LOCAL_FILENAME) == 0o600
     assert [path.name for path in tmp_path.iterdir() if path.name != ENV_LOCAL_FILENAME] == [
-        f"{ENV_LOCAL_FILENAME}.lock"
+        env_lock_path(tmp_path / ENV_LOCAL_FILENAME).name
     ]
 
 

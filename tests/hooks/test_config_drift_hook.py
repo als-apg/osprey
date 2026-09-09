@@ -36,6 +36,12 @@ CHANNEL_WRITE = "mcp__controls__channel_write"
 # looking like it had checked.
 CLONE_CHANNEL_WRITE = "mcp__ring__channel_write"
 
+# A per-call-gated write tool a project appends via `control_system.write_tools`.
+# The renderer folds it into `write_tools` but the kill switch never denies it, so
+# a hook that expects to find it in `permissions.deny` sees a partial overlap and
+# abstains — on every deployment that sets the key.
+SITE_CUSTOM_WRITE = "mcp__site__custom_write"
+
 # Channel-write states a rendered settings.json can be in.
 DENIED = "denied"
 ALLOWED = "allowed"
@@ -76,7 +82,12 @@ class _RaisingPath:
 
 
 def _make_project(
-    project_dir, *, writes_enabled: bool | None, channel_write: str, write_tool: str = CHANNEL_WRITE
+    project_dir,
+    *,
+    writes_enabled: bool | None,
+    channel_write: str,
+    write_tool: str = CHANNEL_WRITE,
+    extras: tuple[str, ...] = (),
 ):
     """Write config.yml + .claude/settings.json in a chosen (possibly drifted) state.
 
@@ -91,11 +102,17 @@ def _make_project(
         "\n".join(lines) + "\n",
         channel_write=channel_write,
         write_tool=write_tool,
+        extras=extras,
     )
 
 
 def _make_project_from_text(
-    project_dir, config_text: str, *, channel_write: str, write_tool: str = CHANNEL_WRITE
+    project_dir,
+    config_text: str,
+    *,
+    channel_write: str,
+    write_tool: str = CHANNEL_WRITE,
+    extras: tuple[str, ...] = (),
 ):
     """Same, for a config.yml whose exact text matters (shapes a bool cannot express).
 
@@ -103,6 +120,11 @@ def _make_project_from_text(
     default, a clone's when the test is about a clone. It is written into both
     ``hook_config.json`` (where the hook reads the set from) and
     ``permissions.deny`` (where the kill switch puts it).
+
+    ``extras`` names the tools the project appended via
+    ``control_system.write_tools``: the renderer folds them into ``write_tools``
+    and repeats them under ``control_system_write_tools``, and the kill switch
+    leaves them out of ``permissions.deny``.
     """
     (project_dir / ".claude" / "hooks").mkdir(parents=True, exist_ok=True)
     config_path = project_dir / "config.yml"
@@ -110,7 +132,15 @@ def _make_project_from_text(
     hook_config_path = project_dir / ".claude" / "hooks" / "hook_config.json"
 
     config_path.write_text(config_text, encoding="utf-8")
-    hook_config_path.write_text(json.dumps({"write_tools": [write_tool]}), encoding="utf-8")
+    hook_config_path.write_text(
+        json.dumps(
+            {
+                "write_tools": [write_tool, *extras],
+                "control_system_write_tools": list(extras),
+            }
+        ),
+        encoding="utf-8",
+    )
 
     if channel_write == NO_PERMISSIONS:
         settings = {"hooks": {}}
@@ -231,10 +261,36 @@ def test_writes_enabled_in_config_is_none_when_unreadable(tmp_path):
             ),
             (CHANNEL_WRITE,),
         ),
+        # A tool the project appended via `control_system.write_tools` is gated
+        # per call, not by the kill switch, so it is never in deny either.
+        (
+            json.dumps(
+                {
+                    "write_tools": [CHANNEL_WRITE, SITE_CUSTOM_WRITE],
+                    "control_system_write_tools": [SITE_CUSTOM_WRITE],
+                }
+            ),
+            (CHANNEL_WRITE,),
+        ),
+        # A render from before the key existed: nothing to subtract, same answer
+        # as that render's hook gave.
+        (
+            json.dumps({"write_tools": [CHANNEL_WRITE, CLONE_CHANNEL_WRITE]}),
+            (CHANNEL_WRITE, CLONE_CHANNEL_WRITE),
+        ),
         (json.dumps({"write_tools": []}), ()),
         (json.dumps({"write_tools": [1, None]}), ()),
     ],
-    ids=["clone-only", "framework-and-clone", "wildcard-dropped", "mixed-dropped", "empty", "junk"],
+    ids=[
+        "clone-only",
+        "framework-and-clone",
+        "wildcard-dropped",
+        "mixed-dropped",
+        "extras-dropped",
+        "extras-key-absent",
+        "empty",
+        "junk",
+    ],
 )
 def test_kill_switch_tools(tmp_path, payload, expected):
     hook_config_path = tmp_path / "hook_config.json"
@@ -477,6 +533,26 @@ def test_warns_on_writes_mismatch(tmp_path, run_drift):
     assert "writes_enabled: true" in payload["hookSpecificOutput"]["additionalContext"]
 
 
+def test_warns_on_writes_mismatch_when_the_project_appends_write_tools(tmp_path, run_drift):
+    # Same drift, on a deployment that sets `control_system.write_tools`. Those
+    # extras are gated per call and never enter `permissions.deny`, so counting
+    # them as kill-switch tools makes every such deployment look like a
+    # hand-edited settings.json and the check goes quiet — the signal is lost
+    # exactly where the config says writes are on and the artifacts still block.
+    config_path, settings_path = _make_project(
+        tmp_path, writes_enabled=True, channel_write=DENIED, extras=(SITE_CUSTOM_WRITE,)
+    )
+    _set_mtimes(config_path, settings_path, config_newer=False)
+
+    code, out, err = run_drift(tmp_path)
+
+    assert code == 0
+    assert "writes_enabled: true" in err
+    assert "blocks writes" in err
+    payload = json.loads(out)
+    assert "blocks writes" in payload["hookSpecificOutput"]["additionalContext"]
+
+
 def test_warns_when_config_disables_writes_but_agent_permits(tmp_path, run_drift):
     # The safety-critical direction: config.yml turned writes OFF, but the stale
     # artifacts still permit them — the agent could write hardware the operator
@@ -494,6 +570,22 @@ def test_warns_when_config_disables_writes_but_agent_permits(tmp_path, run_drift
     assert "osprey build" in err
     payload = json.loads(out)
     assert "permits writes" in payload["hookSpecificOutput"]["additionalContext"]
+
+
+def test_warns_when_writes_are_off_and_permitted_with_appended_write_tools(tmp_path, run_drift):
+    # The writes-off direction already warned with extras present — an empty
+    # overlap is not a partial one — and must keep warning after the extras are
+    # subtracted.
+    config_path, settings_path = _make_project(
+        tmp_path, writes_enabled=False, channel_write=ALLOWED, extras=(SITE_CUSTOM_WRITE,)
+    )
+    _set_mtimes(config_path, settings_path, config_newer=False)
+
+    code, out, err = run_drift(tmp_path)
+
+    assert code == 0
+    assert "writes_enabled: false" in err
+    assert "permits writes" in err
 
 
 def test_warns_on_mtime_drift(tmp_path, run_drift):

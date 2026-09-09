@@ -48,11 +48,14 @@ which land with the tasks that cause them:
 that whole mapping (it resolves to an interpreter path), so it can never surface
 as a delta and needs no entry here.
 
-One more delta is declared that Requirement 1 did not foresee:
-``approval.tools.entry_publish`` reaches every render made from a preset that
-spells an ARIEL approval policy. The fixtures were frozen while that tool was
-gated nowhere, so the leaf is genuinely new rather than a render the conversion
-moved.
+Two more deltas are declared that Requirement 1 did not foresee, both from
+later gating work rather than from the conversion. ``approval.tools.entry_publish``
+reaches every render made from a preset that spells an ARIEL approval policy,
+and the three panel-rail verbs — ``approval.tools.add_panel_to_rail``,
+``approval.tools.remove_panel_from_rail`` and ``approval.tools.register_panel``
+— reach every render made from a preset that names its approval policy tool by
+tool. The fixtures were frozen while all four were gated nowhere, so those
+leaves are genuinely new.
 
 One leaf is exempt from the table rather than declared in it. ``osprey build``
 answers the presets' ``container_runtime: auto`` with the runtime that served
@@ -323,6 +326,45 @@ def _entry_publish_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+#: The panel-rail verbs that moved behind the approval hook.
+_RAIL_TOOLS = ("add_panel_to_rail", "remove_panel_from_rail", "register_panel")
+
+
+def _rail_tool_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The panel-rail policy every render with a named approval table gained.
+
+    The rail axis decides what an operator can launch at all, which the
+    on-screen verbs beside it do not: ``remove_panel_from_rail`` costs them the
+    ability to launch the panel back, ``add_panel_to_rail`` puts an entry in
+    front of them, and ``register_panel`` adds a proxied upstream. Gating the
+    three put ``approval.tools.<tool>: always`` in every preset that names its
+    approval policy tool by tool, so every document those presets render gains
+    the three leaves. The fixtures were frozen before that, which is why it
+    reads as a difference here rather than as a render the conversion changed.
+
+    channel-finder-standalone names no ``approval.tools`` entry at all — its
+    rail verbs fall to ``approval.default_policy``, which the freeze already
+    recorded — so its cells gain nothing and are absent below.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        One delta per rail verb per document.
+    """
+    return tuple(
+        Delta(
+            document=document,
+            path=f"approval.tools.{tool}",
+            fixture=ABSENT,
+            live="always",
+        )
+        for document in documents
+        for tool in _RAIL_TOOLS
+    )
+
+
 #: The documents a control-assistant cell renders: the root config plus one per
 #: persona in the preset's roster.
 _CONTROL_ASSISTANT_DOCUMENTS = (
@@ -342,19 +384,26 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     "hello-world/unset": (
         Delta(document="root", path="hooks.debug", fixture=ABSENT, live=False),
         *_entry_publish_deltas("root"),
+        *_rail_tool_deltas("root"),
     ),
-    "ariel-standalone/unset": _standalone_catalog_delta() + _entry_publish_deltas("root"),
+    "ariel-standalone/unset": _standalone_catalog_delta()
+    + _entry_publish_deltas("root")
+    + _rail_tool_deltas("root"),
     "channel-finder-standalone/in_context": _standalone_catalog_delta(),
     "channel-finder-standalone/hierarchical": _standalone_catalog_delta(),
     "channel-finder-standalone/middle_layer": _standalone_catalog_delta(),
     "control-assistant/in_context": _control_assistant_persona_deltas()
-    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
-    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
-    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/graph": _control_assistant_persona_deltas()
-    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
 }
 
 

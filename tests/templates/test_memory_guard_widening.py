@@ -14,9 +14,12 @@ introduced:
   copied verbatim into the ``PreToolUse`` matcher
   (``osprey.cli.templates.claude_code`` builds the rule from it), so the
   frontmatter *is* the matcher;
-* the ``NotebookEdit`` scope agrees with the ``NotebookEdit(<agent_data_root>/
-  <subdir>/**)`` allow rules ``settings.json.j2`` renders — two independent
-  spellings of one policy, which is exactly the pair that silently forks;
+* the ``NotebookEdit`` scope agrees with the ``Edit(<agent_data_root>/<subdir>/**)``
+  allow rules ``settings.json.j2`` renders — two independent spellings of one
+  policy, which is exactly the pair that silently forks. The rule is spelled
+  ``Edit(...)`` because Claude Code checks every file-editing tool, ``NotebookEdit``
+  included, against ``Edit(path)`` rules only; a ``NotebookEdit(path)`` rule is
+  never consulted and is reported as a misconfiguration at every agent start;
 * each tool is actually gated end to end, by running the hook the way Claude
   Code runs it.
 
@@ -58,13 +61,18 @@ NOTEBOOK_SUBDIRS = frozenset({ARTIFACTS_SUBDIR, NOTEBOOKS_SUBDIR})
 
 #: Both spellings of the allow rule, as they appear in the two files. The
 #: template renders one Jinja append per subdirectory; the hook declares the
-#: same set as a tuple.
-_TEMPLATE_ALLOW_RE = re.compile(r"""NotebookEdit\(' ~ agent_data_root ~ '/([^/]+)/\*\*\)""")
+#: same set as a tuple. The leading quote anchors the tool name so that a
+#: ``NotebookEdit(`` rule cannot pass as an ``Edit(`` one.
+_TEMPLATE_ALLOW_RE = re.compile(r""""Edit\(' ~ agent_data_root ~ '/([^/]+)/\*\*\)""")
+#: The rule form Claude Code does not consult for file-editing tools, as the
+#: template would render it (quote-anchored, so a comment naming the form is
+#: not a rendered rule).
+_TEMPLATE_NOTEBOOKEDIT_RULE_RE = re.compile(r'"NotebookEdit\(')
 _HOOK_SUBDIRS_RE = re.compile(r"_NOTEBOOK_SUBDIRS = \(([^)]*)\)")
 
 
 def _template_notebook_subdirs() -> set[str]:
-    """Every agent-data subdirectory the rendered ``NotebookEdit`` allows name."""
+    """Every agent-data subdirectory the rendered ``Edit(...)`` allows name."""
     return set(_TEMPLATE_ALLOW_RE.findall(SETTINGS_TEMPLATE.read_text(encoding="utf-8")))
 
 
@@ -206,13 +214,24 @@ def test_guard_stays_the_outermost_pretooluse_gate():
 
 @pytest.mark.unit
 def test_settings_template_scopes_notebookedit_to_the_agent_data_subdirs():
-    """``settings.json.j2`` grants ``NotebookEdit`` under those two trees and no other.
+    """``settings.json.j2`` grants file edits under those two trees and no other.
 
     The hook denies outside the same directories. If an allow rule is ever
     respelled or a third tree added, the hook's scope has to move with it or the
     two halves of one policy disagree.
     """
     assert _template_notebook_subdirs() == NOTEBOOK_SUBDIRS
+
+
+@pytest.mark.unit
+def test_settings_template_renders_no_notebookedit_path_rules():
+    """The allow rules are spelled ``Edit(path)``, never ``NotebookEdit(path)``.
+
+    Claude Code matches every file-editing tool against ``Edit(path)`` rules
+    only. A ``NotebookEdit(path)`` rule grants nothing and is reported as a
+    misconfiguration at every agent start.
+    """
+    assert not _TEMPLATE_NOTEBOOKEDIT_RULE_RE.search(SETTINGS_TEMPLATE.read_text(encoding="utf-8"))
 
 
 @pytest.mark.unit

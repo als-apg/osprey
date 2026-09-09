@@ -61,17 +61,6 @@ class TestPackagedCatalog:
             assert entry["base_url"], name
             assert set(entry["models"]) == {"haiku", "sonnet", "opus"}, name
 
-    def test_packaged_values_match_the_app_template_block(self):
-        """The catalog is a literal lift of the template's `api.providers`."""
-        template = REPO_ROOT / "src/osprey/templates/apps/control_assistant/config.yml.j2"
-        if not template.is_file():  # deleted once the conversion lands
-            pytest.skip("app template already removed")
-        source = template.read_text(encoding="utf-8")
-        # The providers block is plain YAML — no Jinja — so it parses as-is.
-        block = source.split("\napi:\n", 1)[1].split("\ncontainer_runtime:", 1)[0]
-        rendered = yaml.safe_load("api:\n" + block)["api"]["providers"]
-        assert load_provider_catalog(None).entries == rendered
-
     def test_catalog_carries_no_jinja(self):
         text = packaged_catalog_path().read_text(encoding="utf-8")
         assert "{{" not in text
