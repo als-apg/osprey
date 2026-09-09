@@ -22,11 +22,11 @@ from osprey.cli.ariel import (
     _ENHANCEMENT_MODULES_ATTR,
     _INGESTION_ADAPTERS_ATTR,
     _SEARCH_MODULES_ATTR,
-    _framework_registrations,
     _RegistryChoice,
     ariel_group,
 )
 from osprey.services.ariel_search import cli_operations as ops
+from osprey.services.ariel_search.config import framework_ariel_names
 
 _DB = {"database": {"uri": "postgresql://ariel:ariel@localhost:5432/ariel"}}
 
@@ -56,13 +56,13 @@ class TestChoicesComeFromTheRegistry:
         [_SEARCH_MODULES_ATTR, _ENHANCEMENT_MODULES_ATTR, _INGESTION_ADAPTERS_ATTR],
     )
     def test_choices_match_the_registered_names(self, attribute: str) -> None:
-        assert set(_RegistryChoice(attribute).choices) >= set(_framework_registrations(attribute))
+        assert set(_RegistryChoice(attribute).choices) >= set(framework_ariel_names(attribute))
 
     def test_every_registered_adapter_parses(self, monkeypatch, registered_ingest) -> None:
         """A name the registry carries is accepted, one it does not is refused."""
         monkeypatch.setattr("osprey.cli.ariel.get_config_value", lambda key, default=None: _DB)
 
-        for name in _framework_registrations(_INGESTION_ADAPTERS_ATTR):
+        for name in framework_ariel_names(_INGESTION_ADAPTERS_ATTR):
             result = CliRunner().invoke(ariel_group, ["ingest", "-s", "entries.json", "-a", name])
             assert result.exit_code == 0, result.output
 
