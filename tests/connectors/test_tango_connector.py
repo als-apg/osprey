@@ -9,6 +9,7 @@ PyTango.
 
 import asyncio
 import sys
+import time
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
@@ -529,6 +530,111 @@ class TestConfirmResolution:
         )
         with pytest.raises(ChannelLimitsViolationError):
             await _write_with_validator(validator, value=1e9)
+
+
+class TestNonBlockingOffload:
+    """Validation and the send run in ONE thread offload.
+
+    ``max_step`` validation reads the attribute's present value through a
+    blocking ``read_attribute``, and both the ``DeviceProxy`` lookup and the
+    ``write_attribute`` that follow it are blocking device round trips. All of
+    them belong off the event loop, so a caller awaiting a write never stalls
+    the loop it is running on.
+    """
+
+    async def test_validate_and_send_run_off_the_event_loop(self):
+        """A slow (blocking) validate() must NOT starve the event loop.
+
+        Stands in for max_step's blocking fresh read with a 0.3 s
+        ``time.sleep`` inside validate(). While the write is in flight, a
+        concurrently-awaited 0.05 s sleep must still complete promptly and a
+        ticker must advance — neither is possible if validate ran on the loop.
+        """
+        validator = _make_limits_validator(confirm=False)
+
+        def slow_validate(_addr, _val, *, read_current=None):
+            time.sleep(0.3)  # stand-in for max_step's blocking fresh read
+
+        validator.validate = MagicMock(side_effect=slow_validate)
+
+        proxy = _make_proxy()
+        mock_tango = _make_tango(proxy)
+
+        # A concurrent ticker that can only advance if the loop is being serviced.
+        ticks = 0
+
+        async def ticker():
+            nonlocal ticks
+            while True:
+                await asyncio.sleep(0.005)
+                ticks += 1
+
+        with (
+            patch.dict(sys.modules, {"tango": mock_tango}),
+            patch(_LIMITS_PATCH, return_value=validator),
+            patch(_TZ_PATCH, return_value=UTC),
+            patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
+        ):
+            from osprey.connectors.control_system.tango_connector import TangoConnector
+
+            conn = TangoConnector()
+            await conn.connect({})
+
+            ticker_task = asyncio.create_task(ticker())
+            write_task = asyncio.create_task(conn.write_channel(_ADDRESS, 10.0, confirm=False))
+
+            # Give the write time to reach its offload, then measure how long a
+            # short concurrent sleep takes while validate() blocks a thread.
+            start = time.monotonic()
+            await asyncio.sleep(0.05)
+            elapsed = time.monotonic() - start
+
+            result = await write_task
+            ticker_task.cancel()
+            await conn.disconnect()
+
+        assert elapsed < 0.2, f"event loop was blocked for {elapsed:.3f}s"
+        assert ticks > 0, "concurrent coroutine was starved (loop blocked)"
+        validator.validate.assert_called_once()
+        assert result.outcome is WriteOutcome.UNREQUESTED
+        proxy.write_attribute.assert_called_once_with("Current", 10.0)
+
+    async def test_confirm_is_resolved_only_once_the_value_is_away(self):
+        """A write that never left is not a confirmation question.
+
+        The policy lookup happens on the branch where the value was actually
+        sent, so neither a refused write nor a failed one asks the limits
+        database whether it should be read back.
+        """
+        validator = _make_limits_validator()
+        validator.validate.side_effect = RuntimeError("limits database unreachable")
+        refused, proxy = await _write_with_validator(validator)
+        assert refused.outcome is WriteOutcome.REFUSED
+        assert refused.refusal_reason == "VALIDATION_ERROR"
+        proxy.write_attribute.assert_not_called()
+        validator.resolve_confirm.assert_not_called()
+
+        validator = _make_limits_validator()
+        proxy = _make_proxy()
+        proxy.write_attribute.side_effect = RuntimeError("write refused by device")
+        mock_tango = _make_tango(proxy)
+        with (
+            patch.dict(sys.modules, {"tango": mock_tango}),
+            patch(_LIMITS_PATCH, return_value=validator),
+            patch(_TZ_PATCH, return_value=UTC),
+            patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
+        ):
+            from osprey.connectors.control_system.tango_connector import TangoConnector
+
+            conn = TangoConnector()
+            await conn.connect({})
+            failed = await conn.write_channel(_ADDRESS, 10.0)
+            await conn.disconnect()
+
+        assert failed.outcome is WriteOutcome.FAILED
+        assert failed.notes == "TANGO did not take the value"
+        proxy.read_attribute.assert_not_called()
+        validator.resolve_confirm.assert_not_called()
 
 
 class TestWriteTextIsDisplayOnly:
