@@ -517,6 +517,52 @@ def _wait_for_ready(terminal: Terminal, timeout: float) -> None:
     )
 
 
+def _fleet_settled(posture: dict[str, Any], target: str) -> bool:
+    """Whether every controls server has landed *target* at the record's generation.
+
+    The condition the kernel's cell gate checks, read off the roster the chip
+    reads: a server still ``applying`` the record's generation refuses every
+    cell, and a server with children that reports an older binding has not got
+    there yet. A server serving nothing is passed over, as ``converged()``
+    passes over it.
+    """
+    generation = posture.get("generation")
+    if posture.get("control_target") != target or generation is None:
+        return False
+    for row in posture.get("servers", []):
+        block = row.get("last_switch") or {}
+        if block.get("generation") == generation and block.get("status") == "applying":
+            return False
+        bound = (row.get("applied_target"), row.get("applied_generation"))
+        if row.get("children") and bound != (target, generation):
+            return False
+    return True
+
+
+def _wait_for_switch_to_settle(terminal: Terminal, target: str) -> dict[str, Any]:
+    """Poll until the deployment has switched to *target* and the fleet has followed.
+
+    The record moving is the first half of a switch. Each live controls server
+    then reports ``applying`` at the new generation and ``applied`` once its
+    connector is up, and until the last of them has, ``pre_run_cell`` stamps a
+    kernel with a refusal instead of a target — so a cell admitted on the
+    record alone can meet either a missing ``OSPREY_CONTROL_TARGET`` or a
+    ``SwitchInProgressError``, depending on which server ticks first.
+    """
+    deadline = time.monotonic() + SWITCH_TIMEOUT_SEC
+    posture = terminal.posture()
+    while not _fleet_settled(posture, target) and time.monotonic() < deadline:
+        time.sleep(1.0)
+        posture = terminal.posture()
+    assert _fleet_settled(posture, target), (
+        f"the switch to {target!r} did not settle within {SWITCH_TIMEOUT_SEC:.0f}s: "
+        f"control_target={posture.get('control_target')!r} "
+        f"generation={posture.get('generation')} last_switch={posture.get('last_switch')} "
+        f"servers={posture.get('servers')}"
+    )
+    return posture
+
+
 # ---------------------------------------------------------------------------
 # Talking to a kernel over the proxied channels socket
 # ---------------------------------------------------------------------------
@@ -844,14 +890,7 @@ def test_the_next_cell_follows_a_chip_target_switch(terminal: Terminal) -> None:
     )
     assert switched.status_code == 202, switched.text
 
-    deadline = time.monotonic() + SWITCH_TIMEOUT_SEC
-    posture = terminal.posture()
-    while posture.get("control_target") != other and time.monotonic() < deadline:
-        time.sleep(1.0)
-        posture = terminal.posture()
-    assert posture.get("control_target") == other, (
-        f"the session never moved to {other!r}: {posture.get('last_switch')}"
-    )
+    _wait_for_switch_to_settle(terminal, other)
 
     channel_session = uuid.uuid4().hex
     try:
