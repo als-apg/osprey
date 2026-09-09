@@ -118,7 +118,8 @@ config:
   # ── Control system ─────────────────────────────────────────────────────────
   # Which control system to talk to. "mock" invents a value for ANY channel
   # name in-process, so reads work with no hardware and no containers behind
-  # them. The control-assistant preset shows the EPICS connector configuration.
+  # them. The control-assistant preset shows the EPICS connector configuration,
+  # and `osprey config --defaults` lists every shipped connector type.
   control_system.type: mock
   # The FIRST guard in the write-safety chain: while false, every hardware
   # write is refused before the limits check or the approval prompt is even
@@ -154,7 +155,8 @@ config:
   # Historical channel data behind the archiver_read tool. "mock_archiver"
   # synthesizes history, so "plot the beam current over the last hour" works
   # out of the box. A real deployment sets "epics_archiver" and adds
-  # `archiver.epics_archiver.url` — the control-assistant preset shows it.
+  # `archiver.epics_archiver.url` — the control-assistant preset shows it, and
+  # `osprey config --defaults` lists every shipped archiver type.
   archiver.type: mock_archiver
   # When a read names no bin size, the bin is chosen so a continuously archived
   # channel returns about this many points. The agent is told which bin it got.

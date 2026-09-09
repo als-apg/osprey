@@ -775,6 +775,22 @@ def test_near_miss_sentinel_goes_red(misspelling):
     assert "cli.theme" in details(guard)
 
 
+def test_note_on_a_required_default_stays_green():
+    """`required` says no fallback exists; the note says which values are legal.
+
+    A key whose admissible values are a closed set has nowhere else to name
+    them for a reader holding only `osprey config --defaults`, so the note is
+    the answer rather than an excuse for a missing one.
+    """
+
+    def name_the_legal_values(manifest):
+        manifest["keys"]["hooks.debug"]["default_note"] = "true or false, nothing else"
+
+    guard = make_guard(name_the_legal_values)
+    guard.check_defaults()
+    assert modes(guard) == []
+
+
 def test_note_on_a_literal_default_goes_red():
     """A literal is the whole answer; a note beside one means the wrong sentinel."""
 
