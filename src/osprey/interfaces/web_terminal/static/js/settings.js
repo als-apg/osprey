@@ -52,17 +52,29 @@ const SETTINGS_WARNING_KEY_BASE = 'osprey-settings-warning-ack';
 // another. Guards against a rapid second click spawning a second dialog.
 let warningGatePending = false;
 
-// Known enum values for select dropdowns
+// Known enum values for select dropdowns. Every `approval.tools.<tool>` key a
+// deployment can set has a row here: the panel is the surface an operator
+// changes approval posture through, so a settable policy the drawer renders as
+// a free-text box is a policy they can only get wrong.
+// tests/profiles/test_approval_tools_parity.py holds this list to the same set
+// the presets ship and the config-key manifest documents.
+/** @type {string[]} */
+const APPROVAL_POLICIES = ['always', 'selective', 'skip'];
+
 /** @type {Record<string, string[]>} */
 const ENUM_FIELDS = {
   'claude_code.effort': ['low', 'medium', 'high', 'max'],
-  'approval.default_policy': ['always', 'selective', 'skip'],
-  'approval.tools.channel_write': ['always', 'selective', 'skip'],
-  'approval.tools.channel_read': ['always', 'selective', 'skip'],
-  'approval.tools.archiver_read': ['always', 'selective', 'skip'],
-  'approval.tools.execute': ['always', 'selective', 'skip'],
-  'approval.tools.setup_patch': ['always', 'selective', 'skip'],
-  'approval.tools.entry_create': ['always', 'selective', 'skip'],
+  'approval.default_policy': APPROVAL_POLICIES,
+  'approval.tools.channel_write': APPROVAL_POLICIES,
+  'approval.tools.channel_read': APPROVAL_POLICIES,
+  'approval.tools.archiver_read': APPROVAL_POLICIES,
+  'approval.tools.execute': APPROVAL_POLICIES,
+  'approval.tools.setup_patch': APPROVAL_POLICIES,
+  'approval.tools.entry_create': APPROVAL_POLICIES,
+  'approval.tools.entry_publish': APPROVAL_POLICIES,
+  'approval.tools.add_panel_to_rail': APPROVAL_POLICIES,
+  'approval.tools.remove_panel_from_rail': APPROVAL_POLICIES,
+  'approval.tools.register_panel': APPROVAL_POLICIES,
 };
 
 // Fields that should render as toggles even when the current value is null or
