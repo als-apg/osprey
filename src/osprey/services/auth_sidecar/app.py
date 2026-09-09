@@ -71,6 +71,7 @@ from osprey.deployment.web_terminals.personas import env_var_suffix, env_var_suf
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 
 from .identity_headers import same_domain, same_identity
+from .methods import METHOD_OIDC, SUPPORTED_METHODS
 from .revocation import RevocationStore
 from .sessions import SessionCodec
 from .throttle import AttemptThrottle
@@ -88,14 +89,12 @@ nginx never proxies it — it exists for the container healthcheck and for
 port directly.
 """
 
-SUPPORTED_METHODS = ("password", "oidc")
-"""Methods this process can actually serve.
-
-``none`` is a supported *deployment* posture (see ``render.py``'s
-``SUPPORTED_AUTH_METHODS``) but not a supported sidecar mode: with auth off
-there is no sidecar in the compose file at all, so a sidecar that finds
-``OSPREY_AUTH_METHOD=none`` has been mis-wired and refuses everything.
-"""
+# ``SUPPORTED_METHODS`` is imported above from ``methods.py``, the leaf module
+# the recheck route shares it with. ``none`` is a supported *deployment*
+# posture (see ``render.py``'s ``SUPPORTED_AUTH_METHODS``) but not a supported
+# sidecar mode: with auth off there is no sidecar in the compose file at all,
+# so a sidecar that finds ``OSPREY_AUTH_METHOD=none`` has been mis-wired and
+# refuses everything.
 
 # --- OIDC state cookie (Starlette SessionMiddleware) -------------------------
 # Pinned, never configurable: this cookie carries only the in-flight OIDC
@@ -576,7 +575,7 @@ class AuthSettings:
             missing.add(ENV_SESSION_SECRET)
         if self.session_lifetime <= 0:
             missing.add(ENV_SESSION_LIFETIME)
-        if self.method == "oidc":
+        if self.method == METHOD_OIDC:
             if not self.state_secret.strip():
                 missing.add(ENV_STATE_SECRET)
             if not self.oidc_issuer:

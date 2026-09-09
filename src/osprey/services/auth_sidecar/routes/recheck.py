@@ -109,6 +109,7 @@ from osprey.deployment.web_terminals.personas import env_var_suffix
 
 from .. import audit
 from ..identity_headers import is_header_safe
+from ..methods import METHOD_OIDC, METHOD_PASSWORD, SUPPORTED_METHODS
 from ..sessions import UnlockedUser
 
 logger = logging.getLogger(__name__)
@@ -138,20 +139,9 @@ Pinned by a test against what the module actually defines, both ways: a new
 public helper has to be *looked at* rather than merely spelled unlike the two
 names an anti-lookup guard thought of. See the **Anti-lookup** note below."""
 
-METHOD_PASSWORD = "password"
-"""The roster-credential posture: this service verifies the proof itself."""
-
-METHOD_OIDC = "oidc"
-"""The federated posture: an IdP proves the identity and may decide the role."""
-
-SUPPORTED_METHODS: frozenset[str] = frozenset({METHOD_PASSWORD, METHOD_OIDC})
-"""The methods a session may be minted for.
-
-Matched exactly, never case-folded: the value arrives from the environment
-through :class:`~osprey.services.auth_sidecar.app.AuthSettings`, which already
-lowercases it once. Folding again here would mean two components disagreeing
-about what counts as a match, and the one that is stricter should be the one
-handing out sessions."""
+# METHOD_PASSWORD, METHOD_OIDC and SUPPORTED_METHODS are imported above from
+# ``methods.py``, and re-exported through this module's ``__all__``: a direct
+# import from ``app`` would cycle, since ``app`` is what builds these routes.
 
 ROLE_SOURCE_ROSTER = "roster"
 """The role came from the roster's ``role:`` entry — the one the render bound."""
