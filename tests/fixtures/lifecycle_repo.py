@@ -346,7 +346,9 @@ config:
   # above, so this deployment's baseline is a facility-shaped soft IOC that
   # behaves like hardware and moves nothing. "virtual_accelerator" is the
   # sandbox simulator, "epics" your own control system, "mock" needs no
-  # containers but cannot complete a plan.
+  # containers but cannot complete a plan. "doocs" and "tango" reach those
+  # control systems in place of Channel Access. Those five are every type
+  # `osprey init` will materialize; `osprey config --defaults` lists them too.
   # `control_target_set live` moves a session onto the machine authored under
   # `epics:`. The template ships that block unconfigured — author its
   # `gateways` and `probe_channel` first — then the switch probes that target,
@@ -499,8 +501,8 @@ config:
   # not turn it on; without this line you would deploy a store and not read it.
   # The store's coordinates (`archiver.mongodb_archiver.*`) are derived from
   # that block, so they are not written here. The alternatives are
-  # "mock_archiver" (synthesized history) and "epics_archiver" (an Archiver
-  # Appliance, configured below).
+  # "mock_archiver" (synthesized history), "epics_archiver" (an Archiver
+  # Appliance, configured below) and "doocs_archiver" (DOOCS local history).
   archiver.type: mongodb_archiver
   # When a read names no bin size, the bin is chosen so a continuously archived
   # channel returns about this many points. The agent is told which bin it got.

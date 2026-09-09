@@ -801,7 +801,14 @@ keys:
   # ── Control system ──────────────────────────────────────────────────
     default: required
   control_system: {evidence: 'get_config_value\("control_system", \{\}\)', default: {}}
-  control_system.type: {evidence: 'get_config_value\("control_system\.type", "mock"\)', default: required}
+  control_system.type:
+    evidence: 'get_config_value\("control_system\.type", "mock"\)'
+    default: required
+    default_note: >-
+      The types a project can be built on are `mock`, `epics`,
+      `virtual_accelerator`, `doocs` and `tango`. `live_standin` is settable
+      on a deployment that has a stand-in, and `osprey init` never offers it,
+      so a fresh project cannot start there.
   control_system.writes_enabled:
     evidence: '"control_system\.writes_enabled"'
     note: >-
@@ -1227,7 +1234,12 @@ keys:
   # used to serve here and stopped describing the key the moment the
   # control-assistant default became mongodb_archiver — a matcher that tracks a
   # default is a matcher that goes quiet on the change it should have caught.
-  archiver.type: {evidence: 'archiver\.type is not set', default: required}
+  archiver.type:
+    evidence: 'archiver\.type is not set'
+    default: required
+    default_note: >-
+      The shipped archivers are `mock_archiver`, `epics_archiver`,
+      `mongodb_archiver` and `doocs_archiver`.
   # Point budget behind archiver_read's span-derived default bin (issue #117).
   archiver.auto_bin_points: {evidence: 'archiver\.auto_bin_points', default: 10000}
   archiver.epics_archiver:
