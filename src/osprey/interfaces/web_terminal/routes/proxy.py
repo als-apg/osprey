@@ -909,9 +909,15 @@ async def proxy_panel_terminal_static(panel_id: str, asset_path: str):
 #: The one panel whose page carries the hub's control-target bar.
 #:
 #: The notebook panel is a page an operator runs code from, so it is the one
-#: embedded panel where "which machine does this land on, and may it write?"
-#: has to be answerable without leaving the frame. Every other panel's HTML is
-#: relayed untouched.
+#: panel where "which machine does this land on, and may it write?" has to be
+#: answerable on the page itself once the page is on its own — popped out of
+#: the hub, or opened at its own address. Every other panel's HTML is relayed
+#: untouched.
+#:
+#: The tag goes in regardless of how the page is opened; the bar module mounts
+#: only when its document is a top-level window, so a Lab page framed inside
+#: the hub keeps the header chip as its one picker. That test is the page's to
+#: make: a request does not say whether it came from a frame.
 _LAB_BAR_PANEL_ID = "jupyter"
 
 #: The bar's entry module, relative to the terminal-static route's root.

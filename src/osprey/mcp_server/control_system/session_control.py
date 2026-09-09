@@ -23,8 +23,11 @@ publishes ``last_switch{status: applying}`` into this server's own report
 first, so that no other session's launch is admitted into the window where this
 process is between two targets. The move itself is
 :meth:`~osprey.mcp_server.control_system.connector_host_manager.ConnectorHostManager.reconcile`,
-which adopts silently when no child is running (nothing is bound, so nothing
-can be bound wrongly, and the first launch comes up on the adopted values) and
+which adopts silently when no child is running *on the first pass only*
+(nothing is bound, so nothing can be bound wrongly, and the first launch comes
+up on the adopted values), launches the child on the record's values when a
+childless server sees the record move on a later pass (that move is an
+operator's gesture, and a silent adoption would answer it with nothing), and
 otherwise adopts the generation against the running child or spawns the new
 target. It publishes its own ``applied`` terminus, which is what releases the
 ``applying`` block written here; a failed swap files ``failed`` at the
@@ -222,6 +225,10 @@ class SessionControlReconciler:
         self._active_target: str | None = None
         self._active_posture: str | None = None
         self._realign_pending = False
+        # Whether the record half has had its first pass. That pass joins the
+        # record as found; only a record that moves after it is a gesture this
+        # server launches a child to answer.
+        self._record_followed = False
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -339,10 +346,16 @@ class SessionControlReconciler:
         report that this process is between two targets, within one tick of the
         record moving.
 
-        With no live child nothing is published at all. Nothing is bound, so
-        nothing can be bound to the wrong generation, and an ``applying`` block
-        written here would never be released — the silent adoption publishes no
-        terminus to release it with.
+        A server with no live child answers in one of two ways, and the
+        difference is whether the record moved UNDER it. On the first pass the
+        record is whatever this server joined: it is adopted and nothing is
+        published, because nothing is bound and a session that has not asked
+        for a connector does not get one spawned on the way up. On every later
+        pass a record that differs is a switch an operator made while this
+        server was running, and that operator is waiting for every live server
+        to report the generation — so the child is launched on the record's
+        target, and the ``applying`` block is written first because the launch
+        publishes a terminus to release it with.
         """
         try:
             hosts = context.connector_hosts
@@ -351,10 +364,11 @@ class SessionControlReconciler:
         except Exception:
             logger.debug("No connector-host supervisor to reconcile to the control context")
             return
+        launch, self._record_followed = self._record_followed, True
         if record.target == on_target and record.generation == on_generation:
             return
 
-        if hosts.has_child():
+        if hosts.has_child() or launch:
             self._publish_applying(hosts, record.generation)
 
         # Imported inside the call: the manager module imports this server's
@@ -363,7 +377,7 @@ class SessionControlReconciler:
         from osprey.mcp_server.control_system.connector_host_manager import SwitchError
 
         try:
-            result = await hosts.reconcile(record.target, record.generation)
+            result = await hosts.reconcile(record.target, record.generation, launch=launch)
         except SwitchError as exc:
             # Already reported ``failed`` at the generation it kept, by the
             # supervisor itself. Publishing a second verdict here would be this

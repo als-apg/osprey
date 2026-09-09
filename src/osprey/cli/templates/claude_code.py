@@ -7,6 +7,7 @@ import re
 import shutil
 import sys
 import warnings
+from collections.abc import Iterable
 from fnmatch import fnmatchcase
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
@@ -836,6 +837,13 @@ def build_claude_code_context(
     from osprey_connectors.types import session_posture
 
     control_system = config.get("control_system", {}) or {}
+
+    # The floor under the postures below: a deployment that arms writes must
+    # have installed the hooks that gate them. Checked here rather than on the
+    # create_project path for the same reason the kill switch is — writes state
+    # is not settled there — and before anything posture-dependent is rendered.
+    _lint_write_gates_are_selected(ctx, control_system)
+
     writes_by_target = session_posture(control_system)
     if not all(writes_by_target.values()):
         from osprey.registry.mcp import (
@@ -1147,8 +1155,234 @@ def _build_framework_hook_rules(
     return [r for _, r in pre_rules], [r for _, r in post_rules]
 
 
+#: The framework's own wiring for the session events, in render order: the
+#: event, the rule's matcher (``None`` for a rule that gates on nothing) and
+#: the hooks it runs, each as its profile-facing short name and timeout.
+#:
+#: Read against the profile's ``hooks:`` selection, so a hook the profile does
+#: not select is wired to nothing. The manifest gate already keeps its script
+#: out of ``.claude/hooks/``, and an entry naming a script that is not there is
+#: a command that cannot run — silenced by the ``|| true`` every entry carries.
+#:
+#: The ``startup|resume|clear`` matcher on the turn reporter is the one framework
+#: rule that gates on anything, and it has to. A SessionStart fires for four
+#: sources and ``compact`` is not a turn edge: auto-compaction happens INSIDE a
+#: running turn, so an idle report for it would tell the server the process is
+#: between turns at the moment it is busiest, and a view flip would tear down a
+#: turn in flight. Naming the three real starts is what keeps ``compact`` out;
+#: the hook refuses a compact payload as well, for a settings.json someone
+#: edited by hand.
+_FRAMEWORK_EVENT_HOOKS: tuple[tuple[str, str | None, tuple[tuple[str, int], ...]], ...] = (
+    (
+        "SessionStart",
+        None,
+        (("config-drift", 5), ("panels-context", 5), ("control-context", 3)),
+    ),
+    ("SessionStart", "startup|resume|clear", (("turn-state", 3),)),
+    (
+        "UserPromptSubmit",
+        None,
+        (
+            ("focus-validate", 2),
+            ("workspace-delta", 3),
+            ("control-context", 3),
+            ("turn-state", 3),
+        ),
+    ),
+    # The closing edge of a turn, reported by the same hook that reports the
+    # opening one. `Stop` ends a turn that completed and `StopFailure` one that
+    # errored out; both leave the process between turns, which is the only state
+    # in which the web terminal may move the conversation to its other surface.
+    # A CLI build that emits no `StopFailure` simply never runs that entry.
+    ("Stop", None, (("turn-state", 3),)),
+    ("StopFailure", None, (("turn-state", 3),)),
+)
+
+#: The hooks that stand between the agent and a control-system write: the kill
+#: switch, the human gate and the per-channel limits. A deployment that arms
+#: writes on an enabled server carrying one of these must select it — see
+#: :func:`_lint_write_gates_are_selected`.
+WRITE_GATE_HOOKS: frozenset[str] = frozenset({"approval", "writes-check", "limits"})
+
+#: The hook script inside a wired command, however the command is spelled.
+_HOOK_COMMAND_SCRIPT = re.compile(r"/\.claude/hooks/(?P<stem>[A-Za-z0-9_.-]+)\.py")
+
+
+def _hook_name_of_command(command: str) -> str | None:
+    """The profile-facing short name of the hook a wired command runs.
+
+    Args:
+        command: A rendered or registry hook command.
+
+    Returns:
+        The short name (``approval``, ``writes-check``), or ``None`` for a
+        command that names no hook script — a facility's own executable, say,
+        which no selection describes and nothing here may drop.
+    """
+    from osprey.cli.templates.artifact_library import _hook_short_name
+
+    match = _HOOK_COMMAND_SCRIPT.search(command)
+    return _hook_short_name(match.group("stem")) if match else None
+
+
+def _build_framework_event_rules(selected_hooks: Iterable[str]) -> dict[str, list[dict]]:
+    """The framework's session-event wiring, narrowed to the selected hooks.
+
+    Args:
+        selected_hooks: The profile's ``hooks:`` selection, in short-name form.
+
+    Returns:
+        Hook rules per event, in :data:`_FRAMEWORK_EVENT_HOOKS` order, in the
+        same dict shape as the server and declared rules. An event whose every
+        hook was deselected is absent rather than present and empty.
+    """
+    from osprey.cli.templates.artifact_library import resolve_artifact
+
+    selection = set(selected_hooks)
+    rules: dict[str, list[dict]] = {}
+    for event, matcher, entries in _FRAMEWORK_EVENT_HOOKS:
+        wired = []
+        for name, timeout in entries:
+            if name not in selection:
+                continue
+            try:
+                script = resolve_artifact("hooks", name).name
+            except ValueError:
+                continue
+            wired.append(
+                {
+                    "type": "command",
+                    # Invoked through the `python3` token settings.json.j2
+                    # rewrites to the project's resolved interpreter, exactly
+                    # as the PreToolUse/PostToolUse rules are. The redirect and
+                    # `|| true` keep a hook that cannot start from failing the
+                    # session it was meant to inform.
+                    "command": (
+                        f'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/{script}" 2>/dev/null || true'
+                    ),
+                    "timeout": timeout,
+                }
+            )
+        if not wired:
+            continue
+        rule: dict[str, Any] = {"hooks": wired}
+        if matcher:
+            rule["matcher"] = matcher
+        rules.setdefault(event, []).append(rule)
+    return rules
+
+
+def _selected(command: str, selection: set[str]) -> bool:
+    """Whether a wired command's hook is one this deployment installs.
+
+    Args:
+        command: The hook command as the registry spells it.
+        selection: The profile's ``hooks:`` list.
+
+    Returns:
+        ``True`` when the command names a selected hook, and for a command that
+        names no hook script at all — nothing in a selection describes it.
+    """
+    name = _hook_name_of_command(command)
+    return name is None or name in selection
+
+
+def _servers_with_selected_hooks(ctx: dict) -> list[dict]:
+    """The resolved servers, carrying only the hooks this deployment installs.
+
+    A server's registry ``hooks_pre``/``hooks_post`` say which hooks guard its
+    tools; the profile's ``hooks:`` list says which hooks this deployment
+    installs. Both have to agree for an entry to be a gate rather than a command
+    pointing at a script that is not on disk: enablement alone would let a
+    profile drop the approval hook and still render a settings.json that claims
+    to prompt.
+
+    A copy rather than an edit in place, because the narrowing is about WIRING
+    and only the wiring may read it. ``hook_config.json`` derives its write-tool
+    list from the same ``hooks_pre`` rules, and that list is a statement about
+    the tools — read at run time by the audit middleware's read-only clamp,
+    which is there whether or not the writes-check hook is. Narrowing it would
+    hand a read-only deployment a safety file that names no write tool at all.
+
+    A rule left with no hooks is dropped whole; a command naming no hook script
+    is kept, because no selection describes it.
+
+    Args:
+        ctx: The render context, read for ``servers`` and ``selected_hooks``.
+
+    Returns:
+        One dict per server, in the same order, each a shallow copy whose hook
+        rules are narrowed to the selection.
+    """
+    selection = set(ctx.get("selected_hooks") or [])
+    wired: list[dict] = []
+    for server in ctx.get("servers") or []:
+        narrowed = dict(server)
+        for key in ("hooks_pre", "hooks_post"):
+            kept_rules = []
+            for rule in server.get(key) or []:
+                kept = [hook for hook in rule["hooks"] if _selected(hook["command"], selection)]
+                if kept:
+                    kept_rules.append({**rule, "hooks": kept})
+            narrowed[key] = kept_rules
+        wired.append(narrowed)
+    return wired
+
+
+def _lint_write_gates_are_selected(ctx: dict, control_system: dict) -> None:
+    """Refuse a write-armed deployment whose write gates are not installed.
+
+    Every hook in :data:`WRITE_GATE_HOOKS` that an enabled server attaches to
+    its write tools must be in the profile's selection. Unselected, the script
+    is not installed and the entry that names it decides nothing — so the render
+    would promise a gate the deployment does not have.
+
+    Silent when no target arms writes: a read-only deployment has no write to
+    gate, and its own posture is enforced by the kill switch's deny floor rather
+    than by these hooks.
+
+    Args:
+        ctx: The render context, read for ``servers`` and ``selected_hooks``.
+        control_system: The rendered ``control_system:`` section, whose per-target
+            posture decides whether any write is armed at all.
+
+    Raises:
+        BuildProfileError: Naming each unselected gate and the server whose
+            tools it was meant to guard.
+    """
+    from osprey_connectors.types import any_target_writes_enabled
+
+    if not any_target_writes_enabled(control_system):
+        return
+
+    selection = set(ctx.get("selected_hooks") or [])
+    missing: list[tuple[str, str]] = []
+    for server in ctx.get("servers") or []:
+        if not server.get("enabled"):
+            continue
+        for rule in server.get("hooks_pre") or []:
+            for hook in rule["hooks"]:
+                name = _hook_name_of_command(hook["command"])
+                if name in WRITE_GATE_HOOKS and name not in selection:
+                    pair = (name, server["name"])
+                    if pair not in missing:
+                        missing.append(pair)
+    if not missing:
+        return
+    raise BuildProfileError(
+        "This deployment arms writes, and these write gates are not installed:\n  "
+        + "\n  ".join(
+            f"the {name!r} hook guards the {server!r} server's write tools but is not in "
+            f"the profile's `hooks:` list"
+            for name, server in sorted(missing)
+        )
+        + "\nAdd them to `hooks:`, or disarm writes (`control_system.writes_enabled: false`, "
+        "and any per-connector-type key that overrides it)."
+    )
+
+
 #: Claude Code hook events a profile may declare wiring for. The six events
-#: ``settings.json.j2`` renders unconditionally come first; the rest are keys the
+#: ``settings.json.j2`` always emits a key for come first; the rest are keys the
 #: template adds only when something declares them.
 CLAUDE_CODE_HOOK_EVENTS: tuple[str, ...] = (
     "PreToolUse",
@@ -1163,8 +1397,9 @@ CLAUDE_CODE_HOOK_EVENTS: tuple[str, ...] = (
     "PreCompact",
 )
 
-#: Events the framework already wires, so declared entries are appended to an
-#: array the template renders regardless. Everything else in
+#: Events the framework has wiring of its own for, so declared entries are
+#: appended to an array the template emits regardless — even when the profile's
+#: selection left the framework's own entries out of it. Everything else in
 #: :data:`CLAUDE_CODE_HOOK_EVENTS` becomes a new key when declared.
 FRAMEWORK_WIRED_EVENTS: frozenset[str] = frozenset(
     {"PreToolUse", "PostToolUse", "UserPromptSubmit", "SessionStart", "Stop", "StopFailure"}
@@ -1558,7 +1793,10 @@ def _pretooluse_matchers(ctx: dict, fw_pre_rules: list[dict]) -> list[tuple[str,
     matchers: list[tuple[str, str]] = [
         (rule.get("matcher", ""), _MATCHER_FRAMEWORK) for rule in (fw_pre_rules or [])
     ]
-    for srv in ctx.get("servers", []) or []:
+    # The narrowed list, when the render has one: what settings.json wires is
+    # what gates a tool, and a rule whose hook the profile leaves out is not a
+    # gate. Falls back to the unnarrowed servers for a caller that has none.
+    for srv in ctx.get("wired_servers") or ctx.get("servers", []) or []:
         if srv.get("enabled"):
             matchers.extend(
                 (rule.get("matcher", ""), _MATCHER_FRAMEWORK)
@@ -1793,6 +2031,12 @@ def create_claude_code_integration(
     ctx["framework_pre_hooks"] = fw_pre
     ctx["framework_post_hooks"] = fw_post
 
+    # The session events the framework wires itself, and the server-attached
+    # entries, both narrowed to the profile's selection. One rule for all three
+    # hook sources: a hook this deployment does not install is wired to nothing.
+    ctx["framework_event_hooks"] = _build_framework_event_rules(ctx.get("selected_hooks", []))
+    ctx["wired_servers"] = _servers_with_selected_hooks(ctx)
+
     # Build-time safety lint: refuse to render a profile in which any
     # write-capable built-in (Write/MultiEdit/NotebookEdit) is neither hard-denied
     # nor gated by a PreToolUse hook. Runs on both render paths (create + regen)
@@ -1828,11 +2072,17 @@ def create_claude_code_integration(
         files_created += 1
 
     # 2b. Create facility.md -- user-owned artifact
-    # During init, render the template in-place and auto-register as
-    # user-owned so regen never overwrites user customizations.
+    # Create-only, and auto-registered as user-owned, so a re-render never
+    # overwrites what an operator wrote. This is the path for a render with no
+    # profile behind it: a deployment's facility description lives in the
+    # profile's own `rules/` convention directory, and the build says so with
+    # `profile_owns_facility_rule` — rendering a second copy here would leave
+    # the operator two files and no way to tell which one the agent reads.
     facility_md = project_dir / ".claude" / "rules" / "facility.md"
     facility_j2 = claude_code_dir / "claude" / "rules" / "facility.md.j2"
-    if allowed_outputs is not None and ".claude/rules/facility.md" not in allowed_outputs:
+    if ctx.get("profile_owns_facility_rule"):
+        pass  # Skip -- the profile's copy is carried in by the convention copy
+    elif allowed_outputs is not None and ".claude/rules/facility.md" not in allowed_outputs:
         pass  # Skip -- not in manifest
     elif is_user_owned(".claude/rules/facility.md", ctx):
         pass  # Skip -- user owns it

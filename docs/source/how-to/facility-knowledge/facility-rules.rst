@@ -99,11 +99,13 @@ Changing a rule
 
 There are two ways to edit a rule.
 
-**Edit the Markdown directly.** Each rule is a file under ``.claude/rules/``.
-``facility.md`` is yours to edit — it is user-owned, and ``osprey build``
-never overwrites it. The framework-generated rules *are* re-rendered by
-``osprey build``; to keep an edit to one of those, claim it into the profile
-first with ``osprey scaffold claim rules/safety`` (:ref:`profile-claim`).
+**Edit the Markdown directly.** Each rule the agent loads is a file under
+``build/.claude/rules/``, and ``build/`` is disposable — so the facility
+description you edit is the copy in your repo, at ``rules/facility.md``.
+``osprey init`` writes it there, and every build copies it into the render.
+The framework-generated rules *are* re-rendered by ``osprey build``; to keep an
+edit to one of those, claim it into the profile first with ``osprey scaffold
+claim rules/safety`` (:ref:`profile-claim`).
 
 **Through the web terminal.** ``osprey web`` exposes the agent's ``.claude/``
 files in the browser: edit a rule in the setup editor, or use the scaffold

@@ -32,6 +32,24 @@ HTML_BYTES = b"<html><body><h1>plot</h1></body></html>"
 TOKEN = "test-worker-token"
 
 
+@pytest.fixture(autouse=True)
+def _no_artifact_server_autolaunch(monkeypatch):
+    """Keep ``save_file``'s companion-server auto-launch out of this module.
+
+    Every save below goes through ``ArtifactStore.save_file``, whose last act is
+    to start the artifacts backend if it is not already up. That is a real
+    uvicorn on a daemon thread, and its lifespan resolves an agent-data root of
+    its own -- not the ``workspace_root`` these tests hand the store. Unstamped,
+    that resolves to the checkout, so the thread writes ``var/agent_data`` into
+    the repository, outliving the test that started it and failing the session
+    on ``no_agent_data_in_the_repo`` under whichever test happened to be running
+    at the time. Nothing here asserts on the server, so it is not started.
+    """
+    from osprey.infrastructure import server_launcher
+
+    monkeypatch.setattr(server_launcher, "ensure_artifact_server", lambda *a, **k: None)
+
+
 def _save(
     store: ArtifactStore,
     run_id: str,

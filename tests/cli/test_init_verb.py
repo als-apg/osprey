@@ -39,6 +39,7 @@ from rich.console import Console
 from osprey.cli.init_cmd import (
     _PRESERVED_PROSE,
     CI_EMITTED_PATHS,
+    FACILITY_RULE_DIR,
     PRESERVED_BY_FORCE,
     REPO_VERIFY_PATH,
     WRITE_ONCE_DIRS,
@@ -609,13 +610,17 @@ def _seed_survivor(repo: Path, entry: str) -> Path:
     profile convention directory, holding one directory per server, so its
     sentinel goes a level deeper: a bare file directly inside it is not merely
     an unrealistic survivor but an invalid repo, and the re-materialization
-    under test would refuse it before it ever got to preserving anything.
+    under test would refuse it before it ever got to preserving anything. The
+    rules directory is a convention directory too, of the shape that holds one
+    ``.md`` per rule, so its sentinel is a markdown file for the same reason.
     """
     relative = f"{entry.rstrip('/')}/sentinel.txt" if entry.endswith("/") else entry
     if entry == ".git":
         relative = ".git/sentinel.txt"
     if entry.rstrip("/") in WRITE_ONCE_DIRS:
         relative = f"{entry.rstrip('/')}/sentinel/sentinel.txt"
+    if entry.rstrip("/") == FACILITY_RULE_DIR:
+        relative = f"{entry.rstrip('/')}/sentinel.md"
     survivor = repo / relative
     survivor.parent.mkdir(parents=True, exist_ok=True)
     survivor.write_text(SENTINEL, encoding="utf-8")

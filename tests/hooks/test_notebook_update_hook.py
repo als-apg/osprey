@@ -24,7 +24,7 @@ from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 HOOK_NAME = "osprey_notebook_update.py"
 
 #: The agent-data subdirectory the badge fires for. Kept in step with the
-#: hook's own ``_NOTEBOOKS_SUBDIR`` and the rendered ``NotebookEdit`` allow.
+#: hook's own ``_NOTEBOOKS_SUBDIR`` and the rendered ``Edit(...)`` allow.
 NOTEBOOKS_SUBDIR = "notebooks"
 
 

@@ -14,3236 +14,884 @@ the `[Unreleased]` section below when a release is cut.
 
 ## [Unreleased]
 
-### Fixed
+## [2026.9.0b1] - 2026-09-08
 
-- A server spec that `extends:` a framework server and carries a malformed
-  `env:` (a list, a string, a number) no longer crashes the whole resolve;
-  the clone renders with the template's env and a warning names the spec,
-  as a custom server already did. (#748)
-- Web terminals: the ARIEL logbook mirror bound into each entitled terminal
-  is now writable by the `qmd_export` module that runs there. The mirror's
-  group was granted only through compose `group_add:`, which the
-  entrypoint's privilege drop discards; the render now names the mount to
-  the entrypoint, which joins its group before the drop, as it already did
-  for the knowledge bundle. (#747)
-- The facility-knowledge-graph agent prose and the channel-finder example
-  catalogue no longer claim read/write direction comes from the limits file;
-  direction is one edge per signal group, whatever produced it. (#742)
-- CI unit lanes carry a per-test timeout, so a hung test fails in minutes with a
-  stack dump instead of burning the step budget. (#743)
-- A deploy on podman served by Docker Compose v2 now says so. On that provider
-  pairing, image builds that must fetch a base image reach the registry with an
-  empty credential and are refused with a 401 naming a password that was never
-  sent — after the build has already run for minutes. `osprey up` now warns
-  which provider is in use before building, and both `osprey up` and
-  `osprey build` translate the registry refusal into the two things that
-  resolve it: pin podman-compose in `containers.conf`, or deploy on docker.
-  `podman login` does not help, because the credential does not come from
-  podman's auth file.
-- Graph-mode builds now write the channel-suggestions snapshot from the corpus
-  named by `services.graphdb.ttl_path`, so the web-panel typeahead keeps
-  working after a project moves to the graph pipeline instead of going quiet.
-- Web terminal: writes from a proxied panel (the BLUESKY tab's Add to queue,
-  Start, Stop, Abort, reorder and remove) no longer fail with `HTTP 403` /
-  `cross-origin request refused` while every read still works. The terminal
-  proxy relayed the browser's `Origin` — the terminal's own address — to the
-  panel's sidecar, whose gate compares it against the sidecar's address. The
-  proxy now drops `Origin` on that hop, as it already did the operator's
-  credentials; the terminal's own gate has checked it before the proxy runs.
-- Bluesky panel: a refusal whose `detail` is a plain sentence rather than a
-  refusal record now reaches the Add-to-queue banner as that sentence, instead
-  of being flattened to a bare `HTTP <status>` the operator cannot act on.
-- The build-drift gate no longer counts material `osprey up` mints itself: the
-  per-lane Bluesky CURVE certificates now live under `data/.runtime/`, a
-  reserved runtime-output subpath the fingerprint never hashes and the build
-  never stages, so a started deployment stays CLEAN and the scaffolded systemd
-  unit's bare `osprey up -d` comes back after a reboot (#716). Existing key
-  material at the old `data/<lane>_curve/` path is relocated — not re-minted —
-  on the next `osprey up`.
-- Target switch: a configured-but-unserved `write_access` gateway no longer strands a
-  write-armed session off the baseline. When the write-role readiness probe fails, the
-  switch retries through the `read_only` gateway and lands with a warning; writes on
-  such a session still go through the unchanged write path and are refused at the
-  read-only gateway. (#718)
-- Target switch: a readiness-probe failure now names the gateway role, host and port
-  it probed — in the error detail, the structured `details.gateway`, and an
-  actionable suggestion — instead of only the probe channel, which misread as "the
-  control system is down" when a single gateway beside a healthy one was unserved.
-  (#718)
-- The `Unknown Claude Code provider` error now lists every provider the deployment
-  actually accepts — the built-ins and the ones declared under `api.providers` in
-  `config.yml`, marked as such — and suggests the closest name for a typo, instead
-  of naming only the three built-ins. (#725)
-- DOOCS connector: an explicit `verification_level="none"` write no longer consults
-  the limits database for a tolerance it will not use, matching the Mock and EPICS
-  connectors. An explicit `"callback"` write still resolves the channel's tolerance,
-  since DOOCS verifies it by readback.
+First public beta.
 
-### Changed
+### Highlights
 
-- `rdflib` is now a core dependency instead of a member of the `knowledge`
-  extra, which keeps `linkml-runtime`. Every build can parse a Turtle corpus
-  whichever extras are installed; the extra itself stays, so existing install
-  commands keep working.
-- Web Terminal and every standalone panel (workspace, Channel Finder, lattice
-  dashboard, knowledge panel) now use the same display menu as ARIEL: the sliders
-  button opens one popover with the light/dark switch, the Expert/Simple view and
-  the theme family picker. A pick made on any of these pages is remembered by the
-  browser and shared with the others. The inline light/dark button and family
-  dropdown the panels used to show in their header are gone; the terminal's
-  Settings and Log out entries stay at the bottom of the card.
-- `artifact_delete_all` reports one activity entry ("N artifacts (scope)") instead
-  of one per deleted artifact, so clearing a large gallery no longer pushes
-  everything else out of the activity history.
-- The pyAT specialist hands in one artifact: its answer, filed under **Lattice
-  Analysis**. It no longer owes a second JSON copy of the same numbers — that copy
-  was re-typed by the model out of its own output, so it was never more
-  authoritative than the answer itself, and the code that produced the values is
-  already saved as the notebook artifact of the run. Large arrays for plotting are
-  still saved from inside the computing call and cited by id. The
-  `results_category:` frontmatter key and the hand-in refusal that enforced it are
-  removed.
-- The facility knowledge graph agent files its answers under **Facility Knowledge**
-  in the gallery, alongside the documented-knowledge agent, instead of the generic
-  **Agent Response** group. That fallback group is now labelled **Uncategorized**,
-  which is what it means: an agent that named no category. Facility Knowledge and
-  Lattice Analysis have gallery icons of their own, and an artifact's description
-  now reads as words ("Channel Addresses — channel-finder") rather than the
-  internal key.
-- CI: pushing to a pull-request branch now cancels that branch's previous run
-  instead of leaving it queued. Pull requests run three unit-test cells rather
-  than four — Python 3.11 and 3.12 on Ubuntu, and 3.12 on macOS; the full
-  product still runs on `main`, on the nightly schedule and on manual dispatch.
-  The lean connectors wheel and the Tier 0 config-key guard now run as steps of
-  the package and lint jobs.
-- Only a literal boolean `true` now arms writes. `writes_enabled: 'true'` (quoted)
-  and `writes_enabled: 1` were treated as on before and are refused now, at both
-  the deployment-wide key and the per-connector-type one. A config that spells the
-  value either way must change it to `true` or its writes stop. (#713)
+- A JupyterLab panel in the web terminal. Notebook kernels read and write the
+  control system through `osprey.runtime`, under the same write gates as the
+  agent's own Python.
+- Bluesky plans run from the web terminal: up to two plan lanes, queue
+  autostart, and a probe of the channels a plan declares before it runs.
+- The simulator's physics is swappable; the shipped ring uses pyAT, and a
+  surrogate or another tracking code can replace it while the channel names
+  stay the same.
+- One control target per deployment, switched from a header chip that labels
+  the target (real machine, rehearsal, simulator, demo) and shows its write
+  state. Write posture is set per target.
+- Channel search answers from an index built over the facility corpus at build
+  time, with an Explore view for browsing and an `ask_channels` tool for the
+  agent.
+- Event dispatch runs agents from triggers on machine events, with an Activity
+  and Triggers panel, and bridges reach the deployment from Google Chat and
+  Nextcloud Talk.
+- First-session onboarding: Simple and Expert views onto one session, an
+  optional tour, and a seeded example workspace.
+- The header and status bars can be rearranged, feedback goes to the
+  deployment owner from inside the terminal, and roster cards can be shared.
+- `/osprey:install` builds a facility deployment interactively, confirming
+  each step.
+- Authentication, per-user roles, origin checks and an audit trail; see
+  Security below.
+
+### Breaking changes
+
+- **Breaking change:** a write reports `refused`, `failed`, `confirmed`,
+  `mismatch`, `unconfirmed` or `unrequested`, and `channel_limits.json`
+  replaces `verification_level` with `confirm: true|false`. (#465, #768)
+  Migration: replace `verification_level` and its tolerance fields with
+    `confirm` in `channel_limits.json` and re-run `osprey build`, or the check
+    that a write's approval matches its target is skipped; a write whose value
+    does not land raises on the Python path.
+- **Breaking change:** write posture is per control target and deployment
+  instance, not per session: `control_system.connector.<type>.writes_enabled`
+  falls back to `control_system.writes_enabled`. (#713, #737)
+  Migration: the record schema and the hooks changed; run `osprey build` to
+    regenerate the deployment before starting it.
+- **Breaking change:** derived bluesky plan-device files come from the
+  facility's channel roster instead of the channel-limits database, and the
+  shipped plans name their read side `readbacks` rather than `detectors`.
+  Migration: rebuild, and rename `detectors` to `readbacks` in out-of-tree
+    plans.
+- **Breaking change:** `ArchiverConnector.get_data` returns long format, a
+  `pandas.DataFrame` of `timestamp`, `channel` and `value` with no shared
+  index or forward fill, and takes a `processing` keyword.
+  Migration: an `ArchiverConnector` subclass returns the long shape and takes
+    `processing`; callers of the old wide frame pivot or select by `channel`.
+- **Breaking change:** published host ports derive from `deployment.port_base`
+  (default `10000`) plus a fixed offset, so a deployment occupies `port_base`
+  to `port_base + 999` and the shipped defaults move.
+  Migration: `osprey init --set port_base=42000` or `osprey set
+    config.deployment.port_base=42000`, then `osprey build`; an explicit port
+    wins, and a deployment built earlier keeps its ports.
+- **Breaking change:** the facility-config `gitlab:` block is replaced by `ci:
+  {provider: "gitlab", ...}`, and a config still carrying `gitlab:` fails with
+  a `ConfigurationError` naming the replacement.
+- **Breaking change:** the agent's workspace tools are `artifact_*`
+  throughout: `artifact_register` replaces `artifact_save`, the `data_*`
+  family is gone, and the channel-finder tools are `ask_channels` and
+  `run_sql`.
+- **Breaking change:** `osprey skills install` is gone. The six bundled agent
+  skills ship as the `osprey` plugin from a marketplace at the repository
+  root.
+  Migration: install the plugin; see 'Agent Skills' under Contributing in the
+    docs.
+- **Breaking change:** `login: false` on a `modules.web_terminals.users` entry
+  is gone; such an entry deploys behind the login wall, and `osprey users
+  login-url` applies to `auth.method: token` deployments.
+  Migration: replace the key with `access: any` where the card was meant to be
+    shared, and rebuild.
+- **Breaking change:** the `app_template:` key and its templates are gone,
+  presets carry those config keys; a profile's `config:` block may not set
+  `api.providers.*`, and an empty `services.graphdb` block is refused.
+  Migration: run `osprey profile expand` on a profile that still names a
+    template, and delete the block's keys to drop a graph store.
+- **Breaking change:** `osprey build --emit-profile` is gone with no alias, so
+  a script still passing the flag fails with an unknown-option error.
+  Migration: `osprey profile new DIR --preset X` writes what the flag wrote
+    plus the preset's `data/` tree, and takes the same `-O` / `--set` layers.
 
 ### Added
 
-- Web terminals: the session menu behind the header chip shows the role the
-  login resolved to, next to the user name. Nothing is shown when the login
-  carried no role, or on a single-user terminal. (#746, part 1)
-- `osprey knowledge build-ttl --facility` (and `build_model(facility=...)`): the
-  facility token minted into every graph identifier is an input the model
-  carries, not a module constant a deployment had to patch in two places. (#740)
-- Devices and channel bindings in a generated facility graph can carry
-  deployment-specific scalar properties, emitted as first-class `narad_p:`
-  properties and declared in the vocabulary block. (#741)
-- `health.plugins` accepts repo-relative `.py` file paths resolved against the
-  project root, alongside dotted module paths. (#735)
-- `osprey scaffold systemd` warns when the home directory is on NFS/autofs —
-  where enabling linger alone does not survive a reboot — and prints the
-  root-only drop-in that fixes it. (#738)
-- The web terminal's posture badge shows the session's control target and
-  whether that target is armed, instead of only whether any target is. (#737)
-- Write posture is now per control target. `control_system.connector.<type>.writes_enabled`
-  arms or disarms writes for one connector type; a type that does not set it keeps
-  the deployment-wide `control_system.writes_enabled`. So a deployment pointed at a
-  live machine can arm writes on its virtual accelerator alone, and the same tool
-  call that runs there is refused when the session is switched to the machine. Every
-  write surface reads the same answer. A server-level
-  `writes_check` matcher (`mcp__<server>__.*`) now gates every tool on that
-  server, including its read tools, where before it matched nothing. (#713)
-- New shipped persona preset `control-assistant-va-readwrite`: a tier that writes to
-  the virtual accelerator and reads the live machine, sitting between
-  `control-assistant-readonly` and `control-assistant-readwrite`. (#713)
-- Build interview: an upstream fit watch — places where OSPREY cannot express what a
-  facility needs are recorded as candidates in `INTERVIEW.md`, verified against the
-  installed framework by a scout, and offered to the user as a GitHub issue or email
-  to the maintainers. Nothing is sent without the user approving the full text.
-- `artifact_list` takes `artifact_type=` to narrow a category to one form —
-  `artifact_type="json"` for data to load, `"markdown"` for an answer to read.
-
-### Security
-
-- Multi-user deploy: the Bash/launch-token guard now also covers roster entries that
-  run no persona (the deploy project itself). A deployment whose own config grants
-  writes and runs the Bluesky server, but whose `.claude/settings.json` does not
-  deny `Bash`, is refused at `osprey up` like a persona in the same state, and the
-  refusal names it as `(no persona: the deploy project)`.
-- Every OSPREY interface — the Web Terminal, ARIEL, Channel Finder, the artifact
-  gallery, the Theme Lab and the rest — now authenticates every HTTP and
-  WebSocket request, and every launcher that serves one prints a login URL
-  (`http://<host>:<port>/?token=…`) that trades the token for a session cookie
-  and redirects to the clean address. The URL is printed once, but its token is
-  the server's own secret and stays valid for the life of the process: treat it
-  like a password. A backgrounded (`--detach`) server keeps it only in memory,
-  so if you lose the URL, stop and restart to mint a new one.
-- Processes the agent spawns no longer carry that credential, so the agent
-  cannot call the interface APIs that change safety-relevant configuration, and
-  the checks themselves run outside its reasoning. As a consequence, the Bluesky MCP
-  server's queue-launch tool no longer works from the Web Terminal agent;
-  launching a queue from a panel is unaffected.
-- The operator secret no longer lingers in the server process's environment:
-  each interface app clears it as it is built, so an agent the server spawns
-  cannot read it back — on the ordinary foreground launch and inside a per-user
-  container alike. One residual on Linux: a process that already received the
-  secret through `exec` keeps a copy in `/proc/<pid>/environ`, readable by the
-  same user.
-- `osprey chat` starts its agent without `*_LAUNCH_TOKEN` credentials too, so the
-  Bluesky queue-launch tool is disarmed in a chat session as well; panel-click
-  launches from the Web Terminal are unaffected.
-- The terminal's agent can arrange panels again. The low-privilege panel token
-  now reaches the terminal's agent and the chat agent both, so panel tools and
-  session hooks no longer fail silently with a 401.
-- Browsing to a gated page without a session now returns a readable "not signed
-  in" page pointing back at the login link; API calls still get a JSON 401.
-- Mutating requests and WebSocket upgrades are checked against the deployment's
-  external origin on every credential path. A multi-user stack behind nginx must
-  have that origin configured — the generated compose files set it.
-- The Web Terminal's panel proxy now strips `Set-Cookie`, `Clear-Site-Data`,
-  `Refresh`, `WWW-Authenticate` and `Access-Control-*` from panel responses, and
-  relays a backend redirect instead of following it so the browser's re-request
-  is authenticated again. A panel that redirects to a third site is refused with
-  a 502 rather than forwarding the operator, so a panel URL can no longer serve
-  as an open redirect on the terminal's own address. The event-dispatch token is
-  injected only toward a loopback events panel declared in your config.
-- Multi-user: `osprey up` mints a per-user terminal secret for every roster entry
-  in every auth mode, so a deployment with authentication off — or a single
-  `login: false` entry — is gated by its own secret rather than open to anyone
-  who can reach the port. Hand each person their URL with the new `osprey users
-  login-url <user>`, and rotate one by deleting its `OSPREY_TERMINAL_SECRET_*`
-  line from `.env` and re-running `osprey up`. The verb refuses for a user
-  behind the login wall, who signs in through the login page instead.
-- New `modules.web_terminals.external_origin` key: the address browsers actually
-  reach the deployment at. Required when something else terminates TLS in front
-  of the stack's nginx — without it the terminals refuse every write from that
-  address as cross-origin. `osprey up`'s closing card now names this address,
-  not the loopback one.
-- Multi-user hardening: the nginx access log no longer records query strings or
-  `Referer`; a per-user container never receives another user's cookies and
-  `Authorization` is cleared on every proxied terminal request; roster names are
-  held to `[a-z0-9][a-z0-9_-]*` in every auth mode, not only behind a login wall.
-- `osprey build` now refuses a profile in which `Bash`, `Edit`, `Write`,
-  `MultiEdit` or `NotebookEdit` is neither in `permissions.deny` nor covered by a
-  `PreToolUse` hook matcher; a tool covered only by a matcher the profile itself
-  declares builds with a warning instead. The `memory-guard` hook's matcher
-  widened from `Write` to `Write|MultiEdit|NotebookEdit`.
-- `DISPATCH_WORKER_TOKEN` is now stripped from sandboxed executions alongside the
-  other credentials.
-- Readonly Python executions are now enforced at runtime, not just by
-  pattern scanning: the sandbox refuses every direct control-system write
-  entry point (however the call is spelled), the connectors refuse
-  `write_channel`, and the EPICS connector stays on the read-only gateway.
-  Readonly runs also can no longer import control-system client libraries
-  (`epics`, `p4p`, `caproto`, `pvaccess`, `tango`) — reads go through
-  `read_channel()`.
-- The runtime refusal now covers the routes that reach a control system
-  without importing a client: caproto, pvaPy and Tango entry points resolved
-  dynamically, starting a process (a shelled-out `caput`), and loading a
-  shared library through `ctypes`. A readonly script therefore cannot shell
-  out or open a shared library at all; resubmit such work as readwrite.
-- A refused write is now visible, not silent. The operator is alerted that a
-  write was attempted and blocked, and the attempt is recorded — with the
-  offending source — in `var/audit/<identity>/executor.jsonl`, which survives
-  builds and `osprey reset`.
-- Readwrite Python executions now always require human approval under the
-  `selective` policy, independent of whether the write-pattern scanner
-  recognises the code's spelling.
-- One protected set now names the files and `config.yml` keys the agent may
-  not rewrite: the rendered config and settings, the hook and MCP wiring,
-  `.env`, the `osprey_*` hooks, and everything under `.claude/skills/` and
-  `.claude/rules/`. Every framework writer consults it — the scaffold
-  galleries, the Claude-setup file API, the Config panel, ARIEL's config
-  editor, the `setup_patch` tool and the restore that runs at session start —
-  and a refusal names the channel that does own the file. Each blocked attempt
-  is shown in the terminal's activity feed and recorded under
-  `var/audit/<identity>/`, in a file named for the surface that refused it.
-  Executed Python is held to the same line by zone: it cannot write into
-  `build/`, the profile sources, or the audit ledger. See the audit-trail
-  contract in the Reference section.
-- A terminal session can now be sandboxed without changing the deployment. A
-  **Writes** / **Sandbox** badge in the card header switches the session's
-  posture after a confirmation, restarting its agent and keeping the
-  conversation. Sandbox refuses every control-system write and is enforced at
-  the hook, the connector, the Python executor and every process the agent
-  spawns. Postures are per session, persist across restarts in
-  `var/agent_data/session-postures.json`, and a deployment rendered with
-  writes off cannot leave the sandbox. Chat sessions can be switched the same
-  way. Operator WebSocket sessions keep the posture they were started with —
-  there is no client to define what a reconnect means yet — and their postures
-  are not restored across a restart. See "Sandbox one session" in the Web
-  Terminal how-to.
-- Two new keys, `web.config_panel.enabled` and
-  `web.scaffold_gallery.write_enabled` (both default `true`), close the Config
-  panel with its `/api/config` and `/api/claude-setup` routes, and the scaffold
-  gallery's write and delete routes, server-side; the browser withdraws the
-  controls. Gallery reads stay open.
-- `osprey profile validate` and `osprey build` refuse a `default_persona`, or
-  a `login: false` roster entry, that resolves to a persona able to edit the
-  deployment. With authentication off deployment-wide the check warns instead.
-- `remove_deny` can no longer lift a deny the writes kill switch imposed. A
-  profile that writes a permission list as a bare string, or spells
-  `claude_code` both dotted and nested, is refused at build time instead of
-  silently changing which tools end up denied.
-- One audit trail now holds the safety decisions the deployment makes: refused
-  control-system writes, refused protected keys, MCP tool calls, hook
-  denials and approval prompts, requests that changed something over HTTP, and
-  logins. Each is one line under `var/audit/<identity>/<surface>.jsonl` naming
-  who was acting, the session's posture, and where that posture came from. This
-  replaces the two separate refusal ledgers. Records carry identifiers and
-  config keys only — never a value, a prompt or an agent message — with one
-  deliberate exception: a refused Python run still records the code it refused,
-  so treat that file like the code. The trail is append-only but **not**
-  tamper-evident: nothing rotates it, and nothing would show that a line had
-  been edited. Forward it off the host if you need more than an operational
-  record. `osprey reset --purge-audit` still empties it.
-- The sandbox posture is now enforced by the tool servers themselves, not only
-  by the agent-side hook: a sandboxed session's write tools are refused before
-  the tool body runs, whatever the agent was permitted. Read-only `execute` is
-  unaffected. MCP servers a facility supplies itself are not covered by that
-  layer; the agent-side hook still gates them, through their server-level
-  `writes_check` matcher (see the per-target entry above). An older render
-  clamps a built-in floor only — re-render (`osprey build`) to pick this up.
-- New `modules.web_terminals.authorization` block: name a role once
-  (`operator: {persona: readwrite}`) and let roster entries carry `role:` in
-  place of `persona:`. Under single sign-on, an ID-token claim maps a person's
-  groups onto those roles — every value is matched, so a grant never depends on
-  the order a provider happened to list groups in, and a claim matching nothing
-  or matching two roles is refused with a 403 that says which, and so is a
-  login whose groups map to a different role than the person's roster entry
-  names — the role a session carries is always the one its terminal was built
-  as. Switching a deployment from passwords to single sign-on drops the role
-  from sessions minted under the old method instead of letting them keep it
-  until they expire. A deployment with no `authorization:` block is unchanged.
-- The signed-in user and their role now reach each terminal as headers the login
-  service set, and every proxied location clears the browser's own copies first,
-  in every auth mode — so a client cannot assert an identity. Logins and login
-  refusals are recorded in `var/audit/sidecar/`.
-- Web-terminal user names must match `^[a-z0-9][a-z0-9_-]*$` in every login
-  mode, `none` included — the name is now the directory a person's audit records
-  are written to, so a render refuses one that is not a single path segment.
-- The Bluesky panel service records its own audit trail under
-  `var/audit/bluesky-web/`, on the same terms as every other container that
-  records.
-- Multi-user: each container is handed only its own `var/audit/<user>/`, so one
-  person's terminal cannot read or rewrite another's records; the whole-stack
-  view is a shell on the deploy host. Inside a container, the new
-  `GET /api/audit/recent` returns that container's own newest records, behind
-  the same switch as the Config panel.
-
-### Fixed
-
-- The graphdb container's healthcheck now probes with `wget`, which the Neo4j
-  community image ships, instead of `curl`, which it does not — the container
-  no longer sits at `unhealthy` forever while the store is serving.
-- The documented removal spelling for the graph store works: a bare
-  `services.graphdb:` in a profile's `config:` block now renders a project with
-  no graphdb container, no `graphdb` in `deployed_services`, and no `graph` MCP
-  server, instead of crashing the build. The ambiguous `services.graphdb: {}`
-  is refused at validation with a message naming both working spellings.
-- `osprey knowledge seed-graph` can succeed out of the box again: the graphdb
-  service's default image moved to `neo4j:5.26-community`, the newest server
-  line the neosemantics (n10s) plugin manifest covers. A store whose plugin
-  never installed is now reported as "no compatible n10s plugin installed for
-  Neo4j <version>" with the remedy, instead of a missing stored procedure.
-- Dependabot pull requests no longer fail CI: the Deploy E2E lane now skips on
-  Dependabot runs (which get no Actions secrets) like every other secret-gated
-  lane, and the run summary names it among the lanes to revalidate. Dependency
-  updates switched to the `uv` ecosystem — one grouped weekly PR bumping
-  `uv.lock` (what CI actually tests) instead of ten PRs bumping the
-  `pyproject.toml` floors, which stay as hand-maintained compatibility
-  promises. A new lint step (`uv lock --check`) fails CI when the two files
-  drift apart.
-- Control-system failure envelopes now name the machine they happened on: a
-  connect failure, a timeout, a limits refusal or a denied write carries the
-  active target's name, label and endpoint (`details.active_target`, plus an
-  `active target: ...` clause in the message). On a deployment with a runtime
-  live/VA switch, "the write timed out" no longer leaves the operator to
-  reconstruct *which machine* from session memory.
-- Enum channel reads (EPICS `mbbi`/`bi`/`bo` and PVA `NTEnum`) now carry
-  their state labels: the value stays the integer index on every protocol,
-  and the reading's metadata adds `enum_label` (the state the channel is in)
-  and `enum_labels` (every state in index order). An operator asking "what
-  mode is the device in?" is told `ACQUIRING`, not `2`.
-- A write the control system itself denies — EPICS access security answering
-  a put with "Write access denied" — is now reported as a refusal naming the
-  control system, instead of an `internal_error` that named nothing. The new
-  `CONTROL_SYSTEM_REFUSED` reason states that the write was sent, that the
-  control system turned it down, and that no value was written, so the
-  operator is not sent to check OSPREY's own write settings for access the
-  control system grants.
-- Sub-agents that file their answer as an artifact (channel finder, knowledge
-  graph, logbook search, facility knowledge, pyAT) now hand the orchestrator a
-  pointer — the artifact id, a short headline and the identifiers asked for —
-  instead of repeating the artifact, and the orchestrator focuses that artifact
-  in the gallery rather than re-typing its tables into the chat.
-- Readonly Python runs can import `at` (accelerator-toolbox) again: h5py's
-  import reads the processor name, which CPython resolves by running `uname -p`,
-  and the readonly guard refused that as a subprocess call — so the pyAT
-  specialist could not load its own simulation library. The guard now resolves
-  the value before it locks subprocess down; nothing user code can call was
-  loosened.
-- Container deployments now get the graph schema snapshot baked into the agent
-  prompts. `osprey up` patched only the host renders, so every container shipped
-  the "no snapshot yet" placeholder and each delegation paid a schema prelude.
-  The channel finder's graph paradigm carries the same snapshot now, with its
-  own example catalogue.
-- Interactive plot artifacts now follow the active theme everywhere: opened in
-  their own tab ("Open in new tab"), on first visit with a deployment-pinned
-  `web.theme`, and under every theme family — not just light/dark inside the
-  gallery. Previously a standalone plot page always rendered dark, and any
-  theme outside the main family fell back to the dark palette. HTML and table
-  artifacts without styling of their own now take the theme's colors too, and
-  the print view is always light.
-- Web-terminal personas now reach every service the hosting deployment runs.
-  `osprey build` copies each client-facing fact — the qmd sidecar's port, the
-  graph store's bolt port, the Postgres the logbook lives in, the telemetry
-  store's port, the Bluesky bridge, the EVENTS and BLUESKY tab URLs — from the
-  deployment's own render into every persona built beside it, so a service
-  moved on the hosting profile moves every persona with it and the persona
-  presets pin nothing. A persona whose `config:` contradicts one of these
-  facts is refused, naming both values; one built alone is told what its app
-  template deploys. Fixes hybrid logbook search failing in every persona with "no qmd
-  sidecar is configured", and `osprey build` now refuses any consumer switched
-  on with nothing to dial instead of rendering it. **Upgrading:** persona files
-  written by an earlier `osprey init` (`personas/*.yml`) pin these facts
-  themselves (`services.graphdb.port_host`, `web.panels.events.*`,
-  `web.panels.bluesky.*`); `osprey build` refuses each such line by name —
-  delete them, the build supplies the values.
-- The qmd sidecar indexes the logbook mirror again: `qmd_export` wrote the
-  mirror under `build/var/ariel_mirror` while the sidecar mounted
-  `var/ariel_mirror`, so a live deployment searched an empty corpus.
-  Config-relative paths (`mirror_path`, `facility_knowledge.bundle_path`,
-  `ariel.vocabulary.path`) now resolve against the project root, the one
-  anchor the compose mounts already use; `services.graphdb.ttl_path` alone
-  stays relative to the render, because the corpus it names is read from the
-  `data/` tree the build assembles for the project. A deployment
-  with files under the legacy `build/var/ariel_mirror` regenerates the mirror
-  with `osprey ariel qmd-resync`.
-- Agent telemetry from per-user web-terminal containers is delivered again:
-  the exporter posted to `http://openobserve:5080`, a name a host-networked
-  container cannot resolve, and to the store's listen port rather than the
-  port the deployment publishes. Per-user containers now post to the loopback
-  address on `services.openobserve.port`.
-- `osprey health`'s ARIEL rows probe the port the interface actually listens
-  on (`OSPREY_ARIEL_PORT` in multi-user deployments), as the panel rows already
-  did.
-- Persona containers mount the hosting deployment's logbook mirror, so an
-  entry created from a persona is indexed by the sidecar rather than written
-  into the container's writable layer; each user's Python-executor refusal
-  audit is kept on the host under `var/audit/<user>/` instead of being lost on
-  recreate.
-- The Bluesky MCP server and the virtual-accelerator connector follow a
-  bridge or CA port moved on the hosting profile (`services.bluesky.port`,
-  `services.virtual_accelerator.port`) instead of dialing compiled-in defaults.
-- The BLUESKY tab works in web-terminal personas: the bluesky-web sidecar now
-  accepts each user's own operator secret (the one their terminal proxies
-  with) beside the deployment-wide one, for every user whose persona shows the
-  tab — no user's container is handed the deployment secret, and no other
-  process (the host's own `osprey web` included) accepts roster secrets.
-- The EVENTS tab's label and health endpoint are written by the build where
-  its URL is derived, so the tab health-gates itself on the host and in every
-  persona; a web-terminal persona is told exactly the tabs it selects, and is
-  refused rather than rendered tabless when the deployment it was told about
-  runs no such sidecar.
-- The graph channel finder follows the graph store like the graph MCP server
-  does: a persona that switches that server off but keeps the channel finder
-  is still told the store's address.
-- `osprey up` refuses a persona that runs a logbook mirror export the
-  deployment does not write (or writes elsewhere), instead of letting that
-  persona's mirror land in its container's writable layer.
-- The graph channel finder no longer mistakes its own row limit for the whole
-  answer: `read_cypher` now warns when a result exactly fills the query's own
-  `LIMIT`, the example catalogue gained a census query (count before listing
-  "all of X") and a composed hardware-plus-signal filter that keeps sibling
-  signals out of the match, and the agent's report now ends with a definitive
-  **Channels found** list separated from any related addresses mentioned in
-  prose.
-- The cross-paradigm benchmark's "third vertical corrector" query now names
-  the storage ring: the machine also has a third vertical corrector in the
-  transfer line, so the old wording was ambiguous and graded a guess.
-- The pyat-specialist grounding e2e no longer misreads a saved metadata key
-  ending in a plane letter (an `index` next to the betas) as the horizontal
-  value — a numerically correct results artifact could fail the check.
-- The kill-switch e2e tests no longer fail when the agent makes a
-  preparatory read before the denied write: the hook assertion is scoped to
-  the write tool instead of requiring zero approval events overall.
-- `osprey up` now refuses a Bluesky deployment on a Podman host still using
-  the legacy `cni` network backend, naming netavark as the requirement and
-  the `containers.conf` setting to change. Without aardvark-dns the
-  dual-homed `bluesky-queueserver` receives only its first network's
-  resolver, so it can never resolve `bluesky-redis`: it goes unhealthy and
-  the deploy aborts before the web slice renders — the whole deployment down
-  on a DNS fact nothing in the output pointed at. The check runs before any
-  container is touched, is skipped unless `bluesky` is deployed, and never
-  blocks a deploy on a host it could not read.
-- The package inventory the agent sees no longer names compiled `__mypyc`
-  shims as importable packages. The filter dropped them only when the shim's
-  hash happened to start with a digit (making it a non-identifier); a
-  letter-leading hash such as `ada92cb5d92a588d1b93__mypyc` passed straight
-  through and was advertised to the agent as a top-level import.
-- The session event log — and everything built on it: the agent-activity
-  view, feedback bundles, logbook context, and the agent's own `session_log`
-  tool — now records tool calls from every MCP server in the session instead
-  of a fixed five. Calls from `osprey_facility_knowledge`, `phoebus`,
-  `bluesky`, `health`, and any facility-declared custom server were silently
-  dropped, so a sub-agent's work could vanish from a feedback report while
-  the drill-down timeline still showed it.
-- Tool names from servers with underscores in their name (`osprey_workspace`,
-  `osprey_facility_knowledge`, or a facility's own) now display cleanly in
-  the web terminal. The prefix strip assumed no underscores, so the activity
-  strip showed "Mcp Osprey Workspace Submit Response" instead of
-  "Submit Response", and the facility-knowledge tools never resolved their
-  operator phrases ("browsing facility knowledge").
-- The activity view's server badges are colored again for every framework
-  server. The color map still said `workspace` after the server was renamed
-  `osprey_workspace` (so those badges rendered grey), and the facility
-  knowledge, Phoebus, Bluesky, and health servers never had a color at all.
-  A facility's own server takes the neutral badge.
-- A sub-agent that made no MCP tool calls no longer sorts to the top of the
-  event log with an empty timestamp — its start/stop now carry the dispatch
-  time of the Task that launched it.
-- A custom MCP server whose configured name contains `__` (or ends in `_`)
-  is now rejected at build time with a warning, like an `extends` clone
-  name. Tool names are `mcp__<server>__<tool>`, so such a name would make
-  the event log and the display misattribute every call the server makes.
-- Logbook composition no longer sends tool arguments to the configured LLM
-  provider — the session-activity section now carries tool names and result
-  snippets only, matching the feedback report's privacy policy.
-- Feedback sent by GitHub or Email no longer arrives without its session
-  context because nobody knew about the paste step. The context cannot fit a
-  prefilled URL, so with the context box ticked the flow is now one honest
-  paste: the whole report (text, metadata, context) is copied to the
-  clipboard, the draft opens with a single paste-here line instead of a
-  partial body that a paste would duplicate, and the dialog states both steps
-  before the button is pressed. Without context the draft opens complete and
-  the clipboard is left alone. The browser and the full session id now ride
-  in the composed report itself, and "Copy session context" moved out of the
-  action row onto the checkbox's own row, enabled whenever a session exists.
-- The prefilled issue title / mail subject is no longer the first line of the
-  report text. It is now a stable "OSPREY feedback" title, suffixed with a
-  short session id when context is attached.
-- The rail's Documentation and Feedback controls now draw SVG marks (open
-  book, speech bubble) instead of font glyphs. The old `ⓘ` read as "About"
-  and rendered oversized; the old `✉` rendered small, painted full-colour
-  emoji on Windows/Android, and promised email for a dialog that also files
-  locally or to GitHub.
-- The rail's Documentation and Feedback controls are now labelled DOCS and
-  FEEDBACK, like every other cell in the rail. The marks alone left the
-  operator hovering over them to find out what they open.
-- The web terminal now knows its own session id from the moment it opens.
-  It previously waited for the session's transcript file to appear on disk,
-  which only happens once the session has content — so a terminal left idle
-  for a few seconds never picked its id up at all, and never did later. That
-  tab then behaved as if no session existed: feedback could not attach
-  session context ("no session yet"), the session was not stored for resume,
-  and every page reload started another one instead of reconnecting.
-- Closing a web terminal no longer risks killing a session another tab is
-  using. A tab whose agent had exited could, on close, terminate whatever
-  session had since taken its place.
-- A web terminal that cannot resume its stored session now falls back to a
-  fresh one instead of stopping at "[Process exited]".
-- A subagent's written summary no longer lands in the gallery category that
-  holds its computed results. `submit_response` filed its Markdown under a
-  category derived from the agent's name — so a pyAT summary and the JSON
-  numbers it describes both appeared as "Lattice Analysis", and neither the
-  gallery nor the agent could tell them apart. The summary is now an "Agent
-  Response", and a `data_type` you pass is no longer overridden.
-- The pyAT specialist no longer sometimes answers without filing its numbers.
-  Its computed quantities used to be saved by a separate step inside the
-  computing code that the agent could skip — and did, intermittently, leaving
-  a prose answer with no "Lattice Analysis" JSON behind it. The numbers now
-  travel with the answer: `submit_response` takes a `data` dict and files it as
-  the JSON results artifact in the category the agent's definition declares
-  (`results_category:` in its frontmatter), and refuses a hand-in that owes
-  data and carries none. Prose and numbers arrive in one call, so there is no
-  step to skip.
-- Timeseries previews in the workspace gallery render again in CDN-mode
-  (non-offline) deployments: the lazy Plotly loader now uses the same
-  CDN-or-vendored URL resolution as the gallery's other vendor assets
-  instead of hardcoding the offline-only path.
-- `save_artifact()` inside `execute` now stores a Bokeh layout as a dashboard
-  rather than as its text representation, and a `category` passed from
-  visualization code stays on the artifact.
-- The pyAT specialist and data visualizer no longer carry the
-  file-registration tool; the specialist's results artifact is saved as JSON
-  from the code that computed it.
-- ARIEL keyword search now keeps raw and semantic full-text indexes in sync;
-  semantic summaries and keywords reach keyword and hybrid retrieval immediately,
-  and existing QMD mirrors backfill automatically after the renderer changes.
-- The pyAT specialist now saves and confirms a structured lattice-analysis
-  JSON artifact before returning computed optics results.
-- Web terminal: selecting text now copies it, as in a desktop terminal. The
-  agent's copy requests were being dropped by the browser terminal; Option/
-  Shift-drag plus Cmd+C or Ctrl+Shift+C grabs raw screen text.
-- Web terminal: session history, memory and transcripts are found inside the
-  per-user container again (`CLAUDE_CONFIG_DIR` is honoured; readers no longer
-  look one `.claude` too deep).
-- `osprey up`: a persona whose config reads an authenticated archiver now
-  receives the store's password variable in its terminal container.
-- `archiver_read` no longer defaults to 1-second bins regardless of span
-  (#117): without an explicit `bin_size` the bin is derived from the time
-  range to target `archiver.auto_bin_points` (default 10 000) per channel, and
-  the summary reports the bin used. Reads under ~2.8 hours are unchanged.
-
-### Added
-
-- `osprey health` gained a `reach` category, also shown in the system-health
-  tab inside each user's container: one row per shared service a client is
-  switched on for, knocked on at the address the client itself resolves. A
-  closed port or a client with nothing to dial warns and names the config key.
-- `osprey init` now prints a composition card under its report: who can sign
-  in (each user's persona, rights, login method and port), what the agent runs
-  on (model, MCP servers, bundled toolkit), what machine it talks to
-  (connector, archiver, channel database) and what else runs beside it. The
-  card is derived from the resolved profile, so it shows exactly the
-  deployment about to be built — useful reading while a chained `--up` pulls
-  its images.
-- ARIEL search now speaks your control room's shorthand. Drop a
-  `vocabulary.yml` in your project, set `ariel.vocabulary.enabled: true` and
-  point `ariel.vocabulary.path` at it, and a search for `t/s bpm` also finds
-  "troubleshoot" and "beam position monitor" —
-  in keyword, semantic and hybrid mode. Every rewrite is reported back with the
-  results, and `expand_query` turns it off for a single search. Gate the
-  directions with `ariel.vocabulary.canonical_to_acronym` and
-  `canonical_to_shorthand`, limit which modes expand with `expand_modes`, and
-  validate every edit with `osprey ariel vocab-check` (no database needed).
-  Keyword search also takes pattern tokens now — `SR01C___BPM*` globs and
-  `/SR0[1-4]C___BPM\d+/` regular expressions, with
-  `ariel.search_modules.keyword.settings.patterns_enabled` and
-  `pattern_timeout_seconds`. The `control-assistant` template ships a
-  twenty-concept example file; see the new "Vocabulary Expansion and Pattern
-  Search" section of the Search Modes how-to.
-
-- Web Terminal users can now send feedback from the terminal itself. A
-  **Feedback** button in the panel rail (beside a new **Documentation** link)
-  opens a dialog with three channels: **Local** records the report on this
-  deployment, **GitHub** also opens a prefilled new issue, **Email** also opens
-  a prefilled mail draft. Every channel records the report locally, and nothing
-  leaves the browser until an action button is clicked. Two checkboxes decide
-  what is attached: deployment metadata (on by default) and the session's event
-  log, chat history, scrollback and artifact titles (off by default). Read the
-  results back with `osprey feedback list` and `osprey feedback export`, which
-  cover per-user workspaces and single-user deployments alike. Point the
-  controls at your facility with `web.docs_url`,
-  `web.feedback.github_repo`, `web.feedback.email` and
-  `web.feedback.max_store_bytes`; blanking one of the first three retires that
-  affordance for an air-gapped deployment. See the new "Send and Retrieve
-  Feedback" how-to.
-
-- A fresh `profile.yml` now shows its whole menu: every hook, rule, skill,
-  agent, output style, and web panel you could opt into appears as a commented
-  entry with a one-line description, right in the list it belongs to.
-- `osprey profile artifacts` prints that same artifact menu from the command
-  line, grouped by kind.
-
-- Sites behind a TLS-intercepting proxy can now stay on verified TLS at every
-  layer: the generated Dockerfile takes an `OSPREY_SITE_CA` build argument
-  naming a site CA staged in the build context (installed before the first
-  fetch, with `NODE_EXTRA_CA_CERTS`/`PIP_CERT`/`SSL_CERT_FILE`/
-  `REQUESTS_CA_BUNDLE` pointed at the merged bundle), `osprey vendor fetch`
-  honors a new `OSPREY_CA_BUNDLE` variable, and the `.env.shared` starter
-  carries a commented site-CA block beside the proxy one.
-
-- The OSPREY agent now knows which Bluesky plans a deployment ships with —
-  what each one does and whether it moves the machine — so it can reuse an
-  existing plan instead of writing a new one. New `bluesky-plans` skill,
-  enabled in the `control-assistant` preset. The list is a build-time
-  snapshot; `list_plans` still gives the live one.
-
-- New read-only `get_plan_source` tool: the agent can read a plan's actual
-  source instead of working from its one-line description.
-
-- The Bluesky plan panel's Source tab now shows Python with standard syntax
-  highlighting instead of one flat grey, using the same highlight.js and
-  atom-one palette the Web Terminal and Artifacts gallery already use, so code
-  reads the same way across the fleet and follows the light/dark theme mode.
-  Long lines scroll rather than wrapping mid-identifier, and the view stays
-  read-only. Offline deployments pick the highlighter up on their next `osprey
-  vendor fetch`; until then the tab shows plain, uncoloured source.
-- The multi-user landing page's text is now yours. Files listed in
-  `modules.web_terminals.landing.notices` render as collapsible sections at the
-  bottom of the page — safety guidance, local procedures, contacts, whatever
-  operators should read first. Each file is markdown; its first heading becomes
-  the section label. `osprey init` writes a starter
-  `data/landing/working-safely.md` you can rewrite. Omit the key for the
-  built-in safety notice, or set it to `[]` for none. `landing.footer` sets the
-  line underneath.
-
-- `osprey scaffold systemd` writes a systemd user unit that brings the
-  deployment back after a reboot. It emits `osprey.service` at the repository
-  root and prints how to install it; the unit runs `osprey up -d` and `osprey
-  down` with the repository and the `osprey` program named as full paths. Boot
-  start also needs `loginctl enable-linger $USER` once — see the deploy how-to.
-
-- New `ariel.default_search_mode` setting names the search module that answers
-  when a caller asks for no mode — the web interface's opening tab, `osprey
-  ariel search` without `--mode`, and the service API. The shipped templates
-  set it to `hybrid`. A name that no enabled module matches is refused at
-  startup instead of being answered by a different mode; left unset, it
-  resolves to `hybrid` where that module is enabled and `keyword` elsewhere.
-
-- The `orbit_bump_sweep` plan can now assert bump closure at its monitor BPMs:
-  an optional `leakage_tolerance` band judges every `readbacks` BPM against the
-  reference orbit at each settled step, failing the run (or recording the miss
-  under `best_effort`) when the bump leaks beyond it. Unset, monitors stay
-  recorded-only as before.
-- Web-terminal roster entries can opt out of the login wall with `login:
-  false` — the entry is served without authentication while every other
-  terminal stays gated, and no password is provisioned for it. Meant for
-  entries that front a public read-only service, like the ARIEL card.
-- Profile `env.defaults` values are now seeded into the repository's `.env` by
-  `osprey init` (append-only; a value already set wins), so a preset can ship
-  working starting values.
-- The `control-assistant` preset now deploys its web terminals with password
-  login on: Alice and Bob log in with demo passwords seeded into `.env`
-  (`alice`/`alice`, `bob`/`bob` — edit there, or rotate with `osprey users
-  passwd`), while the ARIEL terminal stays open via `login: false`.
-
-- Build profiles can now author the shared web-terminal context baseline at
-  `web-terminal-context/base.md`, overriding the framework's copy. `osprey
-  init` materializes it from the preset (the control assistant ships its own
-  text), so the context every seeded user starts from is visible and editable
-  in the deployment repo instead of hidden in the installed package.
-- The EPICS connector now reads pvAccess (PVA) channels alongside Channel
-  Access, routed by a `pva_channels` glob so one deployment can mix both
-  protocols; PVA writes are refused with a typed reason rather than
-  attempted. Oversized reads — camera images and long waveforms, from either
-  protocol — now come back as gallery artifacts (an interactive chart for
-  1-D data, an image preview plus the raw array for 2-D and up) with an
-  inline summary instead of flooding the context or being stringified, which
-  also fixes oversized Channel Access waveform reads. p4p write patterns are
-  now checked by the same pattern-detection, limits, and safety-rule layers
-  as pyepics writes, and PVA RPC calls are refused outright.
-
-- Channel fields in the BLUESKY panel's plan forms offer typeahead
-  suggestions drawn from the project's Channel Finder catalog, snapshotted at
-  build time. On by default when a channel database is configured;
-  `web.channel_suggestions.enabled` and `web.channel_suggestions.max_channels`
-  tune or disable it.
-
-- A host that cannot build images can now run without building, with
-  `prebuilt_images: true` in `config.yml` or `OSPREY_PREBUILT_IMAGES=1` for one
-  shell. `osprey up` then starts the containers from the image tags already on
-  the host, in dev mode and outside it. The persona and auth-sidecar images are
-  a separate mechanism and still follow
-  `modules.web_terminals.image_source`.
-- Two new keys name the registry and tag that every OSPREY-built service image
-  defaults to: `images.registry` and `images.tag` (or `OSPREY_IMAGE_REGISTRY`
-  and `OSPREY_IMAGE_TAG` for one build), so a whole stack can be moved to a
-  mirror or to a pipeline's tag in one place. A per-service `image` pin or
-  `OSPREY_<SVC>_IMAGE` still wins; unset, images are named as before.
-- The qmd search sidecar can take its three model files from a host directory
-  instead of downloading them during the image build. Point
-  `services.qmd.models_dir` at a directory holding the staged files: the build
-  skips the downloads and the directory is mounted read-only into the
-  container, with the same SHA256 check moved to container start. For build
-  hosts with no route to the model host.
-- `osprey up` warns, by name, when a service declares a host variable under
-  `env:` that nothing on this host sets. The container would otherwise start
-  with the variable set-and-empty. Advisory only; `env.required` is where a
-  deployment says a variable is mandatory.
-- The `control-assistant` preset now ships tiers named `readonly`, `readwrite`
-  and `admin` beside the `ariel` research persona. Bob (`readonly`) has
-  control-system writes off; Alice (`readwrite`) has them on, supervised;
-  Carol (`admin`, demo password `carol`) has them on too and is the only
-  terminal that may edit the deployment — the Config panel, the gallery editors
-  and the approval-gated `setup_patch` tool. Each tier is its own profile
-  (`control-assistant-readonly`, `-readwrite`, `-admin`, `-ariel`).
-
-- A session can now be pointed at a different control system while it runs.
-  `control_target_set` moves it between the real machine (`live`) and the
-  virtual accelerator (`va`), and `control_target` reports where the session is
-  and what else it could reach — so a script can be rehearsed on the simulator
-  and then run on the machine without a rebuild, a redeploy or a restart. The
-  destination is connected and proved reachable, by reading its
-  `probe_channel`, before the current one is retired, so a switch that fails
-  leaves the session where it was. Switching *to* the live machine also
-  requires strict limits checking and
-  `control_system.target_switch.live_gateway_acknowledged`, set to the live
-  gateway's hostname; returning to a deployment's own baseline requires
-  neither. No target choice outlives the session — every server start returns
-  to the deployment baseline. `osprey build` now renders both targets'
-  connector blocks, so a project from the standard template has a
-  `virtual_accelerator:` block beside its `epics:` one. See the new "Switch the
-  Control Target at Run Time" how-to.
-
-- Approval prompts now name the control target they would act on — writes, plan
-  starts, patches and executions alike — and archive reads carry the target and
-  the archiver that served them.
-
-- A deployment can render a second Bluesky plan lane, one per control target,
-  with `bluesky.second_lane: true` in the build profile. Plans are then routed
-  to the lane serving the session's target, and `queue_start` names the lane
-  `queue_add` bound the plan to. Without it a deployment keeps its single lane
-  and refuses to queue or start plans while the session is pointed at a target
-  that lane does not serve.
-
-- The Virtual Accelerator serves its physics model's own variables over
-  pvAccess as well as Channel Access. A write arriving on either transport
-  moves both views and a refused write moves neither, with one difference:
-  a PVA put comes back carrying the model's own reason for refusing, where
-  Channel Access can only signal an alarm and the absence of movement.
-  Channel Access remains the authoritative view of the facility's whole
-  channel namespace, and the only transport the container publishes; PVA is
-  reachable only from inside the container.
-- The Virtual Accelerator's physics is now pluggable. The ring is reached
-  through a `LUMEModel`, so a surrogate or a different tracking code can be
-  supplied without touching the layer that serves the channels, and the
-  generic pyAT tracking behind the shipped ring model now comes from an
-  upstream, facility-agnostic package, `lume-pyat`, rather than living
-  inside OSPREY.
-- The facility ontology is now authored as a LinkML schema (`demo_ontology.yaml`)
-  and compiled to the JSON table format with `osprey knowledge compile-ontology`;
-  `--check` fails if the compiled output would differ from what's checked in,
-  guarding against drift. The shipped `demo_ontology.json` is now a generated
-  artifact. `linkml-runtime` joins the `knowledge` extra.
-
-### Changed
-
-- Local-mode persona images are now tagged by their rendered project alone
-  (`my-assistant-readwrite:local` instead of
-  `my-assistant-readwrite-readwrite:local`). Lint newly rejects two personas
-  sharing a `project` across different renders, and a persona `project` equal
-  to the deployment's own name. Images under the old doubled tags are not
-  removed automatically — prune them by hand after the next `osprey up`.
-- The ARIEL search panel now follows the deployment's configuration for every
-  knob you have not touched — Reset returns it to that state — and shows the
-  fast results of a reranked search before the reranking finishes, replacing
-  them when it does. When the reranker is unavailable the fast ranking stays on
-  screen with a note instead of the search failing. The `hybrid_search` tool
-  takes a per-query `rerank` argument; panel and tool share the one
-  `ariel.search_modules.hybrid.settings.rerank` key.
-
-- A malformed ARIEL `hybrid` or `semantic` search setting is now named at
-  startup validation instead of passing silently, and a malformed per-query
-  `rerank` or `candidate_limit` sent over HTTP is refused with a 400 rather
-  than coerced.
-
-- CI: the unit lane's step summary now tabulates the slowest tests of the run
-  and the uploaded diagnostics artifact carries the full pytest log.
-- `osprey-connectors` now versions with the framework's calendar stream —
-  both wheels are built from one checkout and carry one number, so the
-  independent `0.x` line (and the question of what counts as a minor) is
-  gone.
-- Docs site: the root now always shows the latest release; development docs
-  moved to `/latest/` with a development banner.
-
-- The workspace tool that registers a file on disk, or literal text, as a
-  gallery artifact is now `artifact_register` (was `artifact_save`), and
-  inline `content` must name its `content_type`. `save_artifact()` inside
-  `execute` is unchanged and remains the way to save a live Python object.
-
-- CI measures coverage on the Python 3.12 cell with PEP 669 tracing
-  (`COVERAGE_CORE=sysmon`) rather than on the 3.11 cell, where coverage.py
-  falls back to the C tracer. Same coverage numbers, roughly half the unit
-  lane's runtime — it had grown to ~36 minutes against its own 40-minute cap.
-
-- `osprey web` now says when it is using an `OSPREY_TERMINAL_SECRET` that was
-  already set in its environment: it prints no login URL (the value is never
-  echoed) and points at where that secret was minted. A multi-user deployment
-  that supplied no secret now stops with a readable message naming the fix
-  instead of a traceback.
-
-- The `hello-world` preset now wires the `memory-guard` hook, eleven hooks in
-  all. Its profile hash moved with it, so an already-deployed hello-world project
-  reports the staleness advisory once; rebuild to clear it.
-
-- The interface apps no longer register CORS middleware. Nothing OSPREY serves is
-  cross-origin, so there was no request path left to allow or restrict.
-
-- The agent's telemetry no longer authenticates to the local OpenObserve store
-  as root. `osprey up` starts the store, creates a dedicated ingest service
-  account, and saves the token the store issues into the project `.env`
-  (`ZO_INGEST_USER_EMAIL` / `ZO_INGEST_SA_TOKEN`) — nothing to set by hand, and
-  the root password now stays on the deploy host. A token that has stopped
-  working, after the account was rotated or the `openobserve_data` volume was
-  recreated, is replaced on the next `osprey up`. The ingest account cannot
-  create or delete users, but it can read all stored telemetry and the user
-  roster: OpenObserve has no ingest-only role in any edition. Existing projects
-  pick this up on a rebuild; a `.env.users` written earlier needs
-  `ZO_INGEST_USER_EMAIL` appended to it, and the deploy says so.
-
-- Authored plans can now be retired. `DELETE /plans/session/{name}` on the
-  Bluesky bridge removes a session-tier plan file, which until now stayed in
-  the catalog until the container restarted. The plan leaves `GET /plans`
-  immediately; anything already queued or running is unaffected.
-
-- Any LLM gateway can now be a provider. Name it as `provider:` in
-  `profile.yml`, describe it under `config:` as `api.providers.<name>`, and
-  put its key in the project's `.env` as `<NAME>_API_KEY`. The preset
-  profiles ship a worked example.
-
-- `model:` now accepts any model ID the provider serves, not only an ID
-  listed in the provider's tier map. A newly released model or a
-  gateway-only alias works immediately; a misspelt ID fails at the provider,
-  which names it, rather than at build time.
-
-- Local model servers that need no API key — Ollama, vLLM, DS4 — no longer
-  require an auth secret to deploy or to launch a web terminal. A missing
-  secret for those providers is now a note rather than a refusal. Providers
-  OSPREY does not recognise keep the strict behaviour.
-- Generated container images bake no `USER`: a root entrypoint re-renders
-  drifted agent artifacts and restores gallery-claimed bodies, then drops to
-  the `osprey` user (uid 1000) via `gosu`. The render (`build/`, including
-  `.claude/` and `config.yml`) is root-owned at runtime and `var/` belongs to
-  the runtime user; `config.yml` stays writable only for a persona that may
-  edit the deployment. Starting the container as another user (`docker run
-  --user`, Kubernetes `runAsUser`) skips both startup steps, and
-  `runAsNonRoot: true` now refuses the pod because the image names no user.
-  Bare-host deployments have no second user and keep their self-healing
-  startup.
-- Config-write backups now land in `var/agent_data/config-backups/` instead of
-  beside the file as `config.yml.bak`.
-- On rebuild, a `control-assistant` deployment's `readonly` and `readwrite`
-  terminals lose the Config panel and the gallery editors; only the `admin`
-  tier keeps them. Put a roster entry on `admin` to keep an editing terminal.
-
-- The documentation is reorganized around what you are doing: the how-to
-  guides are grouped into task sections (deploy, LLM providers, web
-  terminal, agent interfaces, health and monitoring, control systems,
-  facility knowledge), and everything that is a lookup rather than a task
-  moved into a new Reference section — the CLI (`reference/cli`),
-  configuration, and the connector, ARIEL, Channel Finder, facility-graph
-  and health-JSON contracts. The contributing guide splits into setup,
-  workflow, docs and a new map of the framework's extension seams. Every
-  old URL redirects, so existing links and bookmarks keep working.
-
-### Changed
-
-- The `osprey-build-interview` skill now creates your deployment repo up front
-  and refines it with you in place, keeps its decisions in an `INTERVIEW.md`
-  you can resume from, and reads every menu and default from the repo itself.
-
-- The bundled Claude Code CLI moved from 2.1.191 to 2.1.228, via
-  `claude-agent-sdk` 0.2.136.
-
-- The multi-user landing page drops the drawn ASCII wordmark; the page
-  now shows the text OSPREY at every window width.
-
-- Logging out now starts where operators look for it: the chip in the web
-  terminal's top-left corner naming the terminal. Clicking it opens a small
-  session menu with the signed-in user and **Log out**. Log out is also in the
-  display menu next to Settings, so it is reachable from either place; the
-  identity line itself lives only in the chip.
-
-- The control assistant writes for the control room. Its answers now follow a
-  plain-language style: one idea per sentence, active voice naming the actor,
-  abbreviations expanded on first use, and no filler. Facility terms like
-  "abort" and "interlock" are kept exactly as the facility says them. The
-  rules are in `.claude/output-styles/control-operator.md`, so a facility can
-  claim that file and set its own house style.
-
-- Error messages and documentation that told you to edit `config.yml` now
-  name the build profile instead. `config.yml` is regenerated by every
-  `osprey build`, so an edit there is silently lost; the remediation text now
-  says to set the value under `config:` in `profile.yml` and rebuild.
-
-- A provider tier with no model mapped no longer refuses the build. The tier
-  falls back to the default model and the build warns, naming every
-  substitution, so a partial tier map is usable while still being visible.
-  A provider with no models *and* no default model at all is still refused.
-
-- Generated `.env`, `.env.users` and `.env.auth` files now open with a short
-  header saying which process reads the file, what belongs in it, and how it
-  relates to the others. Existing files are left alone — the header is
-  written only when OSPREY creates the file.
-
-- The generated safety rules now name the tool for each kind of request:
-  reading a channel goes to `channel_read`, writing to `channel_write`,
-  analysis to `execute`, Python that itself touches the control system to
-  `osprey.runtime`, and — where the queue is enabled — a scan to Bluesky. A deployment with no queue is told to
-  say so rather than imitate a scan with a loop of writes. The rules describe
-  how a write's verification level is resolved instead of prescribing one.
-
-- The executor tool descriptions now match what the executor does: it runs
-  Python in a subprocess. They no longer claim a container backend.
-
-- Every `channel_write` result now carries one `write_state` word per channel
-  in `summary.results[]` — `blocked`, `write_failed`,
-  `verification_not_reported`, `verification_not_requested`,
-  `verified_with_alarm`, `verified`, `readback_failed`, `unverified_alarm` or
-  `verification_failed` — so a caller can tell a refused write from one that
-  went out unverified. `summary.verification_failed` counts the executed
-  writes that asked for callback or readback verification and did not get it;
-  refused and failed writes are not counted.
-
-- `channel_write.verification_level` is now optional. Omit it and the
-  deployment resolves the level, and any readback tolerance, per write;
-  `access_details.verification_level` is then null. A level you do pass is
-  honored as written — the validator no longer overrides it, and it no longer
-  costs you the tolerance held in the limits database.
-
-- Batch writes and `osprey.runtime.write_channels` now resolve verification
-  per channel the same way single writes do, instead of being pinned to
-  callback. A project whose defaults ask for readback verification will see
-  batch writes verified by readback, and the Python path raise when a readback
-  does not match.
-
-- A readback-verified write now reports the readback's alarm state by name:
-  `readback_alarm_status` and `readback_alarm_severity`. Channel Access reads
-  and subscriptions report alarm names too; the raw numeric code stays in
-  `raw_metadata["status"]`.
-
-- A write whose readback read itself fails is now reported as such —
-  `failure_kind="readback_failed"` on EPICS, DOOCS and Mock — and DOOCS no
-  longer labels a failed `set()` as verification level `none`.
-
-- `WriteVerification` gained three optional fields for connector authors.
-  Connectors that do not set them keep working; see the connector how-to.
-
-- This partially addresses #465. Still open: carrying the post-write readback
-  value at every verification level, flipping `success` when the readback read
-  fails, and labeling an infrastructure failure differently from a
-  control-system failure.
-
-- A deployment can now run a facility knowledge graph as a service. Add
-  `graphdb` to `deployed_services` alongside a `services.graphdb` block naming
-  the image, host ports and a Turtle corpus (`ttl_path`), and `osprey up`
-  starts the store, mints its `GRAPHDB_PASSWORD` into the project `.env`, and
-  loads the corpus. `osprey knowledge seed-graph` re-seeds or re-checks it
-  later, and `osprey health` reports bolt connectivity and how many resources
-  the graph holds, under a new `graphdb` category. The `control-assistant` and
-  `ariel-standalone` presets ship the block already filled in.
-- Agents can query that graph through a new `graph` MCP server. `read_cypher`
-  runs Cypher in a read-only transaction — writes, extension procedures and
-  `LOAD CSV` are refused — `get_schema` reports the labels, relationship types
-  and properties actually present, and `example_queries` serves a curated,
-  parameterized set covering device rollups, channel bindings and section
-  walks. `services.graphdb.query_timeout_s` (default 15 s) and
-  `services.graphdb.query_max_rows` (default 200) bound a single query. The
-  server is rendered wherever `services.graphdb` is configured, and its tools
-  belong to a new `facility-knowledge-graph` subagent: the main agent answers
-  structural questions ("what sits in section 7, in beam order?") by
-  delegating to it, exactly as address lookups delegate to the channel finder.
-  Safety, output-style, setup-mode and diagnose prompts name the agent where
-  they enumerate its siblings.
-- The store's schema and the curated examples are baked into that agent's
-  rendered prompt at seed time: whichever verb seeds or re-verifies the store
-  (`osprey up`'s staging step, `osprey knowledge seed-graph`) captures them
-  from the live store — property lists complete, example parameters narrowed
-  to the seeded corpus — and rewrites the prompt's snapshot section, stamped
-  with the seed marker's checksum. The agent starts oriented instead of
-  spending its first turn on `example_queries`/`get_schema`; both tools stay
-  registered as the recovery path for a store re-seeded out of band.
-- `osprey knowledge build-ttl` generates a Turtle corpus from a project's
-  hierarchical channel database (`--channel-db`) and the matching in-context
-  database (`--descriptions`), deriving devices from the channel-name grammar,
-  each binding's read/write direction from the limits database, and the prose
-  describing them from both. The `control-assistant` preset seeds its graph from
-  that corpus, so its graph and channel finder describe the same machine.
-- The `control-assistant-readonly` and `control-assistant-readwrite` operator
-  terminals get the facility-knowledge-graph agent too, reading the hosting
-  deployment's store over `services.graphdb.port_host`. Move that port on the
-  deployment and move the same number in both preset files.
-
-- The graph is available as a fourth channel-finder paradigm:
-  `channel_finder.pipeline_mode: graph` (`osprey init --set
-  channel_finder_mode=graph`) answers channel questions from the deployment's
-  graph store instead of a database file. The channel-finder subagent gets four
-  tools under the usual `channel-finder` server name — `read_cypher` for
-  read-only Cypher, `get_schema`, `capabilities` for the corpus conventions a
-  query has to follow, and `example_queries` for a catalogue of worked lookups.
-  A `services.graphdb` block is the whole configuration, whether it deploys the
-  store with the project or names an external one (`uri`, `username` and
-  `GRAPHDB_PASSWORD`); there is no `pipelines.graph` block to fill in.
-- The corpus the `control-assistant` preset ships describes its machine in
-  words, so a graph-mode search can match an operator's phrasing: every channel
-  binding carries a description plus its field and subfield text, every device
-  carries family, system and ring descriptions and a `system` token, and
-  synonyms are stored as lists.
-- `osprey health` reports a graph-mode channel finder as store-backed — bolt
-  reachability and the store's resource count, with no database file to look
-  for — and the channel-finder web app serves a pane naming the graph tools,
-  answering the file-backed routes (statistics, validation, pipeline switching)
-  by pointing at `read_cypher`.
-- The channel-finder benchmark runs a fourth lane, scoring the graph paradigm
-  against the same tier-3 query set as the other three.
-
-### Changed
-
-- A missing or unknown `channel_finder.pipeline_mode` now fails with an error
-  naming the modes that exist, everywhere the mode is read: build, agent
-  render, `osprey health`, the channel-finder web app and the benchmark runner.
-- A benchmark lane fails outright when any of its queries fails to run, so a
-  score is only ever reported over the whole query set.
-
-### Fixed
-
-- The contribute and release skills' CI watch loops no longer treat an empty
-  `gh` answer as success: no rows from `gh pr checks` or no matching run from
-  `gh run watch` now reads as unknown, to be re-queried with an explicit
-  PR/run selector before anything counts as green.
-- Container builds no longer fail when one package download is cut short. apt
-  now fetches one request per connection: with pipelining left at its default,
-  a connection reset partway through a batch could fail the whole image even
-  though retries were configured.
-- `osprey up` no longer aborts on arm64 hosts, such as Apple Silicon, while
-  building the web-terminal login sidecar. That image was the one recipe still
-  missing the build pin the others already carry, so the EPICS packages it has
-  to compile from source there failed and took the deployment down with them.
-- The web terminal's agent-activity strip no longer appears to swallow keyboard
-  focus while it is empty. On the pages where an empty strip is invisible it now
-  reveals itself when focused, instead of being a tab stop with no visible
-  outline. It stays reachable either way: the strip opens the recent-activity
-  history, which lives on the server and is there after a reload even when the
-  strip itself is empty.
-- Channel suggestions in the Bluesky plan form are visible again. The popup
-  opened correctly but was drawn inside containers that clip their overflow for
-  rounded corners, so in a channel list it was cut to nothing and in a table
-  cell to a two-pixel sliver — most channel fields appeared to offer no
-  suggestions at all. It now floats above the form, and flips above the field
-  when there is no room below.
-- The arrow-key cursor in the channel suggestion popup is visible in the
-  `light` theme, where it previously took the same colour as the popup behind
-  it. Hover and the armed row are now told apart as well.
-- Channel suggestions no longer go missing from the plan form the Bluesky panel
-  opens with. That form reads the channel catalog as it is built and is not
-  revisited afterwards, so whenever the catalog arrived a moment too late the
-  form offered no suggestions for as long as it stayed open. It now waits for
-  the catalog before rendering, and renders without suggestions rather than
-  stalling if the catalog cannot be fetched.
-- A service's `env:` passthrough list is no longer dropped for bluesky,
-  bluesky_web, gchat_bridge, nextcloud_bridge, virtual_accelerator, mongodb and
-  archiver_recorder. All ten services now honour it, in both the nested and the
-  dotted spelling.
-- Seeding a simulated logbook (`osprey sim apply`, and the deploy's own
-  first-bring-up seed) now writes the markdown mirror the qmd sidecar indexes.
-  Seeding skips the enhancement passes, so `hybrid` search previously searched
-  an index nothing had built and returned no hits — which reads as "the logbook
-  has nothing on that" rather than as a missing index.
-- Container builds now hand apt the proxy settings they were given. A facility
-  proxy arrives as `HTTP_PROXY`/`HTTPS_PROXY`, which apt does not read, so on a
-  network with no direct egress every image build stalled in its first package
-  install.
-- The project and dispatch images install Node and npm from the base image's
-  own Debian release instead of a third-party apt repository. That repository's
-  setup step had stopped configuring anything on current base images, leaving
-  them without npm and without a working agent launch path.
-- Model files staged inside the project tree no longer end up in the built
-  wheel, which they had been inflating to several gigabytes.
-- The qmd sidecar now finds its own daemon on hosts where `localhost` resolves
-  to IPv4. It previously probed only the IPv6 loopback, and where that was the
-  wrong one the container crash-looped while the deploy still reported success.
-- Agents now route a measurement that needs more than one setting through the
-  Bluesky queue instead of stepping a setpoint with repeated `channel_write`
-  calls. The `operating-bluesky-plans` skill also triggers on requests phrased
-  as physics ("step a corrector across a few settings and record the beam")
-  rather than only on the words *plan*, *run*, *queue* and *start*, and the
-  control-system safety rule states the routing directly. Hand-stepping cost
-  the operator one approval per write instead of one per measurement and left
-  no run behind.
-- A panel closed by an agent workspace arrange no longer pops back open when a
-  browser's tab-switch report, sent before the arrange, arrives after it. The
-  server drops the stale report instead of re-adding the panel to every
-  client's rail and stealing the active tab.
-- A relative `control_system.limits_checking.database_path` now anchors on the
-  directory of the config actually loaded, so the limits gate finds the render's
-  database regardless of how the process was launched. Previously a Claude Code
-  hook running without `CONFIG_FILE` resolved it against the repo root and the
-  empty-database failsafe denied every write (#636).
-- The limits failsafe now refuses with "limits database unavailable" instead of
-  reporting every channel as "not in limits database", so a load failure is no
-  longer mistaken for a data problem (#636).
-- Resizing a web-terminal pane no longer freezes the other panels until a
-  browser refresh: the adapter's sash shield poisoned dockview's own
-  pointer-events snapshot and is removed — dockview shields iframes during
-  sash drags itself (#638).
-- `osprey up` now refuses as a precondition, rather than failing with a generic
-  "Deployment failed", when a project deploys the archiver store and pymongo is
-  missing. The refusal names the interpreter it is missing from — OSPREY seeds
-  the store from the process running the CLI, not from the project's
-  `build/.venv` — so a `dependencies:` entry in the build profile is visibly
-  the wrong lever.
-- The `osprey` command no longer prints a Python traceback when something goes
-  wrong. Its console script was wired straight to the Click group, past the
-  handler that turns an error into a `✗` line with a cause and a remedy, so
-  every failure no verb caught reached the terminal as a stack trace ending in
-  installed-package paths. Affects every verb.
-- `osprey init --reset` and `osprey init --up` now check for a running
-  container runtime before they create anything. Both need one — `--reset` to
-  read what the previous deployment owns, `--up` to start the new one — but the
-  check ran after the repo had been written, git-initialized and committed, so
-  a stopped Docker left a repo behind that nobody asked for.
-- `osprey init --provider cborg` (and `--model`, `--connector`,
-  `--channel-finder-mode`) now say which spelling works — `--set
-  provider=cborg` — instead of suggesting the unrelated `--override`.
-- Artifacts built from a dev checkout report the right version again. A release
-  tag cut for the workspace sibling (`osprey-connectors-v0.1.0`) matched the
-  build backend's default tag glob, so every wheel, editable install and
-  container built off `main` since 2026-08-15 was stamped `0.1.0.postN` while
-  `osprey --version` said `2026.6.2.postN`. The build now describes against the
-  same `v[0-9]*` tags the runtime always has, the commit hash is pinned to one
-  width instead of varying with clone size, and a test holds the two
-  derivations byte-identical.
-- `osprey init --reset` no longer crashes with a Python traceback when the
-  containers it would remove belong to another copy of this repo. `osprey
-  reset` has always caught that refusal and rendered it; this path never did,
-  so the same deliberate guard looked like a bug in OSPREY depending on which
-  verb you typed. It is a refusal now, and it says what is on disk afterwards.
-- The same-name-different-checkout refusal leads with its conclusion. It used
-  to open with the count and the identity hashes, print one line per resource,
-  and only then explain that a worktree or a second clone shares its parent
-  directory's name. On a real deployment that put the explanation and the way
-  out about thirty lines below the top, where nobody reads them. Now the
-  finding, the other copy's path and the remedy come first, each path is listed
-  once instead of once per resource, and the per-resource evidence prints under
-  `--verbose`. No claim changed: it still says only what the labels prove.
-- `osprey init --reset` also offers the way out that destroys nothing. `reset`
-  can only suggest going and wiping the other deployment; whoever ran `init`
-  asked to create something, so deploying this copy under its own name is
-  named too.
-- A deploy whose web terminals are unreachable now says so on the terminal. The
-  warning naming the Docker Desktop remedy was emitted with `logger.warning`,
-  which the altitude gate drops while a lifecycle verb owns the terminal, and
-  the root logger carries no other handler. So on the one path that mattered,
-  a self-heal bounce that did not help, the run printed "bounced the web
-  stack ..." and then went straight to the endpoint table, which reads as
-  success. It is promoted through `warn_fact` now.
-
-### Added
-
-- `scripts/ci/flake_report.py` ranks flaky CI tests from GitHub Actions re-run
-  history. A test counts as flaky only when it failed and then passed on the
-  identical commit; failures that never went green are listed separately so a
-  branch bug is never filed as a flake.
-- `osprey up` and `osprey restart` warn in Preflight when Docker Desktop's
-  "Enable host networking" is off and the deployment has web terminals. The
-  post-up probe already caught this, but only after every image was built and
-  every container was up, which on a first deploy is a quarter of an hour after
-  the operator could have fixed it. Read from Docker Desktop's own settings
-  (its backend API, falling back to the persisted settings store), so the
-  warning names the cause instead of listing suspects. A setting that cannot be
-  read stays silent and leaves the post-up probe to speak.
-- The post-up reachability warning now separates a forwarder that is switched
-  off from a port registration the running forwarder missed. A definite "off"
-  skips the self-heal restart, which cannot help, and states the cause; an
-  unreadable setting keeps bouncing first and then names the setting as
-  something to check.
-
-### Changed
-
-- A finished `osprey up -d` now ends by saying what to do next: one line naming
-  the landing page, and, when the roster's passwords are still the ones the
-  profile declared, the logins to sign in with. URLs the CLI prints are
-  clickable in terminals that support it.
-- The "This deploy wrote" block is grouped by file instead of repeating the
-  filename on every row, and its long values wrap under their own bullet rather
-  than running off the terminal. It now prints before the closing summary card,
-  so a run ends on where to go rather than on what it wrote.
-- The web terminal no longer opens with a full-screen welcome banner. The
-  OSPREY wordmark now heads the landing page, and the safety guidelines live at
-  the bottom of that page instead of behind a link in a banner nobody sees
-  twice.
-
-- `osprey up` now writes the OpenObserve account name `ZO_ROOT_USER_EMAIL` into
-  `.env` alongside the minted password, so both halves of the telemetry login
-  are in one findable place. Previously only the password was written and the
-  email existed solely as a default inside the templates. The value is
-  unchanged (`root@example.com`), and a value you already set is never
-  overwritten.
-- The minted `ZO_ROOT_USER_PASSWORD` is now 12 characters instead of 48, drawn
-  from an alphabet without the easily-misread `l I 1 O 0` — you read this one
-  off a terminal and type it into a browser login. Existing projects keep the
-  password already in their `.env`.
-
-- `pymongo` is now a core dependency instead of the `archiver-mongodb` extra.
-  The `control-assistant` preset deploys a MongoDB archive, so a plain `pip
-  install osprey-framework` has to be able to run it. The extra is gone —
-  drop it from any install command, since pip only warns about an unknown
-  extra rather than failing. The preset no longer lists `pymongo` under
-  `dependencies:`, which moves its profile hash: rebuilt projects will report
-  staleness once, then match.
-- The browser-facing bluesky sidecar is now the `bluesky-web` service (was
-  `bluesky-panels`): it is named for its role — the web half of the bluesky
-  stack, beside `bluesky-bridge` — rather than for the one panel it serves.
-  Everything moves with it: the `bluesky_web:` build-profile block, the
-  `services.bluesky_web.*` config keys, the compose service and image names,
-  and the `OSPREY_BLUESKY_WEB_IMAGE` / `BLUESKY_WEB_URL` variables. Rebuild
-  and redeploy to pick up the new names; nothing keeps the old spellings
-  alive.
-
-- Osprey now calls a bluesky plan a plan, not a scan. A plan is any bluesky
-  generator — a scan is only one kind — so the word is gone from the operator
-  panels, the live activity labels, the agent's tool descriptions and the docs.
-  The `operating-bluesky-scans` skill is now `operating-bluesky-plans`: rebuild
-  your project to pick up the new name, or the old skill file lingers in
-  `.claude/skills/`. The "Run your first scan" how-to is now "Run your first
-  plan" at a new URL.
-
-- A Bluesky deployment declares the devices its plans may drive in one device
-  file — `data/bluesky_devices.yml` by default, or wherever
-  `bluesky.devices_file` points. `osprey build` validates it and refuses to
-  build on an entry it cannot use, and the file travels with the built
-  deployment. A project that co-deploys the virtual accelerator and has no file
-  of its own gets one derived from its channel-limits database. With no file at
-  all the queue server can browse and describe plans but run none of them. The
-  bluesky lane mounts the limits database named by
-  `control_system.limits_checking.database_path`, and an edit to it takes
-  effect at the next `osprey build`.
-
-- The two shipped plans now name their read side `readbacks` instead of
-  `detectors`, in the plan form, the queue summary, the approval prompt and the
-  validation errors. A saved draft or a plan written against the old field name
-  needs that one key renamed. Facility-authored plans are unaffected: a plan of
-  your own may still call its read side `detectors`, `dets`, or `readables`.
-
-- The `hello-world` preset is now the onboarding path. Its `profile.yml` leaves
-  most keys unset on purpose, so each one arrives in your copy as a commented
-  block you can turn on later, and its tutorial runs the agent in the web
-  terminal (`osprey init` → `osprey build` → `osprey web`) instead of a terminal
-  chat session.
-
-- Lifecycle output now carries the CLI's theme. Phase openers anchor in the
-  theme's primary color with a blank line before each phase, finished phases
-  and durations dim so the open phase stays prominent, promoted facts and
-  remedy arrows use the accent, and the closing "This deploy wrote" block
-  styles its heading and file paths like the rest of the CLI. Long phases
-  group their steps under quiet per-service headers (`archiver`, `ariel`,
-  `personas`, `services`, …) so a busy `osprey up` reads as sections instead
-  of one flat column. Piped output is unchanged apart from the new blank
-  lines and group headers — color never reaches a pipe.
-- Deploy output keeps one shape from start to finish. Facts a deploy used to
-  print as paragraphs between phases (minted tokens, generated certificates, a
-  renamed secrets file) are now one short line each in the step column, with
-  the details collected into a "This deploy wrote" block after the closing
-  summary. Warnings an operator must see print in the same indented `⚠` shape
-  instead of as timestamped log blocks, and raw log warnings stay in the
-  transcript (`-v`, file sinks) while a lifecycle command is drawing its
-  progress. `osprey init --reset` now reports what the reset removed and kept
-  as steps of its own phase; the full destruction plan remains what standalone
-  `osprey reset` shows before asking for confirmation.
-
-- What the CLI prints is now a progress report rather than a log. A verb prints
-  the phase it is in, the steps under it, and a summary at the end; the
-  timestamped `INFO` records that used to scroll past no longer reach the
-  screen, though every one of them still reaches the sinks the deployment
-  configures. `osprey -v <verb>` brings the whole transcript back. Warnings and
-  failures read the same way in every verb now (a one-line summary, the cause
-  under it, and what to do about it), and every one of them goes to stderr, so a
-  script reading a command's output no longer has to filter trouble out of it.
-  Under `--json`, stdout carries the JSON document and nothing else.
-
-- ARIEL search modes are plain strings dispatched through the registry:
-  `search(mode="keyword")` rather than `SearchMode.KEYWORD`. The `SearchMode`
-  enum is gone, so code that imports it needs updating — the mode names
-  themselves are unchanged. `osprey ariel search --mode` now takes its choices
-  from the registry, so a facility that registers its own search module gets it
-  as a mode without a framework change.
-
-- Lifecycle commands no longer go quiet while they work. `osprey init`,
-  `build`, `up`, `restart`, `down` and `reset` keep a spinner and a running
-  elapsed under the phase they are in, and while images are building there is
-  a row per service naming the step it is on, what that step is doing right
-  now, and how long it has been at it; a service drops off the list as its
-  image lands. Phases that have finished keep the lines they always printed.
-  Where there is no terminal to repaint — piped to a file, or a CI log — each
-  service still building appends a line roughly every thirty seconds instead,
-  so a build that takes a quarter of an hour is never silent either way. No
-  percent bars, no estimated finish times, and nothing is kept about how long
-  earlier builds took.
-
-- The agent's panel tools now say which of the two things they do. A panel can be
-  on the launcher rail (reachable in one click) and it can be on screen; the old
-  `show_panel` moved rail membership despite its name, `hide_panel` moved both,
-  and `switch_panel` was the only verb that put anything on screen. They are now
-  `add_panel_to_rail` / `remove_panel_from_rail` and `open_panel` /
-  `close_panel`, each pair reversible by its partner.
-
-- The agent's workspace tools use one word per thing. Stored records are
-  `artifact_*` throughout (the parallel `data_*` family is gone, and `data_delete`
-  with it), the record id is always `artifact_id`, and `artifact_delete_all` now
-  requires the category to delete — it previously defaulted to deleting
-  everything. The channel-finder tools are `ask_channels` (natural language) and
-  `run_sql` (a query you wrote).
-
-- Connector-level names no longer assume EPICS. The write failure code is
-  `WRITE_FAILED` rather than `CAPUT_FAILED`, and `pv` is `channel` across the
-  archiver, simulation and taxonomy surfaces. `ChannelMetadata` exposes
-  `display_low`/`display_high`, and `channel_read` no longer advertises limits it
-  discarded.
-
-- `osprey validate` and `osprey profile validate` are one implementation, so the
-  two commands can no longer disagree about whether a profile is valid.
-
-- `IngestionScheduler.start` is now `run_forever`, which is what it does — it
-  blocks until cancelled rather than starting a background task.
-
-- Onboarding output is now written for the people who run accelerators rather
-  than for the people who wrote OSPREY. `osprey init` prints the five entries
-  you edit instead of a forty-line tour; the generated `profile.yml`,
-  `README.md` and `.env.example` explain what each setting does and what
-  changes if you alter it, rather than why it is designed that way; and
-  `.env.example` now puts your provider's API key first and comments out the
-  rest. The advice about setting up a CI pipeline moved from `init`'s output to
-  the generated README, where it is relevant. No settings or defaults changed.
-
-- Generated deployment repos, bundled skills, agent instructions and the
-  documentation now describe the system as it is, rather than as a set of
-  differences from an earlier arrangement. Guidance for moving an existing
-  deployment onto the profile format is unchanged.
-
-- Web terminal tile headers were redesigned: the bar now spans its whole tile
-  (close always at the tile's right edge), sits on one seated surface whose
-  hairline turns accent on the active tile, and renders one unified 24px
-  control language with SVG icons. Panel names lead the bar with contributed
-  text as a subtitle; on narrow tiles a contributed search collapses to its
-  magnifier and remaining controls fold into a ⋯ menu instead of vanishing.
-  The six-dot drag grip is gone — the bar itself remains the drag handle.
-
-- Lifecycle commands now report what they are doing instead of scrolling their
-  transcript past. `osprey init`, `build`, `up`, `restart` and `down` print one
-  line per phase as they work; `init`, `build`, `down` and a detached
-  `up -d`/`restart -d` finish with a summary card saying where the deployment
-  stands and what to run next (an attached start ends inside the live log
-  stream, so it gets none), and `osprey reset` ends with a one-line summary.
-  The container build and compose output they used to stream is spooled to
-  `var/logs/` — and a step that fails replays its own spool in full before the
-  error, so the reason is still on the screen. `osprey -v` streams everything
-  to the terminal as before.
-
-- The BLUESKY panel's Results view leads with the run's figure. The raw data
-  table sits below it behind a disclosure that names the run's row count and
-  ships closed — these tables run to thousands of rows. What the table shows is
-  a bounded preview, labelled with how much of the run it is withholding.
-  **Export CSV**, on the same row, writes the whole run to a file: the browser's
-  save dialog where there is one, the Downloads folder otherwise, and the note
-  afterwards says which happened and how many rows landed. An export the bridge
-  can only partly serve reports both counts rather than passing itself off as
-  complete.
-
-- `osprey users env-production` is now `osprey users env`, and the file it
-  writes is `.env.users` instead of `.env.production` — the old name read as an
-  environment name in a tool that has no environments. `osprey up` does the
-  rename for you on the next deploy. A stack you stop before deploying again
-  still carries the old name, and `osprey down` fails until it is renamed; the
-  deploy guide gives the one-line fix.
-
-- The control-assistant preset's two-user roster now ships alice as the
-  write-capable operator and bob as the read-only viewer. The tiers differ
-  visibly, not just in enforcement: the write-armed terminal keeps the full
-  expert workspace with the EVENTS and BLUESKY panels, the read-only one gets
-  a chat-first simple layout without them, both default to the light theme,
-  and each browser tab is titled after its role.
-
-- Dependency floors raised — `accelerator-toolbox`, `aiohttp`, `authlib`,
-  `certifi`, `google-auth`, `openai`, `plotly`, `ruff`, `testcontainers`;
-  `uv.lock` regenerated to match. `openai` is now capped below 3.x: the 3.0
-  major is a client rewrite, so adopting it should be a deliberate change
-  rather than something a lock refresh picks up on its own.
-
-- Controls no longer slide out from under the pointer when a neighbouring
-  control appears, disappears, or changes its label. Fixed across the web
-  interfaces: the bluesky panel's Plans / Queue / Results switcher (the plan
-  filter now opens to its left), the operator chat's Send button (Stop now
-  opens inboard of it, so Send never lands where Stop was), the ARIEL entry
-  pager (Previous and Next stay put and grey out at the ends instead of
-  vanishing), the channel finder's feedback toolbar (Clear All now opens
-  left of Add/Export instead of shoving them), and the confirm step on the
-  bluesky emergency abort and the lattice dashboard's Baseline button, whose
-  armed labels no longer widen the button and shove the control beside it.
-
-### Added
-
-- A third shipped plan, `orbit_bump_sweep`, drives a closed local orbit
-  bump. The bump is stated in orbit space — the BPMs the beam should move at
-  and by how much, plus the BPMs it must not move at all — and the plan solves
-  for the kicks of the three or four correctors you name, so there is no
-  lattice model to supply. It records a reference orbit and per-BPM noise,
-  probes each corrector's response, then walks the amplitude up and back down,
-  trimming each step inside the tolerance band before moving on. The last step
-  commands the correctors back to their recorded working points and verifies,
-  rather than trims, that the machine came back. A step that will not come
-  inside tolerance stops the sweep unless `best_effort` is set. An optional
-  beam-current guard re-reads the current before every write batch — each
-  probe, each step, each trim pass — and stops the run when it falls below a
-  minimum you set. Every corrector is returned to its pre-scan value on any
-  exit. The run brings its own figure: the orbit shift across the BPMs at each
-  step, the residual against the tolerance band, the corrector offsets, and
-  the response of any extra monitor channels the run was asked to record.
-
-- The `control-assistant` preset now stands up a third web terminal beside
-  Alice and Bob: a standalone ARIEL logbook assistant, on its own card at
-  `/u/ariel/`. It shares the deployment's Postgres and logbook, and runs no
-  control-system tools at all — no channel access, no Python sandbox, no scan
-  queue. Existing deployments are unaffected until they adopt the new preset.
-
-- A persona can name the landing-page section its terminals appear under, with
-  `landing_group` in the `modules.web_terminals.personas` catalog. The roster
-  then splits: people stay in the default section, and each declared group gets
-  its own below, drawn as a panel — which is how the landing page shows a
-  standalone service as something other than another login. The `users` landing
-  group also takes a `label` now, so both halves can be named. Nothing else
-  about a terminal changes; a deployment that sets neither renders as before.
-
-- A `qmd` search sidecar indexes the deployment's markdown corpora — the
-  facility-knowledge bundle, and a markdown mirror of the ARIEL logbook — and
-  answers hybrid keyword-plus-semantic queries. It is self-contained: its
-  language models are baked into the image (built locally on the first
-  `osprey up`, about 2.1 GB), so it needs no Ollama on the host. The
-  `control-assistant` and `ariel-standalone` templates deploy it by default;
-  comment out `services.qmd` and its `deployed_services` entry to opt out. The
-  endpoint carries no authentication and publishes on the project-wide
-  `deployment.bind_address`, which defaults to loopback and should stay there.
-  Budget about 1.25 GB of disk per 135,000 logbook entries, and expect the
-  first index build to take around 40 minutes at that size.
-
-- Facility-knowledge search is ranked when that sidecar is configured. The
-  KNOWLEDGE panel and the facility-knowledge `search` tool return hits in
-  relevance order with a `score`, so a question phrased in an operator's own
-  words can find a document that never uses those words. Without a sidecar both
-  fall back to substring matching and `score` is `null`. `rerank` under
-  `facility_knowledge.search` is off by default: it costs roughly four times
-  the query latency, and these surfaces are interactive.
-
-- ARIEL gains a `hybrid` search mode and a matching `hybrid_search` tool for
-  the OSPREY agent, answering over a markdown mirror of the logbook written by
-  the new `qmd_export` enhancement module. The templates enable both by
-  default, and both are needed — the mirror with no search mode is never
-  queried, and the search mode with no mirror has nothing to read. Configure
-  them under `ariel.search_modules.hybrid` and
-  `ariel.enhancement_modules.qmd_export`; the search knobs must sit under
-  `settings:`, as keys written beside `enabled` are ignored. `rerank` is on
-  here, where ranking quality is worth the latency. Entries created through
-  the ARIEL web interface or the agent's `entry_create` tool are mirrored
-  inline at creation time, so they become hybrid-searchable without waiting
-  for the next enhancement run.
-
-  Filtering in this mode is best-effort: results are ranked first and the date,
-  author and source filters applied afterwards, so a selective filter can
-  return fewer entries than asked for even when more exist. Use `keyword_search`
-  or `sql_query` when a filter has to be exhaustive.
-
-- `osprey ariel qmd-resync` re-exports logbook entries the markdown mirror
-  never saw — those written by paths that bypass the enhancement modules and
-  the inline mirror write. `ingest` and `watch` run this pass themselves, so a
-  routine deployment never needs it by hand. `--rebuild` clears the mirror and
-  re-exports everything, which is what to reach for after `osprey ariel
-  purge`.
-
-- `close_panel` takes a panel's tile off the operator's screen and leaves it on
-  the rail, so it is one click from coming back. There was previously no way to
-  clear a single panel without also making it unlaunchable.
-
-- A red CI lane now leaves evidence behind. Every Docker lane captures its
-  container logs, exit codes and `OOMKilled` flags — plus runner disk and
-  memory state — before teardown removes the containers, and uploads them as a
-  `ci-diag-<lane>` artifact. The unit-test lane records, per parallel worker
-  and flushed as it goes, which test was in flight, alongside a stack snapshot
-  of every thread taken every five minutes — including after the last test, so
-  a hang during shutdown is visible too. A lane that is killed rather than failing
-  (job timeout, runner stall) now names the test each worker stopped on in the
-  run summary, instead of ending as a silent `cancelled`. Lanes that declare a
-  time budget now cap their test step below it, so a hang fails that step and
-  the capture still runs, rather than the whole job being cancelled mid-teardown.
-
-- The OSPREY agent can start a Bluesky queue on a single approval: approving
-  its `queue_start` call in chat arms and runs the queue, with no separate
-  confirmation step elsewhere. The token that arms a start is granted only to a
-  persona configured for control-system writes that also runs the bluesky MCP
-  server, so a read-only persona still cannot start anything. The BLUESKY
-  panel's own **Start queue** control is unchanged.
-
-  A deploy refuses to grant that token to a persona that is also permitted to
-  run a shell: the approval gates the `queue_start` tool, not a shell, so such
-  an agent could read the token out of its own environment and arm a queue with
-  no approval at all. Restore `Bash` to that persona's `permissions.deny` and
-  rebuild its image — or republish and re-pull it, if you deploy from a
-  registry — or move the persona off the bluesky server or off writes.
-
-- Environment now resolves from a two-tier `.env` chain. `.env.shared` carries
-  the values that are the same on every host and is tracked in git; the `.env`
-  beside it carries the secrets and any per-host override, and wins on any key
-  both set. `osprey init` writes both. Previously a single `.env` had to hold
-  both, so a shared default could not be committed without committing the file
-  that held the provider keys.
-
+- ARIEL gains a `hybrid` search mode and `hybrid_search` tool over a markdown
+  mirror of the logbook, regenerated by `osprey ariel qmd-resync`;
+  `ariel.default_search_mode` picks the mode when a caller names none.
+- `ariel.vocabulary.enabled` and `ariel.vocabulary.path` teach ARIEL search
+  the control room's acronyms and shorthand, and keyword search takes glob and
+  regular-expression tokens under `keyword.settings.patterns_enabled`.
+- `template: osprey.ariel_sync` deploys a container that ingests the logbook
+  and then polls the source; `osprey ariel sync --watch` runs the same loop by
+  hand and `osprey ariel status` reports the last ingestion. (#786)
+- Bluesky plans run in a queue server rather than inside the bridge process:
+  `queue_add` composes the queue and `queue_start` runs it, so a queue can be
+  reviewed before anything moves and survives a bridge restart.
+- `bluesky.external:` attaches the plan lane to a facility-run bluesky-
+  queueserver (`zmq_control_addr`) and Tiled (`tiled_uri`) instead of
+  deploying its own; `parameter_schemas` types external plan parameters.
+  (#816, #817)
+- A third shipped plan, `orbit_bump_sweep`, drives a closed local orbit bump
+  stated in orbit space, solving for the kicks of the correctors you name with
+  no lattice model to supply, and restores them on exit.
+- The workspace shows what the agent did to it: a tile it focuses or
+  rearranges glows, an activity strip names each MCP tool call that changed a
+  panel, and a panel changed while you were away keeps a badge.
+- Simple view is chat-first, showing the chat alone until the agent shares
+  something; `web.ui_mode` picks the view rendered first, with a `?mode=`
+  override.
+- `agent_session(...)` holds one agent conversation open across several turns,
+  so a caller can decide each message from the previous reply, with per-turn
+  and cumulative cost tracking and a session-wide budget.
+- `connector:` is a top-level build-profile key and the short spelling of
+  `config: control_system.type`, so `osprey set connector=doocs` picks one;
+  DOOCS also names `archiver.type: doocs_archiver`.
+- `podman-compose` works as a container provider beside Docker Compose v2:
+  OSPREY detects which is present, records it in `build/config.yml` as
+  `container_runtime`, and `down`, `restart` and `reset` act on that runtime.
+- The `hello-world` preset ships a working example MCP server: `osprey init`
+  seeds it into `mcp_servers/example_server/` and the profile launches it, so
+  a first session has a facility tool, `example_status`, to call.
+- Chat bridges answer questions in a chat room and return plots and files
+  there: add a `nextcloud_bridge:` or `gchat_bridge:` block to a build
+  profile, set the bot credentials in `.env`, and `osprey up` starts it.
+- A deployment can run a facility knowledge graph: add `graphdb` to
+  `deployed_services` with a `services.graphdb` block naming image, ports and
+  a Turtle corpus that `osprey knowledge build-ttl` generates.
+- `channel_finder.pipeline_mode: graph` answers channel questions from the
+  `services.graphdb` store over `index_path`, built by `osprey knowledge
+  build-index`; a `facility-knowledge-graph` subagent runs `read_cypher`.
+- A `qmd` sidecar indexes the deployment's markdown corpora and answers hybrid
+  keyword-and-semantic queries from models in its image; its endpoint has no
+  authentication and binds to `deployment.bind_address`.
+- A **KNOWLEDGE** panel browses a facility-knowledge bundle read-only from
+  `facility_knowledge.bundle_path`; add the panel id `okf` to `web_panels`.
+  With the `qmd` sidecar its search ranks hits by relevance.
+- A `channel-finder-standalone` preset packages the channel finder and its
+  CHANNELS panel as a read-only deployment with a demo database, and the
+  control-assistant stack adds standalone ARIEL and `knowledge` cards.
+- The browser interfaces theme from one shared token system with light, dark
+  and `auto` modes; `web.theme` picks a family (`main`, `high-contrast`,
+  `retro`) and `osprey theme-lab` designs a new one.
+- A `pyat-specialist` subagent computes lattice and optics quantities over the
+  simulated ring. The ring is reached through a pluggable `LUMEModel`, and the
+  ALS-U Accumulator Ring ships as `osprey.simulation.lattice`.
+- The virtual accelerator's channel manifest is generated from the build's
+  data tree, or the graph corpus in graph mode, into `VA_CHANNELS_FILE` and
+  `VA_LATTICE`; a build with no readable channel database refuses.
+- A virtual accelerator can be deployed with a MongoDB archive and an
+  archiver-recorder service that records channels as they move, so questions
+  about earlier behaviour are answered from recorded samples.
+- A multi-user deployment can require a login:
+  `modules.web_terminals.auth.method` takes `password` or `oidc`, and the
+  default is `none`; rendering stops without `tls.enabled` unless
+  `auth.allow_insecure_http` is set.
+- The `control-assistant` preset ships the multi-user web tier: `osprey up`
+  stands up nginx with a landing page on `:9080` and two-user terminals whose
+  demo passwords in `.env` rotate with `osprey users passwd`.
+- `modules.web_terminals.personas.<name>` gives web-terminal users their own
+  container image and rendered project, so per-tool permissions come from that
+  project's `config.yml`; a roster entry picks one with `persona:`.
+- A **Feedback** button in the panel rail sends a report, optionally attaching
+  deployment metadata and the session log; `web.feedback.owner` names who
+  receives it, read back with `osprey feedback list`. (#828)
+- The Expert workspace docks one panel per tile: the rail selects panels,
+  dragging one splits the workspace, and `web.presets` layouts apply from the
+  Layouts menu. **Customize bars** rearranges both bars (`web.bar_items`).
+- `control_target_set` points a running session at the facility gateways
+  (`live`), a deployed stand-in (`standin`) or the virtual accelerator (`va`);
+  `live` also needs `target_switch.live_gateway_acknowledged`.
+- A **JUPYTER** panel serves JupyterLab in a tab, with kernels that read and
+  write the control system through `osprey.runtime` under the agent's own
+  write gates; notebooks live in `notebooks/` under the agent-data root.
+- Expert and Simple views are two windows onto one session: switching hands
+  the conversation over with the same transcript, write state and control
+  target. An earlier deployment needs the `turn-state` hook and a rebuild.
+- A TANGO Controls connector ships in-tree: `control_system.type: tango` reads
+  and writes device attributes through PyTango, addressed as
+  `domain/family/member/attribute`, with quality as the alarm state.
+- The EPICS connector reads pvAccess channels beside Channel Access, routed by
+  a `pva_channels` glob, and refuses PVA writes and RPC; oversized reads such
+  as camera images come back as gallery artifacts.
+- `bluesky.queue_autostart` arms the plan queue so an added plan runs at once,
+  and `queue_remove` drops a pending item.
+- Before a plan moves anything the bluesky worker probes the channels it
+  declares, so a plan naming an unreachable address is refused before its
+  first move; `stop_run` and `POST /queue/abort` halt a running scan.
+- Multi-user web terminals are rendered from a `users[]` roster by `osprey
+  scaffold web-terminals render`; traffic routes through one nginx origin at
+  `/u/<user>/`, and `landing_group` sets a persona's landing section.
+- The `osprey` plugin adds two agent skills, `/osprey:housekeeping` and
+  `/osprey:doc-sync`.
+- ARIEL read tools emit an `entry_url` for facility logbook entries, rendered
+  from `ariel.entry_url_template`, so the agent links an entry instead of
+  composing a plausible dead URL; it stays off until a template is set.
+- The `qmd` sidecar can take its model files from a host directory named by
+  `services.qmd.models_dir`, mounted read-only, for build hosts with no route
+  to the model host.
+- The control-assistant workspace gallery is seeded with one example artifact,
+  an interactive plot of synthetic data; `artifact_server.example_artifact`
+  switches it, and deleting it persists across redeploys.
+- A `bluesky-plans` skill tells the OSPREY agent which plans a deployment
+  ships and whether each moves the machine, from a build-time snapshot, and
+  `get_plan_source` reads a plan's source.
+- Channel fields in the BLUESKY panel's plan forms offer typeahead suggestions
+  from the project's Channel Finder catalog, tuned by
+  `web.channel_suggestions.enabled` and `max_channels`.
+- Finished runs can be removed from History one at a time or with a two-step
+  Clear, an authored session-tier plan can be retired without a container
+  restart, and `bluesky.excluded_plans` hides a plan from the agent.
+- `osprey web sessions clear` removes the stored sessions of a stopped single-
+  user server, and `osprey profile artifacts` prints the deployment's artifact
+  menu grouped by kind.
+- `/osprey:install` records places where OSPREY does not express what a
+  facility needs in `INTERVIEW.md`, verifies them against the installed
+  framework, and offers each as a GitHub issue or a mail, sent on approval.
+- `arrange_workspace` sets a whole layout in one call, or applies one named in
+  the deployment's config, and `list_panels` reports the open tiles in order
+  and how long ago the arrangement changed.
+- A health plugin category can share the run's control-system connector: an
+  `async def` callable declaring a `runtime` parameter awaits
+  `runtime.get_connector()`; `health.plugins` also takes `.py` paths. (#735)
+- A generated deployment repo explains itself: `profile.yml` maps the repo's
+  zones and carries each hook, rule, skill, agent and panel you could opt into
+  as a commented entry, and `osprey init` prints a composition card.
+- Build profiles take an `environment:` block declaring the Python environment
+  agent code runs in, with `python`, `packages` and `inherit_exclude`; a named
+  venv's distributions are frozen into the project.
+- A `health:` block in `config.yml` extends `osprey health` with facility
+  checks, beside new `reach`, `ariel` and `channel_finder` categories and an
+  `archiver_freshness` probe; a `SYSTEM` panel shows them in the browser.
+- Deploys run preflight checks before touching a container: a published port
+  held by another stack, a missing `modules.shared_disk` path or Docker
+  Desktop host networking left off is named before compose runs.
+- `osprey init --reset` destroys the containers, volumes and images left by an
+  earlier deployment of that name and re-materializes the source zone; `osprey
+  up --reuse-stores` adopts volumes a fresh `.env` would break.
+- `osprey up` and `osprey status` warn when a project's render is stale, from
+  a different osprey version or changed preset content stamped in `.osprey-
+  manifest.json`, and name the `osprey build --force` that re-renders it.
+- `osprey scaffold ci` writes the deployment's CI pipeline, `scaffold claim`
+  freezes a service template for local editing, `scaffold diff` reports drift,
+  and `scaffold pull PRESET[:PATH]` copies part of a preset in. (#738)
 - A `network:` key in the build profile attaches the dispatch pair and the
-  bridges to the host network instead of the compose bridge, for facilities
-  whose control system answers only on the host. `osprey build` re-reads what
-  it rendered and refuses a shape that cannot start.
-- `podman-compose` now works as a container provider alongside Docker Compose
-  v2. OSPREY detects which one is present and shapes the deploy to match; the
-  two differ in how they resolve relative paths and how they order `--env-file`
-  precedence.
-- An archiver read that comes back empty now says why: the response carries a
-  coverage verdict — the window predates or postdates the archive, the channel
-  was never recorded, or the window holds a genuine gap — with the archive's
-  real bounds, so an empty answer is never a silent one.
-
-- A virtual accelerator can now be deployed with a real archive behind it: a
-  MongoDB store plus an archiver-recorder service that records the machine's
-  channels as they move. Scenario history is seeded into the store when the
-  stack comes up, so questions about what a channel did earlier are answered
-  from recorded samples rather than synthesized at read time.
-- Simulation scenarios are generated against absolute timestamps, so a
-  scenario's history lands at the wall-clock times it describes instead of
-  being anchored to when it was run.
-- The OSPREY agent can see what is actually on screen. `list_panels` now
-  reports the open service tiles in left-to-right order plus how long ago that
-  arrangement last changed, and tells "nothing open" apart from "no browser
-  reporting" — so the agent can work from your view instead of guessing at it.
-  It is also told what changed in the workspace between turns, and told nothing
-  when nothing changed.
-- `arrange_workspace` sets a whole layout in one call: exactly these tiles, in
-  this order, optionally focusing one — or a named layout from the deployment's
-  config, the same arrangement the **Layouts** menu applies. Clicking
-  **Layouts** yourself behaves as it did before.
-- Docked panels now show **one** header bar instead of two. A panel embedded
-  in the web terminal contributes its real toolbar controls (view switcher,
-  action buttons, live text) into the tile's header bar over a new
-  postMessage contract; its own top bar disappears. ARIEL, Channel Finder,
-  the lattice dashboard, and System Health were curated accordingly — the
-  lattice summary stats moved into the panel body, Channel Finder's pipeline
-  switcher and corpus stats into a bottom strip, and the lattice Baseline
-  button now asks for confirmation before overwriting.
-- The rest of the docked panels moved their toolbars into that one header bar
-  too. **WORKSPACE** contributes its filter, its Types/Activity switch and its
-  ⋯ menu; **KNOWLEDGE** its search; **EVENTS** its Activity/Triggers tabs. A
-  panel's search box now renders with the same magnifier as the terminal's own
-  search, so the two read alike. In Simple view the search stays in the panel
-  body, where that view puts it front and centre.
-- The **PLAN** and **BLUESKY** tabs are now one **BLUESKY** panel with three
-  views — Plans, Queue, Results. The queue's state and its two halts (**Stop
-  after current item**, **Abort running plan**) stay on screen across all
-  three, and picking a run in Queue opens it under Results. Drop `plan` from
-  your profile's `web_panels` and remove any `web.panels.plan.*` override.
-- `osprey -v` (`--verbose`) shows debug output, including every container
-  command a deploy runs. Normal runs no longer echo those commands, so a
-  deploy reads as a report — ending in the endpoint summary — rather than a
-  transcript.
-- Bluesky scan agents can discover the worker's device namespace: a
-  `list_devices` MCP tool and a `GET /devices` bridge endpoint. Substrate
-  devices are named by their control-system channel address, and `queue_add`
-  now checks a plan's device names against the worker's list at add time,
-  refusing unknown names with a clear error instead of failing later in the
-  worker.
-- CI runs the whole Bluesky scan-stack e2e family: a new agent-driven scan
-  lane (ORM and grid scans executed end-to-end and graded by a structural
-  floor plus an LLM judge), a queue-stack lane, and the grid-scan roundtrip
-  adopted into the ORM lane — all wired into the merge gate.
-- Profiles carry artifacts into a build through **convention directories** —
-  `rules/`, `skills/`, `agents/`, `commands/`, `output-styles/`, `hooks/`,
-  `web-terminal-context/`, `mcp_servers/`, `services/`, and `project/` for
-  anything without a home. The directory name is the declaration; there is
-  nothing to list in `profile.yml`. A build warns about an unrecognized
-  top-level entry, so a misspelled `rule/` no longer fails silently. `hooks/`
-  is new — it installs a script into the project's `.claude/hooks/`.
-- A profile can wire its own hooks into `.claude/settings.json` with
-  `config: claude_code.hooks.<Event>`, naming a script the profile ships plus
-  an optional `matcher` and `timeout`. Wiring is **additive**: it cannot
-  remove, alter, or displace anything the generated settings already wire, so
-  a declared hook is one more check on top of the framework's, never a
-  substitute. A declaration is refused at build time when it names a hook the
-  profile does not ship, a built-in whose wiring the framework owns, or a path
-  outside `hooks/`. A persona unwires an event with
-  `claude_code.hooks.<Event>: null` — an empty list merges additively and
-  leaves the hook wired.
-- `exclude:` now distinguishes a bare name (stop selecting the built-in) from a
-  qualified `<directory>/<name>` (drop the profile's own file), so a persona
-  can hand a shadowed artifact back to the framework. A bare name used where
-  the profile also ships a file for it is warned about, with the qualified
-  spelling that would take effect.
-- `osprey init --force` re-materializes an existing repo's source zone from the
-  preset — `profile.yml`, `data/`, `personas/`, `triggers.yml`,
-  `web-terminal-context/`, `.env.example` — losing any edit to them. It never
-  touches `.env`, `.git`, `var/`, `build/`, `.gitignore`, `README.md`,
-  `ci-extra.yml`, `.gitlab-ci.yml` or `scripts/verify.sh`.
-- The emitted `profile.yml` header now opens with a map of the repo's four
-  zones — source, secrets, build output, durable state — and the
-  edit → `osprey build` → `osprey up` loop that connects them.
-- A profile can carry a `deploy:` block: CI platform, deploy host, and the
-  container registry when the host pulls its images. Credentials are named
-  there, never written there.
-- `osprey scaffold ci` emits the repo's CI pipeline and post-deploy health
-  check from that block. Re-running is safe — a file whose content already
-  matches is left untouched, and a file the scaffolder did not write is
-  reported rather than overwritten unless `--force` is given. `ci-extra.yml`
-  is never touched; the pipeline includes it.
-- `osprey users env-production` renders `.env.production`, the env file each
-  per-user web-terminal container runs with, from the deploy config and one
-  secrets file. `--output` writes it at mode `0600` instead of to stdout.
-- `archiver_read` gained `bin_size=0` for full resolution — every real
-  archived sample in the requested range, with no per-bin decimation. Only
-  valid with `processing="raw"` (an aggregate has no bin to aggregate
-  over); a non-raw `processing` with `bin_size=0`, or a negative
-  `bin_size`, is a validation error.
-- Bluesky scans now run in a queue server instead of inside the bridge
-  process. Execution is two steps — add the composed plan to the queue, then
-  start the queue — so a queue can be assembled and reviewed before anything
-  moves. Adding to an idle queue needs no launch token; starting requires one,
-  and with `control_system.writes_enabled` off the agent's `queue_add` and
-  `queue_start` are denied outright. A queue survives a bridge restart, and a
-  deployment that cannot execute plans refuses to hold items rather than
-  accepting work it could never run. New guide: How-To → Run Scans Through
-  the Queue.
-- Emergency abort for a scan already moving hardware: **Abort running plan** in
-  the BLUESKY panel, `stop_run` for the agent, `POST /queue/abort` for
-  integrations. It is ungated on every surface — no launch token, no writes
-  switch — so a halt stays available on a stack with writes disabled. It is
-  distinct from stopping the queue, which lets the running scan finish first.
-  An abort leaves hardware wherever the scan had moved it, and says plainly
-  when it did not manage to stop the plan.
-- An interrupted plan — aborted, halted, or failed — stays in the queue, reports
-  as `stopped` (`error` for a failure) rather than as pending work, and blocks
-  the next queue start until it is removed. Removing it is what unblocks the
-  queue; to run it again, remove it first and then stage and add it afresh.
-- `connector:` is a new top-level build-profile key and the short spelling of
-  `config: {control_system.type: ...}`, so a connector can be chosen from the
-  command line with `--set connector=epics`. Giving both spellings on one
-  command line is an error rather than a silent last-one-wins.
-- You can see what the agent did to your workspace. A tile the agent focuses
-  or rearranges glows briefly, and its rail tab flashes with it, so a layout
-  that changes under you is never unattributed — your own clicks stay quiet.
-  An activity strip names each action in plain words ("agent opened
-  WORKSPACE"), and its history popover holds the recent ones for when you
-  looked away. Panels that changed while you were elsewhere keep a badge
-  across a reload until you visit them. Every agent tool that changes
-  something — queue and plan authoring, logbook entries, Phoebus drives,
-  python execution, lattice and window management — reports itself there.
+  chat bridges to the host network, for facilities whose control system
+  answers only there, and `dispatch.worker_port_stride` spaces those workers.
+- A trigger's `action.surface_prompt` appends a static awareness fragment to
+  the dispatched agent's system prompt, and an optional per-surface tool scope
+  narrows its `allowed_tools`.
+- `images.registry` and `images.tag` set where OSPREY-built service images
+  come from, with a per-service `image` key or `OSPREY_<SVC>_IMAGE` taking
+  precedence; `prebuilt_images: true` uses tags already on the host.
+- Mock and virtual-accelerator reads put an absolute floor under relative
+  noise, and machine files accept `noise_abs`, an absolute sigma, and
+  `texture`, slow baseline motion, so channels sitting at zero still move.
+- `channel_limits` takes a `name_contains` parameter for literal substring
+  search, so channel names holding regex metacharacters are found without
+  escaping; it excludes the regex `pattern` parameter.
+- An ORM result adds **Response by BPM** and **Singular values** views, and
+  the response matrix is drawn diverging about zero against a symmetric
+  maximum, so two runs stay comparable and unread cells are hatched.
+- The repository ships `CITATION.cff`, a `SECURITY.md` documenting private
+  vulnerability reporting, and a `NOTICE` carrying the Berkeley Lab clauses
+  that sat in `LICENSE.txt`; licensing terms are unchanged.
+- A roster entry's `access:` decides who may open its card: `own` by default,
+  `any` for any roster login, or a list of `user:` and `domain:` principals; a
+  login not on the list is refused. (#807, #872)
+- `modules.web_terminals.tls.port` names the port nginx serves TLS on, so the
+  listener need not be 443, and an `OSPREY_SITE_CA` build argument keeps
+  builds on verified TLS behind an intercepting proxy. (#794, #803)
+- A panel is a directory bundling a themed, token-only HTML entry point and a
+  `manifest.json`; one dropped under `<project>/panels/` is served at `/panel-
+  static/<id>/` when `web.allow_runtime_panels: true`. (#784)
+- A `claude_code.telemetry` block in `config.yml`, off by default, emits the
+  agent's operational logs and metrics over OTLP, with a local OpenObserve
+  backend as a `deployed_services` add-on.
+- Requests to a LiteLLM-fronted provider carry the acting identity for spend
+  attribution: `x-litellm-end-user-id` names the roster user, dispatch worker
+  or local account and `x-litellm-tags` names the surface.
+- Profiles carry artifacts into a build through convention directories
+  (`rules/`, `skills/`, `agents/`, `hooks/`), wire their own hooks with
+  `config: claude_code.hooks.<Event>`, and subtract inherited ones with
+  `exclude:`.
+- `osprey validate` refuses each difference between a profile and its preset
+  that no `# DEVIATION: <why>` comment claims (`--drift=warn` demotes it), and
+  `osprey init --force` re-materializes the source zone. (#864)
+- The virtual accelerator serves its model over pvAccess as well as Channel
+  Access, and a write on either transport moves both views; in graph mode
+  `osprey build` pairs setpoint and readback channels so a write echoes.
+- `bluesky.second_lane: true` renders a second plan lane, one per control
+  target, and plans route to the lane serving the session's target; the
+  BLUESKY panel's lane picker moves plans, queue and results together. (#736)
+- `osprey scaffold systemd` writes an `osprey.service` user unit that brings
+  the deployment back after a reboot, plus a boot hook for homes on NFS or
+  autofs; a `systemd_unit` health category reports on it. (#738)
+- Containers open their first terminal session on the control-room prompt: the
+  entrypoint seeds first-run state, onboarding, workspace trust and API-key
+  approval, into the session volume merge-only.
+- An onboarding tour of spotlighted steps drives the live shell and states the
+  deployment's own configuration, with invite policy in `web.tour`, a per-user
+  `tour:` field, and a retake from the rail or command palette.
+- Two optional MCP servers, both off by default: `phoebus` perceives and
+  drives a running Phoebus panel with driving approval-gated, and `health`
+  serves the health suite through `health_check` and `health_check_full`.
 
 ### Changed
 
-- **A deployment is a git repo, and every lifecycle verb is top-level.**
-  `osprey init` creates the repo, `osprey set` edits its `profile.yml`,
-  `osprey validate` checks that profile without building, and `osprey build`
-  renders `build/` from it. `osprey up`, `down`, `restart`, `status`, `logs`
-  and `reset` operate the deployment; `osprey chat` talks to it; `osprey users`
-  manages the web-terminal roster; `osprey scaffold ci` emits the CI pipeline.
-  Each verb finds the repo by walking up from the working directory, so none of
-  them is given a project or config path — `--repo` overrides the starting
-  point. Running `osprey` with no arguments prints the command list.
-- Dev mode is a property of the build: `osprey build --dev` bakes the local
-  osprey checkout into the service images, and `osprey up --dev` starts that
-  render — refusing a render built without `--dev` instead of silently starting
-  the published release (`osprey up --build --dev` chains both). A plain
-  `osprey up` of a dev build warns that the images carry the local checkout.
-- Deployed agents can no longer reconfigure their own harness: the Claude Code
-  CLI's bundled harness-configuration skills (`update-config`,
-  `keybindings-help`, `fewer-permission-prompts`) are switched off in every
-  rendered project, and the `setup-mode` skill (which can patch config.yml)
-  left the operator preset's default roster — it stays in the artifact catalog
-  for admin profiles to opt into. Rebuilt control-assistant projects will
-  report preset staleness once; that is the intended signal.
-- **Log out** moved into the web terminal's display menu, alongside
-  **Settings** — the two now sit side by side under a line naming the signed-in
-  user. The separate user chip in the header is gone, leaving search and the
-  display menu there. Single-user terminals are unchanged apart from
-  **System Settings** being relabelled **Settings**.
-- Pairing a virtual accelerator with the mock archiver is refused — at build,
-  at deploy, and at MCP server startup — because the VA moves channels for
-  modelled reasons while the mock archiver invents history at read time, and
-  the pair reports a past that never happened. The mock archiver remains the
-  default for mock control systems; a project that pairs the two must move to
-  the MongoDB archiver or to a mock control system.
-- Asking the agent to open a panel no longer replaces what you were looking at.
-  `switch_panel` opens the tile *beside* your current one — focusing it instead
-  if it is already open — so no tile you had open is evicted. The Simple web
-  UI's single workspace slot is unchanged.
-- Raised minimum versions for `psycopg`, `psycopg-pool`, `uvicorn`, `rich`,
-  `fastapi`, `charset-normalizer`, `unique-namer`, and `pymongo`.
-- Web-terminal archives written by `osprey users remove --archive` now land in
-  `<repo>/var/web_terminal_archives`, not `<project>/web_terminal_archives`.
-  Archives written before this release are left where they are; move them
-  yourself if you want them all in one place.
-- `osprey scaffold claim` moves an artifact out of the build zone and into the
-  matching convention directory of the repo's source zone, instead of marking it
-  user-owned where it sits. The next build copies it back and registers it, so
-  ownership is derived from what the build actually copied — there is no list
-  to maintain, and an artifact a persona excludes is not owned, letting the
-  framework's version render in its place.
-- The profile's `.env` is where a project's secrets live. `osprey build`
-  derives the project's `.env` from it and from nothing else, and a later build
-  never re-reads your shell. A shell export reaches a profile only once, at
-  materialization, and only for providers the profile actually references —
-  keys exported for other providers are named in the summary rather than copied
-  in. `osprey up` writes the credentials it mints back into the profile's
-  `.env`, append-only, so a rebuild comes up on the same secrets
-  instead of minting a second set the running containers do not trust.
-- The web terminal's System Settings drawer explains itself. Each tab opens
-  with a standing one-line subtitle, and the category help tooltips now
-  describe how each kind of file is *loaded* — when it enters the session,
-  what runs it, whether it advises or enforces — instead of summarizing what
-  the shipped files happen to say, which went stale as soon as an operator
-  edited one. Ownership prompts likewise state what taking or releasing
-  ownership actually does.
-- Each settings gallery now opens on artifacts rather than controls. Search and
-  the category chips moved behind a `Filter` disclosure on a single muted
-  summary line, and every category except the pinned ones starts collapsed.
-  An active filter stays named on that line, with a one-click clear, so a
-  narrowed list can never be mistaken for a short one.
-- The Behavior tab labels `CLAUDE.md` "project instructions" rather than
-  "system prompt": it is delivered as a message after the system prompt, while
-  the output style is what actually modifies it.
-- Bridge conversation history keeps more context. Replay is now bounded by the
-  character budget (raised to 100k chars) rather than by turn count, which
-  becomes a runaway backstop (100 turns), and a turn stays eligible for replay
-  for 180 days instead of 90. Long-lived direct-message threads no longer drop
-  older turns while sitting far under their size budget.
-- `osprey init` now writes persona profiles as small deltas under `personas/`
-  instead of full standalone copies. A file there merges over the repo's
-  `profile.yml` implicitly, so edit the host profile once and every persona
-  inherits the change, while each persona file keeps its own capability posture
-  (e.g. `control_system.writes_enabled: false`) pinned explicitly.
-  Model-selection choices baked at materialization time — and `tier` — now
-  reach personas through inheritance.
-- The shipped web-terminal rosters spell out `name`/`index`/`persona` on every
-  user entry instead of bare-string shorthand for the first user. Behavior is
-  unchanged; already-deployed projects will see a one-time profile-staleness
-  advisory from the preset content change.
-- The EPICS connector now rejects a `bin_size` the appliance cannot express
-  rather than quietly serving a different resolution. Sub-second and
-  non-whole-second widths used to be floored to the nearest second (500 ms
-  *and* 1500 ms both became 1 s).
-- `archiver_read`'s `access_details` payload no longer repeats the same access
-  rule once per channel: 3548 → 1075 bytes for a twenty-channel read, and now
-  flat in channel count rather than growing with it.
-- **Breaking change: `ArchiverConnector.get_data` now returns long-format
-  data instead of a shared-index wide frame.** Every archiver connector
-  correctness bug fixed below traced back to forcing every requested
-  channel onto one shared index, which required forward-filling gaps and
-  resampling data into existence just to keep a rectangular shape.
-  - **Before:** a wide `pandas.DataFrame` indexed by timestamp, one column
-    per channel, reindexed/forward-filled onto a shared grid so every
-    column had a value at every row.
-  - **After:** a long `pandas.DataFrame` with exactly three columns —
-    `timestamp` (`datetime64[ns, UTC]`), `channel` (`str`), and `value` —
-    sorted by `channel` then `timestamp`. Each channel contributes only its
-    own real samples (or, under a non-`raw` `processing` mode, only its own
-    real per-bin aggregates); nothing is forward-filled, reindexed onto a
-    shared grid, or otherwise manufactured, and a channel with no data in
-    range contributes no rows. An empty result is an empty frame with the
-    same three columns.
-  - `value` is not dtype-constrained: `float64` when every requested
-    channel's samples are numeric, or pandas' natural mixed dtype once any
-    channel is non-numeric — enum/status channels (EPICS `mbbi` / DOOCS
-    `DBR_STRING`: machine mode, interlock state, RF state) are archived as
-    strings and round-trip as strings, never coerced.
-  - `raw` processing now decimates each bin to its last **real** sample,
-    keeping that sample's own true timestamp rather than a relabeled bin
-    edge — matching EPICS's long-standing `lastSample_N` semantics on every
-    backend.
-  - The `archiver_read` artifact payload changed from a split-orient wide
-    frame to `{"query": ..., "series": {"<channel>": {"timestamps": [...],
-    "values": [...]}}}`. Artifacts already saved in the old layout still
-    render — `extract_channel_series` normalizes all three historical
-    layouts.
-  - **Any out-of-tree `ArchiverConnector` subclass must be updated** to
-    return the new long-format shape; downstream code no longer accepts
-    the old wide, shared-index format.
-- `ArchiverConnector.get_data` gained a trailing `processing: str = "raw"`
-  keyword (one of `raw`, `mean`, `min`, `max`, `median`, `std`, `count`).
-  It's appended last with a default, so existing positional callers are
-  unaffected; an out-of-tree connector that overrides `get_data` must
-  accept the new keyword (even just to ignore it) to remain
-  call-compatible.
-- The chat bridge how-to is now a section, `how-to/chat-bridges/`, with an
-  overview page and a page per chat system. Adds a guide to connecting a
-  service that does not ship with Osprey, such as Slack or email. The old
-  `how-to/deploy-chat-bridge` page is gone; its content moved into the new
-  Nextcloud Talk and Google Chat pages.
-- Ruff moved to 0.16, pinned to one minor in the `dev` extra so the
-  pre-commit hook and CI agree on formatting. The formatter skips Markdown,
-  leaving documentation snippets as written.
-- The `control-assistant` preset now defaults to the `virtual_accelerator`
+- A deployment is a git repo and lifecycle verbs are top-level (`osprey init`,
+  `set`, `build`, `up`, `down`, `web`), replacing the `osprey deploy ...`
+  forms; each walks up for the repo, or takes `--repo`. (#313)
+- A profile directory is the source of truth for a deployment, managed with
+  `osprey profile new|expand|validate|presets`; `osprey validate` checks it
+  against its preset without building.
+- CLI output is a progress report: each verb prints the phase it is in with
+  elapsed time and ends on a summary card, container output spools to
+  `var/logs/`, and `osprey -v` brings the full transcript back.
+- Any LLM gateway can be a provider: name it as `provider:` in `profile.yml`,
+  describe it under `api.providers.<name>` in `config.yml`, and put
+  `<NAME>_API_KEY` in `.env`; `base_url` overrides a built-in provider. (#725)
+- First-party Anthropic, OpenAI and Google provider defaults move to current
+  model ids (`claude-haiku-4-5`, `claude-sonnet-5`, `claude-opus-5`,
+  `gpt-5.6-sol`, `gemini-3.8-flash`), in the shipped config templates too.
+- `model:` accepts any model ID the provider serves rather than only its tier
+  map, and `claude_code.default_model` takes a tier name or a declared model
+  ID, with anything else an error naming the valid values.
+- `archiver_read` derives its bin from the requested range to target
+  `archiver.auto_bin_points` (default 10 000) per channel, accepts `now` and
+  `2h ago` alongside ISO-8601, and reports coverage for an empty result.
+  (#117)
+- The `control-assistant` preset defaults to the `virtual_accelerator`
   connector instead of `mock`, so its scans drive the soft-IOC the same stack
-  already deploys and run end to end out of the box. `mock` remains the
-  fallback for environments with no containers to depend on, where scans are
-  browse-only — plans compose and validate, but the queue will not hold them.
-  Switch with `osprey set connector=mock`.
-- The Bluesky **RESULTS** panel is now **BLUESKY**, and holds the scan queue as
-  well as the selected run's results. Move your own `web.panels.results.*`
-  entries to `web.panels.bluesky.*`. The preset rename changes its resolved
-  content, so an already-deployed project reports staleness on its next
-  `osprey up`. That is the correct signal rather than noise — the tab a
-  user sees is renamed — and rebuilding picks it up.
-- Unknown keys in a build profile's `bluesky:` block now fail the build, naming
-  the valid keys (`excluded_plans`, `plan_dir`, `port`, `tiled_enabled`,
-  `tiled_port`). They used to be dropped in silence, so a typo — or a key a
-  later release removed — took effect as "unset" with no warning anywhere.
+  deploys; `osprey set connector=mock` switches back.
+- `pymongo` is a core dependency and the `archiver-mongodb` extra is gone;
+  drop it from install commands, since pip warns about an unknown extra rather
+  than failing.
+- The Control Assistant template ships no facility values: the `epics`
+  gateways, `probe_channel` and the `epics_archiver` `url` are commented
+  placeholders, and the archiver refuses to start without a `url`.
+- Importing an `osprey` module no longer loads `.env`; it is read at the CLI,
+  at MCP server startup and on the agent launch paths, so library callers use
+  `osprey.utils.config.load_project_dotenv()`.
+- The PLAN and RESULTS tabs are one **BLUESKY** panel with Plans, Queue and
+  Results views sharing the queue state and its two halts; Results leads with
+  the run figure and **Export CSV** writes the whole run.
+- A Bluesky deployment declares the devices its plans may drive in
+  `data/bluesky_devices.yml` (or `bluesky.devices_file`), which `osprey build`
+  validates; `list_devices` and `GET /devices` page that namespace. (#766)
+- The event dispatcher panel is rebuilt around Activity and Triggers tabs with
+  one trigger list and one operator view, and **Clear history** removes
+  finished runs from the persisted record and the in-memory list.
+- The channel explorer's Explore view is a finder over the graph pipeline:
+  search by address, description, device, signal or class, narrow by facet,
+  and copy the addresses you select or send them to the prompt.
+- Pairing a virtual accelerator with the mock archiver is refused at build, at
+  deploy and at MCP server startup, since the mock archiver invents history
+  for channels the VA moves; move to the MongoDB archiver.
+- The Web Terminal and Artifacts interfaces moved to a flat card design over a
+  neutral canvas, the panel tab strip became a vertical icon rail, and the
+  gallery header collapsed into one toolbar with a JSON viewer.
+- Logging is configured explicitly and goes to stderr: importing Osprey
+  installs no handler, so entry points and library callers call
+  `osprey.configure_logging()`, leaving stdout for `--json` payloads and MCP
+  stdio.
+- **Upgrade note:** `modules.web_terminals.auth.method: none` means an open
+  deployment with no login page; the posture that value used to select is
+  spelled `token`, which is also what an absent `auth` stanza means.
+- Custom artifact-gallery categories move from the top-level `categories` key
+  into `artifact_server.categories`, which also takes `host`, `port` and
+  `auto_launch`; the WORKSPACE tab appears only while that server runs.
+- `osprey build` refuses an MCP server name containing `__` or ending in `_`,
+  a key at the wrong nesting depth, a provider tier that maps no model, and an
+  `api_protocol` other than `anthropic` or `openai`.
+- The deployment-build skill `/osprey:build-interview` is `/osprey:install`:
+  it inventories what exists, then builds from the `hello-world` preset in
+  confirmed phases, keeping decisions in a resumable `INTERVIEW.md`.
+- `ariel.database.uri` is optional and derives from the project's
+  `services.postgresql` block when unset; an explicit URI is used verbatim and
+  no longer rewritten to a container loopback address. (#786)
+- ARIEL requires the choices it used to guess: `logbook.composition.provider`
+  (falling back to `claude_code.provider`) and `ariel.ingestion.adapter` are
+  configuration errors when unset.
+- ARIEL search modes are plain strings (`search(mode="keyword")`, the
+  `SearchMode` enum is gone), the panel follows the deployment's configuration
+  for untouched knobs, and a reranked search shows fast results first.
+- Osprey calls a bluesky generator a plan, not a scan, across the panels, tool
+  descriptions and docs, and the browser sidecar is the `bluesky-web` service
+  (was `bluesky-panels`); rebuild to pick up both renames.
+- `osprey build` refuses unknown keys in a profile's `bluesky:` block and a
+  superseded `channel_limits.json`, and an unhealthy container's failure
+  report carries its last 30 log lines. (#465, #815)
+- The status bar starts with a **System health** dot and the clock; any bar
+  item can sit in either bar, and the panel tab strip gained show and close
+  controls plus a URL field under `web.allow_runtime_panels`. (#847)
+- Connector-level names no longer assume EPICS: the write failure code is
+  `WRITE_FAILED`, `pv` is `channel`, and a write the control system itself
+  denies reports `CONTROL_SYSTEM_REFUSED` instead of an internal error.
+- A config that does not name `control_system.type` resolves to the mock
+  connector with a warning instead of EPICS, and a missing or blank
+  `archiver.type` resolves to the mock archiver.
+- Dev mode is a property of the build: `osprey build --dev` bakes the local
+  checkout into the images and `osprey up --dev` starts that render; locally
+  built images are named `<project>-<service>:local`. (#818)
+- `osprey init --set` replaces the value at a key and the `-O/--override` flag
+  is gone; `exclude:` gained a `config:` block. (#888)
+- `osprey build --force` re-renders a project in place, keeping `.env`,
+  `_agent_data/` and `.git`, and records dependencies in a generated
+  `pyproject.toml` instead of `requirements.txt`. (#841)
+- Config keys settled on one spelling: `execution.execution_method` names the
+  backend (`subprocess`; `local` and `container` are deprecated),
+  `facility.name` the facility, `agent_data.base_dir` the agent-data
+  directory.
+- `osprey health` splits cheap `poll` checks from costly `on_demand` ones, so
+  a bare run skips live model chats and the pinned-CLI download, which need
+  `--full`; a host with no container runtime reports a skip.
+- Each compose invocation pins `COMPOSE_PROJECT_NAME` to the resolved project
+  name, so a deployment on a shared host owns its own compose project and
+  volume namespace; images build in their own step before `up --no-build`.
+- The facility ontology is authored as a LinkML schema and compiled with
+  `osprey knowledge compile-ontology`; the channel-finder agents read their
+  vocabulary from the store and from `facility.ontology`. (#739, #742)
+- `osprey channel-finder generate` requires `--source PATH` or `--demo` and
+  refuses to overwrite an existing database without `--force`; generated
+  `in_context.json` files record their source in `_metadata`.
+- The `control-assistant` preset runs the graph channel finder
+  (`channel_finder_mode: graph`) and shares its standalone cards (`access:
+  any`), and the ARIEL card is renamed `logbook`.
+- A docked panel contributes its toolbar controls into the tile header over a
+  postMessage contract and hides its own top bar, so panels show one header;
+  the terminal and standalone panels share one display menu.
+- Config-relative paths (`mirror_path`, `facility_knowledge.bundle_path`,
+  `ariel.vocabulary.path`) resolve against the project root with `~` expanded;
+  regenerate a legacy logbook mirror with `osprey ariel qmd-resync`.
+- The documentation site root serves the latest release; development docs
+  moved to `/latest/` and carry a development banner.
+- Config-write backups land in `var/agent_data/config-backups/` and `osprey
+  users remove --archive` writes to `<repo>/var/web_terminal_archives`; files
+  written before this release stay where they are.
+- Bridge conversation replay is bounded by a 100k-character budget with a
+  100-turn backstop instead of a turn count, and a turn stays eligible for
+  replay for 180 days rather than 90.
+- `claude_code.telemetry.protocol: grpc` combined with an auto-derived
+  OpenObserve endpoint fails the build, since OpenObserve serves HTTP only and
+  that pairing dropped metrics and logs silently.
+- Virtual Accelerator gateways that declare no `port` follow
+  `services.virtual_accelerator.port` instead of a hardcoded `5064`, so moving
+  the deployed soft-IOC's port moves the connector with it.
+- Subagents that file their answer as an artifact hand the orchestrator a
+  pointer — the artifact id, a headline and the identifiers asked for — and
+  the orchestrator focuses that artifact in the gallery.
+- The web terminal's header carries a search box, a display menu holding
+  appearance, view and theme pickers, and a chip whose session menu names the
+  signed-in user, the resolved role and its source. (#746)
+- The agent's panel tools are `add_panel_to_rail` / `remove_panel_from_rail`
+  and `open_panel` / `close_panel`, replacing `show_panel`, `hide_panel` and
+  `switch_panel`; opening a panel adds a tile beside the current one.
+- Deployments with TLS enabled serve the web terminal over HTTP/2, and the
+  session cookie honours `modules.web_terminals.auth.session_lifetime` with a
+  matching `Max-Age`, so a session survives closing the browser.
+- Plotly, HTML and table artifacts draw in the active theme's chart palette
+  and typeface, while a figure that sets its own trace colors keeps them; the
+  `high-contrast` family is monochrome, separating by brightness.
+- `osprey users env` renders `.env.users` (was `osprey users env-production`
+  writing `.env.production`), `osprey up` re-renders one it generated itself,
+  and its credential gate runs before any image builds.
+- Generated container images bake no `USER`: a root entrypoint re-renders
+  drifted agent artifacts, then drops to `osprey` (uid 1000) via `gosu`.
+  Kubernetes `runAsNonRoot: true` rejects them; set `runAsUser: 1000`.
+- Local model servers that need no API key — Ollama, vLLM and DS4 — deploy and
+  launch a web terminal without an auth secret, where a missing secret is a
+  note rather than a refusal.
+- The framework version derives from the git tag, so a build between releases
+  reports its distance from the last one (`2026.8.0.post12+g83fda5e60`) in
+  `osprey --version`, the status line and the health payload.
+- The event-dispatch worker runs the full project image, so dispatched agents
+  see the same facility overlays and `data/` files as the web-terminal agent;
+  this takes a dispatch worker image rebuild.
+- The `hello-world` preset is the onboarding path: its `profile.yml` leaves
+  most keys unset so each arrives as a commented block, and its tutorial runs
+  `osprey init`, `osprey build`, then `osprey web`.
+- Only a literal boolean `true` arms writes: `writes_enabled: 'true'` and
+  `writes_enabled: 1` are refused at both the deployment-wide and per-
+  connector keys, and the key is a cold change needing a restart. (#713)
+- The control-target chip and popover name machines by what they are — Real
+  machine, Rehearsal, Simulator, Demo, or
+  `control_system.target_display_names` — and approval prompts name the target
+  they would act on.
+- Limits checking can be stated per connector type:
+  `control_system.connector.<type>.limits_checking` carries `enabled` and
+  `allow_unlisted_channels` for that connector alone, and a block states both.
+  (#779)
+- The `orm` scan plan kicks each corrector either side of where it found it
+  and puts it back, `span_a` is the size of that kick bounded by
+  `channel_limits.json`, and `orbit_bump_sweep` gained a `leakage_tolerance`
+  band.
+- The generated safety rules name the tool for each request — `channel_read`,
+  `channel_write`, `execute`, Bluesky for a queued scan — and the agent
+  answers verify-first, leading with tool-sourced data. (#465)
+- The profile's `.env` is where a project's secrets live: `osprey build`
+  derives the project `.env` from it alone, environment resolves from
+  `.env.shared` then `.env`, and `osprey reset` removes `.env.auth`.
+- The `control-assistant` preset ships `readonly`, `readwrite` and `admin`
+  tiers beside the `ariel` persona, written as deltas under `personas/`; only
+  `admin` keeps the Config panel and the gallery editors.
+- The Bluesky tool surface is draft-first:
+  `get_draft`/`set_draft`/`clear_draft`, `get_run`, `get_run_data`, and
+  `launch_run` taking a `draft_revision`; the arming token is
+  `BLUESKY_LAUNCH_TOKEN` with no fallback.
 
 ### Removed
 
-- The ALS GTB example corpus (`als_gtb.ttl`). The generated demo-machine corpus
-  is now the only facility graph OSPREY ships; both presets seed it, the
-  `ariel_standalone` preset carries its own copy, and each curated Cypher
-  example ships one parameter set whose values exist in the demo machine.
-
-- Registry and ARIEL exports that nothing called, including a second connector
-  registry that shadowed the real one.
-
+- Direct execution of Bluesky plans inside the bridge is removed: `POST
+  /runs`, `POST /runs/{id}/launch`, `POST /draft/run` and `POST
+  /runs/{id}/stop` answer `410 Gone`.
+  Migration: enqueue with `POST /queue/items`, start with `POST /queue/start`,
+    halt with `POST /queue/stop` or `POST /queue/abort`.
 - The `osprey deploy` and `osprey claude` command groups, the `osprey config`
   subcommands, `osprey profile new` and `profile try`, several `osprey build`
-  options, and the interactive menu that bare `osprey` used to launch. What to
-  run instead:
-
-  | Removed | Use instead |
-  | --- | --- |
-  | `osprey deploy up` / `down` / `restart` / `status` / `build` | `osprey up` / `down` / `restart` / `status` / `build` |
-  | `osprey deploy clean` / `rebuild` / `nuke` | `osprey reset`, or `osprey up --build` to re-render and start |
-  | `osprey deploy decommission` / `prune` / `seed` / `passwd` / `render-env-production` | `osprey users remove` / `prune` / `seed` / `passwd` / `env-production` |
-  | `osprey deploy scaffold` | `osprey scaffold ci` |
-  | `osprey claude regen` | `osprey build` |
-  | `osprey claude status` / `chat` | `osprey status` / `osprey chat` |
-  | `osprey config show` / `export` | `osprey config --rendered` / `--defaults` |
-  | `osprey config set-control-system TYPE` | `osprey set connector=TYPE` |
-  | `osprey config set-epics-gateway --facility NAME` | `osprey set epics_gateway=NAME` |
-  | `osprey build --tier N` / `--set K=V` | `osprey set tier=N` / `osprey set K=V` |
-  | `osprey build PROJECT --preset P` | `osprey init PROJECT --preset P`, then `osprey build` |
-  | `osprey profile new DIR --preset P` | `osprey init DIR --preset P` |
-  | `osprey profile try` | `osprey init --preset P --up` |
-
-  `osprey profile presets` and `osprey profile validate` are unchanged.
-- The `osprey-build-deploy` skill. What it used to scaffold by hand — the CI
-  pipeline, the deployment files, the post-deploy health check — is now
-  `osprey scaffold ci` and the deploy verbs themselves.
-- `facility-config.yml`. The `modules.web_terminals` stanza lives in the repo's
-  built `config.yml`, emitted from the profile's `config:` block, and the
-  deployment files come from the profile's `deploy:` block. Passing `--config`
-  to `osprey scaffold web-terminals` is now an error naming both replacements;
-  use `--repo`, or run from inside the repo.
-- The `overlay:` profile key and the `overlays/` seed directory. Put a file in
-  the convention directory that matches what it is; there is nothing left to
-  declare.
-- The built project's `.env.template`. `.env.example` replaces it and lists
-  every variable the agent reads, not just the ones the profile declared, and
-  the profile ships an identical copy so the two can never disagree.
-- `osprey build` no longer harvests provider API keys out of the environment it
-  happened to run in. A key now reaches a project only by way of the profile's
-  `.env`, so what a build produces does not depend on the shell that ran it.
-  Exporting a key still works for a host-local run and still seeds a profile at
-  materialization; it no longer leaks into a built project unrecorded.
-- Removed the `multi-user-demo`, `multi-user-demo-readonly`, and
-  `multi-user-demo-readwrite` presets. The `control-assistant` preset ships
-  the same two-persona multi-user web tier, so the demo family was a lighter
-  clone of it; build from `--preset control-assistant` instead. The multi-user
-  walkthrough now lives at How-To → Multi-User Support.
-- Removed the DOOCS connector's `max_points` history-decimation path. It built
-  a fixed `np.linspace` grid and forward-filled onto it with a zero-order hold,
-  which the "nothing is manufactured" contract forbids, and no production
-  caller could reach it — the connector always passed `None`.
-
-- Removed direct execution of Bluesky plans inside the bridge process. `POST
-  /runs`, `POST /runs/{id}/launch`, `POST /draft/run` and `POST
-  /runs/{id}/stop` now answer `410 Gone` with a refusal naming their queue
-  replacement. The queue is the only path to hardware: enqueue with `POST
-  /queue/items`, start with `POST /queue/start`, and halt with `POST
-  /queue/stop` or `POST /queue/abort`.
-
-- Removed the `bluesky.demo_runner` build-profile knob and the in-bridge runner
-  it switched on. A profile that still sets it now fails the build with the
-  list of valid `bluesky:` keys, rather than dropping the key silently.
-
-### Fixed
-
-- A web-terminal persona that drops a skill by name now really builds without
-  it. Persona builds decided which skill files to write from the host
-  deployment's artifact list rather than the persona's own, so a persona could
-  add a skill but never remove one, and the terminal shipped skills whose tool
-  servers it does not run. Hooks, rules and subagents were already correct.
-
-- The `orm` scan plan now kicks each corrector either side of where it found it
-  and puts it back there. It previously drove absolute currents either side of
-  zero and ended every corrector's sweep at 0 A, which is only correct on a
-  machine whose correctors idle at zero — on a ring holding a corrected orbit it
-  would have measured about a point the machine was not at and then dropped the
-  correction. `span_a` is now the size of the kick away from a corrector's
-  working point, and its 10 A ceiling is gone: what a corrector will take is the
-  deployment's own `channel_limits.json`, which is checked on every write. A
-  corrector whose read-back is not a number is refused before anything is
-  written to it.
-
-- The source-tree sweep behind the lifecycle criteria no longer fails when a
-  file disappears while it is reading. It walks the live tree, so a temporary
-  file another test had staged under `src/` could be listed and then deleted
-  before its turn came, failing a criterion that was never evaluated.
-
-- Deploys with the ARIEL logbook store no longer break on podman-compose hosts:
-  the store's own `up` was the one compose invocation still built in the docker
-  shape, so it aborted the deploy (or ran against the wrong project directory
-  with `.env.shared` dropped) in the middle of an otherwise podman-shaped start.
-
-- `osprey users nuke` now completes on podman-compose hosts. Its container
-  teardown is built like every other compose command — rendered files, provider
-  shape, pinned project directory — instead of a bare `docker compose -p down`
-  only Docker can parse.
-
-- A `$` in an `.env.shared` value now stops a deploy on every compose provider,
-  not only podman-compose. Docker Compose interpolates env-file values, so such
-  a secret reached containers truncated or spliced with host values, silently.
-
-- The host-port preflight and the `osprey up` closing summary now cover any
-  facility service placed on the host network, read from its
-  `services.<name>.port` key. A host-mode service without that key is named in
-  a warning instead of silently escaping the check.
-
-- `osprey health --project <repo>` run from another directory now resolves the
-  target repo's whole env chain — `.env.shared` included — the way build, chat
-  and compose do, and the long-lived health surfaces notice `.env.shared`
-  edits instead of answering from a stale environment forever.
-
-- The release pipeline again verifies that the framework wheel's dependencies
-  resolve from PyPI before anything is published; the check had been quietly
-  lost when the install-docs lane switched to local wheels for PR runs.
-
-- A control-system write whose read-back could not be verified now fails instead
-  of reporting success. `write_channel` logged `Wrote <channel>` whenever the
-  write itself returned, so an operator could be told a setpoint had moved when
-  nothing had confirmed it.
-
-- Panels you switch off with `auto_launch: false` no longer appear as working
-  tabs. Five of the six companion panels published their URL before checking the
-  setting, so the panel was offered in the rail and its iframe returned a 502.
-  The same five now also survive an empty `OSPREY_<PANEL>_PORT` in a compose
-  file, which used to kill the launch outright and leave a dead tab.
-
-- `osprey health` runs from a subdirectory of your project, like every other
-  `osprey` verb, and its panel probe honours `OSPREY_<PANEL>_PORT` — so on a
-  multi-user deployment it checks each user's own panel rather than reporting
-  everyone's as down.
-
-- The `vllm`, `deepseek`, `ollama` and `argo` providers now ship a base URL that
-  can actually be reached.
-
-- New projects reach Argo again. The scaffolded `config.yml` pointed at
-  `https://argo-bridge.cels.anl.gov`, which no longer serves; it now uses
-  `https://apps.inside.anl.gov/argoapi/v1` and reads `ARGO_BASE_URL`, so you can
-  redirect a deployed project at another gateway without editing the file.
-
-- The CLI reference described a `--project` option on `osprey web` that the
-  command does not have. It takes `--repo`.
-
-- Logbook watch results keep `entries_updated`, which was dropped between the
-  service and the CLI, so an update reported as zero changes.
-
-- A `host`, `port` or `auto_launch` key written at the wrong nesting depth is now
-  refused with the correct path, instead of being silently ignored — which used
-  to start a panel you had switched off, or bind a port you had not asked for.
-
-- Per-user web terminals now receive ARIEL's database password. Without it, the
-  ARIEL tab reported the database as unavailable and the agent's logbook tools
-  failed, on a deployment whose database was running and healthy: the password
-  `osprey up` mints never reached the containers, so both authenticated with the
-  shipped default instead. Each user whose persona configures ARIEL is now given
-  it, and a persona that configures none is not.
-- A start now creates ARIEL's schema for a database it brought up itself, and
-  writes the active scenarios' logbook entries when the logbook is empty. Until
-  now nothing on the deploy path created the tables — that lived only behind
-  `osprey ariel migrate`/`quickstart` — so a first start left a database with no
-  tables behind a panel that could not say so usefully. An existing logbook is
-  left untouched, and a database that cannot be reached warns and names the
-  command that finishes the job rather than failing the deploy.
-- A start that would generate store credentials a surviving data volume cannot
-  accept now stops before it starts anything. Deleting a deployment directory
-  leaves its volumes behind, so the next `osprey up` minted fresh passwords for
-  postgresql, openobserve and mongodb — which each read their password only
-  when initializing an empty volume, and go on rejecting the new one. The
-  previous warning could only guess that this might be happening; the start now
-  asks the container runtime, names every affected store at once, and says
-  whether each one's original credential can still be recovered. It reports
-  this before the image build instead of at a health probe minutes later —
-  which matters, because starting the stack recreates the store containers, and
-  a container holds the only copy of the credential its volume was created
-  with. `osprey restart` runs the same check before it stops anything, for the
-  same reason.
-- New: `osprey up --reuse-stores` and `osprey restart --reuse-stores` adopt
-  those volumes instead of discarding them, restoring each store's original
-  credential to `.env`. They refuse if any affected volume can no longer be
-  reopened, rather than starting a stack that is part-adopted and part-doomed.
-- New: `osprey init --reset` starts over on a name that has been used: it
-  destroys the containers, volumes and images left by a previous deployment of
-  that name, and re-materializes the source zone as `--force` does when the
-  repo directory still exists — so re-creating a deployment is one command,
-  with no `rm -rf` first. Provider keys in `.env`, git history and the audit
-  log survive, exactly as they do under `--force`. If anything of that name
-  survives the sweep, `init` stops and says so instead of starting: `reset`
-  removes only what carries the checkout's own label, so a deployment created
-  before that label existed has to be cleared by hand once.
-- Dev deploys now report each service image as it finishes building, instead
-  of one summary line after the whole `compose build` — the longest step of a
-  deploy, and previously silent for its entire duration.
-- The EVENTS tab now works in a multi-user deployment. Its dashboard is
-  bearer-gated, but per-user terminal containers never received the dispatcher's
-  token, so the tab loaded and then reported "No triggers are registered." — for
-  a dispatcher that had every trigger loaded. Users whose persona declares the
-  EVENTS panel now get the token in their own container; personas without the
-  panel, such as a read-only tier, deliberately still do not.
-- The event dashboard no longer claims a dispatcher has no triggers when it was
-  simply not authorised to read it. Both trigger views now say they were
-  refused, and a panel opened inside the terminal is told its terminal has no
-  token rather than to open the tab it is already in.
-- `osprey health` now answers from either stance. It looks for the config where
-  a build writes it (`build/config.yml`) and reads credentials from the repo's
-  `.env`, so running it at the repo root no longer reports the config missing,
-  and pointing it at the render no longer runs the provider canaries and the
-  environment scan with no credentials loaded.
-- Container detection now recognizes Podman's `/run/.containerenv`, not only
-  Docker's `/.dockerenv`. Inside a Podman deployment the derived MCP health
-  probes were aimed at host URLs.
-- `osprey set` now says so when a key is not one the profile recognizes. The
-  key is still written, but the profile schema is closed, so the next
-  `osprey build` refuses the whole profile — which used to be the first hint,
-  reported against `profile.yml` rather than against the command that made the
-  edit. Keys addressing the rendered config (`config.…`) are unaffected.
-- A dispatch worker whose `agent_data.base_dir` is an absolute path now mounts
-  its workspace volume where the worker actually writes. The mount target was
-  re-anchored under the project directory, so the volume landed on a path
-  nothing used while the records went to the container's writable layer and
-  were lost on every recreate.
-- Several messages and rendered comments still named commands the redesign
-  removed — among them the refusal `osprey up` raises when `.env.production`
-  is missing, which pointed at `osprey deploy render-env-production` instead of
-  `osprey users env-production`.
-- A scan-stack deployment no longer intermittently refuses every scan with
-  "not in the list of allowed plans". The bridge opens the Run Engine worker
-  once at startup, and abandoned it whenever it won the boot race against the
-  queue server — leaving the list of runnable plans empty until someone started
-  the queue by hand. It now waits for the queue server to answer first.
-- One operator's tab switches no longer rearrange every other window of the
-  same workspace: a human panel focus is now mirrored to the server silently
-  (the agent can still read where the operator is looking) instead of being
-  broadcast back, whose delayed echo could evict tiles the operator had open —
-  in the gesturing window and in every other one. Closing a tile no longer
-  reports its side-effect focus change either.
-- Web terminal panels no longer freeze permanently — rendering but ignoring
-  every click — when a drag from the panel rail loses its end event (for
-  example the dragged entry was removed mid-drag by the agent or another
-  client). Drag cleanup now has document-level failsafes.
-- The web terminal's panel event stream reconnects after a proxy or backend
-  hiccup and re-syncs rail membership on every reconnect, so a browser that
-  missed events while disconnected converges instead of silently drifting.
-  Event-handling errors are now logged instead of swallowed.
-- Workspace gallery: the "Draft created" confirmation no longer sticks as a
-  permanent full-panel overlay after a successful logbook submit.
-- Workspace gallery: deleting the artifact being viewed fullscreen (locally
-  or agent-side) exits fullscreen instead of stranding a pane with no
-  controls.
-- The web terminal welcome screen wires its dismiss controls before any
-  fallible boot step, and a terminal-library load failure degrades the
-  terminal card instead of aborting the whole page boot.
-- Lattice dashboard summary stats (energy, tunes, chromaticity) no longer
-  freeze at load time — they recompute with the fast figures after a magnet
-  change. Also removed dead panel chrome the audit surfaced: ARIEL's unwired
-  "Connected" indicator and the System Health panel's no-op manual refresh
-  and misleading fetch-time timestamp.
-- The **EVENTS** panel drew two header bars when docked — its own, plus the
-  tile's. It now hides its own, like every other panel.
-- On Docker Desktop (macOS/Windows), `osprey up` now repairs a web stack that
-  is fully healthy yet unreachable from the browser. Docker
-  Desktop forwards a host-network port only if it watched the container open
-  it, so a container that restarted while Docker Desktop itself was starting
-  stays invisible from the host — and re-running `osprey up` could never fix
-  it, because nothing in the container's definition changed. The post-deploy
-  reachability probe now restarts the web stack once and re-checks before
-  pointing at the host-networking setting.
-- A deploy is quieter about things that were never wrong: no more
-  orphan-container warnings for its own sibling stack (two compose
-  invocations share one project by design), no more garbled progress
-  rendering on long service names (docker runs use `--progress plain`), and
-  no more platform-mismatch warning for the virtual accelerator on Apple
-  Silicon — that image is amd64 by design (its Channel Access server has no
-  arm64 wheels), and the compose service now declares it via
-  `platform: linux/amd64`, overridable with `OSPREY_VA_PLATFORM`.
-- Importing the control-system connectors no longer drags in pandas. The
-  connector factory imported the archiver base eagerly for a type annotation,
-  so anything that wanted only `osprey.connectors.control_system` had to
-  install the archiver's dataframe stack to import it at all.
-- A secret containing `$` no longer reaches a container truncated. Compose
-  substitutes `$` sequences inside env-file values, so `secret$abc` arrived as
-  `secret` and `P@$$w0rd` as `P@$w0rd` — while the file on disk still read
-  correctly, leaving a login that refused for no visible reason. `osprey up`
-  now refuses such a stack and names the offending variables (never their
-  values). All three files a deploy reads secrets from are checked —
-  `.env`, `.env.production` and `.env.auth` — including ones OSPREY did not
-  write itself, so a CI-built `.env.production` and a hand-added OIDC client
-  secret are covered. `osprey users passwd` checks before storing a new
-  password.
-- The OIDC section of the multi-user guide named `.env` as the file to put
-  client credentials in. It is `.env.auth` — credentials placed as documented
-  never reached the login service.
-- Editing `.env.auth` by hand (the documented way to add OIDC client
-  credentials) now takes effect on the next `osprey up`. On podman the
-  login service previously kept running with the old file's contents —
-  healthy-looking but rejecting every login — until it was recreated manually.
-- Lint now refuses a roster `oidc_subject` containing `$`. The subject travels
-  through the rendered compose file, where `$` sequences are rewritten, so
-  that user could never log in and nothing said why.
-- The settings drawer's `CLAUDE.md` section now has a help tooltip. Its help
-  text was filed under a category name no gallery ever displays, so the button
-  silently never rendered — on the one artifact that matters most.
-- The settings Config tab's form view no longer hides most of `config.yml`. It
-  listed a `python_execution` section that does not exist (the section is
-  `execution`), so execution settings were reachable only through Raw YAML;
-  `archiver`, `logbook`, and `facility_knowledge` are now editable there too.
-- Enum/status channels no longer render a state the channel was never in. A
-  gap in an enum channel (a `null` sample) was being turned into the literal
-  category rung `"<channel>: null"` on the chart's shared category axis, so a
-  disconnect drew as a real state. Gaps now break the line as they always did
-  for numeric channels. The same axis also had its tick labels clipped by a
-  fixed right margin and drew an off-theme gridline per rung; both fixed.
-- `raw` and the aggregate processing modes now place bin boundaries on the same
-  lattice. `raw` decimation anchored its bins to the Unix epoch while the
-  aggregates anchored theirs to the start of the day, so for any `bin_size`
-  that does not divide a day evenly (7 s, say) the two disagreed — an operator
-  comparing `raw` against `mean` over one window got bins that did not line up.
-  Whole-second widths that divide a day, which is every width the framework had
-  been exercised with, are unaffected.
-- The archiver freshness health probe stopped silently discarding sub-microsecond
-  precision. It converted each sample's timestamp through `to_pydatetime()`,
-  which emits `Discarding nonzero nanoseconds` on every EPICS probe run.
-- The timeseries table's header came from a different HTTP request than its
-  cells — the header from `format=chart`, the rows from `format=table`. For an
-  artifact being written while it is viewed the two can disagree, showing values
-  under the wrong PV name. `format=table` now returns the very column list its
-  rows were built from, and the client uses it.
-- The artifact gallery's info-bar totals are now computed server-side and
-  reported under a new `summary` object on `format=chart`. The client had been
-  summing each channel's own point count, a number that cannot be reconciled
-  with the table's unioned row count — only the server sees both axes.
-- The EPICS Archiver Appliance connector formatted query-window bounds
-  with a literal UTC `Z` suffix without actually converting to UTC first,
-  so at any facility whose `system.timezone` is not UTC every
-  `archiver_read` window against EPICS landed hours away from the one an
-  operator actually asked for — e.g. "the last hour" could silently pull
-  data from several hours in the past or future, depending on the
-  facility's UTC offset. EPICS now converts to UTC before the query
-  reaches the wire. MongoDB and DOOCS did not share this regression
-  through the actual `archiver_read` path — the tool always hands
-  `get_data()` a timezone-aware datetime, and pymongo's BSON encoding and
-  `datetime.timestamp()` are each already correct for an aware datetime
-  regardless of its zone — but both connectors (and the mock/simulation
-  archiver) now call the same `to_utc()` helper as EPICS, hardening the
-  connector-level contract for a caller that bypasses the tool: a naive
-  (timezone-less) datetime passed directly to `get_data()` is now read as
-  facility-local rather than depending on the caller's own zone or
-  assuming UTC, consistent with every other connector.
-- `archiver_read`'s `processing` parameter (e.g. `mean`, `min`, `max`) was
-  accepted and echoed back in the response, but never actually applied to
-  the query — a request for a 60-second mean silently returned the same
-  last-sample-per-60-second data as `processing="raw"`, with no error or
-  warning. `processing` is now honored end-to-end: the EPICS connector
-  pushes the aggregation to the Archiver Appliance server-side, and
-  MongoDB/DOOCS/mock apply it client-side, so the values returned actually
-  match the requested aggregation.
-- The MongoDB archiver connector ANDed a `$exists` condition for every
-  requested PV onto the same query, so a request spanning channels
-  archived in separate documents — a common ingestion pattern — matched no
-  documents at all and silently returned an empty frame with no error, as
-  if none of the channels had ever been archived. It also ignored
-  `precision_ms` entirely (returning every raw document at ingestion
-  cadence regardless of the requested bin width) and treated `timeout=0`
-  as "no timeout given," silently substituting the connector's default.
-  The query now matches any document carrying at least one requested PV
-  (`$or` instead of ANDed per-PV `$exists` checks), `precision_ms` is
-  honored via per-channel resampling, and an explicit `timeout=0` is
-  respected rather than overridden.
-- `DOOCSArchiverConnector.check_availability` built its "everything
-  unavailable" result when the connector was disconnected, but never
-  returned it, so execution fell through into querying the live DOOCS ENS
-  anyway — a disconnected connector could still report channels as
-  available instead of cleanly reporting all of them unavailable. The
-  disconnected guard now returns immediately.
-- Plotting an archiver artifact that mixes channels with and without data in
-  the requested window no longer fails. A channel with no samples produced an
-  untyped (object-dtype) column, and Plotly Express refuses a wide frame
-  "with columns of different type" — so `px.line(data)` over "beam current
-  plus a channel that was down" raised instead of drawing the channel that
-  did have data. Empty channels now carry a `float64` column.
-- `data_read` on an over-cap archiver artifact now previews the long-format
-  payload it actually receives. It recognized only the old wide/split-orient
-  shape, so a `{query, series}` file — the common reason for exceeding the
-  100 KB inline cap — fell through to a bare `json_object` preview listing
-  `["query", "series"]` and nothing else. The preview now reports channel
-  names, total and per-channel point counts, and each channel's first and
-  last sample, including the zero-sample channels that explain a missing
-  trace.
-- The session-report skill's reference file still taught the pre-long-format
-  Chart.js recipe (`data: { labels: timestamps, datasets: [{ data: values }] }`).
-  `archiver_downsample` gives every channel its own timestamps, so a
-  multi-channel report built from that recipe drew each series against the
-  first channel's x-values — a plausible-looking chart that was silently
-  wrong. The recipe now maps per-dataset `{x, y}` points, skips enum/status
-  channels that cannot share the numeric axis, and needs no date-adapter
-  script.
-- The DOOCS connector no longer fails when its configured `avg_window` is wider
-  than the queried time span. The moving average used `np.convolve(mode="same")`,
-  which returns `max(len(data), window)` points rather than `len(data)`, so the
-  returned `data` array outgrew its `time` array and `get_data` died with a
-  length mismatch. The average is now a pandas centered rolling mean, which
-  returns one value per input point and shrinks the window at the edges instead
-  of zero-padding — removing the separate edge-renormalization pass as well.
-- Plotting two or more enum/status channels together no longer draws them on
-  interleaved rungs. They share one categorical y-axis, and Plotly builds that
-  axis's rungs from the union of its traces in first-appearance order, so each
-  channel's step line crossed rungs belonging to the other — rendering as a
-  state the channel was never in. Each channel's rungs are now namespaced to it;
-  hover still shows the real, unprefixed value.
-- The artifact gallery's `format=table` view no longer rebuilds the entire
-  timeseries on every page click. It pivoted every (timestamp, channel) cell in
-  the file and then sliced to the 50-row page, against a 200 MB file cap; only
-  the requested page's rows are built now. The shared timestamp axis is still
-  unioned in full — that is what the row count and page offset are measured
-  against — but that is one entry per timestamp rather than one per timestamp
-  and channel.
-- The EPICS connector now honors two contract rules it documented but did not
-  enforce, both reachable only through the connector API directly (not through
-  `archiver_read`):
-  - Aggregating a non-numeric channel with anything but `processing="raw"` now
-    raises `ValueError` naming the channel, as `base.py` and the add-a-connector
-    guide both require. EPICS pushes aggregation to the appliance and so never
-    reached the client-side helper where the other three backends enforce this —
-    `mean` over a string-valued PV came back as its raw `CW`/`STANDBY` values
-    labelled as means.
-  - A `precision_ms` that is not a whole number of seconds is now rejected
-    instead of floored. The appliance's operator syntax takes seconds, so a
-    500 ms request was silently served at 1 s (and 1500 ms likewise), while every
-    other backend binned at exactly the width asked for.
-- A DOOCS connector configured with `avg_window` no longer manufactures its
-  timestamps. Because the moving average was a fixed-width convolution kernel,
-  it needed a constant `dt`, so setting `avg_window` forced the samples onto a
-  `numpy.linspace` grid via a zero-order hold — every returned timestamp was a
-  grid position rather than an archived one, and every value was forward-filled
-  onto it. `get_data` deliberately bypasses that grid, but `avg_window` brought
-  it back through a config key, so the one connector with a smoothing knob was
-  also the one still violating the no-manufacturing contract. The average is now
-  a real time-duration window applied to the archived samples at their own
-  irregular timestamps. An explicit `max_points` still returns a uniform grid —
-  that is what the caller asked for.
-- The DOOCS connector no longer waits forever when `get_data` is called without
-  an explicit `timeout`. It passed the argument straight to `asyncio.wait_for`,
-  where `None` blocks indefinitely, and had no configured default to fall back
-  on — so an unresponsive ENS hung the caller with no recovery. `connect` now
-  accepts a `timeout` config key (default 60 seconds), matching EPICS and
-  MongoDB. An explicit `timeout=0` is still honored as a real request.
-- The mock archiver is now genuinely reproducible, as its docstring always
-  claimed. Noise for every non-BPM channel was drawn from the unseeded global
-  `numpy.random` instead of the per-PV generator, so two identical queries in
-  one process returned different data; and the per-PV generator was seeded from
-  `hash(pv_name)`, which CPython salts per process, so even the seeded path
-  differed between runs. Seeding now uses a stable checksum and all noise comes
-  from the per-PV generator.
-- `data_read`'s over-cap preview now also unwraps the legacy `_osprey_metadata`
-  envelope, matching the plot tools' reader. Older archiver artifacts on disk
-  carry that wrapper and were previewed as an opaque JSON object.
-
-- Built projects' `config.yml` no longer misplaces section comments: entries
-  added at build time (service blocks, `deployed_services` names, web panels,
-  config overrides) rendered *after* the next section's comment banner —
-  splitting the `deployed_services` list around the `SAFETY CONTROLS` header.
-  Appended entries now render inside their own section, with the banner kept
-  at the section boundary.
-
-- The test suite no longer inherits a `TZ` supplied by a `.env` file, which made
-  `tests/connectors/test_archiver_timezone.py` error on any machine whose system
-  timezone differs from the one in `.env`. CI has no `.env`, so it never saw it.
-- Importing an `osprey` module no longer loads `.env` into the environment.
-  Previously any `import osprey.…` rewrote `os.environ` from whatever `.env`
-  sat in the working directory — or, through LiteLLM, in any parent directory —
-  overriding values the caller had set. `.env` now loads only where an
-  application asks for it: the `osprey` CLI, MCP server startup, and the Claude
-  Code launch paths. Every key is still passed through, unchanged, at those
-  points. Code that imports OSPREY as a library and relied on the side effect
-  must call `osprey.utils.config.load_project_dotenv()` itself.
-- The `nextcloud_bridge` block in a generated `profile.yml` described itself as
-  turning "a Nextcloud folder" into a trigger source. It answers questions from
-  a Talk room; the comment now says so.
-- Deleting an artifact from the gallery, and the dispatch worker's retention
-  sweep, no longer show up as agent actions in the web terminal's activity
-  strip. Only mutations the agent actually performed are reported.
-- The python executor tools now reject `execution_mode` values other than
-  `readonly` and `readwrite`. An unrecognized spelling used to slip past both
-  write gates and run write-pattern code even with
-  `control_system.writes_enabled=false`. The deployment-level kill switch also
-  now covers `execute_file`, which previously had no such check.
-
-- BLUESKY panel views taller than the window can be scrolled again. The panel's
-  layout column grew to fit its content instead of staying at the viewport, so
-  the scroll container had nothing left to scroll and everything past the fold
-  was unreachable — worst in an embedded tile, where the overflow was clipped
-  outright. Embedded panels also no longer lose the last 28px of every view to
-  padding the frame already supplies.
-
-- The axes table in a scan's parameter form no longer truncates device names —
-  its columns are sized to the names they hold.
-
-- The web terminal header names the product once. The page title repeating it
-  alongside is gone.
-
-- An embedded status strip now keeps its own inset. The queue badge sat against
-  the tile frame and the halt buttons touched its corner, while the content
-  below them was comfortably inset.
-
-- The session picker's dropdown opens in front of the terminal rather than
-  behind it. The tab strip it is adopted into clipped the menu and pinned it
-  under the content pane whatever its stacking order; it now mounts at body
-  level and closes on scroll, resize, Escape, or a click outside.
-
-- The ORM figure reads as a signed response matrix. A corrector kicks the beam
-  and a BPM downstream reads positive or negative by phase advance, but the
-  matrix was painted on a single-hue ramp anchored to the raw extent: zero
-  landed mid-ramp, so an unresponsive BPM looked like a real response, and the
-  strongest negative response painted faintest. It is now diverging about zero
-  and scaled against a symmetric max|value|, so equal and opposite responses
-  read as equally strong and two runs stay comparable. Cells with no reading
-  are hatched rather than left blank, and the legend became a colorbar carrying
-  the numbers.
-
-- New: an ORM result carries the two views that conventionally accompany a
-  response matrix. **Response by BPM** reads the matrix column-wise, where the
-  sign oscillation is legible and a dead corrector shows as a flat line against
-  a dead BPM's shared spike; you pick which correctors are drawn without
-  refetching. **Singular values** plots the spectrum on a log axis, with modes
-  at or below the numerical-rank tolerance drawn as gaps rather than as the
-  ~1e-16 residue a rank-deficient matrix leaves behind. The raw per-corrector
-  sweeps move below the fit into a collapsed section that shows one corrector
-  at a time; when the fit is skipped they stay inline.
-
-### Added
-
-- The web terminal's command palette keeps a Recent section listing the
-  commands you last ran.
-- The command palette can open a panel in a new window or in a new tile — the
-  same two verbs the right-click menu offers. The new-window rows include the
-  panel you are looking at, which is the one most often wanted in its own tab.
-  The new-tile rows are absent in simple mode, whose layout holds one service
-  tile.
-
-### Changed
-
-- Panel actions in the web terminal now live in a right-click menu, on the
-  panel's rail entry and on its tile header alike: focus the panel, open it in
-  a new tile, open it in a new window, remove it from the rail. It replaces the
-  ↗ and ⊞ corner glyphs, which appeared only on hover and only on the rail. The
-  menu also opens from the keyboard — the menu key or Shift+F10 on a focused
-  rail entry.
-
-### Fixed
-
-- The command palette takes typing straight away. The search box was focused
-  before the overlay was made visible, which does nothing, so the first
-  keystrokes after Cmd/Ctrl+K were dropped and you had to click the box first.
-- Palette search answers to the words operators actually reach for: a panel's
-  domain vocabulary ("logbook" finds ARIEL, "pv" finds Channel Finder) and the
-  verbs' synonyms ("window", "popout", "tile", "split").
-
-## [2026.8.0]
-
-### Removed
-
-- **Breaking:** `osprey build --emit-profile` is gone, with no alias — the
-  build command builds projects, and profile authoring now has its own verb.
-  Materialize a profile directory with:
-
-  ```
-  osprey profile new DIR --preset X
-  ```
-
-  It writes everything the flag wrote, plus the preset's `data/` tree, and
-  accepts the same `-O` / `--set` layers. Scripts still passing the old flag
-  fail with an unknown-option error rather than silently doing something else.
-
-### Changed
-
-- A profile directory is now the durable source of truth for a deployment.
-  `osprey profile new` writes a fully explicit, standalone `profile.yml` — the
-  preset's resolved configuration (including any `extends` chain) materialized
-  with its comments preserved, nothing inherited at build time — alongside the
-  preset's `data/` tree copied verbatim and an `overlays/` seed. `--set` and
-  `-O/--override` values are baked in place, so a validated build one-liner
-  carries straight into an editable facility profile. Edit the profile
-  directory and rebuild; the project stays a regenerable artifact.
-  `osprey profile validate DIR` checks a profile without building, and
-  `osprey profile presets` lists the bundled presets.
-
-- The framework version is now derived from the git tag instead of a literal in
-  `src/osprey/__init__.py`. A build between releases reports its distance from
-  the last one (`2026.8.0.post12+g83fda5e60`) rather than claiming to be that
-  release, in `osprey --version`, the status line, the web terminal health
-  payload, and generated project READMEs. Cutting a release is now just tagging
-  — there is no version to bump.
-
-- `osprey deploy up` and `osprey build` now refuse to pin
-  `osprey-framework==<version>` when running from a development checkout, since
-  no published release corresponds to that code. Use `--dev` to build and stage
-  a local wheel, or set `OSPREY_PIP_SPEC` to pin explicitly. Previously this
-  emitted a pin for a version that was never published and failed later, inside
-  the image build, with an opaque pip error.
-
-- Web terminal header: the username badge and the logout button are now one
-  identity chip on the right, whose menu holds the deployment name and Log out.
-  The deployment name (`web.app_name`) moved to the left, beside "Web Terminal".
-- Custom artifact-gallery categories moved from the top-level `categories`
-  key into the `artifact_server:` block (`artifact_server.categories`), in
-  both build profiles and rendered config.yml — the bare name was ambiguous
-  next to unrelated notions like `health.categories`. No alias: the old key
-  is no longer read. The profile-side block also accepts `host`/`port`/
-  `auto_launch` overrides for the gallery server. Materialized profiles now
-  include commented guidance for adding facility `mcp_servers:` and
-  `artifact_server.categories`.
-- Building the `control-assistant` preset now generates the virtual
-  accelerator's channel manifest from the data tree the build sources, and
-  writes `VA_CHANNELS_FILE` and `VA_LATTICE` into the project `.env`. The
-  simulated machine therefore serves the channels in your profile's databases
-  rather than the container's packaged fallback set. Both keys are rewritten
-  on every rebuild, so an edited channel database reaches the running IOC.
-
-### Fixed
-
-- Providers that ship a default endpoint (ALS-APG, Stanford) now work without a
-  `base_url` in config. The requirement check ran before the provider could
-  supply its own default, so a config that omitted `base_url` failed with
-  "Base URL required" instead of using the endpoint the provider already knew.
-  An explicit `base_url`, and the environment override, still take precedence in
-  that order.
-- A run whose steps each wrote a file with the same name (two `plot.png`, say)
-  now delivers all of them to a chat bridge. Previously the second overwrote the
-  first in the shared upload directory and both were reported as delivered, so a
-  plot went missing with nothing in the logs to say so.
-- `web.theme` set to a concrete theme id (e.g. `desy-light`) now actually pins
-  light or dark as the deployment default. It painted correctly and was then
-  overridden by the viewer's OS preference a moment later. A bare family
-  (`desy`) still follows the OS, and a user's own pick still wins over both.
-- The theme picker now labels the DESY family `DESY` rather than `Desy`.
-- Newly scaffolded projects set `web.theme: osprey`, a family that no longer
-  exists; the terminal warned and fell back on every start. Now `main`.
-- HTML-to-image export no longer runs `playwright install chromium` on every
-  conversion. The browser availability check used Playwright's sync API, which
-  fails inside a running event loop; the failure was misread as "browser
-  missing", so an async caller (e.g. the dispatch artifact byte route) paid a
-  subprocess and a network round-trip per conversion — and on hosts that cannot
-  reach the browser CDN, every conversion failed even with Chromium installed.
-  The browser launch is now itself the availability check: Chromium is installed
-  only when a launch reports the binary is absent, at most once per process, and
-  a launch that fails for any other reason surfaces unchanged instead of being
-  reported as a missing browser.
-- `osprey build` now fails with an actionable error when
-  `claude_code.default_model` (e.g. `--set model=...`) names a model the
-  selected provider does not serve. Previously the build only warned and the
-  deployed web terminals crash-looped behind the reverse proxy (502).
-- Chat bridges no longer drop an artifact whose conversion failed. A run's
-  artifact descriptors predict `image/png` for everything the worker intends to
-  render, but a conversion that fails at fetch time makes the byte route serve
-  the original file instead — and a delivery path routing on the prediction
-  rejected those bytes as "not a PNG" and discarded them with no error anywhere.
-  Delivery now routes on what actually arrived (the bytes and the served
-  Content-Type), so a failed render is delivered as a document rather than lost,
-  and its filename takes the extension of what was served. The same prediction
-  drove prior-image re-injection, which could hand the agent a text file
-  labelled as an image on a follow-up question; a prior artifact is now
-  re-injected under the type it was really served as, or not at all.
-
-### Added
-
-- Web terminal workspace: every panel tile now has the same header bar — six-dot
-  drag grip, panel name, and a close button that closes just that tile (the
-  panel stays on the rail; one click reopens it). Panels can be opened side by
-  side as first-class gestures: drag a rail icon into the workspace to split
-  exactly where you drop it, or use the ⊞ "open in a new tile" corner on a rail
-  entry's hover. Opening an already-open panel beside moves its tile instead of
-  duplicating it.
-- A multi-user web-terminal deployment can now require a real login. Set
-  `modules.web_terminals.auth.method` to `password` (passwords OSPREY manages
-  and hashes for you) or `oidc` (your facility's single sign-on, mapped onto
-  roster entries by an `oidc_subject` field), and every request to a user's
-  terminal — pages, APIs and the live connection — is refused unless the
-  browser holds a valid session for that user. `osprey deploy up` provisions
-  each user's password hash into a `0600`, gitignored `.env.auth` that only the
-  login service can read, printing any password it has to generate exactly once;
-  `osprey deploy passwd <user>` rotates one later and ends that user's sessions.
-  It fails closed throughout: without `tls.enabled` the deployment refuses to
-  render rather than send session cookies in the clear (override with
-  `auth.allow_insecure_http` only behind a TLS-terminating proxy), and a deploy
-  aborts before starting anything if a password hash cannot be established. The
-  default stays `auth.method: none`, and no preset turns it on — see the
-  multi-user how-to for the full setup and how to roll it back.
-- Each user in a multi-user deployment can have their own default theme: set
-  `theme:` on a roster entry in `modules.web_terminals.users` (a family such as
-  `desy`, or a concrete id such as `desy-light` to also pin light/dark). It
-  overrides the image's `web.theme` for that user only, and the user's own pick
-  in the display menu still overrides it.
-- The multi-user landing page now uses the deployment's configured theme
-  instead of a fixed palette, so it matches the terminals it links to.
-- DOOCS facilities can now select their connectors by name: `control_system.type:
-  doocs` and `archiver.type: doocs_archiver`, in `config.yml`, through `osprey
-  config set-control-system doocs`, or from the interactive config menu.
-  Previously the connectors shipped but were reachable only by spelling out their
-  dotted class paths. Both still require `doocs4py` from the DOOCS environment.
-
-- New `osprey.bridges.core` package: a channel-agnostic engine for connecting a
-  chat or email channel to the OSPREY dispatcher/worker pair as its own process.
-  It owns the parts that are the same for every channel — a crash-safe dedup
-  claim taken before dispatch, conversation history replayed with each question,
-  a retry queue drained in the background once the pair is healthy again, startup
-  recovery for messages that were in flight when the process stopped, and worker
-  artifact handling. A channel contributes only its wire format and platform I/O,
-  through the `ChannelOps` seam.
-- Your team can now ask the agent questions from a Nextcloud Talk chat room and
-  get answers — including plots and files — back in the same room. Add a
-  `nextcloud_bridge:` block to a build profile alongside a `dispatch:` block, set
-  the bot account and room list in the project `.env`, and `osprey deploy up`
-  brings up the bridge with the rest of the stack. In a group room only messages
-  that mention the bot are answered; files are shared with the room's members
-  rather than published as public links. Messages posted while the bridge is down
-  are picked up on restart. See the "Deploy a Chat Bridge" how-to.
-- Your team can now ask the agent questions from Google Chat — in a space or a
-  direct message — and get answers, including plots and files, back in the same
-  thread. Add a `gchat_bridge:` block to a build profile alongside a `dispatch:`
-  block, set the Google service account key, subscription, and app identity in
-  the project `.env`, and `osprey deploy up` brings up the bridge with the rest
-  of the stack. In a space only messages that @mention the app are answered; in
-  a direct message every message counts. Plots and files come back as public
-  links anyone who has the link can open, because that is the only way Chat can
-  show them; leave the bucket unset to answer text only. Run one bridge per
-  subscription — Google hands each message to a single reader. See the "Deploy a
-  Chat Bridge" how-to.
-- Every service image is now overridable through the same `env → config →
-  default` chain: new `OSPREY_POSTGRES_IMAGE` env var plus
-  `services.postgresql.image`, `services.openobserve.image`, and
-  `services.bluesky.tiled_image` config keys (the built service images already
-  supported both layers). Useful for internal registry mirrors and pinned
-  digests.
-- Service compose templates are now claimable build artifacts: `osprey
-  scaffold claim services/<name>` freezes a template for local editing (with
-  `scaffold diff` drift reporting), and `osprey build` skips claimed services
-  when refreshing templates from the framework.
-- `osprey deploy up` now mints a strong per-deploy `ARIEL_DB_PASSWORD` into
-  `.env` when the postgresql service is deployed; the container and the ariel
-  DSN read the same value (previously both used the fixed `ariel` password).
-  Existing Postgres volumes keep their original password — see the deploy
-  how-to for the migration note.
-- Simulation machine files accept two optional per-channel keys: `noise_abs`, an
-  absolute Gaussian sigma in the channel's own units, and `texture`, slow
-  baseline motion declared as `{"kind": "wander", "amplitude": …, "period_s": …}`.
-  The existing `noise` key stays relative (a fraction of the value), so channels
-  that sit at zero can now be given movement. Machine files using neither key
-  parse and behave exactly as before.
-- Build profiles take a new `environment:` block declaring the Python
-  environment agent code runs in: `python` (the base interpreter — either a
-  bare interpreter or a venv's), `packages` (extra requirements, additive to
-  `dependencies`), and `inherit_exclude`. Where `python` names a venv, that
-  venv's installed distributions are frozen into the built project's dependency
-  record; basing on a venv interpreter does not otherwise carry its packages
-  over. The build fails, naming every offender at once, on packages it cannot
-  reproduce — ones installed from no package index, and ones whose version
-  conflicts with osprey's own requirements. `inherit_exclude` is how you drop
-  them.
-- A CI-enforced guard keeps `config.yml` honest: every key the shipped templates
-  render must have a reader in the framework, or a recorded reason it has none,
-  and a key that was retired cannot come back in a template, a preset override,
-  or the loader's defaults. Contributors can run it from a checkout with
-  `uv run python scripts/check_config_keys.py`.
-- `osprey theme-lab` opens a browser workbench for designing a theme: pick its
-  two accent colors — the main one and the second used for highlights and
-  warnings — see them previewed live in dark and light with contrast badges,
-  then copy an export block describing the theme to request it. One set of
-  controls edits whichever accent is selected. The second accent carries a
-  contrast badge of its own, because the build holds it to the stricter
-  body-text standard the main accent is not held to.
-
-### Changed
-
-- The event dispatcher panel is rebuilt around two tabs — Activity and
-  Triggers — instead of five surfaces competing for the same screen. There is
-  one place to fire a trigger, one trigger list, and one operator (Simple)
-  view. Three long-standing faults go with it: timeline marks now sit at their
-  actual times (every mark previously rendered at the left edge, so a quiet
-  trigger looked the same as a busy one), an open transcript survives the
-  three-second refresh instead of collapsing what you had expanded, and write
-  actions no longer pop a token prompt inside the embedded panel. A run now
-  also links to the trigger that started it and, where a telemetry store is
-  deployed, to that run's own records — each link appearing only when there is
-  something real to open.
-- Raised minimum versions for `aiofiles`, `click`, `fastapi`, `httpx`,
-  `matplotlib`, `mss`, `playwright`, `requests`, and `typing_extensions`, and
-  regenerated `uv.lock` to match.
-- `osprey web` now resolves the project it serves once, up front (`--project`,
-  then `OSPREY_CONFIG`, then the current directory) and refuses to launch when
-  no `config.yml` is resolvable, instead of silently serving a terminal with
-  only the universal panels. The launch banner names the resolved project, the
-  resolved config is published to child processes (including the `--reload`
-  worker), and a detached server's command line always carries `--project` so
-  a copied restart cannot lose the project identity.
-- Every draggable divider in the web terminal now looks and behaves the same.
-  Panes sit flush against each other with the grip attached to the pane edge
-  (previously the workspace gallery and the plan panel floated their panes in a
-  gutter), every divider can be moved with Arrow keys as well as the pointer,
-  and double-clicking one collapses that pane and restores it to the width or
-  height you had. The lattice dashboard's control sidebar, which could only be
-  collapsed, can now be resized too.
-- `osprey deploy --dev` now fails with a clear error when the local osprey wheel
-  cannot be built, instead of warning and deploying the pinned PyPI release.
-  Previously a missing `build` package (or a broken local checkout) produced one
-  warning among many info lines and an exit code of 0, so the containers came up
-  running released osprey and the deployment silently tested something other than
-  the local code. The preconditions — editable install, source checkout, `build`
-  package — are now checked before any deploy work begins, and `build` moved from
-  the `dev` extra to a base dependency so an editable install always has it.
-- `osprey build` now prints a provider-credentials summary that reports the API
-  keys it *found*, not just the ones it didn't. It leads with the provider the
-  project was built for, names where that key came from (project `.env`, the
-  build directory's `.env`, or the shell), and warns if the selected provider's
-  key is missing. Previously the build logged one line per *unresolved*
-  placeholder — twice — so a successful key was silent, and a missing key for
-  the selected provider looked identical to the irrelevant misses for providers
-  the project never uses. The per-placeholder resolver line moved to `DEBUG`.
-- Scaffolded `.env` / `.env.example` files derive their provider API-key list
-  from the provider registry instead of a hand-maintained list (which had
-  drifted: `ALS_APG_API_KEY` was missing, a stale Langfuse block remained, and
-  a detected `ARGO_API_KEY` value was discarded in favor of a `$${USER}`
-  placeholder).
-- Shipped preset configs now document `deployment.bind_address` and point the
-  Virtual Accelerator instructions at `osprey deploy up` instead of a
-  repo-internal container path.
-- Deploying the Bluesky bridge with `control_system.writes_enabled: true`
-  no longer leaves the launch path permanently unarmed — `BLUESKY_LAUNCH_TOKEN`
-  is now minted for every deployed bridge. The enforced boundary is unchanged:
-  the connector re-reads `writes_enabled` and applies limits on every setpoint.
-- `execution.execution_method` now names the backend that actually runs:
-  `subprocess`. Generated configs write it, `local` is accepted silently as a
-  synonym, and `container` still loads but runs on the subprocess backend and
-  logs a one-time deprecation warning naming the config file it came from. Both
-  legacy values stop being accepted in 2027.1.
-- Generated `config.yml` files no longer record `execution.python_env_path`, an
-  absolute host interpreter path that went stale as soon as the project moved.
-  Agent Python runs in the project's own `.venv` when it has one, resolved at
-  run time. Configs that still carry the key load unchanged; it is ignored.
-- Other Jupyter-era execution keys nothing reads are gone the same way:
-  generated configs no longer carry `execution.modes`,
-  `python_executor.max_generation_retries` / `max_execution_retries`, or
-  `file_paths.executed_python_scripts_dir`, and an `execution.modes` block in
-  an already-deployed config is ignored on load. A config without an
-  `execution:` section no longer logs a warning — subprocess execution is the
-  default, not an anomaly.
-- The unreachable Jupyter-container execution machinery is deleted: the
-  container engine, the wrapper's container mode, the notebook/file managers
-  (and the `http://localhost:8088` notebook links they minted), their models
-  and exception hierarchy, and the artifacts API's interactive-notebook
-  endpoint. `osprey.services.python_executor` now exports only the analysis,
-  limits-validation, and serialization utilities the subprocess backend uses.
-- The Python-execution and visualization tool descriptions now name the
-  packages actually importable where each one runs code, enumerated once at
-  server start, instead of a fixed `numpy, pandas, scipy, at, matplotlib,
-  plotly` list. The visualization tools report the sandbox's installed set
-  intersected with its import allowlist. If the environment cannot be
-  enumerated, the description names no packages rather than guessing.
-
-- The model-benchmark matrix now scores two lanes separately: `agentic_benchmark`
-  marks genuine model-capability e2e tests (the headline pass rate) and
-  `harness_benchmark` marks model-independent safety/plumbing assertions, so
-  harness passes no longer pad a model's capability score. Every in-scope e2e
-  test must declare its lane (gated per matrix cell and in CI); 19 non-LLM e2e
-  files moved to the matrix exclusion list. The `e2e_benchmark` marker was
-  renamed to `channel_finder_benchmark` to say what it actually covers.
-- Web terminal header: the Expert/Simple toggle and theme controls are collapsed
-  into a single display-menu dot that opens a popover with appearance
-  (light/dark), view, and theme-family pickers. The header's search box and the
-  display menu — System Settings included — now look and behave the same in both
-  Expert and Simple, so nothing in the top-right corner moves when you switch
-  view; the standalone "?" button is gone (the safety guide is still one search
-  away). The popover also stays open while you switch appearance, theme, or
-  view, so you can flip back and forth without reopening it.
-- The default theme family is now named **main** (it was `osprey`): use
-  `web.theme: main`.
-- Workspace gallery browser: the three stacked header rows (title/count bar,
-  type filter chips, controls row) are collapsed into a single toolbar —
-  filter input, Types/Activity toggle, and a `⋯` menu holding the rare
-  actions (all-sessions scope, refresh, layout). The all-sessions scope shows
-  as a dismissible pill above the list while active, and pinned artifacts are
-  promoted into a "Pinned" section at the top of the type tree.
-- The **high-contrast** family is now fully monochrome — pure black and white,
-  with status, diffs, chart series and terminal colors separating by brightness
-  instead of hue. It was previously a high-contrast variant of the pre-redesign
-  palette, and still meets the same WCAG AAA gates.
-
-- A config that does not say which control system it talks to now gets the mock
-  connector instead of EPICS, with a warning naming `control_system.type`. The
-  same rule applies to the archiver: a missing or blank `archiver.type` resolves
-  to the mock archiver — previously a missing one selected the EPICS archiver and
-  a blank one crashed. The `hello_world` and `project` templates now ship a
-  minimal `archiver:` block so the choice is visible. Configs that name their
-  connector and archiver are unaffected.
-- `claude_code.default_model` is resolved in three ways and never silently
-  substituted: unset uses the provider's default tier, a tier name
-  (`haiku`/`sonnet`/`opus`) selects that tier, and a model ID the provider's
-  tier map declares is used verbatim. Anything else is now an error that
-  names the valid tiers and the provider's model IDs. Previously an unrecognized
-  value — a stale model ID, or one belonging to a different provider — was
-  quietly replaced by the provider's default tier, so a project asking for Opus
-  could run Haiku with nothing in the log. *Migration:* if a build now fails on
-  this key, set it to a tier name (which stays valid when the provider changes)
-  or to one of the model IDs the error lists. The shipped presets now set the
-  tier `haiku`.
-- A provider that maps no model for a tier is refused at build time, with the
-  `api.providers.<name>.models` block to fill in. Unmapped tiers were previously
-  filled with Anthropic's own model IDs, so a proxy or gateway shipping no map
-  launched the agent asking for a model it does not serve.
-- `api.providers.<name>.base_url` now overrides the built-in endpoint for
-  built-in providers too, matching how the model map already worked — a facility
-  fronting a shipped provider with its own gateway gets the agent pointed at the
-  endpoint `osprey health` probes.
-- `ariel.database.uri` is optional. With it unset, the DSN is derived from the
-  project's `services.postgresql` block (username, database name, host port, and
-  the `ARIEL_DB_PASSWORD` the deploy mints), so moving the database port no
-  longer means editing a second copy of the same facts; the templates no longer
-  render a hardcoded `uri:`. An explicit `uri` still wins verbatim, as does the
-  older `connection_string` spelling (honored, with a warning naming its
-  replacement), and `osprey health` now cross-checks an explicit loopback DSN
-  against `services.postgresql.port_host`.
-- Virtual Accelerator gateways that declare no `port` now follow
-  `services.virtual_accelerator.port` instead of a hardcoded `5064`, so moving
-  the deployed soft-IOC's port moves the connector with it. An explicit gateway
-  port still wins; the templates no longer render `port: 5064`.
-- The mock archiver derives `simulation_file` from the control system's own
-  simulation file when its own key is unset, so archived history and live reads
-  come from one machine model. An explicit archiver-side value still wins, and a
-  disagreement between the two is warned about.
-- `osprey health` reports configuration more honestly: an empty
-  `deployed_services` list is a skip rather than a warning (attached and
-  service-free projects ship it empty), the timezone remediation names
-  `system.timezone` in `config.yml` instead of a `TZ` variable that no longer
-  clears it, the container checks query the runtime `container_runtime` selects
-  rather than whatever auto-detection finds first, and the agent-data check reads
-  `agent_data.base_dir`.
-- `facility.name` is the canonical facility identity, read the same way by the
-  build path and by every interface that labels its UI; presets now set it in
-  the `facility:` block. A top-level `facility_name` still works as a fallback.
-- `agent_data.base_dir` is the single key naming the agent-data directory. The
-  runtime, the health check, and the compose mounts all resolve the same
-  directory from it, and generated configs declare it explicitly.
-- Logbook composition uses the project's configured provider —
-  `logbook.composition.provider`, falling back to `claude_code.provider` — and
-  fails with a clear error when none is configured, instead of always calling
-  Anthropic. The model ID comes from that provider's tier map;
-  `logbook.composition.model_id` is no longer written into generated configs but
-  is still honored to pin a literal ID.
-- `ariel.enhancement_modules.semantic_processor.provider` is required when that
-  enhancement is enabled, and an unset one is an actionable error rather than a
-  silent fall-through to `ariel.embedding.provider` (which defaults to `ollama`,
-  an embedding endpoint, not a completion one). The duplicate nested
-  `model.provider` key is gone; the module-level `provider` is the only one.
-- `claude_code.telemetry.protocol: grpc` combined with an auto-derived
-  OpenObserve endpoint now fails the build. OpenObserve serves HTTP only, so
-  that pairing produced an exporter that dropped every metric and log silently.
-- The artifact gallery tab appears only when its server is actually running:
-  with `artifact_server.auto_launch: false`, or after a failed launch, the
-  WORKSPACE tab is unavailable instead of an enabled tab whose iframe returned a
-  bare 502. Every companion panel's host and port now come from one resolver, so
-  the URL published to the terminal and the port the server binds cannot
-  disagree, and the `OSPREY_*_PORT` overrides apply on both sides.
-- `facility_knowledge.bundle_path` resolves identically for its three readers
-  (the MCP server, `osprey knowledge`, and the KNOWLEDGE panel): `~` is expanded,
-  and a relative path is resolved against the directory holding `config.yml`.
-- The control-system wizard disables the MongoDB archiver choice when the
-  `archiver-mongodb` extra is not installed, naming the install command, instead
-  of writing an `archiver.type` the environment cannot construct.
-- The agent's setup-mode config patcher reports `control_system.writes_enabled`
-  as a cold change requiring `osprey claude regen` and a restart. It was
-  advertised as taking effect immediately, so an operator who flipped it
-  in-session was told writes were live while the connector and the enforced deny
-  list still blocked them.
-- A project that still sets
-  `control_system.write_verification.fail_on_mismatch: true` gets a one-time
-  warning at its first write. Nothing ever read that key: a failed verification
-  does not block or roll back a write. `write_channel_checked()` is the path
-  that enforces verification, and scan plans write through it.
-- The web terminal's settings drawer edits the write-verification level
-  (`control_system.write_verification.default_level`) as a dropdown of `none` /
-  `callback` / `readback`. Its enum was attached to a key shape that does not
-  exist, so the live setting was previously edited as free text.
-- Generated configs now document keys that were previously discoverable only in
-  the source: the panel-port block for every web panel a project ships, the
-  `web_terminal:` and `hooks:` blocks, `bluesky.plan_dirs` trust tiers, the three
-  channel-finder pipeline modes, `development.api_calls`, and `web.theme`.
-  Comments that described behavior the code does not have were corrected —
-  including the safety surface: how far `approval.default_policy` actually
-  reaches (only tools whose matcher runs the approval hook; everything else is
-  gated by the rendered `settings.json` permissions), all three effects of
-  `hooks.debug` and its unrotated JSONL, the warning that
-  `control_system.patterns` overrides rather than extends the built-in patterns,
-  and what `control_system.write_tools` covers.
-
-
-### Removed
-
-- The `apex` theme family.
-
-- Configuration keys that nothing read are retired — from the shipped templates
-  and presets, and from the framework's own config classes and loader:
+  options, and the interactive menu bare `osprey` launched are gone; `osprey
+  profile presets` and `osprey profile validate` are unchanged.
+  Migration: `osprey deploy up|down|restart|status|build` are the same verbs
+    on `osprey`; `deploy clean|rebuild|nuke` are `osprey reset` or `osprey up
+    --build`; `deploy decommission|prune|seed|passwd|render-env-production`
+    are `osprey users remove|prune|seed|passwd|env`; `deploy scaffold` is
+    `osprey scaffold ci`; `claude regen` is `osprey build`; `claude
+    status|chat` are `osprey status|chat`; `config show|export` are `osprey
+    config --rendered|--defaults`; `config set-control-system TYPE` is `osprey
+    set connector=TYPE`; `config set-epics-gateway --facility NAME` is `osprey
+    set epics_gateway=NAME`; `build --tier N` and `build --set K=V` are
+    `osprey set tier=N` and `osprey set K=V`; `build PROJECT --preset P` and
+    `profile new DIR --preset P` are `osprey init ... --preset P` then `osprey
+    build`; `profile try` is `osprey init --preset P --up`.
+- The Tuning optimization panel and its companion web server are retired;
+  tuning is not a built-in panel.
+  Migration: remove `tuning` from `web_panels:` in project configs.
+- The `bluesky.demo_runner` build-profile knob and the in-bridge runner it
+  switched on are removed; a profile that still sets it fails the build with
+  the list of valid `bluesky:` keys.
+- The Bluesky stack's HEALTH panel and the sidecar's `/health/full` rollup are
+  retired; the SYSTEM tab shows service status for the deployment.
+  Migration: remove `web_panels: [health]` entries from project configs.
+- The DOOCS connector's `max_points` history-decimation path is removed.
+- The `osprey-build-deploy` skill is removed; `osprey scaffold ci` and the
+  deploy verbs cover the CI pipeline, deployment files and post-deploy health
+  check it used to scaffold by hand.
+- The `overlay:` profile key and the `overlays/` seed directory are removed;
+  put a file in the convention directory that matches what it is.
+- The built project's `.env.template` is replaced by `.env.example`, which
+  lists the variables the agent reads and derives its provider API-key list
+  from the provider registry.
+  Copying `.env.example` to `.env` is safe: it ships no uncommented proxy
+    placeholders, which used to export an unparseable `HTTP_PROXY`.
+- `osprey build` no longer harvests provider API keys out of the environment
+  it runs in, so a build does not depend on the shell that ran it. Exporting a
+  key still works for a host-local run.
+  Migration: a key reaches a built project through the profile's `.env`; put
+    it there and rebuild if a project is missing one.
+- Scaffolded projects no longer create `_agent_data/user_memory/`, and `.env`
+  no longer carries a `TZ` line detected from the host.
+  Migration: the facility timezone is `system.timezone` in `config.yml`.
+- The facility-knowledge `capabilities` tool no longer reports
+  `write_enabled`; a tool that fails to reach the bundle reports which case
+  applies and names its own fix.
+- The ALS GTB example corpus (`als_gtb.ttl`) is removed; the generated demo-
+  machine corpus is the facility graph OSPREY ships, and both presets seed it.
+- python-executor drops the deprecated `epics_writes_enabled` field;
+  `control_system_writes_enabled` is the write-gating flag.
+  Migration: rename the key in any project config that still sets it.
+- The scripted target-switch demo `scripts/demo_target_switch.py` is removed;
+  a live stand-in deployed from the build profile replaces it.
+- The configuration the loader hands to the runtime drops the OpenWebUI-era
+  identity fields (`user_id`, `chat_id`, `session_id`, `thread_id`,
+  `session_url`) and the `applications` scoping.
+- The tier-2 channel databases and their benchmark query set are retired, and
+  tier 2 is not selectable in build profiles.
+- `facility-config.yml` is gone: the `modules.web_terminals` stanza lives in
+  the repo's built `config.yml`, emitted from the profile's `config:` block,
+  and deployment files come from its `deploy:` block.
+  Migration: `osprey scaffold web-terminals --config` is an error; pass
+    `--repo`, or run from inside the repo.
+- The `multi-user-demo`, `multi-user-demo-readonly` and `multi-user-demo-
+  readwrite` presets are gone; `control-assistant` ships the same two-persona
+  multi-user web tier.
+  Migration: build with `--preset control-assistant`; the walkthrough is at
+    How-To then Multi-User Support.
+- The `render_kernel_templates` service-entry key and the Jupyter kernel
+  template rendering behind it are gone; they belonged to a container
+  execution backend that did not ship. (#769)
+- The `apex` theme family is gone.
+- The unused `basePath` iframe query parameter is gone from the web terminal.
+- The session-wide posture store that predated per-target postures
+  (`var/agent_data/session-postures.json`) is no longer read. (#791)
+  Migration: a session narrowing recorded only there does not carry over; set
+    the posture again from the terminal after upgrading.
+- Configuration keys nothing read are retired from templates, presets and the
+  loader:
   `control_system.write_verification.{enabled,fail_on_mismatch,timeout}`,
   `approval.tools.channel_limits`, `control_system.connector.timeout`,
-  `connector.mock.simulate_delays` (the mock's real knobs are `response_delay_ms`
-  and `noise_level`), the `machine_state:` block and its unused reader,
+  `connector.mock.simulate_delays`, the `machine_state:` block,
   `channel_finder.explicit_validation_mode`, the channel-finder `benchmark`,
-  `processing` and `tree_preview` sub-blocks,
-  `file_paths.{agent_data_dir,user_memory_dir,execution_plans_dir,prompts_dir}`,
-  `workspace.base_dir`, `api.providers.ollama.{host,port}`,
-  `ariel.{reasoning,default_max_results,cache_embeddings}`, the `applications:`
-  block, and `system.facility_name`. An existing `config.yml` that still carries
-  any of them keeps loading, silently and unchanged — retired keys are tolerated,
-  not fatal; they simply have no effect. Two exceptions:
-  `write_verification.fail_on_mismatch: true` warns once at the first write, and
-  `file_paths.agent_data_dir` is no longer read at all, so a non-default value
-  there now resolves under `./_agent_data` — move it to `agent_data.base_dir`.
-- The configuration the loader hands to the runtime no longer fabricates
-  OpenWebUI-era identity fields (`user_id`, `chat_id`, `session_id`,
-  `thread_id`, `session_url`) or the `applications` / `current_application`
-  scoping that went with them. Nothing read the identity fields; the
-  `applications` scoping was read only to resolve per-application `file_paths`
-  overrides, which no shipped template ever declared.
-- Scaffolded projects no longer create `_agent_data/user_memory/`, and `.env`
-  no longer carries a `TZ` line detected from the host — the facility timezone
-  is `system.timezone` in `config.yml`.
-
+  `processing` and `tree_preview` sub-blocks, `file_paths.{agent_data_dir,user
+  _memory_dir,execution_plans_dir,prompts_dir}`, `workspace.base_dir`,
+  `api.providers.ollama.{host,port}`,
+  `ariel.{reasoning,default_max_results,cache_embeddings}`, the
+  `applications:` block, and `system.facility_name`. A `config.yml` that still
+  carries them loads unchanged; they have no effect.
+  Exceptions: `write_verification.fail_on_mismatch: true` warns once at the
+    first write; `file_paths.agent_data_dir` is no longer read, so move a non-
+    default value to `agent_data.base_dir`.
 
 ### Fixed
 
-- Dragging the horizontal dividers in the events panel no longer lags behind the
-  pointer. The timeline pane animated the same height the drag was setting, so it
-  eased toward a target the cursor had already left and trailed by up to 85
-  pixels for the whole gesture.
-- `osprey build` no longer aborts partway through creating a project's virtual
-  environment on a slow connection. Installing osprey's dependencies was capped
-  at five minutes, which a first-time download can exceed, and the build stopped
-  with an unexplained "Unexpected error". The limit is now generous enough for a
-  full download, and if it is ever reached the message names the install as the
-  step that ran long and suggests what to try.
-- Dispatched runs that delegate to a subagent now wait for the delegated work
-  and return the full answer. Previously the reply could stop at "the agent is
-  searching, I'll notify you when it completes" and nothing further arrived.
-- `osprey web --project <dir>` launched from outside the project now behaves the
-  same as running `osprey web` inside it. Previously the flag only set the
-  terminal's working directory, so the project's `.env` was never loaded
-  (leaving `${VAR}` placeholders such as a provider `api_key` unexpanded), the
-  project's `web_terminal` and `claude_code` settings were replaced by built-in
-  defaults, and `_agent_data/` was created next to wherever the command was run.
-- A built project's container image now installs the same package set as its
-  host environment — both are rendered from the project's own recorded
-  dependencies. Previously the image was built from a separate list, so a
-  package the agent could import on the host could be missing from the
-  deployed image.
-- Agent Python execution works in a freshly built project. Any
-  `execution_method` other than the literal `local` fell through to a
-  Jupyter-container backend that OSPREY does not ship, so execution failed;
-  the subprocess backend is now the only path.
-- A dispatched agent run no longer starts before its MCP servers finish
-  registering. The servers connect asynchronously, so a run whose first turn
-  fired during that window saw none of the project's tools and answered "I
-  don't have that tool" — indistinguishable, after the fact, from the model
-  declining to use them. The worker now waits for the project's declared
-  servers to report connected before sending the prompt, as interactive runs
-  already did. A server that never registers is logged and the run proceeds.
-- Turning off a telemetry content gate (e.g.
-  `claude_code.telemetry.log_assistant_responses: false`) now writes an
-  explicit `OTEL_LOG_*=0` into the deployed environment. Previously the
-  variable was simply omitted, and Claude Code's own fallback chain could
-  re-enable capture the config had turned off.
-- ARIEL logbook ingestion no longer skips an otherwise-valid entry when the source
-  payload omits its `id`: the ALS and generic adapters now fall back to an empty
-  entry id (matching the JLab/ORNL adapters) instead of raising a `KeyError` the
-  fetch loop caught and dropped the entry on.
-- All artifact stores are now rooted at the shared data root, so artifacts saved
-  from session-scoped writers (e.g. resumed web-terminal sessions) stay visible to
-  the gallery.
-- `artifact_focus`/`artifact_pin` now report gallery failures honestly instead of
-  always claiming success.
-- `web.app_name` in `config.yml` now actually labels the web terminal header: the
-  runtime read the key from a nested section nothing generates, so only the
-  `OSPREY_WEB_APP_NAME` env override worked. It now reads top-level `web.app_name`,
-  matching `web.theme` and `web.presets` (env override still wins).
-- A server-configured `web.theme` family now survives a visitor's first page load:
-  the in-browser theme runtime adopted the default family on first visit instead of
-  the configured one. Light/dark still follows the OS until the visitor picks a mode.
-- How-to documentation refreshed against the current code: provider model IDs,
-  deploy/build semantics (`--force` preservation, `--dev` image builds, full
-  subcommand list), telemetry now documented as on-by-default, MCP/executor error
-  contracts, and the ARIEL web-interface module tables.
-- Presets that render Claude Code artifacts now ship the `osprey_focus_validate.py`
-  and `osprey_panels_context.py` hooks their `settings.json` already referenced;
-  existing rendered projects will be flagged stale and pick up the two hooks on
-  regeneration.
-- Simulated channels sitting at a `0.0` baseline no longer read back as dead-flat
-  constants. Relative `noise` is multiplicative, so it vanishes at zero and BPM
-  positions and corrector current readbacks declared noisy were perfectly still —
-  in live reads and in synthesized history alike. Mock and Virtual Accelerator
-  reads now put an absolute per-kind floor under the noise (a `noise_level` of
-  exactly `0.0` still means deterministic), machine files can declare `noise_abs`
-  and `texture`, and loading a machine file that declares relative noise on a zero
-  baseline now warns and names the affected channels.
-- Synthesized archiver history is pointwise deterministic: each sample's noise is
-  keyed to its channel and timestamp instead of drawn from a running stream, so
-  repeated, overlapping and time-shifted queries agree at shared timestamps.
-  Timestamps are keyed at millisecond resolution; windows whose timestamps are not
-  convertible to epoch seconds keep per-window determinism only.
-- The shipped control-assistant simulation data now produces organic BPM and
-  corrector-readback signals instead of flat lines, and corrector channels gained
-  the symmetric upper current limit their lower limit implied.
-- Workspace gallery: the Simple view's result card now shows every artifact type
-  the Expert preview does. Markdown, JSON, plain text, PDFs and archiver
-  timeseries previously appeared there as a type icon or a raw summary dump —
-  which covered channel-finder results and the agent's own written answers, since
-  those are saved as markdown or JSON. Both views now render through one shared
-  renderer, so no type can display in one view and not the other.
-
-### Added
-
-- Web terminal: the panel rail can now sit along the top (`web.rail_position: top` or the panel "+" menu).
-- Web terminal: new `retro` theme family restoring the pre-redesign look (`web.theme: retro`) — the navy/teal palette, the CRT treatment, and the horizontal tab bar. Setting `web.rail_position` explicitly still pins the rail in every theme.
-- A `demo-ui` skill runs short scripted demonstrations of the agent driving the web workspace: a panel tour, an artifact hand-off, and a layout switch, individually or back to back. It reads the live panel inventory rather than assuming a fixed tab set, and restores the starting layout when it finishes.
-- The web terminal's Simple mode now starts as a clean chat-first experience: with an empty agent workspace the page shows only the chat, and the WORKSPACE panel appears the moment the agent shares its first artifact (`show_panel`); a workspace that already holds artifacts opens as before. The OSPREY agent is told at session start which surface it serves — Simple sessions are instructed to bring up the WORKSPACE panel whenever they produce something the operator should see.
-- A `channel-finder-standalone` preset packages OSPREY's natural-language channel/PV address finder — the channel-finder pipeline plus its interactive CHANNELS web panel — as a standalone, read-only deployment with no control-system stack, archiver, logbook, or Python executor. It ships a bundled demo hierarchical database so it runs out of the box; `channel_finder_mode` selects the `in_context`, `hierarchical`, or `middle_layer` pipeline.
-- The control-assistant preset now ships the KNOWLEDGE panel, a browser for the project's facility knowledge bundle. Existing projects gain the tab by adding `okf` to `web_panels` and rebuilding.
-- Agent actions are now highlighted live in the web terminal: the plan panel follows the OSPREY agent's drafts (with a banner instead of a switch when you have unsaved edits), panels the agent touches glow and carry an attention badge on the panel rail until you open them, and backend actions — channel writes, run launches — appear briefly in the status-bar activity strip.
-- Explicit `--set provider=` / `--set model=` / `--set channel_finder_mode=` build overrides now propagate to the persona projects that multi-user deploys auto-render: the manifest records which of these keys were explicitly passed, and `osprey deploy up` forwards them to each persona's `osprey build` — so one override at build time retints the whole stack. Preset defaults are never forwarded, keeping per-persona provider customization intact.
-- Broad unit-test coverage for previously untested modules across services (migration engine, channel-finder data layer and tools, python-executor sandbox plumbing), interfaces (lattice-dashboard physics workers, web-terminal file/chat/scaffold routes incl. the path-traversal guard), CLI menus, MCP servers, registry loader/export, deployment, template hooks, and utilities.
-- A bluesky scan plan can now be hidden from the agent without turning off the whole scan server. Set `bluesky.excluded_plans` on the profile of the project that deploys the bridge; the deploy render carries it into the bridge as the `BLUESKY_EXCLUDED_PLANS` environment variable. An excluded plan is both absent from the agent's plan list and non-runnable — it cannot be staged or launched by name. The bare config key is a local/development convenience; the environment variable is the production channel.
-
-- `osprey deploy up` and `osprey deploy status` now warn when the project's render is stale — i.e. it was rendered by a different osprey version, or the preset's content has changed since the render (a content hash of the resolved preset is stamped into `.osprey-manifest.json` at build time). The warning names the exact `osprey build ... --force` command to re-render; it never blocks a deploy, and legacy projects without the stamp are unaffected.
-- Every `osprey deploy up` now ends with a service-endpoint summary (published host ports from the rendered compose files, plus the web-terminal landing URL — or an explicit "web terminal (not configured in this project)" line when the config declares no web tier).
-
-### Changed
-
-- Logging is now configured explicitly and writes to stderr. Importing Osprey no longer installs a log handler as a side effect — entry points call `osprey.configure_logging()` once at startup, and code that embeds Osprey as a library (notebooks, scripts, preset repos) should do the same to see log output. Log lines that previously appeared on stdout now appear on stderr, so stdout carries only program output: `--json` payloads stay machine-readable and MCP stdio traffic stays clean. `configure_logging()` adds to whatever logging a host application has already set up and never removes handlers it did not install.
-- The ARIEL panel no longer shows the logbook Search tab when embedded in the web terminal — search there goes through the agent, so the embedded panel offers Browse, New Entry, and Status and opens on Browse. Standalone ARIEL keeps Search as the default view.
-- `osprey build` now records a project's dependencies in a generated `pyproject.toml` instead of `requirements.txt`. This makes `uv run osprey web` (and any other command) resolve the project's own `.venv` rather than walking up to an ancestor project's environment, and makes `uv sync` rebuild the environment instead of pruning it empty. Existing projects can delete their now-unused `requirements.txt` on the next `osprey build --force`.
-- `osprey deploy up` now runs the web-terminal preflight (persona auto-render and the fail-closed `.env.production` credential gate) *before* building any image, so a deploy doomed to abort on a missing provider secret says so in seconds instead of after the full image build. When the missing variable is exported in the caller's shell but absent from `.env`, the error now says so and names the exact copy-in command (`.env` remains the only secret source the generator reads).
-- The `osprey-build-interview` skill now asks the installed framework what it offers instead of carrying its own catalog: presets, build artifacts, providers, and config keys are all read from the live installation at interview time, so a newly shipped capability is offered without anyone editing the skill. It generates the profile with `osprey build --emit-profile` rather than a hand-written YAML template, and builds that profile itself before handing it over — what you receive is known to build. The interview now adapts its questions to the person rather than following a fixed script, and takes about five minutes. Legacy-project migration, the feedback prompts, and the web-panel design step were removed; panel authoring belongs to the `creating-an-osprey-panel` skill.
-- New `osprey.build` package holds the build-time kernel shared across layers (Claude Code model/provider resolution, telemetry env block, channel-finder tier defaults, manifest primitives); agent-runtime helpers (clean child-env, SDK system-prompt, artifact-path resolution, Claude Code project-path encoding) moved to `osprey.agent_runner`. This removes the `services`/`mcp_server` → `cli`/`interfaces` layering inversions; internal import paths changed with no compatibility shims.
-- Removed the legacy facility-config `gitlab:` block: a config that still carries it now fails closed with a `ConfigurationError` naming the `ci: {provider: "gitlab", ...}` replacement, instead of being silently aliased.
-- Bluesky panels app moved from services to interfaces (import path `osprey.interfaces.bluesky_panels`).
-- python-executor: removed the deprecated `epics_writes_enabled` field; `control_system_writes_enabled` is now the single write-gating flag.
-- The seven LiteLLM-thin provider adapters (anthropic, als-apg, amsc-i2, cborg, google, openai, stanford) now share a single data-driven delegating base; behavior is unchanged (Stanford keeps its base-URL fallback).
-- The three channel-finder MCP servers now share one bootstrap module (config load, path resolution, `python -m` entry point, startup sequence); behavior and entry points are unchanged.
-- `osprey build --force` now re-renders an existing project *in place* instead of deleting the directory: `.env` (existing values win over freshly detected ones, and keys only it carries are kept), `_agent_data/`, and the project's `.git` are preserved; everything framework-rendered, including `data/`, is rebuilt. A profile-provided `env.file` is likewise merged into an existing `.env` rather than overwriting it.
-
-### Fixed
-
-- `osprey ariel purge` now clears the text-embedding migration record along with the dropped embedding tables, so a subsequent `osprey ariel migrate` actually recreates them instead of silently no-opping.
-- Containerized Python execution no longer misclassifies an infrastructure failure during result collection as a code error: pre-classified executor errors keep their retry category, so an infrastructure fault re-executes the same code instead of triggering code regeneration.
-- The Stanford provider's health-check model id had a typo (`gpt-4.omini` → `gpt-4o-mini`), also fixed in its available-models list.
-- The AskSage provider now falls back to its static default model list when a `/models` fetch fails or credentials are missing, instead of returning a malformed value that could reach a UI caller. The fetched list is also cached across adapter instances, so an AskSage completion no longer pays a repeat `/models` round-trip on every request.
-- Every companion web panel now gets its own per-user port family in multi-user deployments. The family set is derived from the web-server registry — previously it was a hand-maintained list that missed the channel-finder and OKF panels, so a second user's container collided with the first on the panel's fixed port (crash-looping the container once the `osprey web` preflight landed). Families omitted from config fall back to registry defaults (`channel_finder_base_port` 9591, `okf_base_port` 9691), so existing configs deploy unchanged.
-- Bluesky PLAN/RESULTS/HEALTH panels now resolve their API endpoints correctly under the multi-user `/u/<user>/` mount: the shared `panelApiPrefix()` helper accepts an outer proxy prefix, the health panel no longer relies on the proxy's content rewrite (which double-prefixes once the runtime prefix is correct — this also fixes the proxied single-user health panel), and a guard test keeps panel bundles free of literals colliding with the proxy rewrite list.
-- Panel tabs without a configured health endpoint (e.g. PLAN and RESULTS) now show a green LED instead of a permanently red one — the tab-state painter runs for panels that skip health polling.
-- The multi-user landing page is served only at `/`; any other path outside a `/u/<user>/` mount now returns 404 instead of silently answering with landing-page HTML.
-- `osprey deploy up` hot-reloads nginx after reconciling the web-terminal stack, so re-rendered `nginx.conf` routing changes take effect without a manual container restart.
-
-- `osprey deploy up` is now idempotent from any prior state: it first removes the project's own stale non-running containers (a container left in `created` state by an aborted deploy holds its published host ports on Docker Desktop, blocking the next `up` with "address already in use"), and the plain services path reconciles away containers of services removed from the config. Running containers, volumes, and sibling deployments on the same host are untouched.
-- `osprey deploy rebuild` on a web-terminals project now brings the web-terminal stack (nginx, per-user containers) back up after the clean; previously it restarted only the backend services. Per-user volumes survive a rebuild.
-- Local-mode `.env.production` generation now includes the auth secret for every `claude_code.provider` in play — the deploy config's own and each referenced persona project's. A persona whose secret is missing from `.env` aborts the deploy naming the exact variable, and an existing `.env.production` that contains none of the configured LLM credentials draws a warning; previously the file could silently omit the credential entirely, producing healthy-looking web terminals that fail authentication on their first prompt.
-- `osprey deploy up` probes the web-terminal landing page from the host after bringing the stack up and warns when it is unreachable. On Docker Desktop (macOS/Windows), `network_mode: host` binds inside the Docker VM unless the opt-in host-networking setting is enabled — previously this state was reported as a fully successful deploy; the warning now names that setting.
-
-### Added
-
-- **Shared ALS-U Accumulator Ring lattice** — the real ALS-U AR design (2.0 GeV, 182.12 m, harmonic 304) ported to pyAT as a plain-venv-importable `osprey.simulation.lattice` module (`build_ring()`), alongside a declarative `FacilitySpec` (`osprey.simulation.facility_spec`) that is the single source of truth for device families, per-family counts, and the `AR:{sup}:{fam}:{id}` naming scheme. A canonical `.mat` build artifact ships with the package; regenerate it with `python -m osprey.simulation.lattice.build`.
-- `channel_limits` gains a `name_contains` parameter for literal substring search, so channel names containing regex metacharacters (`[]`, `()`, `.`, `^`) can be looked up without manual escaping. The existing regex `pattern` behavior is unchanged; the two are mutually exclusive.
-- The `control-assistant` preset now ships the multi-user web-terminal stack built in: `osprey deploy up` stands up nginx (landing page at `:9080`) and per-user terminals for a two-user roster mapped to two new persona presets — `control-assistant-readonly` (the default) and `control-assistant-readwrite` (write-capable through the ordinary safety chain). Single-user onboarding is unchanged (`osprey web` never reads the block); set `modules.web_terminals.enabled: false` in the rendered config to deploy backend services without the web tier.
-- **Canonical logbook entry URLs from ARIEL** — ARIEL read tools (search, browse, entry lookup, SQL query, publish) now emit an `entry_url` for facility logbook entries, rendered from a configurable `ariel.entry_url_template`, so the agent links entries verbatim instead of fabricating a plausible-but-dead URL. Off by default: deployments with no template configured, and ARIEL-native entries not yet in the facility logbook, emit no URL. The read path is fail-safe — a malformed template degrades to no URL rather than crashing.
-- **Health checks on the agent surface** — an opt-in `health` MCP server (`claude_code.servers.health.enabled: true`) lets the OSPREY agent read the health suite through two tiered tools: `health_check` (auto-approved, served from a per-session cache) and `health_check_full` (approval-gated, always runs the `on_demand` checks fresh). The `mcp_servers` category is now auto-derived from the wired `claude_code.servers` blocks — one reachability check per server, with expected tools taken from each server's declared permissions — so no `health.categories.mcp_servers` need be hand-authored (`health.auto.mcp.{enabled,url_key}` tunes it). See the "Configure Health Checks" how-to.
-- **Built-in service health tiles and an archiver data probe** — `osprey health` (and the SYSTEM dashboard) gains two presence-gated categories that appear only when the corresponding service is configured: `ariel` (interface reachability, logbook entry count, last ingestion, registered search/enhancement modules) and `channel_finder` (active pipeline, channel-database presence and age, middle-layer channel count). A new `archiver_freshness` probe type verifies the archiver is actually accumulating data — the newest archived sample of a canary channel must be younger than `max_age_s`. The health-checks how-to gains a control-system smoke-test recipe (canary `channel_read` + `archiver_freshness`).
-- **Multi-user web terminals behind a single origin** — the multi-user web-terminal stack now binds every per-user service to loopback and routes all browser traffic through one nginx origin at `/u/<user>/`, instead of exposing each per-user app on its own host port; the Web Terminal SPA serves identically under that per-user prefix. Optional, off-by-default auth and TLS seams are wired into the deploy config (`modules.web_terminals.auth` / `.tls`): they render the corresponding nginx blocks with no frontend change and fail closed (an enabled `auth.method` with no backend returns 403) — so this remains a trust-the-network deployment until a real auth backend and TLS certificates are configured. Logging out now ends the warm terminal session and returns to the landing page.
-- **Panel presets ("Layouts") for the Web Terminal** — a deployer can declare named sets of panels under a new `web.presets` block in `config.yml`, and an operator applies one in a single click from a "Layouts" section at the top of the panel "+" menu. Applying a preset shows exactly its panels and closes the rest. It reuses the existing panel-visibility path (no new endpoints or state), and when no presets are configured the "+" menu looks exactly as before. See the "Panels" how-to.
-- **Add and remove Web Terminal panels from the browser** — the panel tab strip now has a browser-style "+" button to show a hidden panel, and each tab has a hover "×" to close it. When `web.allow_runtime_panels` is enabled, the "+" menu also offers a "new panel from URL" field (subject to the same URL validation and allowlist as agent-driven registration). The human and the agent share one panel set, so a panel added or removed either way updates for everyone.
-- **Agent telemetry over OpenTelemetry (opt-in)** — a `claude_code.telemetry` block in `config.yml` (off by default) makes the OSPREY agent emit its operational logs and metrics over OTLP to any OpenTelemetry-compatible backend, from every launch path (CLI chat, Web Terminal, dispatch worker, SDK). An optional local **OpenObserve** backend ships as an opt-in `osprey deploy` add-on (add `openobserve` to `deployed_services`) — a single public container that ingests OTLP and serves a browser UI, with ingest auth bootstrapped from the same `.env` credentials it uses for its admin login. Full-content capture (prompts, responses, tool calls, raw provider bodies) defaults on for the local air-gapped store and is per-key configurable. See the "Monitor Your OSPREY Agent" how-to.
-- **Per-surface dispatch differentiation** — a trigger's `action.surface_prompt` appends a static awareness fragment to the dispatched agent's system prompt, and an optional per-surface tool scope narrows (never widens) the trigger's `allowed_tools`. Both are no-ops when unset, so existing triggers behave exactly as before.
-- `pyat-specialist` subagent: specialist agent scoped to lattice/optics computation over the simulated ALS-U AR ring, writing and executing pyAT code via the python execution service; enabled by default in `control_assistant`; delegates lattice/optics computation out of the main agent's context and returns provenance-carrying answers (`lattice_analysis` artifacts, labeled as simulation-derived).
-- Every OSPREY browser interface — Web Terminal, Artifacts, ARIEL, Channel Finder, the Lattice dashboard, the event dispatch dashboard, the KNOWLEDGE (facility-knowledge) panel, and the session activity/safety pages — now themes itself from one shared design-token system with dark, light, and `auto` (follows your OS color-scheme preference) modes. See the "Theming" how-to for adding a new theme or wiring a new interface into it.
-- **Design token scales** — type, font weight, line-height, spacing, radius, z-index, and duration are now generated CSS variables (`--text-*`, `--weight-*`, `--leading-*`, `--space-*`, `--radius-*`, `--z-*`, `--duration-*`) alongside the existing color and font tokens, with a hygiene check enforcing zero bare scale literals in migrated interfaces. The Web Terminal and design-system CSS are fully migrated onto them. A live, runtime-enumerated token reference page is served at `/design-system/reference.html` in every interface; see `src/osprey/interfaces/design_system/DESIGN.md` for the designer-facing contract.
-- Themes are now grouped into **families** — a family is a `{light, dark}` pair. Alongside the existing `osprey` family, a new WCAG-AAA `high-contrast` family ships out of the box. The theme switcher now picks a family, and toggling light/dark stays within the active family. A new `web.theme` key under `config.yml`'s `web:` section sets the default family (or a specific theme) the Web Terminal server-renders on first paint, independent of the CLI's own `cli.theme`. See the "Theming" how-to for authoring a new theme or family.
-- A new **`apex`** theme family — a warm, gold-forward skin with softer slate dark surfaces and an Instrument Serif / IBM Plex Sans typographic pairing — ships alongside `osprey` and `high-contrast`, selectable from the theme switcher. The product default theme is now pinned explicitly via `$extensions.default`, so adding a theme whose filename sorts ahead of the default can no longer change which theme the interfaces boot into.
-- **Web Terminal UI modes** — a new `web.ui_mode` key under `config.yml`'s `web:` section chooses the interface density the terminal server-renders on first paint: `expert` (default) shows the full operator shell; `simple` shows a pared-down shell for lighter-weight use. An operator can override per session with a `?mode=expert|simple` URL parameter or the in-app header toggle (remembered across reloads); an unknown value falls back to `expert`. Every panel follows the mode live — Workspace, ARIEL, Channels, Lattice, Knowledge, the Events dashboard, and the Bluesky scan panels each ship a simple variant (one primary surface, plain-language cards, expert-only chrome hidden) alongside their unchanged expert view.
-- **Simple-mode operator chat** — in Simple UI mode the Web Terminal's terminal card becomes a minimal chat: you type a prompt and the OSPREY agent's reply streams back, with a one-line activity indicator while it works. Conversations are multi-turn for the life of the page (a reload starts a fresh one; chat history is not persisted); Expert mode keeps the full interactive terminal. Three `web` keys bound the chat pool — `chat_turn_timeout_s` (600), `chat_idle_timeout_s` (1800), and `chat_max_sessions` (5). See the "Operate" how-to.
-- **Rearrangeable Web Terminal workspace** — in Expert mode the fixed panel/terminal split is now a docking workspace of tiles, one panel per tile. The icon rail is the workspace's tab system: clicking a panel switches the focused tile to it (the replaced panel dims on the rail, one click from coming back), clicking a panel that is already open jumps to its tile, and the "+" menu opens a panel in a new tile beside the active one. Drag any tile (or the terminal card) into side-by-side splits; drops that would stack panels as tabs inside one tile are rejected. Your arrangement is saved per project and restored on reload, and "Reset layout" returns to the default. Simple mode stays a fixed, locked layout with a single panel tile, and agent-driven panel changes still apply in either mode.
-- **Panel authoring standard** — a panel is a directory bundling a themed, token-only HTML entry point plus a `manifest.json`. Author one from the reference panel, then check it against the panel validator (`assert_valid_panel`), which verifies the manifest schema, the pre-paint theme boot and token stylesheet, and that no raw hex colors bypass the design tokens. The new `creating-an-osprey-panel` skill (`osprey skills install creating-an-osprey-panel`) is the guided path, and the "Panels" how-to documents the contract.
-- **Local panel discovery** — drop a compliant panel bundle under `<project>/panels/` and, with `web.allow_runtime_panels: true` (off by default), the Web Terminal discovers it on startup and serves it same-origin at `/panel-static/<id>/`. Discovery is fail-closed: a malformed or non-compliant bundle is skipped and logged, never served, and never affects the other panels. See the "Panels" how-to. Note: the Web Terminal has no application-level authentication yet — enabling this trusts the panels made available to the terminal; first-class auth is a tracked follow-up.
-- Dev/CI-only front-end JavaScript toolchain — `npm run typecheck` (`tsc --noEmit`) and `npm run test:js` (Vitest), enforced by a CI job; JS files opt into type-checking with a `// @ts-check` comment. Not needed to install or run OSPREY.
-- Dev/CI-only Python-Playwright browser-test foundation under `tests/interfaces/` — a shared server/browser conftest plus an `assert_page_loads_clean` helper and a per-interface "loads clean in a real browser" smoke over all six web interfaces (`-m browser`), wired into the existing theming CI job. Skips cleanly when Chromium is absent; not needed to install or run OSPREY.
-- Dev-only contact-sheet renderer (`python -m docs.screenshots.contact_sheet --out DIR`) — boots the real Web Terminal in every theme × UI-mode variant against a pre-seeded demo workspace (no live agent, provider, or hardware), then every supported panel standalone in the same 2×2 matrix, and composes one self-contained `contact-sheet.html` for reviewing a redesign at a glance; `--accents` renders each hub variant under both accent candidates for an A/B decision. A capture/review tool only — nothing it produces is committed or CI-gated. See the contributing guide.
-- **Native Phoebus control panels** — an optional `phoebus` MCP server lets the agent perceive a running [Phoebus](https://control-system-studio.readthedocs.io/) panel's widget tree, snapshot widgets, and drive controls (driving is approval-gated, like any hardware write). Off by default; enable with `claude_code.servers.phoebus.enabled: true` and configure the bridge and named panels via the `phoebus.*` config keys (see the build-deploy config schema). The Phoebus agent bridge itself is a facility build, not part of OSPREY.
-- **KNOWLEDGE web panel** — a read-only browser panel over a facility-knowledge (OKF) bundle: concept tree, markdown reader, substring search, and a bundle-health summary, served as the `KNOWLEDGE` tab in the Web Terminal (the `okf` builtin panel). Reads the bundle configured at `facility_knowledge.bundle_path`.
-- **Multi-turn agent sessions** — `agent_session(...)` holds one agent conversation open across several turns so a caller can decide each message from the agent's previous reply, with per-turn and cumulative cost tracking and a session-wide budget; `run_turns(...)` is a convenience for a fixed prompt sequence. The single-turn `osprey query` path (`run_query`) is unchanged and now shares the same provider-routing and stream-parsing code.
-- `osprey web` runs a fast, offline pre-flight check before binding and aborts with a consolidated error if a companion panel port is already in use, a proxy provider's auth secret is missing from the environment or `.env`, or `config.yml`/`.claude/settings.json` fails to parse — catching launch-time misconfiguration up front instead of as a silent wrong-state or a runtime error. Pass `--skip-preflight` to bypass.
-- **Configurable health checks** — a `health:` block in `config.yml` lets a facility extend `osprey health` beyond the built-in checks. Declare probe-based checks — HTTP endpoints, MCP servers, deployed containers, control-system channel reads, and model-provider canaries — grouped into named categories with per-check timeouts and `requires:` dependencies, register facility health plugins in code, and tune the suite's timeouts. Checks are classed `poll` (cheap, run by default) or `on_demand` (costly, run only with `--full`). See the "Configure Health Checks" how-to.
-- **`SYSTEM` health dashboard panel** — panel-shipping Web Terminal builds gain a read-only `SYSTEM` tab showing the health suite's poll-class results (status ring, per-category cards, per-check LEDs) in the browser, refreshed on the `interval_s` cadence. The dashboard never runs `on_demand` checks — those appear as informational cards with a copyable `osprey health --full --category <name>` hint. Hosting is configured under `health.web.{host,port,auto_launch}` and the heading under `health.title`; enable the tab by adding `system-health` to a build's `web_panels`. The tab's LED indicates sidecar liveness (up/down), not aggregate check status. Config and `.env` edits are picked up on the next refresh; a `control_system` change after the first channel read is surfaced as a restart notice rather than applied live. See the "Configure Health Checks" how-to.
-- **Multi-user web terminals from a declarative `users[]`** — the multi-user web-terminal stack (per-user containers, an auto-populated grouped landing page, and nginx routing) is now generated deterministically from a single `users[]` list in `facility-config.yml` by `osprey scaffold web-terminals render`, with `osprey scaffold web-terminals lint` as a consistency and port-overlap gate for CI. This generator is the sole path that produces those artifacts, so editing `users[]` and re-rendering keeps the compose overlay, routing, and landing page in sync with no hand-editing. Each per-user terminal surfaces its user in the header and, when a landing origin is configured, offers a logout control that returns to the landing page and reconnects the user's still-warm session on return (single-user `osprey web` is unchanged — the control is absent). A per-user context overlay — `CLAUDE.md` (from a shared base plus a per-user `extra.md`) and a project-scope `skills/` tree — is seeded into each user's volume at deploy time, tracked so deploy never clobbers skills a user installed themselves. Not authenticated and not TLS-terminated: intended for perimeter-trusted networks only, with first-class auth, TLS, and single-origin routing as tracked follow-ups.
-- **Web-terminal personas** — `modules.web_terminals.personas.<name>` lets a facility give different web-terminal users their own container image and their own rendered OSPREY project (and, since permissions live in that project's own `config.yml`, their own real per-tool permissions for free); `users[]` entries gain an optional `persona:` key, with `default_persona` as the fallback. Omitting `personas:` entirely is unchanged, zero-migration behavior.
-- **Registry-optional web-terminal deploys** — `modules.web_terminals.image_source: local` builds each referenced persona's image directly from a locally rendered project directory instead of pulling from a registry, for facilities without a CI/registry pipeline.
-- `modules.web_terminals.mcp.topology` schema key for the framework MCP server tier; `per_container_stdio` (today's behavior) is the only accepted value, and `shared_http` is rejected fail-closed (lint error and render error) pending future wiring.
-- **Two-persona multi-user demo** — a new `multi-user-demo` preset family ships the multi-user web-terminal stack out of the box: a read-only and a read-write persona (`multi-user-demo-readonly` / `multi-user-demo-readwrite`) differing on exactly one config key, `control_system.writes_enabled`, plus an alice/bob roster. The demo is deliberately scan-free (no Bluesky bridge, no Virtual Accelerator) so it demonstrates multi-user provisioning and the write boundary, nothing else; the full scan stack stays with `control-assistant`. `osprey deploy up` (local mode) auto-renders any referenced persona project that hasn't been built yet, so one `osprey build` + `osprey deploy up` brings up the whole stack with no per-persona builds. A new multi-user demo walkthrough documents the flow.
-- `exclude:` build-profile key — a profile that `extends:` another can subtract inherited entries from the string-list fields (`skills`, `rules`, `hooks`, `agents`, `output_styles`, `web_panels`, `dependencies`). A deeper extends layer re-adding an entry wins; override files and `--set` merge before exclusion and cannot re-add. Documented in the build-profiles how-to.
-- `deploy_services: false` build-profile key marks an **attached project** — one that connects to services deployed by another OSPREY project on the same host instead of scaffolding its own (service sections still parse and validate, but the built project gets `deployed_services: []` and no `services/` tree; `osprey deploy up` in it is a clean no-op). The persona presets (`multi-user-demo-readonly`/`-readwrite`) build attached, consuming the demo stack's shared services instead of carrying deployable copies whose host ports collide with it.
-- `osprey deploy up` now runs a host-port preflight before touching any container: every port the deploy would publish is probed, and one already held by another stack or process aborts the deploy naming the holder and the config key to change — instead of failing mid-`up` with a bare `address already in use`. Ports held by the project's own containers are exempt, so redeploys are unaffected.
-- Web-terminals lint: a persona `project_path` that doesn't exist yet but is auto-renderable is now an info instead of an error; new errors catch a persona `project` not matching `basename(project_path)` and an empty `facility.prefix` on user-serving configs (both previously surfaced only as `deploy up` failures).
-- The grouped landing page shows each user's persona as a badge on their card, and a pixel-diff visual test now covers the multi-user landing.
-- `facility-config.yml`'s `gitlab:` block is renamed to a provider-tagged `ci: {provider: "gitlab", ...}` block, mirroring the `llm.provider` pattern; the old `gitlab:` shape still works via a one-time deprecation warning, and `registry.token_env_var` can now be set independently of the CI token instead of always riding the same PAT.
-- The multi-user web-terminal compose overlay now declares each container's published port via `OSPREY_TERMINAL_WEB_PORT`, authoritative over `--port`/config, mirroring the existing `OSPREY_TERMINAL_BIND_HOST` declaration.
-- `osprey deploy decommission`/`prune`/`nuke` now discover a deployment's containers, volumes, and (for local-mode personas) images by compose-project label instead of name-prefix matching, so two OSPREY deployments on the same host no longer risk cross-matching each other's resources.
-- `osprey deploy up` now runs `scripts/verify.sh` automatically after bringing the web-terminal stack up (streamed, advisory — its exit code doesn't fail the deploy); a missing script is a silent skip.
-- `modules.shared_disk`'s host path is now checked before compose runs, so a missing mount path aborts the deploy with an actionable error instead of failing inside a container later.
-
-- `CITATION.cff`, enabling GitHub's "Cite this repository" button.
-- `SECURITY.md` documenting private vulnerability reporting, plus a bug-report issue template.
-- `NOTICE`, carrying the Berkeley Lab endorsement clause, Enhancements grant, and U.S. Government rights notice that previously sat inside `LICENSE.txt`. The licensing terms are unchanged; `LICENSE.txt` is now the unmodified BSD 3-Clause text, so automated tooling identifies the license correctly.
-- The channel-finder benchmark suite gains near-miss *discrimination* queries — pairs that separate the correct channel from a plausible-but-wrong neighbour — and a stratified end-to-end evaluation slice. Development/CI only; not needed to install or run OSPREY.
-
-### Changed
-
-- `osprey deploy --dev` now fails with a clear error when the local osprey wheel
-  cannot be built, instead of warning and deploying the pinned PyPI release.
-  Previously a missing `build` package (or a broken local checkout) produced one
-  warning among many info lines and an exit code of 0, so the containers came up
-  running released osprey and the deployment silently tested something other than
-  the local code. The preconditions — editable install, source checkout, `build`
-  package — are now checked before any deploy work begins, and `build` moved from
-  the `dev` extra to a base dependency so an editable install always has it.
-- `osprey build` now prints a provider-credentials summary that reports the API
-  keys it *found*, not just the ones it didn't. It leads with the provider the
-  project was built for, names where that key came from (project `.env`, the
-  build directory's `.env`, or the shell), and warns if the selected provider's
-  key is missing. Previously the build logged one line per *unresolved*
-  placeholder — twice — so a successful key was silent, and a missing key for
-  the selected provider looked identical to the irrelevant misses for providers
-  the project never uses. The per-placeholder resolver line moved to `DEBUG`.
-- Scaffolded `.env` / `.env.example` files derive their provider API-key list
-  from the provider registry instead of a hand-maintained list (which had
-  drifted: `ALS_APG_API_KEY` was missing, a stale Langfuse block remained, and
-  a detected `ARGO_API_KEY` value was discarded in favor of a `$${USER}`
-  placeholder).
-- Shipped preset configs now document `deployment.bind_address` and point the
-  Virtual Accelerator instructions at `osprey deploy up` instead of a
-  repo-internal container path.
-
-- The model-benchmark matrix now scores two lanes separately: `agentic_benchmark`
-  marks genuine model-capability e2e tests (the headline pass rate) and
-  `harness_benchmark` marks model-independent safety/plumbing assertions, so
-  harness passes no longer pad a model's capability score. Every in-scope e2e
-  test must declare its lane (gated per matrix cell and in CI); 19 non-LLM e2e
-  files moved to the matrix exclusion list. The `e2e_benchmark` marker was
-  renamed to `channel_finder_benchmark` to say what it actually covers.
-
-- The ARIEL panel no longer shows the logbook Search tab when embedded in the web terminal — search there goes through the agent, so the embedded panel offers Browse, New Entry, and Status and opens on Browse. Standalone ARIEL keeps Search as the default view.
-- `osprey build` now records a project's dependencies in a generated `pyproject.toml` instead of `requirements.txt`. This makes `uv run osprey web` (and any other command) resolve the project's own `.venv` rather than walking up to an ancestor project's environment, and makes `uv sync` rebuild the environment instead of pruning it empty. Existing projects can delete their now-unused `requirements.txt` on the next `osprey build --force`.
-- `osprey deploy up` now runs the web-terminal preflight (persona auto-render and the fail-closed `.env.production` credential gate) *before* building any image, so a deploy doomed to abort on a missing provider secret says so in seconds instead of after the full image build. When the missing variable is exported in the caller's shell but absent from `.env`, the error now says so and names the exact copy-in command (`.env` remains the only secret source the generator reads).
-- The `osprey-build-interview` skill now asks the installed framework what it offers instead of carrying its own catalog: presets, build artifacts, providers, and config keys are all read from the live installation at interview time, so a newly shipped capability is offered without anyone editing the skill. It generates the profile with `osprey build --emit-profile` rather than a hand-written YAML template, and builds that profile itself before handing it over — what you receive is known to build. The interview now adapts its questions to the person rather than following a fixed script, and takes about five minutes. Legacy-project migration, the feedback prompts, and the web-panel design step were removed; panel authoring belongs to the `creating-an-osprey-panel` skill.
-- New `osprey.build` package holds the build-time kernel shared across layers (Claude Code model/provider resolution, telemetry env block, channel-finder tier defaults, manifest primitives); agent-runtime helpers (clean child-env, SDK system-prompt, artifact-path resolution, Claude Code project-path encoding) moved to `osprey.agent_runner`. This removes the `services`/`mcp_server` → `cli`/`interfaces` layering inversions; internal import paths changed with no compatibility shims.
-- Removed the legacy facility-config `gitlab:` block: a config that still carries it now fails closed with a `ConfigurationError` naming the `ci: {provider: "gitlab", ...}` replacement, instead of being silently aliased.
-- Bluesky panels app moved from services to interfaces (import path `osprey.interfaces.bluesky_panels`).
-- python-executor: removed the deprecated `epics_writes_enabled` field; `control_system_writes_enabled` is now the single write-gating flag.
-- The seven LiteLLM-thin provider adapters (anthropic, als-apg, amsc-i2, cborg, google, openai, stanford) now share a single data-driven delegating base; behavior is unchanged (Stanford keeps its base-URL fallback).
-- The three channel-finder MCP servers now share one bootstrap module (config load, path resolution, `python -m` entry point, startup sequence); behavior and entry points are unchanged.
-- `osprey build --force` now re-renders an existing project *in place* instead of deleting the directory: `.env` (existing values win over freshly detected ones, and keys only it carries are kept), `_agent_data/`, and the project's `.git` are preserved; everything framework-rendered, including `data/`, is rebuilt. A profile-provided `env.file` is likewise merged into an existing `.env` rather than overwriting it.
-
-- **`osprey health` now separates cheap poll-class checks from costly on_demand checks**, run by default and only with `--full` respectively. Three behaviors change as a result:
-  - Bare `osprey health` no longer performs live model-chat completions — the `model_chat` category is now `on_demand` and runs only under `--full`.
-  - Pinned-CLI verification (the `npx @anthropic-ai/claude-code@<pin>` download) moved to the `on_demand` `claude_cli_pinned` category and likewise requires `--full`; a bare run keeps only the cheap `claude --version` availability check.
-  - A host with no container runtime installed now reports container checks as `skip` (exit 0) instead of `warning` (exit 1) — an absent runtime is no longer graded as a problem.
-- **Bluesky scan tool surface renamed to a draft-first vocabulary.** The agent's plan-draft and run tools were renamed — `get_plan_draft`/`set_plan_draft`/`clear_plan_draft` → `get_draft`/`set_draft`/`clear_draft`, `run_status` → `get_run`, `read_run_data` → `get_run_data` — and `launch_run` now takes a required `draft_revision` (its `run_id` argument is gone); `create_run_intent` is removed, since the agent now stages one complete draft and launches that pinned revision. The scan arming token was renamed with no fallback to the old names: `BLUESKY_PROMOTE_TOKEN` → `BLUESKY_LAUNCH_TOKEN`, the `X-Promote-Token` header → `X-Launch-Token`, and the `bluesky.promote_token` config key → `bluesky.launch_token`. **Existing deployments must re-render and redeploy after upgrading** — the renamed tools appear in rendered `.claude/settings.json` allowlists, and the old token names are no longer honored.
-- The shipped agent is now **instructed to answer verify-first** — to lead with real, tool-sourced data (naming the source) and flag anything not tool-backed plainly and up front, rather than a confident pretrained lead trailed by an optional "…I can verify if you want." Substantive multi-tool answers close with an explicit provenance summary (sources + a confidence/scope note); trivial reads stay terse. The doctrine ships in the `control-operator` output-style and the generated `CLAUDE.md` personas; a deployment that has `osprey scaffold claim`ed either must unclaim + regen (or merge by hand) to adopt it. See the "Facility Rules" how-to.
-- `osprey build` now bundles the compose template for every service *declared* under `services:`, not only those in `deployed_services`. An opt-in deploy add-on can therefore be enabled later by adding it to `deployed_services` and running `osprey deploy up`, with no rebuild; a bundled-but-not-deployed template is inert until deployed.
-- Every `osprey deploy` compose invocation (`up`, `down`, `restart`, `rebuild`, `clean`) pins `COMPOSE_PROJECT_NAME` to the resolved project name, so each deployment on a shared host owns its own compose project and volume namespace and never adopts, recreates, or removes another deployment's containers or volumes.
-- `osprey deploy up --dev` and `osprey deploy rebuild` build images in a dedicated `compose build` step before `up --no-build`, so a build and its container-create never share one invocation — which can fail with `No such image` under Docker's containerd image store. A non-dev `up` still builds a build-only service implicitly.
-- The Virtual Accelerator image now builds for the host's native architecture instead of pinning `linux/amd64`. On Apple Silicon it compiles `accelerator-toolbox`/`softioc` from source at build time (a slower first build) and then runs natively with no x86 emulation; on x86_64 it installs the prebuilt wheels as before. A single-arch `amd64` published image on an arm64 host must supply its own `platform` override.
-- **The event-dispatch worker now runs the full project image** instead of a lean image that rebuilt its `.claude` artifacts from `config.yml` at startup. Dispatched agents now see the same facility overlays (custom skills, agents, and rules) and `data/` files as the Web Terminal agent, by construction — previously overlays and `data/` were silently absent from dispatched runs. `osprey deploy up` builds the project image (`<project>:local`; `--dev` installs the locally built wheel) and the worker references it via `OSPREY_WORKER_IMAGE`. **Requires rebuilding the dispatch worker image on redeploy.**
-- **Dev image rebuilds are now incremental, and locally built service images are project-prefixed.** Each service Dockerfile now splits third-party dependencies (a cached layer) from the locally built OSPREY wheel (a fast layer), so a code-only change rebuilds in seconds and an unchanged deploy rebuilds nothing. Locally built images are now named per project — `<project>-dispatch:local`, `<project>-va:local`, `<project>-bluesky-bridge:local`, `<project>-bluesky-panels:local` — so multiple OSPREY projects on one host no longer overwrite or delete each other's images; every one carries a `com.osprey.project` label, and `osprey deploy clean` now targets the correct compose project. The old host-global images can be removed with `docker rmi osprey-dispatch:local osprey-va:local osprey-bluesky-bridge:local osprey-bluesky-panels:local`. **Migration:** an already-rendered project needs `build/` added to its `.dockerignore` — add it by hand to keep any custom Dockerfile edits, or re-render with `osprey build --force` (which overwrites hand edits). A project name that previously ended in `_` or `-` is now normalized without the trailing separator, changing its compose project and image names; run `osprey deploy down` on the old version before upgrading such a deployment.
-- Refreshed the architecture diagram shown on the documentation landing page and the Architecture Overview page to match the current system design.
-- `claude-agent-sdk` upgraded to 0.2.110 (bundles CLI 2.1.191); `uv.lock` regenerated (#311).
-- `fastmcp` floor raised to `>=3.4.4` (brings FastAPI 0.139 / Starlette 1.x); `uv.lock` regenerated. Route-registration checks now read the app's OpenAPI schema rather than `router.routes`, which Starlette 1.0 no longer flattens for included routers.
-- Dependency floors raised — `bokeh`, `gspread`, `watchdog`, `questionary`, `pillow`, `openai`, `scipy`, `bluesky`, `sphinx`, `docker`, `duckdb`, `idna`, `nltk`, `ollama`, `testcontainers`, `tiled`, `urllib3`, `uvicorn`; `uv.lock` regenerated to match.
-- The Claude Code launch environment now builds its model-tier variables from a single declaration shared by the launch, e2e-override, and scrub paths, so adding a model tier can no longer leave those lists out of sync (#357). The full project-`.env` passthrough into the agent environment — which feeds `.mcp.json` `${VAR}` references such as `EPICS_CA_ADDR_LIST` — is now explicit and test-covered, and proxy providers carry their raw API-key variable through the launch path as well.
-- README rewritten: corrected the connector claim (EPICS and Mock ship in-tree; other stacks use the connector interface), fixed the `osprey skills install` quickstart command, and removed stale release and conference notices. The PyPI package description now matches the documentation.
-- **The Web Terminal and Artifacts interfaces have been visually redesigned.** A flat card idiom replaces the prior CRT/terminal look, over a new neutral-gray canvas with an azure accent, and the horizontal panel tab strip is now a vertical icon rail (its show/close and add-panel affordances move onto the rail). The panel content now sits directly beside the rail that selects it, with the terminal in the right-hand column (the divider still resizes the split), and the header's documentation shortcut is now a `Docs` link in the status bar. Panel behavior and APIs are unchanged.
-- The Web Terminal and ARIEL settings drawers now share one accessible `<osprey-drawer>` component (focus trap and restore, `Escape`/backdrop close, screen-reader dialog semantics, inert background); each interface keeps its own look, and the Web Terminal drawer's tabs, resizing, and unsaved-changes guard behave as before.
-- The Web Terminal's first-run theme default changed from forced-dark to `auto`; use the in-app theme toggle if you want a fixed theme regardless of OS preference.
-- All web interface factories now share one app-setup helper for CORS, middleware, and static mounts; the Lattice dashboard picks up the standardized CORS policy and two request middlewares it was previously missing.
-- The ES-module browser interfaces now import shared front-end helpers (`el`, `escapeHtml`, `debounce`) from a single `dom.js` module instead of per-file copies.
-- The Artifacts gallery, the Web Terminal's Scaffold gallery, and the Lattice dashboard are now ES modules broken into focused files instead of single monolithic scripts; behavior is unchanged.
-- The Lattice dashboard's accent color changed from a cyan-blue hue to OSPREY's canonical teal accent, matching every other interface.
-- The event dispatcher dashboard now themes itself from the shared OSPREY design system instead of a hardcoded dark palette, and follows the web-terminal hub's theme when embedded as the EVENTS panel. **Requires a dispatcher container redeploy** to pick up the new `/design-system/*` asset route.
-- Every interface's light/dark toggle is now the shared `<osprey-theme-switcher>` custom element (previously per-interface markup); it's consistently hidden when a panel is embedded in the Web Terminal hub (the hub owns theme chrome there) and visible when opened standalone.
-- JSON artifacts in the Artifacts gallery now render through a syntax-highlighted, collapsible inline viewer instead of a plain read-only iframe of the raw file.
-- Artifacts gallery: timeseries table values now use magnitude-adaptive precision (≤5 significant figures, scientific notation for extremes) and a compact month/day + HH:MM:SS index format.
-- The channel-finder tier databases are now generated for all three paradigms (`in_context`, `hierarchical`, `middle_layer`) from a single `FacilitySpec` by one generator, and drift-gate tests fail if a committed database no longer matches that spec. Tier 1 now ships the `in_context` paradigm only, and the valid build tiers are `1` and `3`.
-- ARIEL seed and scenario logbooks now name devices by their flat control-system identifiers (for example `QF08`, `CAVITY01`, `VALVE05`), matching the channel namespace, with a naming guard that keeps them from drifting back to the older hierarchical forms.
-
-### Removed
-
-- Retired the Bluesky scan stack's HEALTH panel and the sidecar's `/health/full` rollup. Service status for the whole deployment is shown by the SYSTEM tab; `web_panels: [health]` entries should be removed from project configs.
-- Retired the Tuning optimization panel and its companion web server. It is no longer a built-in panel, and `web_panels: [tuning]` entries should be removed from project configs.
-- Dropped the unused `basePath` iframe query parameter from the Web Terminal.
-- Retired the tier-2 channel databases and their benchmark query set; build profiles can no longer select tier 2.
-### Fixed
-
-- `osprey web --project <dir>` launched from outside the project now behaves the
-  same as running `osprey web` inside it. Previously the flag only set the
-  terminal's working directory, so the project's `.env` was never loaded
-  (leaving `${VAR}` placeholders such as a provider `api_key` unexpanded), the
-  project's `web_terminal` and `claude_code` settings were replaced by built-in
-  defaults, and `_agent_data/` was created next to wherever the command was run.
-- ARIEL logbook ingestion no longer skips an otherwise-valid entry when the source
-  payload omits its `id`: the ALS and generic adapters now fall back to an empty
-  entry id (matching the JLab/ORNL adapters) instead of raising a `KeyError` the
-  fetch loop caught and dropped the entry on.
-- All artifact stores are now rooted at the shared data root, so artifacts saved
-  from session-scoped writers (e.g. resumed web-terminal sessions) stay visible to
-  the gallery.
-- `artifact_focus`/`artifact_pin` now report gallery failures honestly instead of
-  always claiming success.
-- `web.app_name` in `config.yml` now actually labels the web terminal header: the
-  runtime read the key from a nested section nothing generates, so only the
-  `OSPREY_WEB_APP_NAME` env override worked. It now reads top-level `web.app_name`,
-  matching `web.theme` and `web.presets` (env override still wins).
-- A server-configured `web.theme` family now survives a visitor's first page load:
-  the in-browser theme runtime adopted the default family on first visit instead of
-  the configured one. Light/dark still follows the OS until the visitor picks a mode.
-- How-to documentation refreshed against the current code: provider model IDs,
-  deploy/build semantics (`--force` preservation, `--dev` image builds, full
-  subcommand list), telemetry now documented as on-by-default, MCP/executor error
-  contracts, and the ARIEL web-interface module tables.
-
-- `osprey ariel purge` now clears the text-embedding migration record along with the dropped embedding tables, so a subsequent `osprey ariel migrate` actually recreates them instead of silently no-opping.
-- Containerized Python execution no longer misclassifies an infrastructure failure during result collection as a code error: pre-classified executor errors keep their retry category, so an infrastructure fault re-executes the same code instead of triggering code regeneration.
-- The Stanford provider's health-check model id had a typo (`gpt-4.omini` → `gpt-4o-mini`), also fixed in its available-models list.
-- The AskSage provider now falls back to its static default model list when a `/models` fetch fails or credentials are missing, instead of returning a malformed value that could reach a UI caller. The fetched list is also cached across adapter instances, so an AskSage completion no longer pays a repeat `/models` round-trip on every request.
-- Every companion web panel now gets its own per-user port family in multi-user deployments. The family set is derived from the web-server registry — previously it was a hand-maintained list that missed the channel-finder and OKF panels, so a second user's container collided with the first on the panel's fixed port (crash-looping the container once the `osprey web` preflight landed). Families omitted from config fall back to registry defaults (`channel_finder_base_port` 9591, `okf_base_port` 9691), so existing configs deploy unchanged.
-- Bluesky PLAN/RESULTS/HEALTH panels now resolve their API endpoints correctly under the multi-user `/u/<user>/` mount: the shared `panelApiPrefix()` helper accepts an outer proxy prefix, the health panel no longer relies on the proxy's content rewrite (which double-prefixes once the runtime prefix is correct — this also fixes the proxied single-user health panel), and a guard test keeps panel bundles free of literals colliding with the proxy rewrite list.
-- Panel tabs without a configured health endpoint (e.g. PLAN and RESULTS) now show a green LED instead of a permanently red one — the tab-state painter runs for panels that skip health polling.
-- The multi-user landing page is served only at `/`; any other path outside a `/u/<user>/` mount now returns 404 instead of silently answering with landing-page HTML.
-- `osprey deploy up` hot-reloads nginx after reconciling the web-terminal stack, so re-rendered `nginx.conf` routing changes take effect without a manual container restart.
-
-- `osprey deploy up` is now idempotent from any prior state: it first removes the project's own stale non-running containers (a container left in `created` state by an aborted deploy holds its published host ports on Docker Desktop, blocking the next `up` with "address already in use"), and the plain services path reconciles away containers of services removed from the config. Running containers, volumes, and sibling deployments on the same host are untouched.
-- `osprey deploy rebuild` on a web-terminals project now brings the web-terminal stack (nginx, per-user containers) back up after the clean; previously it restarted only the backend services. Per-user volumes survive a rebuild.
-- Local-mode `.env.production` generation now includes the auth secret for every `claude_code.provider` in play — the deploy config's own and each referenced persona project's. A persona whose secret is missing from `.env` aborts the deploy naming the exact variable, and an existing `.env.production` that contains none of the configured LLM credentials draws a warning; previously the file could silently omit the credential entirely, producing healthy-looking web terminals that fail authentication on their first prompt.
-- `osprey deploy up` probes the web-terminal landing page from the host after bringing the stack up and warns when it is unreachable. On Docker Desktop (macOS/Windows), `network_mode: host` binds inside the Docker VM unless the opt-in host-networking setting is enabled — previously this state was reported as a fully successful deploy; the warning now names that setting.
-
-- Generated Dockerfiles (project/persona, virtual accelerator, Bluesky bridge, event dispatcher) switch Debian apt mirrors to HTTPS and set bounded apt retries, so image builds survive networks that throttle or drop plain-HTTP bulk transfers.
-- Web-terminal seeding now chowns each user's `CLAUDE.md` and skills to the container's actual runtime user (queried per container) instead of a hardcoded `dispatch` user, which the persona images don't define.
-- The `control-assistant` preset now ships `docker/web-terminal-context/base.md` and sets `deploy.fqdn`, so `osprey deploy up` completes without hand-added config (both were hard requirements that aborted the deploy).
-- Persona auto-rendering (and the interactive deploy menu) now re-enter the CLI via the running interpreter (`python -m osprey`, newly supported) instead of whatever `osprey` is first on `PATH`, which could resolve to a different install with different presets.
-- The scaffolded GitLab CI template no longer writes CI/registry/sidecar tokens into `.env.production`, aligning the CI path with the local-mode environment allowlist.
-- `resolve_project_name` now normalizes to a valid docker-compose project name (lowercase, invalid characters replaced, valid leading character) at its single source, so `COMPOSE_PROJECT_NAME`, labels, image tags, and volume names all agree for mixed-case or spaced project roots.
-- Every persona container now mounts its agent data at `/app/<persona project>` — the default persona was previously pinned to a facility-derived path that could diverge from its image's `WORKDIR`.
-- Web Terminal logout: the button announces its in-flight state to assistive technology and carries a persona-aware label; a misconfigured landing URL leaves the button usable.
-- A Web Terminal panel closed with its "×" no longer reappears on its own. A panel's backend coming back online was treated as a reason to bring the panel to the front, so a hidden panel could surface itself — most visibly when the Workspace panel was unavailable and a closed panel was the only healthy one left. Health checks now only ever affect a panel's enabled state; showing a panel remains something only you or the agent can ask for.
-- A stale `CLAUDE_CODE_USE_BEDROCK` (or other backend/model selector) in the operator's shell no longer reroutes the agent away from the configured provider — these are now scrubbed before launch (#356).
-- `env.example` no longer ships uncommented placeholder proxy values. Copying it to `.env` exported an unparseable `HTTP_PROXY`, which broke Claude Code launches and OSPREY's own HTTP clients.
-- A proxy env var that Claude Code cannot parse (e.g. `HTTP_PROXY=http-proxy` left in `.env` or the shell) is now reported with a clear warning before every agent launch — CLI, Web Terminal, and dispatch worker — instead of surfacing only as an opaque startup crash (#352).
-- The `InContextBackend` benchmark test (the sole real-LLM test outside `tests/e2e/`) moved into `tests/e2e/`, so the fast lane (`pytest tests/ --ignore=tests/e2e`) stays hermetic even when a provider key is exported — previously it made a live LLM call and failed with an unrelated gateway auth error on a blocked/expired key. A placement guard prevents recurrence for the whole credentialed `requires_*` marker family.
-- Web companion servers (Artifacts, ARIEL, Channel Finder, Lattice, KNOWLEDGE) no longer skip their launch when a stale or foreign process briefly answers `/health` on their port during a restart, which previously left the panel unbacked and permanently 502ing. The launcher now decides ownership by whether a live TCP listener holds the port, waits out a shutting-down predecessor, and logs distinctly when it defers to a legitimate external server versus when the port is held by an unresponsive one (#327).
-- The session activity page ("Activity" / session log viewer) no longer applies its `?theme=` query parameter directly to the page; an invalid or unexpected value now falls back to the resolved default instead of being written straight into the page's theme attribute.
-- Web Terminal's and Artifacts' syntax-highlighting theme stylesheet no longer 404s in the default CDN vendor mode (it was previously served from a hardcoded local vendor path regardless of the configured vendor mode).
-- ARIEL now themes itself from the shared OSPREY design system instead of a hardcoded dark palette, and follows the web-terminal hub's theme when embedded; also fixes a phantom `--amber` CSS variable that was never defined (draft banner and image-lightbox link color).
-- Anthropic-native providers configured with a `/v1` base URL (e.g. Argo via `api_protocol: anthropic`) no longer resolve to a doubled `…/v1/v1/messages`: the Claude-Code-facing `ANTHROPIC_BASE_URL` is stripped of a trailing `/v1` (Claude Code appends `/v1/messages` itself), while the translation-proxy upstream keeps its `/v1`. All four launch paths (CLI, web terminal, SDK runner, dispatch worker) now start the proxy from the resolved `upstream_base_url` field rather than the stripped env var, so OpenAI-compatible providers still forward to `…/v1/chat/completions` (#312).
-- Headless dispatch runs now enforce the trigger's `allowed_tools` as the single authority via a PreToolUse hook: project `settings.json` allow-rules and the approval hook's explicit allows can no longer widen a run's tool surface, and declared subagents (`.claude/agents/*.md`) work with exactly their declared tools — no trigger changes needed.
-- `osprey web --project X` launched from another directory now spawns the interactive terminal's OSPREY agent with `cwd = X`, so it reads `X/.mcp.json` and starts the project's MCP servers (the PTY path previously ignored `--project` and inherited the launch directory) (#313).
-- Channel Finder's embedded mode no longer hides its whole header: only the logo is hidden now, so the pipeline switcher and navigation stay visible and usable when embedded in the Web Terminal hub (previously the entire header — including those controls — was hidden, with no compensating layout change).
-- Toggling the theme (in the Web Terminal hub or any standalone interface) no longer leaves a stale `?theme=` in the URL; reloading after a toggle now falls back to your saved preference (or the OS setting in `auto` mode) instead of being pinned to whatever value was in the URL at toggle time.
-- Creating a new artifact from the Web Terminal's Scaffold gallery no longer fails with an HTTP 405 — the create-artifact request now uses `POST` directly instead of being routed through a GET-only fetch helper.
-- Artifacts gallery: filter chips no longer accumulate click listeners across live-refresh cycles, and a failed Plotly script load is retried on the next chart render instead of failing for the rest of the page's lifetime.
-- Deployed service containers are now named `<project>-<service>` (e.g. `<project>-ariel-postgres`, `<project>-virtual-accelerator`, `<project>-bluesky-bridge`) instead of host-global names, so two OSPREY projects can deploy the same services on one host concurrently without colliding on a container name. In-network service discovery is unaffected (it uses the compose service key, not the container name); the `ariel-postgres` DSN hostname is preserved via a network alias.
+- The `osprey` CLI reports a failure as a `✗` line with a cause and a remedy
+  instead of a Python traceback: its console script routes through the error
+  handler across the CLI's verbs.
+- `archiver_read` applies its `processing` parameter (`mean`, `min`, `max`) to
+  the query instead of echoing it back; EPICS aggregates server-side and
+  MongoDB, DOOCS and mock client-side.
+- The EPICS Archiver Appliance connector converts query windows to UTC, so an
+  `archiver_read` at a non-UTC `system.timezone` covers the window asked for,
+  and it rejects a `bin_size` the appliance has no representation for.
+- A headless dispatch run waits up to 90 s for its declared MCP servers to
+  connect before the first turn, refuses the run as an `infrastructure` error
+  when one fails, and records an `mcp_servers` readiness snapshot.
+- `osprey build` copies each service fact — ports, sidecar URLs, per-user
+  secrets — from the deployment's render into its personas, so the BLUESKY and
+  EVENTS tabs and hybrid logbook search work in a multi-user deployment.
+- Image builds get through constrained networks and arm64 hosts: apt uses
+  HTTPS mirrors with retries and the proxy settings it was given, Node comes
+  from the base image's Debian release, and the login sidecar is pinned.
+- A web terminal knows its session id when it opens, so an idle tab resumes
+  and reconnects on reload, and `osprey up` repairs the `/data/claude-config`
+  volume that left hooks failing with `EACCES`. (#785, #827)
+- `max_step` reads a channel's present value through the connector doing the
+  write — the simulator's store, DOOCS, TANGO or the configured EPICS client —
+  so it applies on control systems other than EPICS Channel Access.
+- Enum channel reads carry their state labels in `enum_label` and
+  `enum_labels`, and enum plots keep each channel's rungs to itself and break
+  the line on a `null` sample instead of drawing a state the channel was not
+  in.
+- PVA reads through `pva_gateway` with no `port` use the client's UDP default
+  rather than TCP 5075, `address` may list several hosts, and the build warns
+  when `pva_channels` is set with no `pva_gateway`. (#862)
+- The MongoDB archiver returns documents carrying any requested PV and honours
+  `precision_ms`, DOOCS `get_data` takes a 60 s default `timeout` and a
+  centered `avg_window`, and the mock archiver is seeded reproducibly.
+- `artifact_read`'s over-cap preview of an archiver artifact reports channel
+  names, point counts and each channel's first and last sample, and plotting
+  an artifact whose channels have no samples in the window works.
+- HTML-to-image export installs Chromium when a launch reports the binary
+  missing, at most once per process, instead of running `playwright install
+  chromium` on each conversion.
+- Web-terminal panels no longer freeze after a pane resize or a lost drag,
+  mount once per view flip, and the panel event stream reconnects and re-syncs
+  rail membership after a proxy or backend hiccup. (#638, #817)
+- A relative `control_system.limits_checking.database_path` resolves against
+  the loaded config's directory, and a load failure refuses with "limits
+  database unavailable" rather than as missing channels. (#636)
+- Artifacts gallery: `format=table` returns the column list its rows were
+  built from, `format=chart` totals are computed server-side, paging builds
+  only the requested page, and Simple view renders the types Expert does.
+- `artifact_focus` and `artifact_pin` report gallery failures, the panel token
+  reaches the terminal agent so panel tools and session hooks work instead of
+  returning 401, and artifact stores share one data root.
+- A stale `CLAUDE_CODE_USE_BEDROCK` or other backend selector left in the
+  operator's shell is scrubbed before launch instead of rerouting the agent
+  away from the configured provider. (#356)
+- ARIEL keyword search keeps the raw and semantic full-text indexes in sync,
+  ingestion keeps an entry whose payload omits its `id`, and `osprey ariel
+  purge` clears the migration record so migrate reruns.
+- Deploys that include the ARIEL logbook store work on podman-compose hosts,
+  and persona containers mount the hosting deployment's logbook mirror, so an
+  entry created from a persona is indexed by the sidecar.
+- Lattice dashboard summary stats (energy, tunes, chromaticity) recompute
+  after a magnet change instead of holding their load-time values.
+- Environment-variable names in a build profile (`services.<name>.env`,
+  `env.required`, `env.pinned`) may be lowercase, so a deployment can spell
+  both cases of `http_proxy`, `https_proxy` and `no_proxy`. (#783)
+- Per-lane Bluesky CURVE certificates live under `data/.runtime/`, which the
+  build fingerprint skips, so a started deployment does not register as
+  drifted; existing key material is relocated, not re-minted. (#716)
+- Deployed containers are named `<project>-<service>` and `osprey
+  decommission`, `prune` and `nuke` match by compose-project label, so two
+  projects can share a host; `osprey up` removes a dropped user's terminal.
+  (#850)
+- The graphdb service runs `neo4j:5.26-community`, the newest line the
+  neosemantics plugin covers, and its healthcheck probes with `wget`, so
+  `osprey knowledge seed-graph` works and the container does not sit
+  `unhealthy`.
+- Host-port preflight covers host-network facility services and each per-user
+  panel port, companion panels take per-user port families from the web-server
+  registry, and a stale listener no longer blocks a launch. (#327)
+- `osprey health --project` and `osprey web --project` resolve the target
+  repo's whole env chain, `.env.shared` included, so `${VAR}` placeholders
+  expand and the project's own `web_terminal` settings apply.
+- Rendered MCP server definitions follow configuration: `phoebus` uses
+  `phoebus.host`/`phoebus.port`, and a facility server's `command` resolves
+  the `{project_root}` and `{current_python_env}` placeholders. (#829, #748)
+- `osprey up` removes the project's own stale containers, including one
+  holding a published host port, and recreates nginx rather than hot-reloading
+  it, so a redeploy does not serve the previous deploy's configuration.
+- A `$` in an env-file value no longer reaches containers truncated: `osprey
+  up` refuses such a stack and names the variables across `.env`,
+  `.env.shared` and `.env.auth`, and `osprey users passwd` checks first.
+- The agent CLI is pinned by the deployment and its background auto-updater is
+  switched off, so the terminal shows no red `Auto-update failed` line;
+  upgrading the CLI is an image rebuild.
+- `osprey build` stops, naming the key, when a render is entitled to a shared
+  host directory that is not there, and web-terminal containers under rootless
+  podman or docker can write their audit directory. (#770, #774)
+- The settings Config tab's form view lists the sections `config.yml` has,
+  including `execution`, `archiver`, `logbook` and `facility_knowledge`, in
+  place of a `python_execution` section config does not have.
+- A target-switch readiness-probe failure names the gateway role, host and
+  port it probed, in the message and in structured `details.gateway`. (#718)
+- Providers reach their endpoints: ALS-APG and Stanford supply their own
+  `base_url`, `argo` points at `apps.inside.anl.gov` and reads
+  `ARGO_BASE_URL`, and AskSage falls back to its static model list.
+- Python submitted to the executor is refused on an actual call of `eval`,
+  `exec`, `__import__` or `compile`, not on the letters `eval(` appearing in
+  `retrieval(...)`, `df.eval("a + b")` or `model.eval()`.
+- Control-system failure envelopes name the active target: a connect failure,
+  timeout, limits refusal or denied write carries its name, label and endpoint
+  in `details.active_target` and in the message.
+- The virtual-accelerator compose service declares `platform: linux/amd64`,
+  overridable with `OSPREY_VA_PLATFORM`, and deploys drop orphan-container and
+  platform-mismatch warnings that did not indicate a problem.
+- Per-user web terminals on one origin scope their browser-stored UI state —
+  mode, theme, dock layout, terminal session, palette history — to each user;
+  state stored before this release is not carried over.
+- Logins behind a site proxy work: the login service receives the proxy
+  variables, an OIDC `email` claim matches `oidc_subject:` case-insensitively,
+  and audit records name the account. (#792, #793, #800, #857)
+- A deploy on podman served by Docker Compose v2 is reported before the build,
+  with the two resolutions: pin podman-compose in `containers.conf`, or deploy
+  on docker.
+- `osprey build` fails with an actionable error when
+  `claude_code.default_model` names a model the provider does not serve, and
+  an Anthropic-native provider with a `/v1` base URL resolves to a single
+  `/v1`. (#312, #352)
+- `web.theme`, `web.app_name` and `web.bar_items` take effect as configured:
+  the theme family is not overridden on first load, and Customize Bars stays
+  editable on a deployment without `system-health`. (#863)
+- Selecting text in the web terminal copies it: Option or Shift drag with
+  Cmd+C or Ctrl+Shift+C grabs raw screen text.
+- A profile or persona key with no entries under it, such as `web_panels:` or
+  `skills:`, reads as the empty selection, and a channel database in the wrong
+  shape is refused instead of loading as zero channels.
+- The channel-limits and config-drift hooks match the tool names a deployment
+  renders, `entry_publish` asks for approval, and the python executor rejects
+  an `execution_mode` other than `readonly` or `readwrite`.
+- Headless dispatch runs enforce the trigger's `allowed_tools` through a
+  PreToolUse hook, so project `settings.json` allow-rules and the approval
+  hook's explicit allows do not widen a run's tool surface.
 
 ### Security
 
-- Provider isolation now holds against a personal `~/.claude/settings.json`. Claude Code loads settings-file `env` blocks on top of the process environment, so a model or base-URL value in an operator's global (or gitignored local) settings would silently override the project's configured provider. The `osprey claude chat` and Web Terminal launch paths now start Claude Code with `--setting-sources project`, matching the SDK launch paths, so only the project's own `.claude/settings.json` applies. Additionally, `osprey claude chat`, the Web Terminal, and the dispatch worker now refuse to launch when enterprise **managed-policy** settings set a provider variable OSPREY manages — the one scope that outranks the project — naming the variable and file rather than starting against an unconfigured backend. **Behavior change for interactive users:** because the user and local settings scopes are no longer loaded when launching the agent, personal `~/.claude/settings.json` customizations (status line, output style, hooks) and persisted "always allow" permission grants in `.claude/settings.local.json` no longer apply inside `osprey claude chat` / the Web Terminal; put project-wide settings in the project's `.claude/settings.json` instead.
-- Artifacts gallery: agent-supplied artifact metadata (`category`, `artifact_type`, type-registry labels) is now HTML-escaped at every render sink, the shared `escapeHtml` escapes quotes for attribute contexts, and artifact ids are percent-encoded in URL paths — closing a stored-XSS in the gallery sidebar.
-
-## [2026.6.3] - 2026-06-29
-
-### Fixed
-
-- The `events` web panel now builds and renders when its URL is derived from a `dispatch` block. Two regressions from the v2026.6.2 move of `events` out of `BUILTIN_PANELS` are addressed: (1) the build-profile validator now accepts a dispatch-backed `events` panel that has no manual `web.panels.events.url` (the URL is derived post-build, after validation, from `dispatch.dispatcher_port`); (2) the derivation emits a bare-host `url` plus a `/dashboard` `path` instead of baking `/dashboard` into `url`, matching the custom-panel proxy convention (`url.rstrip('/') + '/' + path`) so sub-routes are not double-prefixed. A facility-pinned `web.panels.events.path` is preserved, and an explicit `web.panels.events.url` override still wins.
+- The Web Terminal, ARIEL, Channel Finder, artifact gallery and Theme Lab
+  authenticate HTTP and WebSocket requests, and a launcher prints a login URL
+  whose token is the server's secret for the life of the process.
+- A readonly Python run refuses `write_channel` through the connectors and
+  keeps the EPICS connector on the read-only gateway. Refused at import and at
+  the call: `epics`, `p4p`, `caproto`, `pvaccess`, `tango`, `doocs4py`,
+  `aioca`, dynamically resolved entry points, a shelled-out `caput`, `ctypes`
+  library loads, ophyd-async signal puts and a Bluesky `RunEngine`. These
+  checks run at runtime, beside the write-pattern scan; work needing a
+  subprocess or shared library is resubmitted as readwrite.
+- Agent processes started by the Web Terminal and by `osprey chat` do not
+  carry the interface-API `*_LAUNCH_TOKEN` credentials, which disarms the
+  Bluesky queue-launch tool there; panel-click launches are unaffected.
+- New `modules.web_terminals.authorization` block names a role once
+  (`operator: {persona: readwrite}`) and maps single-sign-on ID-token group
+  claims onto roles; a claim matching nothing or two roles is refused with a
+  403.
+- A custom web panel may not point at a URL that resolves to the deployment
+  host's own address, since the panel proxy fetches server-side; host the
+  dashboard elsewhere or reach it from the landing page.
+- ARIEL logbook composition sends tool names and result snippets to the
+  configured LLM provider, not tool arguments.
+- `osprey up` mints a per-user terminal secret for each roster entry in any
+  auth mode, so a deployment with authentication off is gated by that secret;
+  hand out addresses with `osprey users login-url <user>`.
+- `modules.web_terminals.external_origin` names the address browsers reach the
+  deployment at; set it when TLS terminates in front of the stack's nginx, or
+  the terminals refuse writes from that address as cross-origin.
+- Mutating requests and WebSocket upgrades are checked against the
+  deployment's external origin on the cookie and token paths, so a multi-user
+  stack behind nginx configures that origin; the generated compose files set
+  it.
+- Logging out of the web terminal revokes the session on the server, so a
+  cookie value that has already left the process is refused afterwards.
+- Browsing to a gated page without a session returns a readable "not signed
+  in" page pointing back at the login link; API calls get a JSON 401.
+- The signed-in user and their role reach each terminal as headers set by the
+  login service, and each proxied location clears the browser's own copies
+  first in any auth mode; logins and refusals go to `var/audit/sidecar/`.
+- The nginx access log records neither query strings nor `Referer`,
+  `Authorization` is cleared on proxied requests, cookies are scoped to each
+  user's path, and roster names are held to `^[a-z0-9][a-z0-9_-]*$`.
+- `osprey validate` and `osprey build` refuse a `default_persona` that
+  resolves to a persona able to edit the deployment; with authentication off
+  deployment-wide the check warns instead.
+- The panel proxy strips `Set-Cookie`, `Clear-Site-Data`, `Refresh`, `WWW-
+  Authenticate` and `Access-Control-*` from responses and relays a backend
+  redirect instead of following it, refusing one to a third site with a 502.
+- One audit trail records a deployment's safety decisions (refused writes,
+  refused protected keys, MCP tool calls, hook denials, approval prompts,
+  logins) under `var/audit/<identity>/<surface>.jsonl`, one line each; records
+  carry identifiers and config keys, not values or messages, except that a
+  refused Python run stores the code it refused. Each container is handed only
+  its own `var/audit/<user>/` and serves `GET /api/audit/recent` behind the
+  Config panel's switch, and the Bluesky panel service records under
+  `var/audit/bluesky-web/`. `osprey reset --purge-audit` clears it.
+- A protected set names the files and `config.yml` keys the agent may not
+  rewrite: the rendered config and settings, the hook and MCP wiring, `.env`,
+  the `osprey_*` hooks, `.claude/skills/` and `.claude/rules/`.
+- `web.config_panel.enabled` closes the Config panel's `/api/config` and
+  `/api/claude-setup` routes server-side; ARIEL's settings editor returns 403,
+  and `web.scaffold_gallery.write_enabled` closes the gallery's writes.
+- The `setup_inspect` agent tool reports `config.yml` with its `${VAR}`
+  placeholders intact, and masks literal values under keys named `*KEY*`,
+  `*TOKEN*`, `*SECRET*` or `*PASSWORD*` in the config and in `.mcp.json`.
+- Agent-supplied artifact metadata is HTML-escaped at the Artifacts gallery's
+  render sinks and artifact ids are percent-encoded in URL paths, closing a
+  stored cross-site-scripting hole in the gallery sidebar.
+- `osprey claude chat`, the web terminal and the dispatch worker start the
+  agent with `--setting-sources project`, so a personal
+  `~/.claude/settings.json` or `.claude/settings.local.json` does not override
+  the configured provider, and they refuse to launch when enterprise managed-
+  policy settings set a provider variable OSPREY manages.
+- The sandbox posture is enforced by the tool servers as well as the agent-
+  side hook: a sandboxed session's write tools are refused before the tool
+  body runs. Re-render with `osprey build` to pick this up.
+- Readwrite Python executions require human approval under the `selective`
+  policy, whether or not the write-pattern scanner recognises the code's
+  spelling.
+- The DOOCS, TANGO and simulator connectors refuse the write when limits
+  validation does not complete, including a missing database or a validator
+  that could not run, and report it as a refused write.
+- ARIEL's `sql_query` tool refuses a query that reads no allowlisted table,
+  such as `SELECT pg_read_file(...)`.
+- `osprey up`, the render step and the new `web_terminals.open_mode_egress`
+  lint rule refuse an open deployment whose personas can reach the host
+  network; the python executor refuses connections to its web ports.
+- The Bash and launch-token guard at `osprey up` covers roster entries that
+  run no persona, that is the deploy project itself; a `Bash`-capable persona
+  gets the launch token only with `dangerously_allow_bash: true`.
+- `remove_deny` does not lift a deny the writes kill switch imposed, and a
+  profile that writes a permission list as a bare string, or spells
+  `claude_code` both dotted and nested, is refused at build time.
+- `osprey build` refuses a profile in which `Bash`, `Edit`, `Write`,
+  `MultiEdit` or `NotebookEdit` is neither in `permissions.deny` nor covered
+  by a `PreToolUse` hook matcher.
+- The operator secret is cleared from the server process's environment as each
+  interface app is built; on Linux a process that already received it keeps a
+  copy in `/proc/<pid>/environ`, readable by the same user.
+- `DISPATCH_WORKER_TOKEN` is stripped from sandboxed executions alongside the
+  other credentials.
+- ARIEL logbook ingestion verifies TLS certificates by default; a site CA is
+  named with the new `ariel.ingestion.ca_bundle` key, or verification is
+  turned off with `ariel.ingestion.verify_ssl: false`.
+- `phoebus_drive` checks the control-system writes kill switch
+  (`control_system.writes_enabled`, or a per-connector `writes_enabled`)
+  before the approval gate; a panel drive was gated on operator approval
+  alone. (#882)
+- A `readwrite` run checks channel limits on the `aioca`, pvaPy `Channel` and
+  p4p raw-client routes, and on structure and JSON values. Writes with no
+  number to bound, such as p4p `rpc` and Tango group writes, are refused.
+- ARIEL's `sql_query` refuses a `FROM`/`JOIN` shape its allowlist does not
+  resolve: comma-separated FROM lists, parenthesised joins, quoted
+  identifiers, comments and dollar quoting. Multi-CTE `WITH` queries are
+  accepted.
 
 ## [2026.6.2] - 2026-06-28
 

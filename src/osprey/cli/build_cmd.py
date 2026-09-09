@@ -90,6 +90,7 @@ from .build_lifecycle import (
 )
 from .build_limits_check import limits_database_errors
 from .build_persistence import (
+    FACILITY_RULE_NAME,
     _apply_config_overrides,
     _apply_conventions,
     _persist_artifact_server,
@@ -97,6 +98,7 @@ from .build_persistence import (
     _profile_known_root_entries,
     _register_convention_artifacts,
     _resolve_context_roster,
+    ensure_profile_facility_rule,
 )
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 from .templates.manager import TemplateManager
@@ -1970,6 +1972,25 @@ def _render_project(
     # project's provenance; without it the first render says "hand-written" for
     # every project until the regen overwrites the file.
     context["preset"] = recorded_preset
+
+    # The facility description is the profile's, not the render's. Ensured
+    # before the render so the framework's create-only copy is not what a
+    # deployment ends up editing, and while the outgoing build/ is still intact
+    # so a repo whose only copy is that render has its text rescued rather than
+    # re-rendered. Gated on the selection: a profile that does not select the
+    # facility rule has no description to keep.
+    if FACILITY_RULE_NAME in effective_artifacts.get("rules", []):
+        moved = ensure_profile_facility_rule(
+            repo_root,
+            build_dir=shared.build_dir,
+            enabled_agents=effective_artifacts.get("agents", []),
+        )
+        if moved:
+            _report_fact(moved)
+        # Rendering it into build/ as well would give the operator two files
+        # and no way to tell which one the deployment reads; the convention
+        # copy below carries the profile's in.
+        context["profile_owns_facility_rule"] = True
 
     # Prepared before the render (which prunes the tiers/ subtree the paradigm
     # databases live in) and written after it, so the decision is settled before

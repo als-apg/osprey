@@ -704,9 +704,10 @@ keys:
   approval.tools:
     covered-by: approval
     note: >-
-      Absent from channel_finder_standalone by design — its only
-      approval-governed tool (setup_patch) is covered by default_policy.
-      See governed_sets.
+      Absent from channel-finder-standalone by design — that deployment runs
+      no control system, and each of the four tools its servers do govern
+      (setup_patch and the three panel-rail verbs) is covered by
+      default_policy. See governed_sets.
     default: {}
   approval.tools.channel_write:
     evidence: 'approval\.tools\.channel_write'
@@ -747,6 +748,19 @@ keys:
       reason entry_create is.
     default: derived
     default_note: falls through to approval.default_policy
+  # The panel-rail verbs. Spelled in exactly the three presets that ship an
+  # approval table for a workspace tool; `covered-by` rather than `evidence`
+  # because the reader is the same approval table `execute` is read from, and a
+  # bare literal would pin the tool name instead of the policy key.
+  approval.tools.add_panel_to_rail:
+    {covered-by: approval.tools, default: derived,
+     default_note: falls through to approval.default_policy}
+  approval.tools.remove_panel_from_rail:
+    {covered-by: approval.tools, default: derived,
+     default_note: falls through to approval.default_policy}
+  approval.tools.register_panel:
+    {covered-by: approval.tools, default: derived,
+     default_note: falls through to approval.default_policy}
   hooks:
     all-templates: true
     evidence: 'full_config\.get\("hooks", \{\}\)'
@@ -827,11 +841,16 @@ keys:
     note: >-
       Extra tool names a project folds into the writes kill switch, commented
       in the two presets that carry the stanza, so no preset's resolved
-      config carries it. The reader is the claude_code renderer, which hands the list
-      to `hook_config.json` as `control_system_write_tools`; the writes-check
-      hook reads it from there. Tools named here are refused per call and never
-      enter `permissions.deny`, which is why a mixed-posture render can gate
-      them at all.
+      config carries it. The reader is the claude_code renderer, which folds the
+      list into `hook_config.json`'s `write_tools` — the key the writes-check
+      hook, the headless disallow list and the audit middleware all read. The
+      entries the renderer actually appended (an extra that merely re-states a
+      server-derived matcher is not one) are ALSO emitted under
+      `control_system_write_tools`, read by the config-drift hook alone, which
+      subtracts them from the kill-switch set it compares against a
+      deployment's `permissions.deny`. That subtraction is needed because tools
+      named here are refused per call and never enter `permissions.deny`, which
+      is also why a mixed-posture render can gate them at all.
     default: []
   control_system.target_display_names:
     rendered: false
@@ -2404,23 +2423,18 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 353
+  expected_union_size: 357
   note_union_size: >-
     Informational, not an assertion — it moves whenever the framework template
-    or a preset gains or loses a key. The guard reports a diff against this
-    number rather than failing on it. Because it cannot fail, it only stays
-    useful if it is re-derived whenever a source's key set changes; it had
-    drifted 9 low before the qmd blocks landed, which is exactly how a soft
-    counter stops being a signal.
-    309 -> 353 is the app-template deletion, and the arithmetic is deliberately
-    NOT carried over from the old number: the union changed sources, so it was
-    re-derived by running the guard on the new one. Two movements make up the
-    difference and both are structural rather than a change in what ships. The
-    presets carry keys the app templates never rendered because they were always
-    preset-side (the whole modules.web_terminals roster, deploy.fqdn,
-    claude_code.permissions), and the framework template renders every builtin
-    panel's web.panels.<id> block plus web.default_panel and web.presets, which
-    the old five-template matrix's two-panel selection never reached.
+    or a preset gains or loses a key, and the guard reports a diff against it
+    rather than failing on it. Because it cannot fail, it is a signal only while
+    it is re-derived whenever a source's key set changes: a counter left behind
+    reads as an agreement it has not earned.
+
+    Re-derive it by running the guard and recording the number it reports, never
+    by adding an expected delta to the number already written here. The union is
+    taken over the rendered sources, so a change in what those sources are moves
+    it by an amount arithmetic on the previous figure cannot predict.
 
 # ---------------------------------------------------------------------------
 # governed_sets — ADDENDUM 2. Two safety stanzas make EXHAUSTIVE claims that no
@@ -2454,14 +2468,15 @@ governed_sets:
   claims:
     ariel-standalone:
       preset: src/osprey/profiles/presets/ariel-standalone.yml
-      comment_claim: 'here ARIEL `entry_create` and `entry_publish`, workspace `setup_patch` and facility-knowledge `draft_concept`'
+      comment_claim: 'here ARIEL `entry_create` and `entry_publish`, workspace `setup_patch`, `add_panel_to_rail`, `remove_panel_from_rail` and `register_panel`, and facility-knowledge `draft_concept`'
       exhaustive: true
-      tools: [entry_create, entry_publish, setup_patch, draft_concept]
+      tools: [entry_create, entry_publish, setup_patch, add_panel_to_rail,
+              remove_panel_from_rail, register_panel, draft_concept]
     channel-finder-standalone:
       preset: src/osprey/profiles/presets/channel-finder-standalone.yml
-      comment_claim: 'in this deployment that is the workspace setup_patch tool alone'
+      comment_claim: 'in this deployment that is the workspace `setup_patch` tool plus the three panel-rail verbs `add_panel_to_rail`, `remove_panel_from_rail` and `register_panel`'
       exhaustive: true
-      tools: [setup_patch]
+      tools: [setup_patch, add_panel_to_rail, remove_panel_from_rail, register_panel]
   reference_counts:
     note: >-
       Not exhaustive claims in any shipped comment — recorded so a future
@@ -2476,8 +2491,11 @@ governed_sets:
       the same approval hook and were never in a template's render.
       entry_publish joined every set that already carried entry_create when the
       ariel server gave it the same approval hook.
-    control-assistant: [archiver_read, channel_read, channel_write, control_target_set, draft_concept, entry_create, entry_publish, execute, execute_file, queue_add, queue_remove, queue_start, queue_stop, setup_patch, stop_run, validate_plan, write_plan]
-    hello-world: [archiver_read, channel_read, channel_write, control_target_set, draft_concept, execute, execute_file, setup_patch]
+      add_panel_to_rail, remove_panel_from_rail and register_panel joined every
+      set when the workspace server gave the panel-rail verbs the same approval
+      hook: the rail is what the next operator sees, so changing it asks first.
+    control-assistant: [add_panel_to_rail, archiver_read, channel_read, channel_write, control_target_set, draft_concept, entry_create, entry_publish, execute, execute_file, queue_add, queue_remove, queue_start, queue_stop, register_panel, remove_panel_from_rail, setup_patch, stop_run, validate_plan, write_plan]
+    hello-world: [add_panel_to_rail, archiver_read, channel_read, channel_write, control_target_set, draft_concept, execute, execute_file, register_panel, remove_panel_from_rail, setup_patch]
   draft_concept_note: >-
     draft_concept is approval-governed in control-assistant and hello-world
     (osprey_facility_knowledge is enabled by default and carries the hook) but
@@ -2490,6 +2508,17 @@ governed_sets:
     approval.tools block, so it too falls to default_policy. execute_file is
     the third of this kind: it shares execute's policy unit (same server, same
     hooks) but no approval.tools block names it.
+  rail_tools_note: >-
+    add_panel_to_rail, remove_panel_from_rail and register_panel are governed
+    wherever the workspace server runs, which is every preset. Three presets —
+    ariel-standalone, hello-world and control-assistant, whose six `extends`
+    children inherit the lines — spell `always` for each of them, so the
+    shipped policy is explicit there. channel-finder-standalone deliberately
+    ships no approval.tools block at all, so its rail verbs fall to
+    default_policy: always, the same fail-closed route draft_concept and
+    control_target_set take. Same outcome, stated in a different place: do not
+    "fix" the missing keys, and do not read their absence as the rail being
+    ungated.
 
 # ---------------------------------------------------------------------------
 # kept_readers — code that legitimately still mentions a DELETED key. These are

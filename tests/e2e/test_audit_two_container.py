@@ -146,6 +146,7 @@ from osprey.deployment.compose_generator import (
 )
 from osprey.deployment.wheel_build import _copy_local_framework_for_override
 from osprey.utils.workspace import AUDIT_DIR_RELPATH, container_image_context
+from tests._container_support import docker_cli_unavailable_reason
 
 #: Escape hatch for local diagnosis on a non-Linux host. Deliberately named as
 #: a diagnostic: a Docker Desktop run remaps bind-mount ownership, so it can
@@ -163,13 +164,7 @@ LINUX_ONLY_REASON = (
 )
 
 
-def _docker_available() -> bool:
-    if shutil.which("docker") is None:
-        return False
-    try:
-        return subprocess.run(["docker", "info"], capture_output=True, timeout=10).returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
 
 
 def _linux_enough() -> bool:
@@ -181,7 +176,7 @@ pytestmark = [
     pytest.mark.slow,
     pytest.mark.dockerbuild,
     pytest.mark.skipif(not _linux_enough(), reason=LINUX_ONLY_REASON),
-    pytest.mark.skipif(not _docker_available(), reason="docker binary or daemon not available"),
+    pytest.mark.skipif(_DOCKER_UNAVAILABLE is not None, reason=_DOCKER_UNAVAILABLE or ""),
 ]
 
 PRESET = "hello-world"

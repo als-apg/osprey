@@ -181,6 +181,24 @@ def _holds_a_chat_pool_entry(app, session_id: str) -> bool:
     return getter(session_id) is not None
 
 
+def _chat_is_busy(app, session_id: str) -> bool:
+    """Whether the chat pooled under *session_id* is mid-turn right now.
+
+    The one question the ``handoff_pending`` frame answers beyond "the chat
+    holds the key": whether the door is about to wait on a turn or merely
+    restart an idle agent. A creation still inside ``start()`` has no turn
+    yet and reads idle, as does a key no pool answers for — the frame is a
+    description of this moment, and the door's wait is what enforces it.
+    """
+    registry = getattr(app.state, "operator_registry", None)
+    pool = getattr(registry, "chats", None)
+    getter = getattr(pool, "get", None)
+    if not callable(getter):
+        return False
+    chat = getter(session_id)
+    return bool(getattr(chat, "is_busy", False))
+
+
 def _chat_pool_answers_to(app, session_id: str) -> bool:
     """Whether the chat pool would answer to *session_id* at all.
 
@@ -760,10 +778,16 @@ async def _open_surface(
     The ``handoff_pending`` frame goes out first whenever the chat surface
     holds the key, which is the one case the door waits on a foreign entry
     for a terminal; the client shows the transitional state until
-    ``session_info`` (or ``error``) replaces it.
+    ``session_info`` (or ``error``) replaces it. ``busy`` says whether that
+    chat is mid-turn: a busy chat is waited on for as long as its turn takes,
+    and the client shows that wait with its clock and its way out; an idle
+    one is only restarted here, which the client shows as a restart. Read off
+    the pooled session at this moment, not under the door's lock — a turn
+    that starts in the gap is the door's to wait on, and the client escalates
+    a restart that outlasts its budget to the wait on its own.
     """
     if _chat_pool_answers_to(app, key):
-        await channel.send_json({"type": "handoff_pending"})
+        await channel.send_json({"type": "handoff_pending", "busy": _chat_is_busy(app, key)})
     try:
         return await channel.acquire(app, key, interrupt=interrupt, spawn=spawn)
     except session_handoff.HandoffRefused as refused:
@@ -807,7 +831,7 @@ async def terminal_ws(websocket: WebSocket):
     - Server -> Client JSON: {"type": "exit", "code": N}
     - Server -> Client JSON: {"type": "session_switched", "session_id": UUID}
     - Server -> Client JSON: {"type": "session_info", "session_id": UUID}
-    - Server -> Client JSON: {"type": "handoff_pending"}
+    - Server -> Client JSON: {"type": "handoff_pending", "busy": bool}
     - Server -> Client JSON: {"type": "transcript_missing", "session_id": UUID, "code"?: N}
     - Server -> Client JSON: {"type": "error", "message": str}
 
@@ -2652,6 +2676,13 @@ def _server_rows(reports: Sequence[Any]) -> list[dict[str, Any]]:
     first child has answered its init frame. Null is not "baseline" — it is
     "this server has not got there yet" — and a reader that treats the two the
     same reports a swap as complete before anything moved.
+
+    ``children`` is the row's word for whether that ever has to happen:
+    a server publishing an empty list serves nothing, so nothing it runs can
+    still touch the target the deployment left, and the chip's convergence
+    wait passes over it — the same stance ``converged()`` takes on a null
+    binding. A row with children is a connector serving or mid-launch, and is
+    owed to the wait.
     """
     rows: list[dict[str, Any]] = []
     for report in sorted(reports, key=lambda r: _stamp_epoch(r.updated_at)):
@@ -2661,6 +2692,7 @@ def _server_rows(reports: Sequence[Any]) -> list[dict[str, Any]]:
                 "session": report.session,
                 "applied_target": report.applied_target,
                 "applied_generation": report.applied_generation,
+                "children": list(report.children),
                 "last_switch": _aged(report.last_switch),
                 "last_posture_realign": report.last_posture_realign,
                 "updated_at": report.updated_at,
@@ -3033,10 +3065,11 @@ async def get_terminal_posture(request: Request, session_id: str | None = None):
       which is exactly when the write routes answer ``409
       context_owned_elsewhere`` and the roster has to render read-only.
     * ``servers`` — one row per running controls server: ``pid``, ``session``,
-      ``applied_target``, ``applied_generation``, ``last_switch`` (aged),
-      ``last_posture_realign`` and ``updated_at``. A switch has landed when
-      every one of them reports the generation it was asked for; a row reporting
-      ``failed`` names the pid an operator has to go and look at.
+      ``applied_target``, ``applied_generation``, ``children``, ``last_switch``
+      (aged), ``last_posture_realign`` and ``updated_at``. A switch has landed
+      when every one of them holding a connector (``children`` non-empty)
+      reports the generation it was asked for; a row reporting ``failed`` names
+      the pid an operator has to go and look at.
     * ``execution_in_flight`` — one row per live execution marker, carrying
       ``session``, ``surface`` and ``kernel_id`` so the surface can say WHOSE
       run is holding the target rather than only that something is.

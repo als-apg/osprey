@@ -205,6 +205,17 @@ def demo_store(graph_mcp_plugin_dir: Path) -> Iterator[str]:
 # ---------------------------------------------------------------------------
 
 
+#: Query budget for the store these tests talk to, replacing the product default.
+#: That default sizes a query against the turn an agent has to act within, which
+#: is a statement about a deployed store on a machine of its own. The store here
+#: is a container sharing a host with the rest of the suite, where the same
+#: traversal costs an order of magnitude more, so the product number would make
+#: host contention read as a store that timed out. What these tests assert is
+#: what a query answers, never how quickly: the case that covers the timeout path
+#: sets its own budget low enough to trip on purpose, and keeps it.
+_INTEGRATION_QUERY_TIMEOUT_S = 60
+
+
 @contextmanager
 def _installed_context(uri: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
     """Install a GraphContext singleton pointed at *uri*.
@@ -230,6 +241,7 @@ def _installed_context(uri: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[An
     monkeypatch.setattr(graph_ctx, "get_config_value", lambda key, default=None: default)
 
     context = graph_ctx.initialize_server_context()
+    context.query_timeout_s = _INTEGRATION_QUERY_TIMEOUT_S
     try:
         # Inside the try: initialize() has already installed the singleton, so
         # a failed assertion here must still tear it down or every later test

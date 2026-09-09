@@ -116,6 +116,7 @@ SERVER_FIELDS = {
     "session",
     "applied_target",
     "applied_generation",
+    "children",
     "last_switch",
     "last_posture_realign",
     "updated_at",
@@ -592,6 +593,24 @@ class TestTheServers:
         assert row["applied_target"] is None
         assert row["applied_generation"] is None
         assert row["session"] is None
+
+    def test_a_row_names_the_connector_children_it_holds(self, client, agent_data_root):
+        """The chip's convergence wait is scoped to rows that hold a connector.
+
+        ``children`` is the row's word for that: an explicit empty list is a
+        server serving nothing — nothing it runs can still touch the old
+        target — and the chip stops waiting on it.
+        """
+        write_server_report(agent_data_root, SERVER_A, children=[5001, 5002])
+        with only_alive(SERVER_A):
+            row = server_row(get_posture(client), SERVER_A)
+        assert row["children"] == [5001, 5002]
+
+    def test_a_server_with_no_child_reports_an_empty_list(self, client, agent_data_root):
+        write_server_report(agent_data_root, SERVER_A)
+        with only_alive(SERVER_A):
+            row = server_row(get_posture(client), SERVER_A)
+        assert row["children"] == []
 
     def test_a_servers_switch_progress_is_aged_here(self, client, agent_data_root):
         write_server_report(

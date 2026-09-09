@@ -11,6 +11,7 @@ SearchToolDescriptor pattern (that's for the LangChain agent executor).
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -42,6 +43,154 @@ FORBIDDEN_KEYWORDS = {
 # Maximum rows per query
 MAX_ROWS = 200
 
+# Lexical shapes the FROM-list scan cannot read, refused outright rather than
+# resolved: a quoted identifier hides a table name from an unquoted-identifier
+# scan, a comment can carry a parenthesis or a comma that desynchronises it,
+# dollar quoting opens a string the scan does not terminate, and a backslash in
+# an ``E'...'`` string escapes the quote (``E'\''``), which desynchronises the
+# scan from the server's lexer. No agent query needs any of them.
+REFUSED_LEXEMES = (
+    ('"', "Quoted identifiers"),
+    ("--", "Line comments"),
+    ("/*", "Block comments"),
+    ("$", "Dollar quoting and dollar parameters"),
+    ("\\", "Backslash escapes"),
+)
+
+# Identifiers, single-quoted strings (skipped whole, so a comma or parenthesis
+# inside one is not read as syntax), parentheses and commas.
+_TOKEN_RE = re.compile(r"'(?:[^']|'')*'|[a-zA-Z_][a-zA-Z0-9_]*|[(),]")
+
+# Keywords that end a FROM clause at their own paren depth. Anything else --
+# an alias, ``AS``, ``ON`` and its condition -- leaves the clause open. A
+# modifier between the keyword and the name (``FROM ONLY t``, ``JOIN LATERAL
+# (``, ``WITH RECURSIVE t AS``, ``WITH t(a) AS``, ``AS MATERIALIZED``) is read
+# as the name itself, so those forms are refused as an unknown table rather
+# than resolved; the rule is not grown to read them. The same goes for the
+# ``FROM`` inside ``EXTRACT(... FROM col)``, ``TRIM(... FROM col)`` and
+# ``POSITION(... IN col)``-family calls: the column is read as a table name.
+_FROM_ENDING_KEYWORDS = frozenset(
+    {
+        "WHERE",
+        "GROUP",
+        "HAVING",
+        "ORDER",
+        "LIMIT",
+        "OFFSET",
+        "WINDOW",
+        "UNION",
+        "INTERSECT",
+        "EXCEPT",
+        "FETCH",
+        "FOR",
+        "SELECT",
+    }
+)
+
+
+@dataclass
+class _Scope:
+    """Scan state for one paren depth, scoped the way Postgres scopes it.
+
+    ``ctes`` holds the CTE names a reference at this depth (or deeper) may
+    resolve to; ``pending`` is a declared name whose body has not closed yet --
+    without ``RECURSIVE`` the body cannot see its own name, so it binds only
+    when the body's ``)`` returns to this scope.
+    """
+
+    in_from: bool = False
+    in_with: bool = False
+    ctes: set[str] = field(default_factory=set)
+    pending: str | None = None
+
+
+def _scan_relations(normalized: str) -> list[str]:
+    """Return the ``FROM``/``JOIN``/``TABLE`` targets that are not a CTE in scope.
+
+    One pass over one token stream is the only reader of the query text. A
+    single-quoted string is consumed whole, so nothing inside a literal is
+    read as syntax (a backslash, the one escape the scan cannot follow, is
+    refused up front). A CTE name is resolved where the reference is read,
+    against the declarations visible at that depth: a ``WITH`` inside a
+    subquery does not cover a ``JOIN`` at the top level.
+
+    The allowlist resolves one name per ``FROM``/``JOIN``/``TABLE`` (Postgres's
+    ``TABLE name`` is ``SELECT * FROM name`` without the keyword), so any shape
+    that reaches a second relation from the same clause reaches a table this
+    scan never sees. Rather than parse those shapes, the scan refuses them: a
+    comma-separated FROM list, and a parenthesised join in place of a subquery.
+
+    Args:
+        normalized: The query, stripped and without its trailing semicolon.
+
+    Returns:
+        The referenced table names in the order they appear.
+
+    Raises:
+        ValueError: If the query carries a refused lexeme or FROM shape.
+    """
+    for lexeme, label in REFUSED_LEXEMES:
+        if lexeme in normalized:
+            raise ValueError(f"{label} are not allowed in a query; remove {lexeme!r}.")
+
+    tokens = _TOKEN_RE.findall(normalized)
+    refs: list[str] = []
+    # One frame per paren depth; a closing paren discards its frame, so the
+    # clause the subquery interrupted is still open after it, and a CTE the
+    # subquery declared is gone with it.
+    scopes = [_Scope()]
+
+    def declares_cte(index: int) -> bool:
+        """Is the token at ``index`` followed by ``AS (``, binding a CTE name?
+
+        The trailing "(" is what keeps a select-list alias (", author AS name")
+        from laundering a table name into the CTE set.
+        """
+        return [t.upper() for t in tokens[index + 1 : index + 3]] == ["AS", "("]
+
+    for index, token in enumerate(tokens):
+        previous = tokens[index - 1].upper() if index else ""
+        upper = token.upper()
+        scope = scopes[-1]
+
+        if token == "(":
+            if previous in ("FROM", "JOIN"):
+                following = tokens[index + 1].upper() if index + 1 < len(tokens) else ""
+                if following not in ("SELECT", "WITH"):
+                    raise ValueError(
+                        "A parenthesised FROM/JOIN target must be a subquery starting "
+                        "with SELECT or WITH."
+                    )
+            scopes.append(_Scope())
+        elif token == ")":
+            if len(scopes) > 1:
+                scopes.pop()
+                if scopes[-1].pending:  # the CTE body just closed; its name binds now
+                    scopes[-1].ctes.add(scopes[-1].pending)
+                    scopes[-1].pending = None
+        elif token == ",":
+            if scope.in_from:
+                raise ValueError("comma-separated FROM lists are not allowed; use JOIN")
+        elif token.startswith("'"):
+            continue  # a string literal is a value, never syntax
+        elif upper in ("FROM", "JOIN", "TABLE"):
+            scope.in_from = True
+        elif upper == "WITH":
+            scope.in_with = True
+        elif upper in _FROM_ENDING_KEYWORDS:
+            # The statement's own SELECT ends the WITH list along with the clause.
+            scope.in_from = scope.in_with = False
+        elif previous in ("FROM", "JOIN", "TABLE"):
+            if not any(token.lower() in s.ctes for s in scopes):
+                refs.append(token)
+        elif scope.in_with and previous in ("WITH", ",") and declares_cte(index):
+            # ``WITH name AS (`` and every later ``, name AS (`` in that list.
+            # Requiring an open WITH list is what stops a ``, name AS (`` in a
+            # WINDOW list from binding the name of a table the query joins.
+            scope.pending = token.lower()
+
+    return refs
+
 
 class SqlQueryInput(BaseModel):
     """Input schema for SQL query tool."""
@@ -58,11 +207,13 @@ class SqlQueryInput(BaseModel):
 def validate_sql_query(query: str) -> None:
     """Validate that a SQL query is safe to execute.
 
-    Four rules, all of which must hold:
+    Five rules, all of which must hold:
 
     - starts with SELECT or WITH (for CTEs);
     - one statement — no semicolons in the body;
     - no DML/DDL/DCL keyword anywhere;
+    - every FROM/JOIN target is a shape the allowlist can resolve — no comma
+      list, no quoted identifier, no comment, no dollar quoting;
     - reads at least one allowlisted table, and no table outside the
       allowlist.
 
@@ -71,7 +222,10 @@ def validate_sql_query(query: str) -> None:
     JOIN at all — ``SELECT pg_read_file('/etc/passwd')`` — has nothing to
     check against the allowlist, and the read-only transaction the caller opens
     stops writes, not server-side file reads. So a query that resolves to no
-    allowlisted table is refused on that ground alone.
+    allowlisted table is refused on that ground alone. A query that *does* name
+    one — ``SELECT pg_read_file('/etc/passwd') FROM enhanced_entries`` — still
+    passes here: bounding what a function call may read is the read-only
+    database role's job, not the allowlist's.
 
     Args:
         query: The SQL query to validate.
@@ -112,21 +266,13 @@ def validate_sql_query(query: str) -> None:
                 "Only read-only SELECT queries are allowed."
             )
 
-    # Table allowlist check
-    # Extract CTE names (WITH x AS ...) so we can skip them in FROM/JOIN checks
-    cte_pattern = r"\bWITH\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+AS\b"
-    cte_names = {name.lower() for name in re.findall(cte_pattern, normalized, re.IGNORECASE)}
+    # Table allowlist check. One tokenised pass yields the FROM/JOIN targets
+    # with every CTE reference already resolved in its own scope (a CTE is a
+    # query of its own, checked by whatever IT reads), refusing the shapes that
+    # reach a relation this resolution would never see.
+    table_refs = _scan_relations(normalized)
 
-    # Extract table references from FROM and JOIN clauses
-    table_pattern = r"\b(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)"
-    table_refs = re.findall(table_pattern, normalized, re.IGNORECASE)
-
-    # Only the references that survive CTE resolution are real tables; a name
-    # a WITH clause defined is a query of its own, already checked by whatever
-    # IT reads.
-    resolved_refs = [ref for ref in table_refs if ref.lower() not in cte_names]
-
-    for table_ref in resolved_refs:
+    for table_ref in table_refs:
         table_lower = table_ref.lower()
         # Check exact match or prefix match (for text_embeddings_* tables)
         if not any(
@@ -141,7 +287,7 @@ def validate_sql_query(query: str) -> None:
     # Nothing to check IS the failure: the loop above passes vacuously for a
     # query that reads no table, which is exactly the shape a server-side file
     # read takes.
-    if not resolved_refs:
+    if not table_refs:
         raise ValueError(
             "Query reads no allowlisted table. Allowed tables: enhanced_entries, text_embeddings_*"
         )

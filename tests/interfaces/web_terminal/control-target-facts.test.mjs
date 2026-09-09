@@ -109,6 +109,70 @@ describe('resolvePendingSwitch', () => {
     expect(resolvePendingSwitch(view, pendingOf()).state).toBe('waiting');
   });
 
+  test('a server holding no connector is not waited on', () => {
+    // `children: []` says this server serves nothing: nothing it runs can
+    // still touch the old target, and its child comes up on the record's
+    // values whenever it launches. Its report is not owed — waiting on it
+    // manufactured 30 s of `switching…` and a false expiry whenever a fresh
+    // agent session had not made its first channel read yet.
+    const view = viewOf({
+      servers: [serverOf(), serverOf({ pid: 99, applied_generation: null, children: [] })],
+    });
+    expect(resolvePendingSwitch(view, pendingOf()).state).toBe('applied');
+  });
+
+  test('a server whose child is still coming up IS waited on', () => {
+    // A non-empty `children` is a connector mid-launch or mid-serve: this row
+    // owes the fleet a report, and the wait is what makes `applied` mean the
+    // old target is abandoned.
+    const view = viewOf({
+      servers: [serverOf(), serverOf({ pid: 99, applied_generation: null, children: [5001] })],
+    });
+    expect(resolvePendingSwitch(view, pendingOf()).state).toBe('waiting');
+  });
+
+  test('a row without a children field keeps the conservative wait', () => {
+    // Only an explicit empty list means "serving nothing". A row that does not
+    // say — an older payload, a mangled report — is treated as it always was:
+    // not arrived, still waited on.
+    const view = viewOf({ servers: [serverOf(), serverOf({ pid: 99, applied_generation: null })] });
+    expect(resolvePendingSwitch(view, pendingOf()).state).toBe('waiting');
+  });
+
+  test('with every server childless, the record’s terminus decides', () => {
+    // Nobody is left to converge — the same answer as an empty fleet, for the
+    // same reason: each of these servers launches on the record's values.
+    const terminus = { request_id: 'r-mine', status: 'applied', generation: 7 };
+    const rows = [serverOf({ applied_generation: null, children: [] })];
+    expect(
+      resolvePendingSwitch(viewOf({ servers: rows, last_switch: terminus }), pendingOf()).state
+    ).toBe('applied');
+    expect(resolvePendingSwitch(viewOf({ servers: rows }), pendingOf()).state).toBe('waiting');
+  });
+
+  test('a childless server’s failed launch still ends the wait with its pid', () => {
+    // A server with no child answers a record move by launching one; a launch
+    // that does not come up files `failed` at the generation it was reaching
+    // for. That verdict is this request's news even though the row holds no
+    // connector to converge.
+    const view = viewOf({
+      servers: [
+        serverOf(),
+        serverOf({
+          pid: 5150,
+          applied_generation: null,
+          children: [],
+          last_switch: { status: 'failed', generation: 7, detail: 'spawn refused' },
+        }),
+      ],
+    });
+    expect(resolvePendingSwitch(view, pendingOf())).toEqual({
+      state: 'failed',
+      pid: 5150,
+      detail: 'spawn refused',
+    });
+  });
+
   test('a boolean where a generation should be is not a number', () => {
     // `true >= 1` is true in JS. A row whose report was mangled into a boolean
     // must read as "has not got there", never as "arrived at generation 1" —

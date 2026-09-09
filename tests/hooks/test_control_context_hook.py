@@ -201,3 +201,132 @@ def test_the_envelope_names_the_event_it_was_emitted_for(tmp_path, envelope):
     _record(tmp_path, "live", 3)
     prompt = envelope("UserPromptSubmit")
     assert prompt["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
+
+
+# ---------------------------------------------------------------------------
+# The debug trace
+# ---------------------------------------------------------------------------
+
+
+def _debug_records(project_dir):
+    """Every ``control_context`` record in the run's ``hook_debug.jsonl``."""
+    log_path = project_dir / ".claude" / "hooks" / "hook_debug.jsonl"
+    records = [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
+    return [record for record in records if record["hook"] == "control_context"]
+
+
+def test_every_way_the_hook_ends_leaves_one_debug_record(
+    tmp_path, hook_runner_raw, make_config, monkeypatch
+):
+    """Silence has five meanings; the JSONL channel is what tells them apart.
+
+    The hook is registered with ``2>/dev/null`` and its memo lives in ``TMPDIR``,
+    so a run that said nothing is indistinguishable from a run that never
+    happened — which is exactly the state the envelope bug shipped in. Drive all
+    seven exits and assert the file, not stderr: the file is what the web
+    terminal's hook-activity feed reads and what survives the shell redirect.
+    """
+    monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
+    (tmp_path / "tmp").mkdir()
+    monkeypatch.setenv("OSPREY_HOOK_DEBUG", "1")
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+    # log_hook appends; it does not create the directory it appends into.
+    (tmp_path / ".claude" / "hooks").mkdir(parents=True)
+    config_path = make_config(ARMED_BOTH)
+
+    session = SESSION_ID
+    other = SESSION_ID[:-2] + "bb"
+    corrupt = SESSION_ID[:-2] + "cc"
+
+    def _run(event, session_id=session, **extra):
+        payload = {"hook_event_name": event, **extra}
+        if session_id is not None:
+            payload["session_id"] = session_id
+        returncode, _stdout, _stderr = hook_runner_raw(
+            "osprey_control_context.py",
+            "",
+            {},
+            config_path=config_path,
+            cwd=tmp_path,
+            hook_input_extra=payload,
+        )
+        assert returncode == 0, "the hook describes; it never holds up a turn"
+
+    _run("SessionStart")  # skip:no-record — nothing written yet
+    _record(tmp_path, "va", 2)
+    _run("PreToolUse")  # skip:not-our-event
+    _run("SessionStart")  # emit, and the memo now holds va/2
+    _run("UserPromptSubmit", session_id=None)  # skip:no-session
+    _run("UserPromptSubmit")  # skip:unchanged
+    _record(tmp_path, "live", 3)
+    _run("UserPromptSubmit")  # emit — the switch, marked
+    _run("UserPromptSubmit", session_id=other)  # emit — nothing remembered
+    # A memo whose `writes` is not a mapping: render_block walks straight into it.
+    (tmp_path / "tmp" / f"osprey-control-context-{corrupt}.json").write_text(
+        json.dumps({"target": "va", "generation": 1, "writes": 0})
+    )
+    _run("UserPromptSubmit", session_id=corrupt)  # error
+
+    statuses = [record["status"] for record in _debug_records(tmp_path)]
+
+    assert statuses == [
+        "skip:no-record",
+        "skip:not-our-event",
+        "emit",
+        "skip:no-session",
+        "skip:unchanged",
+        "emit",
+        "emit",
+        "error",
+    ]
+
+
+def test_the_error_record_names_what_went_wrong(
+    tmp_path, hook_runner_raw, make_config, monkeypatch
+):
+    """An ``error`` with no exception in it is a dead end for whoever reads it."""
+    monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
+    (tmp_path / "tmp").mkdir()
+    monkeypatch.setenv("OSPREY_HOOK_DEBUG", "1")
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+    (tmp_path / ".claude" / "hooks").mkdir(parents=True)
+    _record(tmp_path, "va", 2)
+    (tmp_path / "tmp" / f"osprey-control-context-{SESSION_ID}.json").write_text(
+        json.dumps({"target": "live", "generation": 1, "writes": 0})
+    )
+
+    hook_runner_raw(
+        "osprey_control_context.py",
+        "",
+        {},
+        config_path=make_config(ARMED_BOTH),
+        cwd=tmp_path,
+        hook_input_extra={"hook_event_name": "UserPromptSubmit", "session_id": SESSION_ID},
+    )
+
+    (record,) = _debug_records(tmp_path)
+    assert record["status"] == "error"
+    assert record["detail"] == "exception=TypeError"
+
+
+def test_the_trace_stays_off_until_it_is_asked_for(
+    tmp_path, hook_runner_raw, make_config, monkeypatch
+):
+    """A debug facility that files on every deployment is not a debug facility."""
+    monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
+    (tmp_path / "tmp").mkdir()
+    monkeypatch.delenv("OSPREY_HOOK_DEBUG", raising=False)
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+    (tmp_path / ".claude" / "hooks").mkdir(parents=True)
+    _record(tmp_path, "va", 2)
+
+    hook_runner_raw(
+        "osprey_control_context.py",
+        "",
+        {},
+        config_path=make_config(ARMED_BOTH),
+        cwd=tmp_path,
+        hook_input_extra={"hook_event_name": "SessionStart", "session_id": SESSION_ID},
+    )
+
+    assert not (tmp_path / ".claude" / "hooks" / "hook_debug.jsonl").exists()

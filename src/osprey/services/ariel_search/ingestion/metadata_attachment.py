@@ -114,11 +114,9 @@ async def _fetch_metadata(
             ssl_context = build_ssl_context(ingestion.verify_ssl, ingestion.ca_bundle)
 
         # The adapter's own connector, so a SOCKS proxy the ingest goes
-        # through carries this request too.
-        connector = None
-        make_connector = getattr(adapter, "_create_connector", None)
-        if callable(make_connector):
-            connector = make_connector()
+        # through carries this request too. A sidecar fetched without an
+        # adapter has none to inherit and goes out on aiohttp's default.
+        connector = adapter._create_connector() if adapter is not None else None
 
         async with aiohttp.ClientSession(connector=connector) as session:
             async with session.get(

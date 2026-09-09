@@ -74,6 +74,7 @@ Usage::
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import subprocess
@@ -576,6 +577,11 @@ config:
   approval.tools.entry_create: always
   # Publishing it through to the facility's logbook does too.
   approval.tools.entry_publish: always
+  # The panel rail is the operator's own view. Adding or removing a panel, and
+  # registering a new one, changes what the next person sees, so each asks.
+  approval.tools.add_panel_to_rail: always
+  approval.tools.remove_panel_from_rail: always
+  approval.tools.register_panel: always
 
   # ── Hook observability ─────────────────────────────────────────────────────
   # On here. Every hook call logs one line to stderr and appends to
@@ -2115,7 +2121,7 @@ the folder name is the assistant's name.
 | Generated files | `build/` | no | no, safe to delete |
 | The agent's memory and audit log | `var/agent_data/`, `var/audit/` | no | yes |
 
-In full, the first row is: `profile.yml`, `providers.yml`, `data/`, `personas/`, `triggers.yml`, `web-terminal-context/`, `.env.example`, `.gitignore`, `.env.shared`, `README.md`, `ci-extra.yml`, `.gitlab-ci.yml`, `scripts/verify.sh`.
+In full, the first row is: `profile.yml`, `providers.yml`, `data/`, `personas/`, `triggers.yml`, `web-terminal-context/`, `.env.example`, `rules/`, `.gitignore`, `.env.shared`, `README.md`, `ci-extra.yml`, `.gitlab-ci.yml`, `scripts/verify.sh`.
 
 `build/` is generated from your settings every time you run `osprey build`.
 Deleting it is always safe: no settings, no keys and no agent memory live there.
@@ -3054,6 +3060,27 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
     if with_ci:
         files.update(CI_PIPELINE_FILES)
     return {path: expand_sentinels(text) for path, text in files.items()}
+
+
+@contextlib.contextmanager
+def preserved_environ():
+    """Confine a repo's ``.env`` to the code run inside this block.
+
+    Loading a project config exports its ``.env`` into ``os.environ``
+    (``ConfigBuilder`` → ``load_dotenv(override=True)``) — correct for the real
+    CLI, where the process exits afterwards, but an in-process build in a test
+    shares its process with every test after it. A leaked seeded token then
+    changes later tests' behavior: the service-token mint treats a var already
+    present in the process env as operator-provided and writes no ``.env`` at
+    all. Wrap every in-process ``osprey build`` (or config load) of a repo that
+    carries a ``.env`` in this guard.
+    """
+    snapshot = os.environ.copy()
+    try:
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(snapshot)
 
 
 def build_exemplar_repo(

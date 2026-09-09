@@ -93,6 +93,15 @@ block on every prompt is the cost this hook exists to avoid.
 Every failure — an unreadable record, an unwritable temp directory, a payload
 that is not JSON — exits 0 with no output. This hook only describes; a turn
 must never be held up by its absence.
+
+## Saying which of those happened
+
+Silence is this hook's normal outcome and it has five different meanings, so
+every run ends with one ``log_hook`` record naming which: ``emit`` when a block
+went out, ``skip:not-our-event``, ``skip:no-record``, ``skip:no-session`` and
+``skip:unchanged`` for the four quiet ends, and ``error`` for a failure the
+fail-open rule above swallowed. Debug-gated like every ``log_hook`` call, so it
+costs a run nothing until someone turns it on.
 """
 
 import json
@@ -101,7 +110,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from osprey_hook_log import load_osprey_config
+from osprey_hook_log import load_osprey_config, log_hook
 
 try:
     import osprey_target_state as _target_state
@@ -236,21 +245,57 @@ def _emit(event, block):
     print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": block}}))
 
 
+#: The status word for each way :func:`main` can end. Six outcomes: the one that
+#: put a block in front of the agent, the four ordinary reasons there was nothing
+#: to say, and the failure.
+STATUS_EMIT = "emit"
+STATUS_NOT_OUR_EVENT = "skip:not-our-event"
+STATUS_NO_RECORD = "skip:no-record"
+STATUS_NO_SESSION = "skip:no-session"
+STATUS_UNCHANGED = "skip:unchanged"
+STATUS_ERROR = "error"
+
+
+def _log(payload, status, detail=""):
+    """Record how this run ended, when hook debug is on. Never raises.
+
+    This hook is otherwise invisible. It is registered with ``2>/dev/null``, it
+    writes its memo into ``TMPDIR``, and a silent exit is its normal outcome for
+    four different reasons — so "the agent got no block" and "the hook never ran"
+    look identical from outside. :func:`osprey_hook_log.log_hook` is the channel
+    that separates them: off by default, and when on it appends one record per
+    run to ``<project>/.claude/hooks/hook_debug.jsonl``, which is also what the
+    web terminal's hook-activity feed reads.
+
+    Wrapped the way every other hook wraps it (``osprey_writes_check``'s deny
+    path is the precedent): a diagnostic may never cost the block it describes.
+    """
+    try:
+        log_hook("control_context", payload, status=status, detail=detail)
+    except Exception:
+        pass  # logging must never cost the emit
+
+
 def main():
+    payload = {}
     try:
         payload = _read_payload()
         event = payload.get("hook_event_name")
         if event not in (_SESSION_START, _USER_PROMPT):
+            _log(payload, STATUS_NOT_OUR_EVENT)
             return
         state = current_state(payload)
         if state is None:
+            _log(payload, STATUS_NO_RECORD)
             return
         session_id = _session_id(payload)
         if event == _SESSION_START:
             _emit(event, render_block(state))
             _remember(session_id, state)
+            _log(payload, STATUS_EMIT)
             return
         if session_id is None:
+            _log(payload, STATUS_NO_SESSION)
             return
         previous = _remembered(session_id)
         if previous is None:
@@ -258,9 +303,12 @@ def main():
         elif previous != state:
             _emit(event, render_block(state, previous))
         else:
+            _log(payload, STATUS_UNCHANGED)
             return
         _remember(session_id, state)
-    except Exception:
+        _log(payload, STATUS_EMIT)
+    except Exception as exc:
+        _log(payload, STATUS_ERROR, detail=f"exception={type(exc).__name__}")
         return
 
 

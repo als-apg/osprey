@@ -93,6 +93,8 @@ class FakeManager:
         self.started = True
         #: Every ``(target, generation)`` the reconciler asked for.
         self.reconcile_calls: list[tuple[str, int]] = []
+        #: The subset of those the reconciler asked to LAUNCH a child for.
+        self.launches: list[tuple[str, int]] = []
         #: This server's published switch block as it stood INSIDE the reconcile
         #: call — the only way to see that the block was written before the await.
         self.block_when_called: list[dict | None] = []
@@ -131,7 +133,7 @@ class FakeManager:
 
     # -- what the reconciler drives
 
-    async def reconcile(self, target: str, generation: int) -> dict:
+    async def reconcile(self, target: str, generation: int, *, launch: bool = False) -> dict:
         self.reconcile_calls.append((target, int(generation)))
         report = target_state.read() or {}
         self.block_when_called.append(report.get("last_switch"))
@@ -139,6 +141,14 @@ class FakeManager:
             raise self.reconcile_fails_with
         previous_target, previous_generation = self._target, self._generation
         respawned = self.child and target != self._target
+        if launch and not self.child:
+            # What the real manager does for a childless server asked to
+            # launch: the first child comes up on the record's target and is
+            # published like any other swap.
+            self.launches.append((target, int(generation)))
+            self.child = True
+            self.started = True
+            respawned = True
         self._target, self._generation = target, int(generation)
         if self.child:
             # What the real manager's ``_publish`` does in the same call: the
@@ -497,12 +507,14 @@ class TestReconcileToTheRecord:
         span = datetime.fromisoformat(block["expires_at"]) - datetime.fromisoformat(block["at"])
         assert abs(span.total_seconds() - 30.0) < 1.0
 
-    async def test_no_live_child_adopts_silently(self, monkeypatch, records):
-        """Nothing is bound, so nothing can be bound to the wrong generation.
+    async def test_no_live_child_adopts_silently_on_the_first_pass(self, monkeypatch, records):
+        """A server joining a deployment already on generation 7 mints nothing.
 
-        And no block may be written: a silent adoption publishes no terminus,
-        so an ``applying`` block left here would never be released and would
-        hold the whole deployment for the length of its bound.
+        Nothing is bound, so nothing can be bound to the wrong generation, and
+        no child is spawned for a session that has not asked for one. No block
+        may be written either: a silent adoption publishes no terminus, so an
+        ``applying`` block left here would never be released and would hold
+        the whole deployment for the length of its bound.
         """
         manager = FakeManager(target="live", generation=0, child=False)
         install_context(manager, monkeypatch)
@@ -511,7 +523,58 @@ class TestReconcileToTheRecord:
         await session_control.SessionControlReconciler().poll_once()
 
         assert manager.reconcile_calls == [("va", 7)]
+        assert manager.launches == []
         assert report_block() is None
+
+    async def test_a_record_that_moves_under_a_childless_server_launches_the_child(
+        self, monkeypatch, records
+    ):
+        """An operator's switch is answered by a server that has launched nothing.
+
+        The chip waits for every live server to report the generation it asked
+        for, and a server with no child reports none. Adopting silently here
+        would leave that wait to expire on every switch made before the
+        session's first tool call; launching the child on the record's target
+        publishes the report the fleet is waiting on. The ``applying`` block is
+        written before the launch, as for any other swap, because a terminus
+        is now coming to release it.
+        """
+        manager = FakeManager(target="live", generation=0, child=False)
+        install_context(manager, monkeypatch)
+        reconciler = session_control.SessionControlReconciler()
+        await reconciler.poll_once()
+        assert manager.reconcile_calls == []
+
+        write_record(target="va", generation=1)
+        await reconciler.poll_once()
+
+        assert manager.reconcile_calls == [("va", 1)]
+        assert manager.launches == [("va", 1)]
+        block = manager.block_when_called[0]
+        assert block["status"] == target_state.SWITCH_APPLYING
+        assert block["generation"] == 1
+        assert manager.has_child()
+        report = target_state.read()
+        assert report["applied_target"] == "va"
+        assert report["applied_generation"] == 1
+
+    async def test_a_server_that_joined_silently_launches_on_the_next_move(
+        self, monkeypatch, records
+    ):
+        """Joining is the first pass only; every later move is a gesture to answer."""
+        manager = FakeManager(target="live", generation=0, child=False)
+        install_context(manager, monkeypatch)
+        reconciler = session_control.SessionControlReconciler()
+        write_record(target="va", generation=7)
+        await reconciler.poll_once()
+        assert manager.launches == []
+
+        write_record(target="live", generation=8)
+        await reconciler.poll_once()
+
+        assert manager.reconcile_calls == [("va", 7), ("live", 8)]
+        assert manager.launches == [("live", 8)]
+        assert target_state.read()["applied_generation"] == 8
 
     async def test_a_server_already_on_the_record_reconciles_nothing(self, monkeypatch, records):
         """The steady state costs no lock, no publication and no write."""

@@ -281,11 +281,15 @@ def test_mcp_servers_register_expected_tools(build_outputs: dict[str, Path], pre
         if "url" in entry:
             continue  # http/sse — out of scope for stdio handshake
         try:
+            # A liveness bound, not a speed one: fast failure on a broken
+            # command is the previous test's contract. This one only has to
+            # outwait a server's imports on the slowest shared runner, where
+            # the control-system server alone has taken twenty seconds to load.
             tool_names = list_mcp_tools(
                 command=entry["command"],
                 args=list(entry.get("args") or []),
                 env=entry.get("env"),
-                timeout=30.0,
+                timeout=120.0,
             )
         except MCPHandshakeError as exc:
             failures.append(f"{name}: handshake failed: {exc}")

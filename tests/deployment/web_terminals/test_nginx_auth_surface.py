@@ -50,7 +50,6 @@ from __future__ import annotations
 
 import copy
 import re
-import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -70,6 +69,7 @@ from osprey.services.auth_sidecar.identity_headers import (
     ROLE_SOURCE_HEADER,
     SUBJECT_HEADER,
 )
+from tests._container_support import docker_cli_unavailable_reason
 
 #: The per-user family bases these renders run on. Nothing in the configs below
 #: moves them, so they are the layout's own — derived here so a cookie name or a
@@ -757,17 +757,11 @@ def _nginx_t(conf: str, secret_snippets: dict[str, str]) -> subprocess.Completed
         )
 
 
-def _docker_available() -> bool:
-    if shutil.which("docker") is None:
-        return False
-    try:
-        return subprocess.run(["docker", "info"], capture_output=True, timeout=10).returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
 
 
 @pytest.mark.dockerbuild
-@pytest.mark.skipif(not _docker_available(), reason="docker not available")
+@pytest.mark.skipif(_DOCKER_UNAVAILABLE is not None, reason=_DOCKER_UNAVAILABLE or "")
 def test_real_nginx_reads_the_auth_on_render_without_a_single_warning() -> None:
     """The auth-on render starts CLEAN — not merely "exit 0".
 

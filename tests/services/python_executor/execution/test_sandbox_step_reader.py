@@ -2,11 +2,11 @@
 
 ``max_step`` is the one limit that needs a fresh read, and the shared validator
 owns no control-system client. In the generated wrapper each guard supplies
-one: the Channel Access guard hands over the script's own ``epics.caget``, the
-p4p guard the very Context the put is going through, the Tango guard the
-DeviceProxy doing the write, the DOOCS guard ``doocs4py.get``, and the caproto
-guards that client's own read — so the step is measured over the client and the
-addressing the write itself uses.
+one: the Channel Access guard reads back through ``epics.ca.get`` on the
+channel id being written, the p4p guard the very Context the put is going
+through, the Tango guard the DeviceProxy doing the write, the DOOCS guard
+``doocs4py.get``, and the caproto guards that client's own read — so the step
+is measured over the client and the addressing the write itself uses.
 
 One client answers no reader: p4p's asyncio flavour has only a coroutine
 ``get``, and the validator is synchronous. There the step cannot be measured
@@ -46,29 +46,77 @@ def _step_validator(channel=CHANNEL):
     return LimitsValidator(limits, {"allow_unlisted_channels": False})
 
 
-def _install_fake_epics(monkeypatch, reads, writes):
-    mod = ModuleType("epics")
+def _raising_read(_channel):
+    """A Channel Access read that fails, as a disconnected channel's does."""
+    raise RuntimeError("channel is not connected")
 
-    def caget(pvname, timeout=None, **kwargs):
-        reads.append(pvname)
+
+def _absent_read(_channel):
+    """A Channel Access read that answers nothing, as a timed-out one does."""
+    return None
+
+
+def _install_fake_epics(monkeypatch, reads, writes, read=None):
+    """A pyepics whose three write spellings all funnel through ``ca.put``.
+
+    Real pyepics reaches the network from ``caput`` through ``PV.put`` and
+    from ``PV.put`` through ``ca.put``, which is why the guard sits on the
+    last of the three. Keeping that chain in the fake is what makes a test
+    written against ``caput`` an honest exercise of the wrapper.
+
+    ``read`` replaces what ``ca.get`` answers, and may raise: a client that
+    cannot read is the case a step check has to fail closed on.
+    """
+    mod = ModuleType("epics")
+    ca = ModuleType("epics.ca")
+
+    class _Chid:
+        """What ``epics.ca`` addresses a channel by: an opaque id, not a name."""
+
+        def __init__(self, pvname):
+            self.pvname = pvname
+
+    def name(chid):
+        return chid.pvname
+
+    def create_channel(pvname, **kwargs):
+        return _Chid(pvname)
+
+    def get(chid, timeout=None, **kwargs):
+        reads.append(name(chid))
+        if read is not None:
+            return read(name(chid))
         return CURRENT
 
-    def caput(pvname, value, wait=False, timeout=60, **kwargs):
-        writes.append((pvname, value))
+    def put(chid, value, wait=False, timeout=60, **kwargs):
+        writes.append((name(chid), value))
         return 1
+
+    ca.name = name
+    ca.create_channel = create_channel
+    ca.get = get
+    ca.put = put
 
     class PV:
         def __init__(self, pvname):
             self.pvname = pvname
+            self.chid = ca.create_channel(pvname)
 
         def put(self, value, wait=False, timeout=60, **kwargs):
-            writes.append((self.pvname, value))
-            return 1
+            return ca.put(self.chid, value, wait=wait, timeout=timeout, **kwargs)
 
+    def caget(pvname, timeout=None, **kwargs):
+        return ca.get(ca.create_channel(pvname), timeout=timeout)
+
+    def caput(pvname, value, wait=False, timeout=60, **kwargs):
+        return PV(pvname).put(value, wait=wait, timeout=timeout, **kwargs)
+
+    mod.ca = ca
     mod.caget = caget
     mod.caput = caput
     mod.PV = PV
     monkeypatch.setitem(sys.modules, "epics", mod)
+    monkeypatch.setitem(sys.modules, "epics.ca", ca)
     return mod
 
 
@@ -150,7 +198,7 @@ def _run_monkeypatch(monkeypatch, channel=CHANNEL):
 # ---------------------------------------------------------------------------
 
 
-def test_caput_measures_the_step_with_the_scripts_own_caget(monkeypatch):
+def test_caput_measures_the_step_with_the_scripts_own_ca_get(monkeypatch):
     reads: list = []
     writes: list = []
     epics = _install_fake_epics(monkeypatch, reads, writes)
@@ -174,7 +222,7 @@ def test_caput_beyond_max_step_never_reaches_the_control_system(monkeypatch):
     assert writes == []
 
 
-def test_pv_put_measures_the_step_with_the_scripts_own_caget(monkeypatch):
+def test_pv_put_measures_the_step_with_the_scripts_own_ca_get(monkeypatch):
     reads: list = []
     writes: list = []
     epics = _install_fake_epics(monkeypatch, reads, writes)
@@ -184,6 +232,46 @@ def test_pv_put_measures_the_step_with_the_scripts_own_caget(monkeypatch):
 
     assert reads == [CHANNEL]
     assert writes == [(CHANNEL, CURRENT + 1.0)]
+
+
+def test_ca_get_that_raises_fails_the_step_check_closed(monkeypatch):
+    """A read that blows up is not a step of zero — it is no measurement at all.
+
+    The guard swallows the error so the refusal names the missing measurement
+    rather than the client's own exception, but what it must never do is let
+    the write through: an unmeasured step is an unapproved one.
+    """
+    reads: list = []
+    writes: list = []
+    epics = _install_fake_epics(monkeypatch, reads, writes, read=_raising_read)
+    _run_monkeypatch(monkeypatch)
+
+    with pytest.raises(ChannelLimitsViolationError) as exc:
+        epics.caput(CHANNEL, CURRENT + 0.5)
+
+    assert exc.value.violation_type == "STEP_CHECK_FAILED"
+    assert reads == [CHANNEL]
+    assert writes == []
+
+
+def test_ca_get_that_answers_none_fails_the_step_check_closed(monkeypatch):
+    """pyepics answers a timed-out read with ``None``, not an exception.
+
+    The step is as unmeasured as it is when the read raises, and the write is
+    inside ``max_step`` only if the current value is assumed — which is the
+    assumption the step check exists to refuse.
+    """
+    reads: list = []
+    writes: list = []
+    epics = _install_fake_epics(monkeypatch, reads, writes, read=_absent_read)
+    _run_monkeypatch(monkeypatch)
+
+    with pytest.raises(ChannelLimitsViolationError) as exc:
+        epics.caput(CHANNEL, CURRENT + 0.5)
+
+    assert exc.value.violation_type == "STEP_CHECK_FAILED"
+    assert reads == [CHANNEL]
+    assert writes == []
 
 
 # ---------------------------------------------------------------------------
@@ -415,7 +503,7 @@ def _install_fake_caproto(monkeypatch, reads, writes):
         def __init__(self, name):
             self.name = name
 
-        def read(self):
+        def read(self, **kwargs):
             reads.append(self.name)
             return _CaprotoResponse(CURRENT)
 

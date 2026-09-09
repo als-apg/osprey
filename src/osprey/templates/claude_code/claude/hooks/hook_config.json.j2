@@ -11,10 +11,20 @@
   read_only_disallowed_tools is built from), and the hooks' shared
   `is_write_tool` honours the trailing wildcard — so every tool on such a
   server is gated, reads included.
+
+  `control_system_write_tools` is the subset of the project's
+  `control_system.write_tools` that this render actually APPENDED to
+  `write_tools` — an extra naming a matcher a server already contributed is
+  left out, because that one does reach `permissions.deny` under the writes
+  kill switch. The appended ones never do: they are refused per call. Only
+  osprey_config_drift.py reads this key, to keep those names out of the set it
+  compares against a deployment's stale deny list; every other consumer reads
+  `write_tools`, which is unchanged.
 -#}
 {%- set server_pfx = [] -%}
 {%- set approval_pfx = [] -%}
 {%- set write_tools = [] -%}
+{%- set appended_extras = [] -%}
 {%- for s in servers if s.enabled -%}
   {%- set _ = server_pfx.append("mcp__" ~ s.name ~ "__") -%}
   {%- for rule in s.hooks_pre -%}
@@ -31,12 +41,14 @@
 {%- for extra in control_system_write_tools -%}
   {%- if extra not in write_tools -%}
     {%- set _ = write_tools.append(extra) -%}
+    {%- set _ = appended_extras.append(extra) -%}
   {%- endif -%}
 {%- endfor -%}
 {
   "server_prefixes": {{ server_pfx | tojson }},
   "approval_prefixes": {{ approval_pfx | tojson }},
   "write_tools": {{ write_tools | tojson }},
+  "control_system_write_tools": {{ appended_extras | tojson }},
   "mixed_read_write_tools": {{ mixed_read_write_tools | default([], true) | tojson }},
   "lane_addressed_tools": {{ lane_addressed_tools | default([], true) | tojson }}
 }

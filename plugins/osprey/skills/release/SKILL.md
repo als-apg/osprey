@@ -8,8 +8,9 @@ description: >
   a release", "bump the version", "cut v2026.X.Y", "publish to PyPI", "tag a
   release", or asks about the release process. Composes with `/osprey:contribute`
   for the notes PR and with `/osprey:housekeeping` and `/osprey:doc-sync` for the
-  sweeps. Versions follow CalVer (vYYYY.M.P) and the source of truth is the git
-  tag — Hatch derives the version from it, so there is no version literal to bump.
+  sweeps. Versions follow CalVer (vYYYY.M.P), with PEP 440 pre-release tags
+  (vYYYY.M.PbN / rcN) for public betas, and the source of truth is the git tag —
+  Hatch derives the version from it, so there is no version literal to bump.
 allowed-tools: Read, Glob, Grep, Bash, Edit
 ---
 
@@ -44,6 +45,53 @@ OSPREY uses **CalVer**: `YYYY.M.P` where:
 
 Examples: `2026.5.0`, `2026.5.1` (patch within May 2026), `2026.6.0` (next
 month). When the year or month rolls over, `P` resets to `0`.
+
+### Pre-releases: beta and RC tags
+
+A public beta is an ordinary release whose tag carries a PEP 440 pre-release
+segment on the patch component: `v2026.9.0b1`, then `b2` if needed, then
+`rc1` for a feature freeze, then the plain `v2026.9.0` (or the next month's
+`.0` if the final slips a month — CalVer tells the truth either way). The
+segment is appended directly — never `-beta`, `-rc1`, or a dot — because the
+segment must survive two independent normalizers unchanged: `hatch-vcs`
+naming the wheel, and the release workflow comparing that wheel to the tag.
+PEP 440 orders the chain correctly: `b1 < b2 < rc1 < final`.
+
+Every step in this skill applies to a pre-release tag unchanged. The
+differences, each load-bearing:
+
+- **pip hides it by default.** Plain `pip install osprey-framework` keeps
+  resolving to the last stable release; the beta is reached only by
+  `--pre` or an exact `==` pin. That opt-in IS the beta channel — nothing
+  else has to be built for it.
+- **The connectors floor needs a pre-release-admitting specifier — not a
+  pre-release floor.** Range specifiers exclude pre-releases, so with the
+  plain stable floor a beta framework wheel pairs with the OLD stable
+  connectors. But a plain `>=YYYY.M.PbN` floor is worse: every same-checkout
+  dev wheel (`<last-stable>.postN`) sorts *below* the beta, so `osprey up
+  --dev` and every image-building CI lane breaks until the tag exists (found
+  live on the v2026.9.0b1 release PR). The shape that satisfies both is
+  `osprey-connectors>=<last-stable>,!=<last-stable>a0`: the `!=` clause names
+  a pre-release, which under PEP 440 admits pre-release candidates to the
+  whole set, so pip pairs beta with beta while dev wheels still satisfy the
+  floor. uv resolves transitive pre-releases only with `--prerelease=allow`
+  and fails loudly with that hint — put the flag in the release notes. Run
+  `uv lock --check` after the edit. The final release afterwards restores
+  the plain floor at its own stable version.
+- **The GitHub Release is marked pre-release automatically.** `release.yml`
+  classifies the tag (exactly `X.Y.Z` = stable, anything else = pre-release)
+  and sets the flag, so the beta never shows as "Latest".
+- **Docs do not publish.** `docs.yml` builds a pre-release tag but refuses to
+  deploy it: the site root and the version switcher stay on the last stable
+  release, and beta users read `/latest/`. Deliberate — do not "fix" it.
+- **The version module keeps the segment.** A clean checkout of the tag
+  reports `is_release()` true and pins `osprey-framework==YYYY.M.PbN`;
+  `tests/test_version.py::TestPreReleaseChannel` pins this. `base_version`
+  anywhere in new code is a bug factory here: it silently drops the segment
+  and manufactures pins to versions that do not exist.
+
+Say "public beta" in the `RELEASE_NOTES.md` tagline and the GitHub Release
+body; the tooling marks the channel, the prose sets the expectation.
 
 ## The Source of Truth
 
@@ -201,10 +249,34 @@ Then repair the section by hand, because `apply` only appends:
 - **Merge duplicate `### <Type>` headings.** Fragments folded at different
   times leave several `### Changed` (or `### Fixed`, `### Added`) headings
   under `[Unreleased]`; one heading per type, entries concatenated.
-- **Fold phantom sections** found in Step 0 into this release: move their
-  entries under the matching `### <Type>` heading and delete the untagged
-  `## [YYYY.M.P]` heading. Nothing is lost, and the CHANGELOG stops
-  advertising a version that was never published.
+- **Leave phantom sections where they are.** The changelog gate recognizes
+  the release rotation by the `## [` heading count *growing*; folding a
+  phantom heading away shrinks it, and the gate then reads the whole PR as
+  illegal hand-editing (found live on the v2026.9.0b1 release PR). Fold the
+  phantoms found in Step 0 into the released section in a **follow-up
+  CHANGELOG-only PR** after this one merges and before the tag: that shape
+  passes as a correction because it never touches `[Unreleased]`.
+
+Then **condense the folded section — the maintainer's editorial pass.** The
+fragments were each written for their own PR's reviewer; the released section
+is read months later by someone deciding what changed and whether to upgrade.
+The raw fold is the wrong document for that reader:
+
+- **Collapse supersession chains.** A surface added, then reworked, then
+  renamed in the same span is one entry describing where it landed, not three
+  describing states that never shipped.
+- **Merge per-PR snippets about one surface** into a single entry.
+- **Drop what the later reader cannot act on** — churn on internals that were
+  also removed in the span, fixes to bugs introduced in the same span.
+- **Never drop or soften** breaking changes, migration notes, or `Security`
+  entries.
+
+This is judgment, not mechanics: propose the condensed diff and have the
+maintainer review it before the PR merges. Sequence it as the **second-to-last
+step before the release** — after the last content PR has landed and the final
+fold has run — or the next batch's refold redoes it. On a held release PR
+(see "Holding the release open") that means: final refold first, then
+condense, then merge.
 
 There is **no version literal to edit**; the tag in Step 6 sets the version.
 This PR carries only the human-facing notes. Show the maintainer each diff
@@ -245,6 +317,31 @@ Now hand off to `/osprey:contribute` for the rest of the PR mechanics:
 The PR title should be `release: vYYYY.M.P — <theme>`. The PR body should
 include the CHANGELOG entries verbatim so reviewers see exactly what's being
 released.
+
+### Holding the release open (the staged release)
+
+Prep and the go decision can be decoupled: everything up to here can be done
+early, and the open, green release-notes PR then sits one switch away —
+merge, tag, done, about an hour end to end (one CI cycle plus minutes of
+`release.yml`).
+
+While it holds, every batch that lands on `main` costs a refold, and skipping
+it is the one way this pattern ships a broken CHANGELOG: required checks do
+not go stale when `main` moves, so the merge button stays green while the
+newly landed fragments sit outside the rotated section — the "released
+section is missing entries" failure mode below. The refold is mechanical:
+
+1. Rebase the release branch on `main`.
+2. Run `apply` again — the new fragments fold into the fresh `## [Unreleased]`.
+3. Move those bullets down into the rotated `## [YYYY.M.P]` section, under
+   their type headings; `[Unreleased]` ends empty again.
+4. On the *final* refold — no more batches coming — run the condensation
+   pass from Step 4 and get the maintainer's review of it.
+5. Push. This is one full CI cycle, and the push cancels the in-flight run,
+   so batch the refold rather than chasing every merge.
+
+Mind the repo's CI budget (three concurrent PR runs) when the held release
+PR re-runs beside other work.
 
 ## Step 5: Merge the PR
 
@@ -355,6 +452,7 @@ This is a fallback. The default path is the automated workflow.
 | `gh pr merge` fails with "not mergeable" | Stale checks because `main` moved | Merge or rebase `origin/main` into the release branch, push, wait for CI to re-run |
 | CI "plugin tree changed without a version bump" | A PR touched `plugins/osprey/` without `plugin_version.py bump` | Run the bump on that branch and push |
 | GitHub Release body is empty or wrong | CHANGELOG section heading didn't match the regex `release.yml` uses | Make sure the CHANGELOG heading is exactly `## [YYYY.M.P] - YYYY-MM-DD` |
+| `uv lock --check` fails on the release PR | The connectors floor (or any `pyproject.toml` edit) changed without regenerating the lockfile | Run `uv lock`, commit `uv.lock` in the same commit |
 | `changelog_fragments.py apply` exits 1 | A fragment filename is malformed or carries an unrecognized type | Rename it `<name>.<type>.md` using one of added/changed/deprecated/removed/fixed/security/internal |
 | Released section is missing entries, or fragments are still on `main` after the release | `apply` was not run before the rotation, or its deletions were not staged | Fold the leftover fragments into the released section by hand, delete them, and open a PR carrying just `CHANGELOG.md` and the fragment deletions (`git add -A changelog.d/ CHANGELOG.md`) |
 
@@ -363,9 +461,10 @@ This is a fallback. The default path is the automated workflow.
 - **Hotfix branches** — OSPREY uses GitHub Flow, no special hotfix branches.
   A hotfix is just a `fix/<short-kebab>` branch off `main`, PR'd back; then
   this skill cuts a follow-up release.
-- **Release candidates / beta tags** — not currently supported by
-  `release.yml`, which triggers on `v*.*.*` only. If you need an RC channel,
-  the workflow needs changes first.
+- Release candidates and beta tags are **in** scope — see "Pre-releases:
+  beta and RC tags" above. (An older revision of this skill claimed the
+  workflow ignores them; wrong twice — the `v*.*.*` glob matches `v2026.9.0b1`,
+  and the pipeline now handles the pre-release correctly.)
 - **Documentation builds** — `docs.yml` publishes the docs from the tag on
   its own: the site root shows the newest release and `main` publishes at
   `/latest/`. Nothing to run by hand unless the root did not pick up the new

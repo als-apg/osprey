@@ -157,6 +157,14 @@ jobs:
         VERSION="${GITHUB_REF#refs/tags/v}"
         echo "version=$VERSION" >> $GITHUB_OUTPUT
         echo "Version: $VERSION"
+        # Anything that is not exactly X.Y.Z is a pre-release (b1/rc1 suffixes).
+        # Same rule as docs_publish.py's RELEASE_TAG_RE: the stable grammar is
+        # the whitelist, everything else must not be advertised as latest.
+        if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "prerelease=false" >> $GITHUB_OUTPUT
+        else
+          echo "prerelease=true" >> $GITHUB_OUTPUT
+        fi
 
     - name: Extract release notes from CHANGELOG
       id: changelog
@@ -180,7 +188,7 @@ jobs:
         name: Release v${{ steps.get_version.outputs.version }}
         body_path: release_notes.md
         draft: false
-        prerelease: false
+        prerelease: ${{ steps.get_version.outputs.prerelease == 'true' }}
 
 # The former publish-connectors-to-pypi job (its own osprey-connectors-v* tag,
 # its own static-version check) is retired: the connectors package now versions

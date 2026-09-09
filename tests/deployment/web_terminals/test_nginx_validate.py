@@ -30,8 +30,8 @@ actually present in the rendered fragment before handing it to nginx — a
 template that stopped emitting the auth surface would otherwise still "pass"
 `nginx -t` and report a vacuous green.
 
-Skipped entirely when docker (or openssl) is unavailable, mirroring
-`tests/e2e/test_dockerfile_e2e.py`'s `_docker_available()` pattern.
+Skipped entirely when docker (or openssl) is unavailable, with the docker half
+probed through the shared ``docker_cli_unavailable_reason`` helper.
 """
 
 from __future__ import annotations
@@ -52,6 +52,7 @@ from osprey.deployment.web_terminals.render import (
     terminal_secret_env_var,
 )
 from osprey.port_layout import default_port
+from tests._container_support import docker_cli_unavailable_reason
 
 #: The per-user family bases these renders run on. Nothing in the configs below
 #: moves them, so they are the layout's own — derived here so a cookie name or a
@@ -88,20 +89,14 @@ _ENVSUBST_OUTPUT_MODE = "0700"
 _DEFAULT_CONF_PATH = "/etc/nginx/conf.d/default.conf"
 
 
-def _docker_available() -> bool:
-    if shutil.which("docker") is None:
-        return False
-    try:
-        return subprocess.run(["docker", "info"], capture_output=True, timeout=10).returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
 
 
 pytestmark = [
     pytest.mark.dockerbuild,
     pytest.mark.skipif(
-        not (_docker_available() and shutil.which("openssl")),
-        reason="docker (or openssl, for the self-signed cert fixture) not available",
+        _DOCKER_UNAVAILABLE is not None or shutil.which("openssl") is None,
+        reason=_DOCKER_UNAVAILABLE or "openssl (for the self-signed cert fixture) not on PATH",
     ),
 ]
 

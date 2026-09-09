@@ -342,9 +342,12 @@ class ArtifactGallery {
   // view.js, detail-content.js). renderEdit and the edit/save/ownership
   // workflow live in scaffold/edit-form.js and scaffold/edit.js (below).
 
-  /** @param {any} artifact */
-  openDetail(artifact) {
-    return this._detail.openDetail(artifact);
+  /**
+   * @param {any} artifact
+   * @param {'preview'|'diff'|'edit'} [initialMode] Mode to open in; defaults to Preview.
+   */
+  openDetail(artifact, initialMode) {
+    return this._detail.openDetail(artifact, initialMode);
   }
 
   /** @param {string} category */

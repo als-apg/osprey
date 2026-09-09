@@ -47,7 +47,7 @@ import { apiRequest } from './data.js';
  * @property {HTMLElement|null} galleryView
  * @property {HTMLElement|null} detailView
  * @property {(() => void)|null} onDetailClose
- * @property {(artifact: any) => void} openDetail
+ * @property {(artifact: any, initialMode?: 'preview'|'diff'|'edit') => void} openDetail
  * @property {() => void} renderDetailModes
  * @property {() => void} renderDetailContent
  * @property {() => void} renderGallery
@@ -154,12 +154,9 @@ export function createScaffoldGalleryEdit(gallery) {
       const updated = gallery.artifacts.find((a) => a.name === gallery.selectedArtifact.name);
       if (updated) {
         // openDetail restores detail-view visibility (reloadFull's gallery
-        // re-render flipped back to the grid); then switch to edit mode
-        // inline — same pattern as detail.js's showCreateDialog.
-        gallery.openDetail(updated);
-        gallery.detailMode = 'edit';
-        gallery.renderDetailModes();
-        gallery.renderDetailContent();
+        // re-render flipped back to the grid) and opens straight in edit mode
+        // — the operator asked to edit, and one render means one content GET.
+        gallery.openDetail(updated, 'edit');
       }
     } catch (e) {
       showWriteError('Scaffold failed', e);

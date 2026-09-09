@@ -185,8 +185,8 @@ see what the two source files become. The whole catalog appears under
            # Use pinned versions here — unversioned aliases like
            # anthropic/claude-sonnet break the agent's capability detection.
            haiku: claude-haiku-4-5
-           sonnet: claude-sonnet-4-6
-           opus: claude-opus-4-7
+           sonnet: claude-sonnet-5
+           opus: claude-opus-5
 
        stanford:
          api_key: ${STANFORD_API_KEY}

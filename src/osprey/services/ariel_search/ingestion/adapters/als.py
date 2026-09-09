@@ -7,7 +7,6 @@ to the ALS olog RPC API.
 
 import asyncio
 import json
-import os
 import ssl
 import xml.etree.ElementTree as ET
 from collections.abc import AsyncIterator
@@ -23,7 +22,6 @@ from osprey.services.ariel_search.exceptions import (
     IngestionError,
 )
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter
-from osprey.services.ariel_search.ingestion.http import build_ssl_context
 from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
 from osprey.utils.logger import get_logger
 
@@ -104,9 +102,6 @@ class ALSLogbookAdapter(FacilityAdapter):
         self.attachment_url_prefix = "https://elog.als.lbl.gov/"
         self.skip_empty_entries = True
 
-        self.proxy_url = config.ingestion.proxy_url or os.environ.get("ARIEL_SOCKS_PROXY")
-        self.verify_ssl = config.ingestion.verify_ssl
-        self.ca_bundle = config.ingestion.ca_bundle
         self.chunk_days = config.ingestion.chunk_days or 365
         self.request_timeout = config.ingestion.request_timeout_seconds or 60
         self.max_retries = config.ingestion.max_retries or 3
@@ -297,8 +292,7 @@ class ALSLogbookAdapter(FacilityAdapter):
             IngestionError: If the POST fails after retries.
         """
         connector = self._create_connector()
-
-        ssl_context = build_ssl_context(self.verify_ssl, self.ca_bundle)
+        ssl_context = self._ssl_context()
 
         timeout = aiohttp.ClientTimeout(total=self.request_timeout)
         last_error: Exception | None = None
@@ -395,8 +389,7 @@ class ALSLogbookAdapter(FacilityAdapter):
         count = 0
 
         connector = self._create_connector()
-
-        ssl_context = build_ssl_context(self.verify_ssl, self.ca_bundle)
+        ssl_context = self._ssl_context()
 
         timeout = aiohttp.ClientTimeout(total=self.request_timeout)
 
@@ -573,31 +566,6 @@ class ALSLogbookAdapter(FacilityAdapter):
 
             logger.debug(f"Fetched {len(data)} entries from window")
             return data
-
-    def _create_connector(self) -> aiohttp.BaseConnector:
-        """Create aiohttp connector with optional SOCKS proxy support.
-
-        Returns:
-            aiohttp connector (with proxy if configured)
-
-        Raises:
-            IngestionError: If proxy is configured but aiohttp-socks is not installed
-        """
-        if not self.proxy_url:
-            return aiohttp.TCPConnector()
-
-        try:
-            from aiohttp_socks import ProxyConnector
-        except ImportError as e:
-            raise IngestionError(
-                "SOCKS proxy configured but aiohttp-socks is not installed. "
-                "Install with: pip install osprey-framework",
-                source_system=self.source_system_name,
-            ) from e
-
-        logger.info(f"Using SOCKS proxy: {self.proxy_url}")
-        connector: aiohttp.BaseConnector = ProxyConnector.from_url(self.proxy_url)
-        return connector
 
     def _convert_entry(self, data: dict[str, Any]) -> EnhancedLogbookEntry:
         """Convert ALS JSON entry to EnhancedLogbookEntry."""

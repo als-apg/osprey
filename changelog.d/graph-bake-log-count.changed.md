@@ -1,1 +1,0 @@
-The deploy and `knowledge seed-graph` logs now report the graph-schema bake as distinct prompts across renders (e.g. "2 agent prompt(s) across 8 render(s)") instead of a flat file count that read as that many agents.

@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import re
 import shlex
 import shutil
@@ -409,6 +410,20 @@ def hermetic_hub() -> Iterator[HermeticHub]:
         shell_command = _replay_shell_command(DEMO_TRANSCRIPT_PATH)
 
         with ExitStack() as stack:
+            # Both apps below claim a control-context record at lifespan, and the
+            # artifacts backend resolves an agent-data root of its own. Neither
+            # reads ``project_dir`` for that: unstamped, both resolve to whatever
+            # checkout this process runs from and write into it. Stamped here,
+            # inside the throwaway tree that is already torn down below, so the
+            # word "hermetic" holds for the capture harness as well as for the
+            # test that drives it.
+            stack.enter_context(
+                mock.patch.dict(
+                    os.environ,
+                    {"OSPREY_AGENT_DATA_ROOT": str(project_dir / "var" / "agent_data")},
+                )
+            )
+
             from osprey.interfaces.artifacts.app import create_app as create_artifacts_app
 
             artifacts_app = create_artifacts_app(workspace_root=project_dir)

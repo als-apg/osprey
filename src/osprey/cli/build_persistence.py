@@ -54,6 +54,71 @@ def _apply_config_overrides(project_path: Path, config_dict: dict[str, Any]) -> 
     config_update_fields(config_path, config_dict)
 
 
+#: The facility description, as the profile's ``rules/`` convention directory
+#: and the framework template each spell it.
+FACILITY_RULE_NAME = "facility"
+FACILITY_RULE_RELPATH = PurePosixPath("rules/facility.md")
+FACILITY_RULE_TEMPLATE = "claude_code/claude/rules/facility.md.j2"
+
+
+def ensure_profile_facility_rule(
+    profile_dir: Path,
+    *,
+    build_dir: Path | None,
+    enabled_agents: Iterable[str] = (),
+) -> str | None:
+    """Give the profile its own copy of the facility description, once.
+
+    The facility description is the one rendered artifact a deployment is
+    expected to rewrite in its own words, so the only copy of it must not live
+    in ``build/`` — that tree is output, and ``rm -rf build`` is a supported
+    thing to do to a repo. It belongs in the profile's ``rules/`` convention
+    directory, from which every build copies it into ``build/.claude/rules/``
+    like any other profile rule.
+
+    Two shapes reach here without one:
+
+    * a repo whose only copy is the outgoing ``build/.claude/rules/facility.md``
+      — that file is MOVED into the profile, so the operator's words survive the
+      next wipe;
+    * a fresh repo with no render yet — the framework template is rendered into
+      the profile instead.
+
+    Does nothing when the profile already has the file, so it runs on every
+    build and writes on at most one of them.
+
+    Args:
+        profile_dir: The profile root — the repo, for a deployment.
+        build_dir: The outgoing render, read for a description to rescue.
+            ``None`` when there is no render to consult (``osprey init``).
+        enabled_agents: Agent names the deployment selects, for the one
+            conditional line the template carries.
+
+    Returns:
+        A line naming what was written, or ``None`` when the profile already
+        had the file.
+    """
+    from .templates.manager import TemplateManager
+
+    source = profile_dir / FACILITY_RULE_RELPATH
+    if source.exists():
+        return None
+
+    outgoing = None if build_dir is None else build_dir / ".claude" / FACILITY_RULE_RELPATH
+    source.parent.mkdir(parents=True, exist_ok=True)
+    if outgoing is not None and outgoing.is_file():
+        shutil.move(str(outgoing), str(source))
+        return (
+            f"Moved the facility description out of the disposable render into "
+            f"{FACILITY_RULE_RELPATH}, where a wiped build/ cannot take it with it"
+        )
+
+    TemplateManager().render_template(
+        FACILITY_RULE_TEMPLATE, {"enabled_agents": list(enabled_agents)}, source
+    )
+    return f"Wrote the facility description to {FACILITY_RULE_RELPATH} — edit it there"
+
+
 @dataclass
 class ConventionApplication:
     """The outcome of applying a profile's convention tree to a project.

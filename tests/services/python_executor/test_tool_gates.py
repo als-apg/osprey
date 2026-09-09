@@ -12,6 +12,7 @@ execution.
 """
 
 import json
+import re
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -105,6 +106,22 @@ def _script(root, code):
     return target
 
 
+#: A whitespace-delimited token is a filesystem path when it opens -- after any
+#: quoting -- on a path separator or a drive letter. The path-policy refusal
+#: quotes the protected root it matched, and that root is an absolute path under
+#: whatever directory the checkout happens to live in. On a checkout named
+#: ``readonly-guard-hotfix`` the refusal text therefore contains "readonly"
+#: while blaming nothing at all. Prose words carry no separator, so dropping
+#: these tokens leaves every word the gate itself composed.
+_ABSOLUTE_PATH_TOKEN = re.compile(r"^[\"'(\[]*(?:[A-Za-z]:)?[\\/]")
+
+
+def _refusal_prose(envelope) -> str:
+    """The refusal's own words, lowercased, with absolute paths dropped."""
+    text = " ".join([envelope["error_message"], *envelope["suggestions"]])
+    return " ".join(word for word in text.split() if not _ABSOLUTE_PATH_TOKEN.match(word)).lower()
+
+
 def _refusal_records(audit_zone):
     """Every executor record this identity filed — the ledger is per-identity."""
     from osprey.audit.envelope import SURFACE_EXECUTOR
@@ -146,11 +163,51 @@ async def test_readwrite_wording_does_not_blame_readonly_mode(execution_mode, au
             execution_mode=execution_mode,
         )
 
-    text = " ".join([ctx["envelope"]["error_message"], *ctx["envelope"]["suggestions"]])
+    prose = _refusal_prose(ctx["envelope"])
     if execution_mode == "readwrite":
-        assert "readonly" not in text.lower()
+        assert "readonly" not in prose
     else:
-        assert "readwrite will not lift this" in text
+        assert "readwrite will not lift this" in prose
+
+
+class TestTheProseCheckIsBlindToTheCheckoutName:
+    """``_refusal_prose`` must drop the quoted paths and nothing else.
+
+    Both directions are pinned here because a helper that silently dropped too
+    much would turn the test above into one that can no longer fail: the point
+    of that test is that a readwrite caller is never told to try readwrite, and
+    the only reason to strip anything is that the protected root is spelled
+    with the checkout's own directory name in it.
+    """
+
+    def test_a_protected_root_under_a_readonly_named_checkout_is_not_blame(self):
+        envelope = {
+            "error_message": (
+                "This code writes into a location the deployment protects. "
+                "The path policy applies in every execution mode."
+            ),
+            "suggestions": [
+                "Write to 'build/config.yml' via open() is not allowed: the path is "
+                "inside the protected location "
+                "'/home/dev/checkouts/readonly-guard-hotfix/build'",
+                "Write analysis output under the agent data zone instead.",
+                "The write posture permits control-system writes; it does not "
+                "permit edits to OSPREY's own configuration.",
+            ],
+        }
+
+        assert "readonly" not in _refusal_prose(envelope)
+
+    def test_prose_that_blames_readonly_mode_is_still_caught(self):
+        envelope = {
+            "error_message": (
+                "This code writes into a location the deployment protects. "
+                "The path policy applies in every execution mode."
+            ),
+            "suggestions": ["Re-run this in readonly mode instead."],
+        }
+
+        assert "readonly" in _refusal_prose(envelope)
 
 
 @BOTH_MODES

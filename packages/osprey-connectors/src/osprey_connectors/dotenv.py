@@ -277,6 +277,28 @@ _ENV_LOCK_REGISTRY_GUARD = threading.Lock()
 _env_lock_state = threading.local()
 
 
+def env_lock_path(env_path: Path) -> Path:
+    """The sibling lock file that guards *env_path*, derived and nothing more.
+
+    THE one spelling of the ``<name>.lock`` suffix. It was written out by hand
+    at three sites, so a change to the naming would have had to be found in
+    three places -- one of them a test that would have kept passing against the
+    old spelling.
+
+    **The path is not resolved.** :func:`env_file_lock` resolves its own key
+    first, deliberately, because the flock must land on one inode however many
+    symlinks reach it; it then calls this on the path it already resolved. The
+    other callers want the opposite: they hold a directory by the name the user
+    gave them and list what is inside it, so resolving here would hand them a
+    name from somewhere else entirely.
+
+    :param env_path: The ``.env`` whose lock file is wanted.
+    :returns: ``env_path`` with ``.lock`` appended to its final component.
+    """
+    env_path = Path(env_path)
+    return env_path.with_name(env_path.name + ".lock")
+
+
 @contextmanager
 def env_file_lock(env_path: Path) -> Iterator[None]:
     """Hold the exclusive lock guarding one ``.env``'s read-modify-write.
@@ -320,7 +342,7 @@ def env_file_lock(env_path: Path) -> Iterator[None]:
             # thread. Re-locking would block forever on our own flock.
             yield
             return
-        lock_path = Path(key).with_name(Path(key).name + ".lock")
+        lock_path = env_lock_path(Path(key))
         with open(lock_path, "a+", encoding="utf-8") as lock_handle:
             fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
             held.add(key)

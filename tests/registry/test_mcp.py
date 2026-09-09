@@ -286,13 +286,56 @@ class TestResolveServers:
         operator the ability to launch the panel back, and ``register_panel``
         adds a proxied upstream, so those stay behind a prompt. This pins that
         split rather than leaving it to the order of a list literal.
+
+        Disjointness alone would stay green if the three fell out of both
+        lists — unclassified, which is what they were — so their membership in
+        ``permissions_ask`` and their approval hooks are pinned by name too.
         """
         ctx = _base_ctx()
         servers = resolve_servers({}, ctx)
         workspace = [s for s in servers if s["name"] == "osprey_workspace"][0]
         allow = set(workspace["permissions_allow"])
+        ask = set(workspace["permissions_ask"])
+        gated = {"add_panel_to_rail", "remove_panel_from_rail", "register_panel"}
         assert {"list_panels", "open_panel", "close_panel", "arrange_workspace"} <= allow
-        assert allow.isdisjoint({"add_panel_to_rail", "remove_panel_from_rail", "register_panel"})
+        assert allow.isdisjoint(gated)
+        assert gated <= ask
+        # A literal matcher per tool: the approval hook and the SDK's disallow
+        # engine both match tool names exactly, so an alternation group would
+        # gate nothing — and it would blind check_config_keys.py's extractor.
+        matchers = {rule["matcher"] for rule in workspace["hooks_pre"]}
+        assert {f"mcp__osprey_workspace__{tool}" for tool in gated} <= matchers
+
+    def test_workspace_read_back_tools_are_auto_approved(self):
+        """The artifact and lattice read-backs resolve to silent-allow.
+
+        ``artifact_pin`` and the five lattice verbs below were unclassified —
+        in neither list — so nothing pinned which side of the split they land
+        on, and the disjointness assertion above stays green either way. They
+        are named here because each is either a read of state the agent just
+        produced or a write to the simulation's own scratch state, which
+        ``lattice_init`` restores; none of it reaches hardware, so a prompt per
+        call would buy nothing.
+
+        ``lattice_clear_baseline`` is allow-listed here and still blocked under
+        the headless read-only floor, which classifies it side-effecting from
+        its name — that is the intended posture, not a contradiction.
+        """
+        ctx = _base_ctx()
+        servers = resolve_servers({}, ctx)
+        workspace = [s for s in servers if s["name"] == "osprey_workspace"][0]
+        allow = set(workspace["permissions_allow"])
+        ask = set(workspace["permissions_ask"])
+        read_back = {
+            "artifact_pin",
+            "lattice_get_data",
+            "lattice_get_figure",
+            "lattice_get_settings",
+            "lattice_update_settings",
+            "lattice_clear_baseline",
+        }
+        assert read_back <= allow
+        assert ask.isdisjoint(read_back)
 
     def test_health_server_entry(self):
         """The health server is an opt-in, read-only server.
@@ -541,6 +584,20 @@ def _resolve_one(cfg, name, ctx=None):
     return matches[0]
 
 
+def test_phoebus_drive_carries_writes_check():
+    """A panel drive is a control-system write, so the writes kill switch
+    gates it ahead of the approval prompt — the same chain channel_write
+    carries. Dropping the binding would leave panel actuation open under
+    ``control_system.writes_enabled: false``."""
+    from osprey.registry.mcp import _APPROVAL, framework_write_tools
+
+    phoebus = FRAMEWORK_SERVERS["phoebus"]
+    rules = [r for r in phoebus.hooks_pre if r.matcher == "mcp__phoebus__phoebus_drive"]
+    assert len(rules) == 1
+    assert rules[0].hooks == [_WRITES_CHECK, _APPROVAL]
+    assert "mcp__phoebus__phoebus_drive" in framework_write_tools()
+
+
 class TestExtendsServers:
     """Tests for extends clones (claude_code.servers.<name>.extends)."""
 
@@ -571,11 +628,14 @@ class TestExtendsServers:
         # Permissions inherited as bare names (unrewritten).
         assert p2["permissions_allow"] == _PHOEBUS_ALLOW
         assert p2["permissions_ask"] == _PHOEBUS_ASK
-        # Hook matchers rewritten with the anchored prefix.
+        # Hook matchers rewritten with the anchored prefix. A panel drive is
+        # a control-system write: the writes kill switch gates it ahead of
+        # the approval prompt, as on every other write path.
         assert len(p2["hooks_pre"]) == 1
         assert p2["hooks_pre"][0]["matcher"] == "mcp__phoebus2__phoebus_drive"
-        assert len(p2["hooks_pre"][0]["hooks"]) == 1
-        assert "osprey_approval.py" in p2["hooks_pre"][0]["hooks"][0]["command"]
+        assert len(p2["hooks_pre"][0]["hooks"]) == 2
+        assert "osprey_writes_check.py" in p2["hooks_pre"][0]["hooks"][0]["command"]
+        assert "osprey_approval.py" in p2["hooks_pre"][0]["hooks"][1]["command"]
         assert [r["matcher"] for r in p2["hooks_post"]] == ["mcp__phoebus2__.*"]
         assert p2["is_custom"] is False
         assert p2["url"] is None

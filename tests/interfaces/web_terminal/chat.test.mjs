@@ -30,6 +30,7 @@
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import { transportNotice } from '../../../src/osprey/interfaces/web_terminal/static/js/chat.js';
+import { HANDOFF_RESTART_BUDGET_MS } from '../../../src/osprey/interfaces/web_terminal/static/js/terminal-handoff.js';
 
 const CHAT_JS = '../../../src/osprey/interfaces/web_terminal/static/js/chat.js';
 const STORAGE_KEY = 'osprey-pty-session';
@@ -303,8 +304,11 @@ describe('enterFromExpert', () => {
 
     const entered = chat.enterFromExpert();
     expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(false);
-    expect(textOf('.op-handoff-message')).toContain('Finishing in the other view');
-    expect(textOf('.op-handoff-action')).toBe('Stop and switch now');
+    // Nothing says the other view is mid-turn, so what is on screen is the
+    // restart: no clock, no way out, because there is nothing to cut short.
+    expect(textOf('.op-handoff-message')).toBe('Restarting the agent in this view…');
+    expect(one('.op-handoff-elapsed')).toBeNull();
+    expect(/** @type {HTMLButtonElement} */ (one('.op-handoff-action')).hidden).toBe(true);
     expect(/** @type {HTMLTextAreaElement} */ (one('textarea')).disabled).toBe(true);
 
     admit({ state: 'simple', session_id: 'K1' });
@@ -318,6 +322,34 @@ describe('enterFromExpert', () => {
     expect(/** @type {HTMLTextAreaElement} */ (one('textarea')).disabled).toBe(false);
   });
 
+  test('a restart that outlasts its budget becomes the wait, clocked from the flip', async () => {
+    vi.useFakeTimers();
+    transport.requestHandoff.mockReturnValue(new Promise(() => {}));
+    await mountChat({ pointer: 'K1' });
+
+    void chat.enterFromExpert();
+    vi.advanceTimersByTime(HANDOFF_RESTART_BUDGET_MS - 1);
+    expect(textOf('.op-handoff-message')).toBe('Restarting the agent in this view…');
+
+    vi.advanceTimersByTime(1);
+    expect(textOf('.op-handoff-message')).toBe('Finishing in the other view · 0:04');
+    const action = /** @type {HTMLButtonElement} */ (one('.op-handoff-action'));
+    expect(action.hidden).toBe(false);
+    expect(action.textContent).toBe('Stop and switch now');
+  });
+
+  test('a restart that completes in budget never shows the wait', async () => {
+    vi.useFakeTimers();
+    transport.requestHandoff.mockResolvedValue({ state: 'simple', session_id: 'K1' });
+    await mountChat({ pointer: 'K1' });
+
+    await chat.enterFromExpert();
+    vi.advanceTimersByTime(HANDOFF_RESTART_BUDGET_MS * 2);
+
+    expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
+    expect(textOf('.op-handoff-message')).not.toContain('Finishing in the other view');
+  });
+
   test('the elapsed counter ticks while the wait runs', async () => {
     vi.useFakeTimers();
     transport.requestHandoff.mockReturnValue(new Promise(() => {}));
@@ -326,6 +358,18 @@ describe('enterFromExpert', () => {
     void chat.enterFromExpert();
     vi.advanceTimersByTime(62_000);
     expect(textOf('.op-handoff-elapsed')).toBe('1:02');
+  });
+
+  test('"Stop and switch now" shows the wait at once: a turn is being cut short', async () => {
+    transport.requestHandoff.mockRejectedValueOnce(transportError(409, 'handoff_needs_interrupt'));
+    await mountChat({ pointer: 'K1' });
+    await chat.enterFromExpert();
+
+    transport.requestHandoff.mockReturnValue(new Promise(() => {}));
+    /** @type {HTMLButtonElement} */ (one('.op-handoff-action')).click();
+    await Promise.resolve();
+
+    expect(textOf('.op-handoff-message')).toBe('Finishing in the other view · 0:00');
   });
 
   test('a hook-less refusal offers only the stop, which re-asks with interrupt', async () => {
@@ -411,10 +455,11 @@ describe('enterFromExpert', () => {
     expect(/** @type {HTMLButtonElement} */ (one('.op-handoff-action')).textContent).toBe('Retry');
   });
 
-  test('an abandoned request (204, no body) leaves the wait exactly as it was', async () => {
+  test('an abandoned request (204, no body) leaves the state exactly as it was', async () => {
     // The server saw this request's channel close and handed nothing over.
-    // Nothing failed, so there is nothing to say — and the wait on screen is
-    // still the true state, with its one action still open.
+    // Nothing failed, so there is nothing to say — and the restart on screen
+    // is still the true state, its budget still running toward the wait.
+    vi.useFakeTimers();
     transport.requestHandoff.mockResolvedValue(null);
     await mountChat({ pointer: 'K1' });
     transport.fetchHistory.mockClear();
@@ -422,13 +467,16 @@ describe('enterFromExpert', () => {
     await chat.enterFromExpert();
 
     expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(false);
-    expect(textOf('.op-handoff-message')).toContain('Finishing in the other view');
-    const action = /** @type {HTMLButtonElement} */ (one('.op-handoff-action'));
-    expect(action.textContent).toBe('Stop and switch now');
-    expect(action.hidden).toBe(false);
+    expect(textOf('.op-handoff-message')).toBe('Restarting the agent in this view…');
+    expect(/** @type {HTMLButtonElement} */ (one('.op-handoff-action')).hidden).toBe(true);
     expect(/** @type {HTMLTextAreaElement} */ (one('textarea')).disabled).toBe(true);
     // Nothing was handed over, so nothing is replayed.
     expect(transport.fetchHistory).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(HANDOFF_RESTART_BUDGET_MS);
+    const action = /** @type {HTMLButtonElement} */ (one('.op-handoff-action'));
+    expect(action.textContent).toBe('Stop and switch now');
+    expect(action.hidden).toBe(false);
   });
 
   test('a superseded attempt finishing last does not open the console over the newer wait', async () => {
@@ -470,10 +518,12 @@ describe('enterFromExpert', () => {
   });
 
   test('the elapsed counter is not announced on every tick', async () => {
+    vi.useFakeTimers();
     transport.requestHandoff.mockReturnValue(new Promise(() => {}));
     await mountChat({ pointer: 'K1' });
 
     void chat.enterFromExpert();
+    vi.advanceTimersByTime(HANDOFF_RESTART_BUDGET_MS);
     expect(one('.op-handoff')?.getAttribute('aria-live')).toBe('polite');
     expect(one('.op-handoff-elapsed')?.getAttribute('aria-live')).toBe('off');
   });

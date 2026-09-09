@@ -571,9 +571,17 @@ function nonNegativeInt(value) {
  * old one.
  *
  * So the rule is a comparison, not a memory: **pending is done when every live
- * server reports the generation it was asked for.** That survives a page
- * reload, a second tab and a missed frame, because nothing in it depends on
- * having seen the terminus go by.
+ * server HOLDING A CONNECTOR reports the generation it was asked for.** That
+ * survives a page reload, a second tab and a missed frame, because nothing in
+ * it depends on having seen the terminus go by.
+ *
+ * Holding a connector is the row's `children` list, and only an explicit empty
+ * list exempts a row: a server serving nothing cannot still be touching the
+ * old target, and whatever child it launches comes up on the record's values —
+ * its report is not owed. This is the deployment's own convergence stance
+ * (`converged()` ignores a null binding as "behind, not wrong") said once more
+ * at the chip. A row that does not say — no `children` field at all — is
+ * waited on as every row always was.
  *
  * Three answers the comparison cannot give on its own:
  *
@@ -590,7 +598,9 @@ function nonNegativeInt(value) {
  *   the record's own terminus is the whole answer, because a server that
  *   starts later adopts the record's generation on the way up. Waiting there
  *   would manufacture 30 s of `switching…` and then a false expiry on every
- *   switch made before the agent is running.
+ *   switch made before the agent is running. A fleet whose every row is
+ *   childless is the same state with the reports still on disk, and gets the
+ *   same answer.
  *
  * `[].every()` is true, so the empty case is decided BEFORE the comparison and
  * on the terminus, never by the comparison — with neither a live server nor a
@@ -620,14 +630,10 @@ export function resolvePendingSwitch(view, pending) {
   if (generation === null) return waiting;
 
   const rows = Array.isArray(view.servers) ? view.servers : [];
-  if (!rows.length) {
-    // No fleet to converge. The record accepting this request at or past the
-    // generation asked for is the whole of what "landed" can mean here.
-    return terminusGeneration !== null && terminusGeneration >= generation
-      ? { state: 'applied', pid: null, detail: null }
-      : waiting;
-  }
 
+  // Every row is scanned for a failure — a childless server that launched
+  // toward the record and could not come up files `failed` too, and that
+  // verdict is this request's news even though its row owes no arrival.
   for (const row of rows) {
     const block = row && typeof row.last_switch === 'object' ? row.last_switch : null;
     if (!block || block.status !== REPORT_FAILED) continue;
@@ -638,7 +644,19 @@ export function resolvePendingSwitch(view, pending) {
     return { state: 'failed', pid: nonNegativeInt(row.pid), detail };
   }
 
-  const arrived = rows.every((/** @type {any} */ row) => {
+  // Only a row that explicitly says `children: []` is exempt from arrival.
+  const holding = rows.filter(
+    (/** @type {any} */ row) => !(Array.isArray(row?.children) && row.children.length === 0)
+  );
+  if (!holding.length) {
+    // No connector to converge. The record accepting this request at or past
+    // the generation asked for is the whole of what "landed" can mean here.
+    return terminusGeneration !== null && terminusGeneration >= generation
+      ? { state: 'applied', pid: null, detail: null }
+      : waiting;
+  }
+
+  const arrived = holding.every((/** @type {any} */ row) => {
     const applied = nonNegativeInt(row?.applied_generation);
     return applied !== null && applied >= generation;
   });

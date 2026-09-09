@@ -3,15 +3,18 @@
 ``list_mcp_tools`` spawns a real MCP server and waits for it to answer. Those
 servers import the framework in the child process, which takes seconds on an
 idle box and much longer on one running the rest of the suite in parallel — so
-a total wall-clock deadline started before the import makes the boot smoke fail
-on load rather than on a broken server.
+a budget started at ``Popen`` is spent on the import and reports a slow start
+as an unanswered handshake.
 
-The budget is therefore an *inactivity* budget: silence is the signal, and
-silence does not get slower under load. These tests pin both halves — a slow
-server that keeps reporting progress is waited for, a mute one is not — with
-stub servers rather than the real ones, so they cost milliseconds. That is why
-they are marked ``unit`` despite living beside the container-backed integration
-modules: they start two bare interpreters and no service.
+The helper therefore reads the server's own startup phases from stderr: a server
+that announces a phase is starting rather than stalling and is held to the
+startup allowance; once it reports ``total_startup`` the answer budget begins.
+A server that announces nothing is indistinguishable from one that is stuck and
+keeps the literal budget. These tests pin both halves — a slow server that
+reports its phases is waited for, a mute one is not — with stub servers rather
+than the real ones, so they cost seconds. That is why they are marked ``unit``
+despite living beside the container-backed integration modules: they start two
+bare interpreters and no service.
 """
 
 from __future__ import annotations
@@ -26,14 +29,18 @@ from tests.integration._mcp_handshake import MCPHandshakeError, list_mcp_tools
 
 pytestmark = pytest.mark.unit
 
-#: A stub MCP server: writes ``chatter`` progress lines to stderr, one every
-#: ``gap`` seconds, then speaks JSON-RPC. With ``chatter=0`` it starts mute.
+#: A stub MCP server. With ``phases`` above zero it reports that many startup
+#: phases to stderr in the framework's own ``[STARTUP-TIMING]`` shape, one every
+#: ``gap`` seconds, closes with ``total_startup``, then speaks JSON-RPC. With
+#: ``phases=0`` it announces nothing and sleeps ``mute`` seconds first.
 _STUB = """\
 import json, sys, time
 
-for _ in range({chatter}):
+for i in range({phases}):
     time.sleep({gap})
-    print("[STARTUP-TIMING] still importing", file=sys.stderr, flush=True)
+    print(f"[STARTUP-TIMING] stub | import_{{i}}: {{ {gap} * 1000:.0f}}ms", file=sys.stderr, flush=True)
+if {phases}:
+    print(f"[STARTUP-TIMING] stub | total_startup: {{ {phases} * {gap} * 1000:.0f}}ms", file=sys.stderr, flush=True)
 
 time.sleep({mute})
 
@@ -53,30 +60,30 @@ for line in sys.stdin:
 """
 
 
-def _stub(tmp_path: Path, *, chatter: int = 0, gap: float = 0.0, mute: float = 0.0) -> list[str]:
+def _stub(tmp_path: Path, *, phases: int = 0, gap: float = 0.0, mute: float = 0.0) -> list[str]:
     script = tmp_path / "stub_server.py"
-    script.write_text(textwrap.dedent(_STUB).format(chatter=chatter, gap=gap, mute=mute))
+    script.write_text(textwrap.dedent(_STUB).format(phases=phases, gap=gap, mute=mute))
     return [sys.executable, str(script)]
 
 
-def test_a_slow_but_talking_server_is_waited_for(tmp_path: Path) -> None:
-    """Four seconds of startup against a two-second budget, and it still passes.
+def test_a_slow_but_announcing_server_is_waited_for(tmp_path: Path) -> None:
+    """Six seconds of announced startup against a three-second budget still passes.
 
     This is the shape that reds a loaded runner: the server is fine, it is just
-    taking longer to reach its first reply than a total budget would allow.
+    taking longer to reach its first reply than a budget started at spawn would
+    allow. Its first phase has to land inside the budget — it does within a
+    second even on a loaded box — and from there the startup allowance holds.
     """
-    command, *args = _stub(tmp_path, chatter=8, gap=0.5)
+    command, *args = _stub(tmp_path, phases=12, gap=0.5)
 
-    # Five seconds, not the mute case's two: the first gap has to cover child
-    # interpreter start-up as well, and this test runs in the loaded unit lane.
-    assert list_mcp_tools(command=command, args=args, timeout=5.0) == ["stub_tool"]
+    assert list_mcp_tools(command=command, args=args, timeout=3.0) == ["stub_tool"]
 
 
 def test_a_mute_server_still_times_out(tmp_path: Path) -> None:
-    """The half that must not weaken: silence is what the budget is for."""
+    """The half that must not weaken: a server that announces nothing keeps the budget."""
     command, *args = _stub(tmp_path, mute=30.0)
 
     with pytest.raises(MCPHandshakeError) as excinfo:
         list_mcp_tools(command=command, args=args, timeout=2.0)
 
-    assert "no output" in str(excinfo.value)
+    assert "timeout waiting for" in str(excinfo.value)

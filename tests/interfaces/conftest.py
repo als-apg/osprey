@@ -387,6 +387,49 @@ def launch_graph_channel_finder(
 # ordering-dependent failures that a session-scoped fixture would cause.
 
 
+#: Seeded into every context this fixture hands out: the onboarding tour is
+#: already dismissed. Under the default ``once`` policy the invite card opens a
+#: short while after boot on the fresh profile a browser test runs under, takes
+#: focus and lays a scrim over the shell — so a test still working when it
+#: arrives reads a click that never lands, or focus outside the dialog it was
+#: walking. The delay is what makes it a question of timing rather than a
+#: constant, and the shell it covers belongs to no one suite, so the seed
+#: belongs here rather than in each of them. No coverage is lost to it: the
+#: invite card's own behaviour belongs to tour.test.mjs, and
+#: web_terminal/test_tour.py owns policy resolution and the /api/panels echo,
+#: neither of which opens a browser.
+#:
+#: The key is answered rather than only written. tour.js reads it through
+#: ``scopedStorageKey``, so on a multi-user mount it is per persona
+#: (``…-v1--alice``) and the scope comes from an attribute the server stamps on
+#: ``<html>`` — which an init script cannot read, because it runs before that
+#: element exists. Seeding the bare key alone therefore dismisses the invite on
+#: a single-user page and leaves it armed on a scoped one. Answering the key
+#: and its scoped variants needs neither the scope nor an ordering, and the
+#: bare key is written too so a page that enumerates storage still sees it.
+#:
+#: A browser test that wants the invite opts out in its own page-level init
+#: script, which runs after the context's, by putting back the reader this one
+#: parked on ``Storage.prototype.getItem.osprey_real``. Clearing the key is not
+#: enough on its own: while the wrapper is installed it answers for the key
+#: whatever storage holds.
+_DISMISS_TOUR = """
+(function () {
+  var BASE = 'osprey-tour-dismissed-v1';
+  var SCOPED = BASE + '--';
+  try { localStorage.setItem(BASE, '1'); } catch (e) {}
+  var read = Storage.prototype.getItem;
+  var wrapper = function (key) {
+    var name = String(key);
+    var mine = name === BASE || name.indexOf(SCOPED) === 0;
+    return mine ? '1' : read.call(this, key);
+  };
+  wrapper.osprey_real = read;
+  Storage.prototype.getItem = wrapper;
+})();
+"""
+
+
 def _install_auth_seam(browser: Browser) -> None:
     """Wrap ``browser.new_context``/``new_page`` so each is authorized on creation.
 
@@ -414,11 +457,13 @@ def _install_auth_seam(browser: Browser) -> None:
     def new_context(*args, **kwargs):
         context = original_new_context(*args, **kwargs)
         _authorize_browser_context(context)
+        context.add_init_script(_DISMISS_TOUR)
         return context
 
     def new_page(*args, **kwargs):
         page = original_new_page(*args, **kwargs)
         _authorize_browser_context(page.context)
+        page.context.add_init_script(_DISMISS_TOUR)
         return page
 
     browser.new_context = new_context

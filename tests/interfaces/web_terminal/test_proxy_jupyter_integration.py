@@ -21,8 +21,10 @@ import urllib.error
 import urllib.request
 import uuid
 from collections.abc import Iterator
+from concurrent.futures import Future
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 from urllib.parse import urljoin
@@ -31,7 +33,11 @@ import httpx
 import pytest
 import websockets
 from fastapi.testclient import TestClient
+from starlette.testclient import WebSocketTestSession
+from starlette.websockets import WebSocketDisconnect
 
+from osprey.audit import writer
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.common_middleware import compute_url_prefix
 from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS, create_app
 from osprey.interfaces.web_terminal.jupyter_sidecar import (
@@ -82,14 +88,41 @@ KERNEL_WS_PROTOCOL_V1 = "v1.kernel.websocket.jupyter.org"
 
 @pytest.fixture(scope="module")
 def notebook_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    """The environment a sidecar launch reads, and a root to keep it all under."""
+    """The environment a sidecar launch reads, and a root to keep it all under.
+
+    The redirections at the end are what keep this module's own records out of
+    the repository, and both have to be made HERE rather than left to the
+    directory-wide autouse fixtures that already do the same job for every
+    other app test. Those are function-scoped, and pytest sets a module-scoped
+    fixture up before any function-scoped one: ``proxied`` enters the app's
+    lifespan, and ``started_session`` posts a session through it, while
+    ``conftest._isolate_audit_zone`` has not run yet. Unredirected in that
+    window the app files ``http_mutation`` and ``web_auth`` lines under
+    ``var/audit/`` in the checkout.
+
+    ``writer.audit_dir`` is the ledger's single seam, the same one the
+    directory's autouse fixture uses — pointed at this module's own tmp root
+    here, and re-pointed at each test's ``tmp_path`` there.
+
+    The agent-data stamp is set for the SIDECAR, which is a real subprocess:
+    a monkeypatched resolver does not cross that boundary, and the sidecar is
+    spawned from a module-scoped fixture, before any test body has had the
+    stamp cleared out from under it (``session_posture_leak_guard``). The
+    in-process resolvers need no patching here — every one of them anchors on
+    ``resolve_project_root``, which ``agent_data_never_the_checkout``
+    (tests/conftest.py) diverts for the whole session, at a scope no
+    module-scoped fixture can outrun.
+    """
     root = tmp_path_factory.mktemp("notebook-panel")
+    agent_data = root / "agent_data"
     with pytest.MonkeyPatch.context() as environment:
         environment.setenv("OSPREY_CONFIG", str(root / "does-not-exist.yml"))
         # Keep every per-launch tempdir under the test's own tree.
         environment.setenv("TMPDIR", str(root))
         environment.setenv("OSPREY_AUDIT_IDENTITY", AUDIT_IDENTITY)
         environment.setenv(TERMINAL_FAMILY_PROBE, "reachable-from-the-terminal")
+        environment.setenv(OSPREY_AGENT_DATA_ROOT, str(agent_data))
+        environment.setattr(writer, "audit_dir", lambda: root / "audit" / "var" / "audit")
         yield root
 
 
@@ -173,7 +206,7 @@ def kernel_id(started_session: httpx.Response) -> str:
 
 
 @pytest.fixture(autouse=True)
-def sidecar_stderr_on_failure(sidecar: JupyterSidecar) -> Iterator[None]:
+def sidecar_stderr_on_failure(request: pytest.FixtureRequest) -> Iterator[None]:
     """The sidecar's last stderr lines, printed once the test is over.
 
     Captured stdout is shown for a failing test only, so a green run stays
@@ -182,9 +215,16 @@ def sidecar_stderr_on_failure(sidecar: JupyterSidecar) -> Iterator[None]:
     of it -- nudge attempts, a ``kernel_info`` timeout, an error in the
     websocket handler -- is on the stderr the sidecar keeps only for its
     failure report. Printing it here puts that account in the test's own log.
+
+    The sidecar is looked up through ``request`` instead of taken as a
+    parameter so that this autouse fixture does not itself pull one in: the
+    helper unit tests at the bottom of the module talk to a fake socket and
+    must not spawn a server to do it.
     """
     yield
-    tail = sidecar.stderr_tail
+    if "sidecar" not in request.fixturenames:
+        return
+    tail = request.getfixturevalue("sidecar").stderr_tail
     if tail:
         print(f"--- notebook sidecar stderr tail ---\n{tail}")
 
@@ -213,19 +253,101 @@ def _message(msg_type: str, content: dict[str, Any], session_id: str) -> dict[st
     }
 
 
+#: The budget for the FIRST frame off a freshly opened socket. The kernel has
+#: to import the whole kernel stack before it can answer anything, and that
+#: import is the slow part. Deliberately not derived from ``READY_TIMEOUT``:
+#: that is the sidecar's boot budget, and it is spent in the module fixture
+#: long before a socket exists.
+FIRST_FRAME_TIMEOUT = 120.0
+
+#: The budget for every later frame. By then the kernel is answering, so a
+#: half-minute gap between frames is already a stall rather than a slow start.
+FRAME_TIMEOUT = 30.0
+
+#: The budget for a whole read loop. Every receive is clamped to what is left of
+#: it, so no single frame wait can outlive the loop; and it sits far enough
+#: under ``KERNEL_TIMEOUT`` (30 s) that a stalled loop still reports its own
+#: last frame instead of being killed by the mark with nothing to say.
+LOOP_DEADLINE = 150.0
+
+#: What a deadline message names when nothing has arrived yet.
+NO_FRAME_YET = "no frame at all"
+
+
+def _last_seen(header: dict[str, Any]) -> str:
+    """How a deadline message names the frame that came before it."""
+    return str(header.get("msg_type") or "a frame with no msg_type")
+
+
+def _receive_message(socket: Any, timeout: float, deadline: float | None, last: str) -> Any:
+    """One frame off *socket*, bounded — starlette's own receive is not.
+
+    ``WebSocketTestSession.receive`` waits in ``portal.call`` with no timeout,
+    so a kernel that goes quiet hangs the test until the outer mark kills it
+    with nothing to show. This takes the same three steps ``receive_json`` and
+    ``receive_bytes`` take — read the frame, raise on a close, read the payload
+    — except that the read goes through ``portal.start_task_soon``, whose
+    ``concurrent.futures.Future`` can be waited on with a timeout. The close
+    check is the session's own bound ``_raise_on_close``, so a close frame
+    still surfaces as ``WebSocketDisconnect`` and not as a missing key.
+
+    *timeout* is this frame's budget and *deadline* the loop's; the wait is
+    clamped to whichever is nearer, and the failure names the bound that bit
+    along with *last*, the frame before this one.
+    """
+    budget = timeout
+    clamped = False
+    if deadline is not None:
+        remaining = deadline - time.monotonic()
+        if remaining < budget:
+            budget, clamped = remaining, True
+    try:
+        message = socket.portal.start_task_soon(socket._send_rx.receive).result(
+            timeout=max(budget, 0.0)
+        )
+    except TimeoutError:
+        if clamped:
+            raise AssertionError(
+                f"no frame within the {LOOP_DEADLINE:.0f} s loop budget; last was {last}"
+            ) from None
+        raise AssertionError(f"no frame within {timeout:.0f} s; last was {last}") from None
+    socket._raise_on_close(message)
+    return message
+
+
+def _receive_json(
+    socket: Any, timeout: float, *, deadline: float | None = None, last: str = NO_FRAME_YET
+) -> Any:
+    """``socket.receive_json()``, bounded by *timeout* and the loop *deadline*."""
+    return json.loads(_receive_message(socket, timeout, deadline, last)["text"])
+
+
+def _receive_bytes(
+    socket: Any, timeout: float, *, deadline: float | None = None, last: str = NO_FRAME_YET
+) -> bytes:
+    """``socket.receive_bytes()``, bounded by *timeout* and the loop *deadline*."""
+    frame: bytes = _receive_message(socket, timeout, deadline, last)["bytes"]
+    return frame
+
+
 def _reply_to(socket: Any, request: dict[str, Any], msg_type: str) -> dict[str, Any]:
     """Read until *request*'s reply of *msg_type* arrives, or fail on the deadline."""
-    deadline = time.monotonic() + KERNEL_TIMEOUT
+    deadline = time.monotonic() + LOOP_DEADLINE
+    budget, last = FIRST_FRAME_TIMEOUT, NO_FRAME_YET
     while time.monotonic() < deadline:
-        message = socket.receive_json()
+        message = _receive_json(socket, budget, deadline=deadline, last=last)
+        budget = FRAME_TIMEOUT
         header = message.get("header") or {}
         parent = message.get("parent_header") or {}
+        last = _last_seen(header)
         if (
             header.get("msg_type") == msg_type
             and parent.get("msg_id") == request["header"]["msg_id"]
         ):
             return message
-    raise AssertionError(f"no {msg_type} within {KERNEL_TIMEOUT:.0f} s")
+    raise AssertionError(
+        f"no {msg_type} within the {LOOP_DEADLINE:.0f} s loop budget; last was {last}"
+    )
 
 
 def _run_cell(socket: Any, code: str, session_id: str) -> str:
@@ -250,11 +372,14 @@ def _run_cell(socket: Any, code: str, session_id: str) -> str:
     socket.send_json(request)
 
     written: list[str] = []
-    deadline = time.monotonic() + KERNEL_TIMEOUT
+    deadline = time.monotonic() + LOOP_DEADLINE
+    budget, last = FIRST_FRAME_TIMEOUT, NO_FRAME_YET
     while time.monotonic() < deadline:
-        message = socket.receive_json()
+        message = _receive_json(socket, budget, deadline=deadline, last=last)
+        budget = FRAME_TIMEOUT
         header = message.get("header") or {}
         parent = message.get("parent_header") or {}
+        last = _last_seen(header)
         if parent.get("msg_id") != request["header"]["msg_id"]:
             continue
         content = message.get("content") or {}
@@ -264,7 +389,9 @@ def _run_cell(socket: Any, code: str, session_id: str) -> str:
             raise AssertionError("\n".join(content.get("traceback", [])))
         elif header.get("msg_type") == "status" and content.get("execution_state") == "idle":
             return "".join(written)
-    raise AssertionError(f"the cell did not finish within {KERNEL_TIMEOUT:.0f} s")
+    raise AssertionError(
+        f"the cell did not finish within the {LOOP_DEADLINE:.0f} s loop budget; last was {last}"
+    )
 
 
 class _RecordingConnect:
@@ -345,7 +472,7 @@ def test_a_session_starts_on_the_osprey_kernelspec(started_session: httpx.Respon
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.timeout(KERNEL_TIMEOUT)
+@pytest.mark.timeout(KERNEL_TIMEOUT, func_only=True)
 def test_a_kernel_answers_over_the_proxied_socket(
     proxied: TestClient, sidecar: JupyterSidecar, kernel_id: str
 ) -> None:
@@ -370,7 +497,7 @@ def test_a_kernel_answers_over_the_proxied_socket(
     assert handshake["authorization"] == f"Bearer {sidecar.token}"
 
 
-@pytest.mark.timeout(KERNEL_TIMEOUT)
+@pytest.mark.timeout(KERNEL_TIMEOUT, func_only=True)
 def test_a_cell_sees_no_server_token_and_no_terminal_family(
     proxied: TestClient, kernel_id: str
 ) -> None:
@@ -391,7 +518,7 @@ def test_a_cell_sees_no_server_token_and_no_terminal_family(
     assert reported == {"tok": False, "term": [], "cfg": True, "audit": True}
 
 
-@pytest.mark.timeout(KERNEL_TIMEOUT)
+@pytest.mark.timeout(KERNEL_TIMEOUT, func_only=True)
 def test_the_kernel_protocol_the_browser_offers_is_negotiated_through_the_proxy(
     proxied: TestClient, kernel_id: str
 ) -> None:
@@ -417,10 +544,14 @@ def test_the_kernel_protocol_the_browser_offers_is_negotiated_through_the_proxy(
         socket.send_bytes(
             serialize_msg_to_ws_v1(request, "shell", pack=lambda obj: json.dumps(obj).encode())
         )
-        deadline = time.monotonic() + KERNEL_TIMEOUT
+        deadline = time.monotonic() + LOOP_DEADLINE
+        budget, last = FIRST_FRAME_TIMEOUT, NO_FRAME_YET
         while time.monotonic() < deadline:
-            _channel, parts = deserialize_msg_from_ws_v1(socket.receive_bytes())
+            frame = _receive_bytes(socket, budget, deadline=deadline, last=last)
+            budget = FRAME_TIMEOUT
+            _channel, parts = deserialize_msg_from_ws_v1(frame)
             header, parent = json.loads(parts[0]), json.loads(parts[1])
+            last = _last_seen(header)
             if (
                 header.get("msg_type") == "kernel_info_reply"
                 and parent.get("msg_id") == request["header"]["msg_id"]
@@ -428,7 +559,10 @@ def test_the_kernel_protocol_the_browser_offers_is_negotiated_through_the_proxy(
                 assert json.loads(parts[3])["status"] == "ok"
                 break
         else:
-            raise AssertionError(f"no kernel_info_reply within {KERNEL_TIMEOUT:.0f} s")
+            raise AssertionError(
+                f"no kernel_info_reply within the {LOOP_DEADLINE:.0f} s loop budget; "
+                f"last was {last}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -650,3 +784,79 @@ def test_the_stylesheets_the_bar_addresses_answer_on_the_panels_paths(
         response = proxied.get(url)
         assert response.status_code == 200, url
         assert response.headers["content-type"].startswith("text/css"), url
+
+
+# ---------------------------------------------------------------------------
+# The bounded receive helpers themselves
+# ---------------------------------------------------------------------------
+#
+# These need no kernel: what they pin is what the helpers do when a frame does
+# NOT arrive, which is exactly the case the sidecar tests above can never stage
+# on purpose. The stand-in below is socket-shaped only where the helpers reach
+# -- the portal, the receive stream, and the close check -- and the close check
+# is the session's REAL one, so a close frame is asserted through the same code
+# a live socket would run.
+
+
+class _StuckPortal:
+    """A ``BlockingPortal`` whose ``start_task_soon`` future never resolves."""
+
+    def __init__(self, message: Any | None = None) -> None:
+        self._message = message
+
+    def start_task_soon(self, func: Any, *args: Any) -> Future[Any]:
+        future: Future[Any] = Future()
+        if self._message is not None:
+            future.set_result(self._message)
+        return future
+
+
+class _FakeSocket:
+    """The three attributes ``_receive_message`` touches, and nothing else."""
+
+    #: The session's own close check, bound here as a method. Its close branch
+    #: reads only the message, so it needs no live session behind it.
+    _raise_on_close = WebSocketTestSession._raise_on_close
+
+    def __init__(self, message: Any | None = None) -> None:
+        self.portal = _StuckPortal(message)
+        self._send_rx = SimpleNamespace(receive=lambda: None)
+
+
+def test_receive_json_names_the_frame_budget_and_the_last_frame() -> None:
+    """A frame that never arrives inside its own budget says which frame stalled."""
+    socket = _FakeSocket()
+
+    with pytest.raises(AssertionError) as stalled:
+        _receive_json(socket, 0.05, last="kernel_info_request")
+
+    assert "loop budget" not in str(stalled.value)
+    assert "last was kernel_info_request" in str(stalled.value)
+
+
+def test_receive_json_names_the_loop_budget_when_the_clamp_binds() -> None:
+    """A nearly spent loop deadline shortens the wait, and says so.
+
+    The frame budget here is the full ``FRAME_TIMEOUT``; the deadline is 50 ms
+    away. If the clamp did not bind, this test would sit for half a minute.
+    """
+    socket = _FakeSocket()
+
+    with pytest.raises(AssertionError) as stalled:
+        _receive_json(
+            socket,
+            FRAME_TIMEOUT,
+            deadline=time.monotonic() + 0.05,
+            last="status",
+        )
+
+    assert f"no frame within the {LOOP_DEADLINE:.0f} s loop budget" in str(stalled.value)
+    assert "last was status" in str(stalled.value)
+
+
+def test_receive_bytes_still_disconnects_on_a_close_frame() -> None:
+    """The bound is added around the close check, not in place of it."""
+    socket = _FakeSocket({"type": "websocket.close", "code": 1000})
+
+    with pytest.raises(WebSocketDisconnect):
+        _receive_bytes(socket, FRAME_TIMEOUT)

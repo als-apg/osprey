@@ -302,13 +302,18 @@ def built_repo(tmp_path_factory) -> Path:
     ``seed_env=True`` because a repo with no ``.env`` cannot show that the
     contexts carry none: the secret has to exist to be kept out.
     """
-    from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
+    from tests.fixtures.lifecycle_repo import (
+        EXEMPLAR_DIRNAME,
+        build_exemplar_repo,
+        preserved_environ,
+    )
 
     repo = build_exemplar_repo(tmp_path_factory.mktemp("layout") / EXEMPLAR_DIRNAME, seed_env=True)
     previous = Path.cwd()
     os.chdir(repo)
     try:
-        result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
+        with preserved_environ():
+            result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
     finally:
         os.chdir(previous)
     assert result.exit_code == 0, result.output
@@ -557,7 +562,11 @@ def test_a_regenerable_file_under_a_fold_input_is_neither_folded_nor_shipped(
     before). Reversing the order passes the first and fails the second.
     """
     from osprey.deployment.staleness import DriftState, check_drift
-    from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
+    from tests.fixtures.lifecycle_repo import (
+        EXEMPLAR_DIRNAME,
+        build_exemplar_repo,
+        preserved_environ,
+    )
 
     repo = build_exemplar_repo(tmp_path_factory.mktemp("regenerable") / EXEMPLAR_DIRNAME)
     data_root = repo / "data"
@@ -569,7 +578,8 @@ def test_a_regenerable_file_under_a_fold_input_is_neither_folded_nor_shipped(
     previous = Path.cwd()
     os.chdir(repo)
     try:
-        result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
+        with preserved_environ():
+            result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
     finally:
         os.chdir(previous)
     assert result.exit_code == 0, result.output

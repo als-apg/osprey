@@ -57,14 +57,15 @@ CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
         "base_url": "https://api.cborg.lbl.gov",  # Well-known URL (no /v1)
         "default_model_tier": "haiku",
         # Fallback model IDs (used when api.providers.cborg.models is absent).
-        # Pinned to specific versions so Claude Code can pattern-match the model
-        # and send the correct thinking/effort schema (e.g. adaptive for 4.7).
-        # Unversioned aliases like "anthropic/claude-opus" break capability
-        # detection and cause 400s on Vertex-backed Opus 4.7.
+        # Pinned to versioned ids so Claude Code can pattern-match the model and
+        # send the thinking/effort schema that model accepts. CBORG also serves
+        # floating aliases ("claude-opus", "anthropic/claude-opus"); those carry
+        # no version for the harness to match, so capability detection falls
+        # through and the Vertex-backed models answer 400.
         "models": {
             "haiku": "claude-haiku-4-5",
-            "sonnet": "claude-sonnet-4-6",
-            "opus": "claude-opus-4-7",
+            "sonnet": "claude-sonnet-5",
+            "opus": "claude-opus-5",
         },
     },
     "als-apg": {

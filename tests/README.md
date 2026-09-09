@@ -196,6 +196,13 @@ than scroll past in the warnings summary. Four groups matter day to day:
   test slow if it would make the fast loop annoying to run; it still runs in CI.
 - **`xdist_group`** — the worker pin from section 1. Self-registered by xdist, so
   it needs no declaration.
+- **`real_<seam>`** (`real_workspace_watcher`, `real_http_posters`,
+  `real_graph_index`, `real_server_launch`) — opts one test out of a conftest
+  stub that otherwise keeps a process-global side effect inside the test that
+  caused it. `real_server_launch` is the one every launcher test needs: without
+  it `ServerLauncher._launch_in_thread` is a no-op, because a companion server
+  launched by one test keeps serving for the rest of the worker and files audit
+  refusals into whichever later test has the audit writer patched.
 - **`unit` / `integration`** — descriptive labels for what a test talks to.
 
 Async tests need no marker: `asyncio_mode = "auto"`, so an `async def` test just

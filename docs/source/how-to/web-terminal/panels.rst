@@ -307,8 +307,10 @@ skipped. When no ``web.presets`` are configured — the default — the ``+`` me
 unchanged, so layouts never add clutter to a deployment that has not opted in.
 
 Layouts are just a shortcut over adding and removing rail entries, so the OSPREY
-agent can achieve the same result with its ``add_panel_to_rail`` /
-``remove_panel_from_rail`` tools;
+agent can reach the same end state either way — but not with the same prompting.
+Applying a layout with ``arrange_workspace`` does not ask; the
+``add_panel_to_rail`` / ``remove_panel_from_rail`` tools ask the operator to
+approve each call on a stock build.
 ``list_panels`` reports the configured layouts so the agent can honor a request
 like "set up for machine setup."
 

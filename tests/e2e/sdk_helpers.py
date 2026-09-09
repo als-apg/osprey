@@ -95,6 +95,7 @@ from osprey.agent_runner.primitives import (
 from osprey.agent_runner.primitives import (
     provider_env_for_project as provider_env_for_project,  # re-exported for e2e tests
 )
+from osprey.agent_runner.project_paths import claude_project_dir
 from osprey.utils.workspace import (
     BUILD_DIR_NAME,
     DEFAULT_AGENT_DATA_BASE_DIR,
@@ -722,8 +723,8 @@ def _default_opus_model(repo: Path) -> str:
     """
     spec = _resolve_project_spec(render_dir(repo))
     if spec is not None:
-        return spec.tier_to_model.get("opus", "claude-opus-4-7")
-    return "claude-opus-4-7"
+        return spec.tier_to_model.get("opus", "claude-opus-5")
+    return "claude-opus-5"
 
 
 def find_png_files(root: Path) -> list[Path]:
@@ -1227,6 +1228,66 @@ async def run_sdk_query_with_hooks(
 
 
 # ---------------------------------------------------------------------------
+# Hook stdout, read back out of the session transcript
+# ---------------------------------------------------------------------------
+
+
+#: Prefix shared by every transcript record that carries a hook's own stdout.
+#:
+#: ``hook_success`` — a hook that exited 0 — is the one spelling verified
+#: against CLI 2.1.241. The kinds Claude Code writes when a hook fails, times
+#: out, or is killed share this prefix, but their exact spelling is NOT
+#: verified here, which is why this matches on the prefix rather than on a
+#: literal set: a hook that died mid-approval is precisely the run someone
+#: needs to read, and an allow-list of one would drop it silently.
+HOOK_ATTACHMENT_PREFIX = "hook_"
+
+
+def hook_attachments(result: SDKWorkflowResult, render: Path) -> list[dict[str, Any]]:
+    """Every hook-stdout attachment in this session's transcript, in order.
+
+    Claude Code does not put a hook's output on the SDK wire. It writes each
+    invocation's raw stdout into the session transcript as an attachment record
+    carrying ``hookName``, ``hookEvent``, the ``toolUseID`` it gated, and the
+    ``stdout`` itself — so that text is recoverable exactly, and joins to a tool
+    trace by id rather than by guessing at ordering. This is the only channel
+    that carries it; see :func:`tests.e2e.test_target_switch_agentic.approval_prompts`
+    for the SDK field that looks like it should and does not.
+
+    Dicts come back raw and unprojected. A reader chasing an unexplained
+    refusal does not know in advance which key holds the answer, and a helper
+    that decides for them turns a diagnostic into a guess.
+
+    Returns an empty list when the session id or the transcript cannot be
+    resolved, and skips any line that is not a JSON object: callers assert on
+    what they expected to find, and a bare "nothing here" is a clearer failure
+    than an exception thrown from a path that only exists to observe.
+    """
+    session_id = getattr(result.result, "session_id", None)
+    if not session_id:
+        return []
+    transcript = claude_project_dir(Path(render).resolve()) / f"{session_id}.jsonl"
+    if not transcript.is_file():
+        return []
+
+    attachments: list[dict[str, Any]] = []
+    for line in transcript.read_text(encoding="utf-8").splitlines():
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(record, dict):
+            continue
+        attachment = record.get("attachment")
+        if not isinstance(attachment, dict):
+            continue
+        if not str(attachment.get("type") or "").startswith(HOOK_ATTACHMENT_PREFIX):
+            continue
+        attachments.append(attachment)
+    return attachments
+
+
+# ---------------------------------------------------------------------------
 # Agent transcripts as CI artifacts
 # ---------------------------------------------------------------------------
 
@@ -1238,7 +1299,9 @@ async def run_sdk_query_with_hooks(
 TRANSCRIPT_SUBDIR = "agent"
 
 
-def _transcript_payload(name: str, result: SDKWorkflowResult) -> dict[str, Any]:
+def _transcript_payload(
+    name: str, result: SDKWorkflowResult, render: Path | None = None
+) -> dict[str, Any]:
     """The serialisable form of one agent run — deliberately UNTRUNCATED.
 
     Truncation is the whole reason this exists. ``_to_workflow_result``
@@ -1253,8 +1316,13 @@ def _transcript_payload(name: str, result: SDKWorkflowResult) -> dict[str, Any]:
     ``mcp_server_status`` is included because it is the infra-vs-model
     discriminator: a tool the agent never called means one thing if the
     handshake offered it and quite another if it never registered.
+
+    ``hook_attachments`` appears only when *render* is given, so a caller with
+    no render on hand keeps exactly the payload it had. Its absence and an
+    empty list mean different things: no key says nobody looked, and ``[]``
+    says the transcript was read and held no hook output.
     """
-    return {
+    payload: dict[str, Any] = {
         "name": name,
         # Every turn's prose, joined the way the judge is given it, but whole.
         "response": "\n".join(result.text_blocks).strip(),
@@ -1273,9 +1341,14 @@ def _transcript_payload(name: str, result: SDKWorkflowResult) -> dict[str, Any]:
         "mcp_server_status": result.mcp_server_status,
         "registered_tools": result.registered_tools,
     }
+    if render is not None:
+        payload["hook_attachments"] = hook_attachments(result, render)
+    return payload
 
 
-def dump_agent_transcript(name: str, result: SDKWorkflowResult) -> Path | None:
+def dump_agent_transcript(
+    name: str, result: SDKWorkflowResult, *, render: Path | None = None
+) -> Path | None:
     """Persist one agent run's full response and tool traces as a CI artifact.
 
     Gated on ``OSPREY_CI_DIAG_DIR`` exactly like :mod:`tests.ci_diagnostics`:
@@ -1288,9 +1361,17 @@ def dump_agent_transcript(name: str, result: SDKWorkflowResult) -> Path | None:
     the ones that fail, and a dump placed below a judge assertion never
     executes on exactly those.
 
+    Pass *render* for a run whose hooks matter. The artifact then also carries
+    every hook's raw stdout (see :func:`hook_attachments`), which is the only
+    record of why a call was asked about or refused — tool traces show that a
+    write was gated, never what the operator was asked. Omit it and the payload
+    is unchanged.
+
     Never raises. A diagnostic that can fail the test it was only meant to
     observe would mask the very failure it exists to explain — the same reason
-    every probe in the capture action ends in ``|| true``.
+    every probe in the capture action ends in ``|| true``. That covers the
+    transcript read too: it happens inside the same guard, below the arming
+    check, so an unarmed run never goes near the session directory.
     """
     directory = os.environ.get(ci_diagnostics.ENV_DIR)
     if not directory:
@@ -1302,7 +1383,7 @@ def dump_agent_transcript(name: str, result: SDKWorkflowResult) -> Path | None:
         safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in name) or "transcript"
         target = target_dir / f"{safe}.json"
         target.write_text(
-            json.dumps(_transcript_payload(name, result), indent=2, default=str),
+            json.dumps(_transcript_payload(name, result, render), indent=2, default=str),
             encoding="utf-8",
         )
         return target

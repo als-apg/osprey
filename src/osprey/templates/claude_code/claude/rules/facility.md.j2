@@ -8,7 +8,8 @@ description: Facility identity and pointer to facility_knowledge tools for deep 
 <!-- This file provides facility identity context to the OSPREY agent.
      It is auto-loaded as a rule for the main agent,
      and served via the facility_description MCP tool for sub-agents.
-     This file is NEVER overwritten by `osprey build`. -->
+     Edit it in the repo, at `rules/facility.md`: each build copies that
+     copy in here, and `osprey build` never overwrites it. -->
 
 > **NOTE: This is the Example Research Facility — a generic placeholder.**
 > Replace the content below with your own facility's identity details.
@@ -44,6 +45,6 @@ Retrieve them on demand via these tools.
 
 ---
 
-*To customize: edit this file (`.claude/rules/facility.md`) with your
+*To customize: edit `rules/facility.md` in the deployment repo with your
 facility's real identity details. OSPREY will never overwrite your changes.
 Populate the knowledge bundle via `osprey knowledge` commands.*

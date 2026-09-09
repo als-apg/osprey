@@ -53,8 +53,18 @@ SITE_URL = "https://als-apg.github.io/osprey/"
 # but must never be treated as the stable release.
 RELEASE_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 
+# A pre-release of a release triple: the triple with a PEP 440 pre-segment
+# (`v2026.9.0b1`, `v1.0.0rc2`). A pre-release publishes into its own
+# directory and appears in the version switcher, but the site root and the
+# switcher's `preferred` entry always belong to a full release.
+PRE_RELEASE_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)(a|b|rc)(\d+)$")
+
+# Orders PEP 440 pre-segments within one release triple: `a` < `b` < `rc`,
+# and a full release outranks all three.
+_PRE_RANK = {"a": 0, "b": 1, "rc": 2}
+
 # Root entries a release's root refresh must not delete, beyond the `vX.Y.Z`
-# directories `RELEASE_TAG_RE` matches. `latest` is the development build;
+# directories `RELEASE_TAG_RE` and `PRE_RELEASE_TAG_RE` match. `latest` is the development build;
 # `CNAME` is GitHub Pages' custom-domain file, which no Sphinx build produces
 # and whose deletion takes the custom domain offline.
 ROOT_KEEP = frozenset({"latest", "CNAME"})
@@ -108,6 +118,32 @@ def release_tags(tags: Iterable[str]) -> list[str]:
     return [tag for _, tag in parsed]
 
 
+def pre_release_tags(tags: Iterable[str]) -> list[str]:
+    """Return the pre-release tags among `tags`, newest first.
+
+    Same tolerance as `release_tags` for raw `git tag` output. Ordered by the
+    release triple, then the pre-segment (`a` < `b` < `rc`), then its number,
+    so `v2026.9.0rc1` outranks `v2026.9.0b2`.
+    """
+    parsed: list[tuple[tuple[int, int, int, int, int], str]] = []
+    for raw in tags:
+        tag = raw.strip()
+        if not tag:
+            continue
+        match = PRE_RELEASE_TAG_RE.fullmatch(tag)
+        if match is None:
+            continue
+        major, minor, patch, segment, number = match.groups()
+        parsed.append(
+            (
+                (int(major), int(minor), int(patch), _PRE_RANK[segment], int(number)),
+                tag,
+            )
+        )
+    parsed.sort(key=lambda item: item[0], reverse=True)
+    return [tag for _, tag in parsed]
+
+
 def plan(ref: str, event: str, input_tag: str, tags: Iterable[str]) -> Plan:
     """Decide what the current build publishes, and where.
 
@@ -118,11 +154,13 @@ def plan(ref: str, event: str, input_tag: str, tags: Iterable[str]) -> Plan:
        any branch. It must be a full `vX.Y.Z`; anything else raises
        `PlanError` rather than guessing at what was meant.
     2. A `refs/tags/vX.Y.Z` push publishes that release into its own
-       directory, and rewrites the site root if it is the newest release.
-    3. Any other tag ref -- `v2026.7`, `v1.0.0rc1`,
-       `osprey-connectors-v0.1.0` -- builds but does not deploy. This
-       workflow and `release.yml` share loose `v*`-style triggers, so such
-       refs arrive here routinely and must not reach the site.
+       directory, and rewrites the site root if it is the newest release. A
+       pre-release tag push (`vX.Y.Z{a|b|rc}N`) publishes into its own
+       directory and switcher entry only -- never the root.
+    3. Any other tag ref -- `v2026.7`, `osprey-connectors-v0.1.0`,
+       `checkpoint-*` -- builds but does not deploy. This workflow and
+       `release.yml` share loose `v*`-style triggers, so such refs arrive
+       here routinely and must not reach the site.
     4. `refs/heads/main` publishes `/latest/` and is **never** `is_latest` --
        for every possible tag list, including one where the tag `git
        describe` would name on main is the newest release, and including no
@@ -149,22 +187,31 @@ def plan(ref: str, event: str, input_tag: str, tags: Iterable[str]) -> Plan:
     """
     tag = input_tag.strip()
     if tag:
-        if RELEASE_TAG_RE.fullmatch(tag) is None:
+        if RELEASE_TAG_RE.fullmatch(tag) is None and PRE_RELEASE_TAG_RE.fullmatch(tag) is None:
             raise PlanError(
-                f"tag input {tag!r} is not a release tag; expected the form "
-                "vX.Y.Z, for example v2026.6.2"
+                f"tag input {tag!r} is not a release or pre-release tag; "
+                "expected the form vX.Y.Z or vX.Y.Z{a|b|rc}N, for example "
+                "v2026.6.2 or v2026.9.0b1"
             )
     elif ref.startswith("refs/tags/"):
         candidate = ref[len("refs/tags/") :]
-        if RELEASE_TAG_RE.fullmatch(candidate) is None:
-            # A build of a pre-release or a component tag: useful to have
-            # succeed, but it has no place on the published site.
+        if (
+            RELEASE_TAG_RE.fullmatch(candidate) is None
+            and PRE_RELEASE_TAG_RE.fullmatch(candidate) is None
+        ):
+            # A build of a component or otherwise unrecognized tag: useful to
+            # have succeed, but it has no place on the published site.
             return Plan(version="dev", deploy_dir="pr-preview", is_latest=False, deploy=False)
         tag = candidate
     elif ref == "refs/heads/main":
         return Plan(version="dev", deploy_dir="latest", is_latest=False, deploy=True)
     else:
         return Plan(version="dev", deploy_dir="pr-preview", is_latest=False, deploy=False)
+
+    if PRE_RELEASE_TAG_RE.fullmatch(tag):
+        # A pre-release owns its own directory and nothing else: the root and
+        # `is_latest` belong to full releases only.
+        return Plan(version=tag[1:], deploy_dir=tag, is_latest=False, deploy=True)
 
     known = release_tags(tags)
     return Plan(
@@ -204,7 +251,8 @@ def stage(
     root forever, still linked from search engines and still claiming to be
     current documentation. Clearing the root first makes removals propagate.
 
-    That clearing skips `latest/` and every `vX.Y.Z/` directory, because those
+    That clearing skips `latest/` and every release and pre-release
+    directory, because those
     are other builds' output, not stale copies of this one. Wiping them would
     take every archived release and the development build offline the moment a
     release was published -- and the release's own directory is itself a
@@ -232,7 +280,11 @@ def stage(
 
     if p.is_latest:
         for entry in sorted(deployment.iterdir()):
-            if entry.name in ROOT_KEEP or RELEASE_TAG_RE.fullmatch(entry.name):
+            if (
+                entry.name in ROOT_KEEP
+                or RELEASE_TAG_RE.fullmatch(entry.name)
+                or PRE_RELEASE_TAG_RE.fullmatch(entry.name)
+            ):
                 continue
             _remove(entry)
         _copy_into(build, deployment)
@@ -293,9 +345,39 @@ def versions(tags: Iterable[str], deployment: Path) -> list[dict[str, object]]:
                 "preferred": True,
             }
         )
-        for tag in rt[1:]:
-            if (deployment / tag).is_dir():
-                entries.append({"name": tag, "version": tag[1:], "url": f"{SITE_URL}{tag}/"})
+    # Older releases and pre-releases share the non-preferred rows, ordered by
+    # version so a pre-release sits beside the releases it precedes; a full
+    # release outranks its own pre-releases. Entries appear only when their
+    # directory exists in `deployment`.
+    ranked: list[tuple[tuple[int, int, int, int, int], dict[str, object]]] = []
+    for tag in rt[1:]:
+        if (deployment / tag).is_dir():
+            match = RELEASE_TAG_RE.fullmatch(tag)
+            assert match is not None
+            major, minor, patch = (int(g) for g in match.groups())
+            ranked.append(
+                (
+                    (major, minor, patch, len(_PRE_RANK), 0),
+                    {"name": tag, "version": tag[1:], "url": f"{SITE_URL}{tag}/"},
+                )
+            )
+    for tag in pre_release_tags(tags):
+        if (deployment / tag).is_dir():
+            match = PRE_RELEASE_TAG_RE.fullmatch(tag)
+            assert match is not None
+            major, minor, patch, segment, number = match.groups()
+            ranked.append(
+                (
+                    (int(major), int(minor), int(patch), _PRE_RANK[segment], int(number)),
+                    {
+                        "name": f"{tag} (pre-release)",
+                        "version": tag[1:],
+                        "url": f"{SITE_URL}{tag}/",
+                    },
+                )
+            )
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    entries.extend(entry for _, entry in ranked)
     if (deployment / "latest").is_dir():
         entries.append(
             {

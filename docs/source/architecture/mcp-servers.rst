@@ -195,8 +195,23 @@ them (``artifact_list(category="archiver_data")``).
 - ``list_panels`` -- List the panels available in the Web Terminal (built-in and custom).
 - ``open_panel`` -- Put a panel on screen in front of the operator.
 - ``close_panel`` -- Take a panel's tile off screen, leaving it on the rail.
-- ``add_panel_to_rail`` -- Make a panel launchable from the rail in one click.
-- ``remove_panel_from_rail`` -- Take a panel off the rail (and off screen with it).
+- ``arrange_workspace`` -- State a whole layout: exactly these tiles on screen,
+  in this order.
+- ``add_panel_to_rail`` -- Make a panel launchable from the rail in one click
+  (requires human approval).
+- ``remove_panel_from_rail`` -- Take a panel off the rail (and off screen with it)
+  (requires human approval).
+- ``register_panel`` -- Add a rail entry at runtime for an upstream URL the Web
+  Terminal proxies (requires human approval).
+
+The three rail tools ask because rail membership is their whole effect:
+removing an entry costs the operator the ability to launch that panel back, and
+adding or registering one puts a new entry in front of them. The layout tools
+say what is on screen and are auto-allowed, even where a layout implies a rail
+change: ``open_panel`` adds the rail entry when the panel is off the rail, and
+``arrange_workspace`` adds any listed panel that was not on it (with a
+``preset``, it also drops non-members -- the same pruning the operator gets by
+clicking that layout).
 
 **Screen Capture:**
 

@@ -56,7 +56,7 @@ export function _groupPermissions(entries) {
     } else if (entry.startsWith('Task(')) {
       const agentName = entry.replace(/^Task\(/, '').replace(/\)$/, '');
       addTo('agents', entry, agentName);
-    } else if (entry.startsWith('Read(') || entry.startsWith('NotebookEdit(')) {
+    } else if (entry.startsWith('Read(') || entry.startsWith('Edit(')) {
       const match = entry.match(/^(\w+)\((.+)\)$/);
       if (match) {
         addTo('file access', entry, `${match[1]}: ${match[2]}`);

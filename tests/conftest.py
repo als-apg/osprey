@@ -178,6 +178,118 @@ def session_posture_leak_guard(monkeypatch):
 
 _REAL_DEPLOYMENT_LANES = ("tests/e2e/", "tests/va/e2e/")
 
+#: ``<repo>/var/agent_data`` — the directory :func:`no_agent_data_in_the_repo`
+#: watches. Spelled once, at import, because the creator hook below needs it
+#: before any fixture has run.
+_AGENT_DATA_MARKER = _REPO_ROOT / "var" / "agent_data"
+
+#: Whether that directory was already there when this conftest was imported.
+#: A pre-existing one belongs to a real local deployment, so nothing about it
+#: is the suite's business and the creator hook stays quiet for the session.
+_AGENT_DATA_PRE_EXISTED = _AGENT_DATA_MARKER.exists()
+
+#: The first test in THIS worker whose teardown found the directory there,
+#: ``None`` while none has. Recorded by :func:`pytest_runtest_teardown` and
+#: read by the guard.
+_AGENT_DATA_FIRST_SEEN: str | None = None
+
+
+def pytest_runtest_teardown(item):
+    """Timestamp the appearance of ``<repo>/var/agent_data`` against a test.
+
+    The guard below runs once per worker at session teardown and can only
+    report *that* the directory appeared, which is the least useful half of the
+    finding: the run is over, and the reader is left grepping a whole tree of
+    app fixtures for whichever one resolved the agent-data root to the
+    checkout. This narrows it to a window instead — the first test that ran
+    with the directory already present.
+
+    Deliberately reported as an upper bound rather than as blame. The writer is
+    typically not the test named: the last one measured was a uvicorn daemon
+    thread that ``ServerLauncher`` auto-launched out of an interface app's
+    lifespan and that reached its ``mkdir`` some tests later, in a worker that
+    had moved on. Under ``-n`` the naming worker may not even be the one that
+    created it. What the name is good for is bounding the search — nothing in
+    this worker before it can be the cause.
+
+    One ``stat`` per test, and only until the first hit — cheap enough to leave
+    armed for every lane rather than gated behind a flag nobody would set
+    before the leak had already cost them an afternoon.
+    """
+    global _AGENT_DATA_FIRST_SEEN
+    if _AGENT_DATA_PRE_EXISTED or _AGENT_DATA_FIRST_SEEN is not None:
+        return
+    if _AGENT_DATA_MARKER.exists():
+        worker = os.environ.get("PYTEST_XDIST_WORKER", "master")
+        _AGENT_DATA_FIRST_SEEN = f"{item.nodeid} (worker {worker})"
+
+
+@pytest.fixture(autouse=True, scope="session")
+def agent_data_never_the_checkout(request, tmp_path_factory):
+    """Divert a resolution that lands on THIS checkout to a throwaway root.
+
+    Every path to the agent-data root funnels through
+    ``osprey_connectors.workspace.resolve_project_root`` — ``resolve_shared_data_root``
+    and ``resolve_agent_data_root`` both anchor ``agent_data.base_dir`` on
+    whatever it answers, and ``writer.audit_dir`` anchors the ledger on it too.
+    It is also the only seam in that chain that is looked up by module global at
+    call time, so binding it here reaches every caller regardless of how it
+    imported its own resolver: the modules that did ``from ... import
+    resolve_shared_data_root`` at import time still run the original function
+    body, and that body reads this name.
+
+    Session-scoped because the leak it closes is won by a RACE, not by a test.
+    The directory is created inside a uvicorn daemon thread — the artifacts
+    gallery that ``ServerLauncher`` auto-launches from an interface app's
+    lifespan, whose ``store_watcher.start()`` mkdirs
+    ``<root>/artifacts`` — and that thread outlives the test that started it by
+    an unbounded margin. A function-scoped redirection is therefore not merely
+    untidy but unsound: ``monkeypatch`` undoes it at teardown and the thread
+    then resolves against the real checkout, which is exactly the intermittency
+    that made this leak look like a different module every run. A module-scoped
+    one loses the same race, one module later.
+
+    A WRAPPER, not a constant. A blanket redirect would answer the same tmp
+    directory for a test that configured its own ``project_root`` and asserts
+    what a tool derived from it — so only the one case that constitutes the
+    leak is diverted: resolution landing on the checkout the suite is running
+    in. Everything else, including every test that patches a resolver of its
+    own further up the stack, is untouched — this sits BELOW those patches
+    rather than overriding them, which is what a suite-wide
+    ``OSPREY_AGENT_DATA_ROOT`` stamp cannot say for itself (see
+    :func:`session_posture_leak_guard`).
+
+    Disarmed for the real-deployment lanes, on the same predicate as
+    :func:`no_agent_data_in_the_repo`: they run agents and servers with this
+    checkout as the project root on purpose, and diverting it would be
+    rewriting the thing under test.
+    """
+    from osprey_connectors import workspace as connector_workspace
+
+    if any(item.nodeid.startswith(_REAL_DEPLOYMENT_LANES) for item in request.session.items):
+        yield
+        return
+
+    real_resolve_project_root = connector_workspace.resolve_project_root
+    diverted = tmp_path_factory.mktemp("project-root-not-the-checkout")
+
+    def _never_the_checkout(config=None):
+        root = real_resolve_project_root(config)
+        try:
+            landed_here = Path(root).resolve() == _REPO_ROOT
+        except OSError:  # pragma: no cover - a root that vanished mid-run
+            return root
+        return diverted if landed_here else root
+
+    # Installed for the lifetime of the process, with no undo. The thread this
+    # exists to catch is a uvicorn daemon that outlives the fixture that started
+    # it, so a redirect lifted at teardown leaves it resolving against the real
+    # checkout for as long as the interpreter is still up -- the same unsoundness
+    # a function-scoped redirect has, one scope later. Nothing runs after a
+    # session fixture's teardown that needs the original back.
+    connector_workspace.resolve_project_root = _never_the_checkout
+    yield
+
 
 @pytest.fixture(autouse=True, scope="session")
 def no_agent_data_in_the_repo(request):
@@ -205,7 +317,7 @@ def no_agent_data_in_the_repo(request):
     fixture's mistake. The guard is armed only in a session that collects none
     of them — the unit lane it was written for.
     """
-    marker = Path(__file__).resolve().parent.parent / "var" / "agent_data"
+    marker = _AGENT_DATA_MARKER
     real_deployment_lane = any(
         item.nodeid.startswith(_REAL_DEPLOYMENT_LANES) for item in request.session.items
     )
@@ -214,11 +326,22 @@ def no_agent_data_in_the_repo(request):
     if real_deployment_lane:
         return
     if not existed and marker.exists():
+        culprit = (
+            "\nalready present by the end of "
+            f"{_AGENT_DATA_FIRST_SEEN} — the writer is at or before that point, "
+            "and may be a background thread an earlier test started"
+            if _AGENT_DATA_FIRST_SEEN
+            else ""
+        )
         raise AssertionError(
             f"the test run created {marker} — something resolved the agent-data root "
             "to the repository. A test that writes the posture store or a control-target "
             "state file must stamp OSPREY_AGENT_DATA_ROOT at a tmp path (see "
             "session_posture_leak_guard) rather than leave it to resolve_shared_data_root()."
+            f"{culprit}"
+            "\nThe bound above names only what this xdist worker ran: a writer in "
+            "another worker, in a subprocess, or in a module that bound its resolver "
+            "at import time is not narrowed by it."
         )
 
 
@@ -679,6 +802,44 @@ def reset_second_real_block_warning():
     yield
 
     connector_types._SECOND_REAL_BLOCK_WARNED.clear()
+
+
+# ===================================================================
+# Companion server launch guard
+# ===================================================================
+
+
+@pytest.fixture(autouse=True, scope="function")
+def _no_companion_server_launches(request, monkeypatch):
+    """Keep ``ServerLauncher`` from starting a real uvicorn server in a test.
+
+    Leak guarded: ``ServerLauncher._launch_in_thread`` runs uvicorn in a daemon
+    thread nothing ever stops, and two runtime paths reach it unasked — the
+    web-terminal lifespan launches every companion panel whose ``auto_launch``
+    is on (the default), and ``ArtifactStore`` launches the gallery on every
+    save. A test that boots either leaves a real, gated server listening on the
+    configured port for the rest of the xdist worker's life. A later launcher
+    that finds that port held probes it with the unauthenticated-then-
+    credentialed ``GET /`` pair of ``_adopt_or_refuse``, and the leaked server
+    files both refusals through ``osprey.audit.writer.record`` — resolved at
+    call time, so they land in whichever test currently holds that attribute
+    patched to its own ledger. That test then fails on a record it never made.
+
+    Only the thread start is replaced. Everything ``ensure_running`` decides
+    before it — the auto-launch gate, the bind check, the held-port grace
+    window and its verdict — still runs, so the launcher tests that patch
+    those per instance are unaffected. A test of the launch itself opts out
+    with ``@pytest.mark.real_server_launch``.
+    """
+    if request.node.get_closest_marker("real_server_launch"):
+        return
+
+    from osprey.infrastructure.server_launcher import ServerLauncher
+
+    def _no_launch(self, host: str, port: int) -> None:
+        return None
+
+    monkeypatch.setattr(ServerLauncher, "_launch_in_thread", _no_launch)
 
 
 # ===================================================================

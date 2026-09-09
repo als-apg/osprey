@@ -116,9 +116,13 @@ def _pep440_from_describe(described: str) -> str | None:
     # it, or the build stamp and this string disagree on hash length alone.
     local = f"g{remainder[:9]}"
     if dirty:
-        from datetime import date
+        from datetime import UTC, datetime
 
-        local = f"{local}.d{date.today():%Y%m%d}"
+        # UTC, because that is the clock setuptools-scm's node-and-date scheme
+        # reads. Local time here made the two derivations disagree by a day for
+        # every dirty checkout west of Greenwich after 17:00, which is not a
+        # midnight race but a several-hour window every single day.
+        local = f"{local}.d{datetime.now(UTC):%Y%m%d}"
     return f"{base}.post{distance}+{local}"
 
 
@@ -207,16 +211,25 @@ def get_release_version() -> str:
     pinning, since from a development checkout it names a release whose code is
     *not* what is running.
 
+    A pre-release segment is part of the release's name, not development noise:
+    ``2026.9.0b1.post5+g...`` descends from the published ``2026.9.0b1``, never from
+    a ``2026.9.0`` that does not exist yet. ``base_version`` alone would drop the
+    segment and every pin produced from a beta would name a phantom release.
+
     Returns:
-        A release version string, e.g. ``"2026.6.2"``. Never raises.
+        A release version string, e.g. ``"2026.6.2"`` or ``"2026.9.0b1"``. Never raises.
     """
     from packaging.version import InvalidVersion, Version
 
     running = get_running_version()
     try:
-        return Version(running).base_version
+        parsed = Version(running)
     except InvalidVersion:
         return running
+    release = parsed.base_version
+    if parsed.pre is not None:
+        release += f"{parsed.pre[0]}{parsed.pre[1]}"
+    return release
 
 
 def get_image_pin_version(dev_mode: bool) -> str:
@@ -290,9 +303,11 @@ def unreleased_pin_reason() -> str:
 def is_release() -> bool:
     """Report whether this build is exactly a tagged, clean release.
 
-    False for anything carrying distance, a pre/post/dev segment, a local segment,
+    False for anything carrying distance, a post/dev segment, a local segment,
     or uncommitted changes — and for an environment where the version could not be
-    resolved at all.
+    resolved at all. A clean tagged pre-release (``2026.9.0b1``) IS a release: it
+    is published on PyPI and installable by exact pin, which is all any caller of
+    this function goes on to do with it.
 
     Returns:
         True only when the running version is a published release.
@@ -303,6 +318,4 @@ def is_release() -> bool:
         parsed = Version(get_running_version())
     except InvalidVersion:
         return False
-    return not (
-        parsed.is_devrelease or parsed.is_postrelease or parsed.is_prerelease or parsed.local
-    )
+    return not (parsed.is_devrelease or parsed.is_postrelease or parsed.local)

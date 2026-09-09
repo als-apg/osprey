@@ -349,42 +349,57 @@ class TangoConnector(ControlSystemConnector):
         # The address must parse before anything is validated or sent.
         device_name, attribute = _split_address(channel_address)
 
-        # Step 1: Validate limits (FAIL CLOSED). A limits violation propagates
-        # unchanged; any other error means the check could not be made, and an
-        # unmade check is not permission to write.
-        if self._limits_validator:
-            # Import here to avoid circular dependency
-            from osprey_connectors.errors import ChannelLimitsViolationError
+        # Import here to avoid circular dependency
+        from osprey_connectors.errors import ChannelLimitsViolationError
 
+        # Steps 1-2: Validate limits (FAIL CLOSED) and send the value in ONE
+        # thread offload, so a caller on the event loop is never stalled by the
+        # blocking read_attribute that max_step validation performs — nor by
+        # the two device round trips that follow it, which used to cost an
+        # offload each. The closure decides nothing: it hands back a three-way
+        # sentinel and every result is built on the loop, in the words the
+        # cross-connector contract owns.
+        def _validate_and_write():
+            if self._limits_validator:
+                try:
+                    self._limits_validator.validate(
+                        channel_address, value, read_current=self._current_value_reader()
+                    )
+                    logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
+                except ChannelLimitsViolationError:
+                    raise  # limits refusal propagates unchanged (carries LIMITS semantics)
+                except Exception as e:
+                    # An unmade check is not permission to write: nothing is sent.
+                    return ("refused", e)
             try:
-                self._limits_validator.validate(
-                    channel_address, value, read_current=self._current_value_reader()
-                )
-                logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
-            except ChannelLimitsViolationError:
-                raise
+                # Creating a DeviceProxy is itself a database round trip, so a
+                # cold cache is filled in the thread too.
+                self._get_proxy(device_name).write_attribute(attribute, value)
             except Exception as e:
-                return self._validation_refusal(channel_address, value, e)
+                return ("send_failed", e)
+            return ("ok", None)
 
-        # Step 2: Resolve the confirmation policy. An explicit confirm — False
-        # every bit as much as True — is an answer and is taken as given; only
-        # an omitted one is resolved from the limits database.
-        if confirm is None:
-            confirm = self._resolve_confirm(channel_address)
+        step, payload = await asyncio.to_thread(_validate_and_write)
 
-        # Step 3: Send the value. Creating a DeviceProxy is itself a database
-        # round trip, so a cold cache is filled in the thread too.
-        try:
-            proxy = await asyncio.to_thread(self._get_proxy, device_name)
-            await asyncio.to_thread(proxy.write_attribute, attribute, value)
-        except Exception as e:
+        if step == "refused":
+            return self._validation_refusal(channel_address, value, payload)
+
+        if step == "send_failed":
             return ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
                 outcome=WriteOutcome.FAILED,
-                error_message=f"Failed to write to '{channel_address}': {e}",
+                error_message=f"Failed to write to '{channel_address}': {payload}",
                 notes="TANGO did not take the value",
             )
+
+        # Step 3: Resolve the confirmation policy, now that the value is away.
+        # An explicit confirm — False every bit as much as True — is an answer
+        # and is taken as given; only an omitted one is resolved from the limits
+        # database. Nothing in the send consumes it and the lookup is a pure
+        # in-memory read, so asking after the write is not observable.
+        if confirm is None:
+            confirm = self._resolve_confirm(channel_address)
 
         if not confirm:
             logger.debug(f"TANGO write (unconfirmed by request): {channel_address} = {value}")

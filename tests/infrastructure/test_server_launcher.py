@@ -894,6 +894,7 @@ class TestAnUnavailableAuthGateGetsItsOwnAdvice:
         assert launcher._launched is False
 
 
+@pytest.mark.real_server_launch
 class TestRefusalMemoryIsScopedToOneHeldPortEpisode:
     """A committed launch ends the episode that ``_refused_once`` describes.
 

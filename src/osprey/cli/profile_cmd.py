@@ -1555,6 +1555,8 @@ def _materialize_profile_directory(
     """
     import shutil
 
+    from osprey.utils.dotenv import env_lock_path
+
     from .build_profile import (
         EXTENDS_OVERRIDE_REFUSAL,
         _normalize_preset_name,
@@ -1728,8 +1730,10 @@ def _materialize_profile_directory(
         if not env_pre_existed and (target / _PROFILE_ENV_FILENAME).exists():
             # The sibling lock file is created beside the `.env` by the shared
             # writer and deliberately never removed while the `.env` lives; a
-            # discarded `.env` takes it along.
-            run_written += [_PROFILE_ENV_FILENAME, f"{_PROFILE_ENV_FILENAME}.lock"]
+            # discarded `.env` takes it along. `_cleanup` joins these names onto
+            # `target`, so the name is what is wanted, un-resolved.
+            env_path = target / _PROFILE_ENV_FILENAME
+            run_written += [_PROFILE_ENV_FILENAME, env_lock_path(env_path).name]
         if shell_keys.skipped:
             # Debug only. `osprey init`'s summary prints the same sentence from
             # the same helper, and this is the only caller, so logging it here
@@ -1766,6 +1770,31 @@ def _materialize_profile_directory(
                 or "no roster yet",
                 CONTEXT_BASELINE_FILENAME,
             )
+
+        # The facility description, in the convention directory the operator
+        # edits it in. Seeded here rather than left to the build for the same
+        # reason the context baseline is: it is text this deployment ships, and
+        # it belongs in the repo from the first minute rather than appearing in
+        # a generated tree that `rm -rf build/` is documented to remove.
+        # Imported here, not at module scope: `osprey --help` must not pull in
+        # the build pipeline (the lazy-import budget test pins this).
+        from .build_persistence import FACILITY_RULE_NAME, ensure_profile_facility_rule
+        from .init_cmd import FACILITY_RULE_DIR
+
+        if FACILITY_RULE_NAME in resolved.rules:
+            rules_dir = target / FACILITY_RULE_DIR
+            fresh = not rules_dir.exists()
+            written = ensure_profile_facility_rule(
+                target, build_dir=None, enabled_agents=resolved.agents
+            )
+            if written:
+                logger.debug("  %s", written)
+                if fresh:
+                    # This run created the directory, so this run owns it: a
+                    # failure below removes it again rather than leaving half a
+                    # profile behind. A directory that was already there is the
+                    # operator's, whatever else is in it.
+                    run_written.append(FACILITY_RULE_DIR)
 
         if persona_texts:
             # Validity was settled by `_parsed_persona_deltas` above, before the

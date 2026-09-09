@@ -72,13 +72,27 @@ export function createScaffoldGalleryDetail(gallery) {
   const { renderPreview, renderDiff } = createScaffoldGalleryDetailContent(gallery);
 
   /**
+   * Open the detail view on an artifact, in `initialMode`.
+   *
+   * The mode is a parameter rather than a flip afterwards because the flows
+   * that want the editor -- claim-on-first-edit and create -- used to open in
+   * Preview and switch to Edit on the next statement. Both renders then ran
+   * against the same pane over the same `GET /api/scaffold/<name>`: one of the
+   * two fetches was always wasted, and which one drew was decided by whichever
+   * response happened to land last. Opening directly in the mode the caller
+   * wants leaves a single render, so there is nothing to race.
+   *
+   * (renderDetailContent's sequence claim still stands: a mode click during a
+   * slow fetch starts a second render the same way, and that one is real.)
+   *
    * @param {any} artifact
+   * @param {'preview'|'diff'|'edit'} [initialMode] Mode to open in; defaults to Preview.
    * @returns {void}
    */
-  function openDetail(artifact) {
+  function openDetail(artifact, initialMode = 'preview') {
     gallery.selectedArtifact = artifact;
     gallery.currentView = 'detail';
-    gallery.detailMode = 'preview';
+    gallery.detailMode = initialMode;
     gallery.editDirty = false;
 
     if (gallery.galleryView) gallery.galleryView.style.display = 'none';
@@ -115,11 +129,9 @@ export function createScaffoldGalleryDetail(gallery) {
         gallery.load().then(() => {
           const newArt = gallery.artifacts.find((a) => a.name === result.canonical_name);
           if (newArt) {
-            openDetail(newArt);
-            // Switch to edit mode inline (no switchMode method exists)
-            gallery.detailMode = 'edit';
-            renderDetailModes();
-            renderDetailContent();
+            // A just-created artifact is empty, so the editor is the only
+            // useful first view of it.
+            openDetail(newArt, 'edit');
           }
         });
       })
@@ -324,7 +336,7 @@ export function createScaffoldGalleryDetail(gallery) {
    * starts a Preview (openDetail) and an Edit back to back, and a mode click
    * during a slow fetch does the same. The two GETs are independent and
    * nothing orders their responses, so without a claim on the pane the render
-   * that finished last won, whatever the operator last asked for. Each render
+   * that finishes last wins, whatever the operator last asked for. Each render
    * takes the next sequence number and every renderer re-checks it after its
    * await: a render that has been superseded returns without drawing.
    *

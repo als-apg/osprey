@@ -122,12 +122,16 @@ def _kill_switch_tools(hook_config_path: Path) -> tuple[str, ...]:
     nothing about either — and on a deployment whose only write tool is a clone
     it claimed nothing at all while looking like it had checked.
 
-    Two kinds of entry are dropped:
+    Three kinds of entry are dropped:
 
     * wildcard matchers — they name no tool that could be in ``permissions.deny``;
     * ``mixed_read_write_tools`` — tools whose reads stay available with writes
       off, so they are not denied outright and their absence from ``deny`` says
-      nothing about the posture.
+      nothing about the posture;
+    * ``control_system_write_tools`` — tools the project appended via
+      ``control_system.write_tools``, gated per call rather than by the kill
+      switch, so they never enter ``deny`` either. Read with ``.get``, so a
+      render from before the key existed behaves as it did then.
 
     An unreadable or malformed file falls back to the framework's own controls
     tool, which is what this check was written against before there was a file
@@ -142,12 +146,15 @@ def _kill_switch_tools(hook_config_path: Path) -> tuple[str, ...]:
     tools = data.get("write_tools")
     if not isinstance(tools, list):
         return _FALLBACK_WRITE_TOOLS
-    mixed = data.get("mixed_read_write_tools")
-    mixed_set = {t for t in mixed if isinstance(t, str)} if isinstance(mixed, list) else set()
+    excluded: set[str] = set()
+    for key in ("mixed_read_write_tools", "control_system_write_tools"):
+        value = data.get(key)
+        if isinstance(value, list):
+            excluded.update(t for t in value if isinstance(t, str))
     return tuple(
         tool
         for tool in tools
-        if isinstance(tool, str) and not tool.endswith(_MATCHER_WILDCARD) and tool not in mixed_set
+        if isinstance(tool, str) and not tool.endswith(_MATCHER_WILDCARD) and tool not in excluded
     )
 
 

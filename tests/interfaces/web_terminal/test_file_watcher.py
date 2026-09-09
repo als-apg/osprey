@@ -17,6 +17,7 @@ from osprey.interfaces.web_terminal.file_watcher import (
     WorkspaceWatcher,
     _WorkspaceHandler,
 )
+from tests.interfaces.fsevents_wait import collect_frames
 
 #: Tighter than the unit lane's 600 s cap, because this file is the one that
 #: has actually hung: ``test_start_creates_directory_if_missing`` sat inside
@@ -103,22 +104,45 @@ class TestWorkspaceWatcher:
         watcher.start()
 
         try:
-            # Create a file
-            (tmp_path / "new_file.txt").write_text("hello")
+            new_file = tmp_path / "new_file.txt"
+            new_file.write_text("hello")
 
-            # Wait for event (watchdog is async, give it time)
-            deadline = time.monotonic() + 3
-            events = []
-            while time.monotonic() < deadline:
-                try:
-                    event = q.get_nowait()
-                    events.append(event)
-                    if any(e["path"] == "new_file.txt" for e in events):
-                        break
-                except asyncio.QueueEmpty:
-                    time.sleep(0.1)
+            # The observer's stream can still be arming when the write lands,
+            # and a stimulus applied inside that window is delivered late or not
+            # at all — so re-apply the write until its frame arrives rather than
+            # waiting a fixed span for an event the stream may never have seen.
+            #
+            # The subject here is *creation*, so the poke removes the file and
+            # creates it again: rewriting a file that already exists would
+            # re-apply the stimulus as a modification, and a regression that
+            # dropped ``on_created`` would then be answered by an ``on_modified``
+            # frame for the same path and pass unnoticed. The handler debounces
+            # per path for 0.1 s, so the recreate waits out that window — without
+            # the pause the ``created`` event is discarded as a duplicate of the
+            # ``deleted`` one and the frame under test never arrives.
+            def recreate() -> None:
+                new_file.unlink(missing_ok=True)
+                time.sleep(0.2)
+                new_file.write_text("hello")
 
-            assert any(e["path"] == "new_file.txt" for e in events)
+            frames = collect_frames(
+                q,
+                until="new_file.txt",
+                until_type="created",
+                poke=recreate,
+                # Under the module's own 60 s ``timeout`` marker, a wait carrying
+                # the default 60 s budget can never reach its own diagnostic:
+                # pytest-timeout fires first and reports ``Failed`` rather than
+                # the assertion naming what was never delivered.
+                budget=30,
+            )
+
+            # Implied by ``until_type`` above, and kept anyway: it is what states
+            # the subject in the body, so a wait later relaxed to any frame for the
+            # path cannot carry the creation requirement away with it.
+            assert {"created"} <= {
+                frame["type"] for frame in frames if frame["path"] == "new_file.txt"
+            }, f"no created frame for new_file.txt among {frames}"
         finally:
             watcher.stop()
 

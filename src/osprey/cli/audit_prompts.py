@@ -42,8 +42,12 @@ OSPREY enforces a human-in-the-loop architecture for all hardware writes:
 explicit user approval via ask-permission.
 - **python server**: `execute` requires explicit user approval. No tools are \
 auto-allowed.
-- **workspace server**: Read/visualization tools are auto-allowed; `setup_patch` \
-requires approval.
+- **workspace server**: Read/visualization tools are auto-allowed, as are the \
+layout verbs (`open_panel`, `close_panel`, `arrange_workspace` -- which states a \
+whole layout, including rail membership, and under a `preset` drops non-members \
+from the rail) and the lattice dashboard's own scratch state. `setup_patch` \
+requires approval, and so do the three tools whose whole effect is rail \
+membership: `add_panel_to_rail`, `remove_panel_from_rail` and `register_panel`.
 
 ### Safety Hook Chain for channel_write
 Every `channel_write` call passes through three hooks in sequence:

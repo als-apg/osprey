@@ -179,40 +179,57 @@ class DOOCSConnector(ControlSystemConnector):
             ChannelLimitsViolationError: If limits validation fails (when enabled)
         """
 
-        # Step 1: Validate limits (FAIL CLOSED). A limits violation propagates
-        # unchanged; any other error means the check could not be made, and an
-        # unmade check is not permission to write.
-        if self._limits_validator:
-            # Import here to avoid circular dependency
-            from osprey_connectors.errors import ChannelLimitsViolationError
+        # Import here to avoid circular dependency
+        from osprey_connectors.errors import ChannelLimitsViolationError
 
+        # Step 1: Validate limits (FAIL CLOSED) and send the value in ONE thread
+        # offload, so a caller on the event loop is never stalled by the blocking
+        # `doocs4py.get()` that max_step validation performs, nor by the send.
+        #
+        # A limits violation propagates unchanged; any other validation error
+        # means the check could not be made, and an unmade check is not
+        # permission to write — the closure hands that case back as a sentinel
+        # and the refusal itself is built on the loop, by the base class's one
+        # helper, so all four connectors word it identically.
+        def _validate_and_set():
+            if self._limits_validator:
+                try:
+                    self._limits_validator.validate(
+                        channel_address, value, read_current=self._current_value_reader()
+                    )
+                    logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
+                except ChannelLimitsViolationError:
+                    raise  # limits refusal propagates unchanged (carries LIMITS semantics)
+                except Exception as e:
+                    return ("refused", e)  # sentinel: no set issued
             try:
-                self._limits_validator.validate(
-                    channel_address, value, read_current=self._current_value_reader()
-                )
-                logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
-            except ChannelLimitsViolationError:
-                raise
+                self._doocs4py.set(channel_address, value)
             except Exception as e:
-                return self._validation_refusal(channel_address, value, e)
+                return ("send_failed", e)
+            return ("ok", None)
 
-        # Step 2: Resolve the confirmation policy. An explicit confirm — False
-        # every bit as much as True — is an answer and is taken as given; only
-        # an omitted one is resolved from the limits database.
-        if confirm is None:
-            confirm = self._resolve_confirm(channel_address)
+        send_result, payload = await asyncio.to_thread(_validate_and_set)
 
-        # Step 3: Send the value
-        try:
-            self._doocs4py.set(channel_address, value)
-        except Exception as e:
+        if send_result == "refused":
+            return self._validation_refusal(channel_address, value, payload)
+
+        if send_result == "send_failed":
             return ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
                 outcome=WriteOutcome.FAILED,
-                error_message=f"Failed to write to '{channel_address}': {e}",
+                error_message=f"Failed to write to '{channel_address}': {payload}",
                 notes="DOOCS did not take the value",
             )
+
+        # Step 2: Resolve the confirmation policy, now that a value has actually
+        # gone out. An explicit confirm — False every bit as much as True — is an
+        # answer and is taken as given; only an omitted one is resolved from the
+        # limits database. `doocs4py.set` does not consume it and the lookup is a
+        # pure in-memory read, so resolving it after the send changes nothing an
+        # observer can see.
+        if confirm is None:
+            confirm = self._resolve_confirm(channel_address)
 
         if not confirm:
             logger.debug(f"DOOCS write (unconfirmed by request): {channel_address} = {value}")
@@ -223,7 +240,7 @@ class DOOCSConnector(ControlSystemConnector):
                 notes="No confirmation requested",
             )
 
-        # Step 4: Confirm with one fresh read
+        # Step 3: Confirm with one fresh read
         try:
             readback = await self.read_channel(channel_address, timeout=timeout)
         except Exception as e:

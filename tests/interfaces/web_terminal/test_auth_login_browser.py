@@ -35,14 +35,13 @@ which the in-process suites in this directory cover.
 
 from __future__ import annotations
 
-import shutil
-import subprocess
 from typing import TYPE_CHECKING
 
 import pytest
 
 from osprey.services.auth_sidecar.passwords import generation_tag
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME
+from tests._container_support import docker_cli_unavailable_reason
 from tests.deployment.web_terminals.test_auth_serving import (
     _PASSWORDS,
     TERMINAL_STAND_IN_MARKER,
@@ -57,20 +56,14 @@ if TYPE_CHECKING:
     from tests.deployment.web_terminals.test_auth_serving import Stack
 
 
-def _docker_available() -> bool:
-    if shutil.which("docker") is None:
-        return False
-    try:
-        return subprocess.run(["docker", "info"], capture_output=True, timeout=10).returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
 
 
 pytestmark = [
     pytest.mark.browser,
     pytest.mark.dockerbuild,
     pytest.mark.slow,
-    pytest.mark.skipif(not _docker_available(), reason="docker not available"),
+    pytest.mark.skipif(_DOCKER_UNAVAILABLE is not None, reason=_DOCKER_UNAVAILABLE or ""),
 ]
 
 

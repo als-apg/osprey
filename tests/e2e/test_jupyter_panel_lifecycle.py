@@ -43,8 +43,9 @@ switch in 4 moves off the target it narrowed, and the down/up must come last.
    target and writes there. Nothing is restarted: a kernel re-routes itself
    from the record before every cell, which is the one thing that separates it
    from an executor sandbox.
-5. ``NotebookEdit`` under ``notebooks/`` is allowed by the rendered settings and
-   the guard hook and badges the panel; outside it is denied.
+5. ``NotebookEdit`` under ``notebooks/`` is allowed by the rendered
+   ``Edit(...)`` rules and the guard hook and badges the panel; outside it is
+   denied.
 6. The sidecar's runtime directory is not under the agent-data root.
 7. Notebooks survive ``osprey down && osprey up``; kernels do not.
 
@@ -905,8 +906,9 @@ def test_notebook_edit_is_allowed_under_notebooks_and_badges_the_panel(terminal:
         )
     )
     allow = settings["permissions"]["allow"]
-    assert "NotebookEdit(var/agent_data/notebooks/**)" in allow, allow
-    assert "NotebookEdit(var/agent_data/artifacts/**)" in allow, allow
+    assert "Edit(var/agent_data/notebooks/**)" in allow, allow
+    assert "Edit(var/agent_data/artifacts/**)" in allow, allow
+    assert not any(a.startswith("NotebookEdit(") for a in allow), allow
 
     agent_env = _process_env(terminal.pty_pid)
     config_path = agent_env["OSPREY_CONFIG"]

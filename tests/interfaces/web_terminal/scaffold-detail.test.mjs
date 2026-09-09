@@ -32,6 +32,8 @@ import { qs } from '../_support/dom.mjs';
 
 import { createScaffoldGalleryDetail } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail.js';
 import { createScaffoldGalleryDetailContent } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail-content.js';
+import { createScaffoldGalleryEditForm } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/edit-form.js';
+import { resetFetchCache } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/data.js';
 
 /**
  * @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail.js').ScaffoldGalleryDetailHost} ScaffoldGalleryDetailHost
@@ -82,6 +84,9 @@ function makeGallery(overrides = {}) {
 }
 
 beforeEach(() => {
+  // The detail renderers read through the module-level fetch cache, so a
+  // response one test seeded would answer the next one's first render.
+  resetFetchCache();
   vi.stubGlobal('confirm', vi.fn(() => true));
   vi.stubGlobal('prompt', vi.fn(() => null));
   vi.stubGlobal('alert', vi.fn());
@@ -251,6 +256,18 @@ describe('openDetail', () => {
     expect(onDetailOpen).toHaveBeenCalledOnce();
     expect(qs(gallery.detailHeaderEl, '.prompts-detail-name').textContent).toBe('my-artifact');
   });
+
+  test('opens in the mode the caller asked for, rendering it once', () => {
+    const gallery = makeGallery();
+    const detail = createScaffoldGalleryDetail(gallery);
+
+    detail.openDetail({ name: 'my-artifact', status: 'user-owned' }, 'edit');
+
+    expect(gallery.detailMode).toBe('edit');
+    // The editor is the only render: no Preview goes out first for it to
+    // replace, so there is no second fetch and no race to resolve.
+    expect(gallery.renderEdit).toHaveBeenCalledOnce();
+  });
 });
 
 describe('showCreateDialog', () => {
@@ -274,6 +291,44 @@ describe('showCreateDialog', () => {
     expect(fetchMock).toHaveBeenCalledWith('/u/alice/api/scaffold/create', expect.objectContaining({
       method: 'POST',
     }));
+  });
+
+  test('opens the new artifact straight in Edit, fetching its content once', async () => {
+    // A just-created artifact used to be opened in Preview and flipped to Edit
+    // on the next statement, so the same GET went out twice and whichever
+    // response landed last decided what the pane showed. renderEdit here is
+    // the REAL edit-form renderer, wired the way ArtifactGallery wires it — a
+    // stub issues no fetch, so it could not tell one render from two.
+    vi.stubGlobal('prompt', vi.fn(() => 'my new agent'));
+
+    /** @type {string[]} */
+    const calls = [];
+    vi.stubGlobal('fetch', vi.fn((/** @type {string} */ url, /** @type {RequestInit} */ init) => {
+      calls.push(`${(init && init.method) || 'GET'} ${url}`);
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          canonical_name: 'my-new-agent', content: 'seeded body', language: 'text',
+        }),
+      });
+    }));
+
+    const gallery = makeGallery();
+    gallery.load = () => {
+      gallery.artifacts = [{ name: 'my-new-agent', status: 'user-owned', custom: true }];
+      return Promise.resolve();
+    };
+    gallery.renderEdit = createScaffoldGalleryEditForm(gallery).renderEdit;
+
+    const detail = createScaffoldGalleryDetail(gallery);
+    detail.showCreateDialog('agents');
+    // showCreateDialog's fetch chain is .then-based, not awaited internally.
+    for (let i = 0; i < 4; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(gallery.detailMode).toBe('edit');
+    expect(calls).toContain('POST /api/scaffold/create');
+    expect(calls.filter((c) => c === 'GET /api/scaffold/my-new-agent')).toHaveLength(1);
+    expect(qs(gallery.detailContentEl, '.prompts-edit-textarea')).toBeTruthy();
   });
 });
 

@@ -5135,3 +5135,195 @@ def test_full_chain_auth_lane_outbudgets_the_single_build_lanes__mutation_back_t
     _sole_heavy_step(job)["timeout-minutes"] = _sole_heavy_step(sibling)["timeout-minutes"]
     with pytest.raises(AssertionError, match="job budget"):
         test_full_chain_auth_lane_outbudgets_the_single_build_lanes(mutated)
+
+
+# ---------------------------------------------------------------------------
+# Model-spending lanes: nightly on main, `full-ci` on a pull request
+# ---------------------------------------------------------------------------
+#
+# Eight jobs drive real Claude sessions through the gateway. Measured on its
+# ledger for the week of 2026-09-01, the set cost about $15 per run and ran on
+# every push of every same-repo PR (~150 a week, on pace for $10k a month).
+# The fix is WHEN, not WHAT: each of these lanes runs on a labeled PR, on the
+# nightly schedule against main, or on the revalidation dispatch — and on
+# nothing else. Every arm is pinned below, because the one that goes missing
+# quietly is the one that either restores the bill (label clause dropped: the
+# lane is back on every push) or removes the standing coverage (schedule arm
+# dropped: main never gets its agentic proof at all).
+
+SPENDING_LANES = frozenset(
+    {
+        "agentic-per-preset",
+        "e2e-tests",
+        "dispatch-deploy-e2e",
+        "dispatch-overlay-e2e",
+        "scan-agentic-e2e",
+        "nextcloud-talk-bridge-e2e",
+        "gchat-bridge-e2e",
+        "target-switch-agentic-e2e",
+    }
+)
+# Lanes that carry the secret but spend nothing worth gating: deploy-e2e needs
+# the key only for `osprey up`'s .env preflight and never calls a model;
+# dockerfile-e2e drives a single haiku turn. Gating them by label would drop
+# per-PR deploy coverage for no saving, so they keep the per-PR shape — and a
+# NEW secret-bearing lane must be listed in one set or the other, on purpose.
+SECRET_FREE_LANES = frozenset({"deploy-e2e", "dockerfile-e2e", BENCHMARKS_JOB})
+FULL_CI_LABEL_CLAUSE = "contains(github.event.pull_request.labels.*.name, 'full-ci')"
+SCHEDULE_ARM = "github.event_name == 'schedule'"
+# The pre-gating shape: the PR conjunction closed right after the actor guard.
+# Its absence is what proves the label clause sits INSIDE that conjunction,
+# not OR-ed beside it (where it would admit every PR again).
+_UNLABELED_PR_ARM_CLOSE = "&& github.actor != 'dependabot[bot]')"
+
+
+def _secret_bearing_jobs(wf: dict[str, Any]) -> set[str]:
+    return {name for name in _jobs(wf) if _job_declares_secret(wf, name, SECRET_TOKEN)}
+
+
+def test_every_secret_bearing_lane_declares_its_spend_posture(workflow: dict[str, Any]) -> None:
+    """A lane that holds the gateway key is either a spending lane (label /
+    nightly / revalidation) or listed as secret-free. No third category: a new
+    agentic lane that nobody classifies would run on every push by default,
+    which is exactly how the bill got where it was."""
+    unclassified = _secret_bearing_jobs(workflow) - SPENDING_LANES - SECRET_FREE_LANES
+    assert unclassified == set(), (
+        f"secret-bearing lanes with no declared posture: {sorted(unclassified)}"
+    )
+    # and the classification is not stale the other way either
+    assert SPENDING_LANES <= _secret_bearing_jobs(workflow)
+
+
+def test_every_secret_bearing_lane_declares_its_spend_posture__mutation_adds_unclassified_lane() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"]["new-agentic-lane"] = copy.deepcopy(mutated["jobs"]["scan-agentic-e2e"])
+    with pytest.raises(AssertionError, match="no declared posture"):
+        test_every_secret_bearing_lane_declares_its_spend_posture(mutated)
+
+
+@pytest.mark.parametrize("lane", sorted(SPENDING_LANES))
+def test_spending_lane_runs_only_under_label_nightly_or_revalidation(
+    workflow: dict[str, Any], lane: str
+) -> None:
+    """All three arms, and the label INSIDE the pull-request arm."""
+    condition = _jobs(workflow)[lane]["if"]
+    assert FULL_CI_LABEL_CLAUSE in condition, f"{lane}: no full-ci label clause"
+    assert SCHEDULE_ARM in condition, f"{lane}: no nightly schedule arm"
+    assert _DEPENDABOT_GUARD in condition, f"{lane}: Dependabot guard dropped"
+    assert "workflow_dispatch" in condition, f"{lane}: dispatch arm dropped"
+    assert _UNLABELED_PR_ARM_CLOSE not in condition, (
+        f"{lane}: the pull-request arm closes before the label clause — "
+        "an unlabeled PR would run this lane again"
+    )
+
+
+def test_spending_lane_gating__mutation_drops_the_label_clause() -> None:
+    """The regression that restores the bill: the PR arm admits every push."""
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)["scan-agentic-e2e"]
+    job["if"] = job["if"].replace(f"\n  && {FULL_CI_LABEL_CLAUSE}", "")
+    assert FULL_CI_LABEL_CLAUSE not in job["if"], "mutation is stale"
+    with pytest.raises(AssertionError, match="label clause|closes before"):
+        test_spending_lane_runs_only_under_label_nightly_or_revalidation(
+            mutated, "scan-agentic-e2e"
+        )
+
+
+def test_spending_lane_gating__mutation_ors_the_label_beside_the_pr_arm() -> None:
+    """The subtler regression: the clause is present but OR-ed outside the
+    pull-request conjunction, which admits every same-repo PR exactly as
+    before and reads as gated."""
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)["scan-agentic-e2e"]
+    job["if"] = job["if"].replace(
+        f"\n  && {FULL_CI_LABEL_CLAUSE})", f")\n|| {FULL_CI_LABEL_CLAUSE}"
+    )
+    assert _UNLABELED_PR_ARM_CLOSE in job["if"], "mutation is stale"
+    with pytest.raises(AssertionError, match="closes before the label clause"):
+        test_spending_lane_runs_only_under_label_nightly_or_revalidation(
+            mutated, "scan-agentic-e2e"
+        )
+
+
+def test_spending_lane_gating__mutation_drops_the_schedule_arm() -> None:
+    """The other failure: gated on the label alone, main never gets the lanes."""
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)["agentic-per-preset"]
+    # `>-` folds the two base-indented `||` lines onto one line with a space.
+    job["if"] = job["if"].replace(f"|| {SCHEDULE_ARM} ", "")
+    assert SCHEDULE_ARM not in job["if"], "mutation is stale"
+    with pytest.raises(AssertionError, match="schedule arm"):
+        test_spending_lane_runs_only_under_label_nightly_or_revalidation(
+            mutated, "agentic-per-preset"
+        )
+
+
+def test_secret_free_lanes_keep_the_per_pr_shape(workflow: dict[str, Any]) -> None:
+    """deploy-e2e and dockerfile-e2e are the per-PR proof that a render builds
+    and boots; they cost runner minutes, not tokens, and must not hide behind
+    the label."""
+    for lane in ("deploy-e2e", "dockerfile-e2e"):
+        condition = _jobs(workflow)[lane]["if"]
+        assert FULL_CI_LABEL_CLAUSE not in condition, f"{lane}: label-gated but spends nothing"
+        assert "pull_request" in condition
+
+
+def test_secret_free_lanes_keep_the_per_pr_shape__mutation_gates_deploy_by_label() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)["deploy-e2e"]["if"] = _jobs(mutated)["scan-agentic-e2e"]["if"]
+    with pytest.raises(AssertionError, match="spends nothing"):
+        test_secret_free_lanes_keep_the_per_pr_shape(mutated)
+
+
+def test_workflow_fires_when_the_full_ci_label_is_applied(workflow: dict[str, Any]) -> None:
+    """A label clause in a job's ``if:`` is inert unless the workflow subscribes
+    to the ``labeled`` activity: with the three default types only, adding
+    ``full-ci`` starts nothing and the lanes wait for the next push."""
+    types = workflow[True]["pull_request"]["types"]
+    assert "labeled" in types, f"pull_request.types must include 'labeled'; got {types}"
+    # the defaults survive — the workflow still runs on open / push / reopen
+    assert {"opened", "synchronize", "reopened"} <= set(types)
+
+
+def test_workflow_fires_when_the_full_ci_label_is_applied__mutation_drops_types() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del mutated[True]["pull_request"]["types"]
+    with pytest.raises(KeyError):
+        test_workflow_fires_when_the_full_ci_label_is_applied(mutated)
+
+
+def test_workflow_fires_when_the_full_ci_label_is_applied__mutation_drops_labeled() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated[True]["pull_request"]["types"] = ["opened", "synchronize", "reopened"]
+    with pytest.raises(AssertionError, match="must include 'labeled'"):
+        test_workflow_fires_when_the_full_ci_label_is_applied(mutated)
+
+
+def test_gate_summary_tells_an_unlabeled_pr_what_did_not_run(workflow: dict[str, Any]) -> None:
+    """Same rule as the Dependabot block: a green gate with skipped lanes says
+    so where a reviewer sees it, and prints the one command that runs them."""
+    step = _find_named_step(workflow, GATE_JOB, "Check all jobs status")
+    assert step["env"]["HAS_FULL_CI"] == "${{ " + FULL_CI_LABEL_CLAUSE + " }}"
+    assert "--add-label full-ci" in step["run"]
+    for lane_name in (
+        "Tier 3 — Agentic flow (both presets)",
+        "E2E Tests",
+        "Dispatch Deploy E2E / Dispatch Overlay E2E",
+        "Nextcloud Talk Bridge E2E / Google Chat Bridge E2E",
+        "Scan Stack Agentic E2E",
+        "Control-Target Switch Agentic E2E",
+    ):
+        # named twice: once in the Dependabot block, once in the unlabeled one
+        assert step["run"].count(lane_name) == 2, (
+            f"{lane_name!r} must be named in both summary blocks"
+        )
+
+
+def test_gate_summary_tells_an_unlabeled_pr_what_did_not_run__mutation_drops_the_command() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    step["run"] = step["run"].replace("--add-label full-ci", "")
+    with pytest.raises(AssertionError):
+        test_gate_summary_tells_an_unlabeled_pr_what_did_not_run(mutated)

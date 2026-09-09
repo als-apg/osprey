@@ -721,6 +721,14 @@ def test_hook_config_write_tools_dedupe(tmp_path):
     assert write_tools == [*baseline, "mcp__facility__custom_write"], (
         f"expected only the new entry appended to {baseline}; got {write_tools}"
     )
+    # The appended-only semantics, on a real build path: the re-stated matcher
+    # is already in the writes kill switch's deny list, so it must NOT appear
+    # here — osprey_config_drift.py subtracts this key from the set it compares
+    # against a deployment's stale deny list, and an entry that IS denied
+    # belongs in that comparison.
+    assert _read_hook_config(project)["control_system_write_tools"] == [
+        "mcp__facility__custom_write"
+    ]
 
 
 def test_hook_config_with_no_enabled_servers(tmp_path):
@@ -756,6 +764,9 @@ def test_hook_config_with_no_enabled_servers(tmp_path):
         "server_prefixes": [],
         "approval_prefixes": [],
         "write_tools": [],
+        # Only the extras this render APPENDED to write_tools; the project
+        # names none, and with every server off there is nothing to append to.
+        "control_system_write_tools": [],
         "mixed_read_write_tools": [],
         # Not a per-server list: it names the tools the writes-check hook leaves
         # to their own lane gate, and renders whether or not any server is on.
@@ -1692,3 +1703,197 @@ def test_hook_helper_libraries_are_copied_but_never_wired(tmp_path):
     for helper in helpers:
         assert helper not in settings, f"{helper} has no event handler and must not be wired"
     assert "osprey_approval.py" in settings, "a real hook must still be wired"
+
+
+# ---------------------------------------------------------------------------
+# Hook wiring follows the profile's `hooks:` selection
+# ---------------------------------------------------------------------------
+
+
+#: Every framework hook ``settings.json`` wires to a session event, in render
+#: order, as ``(event, matcher, script, timeout)``. The wiring is what a
+#: deployment runs, so it is pinned here rather than left to the template: a
+#: dropped entry, a reordering or a changed timeout is a behaviour change that
+#: has to be made on purpose.
+_FRAMEWORK_EVENT_WIRING: tuple[tuple[str, str | None, str, int], ...] = (
+    ("SessionStart", None, "osprey_config_drift.py", 5),
+    ("SessionStart", None, "osprey_panels_context.py", 5),
+    ("SessionStart", None, "osprey_control_context.py", 3),
+    ("SessionStart", "startup|resume|clear", "osprey_turn_state.py", 3),
+    ("UserPromptSubmit", None, "osprey_focus_validate.py", 2),
+    ("UserPromptSubmit", None, "osprey_workspace_delta.py", 3),
+    ("UserPromptSubmit", None, "osprey_control_context.py", 3),
+    ("UserPromptSubmit", None, "osprey_turn_state.py", 3),
+    ("Stop", None, "osprey_turn_state.py", 3),
+    ("StopFailure", None, "osprey_turn_state.py", 3),
+)
+
+
+def _wired(settings: dict, event: str) -> list[tuple[str | None, str, int]]:
+    """The framework hooks ``settings.json`` wires to *event*, in render order.
+
+    Each entry is ``(matcher, script name, timeout)``. The interpreter prefix
+    is dropped: it is the render's venv path and says nothing about wiring.
+    """
+    wired: list[tuple[str | None, str, int]] = []
+    for rule in settings["hooks"].get(event, []):
+        for hook in rule["hooks"]:
+            script = hook["command"].split("/.claude/hooks/")[-1].split('"')[0]
+            wired.append((rule.get("matcher"), script, hook["timeout"]))
+    return wired
+
+
+def _selection_without(manager: TemplateManager, *dropped: str) -> dict[str, list[str]]:
+    """The control-assistant bundle's artifact selection, minus *dropped* hooks."""
+    artifacts = {
+        key: list(value)
+        for key, value in manager._effective_artifacts("control_assistant", None).items()
+    }
+    for name in dropped:
+        assert name in artifacts["hooks"], f"{name} is not in the bundle selection to begin with"
+        artifacts["hooks"].remove(name)
+    return artifacts
+
+
+def _project_with_hooks(
+    tmp_path: Path, name: str, *, dropped: tuple[str, ...] = (), config_fields: dict | None = None
+) -> Path:
+    """A built project whose profile selects every hook but *dropped*.
+
+    The preset's ``config:`` and any *config_fields* are applied in one edit
+    before the single regen, because the write-gate floor reads the render:
+    a project regenerated with the framework template's config alone is not
+    the deployment under test.
+    """
+    from osprey.cli.build_profile import resolve_build_profile
+    from osprey.utils.config_writer import config_update_fields
+
+    manager = TemplateManager()
+    project = _create_project(
+        manager,
+        project_name=name,
+        output_dir=tmp_path,
+        data_bundle="control_assistant",
+        context={"channel_finder_mode": "hierarchical"},
+        data_root=_bundle_data_root("control_assistant"),
+        artifacts=_selection_without(manager, *dropped),
+    )
+    profile, _profile_dir = resolve_build_profile(None, preset="control-assistant")
+    config_update_fields(project / "config.yml", {**profile.config, **(config_fields or {})})
+    manager.regenerate_claude_code(project)
+    return project
+
+
+def test_full_selection_wires_every_framework_hook(built_control_assistant_project):
+    """A profile that selects every hook gets the whole framework wiring."""
+    settings = json.loads(
+        (built_control_assistant_project / ".claude" / "settings.json").read_text()
+    )
+
+    for event in ("SessionStart", "UserPromptSubmit", "Stop", "StopFailure"):
+        expected = [
+            (matcher, script, timeout)
+            for wired_event, matcher, script, timeout in _FRAMEWORK_EVENT_WIRING
+            if wired_event == event
+        ]
+        assert _wired(settings, event) == expected, f"{event} wiring drifted"
+
+
+def test_dropping_panels_context_unwires_it_and_leaves_the_rest(tmp_path):
+    """A hook the profile does not select is wired to nothing.
+
+    The manifest gate already keeps the script itself out of ``.claude/hooks/``.
+    A ``SessionStart`` entry still naming it would be a command that cannot run,
+    silenced by the ``|| true`` the entry carries.
+    """
+    project = _project_with_hooks(tmp_path, "no-panels-context", dropped=("panels-context",))
+    settings = json.loads((project / ".claude" / "settings.json").read_text())
+
+    scripts = [script for _matcher, script, _timeout in _wired(settings, "SessionStart")]
+    assert "osprey_panels_context.py" not in scripts
+    assert scripts == [
+        "osprey_config_drift.py",
+        "osprey_control_context.py",
+        "osprey_turn_state.py",
+    ]
+
+
+def test_dropping_turn_state_leaves_no_stop_entries(tmp_path):
+    """Turn state is the only framework hook on ``Stop``/``StopFailure``."""
+    project = _project_with_hooks(tmp_path, "no-turn-state", dropped=("turn-state",))
+    settings = json.loads((project / ".claude" / "settings.json").read_text())
+
+    assert _wired(settings, "Stop") == []
+    assert _wired(settings, "StopFailure") == []
+    assert "osprey_turn_state.py" not in json.dumps(settings["hooks"])
+
+
+def test_dropping_a_server_attached_hook_unwires_it(tmp_path):
+    """Server-attached hooks follow the selection too, not just server enablement."""
+    project = _project_with_hooks(tmp_path, "no-error-guidance", dropped=("error-guidance",))
+    settings = json.loads((project / ".claude" / "settings.json").read_text())
+
+    assert "osprey_error_guidance.py" not in json.dumps(settings["hooks"])
+    # The rest of the PostToolUse chain still runs.
+    assert "osprey_cf_feedback_capture.py" in json.dumps(settings["hooks"])
+
+
+def test_build_refuses_an_unselected_write_gate(tmp_path):
+    """Writes armed, a write-capable server enabled, and no approval hook: refuse.
+
+    Dropping the hook used to leave the server's ``PreToolUse`` entry pointing
+    at a script the manifest gate had not installed — a write gate that was
+    silently not there.
+    """
+    from osprey.errors import BuildProfileError
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        _project_with_hooks(
+            tmp_path,
+            "unselected-approval",
+            dropped=("approval",),
+            config_fields={"control_system.writes_enabled": True},
+        )
+    message = str(excinfo.value)
+    assert "approval" in message and "controls" in message
+
+
+def test_readonly_deployment_may_drop_the_write_gates(tmp_path):
+    """With writes off everywhere there is no write to gate, and no refusal."""
+    project = _project_with_hooks(
+        tmp_path,
+        "readonly-no-approval",
+        dropped=("approval",),
+        config_fields={
+            "control_system.writes_enabled": False,
+            "control_system.connector.epics.writes_enabled": False,
+            "control_system.connector.virtual_accelerator.writes_enabled": False,
+        },
+    )
+    settings = json.loads((project / ".claude" / "settings.json").read_text())
+    assert "osprey_approval.py" not in json.dumps(settings["hooks"])
+
+
+def test_deselecting_writes_check_keeps_the_runtime_write_tool_list(tmp_path):
+    """``hook_config.json`` describes the tools, not the wiring.
+
+    The audit middleware's read-only clamp reads its ``write_tools`` at run
+    time and is there whether or not the writes-check hook is. Narrowing that
+    list along with the wiring would hand a read-only deployment a safety file
+    that names no write tool at all.
+    """
+    project = _project_with_hooks(
+        tmp_path,
+        "no-writes-check",
+        dropped=("writes-check",),
+        config_fields={
+            "control_system.writes_enabled": False,
+            "control_system.connector.epics.writes_enabled": False,
+            "control_system.connector.virtual_accelerator.writes_enabled": False,
+        },
+    )
+    hook_config = json.loads((project / ".claude" / "hooks" / "hook_config.json").read_text())
+    assert "mcp__controls__channel_write" in hook_config["write_tools"]
+
+    settings = json.loads((project / ".claude" / "settings.json").read_text())
+    assert "osprey_writes_check.py" not in json.dumps(settings["hooks"])
