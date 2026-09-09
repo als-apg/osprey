@@ -155,9 +155,9 @@ keys:
       it. The ONLY enforcement anywhere is a non-emptiness lint
       (deployment/web_terminals/lint.py `_check_empty_facility_prefix`); no
       charset or length rule exists in code. See notes.prefix_rule_drift.
+    default: ''
 
   # ── Container runtime / deployment ──────────────────────────────────
-    default: ''
   container_runtime:
     all-templates: true
     evidence: 'config\.get\("container_runtime", "auto"\) if config else None'
@@ -513,6 +513,7 @@ keys:
       read from the same block but named on no page. There is deliberately no
       `password` key at any layer — the credential lives in the project .env as
       GRAPHDB_PASSWORD.
+    default: null
   # `services.graphdb.username` is read beside `uri` but documented nowhere, so
   # it stays out of the ledger.
 
@@ -524,7 +525,6 @@ keys:
   # config.yml — hence `rendered: false` on all of them, exactly as on
   # `images.registry`/`images.tag`. `services.graphdb.image` is the one member
   # of the family a template does render, so it keeps its entry above.
-    default: null
   services.postgresql.image:
     rendered: false
     evidence: '\(services\.postgresql \| default\(\{\}\)\)\.image'
@@ -1491,11 +1491,11 @@ keys:
     default: {}
   channel_finder.benchmark.dataset_path:
     evidence: 'No benchmark query set configured'
-
-  # ── ARIEL ───────────────────────────────────────────────────────────
     default: no-fallback
     default_note: >-
       the runner refuses a benchmark with no query set, naming this key and --queries-path
+
+  # ── ARIEL ───────────────────────────────────────────────────────────
   ariel: {evidence: 'get_config_value\("ariel", \{\}\)', default: {}}
   ariel.ingestion: {covered-by: ariel, default: n/a}
   ariel.ingestion.adapter:
@@ -1929,8 +1929,9 @@ keys:
     note: >-
       The block is never read as a mapping — its single leaf below carries the
       whole read, so the evidence anchors on the prefix they share and this
-      entry dies with that reader rather than outliving it. Rendered live in
-      the four templates that carry a `web:` block; hello_world has none, so
+      entry dies with that reader rather than outliving it. Rendered from the
+      root presets that carry a `web:` block — control-assistant,
+      ariel-standalone and channel-finder-standalone; hello-world has none, so
       this is deliberately not all-templates.
     default: {}
   web.config_panel.enabled:
@@ -1952,8 +1953,9 @@ keys:
     note: >-
       The block is never read as a mapping — its single leaf below carries the
       whole read, so the evidence anchors on the prefix they share and this
-      entry dies with that reader rather than outliving it. Rendered live in
-      the four templates that carry a `web:` block; hello_world has none, so
+      entry dies with that reader rather than outliving it. Rendered from the
+      root presets that carry a `web:` block — control-assistant,
+      ariel-standalone and channel-finder-standalone; hello-world has none, so
       this is deliberately not all-templates, same as `web.config_panel`.
     default: {}
   web.scaffold_gallery.write_enabled:
