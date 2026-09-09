@@ -2,10 +2,9 @@
 
 A readonly run refuses every entry point in ``_CLIENT_WRITE_TARGETS``. A
 readwrite run does something *different* with each one — checks the value
-against the channel limits, refuses it outright, cannot reach it at all, or
-lets it through unchecked because nobody has wrapped it yet. Those four answers
-are written down as :data:`_LIMITS_WRAPPED`, :data:`_LIMITS_REFUSED`,
-:data:`_LIMITS_UNWRAPPABLE` and :data:`_LIMITS_NOT_YET_WRAPPED`.
+against the channel limits, refuses it outright, or cannot reach it at all.
+Those three answers are written down as :data:`_LIMITS_WRAPPED`,
+:data:`_LIMITS_REFUSED` and :data:`_LIMITS_UNWRAPPABLE`.
 
 Written down, they can go stale: a row added to the table with no bucket would
 quietly claim a limits check it never gets, and a bucket entry left behind by a
@@ -22,7 +21,6 @@ import pytest
 
 from osprey.services.python_executor.write_surface import (
     _CLIENT_WRITE_TARGETS,
-    _LIMITS_NOT_YET_WRAPPED,
     _LIMITS_REFUSED,
     _LIMITS_UNWRAPPABLE,
     _LIMITS_WRAPPED,
@@ -36,7 +34,6 @@ _BUCKETS = {
     "_LIMITS_WRAPPED": _LIMITS_WRAPPED,
     "_LIMITS_REFUSED": _LIMITS_REFUSED,
     "_LIMITS_UNWRAPPABLE": _LIMITS_UNWRAPPABLE,
-    "_LIMITS_NOT_YET_WRAPPED": _LIMITS_NOT_YET_WRAPPED,
 }
 
 _ALIAS_PACKAGE = "PyTango"
@@ -66,8 +63,8 @@ def test_every_client_row_is_in_exactly_one_bucket():
         holders = [name for name, bucket in _BUCKETS.items() if row in bucket]
         assert holders, (
             f"{dotted}.{attr} is in the write surface but in no limits bucket — "
-            "say whether a limits-checked run wraps, refuses, cannot reach or "
-            "does not yet check it"
+            "say whether a limits-checked run wraps it, refuses it, or cannot "
+            "reach it at all"
         )
         assert len(holders) == 1, (
             f"{dotted}.{attr} is in more than one limits bucket: {', '.join(holders)}"
@@ -82,37 +79,6 @@ def test_no_bucket_names_a_row_outside_the_table():
             assert (dotted, attr) in table, (
                 f"{name} names {dotted}.{attr}, which is not in _CLIENT_WRITE_TARGETS"
             )
-
-
-def test_not_yet_wrapped_bucket_holds_ten_rows():
-    """The unchecked remainder is a fixed, countable list, not an open set.
-
-    Ten entry points reach hardware in a readwrite run without passing the
-    limits database. Wrapping one moves it out of here; a new client row
-    landing here instead of in a wrapper is a decision, and this count makes it
-    one somebody has to make on purpose.
-    """
-    assert len(_LIMITS_NOT_YET_WRAPPED) == 10, (
-        "the not-yet-wrapped bucket changed size: "
-        + ", ".join(f"{dotted}.{attr}" for dotted, attr in _LIMITS_NOT_YET_WRAPPED)
-    )
-
-
-def test_not_yet_wrapped_rows_name_the_follow_up():
-    """Every unchecked row is pinned to the one tracker item that closes them.
-
-    The literal is the point: the bucket is deliberately tracked as a single
-    piece of work, so a row that belongs to a different follow-up does not
-    belong here. Splitting the tracking is a decision somebody makes on
-    purpose --- either the row moves to a bucket that fits it, or this pin is
-    widened knowingly --- the same argument the ten-row count makes for itself.
-    """
-    for (dotted, attr), reason in _LIMITS_NOT_YET_WRAPPED.items():
-        assert reason == "followups-897 item 16", (
-            f"{dotted}.{attr} names {reason!r}, but this bucket is pinned to "
-            "the single tracker item 'followups-897 item 16'; move the row to "
-            "a bucket that fits it, or widen the pin here on purpose"
-        )
 
 
 def test_every_bucket_entry_carries_a_reason():
