@@ -586,6 +586,30 @@ class TestExecuteLitellmCompletionResponses:
         assert "api_key" not in mock_completion.call_args.kwargs
 
     @patch("litellm.completion")
+    def test_extra_body_is_forwarded_to_litellm(self, mock_completion):
+        """LiteLLM clientside-auth fields can be sent in the request body."""
+        message = MagicMock()
+        message.tool_calls = None
+        message.content = "ok"
+        response = MagicMock()
+        response.choices = [MagicMock(message=message)]
+        mock_completion.return_value = response
+
+        execute_litellm_completion(
+            provider="amsc-i2",
+            message="hi",
+            model_id="amsc/gpt-oss-120b-safeguard",
+            api_key="delphi-key",
+            base_url="http://127.0.0.1:4000/v1",
+            extra_body={"api_key": "upstream-amsc-key"},
+        )
+
+        kwargs = mock_completion.call_args.kwargs
+        assert kwargs["api_key"] == "delphi-key"
+        assert kwargs["api_base"] == "http://127.0.0.1:4000/v1"
+        assert kwargs["extra_body"] == {"api_key": "upstream-amsc-key"}
+
+    @patch("litellm.completion")
     def test_empty_choices_returns_empty_string(self, mock_completion):
         """A response with no choices yields '' rather than raising an IndexError."""
         response = MagicMock()

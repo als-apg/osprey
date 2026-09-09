@@ -306,3 +306,44 @@ class TestGetChatCompletionAcceptsAProviderDefault:
 
         with pytest.raises(ValueError, match="Base URL required for als-apg"):
             completion_module.get_chat_completion(message="ping", provider="als-apg", max_tokens=4)
+
+    def test_provider_config_extra_body_reaches_provider(self, monkeypatch):
+        """Provider catalog entries may carry LiteLLM request-body extensions.
+
+        This is the shape needed for a Delphi-fronted BYOK provider: the normal
+        provider api_key authenticates to Delphi, while extra_body.api_key is
+        the user's upstream key forwarded by LiteLLM clientside auth.
+        """
+        from osprey.models import completion as completion_module
+        from osprey.models.provider_registry import get_provider_registry
+
+        seen: dict = {}
+
+        def fake_execute(self, **kwargs):
+            seen.update(kwargs)
+            return "ok"
+
+        monkeypatch.setattr(
+            completion_module,
+            "get_provider_config",
+            lambda provider: {
+                "api_key": "delphi-key",
+                "base_url": "http://127.0.0.1:4000/v1",
+                "default_model_id": "amsc/gpt-oss-120b-safeguard",
+                "extra_body": {"api_key": "upstream-amsc-key"},
+            },
+        )
+        provider_class = get_provider_registry().get_provider("amsc-i2")
+        monkeypatch.setattr(provider_class, "execute_completion", fake_execute)
+
+        result = completion_module.get_chat_completion(
+            message="ping",
+            provider="amsc-i2",
+            max_tokens=4,
+        )
+
+        assert result == "ok"
+        assert seen["api_key"] == "delphi-key"
+        assert seen["base_url"] == "http://127.0.0.1:4000/v1"
+        assert seen["model_id"] == "amsc/gpt-oss-120b-safeguard"
+        assert seen["extra_body"] == {"api_key": "upstream-amsc-key"}

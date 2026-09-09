@@ -94,7 +94,8 @@ def get_chat_completion(
     :param enable_thinking: Enable extended thinking capabilities where supported
     :param output_model: Pydantic model or TypedDict for structured output validation
     :param base_url: Custom API endpoint, required for Ollama and CBORG providers
-    :param provider_config: Optional provider configuration dict with api_key, base_url, etc.
+    :param provider_config: Optional provider configuration dict with api_key, base_url,
+        extra_body, etc.
     :param temperature: Sampling temperature (0.0-2.0)
     :raises ValueError: If required provider, model_id, api_key, or base_url are missing
     :return: Model response (str, Pydantic model, or list of content blocks for thinking)
@@ -195,6 +196,8 @@ def get_chat_completion(
         "tools": tools,
         "tool_choice": tool_choice,
     }
+    if provider_config and isinstance(provider_config.get("extra_body"), dict):
+        completion_kwargs["extra_body"] = dict(provider_config["extra_body"])
 
     result = provider_instance.execute_completion(
         message=message,
