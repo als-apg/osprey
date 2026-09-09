@@ -197,7 +197,12 @@ ariel:
       model:
         model_id: {{ default_model }}
 {%- endif %}
-{%- set _builtin_panels = builtin_panels | default([]) %}
+{#- The registry, never a default: `builtin_panels` is set on every render
+    context the manager builds, so a render that reaches here without it is
+    a wiring fault. Defaulting to an empty list would swallow that and emit
+    `panels: {}` — every selected tab silently missing from the build. #}
+{%- set _builtin_panels = builtin_panels if builtin_panels is defined
+    else fail("builtin_panels missing from render context") %}
 {%- set _enabled_builtin_panels = selected_web_panels | default([]) | select("in", _builtin_panels) | list %}
 {%- set _has_default_panel = default_panel is defined and default_panel %}
 {%- set _has_presets = panel_presets is defined and panel_presets %}

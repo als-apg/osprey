@@ -36,6 +36,7 @@ from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.cli.templates.manager import TemplateManager
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
+from osprey.profiles.web_panels import BUILTIN_PANELS
 from osprey.utils.config import ConfigBuilder
 
 # The one bundled template that renders an ``execution:`` block. It is derived
@@ -120,12 +121,15 @@ class TestTemplatesRenderTheDeclaration:
     def jinja_env(self):
         return TemplateManager().jinja_env
 
-    #: The port table the real render builds in
+    #: The port table and panel registry the real render builds in
     #: TemplateManager._project_context. These tests reach the
-    #: environment directly, so they carry it themselves.
+    #: environment directly, so they carry them themselves. The template
+    #: refuses a render with no ``builtin_panels``, deliberately: it has no
+    #: other source for what a selected tab may name.
     PORTS = {
         "port_base": DEFAULT_PORT_BASE,
         "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
+        "builtin_panels": sorted(BUILTIN_PANELS),
     }
 
     @pytest.mark.parametrize("template_name", CONFIG_TEMPLATES)
