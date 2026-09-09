@@ -17,6 +17,8 @@ The relayed surface mirrors the bridge's queue contract one-for-one:
 - ``POST /queue/stop`` -> stop after the running item (``cancel: true`` withdraws)
 - ``POST /queue/abort`` -> abort the plan already in motion
 - ``GET /queue/events`` -> the queue's Server-Sent-Events stream
+- ``DELETE /history`` -> drop every completed run from the manager's history
+- ``DELETE /runs/{run_id}`` -> drop one finished run from the history view
 
 **This sidecar holds no queue state and makes no queue policy.** It does not
 know which routes arm hardware, does not pre-check capability, and does not
