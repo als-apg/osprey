@@ -711,26 +711,26 @@ class TestBuiltinPanelRegistryDrift:
         assert "ariel" not in panels
 
     @pytest.mark.parametrize("template_path", PANEL_TEMPLATES)
-    def test_no_builtin_is_enabled_when_the_registry_is_absent(self, template_path):
-        """The registry is the only source: without it, no builtin is enabled.
+    def test_a_render_without_the_registry_refuses(self, template_path):
+        """The registry is the only source, and its absence is a wiring fault.
 
-        The template carries no inline list of its own to fall back to, so a
-        selection it cannot check against the registry enables nothing rather
-        than being waved through. Proves ``okf`` is enabled above because
-        ``BUILTIN_PANELS`` supplies it, not by accident of a literal that
-        happens to name it.
+        Every context the manager builds carries ``builtin_panels``, so a render
+        that reaches the panel block without it cannot check the selection
+        against anything. Degrading to an empty list would emit ``panels: {}``
+        and take every selected tab out of the build with nothing said; a render
+        error is the honest answer and the one a build surfaces.
         """
-        import yaml
+        from jinja2 import TemplateRuntimeError
 
         manager = TemplateManager()
         template = manager.jinja_env.get_template(template_path)
-        rendered = template.render(
-            selected_web_panels=["okf", "channel-finder"],
-            port_base=DEFAULT_PORT_BASE,
-            osprey_ports=layout_ports(DEFAULT_PORT_BASE),
-        )
 
-        assert yaml.safe_load(rendered).get("web") is None
+        with pytest.raises(TemplateRuntimeError, match="builtin_panels"):
+            template.render(
+                selected_web_panels=["okf", "channel-finder"],
+                port_base=DEFAULT_PORT_BASE,
+                osprey_ports=layout_ports(DEFAULT_PORT_BASE),
+            )
 
     def test_create_project_enables_okf_builtin_panel(self, tmp_path):
         """End-to-end: ``manager.py`` injects ``sorted(BUILTIN_PANELS)`` → template
