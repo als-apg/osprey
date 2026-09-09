@@ -367,33 +367,60 @@ class WriteConfig:
         )
 
 
-def _known_ingestion_adapters() -> list[str]:
-    """Adapter names to offer an operator who named none.
+def framework_ariel_names(attribute: str) -> list[str]:
+    """ARIEL names the framework itself registers under *attribute*.
 
-    The live registry first — a deployment that registered its own adapter must
-    see it here — and the framework's built-in registrations as the fallback,
-    since a config can be parsed outside a project, where there is no registry
-    to ask.
+    Args:
+        attribute: Registry-config list attribute, e.g. ``ariel_search_modules``.
 
     Returns:
-        Sorted adapter names, or an empty list if neither source can answer.
+        Registered names, in registration order.
+    """
+    from osprey.registry.builtins import FrameworkRegistryProvider
+
+    config = FrameworkRegistryProvider().get_registry_config()
+    return [registration.name for registration in getattr(config, attribute)]
+
+
+def registered_ariel_names(attribute: str) -> list[str]:
+    """ARIEL names registered under *attribute*, in registry order.
+
+    The one owner of this fallback. Every surface that has to name what is
+    registered goes through here — the ``--adapter``, ``--module`` and ``--mode``
+    choices, the status report's module table, and the refusal below that tells
+    an operator which adapters exist — so a name one of them accepts can never be
+    a name another does not know.
+
+    The live registry answers first, so a deployment that registered its own
+    adapter or module is reported without a code change. The framework's own
+    registrations are the fallback: a config can be parsed and ``--help`` can be
+    rendered outside a project, where there is no registry to ask, and a missing
+    project config must not turn either into an error.
+
+    Args:
+        attribute: Registry-config list attribute, e.g. ``ariel_search_modules``.
+
+    Returns:
+        Registered names, or an empty list if neither source can answer.
     """
     try:
-        from osprey.registry.manager import get_registry
+        from osprey.registry import get_registry
 
-        names = get_registry().list_ariel_ingestion_adapters()
+        names = [registration.name for registration in getattr(get_registry().config, attribute)]
         if names:
-            return sorted(names)
-    except Exception:  # noqa: BLE001 — the refusal matters more than the list
+            return names
+    except Exception:  # noqa: BLE001 — the caller's own job matters more than the list
         pass
 
     try:
-        from osprey.registry.builtins import FrameworkRegistryProvider
-
-        registrations = FrameworkRegistryProvider().get_registry_config()
-        return sorted(r.name for r in registrations.ariel_ingestion_adapters)
+        return framework_ariel_names(attribute)
     except Exception:  # noqa: BLE001 — same
         return []
+
+
+def _known_ingestion_adapters() -> list[str]:
+    """Adapter names to offer an operator who named none, sorted for the message."""
+    return sorted(registered_ariel_names("ariel_ingestion_adapters"))
 
 
 @dataclass

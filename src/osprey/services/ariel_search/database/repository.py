@@ -537,55 +537,73 @@ class ARIELRepository:
     async def get_enhancement_stats(self) -> dict[str, Any]:
         """Get statistics about enhancement completion.
 
+        The per-module counts come from one grouped aggregate over
+        ``jsonb_each(enhancement_status)``, so the SQL text is fixed and no
+        module name is ever spliced into it. A module the store has never seen
+        simply has no rows; one a facility registered itself is reported the
+        moment its first entry lands, without a code change here.
+
+        ``pending`` keeps the meaning the two hand-written FILTER clauses gave
+        it: entries whose status for the module is ``pending``, PLUS entries
+        that carry no key for the module at all. The second half cannot be
+        counted per module by the aggregate — an entry without the key produces
+        no row for it — so it is derived from the total instead. That subtraction
+        is why the total rides along in the same statement: two statements on an
+        autocommit connection read two snapshots, and an ingest landing between
+        them would drive ``pending`` negative. The ``LEFT JOIN ... ON TRUE``
+        keeps one row even when no entry carries a status key, so the total is
+        still readable from a store that has nothing to group.
+
         Returns:
-            Dict with stats per module
+            ``total_entries`` plus, per module, a ``{complete, failed,
+            pending}`` count. An empty store returns ``total_entries`` alone.
         """
         try:
             async with self.pool.connection() as conn:
                 result = await conn.execute(
                     """
+                    WITH total AS (
+                        SELECT COUNT(*) AS entries FROM enhanced_entries
+                    ),
+                    per_module AS (
+                        SELECT
+                            status.key AS module,
+                            status.value->>'status' AS state,
+                            COUNT(*) AS entries
+                        FROM enhanced_entries
+                        CROSS JOIN LATERAL jsonb_each(enhancement_status) AS status
+                        GROUP BY status.key, status.value->>'status'
+                    )
                     SELECT
-                        COUNT(*) AS total_entries,
-                        COUNT(*) FILTER (
-                            WHERE enhancement_status->'text_embedding'->>'status' = 'complete'
-                        ) AS text_embedding_complete,
-                        COUNT(*) FILTER (
-                            WHERE enhancement_status->'text_embedding'->>'status' = 'failed'
-                        ) AS text_embedding_failed,
-                        COUNT(*) FILTER (
-                            WHERE enhancement_status->'text_embedding'->>'status' = 'pending'
-                            OR NOT enhancement_status ? 'text_embedding'
-                        ) AS text_embedding_pending,
-                        COUNT(*) FILTER (
-                            WHERE enhancement_status->'semantic_processor'->>'status' = 'complete'
-                        ) AS semantic_processor_complete,
-                        COUNT(*) FILTER (
-                            WHERE enhancement_status->'semantic_processor'->>'status' = 'failed'
-                        ) AS semantic_processor_failed,
-                        COUNT(*) FILTER (
-                            WHERE enhancement_status->'semantic_processor'->>'status' = 'pending'
-                            OR NOT enhancement_status ? 'semantic_processor'
-                        ) AS semantic_processor_pending
-                    FROM enhanced_entries
+                        total.entries AS total_entries,
+                        per_module.module,
+                        per_module.state,
+                        per_module.entries
+                    FROM total
+                    LEFT JOIN per_module ON TRUE
                     """
                 )
-                row = await result.fetchone()
-                if not row:
-                    return {"total_entries": 0}
+                rows = await result.fetchall()
 
-                return {
-                    "total_entries": row[0],
-                    "text_embedding": {
-                        "complete": row[1],
-                        "failed": row[2],
-                        "pending": row[3],
-                    },
-                    "semantic_processor": {
-                        "complete": row[4],
-                        "failed": row[5],
-                        "pending": row[6],
-                    },
-                }
+                total_entries = rows[0][0] if rows else 0
+
+                by_module: dict[str, dict[str, int]] = {}
+                seen: dict[str, int] = {}
+                for _total, module, state, entries in rows:
+                    if module is None:
+                        continue
+                    counts = by_module.setdefault(
+                        module, {"complete": 0, "failed": 0, "pending": 0}
+                    )
+                    if state in counts:
+                        counts[state] += entries
+                    seen[module] = seen.get(module, 0) + entries
+
+                stats: dict[str, Any] = {"total_entries": total_entries}
+                for module, counts in by_module.items():
+                    counts["pending"] += total_entries - seen[module]
+                    stats[module] = counts
+                return stats
         except Exception as e:
             raise DatabaseQueryError(
                 f"Failed to get enhancement stats: {e}",

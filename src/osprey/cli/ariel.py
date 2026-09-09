@@ -19,11 +19,8 @@ import click
 
 # Import get_config_value at module level for easier patching in tests
 from osprey.utils.config import get_config_value
-from osprey.utils.logger import get_logger
 
 from . import output
-
-logger = get_logger("ariel")
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -122,14 +119,6 @@ _ENHANCEMENT_MODULES_ATTR = "ariel_enhancement_modules"
 _INGESTION_ADAPTERS_ATTR = "ariel_ingestion_adapters"
 
 
-def _framework_registrations(attribute: str) -> tuple[str, ...]:
-    """Return the names the framework registers by default under *attribute*."""
-    from osprey.registry.builtins import FrameworkRegistryProvider
-
-    config = FrameworkRegistryProvider().get_registry_config()
-    return tuple(registration.name for registration in getattr(config, attribute))
-
-
 def _registered_names(attribute: str) -> tuple[str, ...]:
     """Return the names the registry knows about under *attribute*.
 
@@ -137,9 +126,16 @@ def _registered_names(attribute: str) -> tuple[str, ...]:
     own search module, enhancement module or ingestion adapter gets it as a
     CLI choice without a code change. Building that registry needs a project
     ``config.yml``; when there is none (``--help`` run outside a project
-    directory, say) the framework's own baseline registrations stand in. That
-    failure is expected here, so the registry loggers are muted while it is
-    probed — a help screen is not the place to report a missing project config.
+    directory, say) the framework's own baseline registrations stand in.
+
+    Which source answers is
+    :func:`osprey.services.ariel_search.config.registered_ariel_names`'s call to
+    make — one function owns that fallback, so ``osprey ariel status`` cannot
+    report a module that ``--module`` refuses, and the refusal a config raises
+    for a missing ``ariel.ingestion.adapter`` cannot advertise an adapter the
+    CLI would reject. What this wrapper adds is the muting: probing the registry
+    outside a project fails by design here, and a help screen is not the place
+    to report a missing project config.
 
     Args:
         attribute: Registry-config list attribute, e.g. ``ariel_search_modules``.
@@ -149,26 +145,17 @@ def _registered_names(attribute: str) -> tuple[str, ...]:
     """
     import logging
 
+    from osprey.services.ariel_search.config import registered_ariel_names
+
     muted = {name: logging.getLogger(name) for name in ("registry", "registry.loader")}
     previous_levels = {name: log.level for name, log in muted.items()}
+    for log in muted.values():
+        log.setLevel(logging.CRITICAL)
     try:
-        from osprey.registry import get_registry
-
-        for log in muted.values():
-            log.setLevel(logging.CRITICAL)
-        try:
-            names = tuple(
-                registration.name for registration in getattr(get_registry().config, attribute)
-            )
-        finally:
-            for name, log in muted.items():
-                log.setLevel(previous_levels[name])
-        if names:
-            return names
-    except Exception:
-        logger.debug("Registry unavailable; using framework %s", attribute, exc_info=True)
-
-    return _framework_registrations(attribute)
+        return tuple(registered_ariel_names(attribute))
+    finally:
+        for name, log in muted.items():
+            log.setLevel(previous_levels[name])
 
 
 class _RegistryChoice(click.Choice):

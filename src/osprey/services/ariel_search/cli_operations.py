@@ -357,6 +357,7 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
         store has never been ingested.
     """
     from osprey.services.ariel_search import create_ariel_service
+    from osprey.services.ariel_search.config import registered_ariel_names
 
     # Computed first and unconditionally: the vocabulary line must survive a
     # database that is down and a config that will not parse.
@@ -397,15 +398,12 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
                     for t in tables
                 ],
                 "enhancement_modules": {
-                    "text_embedding": config.is_enhancement_module_enabled("text_embedding"),
-                    "semantic_processor": config.is_enhancement_module_enabled(
-                        "semantic_processor"
-                    ),
+                    name: config.is_enhancement_module_enabled(name)
+                    for name in registered_ariel_names("ariel_enhancement_modules")
                 },
                 "search_modules": {
-                    "keyword": config.is_search_module_enabled("keyword"),
-                    "semantic": config.is_search_module_enabled("semantic"),
-                    "hybrid": config.is_search_module_enabled("hybrid"),
+                    name: config.is_search_module_enabled(name)
+                    for name in registered_ariel_names("ariel_search_modules")
                 },
                 "vocabulary": vocabulary,
             }
