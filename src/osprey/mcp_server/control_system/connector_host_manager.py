@@ -1355,8 +1355,10 @@ class ConnectorHostManager:
         Args:
             target: The destination.
             cause: What to attribute the previous child's retirement to.
-            probe: Whether to prove the candidate with a real read; false only
-                for the deployment's first child.
+            probe: Whether to prove the candidate with a real read. False only
+                when nothing is serving yet — the deployment's first child, or
+                a childless server whose record moved — so there is no working
+                session to protect.
             force: Replace the child even when it already serves *target*.
             generation: The generation the record's owner minted for this move,
                 **assigned** on the way through. ``None`` on a path that is not
@@ -1432,8 +1434,9 @@ class ConnectorHostManager:
             settled = self._already_served(target, derivation)
             if settled is not None:
                 return settled
-        # ``probe`` is false only for the deployment's very first child, where
-        # there is no working session to protect — see ensure_started().
+        # ``probe`` is false only when nothing is serving yet — the deployment's
+        # first child, or a childless server whose record moved — where there is
+        # no working session to protect. See ensure_started() and reconcile().
         probe_channel = self._probe_channel(target, derivation) if probe else ""
 
         fallback: dict[str, Any] | None = None
