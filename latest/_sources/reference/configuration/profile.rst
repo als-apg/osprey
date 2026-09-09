@@ -815,7 +815,12 @@ shipped ``control-assistant-*`` presets pin none of them. A persona profile
 that spells one of these keys with a *different* value is refused — the two
 copies would dial different places, and the build names both. (A persona
 inherits the hosting profile's ``config:`` keys, so a port moved there is
-spelled in every persona as the host's own value, and agrees.) A persona
+spelled in every persona as the host's own value, and agrees.) The rest of a
+deployed service's block — its image, its JVM sizing, the directory its
+compose fragment lives in — is dropped from the persona, with one exception:
+a key that names a file in the render's own ``data/`` tree, such as the graph
+store's ``ttl_path`` and ``index_path``, stays, because the persona stages
+that tree too and its build derives the search index from it. A persona
 built *alone* (``osprey init --preset control-assistant-logbook`` in a
 repo with no hosting deployment) is told what its own preset deploys at the
 shipped defaults instead, and there its ``config:`` is where a host that

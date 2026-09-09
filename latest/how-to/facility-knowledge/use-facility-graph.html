@@ -936,7 +936,9 @@ osprey<span class="w"> </span>knowledge<span class="w"> </span>seed-graph
 </div>
 <p>A channel finder already running on the host keeps the index it opened, so
 restart it to pick up a rebuilt one. A deployed stack needs nothing: its build
-writes the index into the image it starts from.</p>
+writes the index into the image it starts from — one per render, so each
+per-user persona image carries an index derived from the corpus that render
+stages, not a copy borrowed from the deployment’s.</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> reports both halves under the channel finder category:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">channel_finder_seed</span></code> — the corpus the store was imported from, as the
@@ -959,7 +961,10 @@ deploy no services of their own — so they have to be told which port that
 store is published on. Per-user web terminal containers run with
 <code class="docutils literal notranslate"><span class="pre">network_mode:</span> <span class="pre">host</span></code>, so a container’s <code class="docutils literal notranslate"><span class="pre">localhost</span></code> <em>is</em> the deployment
 host, and the build copies the bolt port from the hosting deployment’s own
-render into each persona.</p>
+render into each persona. The corpus is the one thing about the store a
+persona is <em>not</em> told: <code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code> names a file in the
+<code class="docutils literal notranslate"><span class="pre">data/</span></code> tree every render stages for itself, so each persona keeps the key
+as its own and the build derives that persona’s search index from it.</p>
 <p>Two consequences worth knowing before you move anything:</p>
 <ul class="simple">
 <li><p><strong>Move the port on the hosting deployment and every persona follows.</strong> A
