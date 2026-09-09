@@ -123,16 +123,17 @@ deployment already exists, any generation; (2) a facility exists, but no OSPREY;
 nothing yet.
 
 **Second: is OSPREY installed here.** Run `osprey --version` first and say what it
-printed. Then AskUserQuestion with three options; the recommended one is whichever the
+printed. Then AskUserQuestion with these options; the recommended one is whichever the
 version output supports:
 
 | Option | What it does |
 | --- | --- |
 | Already installed | Keep the version `osprey --version` printed. Record it. |
 | Install the latest release | `uv tool install osprey-framework`. Upgrade later with `uv tool upgrade osprey-framework`. |
+| Install a pre-release | `uv tool install --prerelease allow osprey-framework` (newest, pre-releases included), or `uv tool install --prerelease allow "osprey-framework==<version>"` for one. The flag is what admits the matching `osprey-connectors` pre-release; a version pin alone fails. Upgrade later with `uv tool upgrade --prerelease allow osprey-framework`. |
 | Install the development version | `uv tool install git+https://github.com/als-apg/osprey.git@main`. Newest fixes, no checkout to manage; `uv tool upgrade` refreshes it. |
 
-Both installs put `osprey` on the PATH, so every command in this skill runs the same
+Every install puts `osprey` on the PATH, so every command in this skill runs the same
 way afterwards. The dev form also takes a branch: `@<branch>` instead of `@main` is how
 a deployment is built against an upstream fix branch (see `/osprey:upstream-scout`).
 If `uv` is missing, say so and point at the installation page rather than improvising an

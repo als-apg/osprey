@@ -6,11 +6,12 @@ providers), run the command and read the live output instead of recalling one.
 
 ## Install OSPREY
 
-Three forms, all of which put `osprey` on the PATH so every verb below runs the same way:
+Four forms, all of which put `osprey` on the PATH so every verb below runs the same way:
 
 | Form | Command | Upgrade |
 | --- | --- | --- |
 | Latest release | `uv tool install osprey-framework` | `uv tool upgrade osprey-framework` |
+| A pre-release | `uv tool install --prerelease allow osprey-framework`, or `--prerelease allow "osprey-framework==<version>"` for one — the flag admits the matching `osprey-connectors` pre-release, a pin alone fails | `uv tool upgrade --prerelease allow osprey-framework` |
 | Development version, `main` | `uv tool install git+https://github.com/als-apg/osprey.git@main` | `uv tool upgrade osprey-framework` |
 | A branch (an upstream fix in flight) | `uv tool install git+https://github.com/<owner>/osprey.git@<branch>`, or `uv tool install --editable <clone>` | re-run the same command |
 
