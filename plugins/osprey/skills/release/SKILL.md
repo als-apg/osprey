@@ -74,16 +74,22 @@ differences, each load-bearing:
   `osprey-connectors>=<last-stable>,!=<last-stable>a0`: the `!=` clause names
   a pre-release, which under PEP 440 admits pre-release candidates to the
   whole set, so pip pairs beta with beta while dev wheels still satisfy the
-  floor. uv resolves transitive pre-releases only with `--prerelease=allow`
-  and fails loudly with that hint — put the flag in the release notes. Run
-  `uv lock --check` after the edit. The final release afterwards restores
+  floor. uv admits transitive pre-releases only with `--prerelease allow`:
+  even an exact `==` pin on the framework fails without it, with a hint that
+  names the flag. The installation page carries the command under
+  *Pre-releases*; repeat the exact command at the top of the GitHub Release
+  body, because a reader who follows the stable instructions from the
+  pre-release's own docs directory gets the last stable release and not the
+  beta. Run `uv lock --check` after the edit. The final release afterwards restores
   the plain floor at its own stable version.
 - **The GitHub Release is marked pre-release automatically.** `release.yml`
   classifies the tag (exactly `X.Y.Z` = stable, anything else = pre-release)
   and sets the flag, so the beta never shows as "Latest".
-- **Docs do not publish.** `docs.yml` builds a pre-release tag but refuses to
-  deploy it: the site root and the version switcher stay on the last stable
-  release, and beta users read `/latest/`. Deliberate — do not "fix" it.
+- **Docs publish into the tag's own directory.** `docs.yml` deploys a
+  pre-release tag to `/vX.Y.Z{a|b|rc}N/` with its own switcher entry; the site
+  root and the switcher's preferred entry stay on the last stable release.
+  Nothing to do here — but it is why the release body must carry the install
+  command: that directory is where beta testers land.
 - **The version module keeps the segment.** A clean checkout of the tag
   reports `is_release()` true and pins `osprey-framework==YYYY.M.PbN`;
   `tests/test_version.py::TestPreReleaseChannel` pins this. `base_version`
