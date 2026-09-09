@@ -762,6 +762,23 @@ def test_the_per_agent_model_table_is_opt_in(lifecycle_repo, runtime):
     assert "model tiers" in default
 
 
+def test_the_agent_table_lists_every_framework_agent(lifecycle_repo, runtime):
+    """The table is the agent catalog, not the subset the tier map names.
+
+    An agent absent from ``AGENT_DEFAULT_TIERS`` still runs — it takes the
+    resolver's ``sonnet`` fallback — so leaving it out of the report would make
+    status the one place its model went unsaid.
+    """
+    from osprey.registry.mcp import FRAMEWORK_AGENTS
+
+    render_build(lifecycle_repo)
+
+    text = report(lifecycle_repo, show_agents=True)
+
+    for agent_name in FRAMEWORK_AGENTS:
+        assert agent_name in text, agent_name
+
+
 # ---------------------------------------------------------------------------
 # Status changes nothing
 # ---------------------------------------------------------------------------

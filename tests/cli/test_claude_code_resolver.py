@@ -536,6 +536,46 @@ class TestAgentDefaultTiersConsistency:
                 )
 
 
+class TestAgentDefaultTiersCoverFrameworkAgents:
+    """The tier map and the agent catalog are one list, not two.
+
+    ``AGENT_DEFAULT_TIERS`` lives in ``osprey.build`` and ``FRAMEWORK_AGENTS`` in
+    ``osprey.registry.mcp`` because the build must not import the registry — but
+    an agent missing from the map is not a build error, it silently takes the
+    ``sonnet`` fallback and disappears from ``osprey status``. So the two are
+    pinned equal here, and each agent template's own literal fallback is pinned
+    to the map entry it stands in for.
+    """
+
+    def test_the_map_covers_exactly_the_framework_agents(self):
+        from osprey.registry.mcp import FRAMEWORK_AGENTS
+
+        assert set(AGENT_DEFAULT_TIERS) == set(FRAMEWORK_AGENTS)
+
+    def test_each_template_fallback_matches_the_map(self):
+        """The ``else "<tier>"`` in a template renders when no spec is passed."""
+        import re
+        from pathlib import Path
+
+        agents_dir = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "osprey"
+            / "templates"
+            / "claude_code"
+            / "claude"
+            / "agents"
+        )
+        pattern = re.compile(r'agent_tier\("(?P<name>[^"]+)"\).*?else "(?P<tier>[a-z]+)"')
+        seen = {}
+        for path in sorted(agents_dir.glob("*.md.j2")):
+            match = pattern.search(path.read_text())
+            assert match, f"{path.name} declares no model line with a fallback tier"
+            seen[match.group("name")] = match.group("tier")
+
+        assert seen == AGENT_DEFAULT_TIERS
+
+
 class TestEnvBlockTierModels:
     """Env block contains ANTHROPIC_DEFAULT_*_MODEL vars for all providers."""
 
