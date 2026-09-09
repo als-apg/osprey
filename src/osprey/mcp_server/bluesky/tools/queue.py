@@ -897,9 +897,11 @@ def _relay_refusal(
     return make_error(code, message, hints, details=detail)
 
 
-# Manager states that mean this lane's queue is draining toward hardware. From
-# the same vocabulary `queue_list` documents; a lane in one of these is a lane
-# with something to halt.
+# Manager states that mean this lane's queue is draining toward hardware. A copy
+# of `queue_backend.QUEUE_ACTIVE_MANAGER_STATES`, forced by this server's
+# no-bluesky-imports invariant and kept in step by name — the two JS clients
+# (`queue-client.js`, `bar-item-queue.js`) carry the same copy for the same
+# reason. A lane in one of these is a lane with something to halt.
 _MOVING_MANAGER_STATES = frozenset(
     {"executing_queue", "starting_queue", "executing_task", "paused"}
 )

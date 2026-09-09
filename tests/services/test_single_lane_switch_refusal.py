@@ -368,6 +368,43 @@ def test_the_tool_modules_reason_code_is_the_queue_backend_constant():
     assert queue.REASON_CONTROL_TARGET_MISMATCH == qb.REASON_CONTROL_TARGET_MISMATCH
 
 
+def test_the_halt_paths_manager_states_are_the_queue_backends():
+    """The other copy the no-bluesky-imports invariant forces apart.
+
+    ``queue.py`` may not import ``queue_backend`` (it pulls in
+    ``bluesky-queueserver-api``), so the set of states that mean "this lane is
+    draining toward hardware" is spelled twice. A state added on the bridge and
+    not here would leave a moving lane un-haltable, which nothing else would
+    report.
+    """
+    assert queue._MOVING_MANAGER_STATES == qb.QUEUE_ACTIVE_MANAGER_STATES
+
+
+def test_the_js_queue_clients_carry_the_same_manager_states():
+    """The two browser copies of the same set, pinned by regex.
+
+    Neither can import the Python constant either, and a panel that thinks a
+    lane is idle offers no stop button for a plan that is running.
+    """
+    import re
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    sources = [
+        repo_root / "src/osprey/interfaces/bluesky_web/panels/bluesky/queue-client.js",
+        repo_root / "src/osprey/interfaces/web_terminal/static/js/bar-item-queue.js",
+    ]
+    pattern = re.compile(
+        r"QUEUE_ACTIVE_MANAGER_STATES\s*=\s*Object\.freeze\(\[(?P<body>[^\]]*)\]\)"
+    )
+
+    for source in sources:
+        match = pattern.search(source.read_text())
+        assert match, f"{source.name} no longer declares QUEUE_ACTIVE_MANAGER_STATES"
+        states = set(re.findall(r"'([a-z_]+)'", match.group("body")))
+        assert states == set(qb.QUEUE_ACTIVE_MANAGER_STATES), source.name
+
+
 def test_the_reason_has_an_entry_in_the_shared_refusal_hint_table():
     """So a lane-aware bridge relaying the same code answers the same way."""
     hints = queue._REFUSAL_HINTS[qb.REASON_CONTROL_TARGET_MISMATCH]
