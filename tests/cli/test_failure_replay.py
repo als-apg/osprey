@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import logging
 import signal
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 import click
@@ -38,6 +40,14 @@ from osprey.cli.main import cli
 #: produces it — the error message quotes the command, and a marker that also
 #: appeared there would make "the spool was printed once" unaskable.
 POISON = "the-child-said-this"
+
+#: Ceiling on "the child has produced output". Only ever spent on a run that is
+#: already failing: the wait returns the instant the spool has content, so a
+#: healthy run never approaches it.
+ARM_BUDGET = 30.0
+
+#: How often the timer looks for that output.
+ARM_POLL = 0.02
 
 
 def run_verb(*args: str) -> int:
@@ -230,7 +240,7 @@ def test_a_start_that_fails_on_a_captured_child_replays_it_too(
 
 @pytest.fixture
 def alarm_sigint():
-    """Deliver a real SIGINT to this process shortly after the child starts.
+    """Deliver a real SIGINT to this process once the child has produced output.
 
     An alarm rather than a helper thread: ``SIGALRM`` reaches the main thread,
     which is the one parked in the child's ``waitpid``, so the interrupt lands
@@ -245,15 +255,36 @@ def alarm_sigint():
     capture then runs to completion with nothing to show that an interrupt was
     ever delivered. Installing the default handler for the duration makes the
     test state its premise instead of inheriting it.
+
+    The timer polls a caller-supplied condition and re-arms until it holds. A
+    fixed delay cannot serve: the interrupt has to land after the child has
+    written and before the child exits, and the near edge of that window is two
+    ``fork``/``exec`` pairs away — tens of milliseconds on an idle box, but with
+    a tail under a parallel run's fork pressure that overruns any constant small
+    enough to be worth waiting for on every green run. Re-arming converges on
+    the condition instead, so the wait costs what the child actually took.
+
+    :data:`ARM_BUDGET` bounds it, and a child that never writes is interrupted
+    anyway: the test then fails on its own assertion about the spool rather than
+    hanging with nothing to read.
     """
 
-    def fire(_signum, _frame):
-        signal.raise_signal(signal.SIGINT)
+    def arm(ready: Callable[[], bool]) -> None:
+        deadline = time.monotonic() + ARM_BUDGET
 
-    previous_alarm = signal.signal(signal.SIGALRM, fire)
+        def fire(_signum, _frame) -> None:
+            if ready() or time.monotonic() >= deadline:
+                signal.raise_signal(signal.SIGINT)
+            else:
+                signal.setitimer(signal.ITIMER_REAL, ARM_POLL)
+
+        signal.signal(signal.SIGALRM, fire)
+        signal.setitimer(signal.ITIMER_REAL, ARM_POLL)
+
+    previous_alarm = signal.getsignal(signal.SIGALRM)
     previous_interrupt = signal.signal(signal.SIGINT, signal.default_int_handler)
     try:
-        yield lambda seconds=0.4: signal.setitimer(signal.ITIMER_REAL, seconds)
+        yield arm
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
         signal.signal(signal.SIGINT, previous_interrupt)
@@ -276,7 +307,7 @@ def test_an_interrupted_capture_names_its_partial_spool_and_does_not_replay_it(
 
     def interrupted(*args, **kwargs) -> None:
         repo_root = Path(args[0])
-        alarm_sigint()
+        alarm_sigint(lambda: any(spool.stat().st_size for spool in spools(repo_root)))
         run_captured(
             ["sh", "-c", "cat poison.txt; sleep 30"],
             cwd=repo_root,
@@ -291,7 +322,7 @@ def test_an_interrupted_capture_names_its_partial_spool_and_does_not_replay_it(
     assert status != 0
     out = capfd.readouterr().out
 
-    # The child got far enough to write, and what it wrote survived the kill.
+    # What the child wrote survived the kill.
     spool = spools(repo)[0]
     assert POISON in spool.read_text()
 
