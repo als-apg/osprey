@@ -7,8 +7,10 @@ malformed entry through instead of stopping the ingest.
 
 Two conventions carry through the file:
 
-* **No network.** Every HTTP path goes through ``patch("aiohttp.ClientSession")``,
-  following the precedent already in ``test_ingestion.py``.
+* **No network.** Every HTTP path goes through ``_patched_session``, which is
+  the one place in this file allowed to patch the aiohttp session. Routing all
+  of them through it keeps the connector stubbed too, so no test can leave a
+  real ``TCPConnector`` open behind a mocked session.
 * **No real sleeping.** Retry backoff is observed by rebinding the adapter
   module's own ``asyncio`` name to :class:`_RecordingAsyncio`. Rebinding the
   module attribute (rather than patching ``asyncio.sleep`` itself) keeps the
@@ -17,6 +19,7 @@ Two conventions carry through the file:
 
 import json
 import logging
+import pathlib
 import ssl
 import sys
 from contextlib import contextmanager
@@ -40,6 +43,7 @@ from osprey.services.ariel_search.ingestion.adapters.als import ALSLogbookAdapte
 from osprey.services.ariel_search.ingestion.adapters.generic import GenericJSONAdapter
 from osprey.services.ariel_search.ingestion.adapters.jlab import JLabLogbookAdapter
 from osprey.services.ariel_search.ingestion.adapters.ornl import ORNLLogbookAdapter
+from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.models import FacilityEntryCreateRequest
 
 # ---------------------------------------------------------------------------
@@ -116,12 +120,16 @@ def _patched_session(adapter: Any, session: MagicMock):
 
     The connector is stubbed because a real ``TCPConnector`` built against a
     mocked session is never closed by anything.
+
+    Yields the patched ``aiohttp.ClientSession`` so a caller can assert what the
+    adapter handed it — the connector, in particular. Callers that only need the
+    HTTP calls redirected can ignore the value.
     """
     with (
-        patch("aiohttp.ClientSession", return_value=session),
+        patch("aiohttp.ClientSession", return_value=session) as client_session,
         patch.object(adapter, "_create_connector", return_value=MagicMock()),
     ):
-        yield
+        yield client_session
 
 
 @pytest.fixture(autouse=True)
@@ -814,6 +822,196 @@ class TestALSConnector:
         assert "aiohttp-socks is not installed" in str(exc_info.value)
 
 
+class TestFacilityAdapterTransportDefaults:
+    """Transport defaults an adapter inherits without writing any of them down."""
+
+    class _BareAdapter(FacilityAdapter):
+        """The smallest legal adapter: abstract members only, no ``__init__``."""
+
+        @property
+        def source_system_name(self) -> str:
+            return "Bare Logbook"
+
+        async def fetch_entries(self, since=None, until=None, limit=None):  # noqa: ARG002
+            return
+            yield  # pragma: no cover - makes this an async generator
+
+    @pytest.mark.asyncio
+    async def test_bare_subclass_goes_direct_and_verifies(self):
+        """No ingestion block at all still means: no proxy, certificates checked.
+
+        The class-level defaults are what a facility adapter written outside
+        this tree inherits, so they are the ones that decide whether a
+        forgetful adapter reaches the network unverified. It must not.
+        """
+        config = ARIELConfig.from_dict({"database": {"uri": "postgresql://test"}})
+        adapter = self._BareAdapter(config)
+
+        assert adapter.proxy_url is None
+        assert adapter.verify_ssl is True
+        assert adapter.ca_bundle is None
+        assert adapter._ssl_context() is True
+
+        connector = adapter._create_connector()
+        try:
+            assert isinstance(connector, aiohttp.TCPConnector)
+        finally:
+            await connector.close()
+
+    def test_config_opt_out_reaches_the_context(self):
+        """The other half of the rule: a configured value wins over the default.
+
+        ``verify_ssl: false`` is the deployment's explicit opt-out, and it has
+        to survive the trip from the ingestion block through
+        ``FacilityAdapter.__init__`` into ``_ssl_context()``. Without this the
+        base class could ignore the config entirely and still look correct.
+        """
+        adapter = self._BareAdapter(_config("als_logbook", None, verify_ssl=False))
+
+        assert adapter.verify_ssl is False
+        context = adapter._ssl_context()
+        assert isinstance(context, ssl.SSLContext)
+        assert context.verify_mode == ssl.CERT_NONE
+
+    def test_config_ca_bundle_reaches_the_context(self, tmp_path):
+        """A site CA named in the config is what the adapter verifies against."""
+        import certifi
+
+        bundle = tmp_path / "site-ca.pem"
+        bundle.write_bytes(pathlib.Path(certifi.where()).read_bytes())
+
+        adapter = self._BareAdapter(_config("als_logbook", None, ca_bundle=str(bundle)))
+
+        assert adapter.ca_bundle == str(bundle)
+        context = adapter._ssl_context()
+        assert isinstance(context, ssl.SSLContext)
+        assert context.verify_mode == ssl.CERT_REQUIRED
+
+    def test_blank_config_value_falls_through_to_the_default(self):
+        """HAZARD: ``verify_ssl:`` with no value must not read as "off".
+
+        A YAML key left empty reaches ``IngestionConfig`` as ``None``, which is
+        falsy — so an unguarded assignment would hand ``build_ssl_context`` a
+        ``None`` and disable certificate checking for every adapter, with
+        nothing in the config saying so.
+        """
+        adapter = self._BareAdapter(_config("als_logbook", None, verify_ssl=None))
+
+        assert adapter.verify_ssl is True
+        assert adapter._ssl_context() is True
+
+
+#: The three JSON adapters whose ``_load_data`` fetches over HTTP. They differ
+#: only in which payload shape they expect back, and none of them looks at it
+#: before returning it, so one response double drives all three.
+_JSON_ADAPTERS = [
+    pytest.param(GenericJSONAdapter, "generic_json", id="generic"),
+    pytest.param(JLabLogbookAdapter, "jlab_logbook", id="jlab"),
+    pytest.param(ORNLLogbookAdapter, "ornl_logbook", id="ornl"),
+]
+
+_JSON_SOURCE_URL = "https://logbook.invalid/entries.json"
+
+
+class TestJSONAdapterTransport:
+    """The three JSON adapters fetch through the base class's transport.
+
+    These adapters used to open a bare ``aiohttp.ClientSession()`` and call
+    ``session.get(url)`` with no ``ssl=`` at all, which meant a deployment could
+    configure ``proxy_url``, ``verify_ssl`` or ``ca_bundle``, see them honoured
+    by the ALS adapter, and silently not have them apply here. Each test below
+    asserts the configured value reaches the actual request, not merely that the
+    adapter stored it.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("adapter_cls", "adapter_name"), _JSON_ADAPTERS)
+    async def test_connector_comes_from_the_base_helper(self, adapter_cls, adapter_name):
+        """The session is built with the connector ``_create_connector`` returns.
+
+        That is the seam a SOCKS proxy arrives through, so an adapter that
+        builds its own connector reaches the network past the proxy.
+        """
+        adapter = adapter_cls(_config(adapter_name, _JSON_SOURCE_URL))
+        session = _http_session(get=_http_response(json_data={"entries": []}))
+
+        with _patched_session(adapter, session) as client_session:
+            assert await adapter._load_data() == {"entries": []}
+            assert (
+                client_session.call_args.kwargs["connector"]
+                is adapter._create_connector.return_value
+            )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("adapter_cls", "adapter_name"), _JSON_ADAPTERS)
+    async def test_default_verification_reaches_the_request(self, adapter_cls, adapter_name):
+        """An unconfigured adapter still passes ``ssl=True``, not nothing at all."""
+        adapter = adapter_cls(_config(adapter_name, _JSON_SOURCE_URL))
+        session = _http_session(get=_http_response(json_data={"entries": []}))
+
+        with _patched_session(adapter, session):
+            await adapter._load_data()
+
+        assert session.get.call_args.kwargs["ssl"] is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("adapter_cls", "adapter_name"), _JSON_ADAPTERS)
+    async def test_verify_ssl_opt_out_reaches_the_request(self, adapter_cls, adapter_name):
+        """``verify_ssl: false`` disables verification on the request itself."""
+        adapter = adapter_cls(_config(adapter_name, _JSON_SOURCE_URL, verify_ssl=False))
+        session = _http_session(get=_http_response(json_data={"entries": []}))
+
+        with _patched_session(adapter, session):
+            await adapter._load_data()
+
+        context = session.get.call_args.kwargs["ssl"]
+        assert isinstance(context, ssl.SSLContext)
+        assert context.verify_mode == ssl.CERT_NONE
+        assert context.check_hostname is False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("adapter_cls", "adapter_name"), _JSON_ADAPTERS)
+    async def test_ca_bundle_reaches_the_request(self, adapter_cls, adapter_name, tmp_path):
+        """A site CA named in the config is what this adapter verifies against.
+
+        Asserted through the context's properties rather than by comparing it to
+        one built the same way: two ``SSLContext`` objects are never equal.
+        """
+        import certifi
+
+        bundle = tmp_path / "site-ca.pem"
+        bundle.write_bytes(pathlib.Path(certifi.where()).read_bytes())
+
+        adapter = adapter_cls(_config(adapter_name, _JSON_SOURCE_URL, ca_bundle=str(bundle)))
+        session = _http_session(get=_http_response(json_data={"entries": []}))
+
+        with _patched_session(adapter, session):
+            await adapter._load_data()
+
+        context = session.get.call_args.kwargs["ssl"]
+        assert isinstance(context, ssl.SSLContext)
+        assert context.verify_mode == ssl.CERT_REQUIRED
+        assert context.check_hostname is True
+
+    @pytest.mark.asyncio
+    async def test_proxy_without_aiohttp_socks_fails_the_load(self, monkeypatch):
+        """A proxy that cannot be built stops the fetch instead of going direct.
+
+        The connector is created inside the same ``try`` that maps a missing
+        aiohttp to an install hint, so this also pins that the proxy failure
+        keeps its own message rather than being reported as a missing aiohttp.
+        """
+        adapter = GenericJSONAdapter(
+            _config("generic_json", _JSON_SOURCE_URL, proxy_url="socks5://127.0.0.1:9095")
+        )
+        monkeypatch.setitem(sys.modules, "aiohttp_socks", None)
+
+        with pytest.raises(IngestionError) as exc_info:
+            await adapter._load_data()
+
+        assert "aiohttp-socks is not installed" in str(exc_info.value)
+
+
 class TestALSConvertEntry:
     """Field-level tolerance in the ALS converter."""
 
@@ -1006,7 +1204,7 @@ class TestGenericLoadData:
         adapter = _generic_adapter("https://logbook.invalid/entries.json")
         session = _http_session(get=_http_response(json_data={"entries": [{"id": "1"}]}))
 
-        with patch("aiohttp.ClientSession", return_value=session):
+        with _patched_session(adapter, session):
             data = await adapter._load_data()
 
         assert data == {"entries": [{"id": "1"}]}
@@ -1017,7 +1215,7 @@ class TestGenericLoadData:
         adapter = _generic_adapter("https://logbook.invalid/entries.json")
         session = _http_session(get=_http_response(status=503))
 
-        with patch("aiohttp.ClientSession", return_value=session):
+        with _patched_session(adapter, session):
             with pytest.raises(IngestionError) as exc_info:
                 await adapter._load_data()
 
@@ -1407,7 +1605,7 @@ class TestJLabAdapter:
         adapter = _jlab_adapter("https://logbook.invalid/api/entries")
         session = _http_session(get=_http_response(json_data={"entries": []}))
 
-        with patch("aiohttp.ClientSession", return_value=session):
+        with _patched_session(adapter, session):
             assert await adapter._load_data() == {"entries": []}
 
     @pytest.mark.asyncio
@@ -1416,7 +1614,7 @@ class TestJLabAdapter:
         adapter = _jlab_adapter("https://logbook.invalid/api/entries")
         session = _http_session(get=_http_response(status=500))
 
-        with patch("aiohttp.ClientSession", return_value=session):
+        with _patched_session(adapter, session):
             with pytest.raises(IngestionError) as exc_info:
                 await adapter._load_data()
 
@@ -1664,7 +1862,7 @@ class TestORNLAdapter:
         adapter = _ornl_adapter("https://logbook.invalid/api/entries")
         session = _http_session(get=_http_response(json_data=[{"ID": "1"}]))
 
-        with patch("aiohttp.ClientSession", return_value=session):
+        with _patched_session(adapter, session):
             assert await adapter._load_data() == [{"ID": "1"}]
 
     @pytest.mark.asyncio
@@ -1673,7 +1871,7 @@ class TestORNLAdapter:
         adapter = _ornl_adapter("https://logbook.invalid/api/entries")
         session = _http_session(get=_http_response(status=404))
 
-        with patch("aiohttp.ClientSession", return_value=session):
+        with _patched_session(adapter, session):
             with pytest.raises(IngestionError) as exc_info:
                 await adapter._load_data()
 

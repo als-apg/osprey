@@ -1565,12 +1565,20 @@ class TestBuildSSLContext:
         assert context.check_hostname is False
 
     def test_adapter_builds_its_context_through_the_helper(self):
-        """The ALS adapter has no private copy of the TLS decision."""
+        """The ALS adapter has no private copy of the TLS decision.
+
+        The decision now reaches the adapter one step further out, through
+        ``FacilityAdapter._ssl_context``, so what this pins is that als.py
+        asks for a context rather than composing one.
+        """
         import inspect
 
+        from osprey.services.ariel_search.ingestion import base
         from osprey.services.ariel_search.ingestion.adapters import als
 
         source = inspect.getsource(als)
 
-        assert "build_ssl_context(" in source
+        assert "self._ssl_context()" in source
         assert "ssl.CERT_NONE" not in source
+        assert "build_ssl_context(" not in source
+        assert "build_ssl_context(" in inspect.getsource(base)
