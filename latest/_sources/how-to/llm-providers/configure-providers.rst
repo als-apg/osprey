@@ -213,6 +213,11 @@ Anthropic's own API. Keep the trailing
 ``/v1`` on OpenAI-compatible gateways — the translation proxy needs it, and the
 agent's own requests have it stripped automatically.
 
+``extra_body`` is an optional mapping sent in the request body of every
+completion. A LiteLLM gateway that uses client-side auth reads a per-user
+upstream key from it, so ``api_key`` stays the gateway credential while
+``extra_body: {api_key: ${UPSTREAM_KEY}}`` carries the user's own.
+
 **Select the active provider** with the profile's two top-level fields:
 
 .. code-block:: yaml

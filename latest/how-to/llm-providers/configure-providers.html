@@ -782,6 +782,10 @@ the built-in one. <code class="docutils literal notranslate"><span class="pre">a
 Anthropic’s own API. Keep the trailing
 <code class="docutils literal notranslate"><span class="pre">/v1</span></code> on OpenAI-compatible gateways — the translation proxy needs it, and the
 agent’s own requests have it stripped automatically.</p>
+<p><code class="docutils literal notranslate"><span class="pre">extra_body</span></code> is an optional mapping sent in the request body of every
+completion. A LiteLLM gateway that uses client-side auth reads a per-user
+upstream key from it, so <code class="docutils literal notranslate"><span class="pre">api_key</span></code> stays the gateway credential while
+<code class="docutils literal notranslate"><span class="pre">extra_body:</span> <span class="pre">{api_key:</span> <span class="pre">${UPSTREAM_KEY}}</span></code> carries the user’s own.</p>
 <p><strong>Select the active provider</strong> with the profile’s two top-level fields:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
 <span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sonnet</span>
