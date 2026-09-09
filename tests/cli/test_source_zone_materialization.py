@@ -1150,7 +1150,8 @@ def test_a_data_edit_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
 
     assert result.exit_code == 2
     assert "data" in result.output
-    assert not target.exists()
+    leftover = sorted(p.name for p in target.iterdir()) if target.is_dir() else []
+    assert not target.exists(), f"a rejected data edit materialized the target: {leftover}"
 
 
 def test_failure_after_mkdir_removes_the_target(
@@ -1173,7 +1174,8 @@ def test_failure_after_mkdir_removes_the_target(
     result = _new(runner, target, "hello-world")
 
     assert result.exit_code != 0
-    assert not target.exists(), "a partial profile directory survived the failure"
+    leftover = sorted(p.name for p in target.iterdir()) if target.is_dir() else []
+    assert not target.exists(), f"a partial profile directory survived the failure: {leftover}"
     # The original cause is not swallowed by the cleanup.
     assert result.exception is boom
     assert profile_cmd is not None  # import kept meaningful for the reader
@@ -1204,7 +1206,8 @@ def test_failed_round_trip_after_mkdir_removes_the_target(
     assert result.exit_code == 2
     assert "simulated round-trip failure" in result.output
     assert "Nothing was materialized" in result.output
-    assert not target.exists()
+    leftover = sorted(p.name for p in target.iterdir()) if target.is_dir() else []
+    assert not target.exists(), f"a partial profile directory survived the round trip: {leftover}"
 
 
 def test_failed_round_trip_discards_the_env_it_seeded(
