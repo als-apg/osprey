@@ -1,9 +1,12 @@
-# Osprey Framework - Latest Release (v2026.9.0b1)
+# Osprey Framework - Latest Release (v2026.9.0b2)
 
-**First public beta.** A pre-release for evaluation: pip serves it only on
-request (`pip install --pre osprey-framework`, or pin `==2026.9.0b1`), and a
-plain install keeps resolving to the last stable release. With uv, add
-`--prerelease=allow` so the paired `osprey-connectors` beta resolves too.
+**Second public beta.** A pre-release for evaluation: a plain install keeps
+resolving to the last stable release, and a version pin alone fails under uv
+because the paired `osprey-connectors` beta must resolve too. Install with
+
+    uv tool install --prerelease allow "osprey-framework==2026.9.0b2"
+
+(with pip, `pip install --pre osprey-framework` or the exact pin is enough).
 Interfaces may still move before the stable cut.
 
 **Web terminal with JupyterLab and Bluesky, per-target control switching, a
@@ -37,4 +40,5 @@ virtual accelerator with pluggable physics, and a guided installer.**
 - Authentication, per-user roles, origin checks and an audit trail; see
   Security below.
 
-See `CHANGELOG.md` (section 2026.9.0b1) for breaking changes and the full list.
+See `CHANGELOG.md`: section 2026.9.0b2 for what changed since the first beta,
+section 2026.9.0b1 for the beta line's breaking changes and the full list.

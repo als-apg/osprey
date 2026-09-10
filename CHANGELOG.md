@@ -14,6 +14,112 @@ the `[Unreleased]` section below when a release is cut.
 
 ## [Unreleased]
 
+## [2026.9.0b2] - 2026-09-10
+
+Second public beta. A plain `uv tool install osprey-framework` resolves to
+the last stable release and skips betas; install this one with
+
+    uv tool install --prerelease allow "osprey-framework==2026.9.0b2"
+
+(the flag is what admits the paired `osprey-connectors` beta; with pip,
+`pip install --pre osprey-framework` or the exact pin is enough).
+
+### Added
+
+- The control-context hook records why each run ended in the hook debug log
+  when `hooks.debug` is on, so a hook that stayed quiet and a hook that never
+  ran no longer look the same from outside.
+- A provider entry in `providers.yml` may carry an `extra_body` mapping, sent
+  in the request body of every completion. This is how a LiteLLM gateway with
+  client-side auth receives a per-user upstream key alongside the gateway key
+  in `api_key`. (#930)
+
+### Changed
+
+- The CBORG provider's `sonnet` and `opus` tiers resolve to `claude-sonnet-5`
+  and `claude-opus-5`; `haiku` is unchanged.
+- CI's eight model-spending lanes run nightly on `main` and on pull requests
+  only under the `full-ci` label; the roll-up gate names what skipped and
+  prints the label command.
+- The DOOCS and Tango connectors run limits validation and the write itself in
+  one background thread, so a `max_step` pre-read no longer stalls everything
+  else the assistant is doing. Outcomes are unchanged: a write refused by
+  validation sends nothing, and a value the device did not take is a failure.
+- Switching between the Simple and Expert views no longer shows "Finishing in
+  the other view" with a running clock while the other view's agent is idle.
+  The clock and "Stop and switch now" appear only when the other view is
+  mid-turn or a restart takes longer than expected.
+- The web-terminal front proxy image moves from `nginx:1.27-alpine` (end of
+  life) to `nginx:1.31-alpine`; `modules.web_terminals.nginx_image` still
+  overrides it.
+- The release skill's notes-PR step includes the changelog condensation pass
+  after the final fold, and its phantom-section and connectors-floor
+  instructions match what the changelog gate and the resolvers accept.
+- `add_panel_to_rail`, `remove_panel_from_rail` and `register_panel` now ask
+  for approval first; `open_panel`, `close_panel` and `arrange_workspace` still
+  run without a prompt. `approval.tools.<tool>: skip` in the profile's `config:`
+  block silences a prompt, and `skip` is the only policy that does. Six
+  workspace tools that carried no policy are auto-allowed: `artifact_pin` and
+  the lattice dashboard's `lattice_get_data`, `lattice_get_figure`,
+  `lattice_get_settings`, `lattice_update_settings` and
+  `lattice_clear_baseline`. The three rail tools and `lattice_clear_baseline`
+  are refused outright in a headless read-only run.
+
+### Fixed
+
+- The session-start config drift check no longer goes quiet on a deployment
+  that lists extra `control_system.write_tools`. Those tools are approved per
+  call and never enter the deny list, which the check read as a hand-edited
+  file.
+- The facility description lives in the deployment repo at `rules/facility.md`,
+  written by `osprey init` and copied into each render, so `rm -rf build` no
+  longer discards it. A repo that has it only under `build/` gets it moved into
+  place on the next build.
+- Hook wiring in `settings.json` follows the profile's `hooks:` list, so a
+  dropped hook no longer leaves an entry pointing at a script the build did not
+  install. A build that arms writes without the approval, writes-check or
+  limits hook is refused, naming the hook and the server it guarded.
+- The JUPYTER tab no longer shows a second control-target chip inside the web
+  terminal; the header chip is the one switch. A notebook popped out into its
+  own window keeps the chip.
+- A mediated channel write names the limits check it applies instead of
+  picking one at run time; the older-validator fallback could never be taken
+  and hid which checks a refusal had made.
+- A `readwrite` run checks channel limits on Tango's asynchronous, write-read
+  and `AttributeProxy` attribute writes and on caproto's `read_write_read`,
+  `Batch` and asyncio `PV` writes, which reached the machine unbounded before.
+  The `max_step` pre-read carries an explicit timeout on every caproto client.
+- Generated `.claude/settings.json` files no longer make the OSPREY agent print
+  two `NotebookEdit(...)` permission-rule warnings at every start; the notebook
+  and artifact trees are allowed with `Edit(<path>/**)` rules. Rebuild a
+  deployment to pick up the change.
+- Per-user web terminals of a graph-mode deployment carry the channel search
+  index. Keys that name a file in the render's own data tree survive into
+  attached renders, so the CHANNELS tab, the roster and `search_channels` no
+  longer answer "No corpus is configured".
+- Runtime remedies name `osprey init <dir> --preset <NAME>`; no shipped header,
+  skill or message points at a `src/osprey/` path; both safety hooks list every
+  tool they gate; setup-mode and demo-ui name the profile as the place to change
+  protected keys; the hello-world README and tutorial carry the right hook
+  counts; the backup recipe names `.env.auth`.
+- The installation page says how to install a pre-release: `uv tool install
+  osprey-framework` skips betas, and a version pin alone fails on the matching
+  `osprey-connectors` pre-release; `--prerelease allow` is the flag both need.
+- The scaffold panel loads a file once when it opens the editor for it, instead
+  of racing two requests for the same pane.
+- A control target switch made before an agent session's first channel read no
+  longer sits on `switching…` for 30 s and then reports `request_expired`. A
+  controls server that has not launched its connector yet brings it up on the
+  new target, and the header chip stops waiting on servers that hold no
+  connector at all.
+
+### Security
+
+- ARIEL logbook ingestion honors the `ariel.ingestion` transport settings on
+  every adapter; the generic-JSON, JLab and ORNL fetches went direct and skipped
+  a site CA before. An `ariel.ingestion.verify_ssl:` key left without a value
+  no longer turns verification off.
+
 ## [2026.9.0b1] - 2026-09-08
 
 First public beta.
