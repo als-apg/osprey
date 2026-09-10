@@ -1,4 +1,8 @@
-"""Trigger configuration dataclasses and YAML loader for the event dispatcher."""
+"""Trigger configuration dataclasses and YAML loader for the event dispatcher.
+
+The pool limits are re-exported from :mod:`osprey.dispatch_pool_defaults`, the
+stdlib-only leaf the build profile reads them from as well.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +10,16 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import yaml
+
+from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
+
+__all__ = [
+    "DEFAULT_MAX_CONCURRENT_RUNS",
+    "DEFAULT_MAX_QUEUE_DEPTH",
+    "DispatcherConfig",
+    "TriggerConfig",
+    "load_triggers",
+]
 
 _DEFAULT_ON_ERROR: dict[str, Any] = {
     "action": "drop",
@@ -49,8 +63,8 @@ class TriggerConfig:
 @dataclass
 class DispatcherConfig:
     dispatch_target: str
-    max_concurrent_runs: int = 5
-    max_queue_depth: int = 100
+    max_concurrent_runs: int = DEFAULT_MAX_CONCURRENT_RUNS
+    max_queue_depth: int = DEFAULT_MAX_QUEUE_DEPTH
 
 
 def _parse_trigger(raw: dict[str, Any], index: int) -> TriggerConfig:
@@ -126,8 +140,8 @@ def load_triggers(path: str) -> tuple[DispatcherConfig, list[TriggerConfig]]:
     dispatcher_raw = doc.get("dispatcher", {})
     dispatcher_cfg = DispatcherConfig(
         dispatch_target=dispatcher_raw.get("dispatch_target", ""),
-        max_concurrent_runs=dispatcher_raw.get("max_concurrent_runs", 5),
-        max_queue_depth=dispatcher_raw.get("max_queue_depth", 100),
+        max_concurrent_runs=dispatcher_raw.get("max_concurrent_runs", DEFAULT_MAX_CONCURRENT_RUNS),
+        max_queue_depth=dispatcher_raw.get("max_queue_depth", DEFAULT_MAX_QUEUE_DEPTH),
     )
 
     raw_triggers = doc.get("triggers") or []

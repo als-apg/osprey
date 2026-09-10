@@ -18,6 +18,7 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
 from osprey.errors import BuildProfileError
 from osprey.port_layout import (
     DEFAULT_PORT_BASE,
@@ -974,8 +975,10 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             triggers=dispatch_raw.get("triggers", ""),
             worker_count=dispatch_raw.get("worker_count", 1),
             workspace_mode=dispatch_raw.get("workspace_mode", "isolated"),
-            max_concurrent_runs=dispatch_raw.get("max_concurrent_runs", 2),
-            max_queue_depth=dispatch_raw.get("max_queue_depth", 50),
+            max_concurrent_runs=dispatch_raw.get(
+                "max_concurrent_runs", DEFAULT_MAX_CONCURRENT_RUNS
+            ),
+            max_queue_depth=dispatch_raw.get("max_queue_depth", DEFAULT_MAX_QUEUE_DEPTH),
             dispatcher_port=dispatch_raw.get(
                 "dispatcher_port", default_port("dispatcher", base=port_base)
             ),

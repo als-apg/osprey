@@ -244,6 +244,11 @@ Authoring Triggers
 
    Each webhook trigger is reachable at ``POST /webhook/<name>``.
 
+   ``max_concurrent_runs`` and ``max_queue_depth`` are shown with their
+   defaults: leave them out and the dispatcher carries two runs at once and
+   holds fifty events waiting for a slot. A build writes both keys from the
+   profile's ``dispatch:`` block, which starts at the same pair.
+
    **Turn ceiling.** How many agentic turns one dispatched run may take is
    ``dispatch.max_turns`` in the build profile (default 25) — the third budget
    beside ``dispatch.timeout_sec`` and ``dispatch.inactivity_sec``, and the one
