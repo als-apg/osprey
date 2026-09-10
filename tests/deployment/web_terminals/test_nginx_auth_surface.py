@@ -719,7 +719,7 @@ def test_the_open_render_holds_no_login_surface_anywhere() -> None:
 # --------------------------------------------------------------------------
 
 #: The base image the deployed stack runs, matching `test_nginx_validate.py`.
-_NGINX_IMAGE = "nginx:1.27-alpine"
+_NGINX_IMAGE = "nginx:1.31-alpine"
 #: Where the compose overlay's entrypoint writes the per-user secret snippets
 #: each gated location `include`s. `nginx -t` reads the include, so the file has
 #: to exist — but nothing here cares about the envsubst chain that normally

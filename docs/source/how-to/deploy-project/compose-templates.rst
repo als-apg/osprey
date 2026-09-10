@@ -180,7 +180,7 @@ fails at ``up`` on the image it forgot:
    modules:
      web_terminals:
        image_tag: "2026.08.1"
-       nginx_image: registry.example.org/mirror/nginx:1.27-alpine
+       nginx_image: registry.example.org/mirror/nginx:1.31-alpine
        auth:
          image: registry.example.org/accelerator/demo-assistant-auth:2026.08.1
 

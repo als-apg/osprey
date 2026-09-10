@@ -189,7 +189,7 @@
       render.py must resolve it once, typically from `deploy.host` + this
       same `nginx_port`.
 
-    nginx_image: str, optional, default "nginx:1.27-alpine"
+    nginx_image: str, optional, default "nginx:1.31-alpine"
     facility_timezone: str, optional, default "UTC" -> TZ
 
     tls_host_cert_dir: str | None, tls_mount_target: str | None
@@ -514,7 +514,7 @@
 services:
 
   nginx:
-    image: {{ nginx_image | default("nginx:1.27-alpine") }}
+    image: {{ nginx_image | default("nginx:1.31-alpine") }}
     container_name: {{ facility_prefix }}-nginx
     restart: unless-stopped
     network_mode: host

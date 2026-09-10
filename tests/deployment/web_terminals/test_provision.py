@@ -120,7 +120,7 @@ def test_deploy_down_web_terminals_noop_without_web_file(monkeypatch, tmp_path):
 _WEB_COMPOSE = (
     "services:\n"
     "  nginx:\n"
-    "    image: nginx:1.27-alpine\n"
+    "    image: nginx:1.31-alpine\n"
     "    container_name: als-nginx\n"
     "  web-alice:\n"
     "    image: reg/web-terminal:latest\n"
@@ -162,7 +162,7 @@ def test_reconcile_force_recreates_only_drifted_services(monkeypatch, tmp_path):
     _patch_ids(
         monkeypatch,
         image_ids={
-            "nginx:1.27-alpine": "idnginx",
+            "nginx:1.31-alpine": "idnginx",
             "reg/web-terminal:latest": "idNEW",
             "reg/web-terminal-analysis:latest": "idbob",
         },
@@ -203,7 +203,7 @@ def test_reconcile_noop_when_all_images_match(monkeypatch, tmp_path):
     _write_web_compose(tmp_path)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["podman", "compose"])
     ids = {
-        "nginx:1.27-alpine": "idnginx",
+        "nginx:1.31-alpine": "idnginx",
         "reg/web-terminal:latest": "idalice",
         "reg/web-terminal-analysis:latest": "idbob",
     }
@@ -247,7 +247,7 @@ def test_reconcile_skips_service_on_inspect_error_without_raising(monkeypatch, t
     _patch_ids(
         monkeypatch,
         image_ids={
-            "nginx:1.27-alpine": "idnginx",
+            "nginx:1.31-alpine": "idnginx",
             "reg/web-terminal:latest": None,  # image inspect failed / never pulled
             "reg/web-terminal-analysis:latest": "idbob",
         },

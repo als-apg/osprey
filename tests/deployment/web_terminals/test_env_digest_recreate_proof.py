@@ -44,7 +44,7 @@ pytestmark = [
 # Already pulled by this directory's other dockerbuild tests, so no extra image
 # cost; `sleep` exists in the alpine base and keeps the container running with
 # no ports and no config of its own.
-_IMAGE = "nginx:1.27-alpine"
+_IMAGE = "nginx:1.31-alpine"
 
 _ENV_VAR = "OSPREY_AUTH_SESSION_SECRET"  # variable NAME only; test values are dummies
 
