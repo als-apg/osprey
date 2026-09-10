@@ -481,9 +481,8 @@ async def list_entries(
     end_date: datetime | None = None,
     author: str | None = None,
     source_system: str | None = None,
-    sort_order: str = "desc",
 ) -> EntriesListResponse:
-    """List entries with pagination and filtering."""
+    """List entries with pagination and filtering, newest first."""
     service = _require_service(request)
 
     try:

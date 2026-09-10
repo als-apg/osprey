@@ -170,7 +170,6 @@ export const entriesApi = {
       end_date: params.endDate,
       author: params.author,
       source_system: params.sourceSystem,
-      sort_order: params.sortOrder || 'desc',
     });
   },
 
