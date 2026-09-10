@@ -134,13 +134,19 @@ class TestPtySession:
         then the test calls session.resize() and checks for the file.
         """
         marker = tempfile.mktemp(suffix="_sigwinch")
+        ready = tempfile.mktemp(suffix="_sigwinch_ready")
 
-        # Python one-liner: install SIGWINCH handler, write marker, wait.
+        # Python one-liner: install SIGWINCH handler, say so, write marker on
+        # the signal, wait. The child announces the handler rather than the
+        # test guessing how long a fresh interpreter takes to reach it: a
+        # resize that lands first is delivered to a disposition that ignores
+        # it, and no second signal follows to make up for it.
         child_script = (
             "import signal, time, pathlib; "
             f"pathlib.Path('{marker}').unlink(missing_ok=True); "
             f"signal.signal(signal.SIGWINCH, lambda *_: pathlib.Path('{marker}').write_text('ok')); "
-            "time.sleep(10)"
+            f"pathlib.Path('{ready}').write_text('ok'); "
+            "time.sleep(60)"
         )
 
         session = PtySession(sys.executable)
@@ -179,19 +185,27 @@ class TestPtySession:
         fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
 
         try:
-            # Give child time to install the signal handler
-            time.sleep(0.5)
+            # Wait for the child to say its handler is installed.
+            deadline = time.monotonic() + 30
+            while not os.path.exists(ready):
+                assert time.monotonic() < deadline, "the child never installed its handler"
+                time.sleep(0.05)
 
-            # Resize the PTY — should deliver SIGWINCH to the child
-            new_winsize = struct.pack("HHHH", 40, 120, 0, 0)
-            fcntl.ioctl(master_fd, termios.TIOCSWINSZ, new_winsize)
-
-            # Wait for the marker file to appear
-            deadline = time.monotonic() + 3
-            while time.monotonic() < deadline:
-                if os.path.exists(marker):
-                    break
-                time.sleep(0.1)
+            # Resize the PTY until the child reports the signal. The two sizes
+            # alternate because TIOCSWINSZ raises SIGWINCH only on a size that
+            # actually changed, so a repeat of the same one would be silent.
+            sizes = (
+                struct.pack("HHHH", 40, 120, 0, 0),
+                struct.pack("HHHH", 24, 80, 0, 0),
+            )
+            attempt = 0
+            deadline = time.monotonic() + 15
+            while not os.path.exists(marker) and time.monotonic() < deadline:
+                fcntl.ioctl(master_fd, termios.TIOCSWINSZ, sizes[attempt % 2])
+                attempt += 1
+                round_ends = time.monotonic() + 1
+                while not os.path.exists(marker) and time.monotonic() < round_ends:
+                    time.sleep(0.05)
 
             assert os.path.exists(marker), "SIGWINCH was not delivered to the child process"
         finally:
@@ -205,10 +219,11 @@ class TestPtySession:
                 os.close(master_fd)
             except OSError:
                 pass
-            try:
-                os.unlink(marker)
-            except OSError:
-                pass
+            for path in (marker, ready):
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
