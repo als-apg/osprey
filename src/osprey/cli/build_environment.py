@@ -279,6 +279,36 @@ def _osprey_requirement(osprey_spec: str) -> str:
     return osprey_spec
 
 
+def _pins_prerelease(osprey_spec: str) -> bool:
+    """Whether *osprey_spec* pins osprey to a pre-release.
+
+    osprey-framework and osprey-connectors ship as a pair from one tag, so a
+    pre-release of one exists only beside a pre-release of the other. uv admits
+    a pre-release for the requirement that names one and for nothing else, so
+    the framework's own connectors requirement, which names none, resolves to
+    nothing under a beta pin: a resolve driven by such a pin has to admit
+    pre-releases as a whole. An exclusion (``!=2026.6.2a0``) rules a version
+    out and pins nothing, so it does not count; neither does a source path or
+    a spec that is not a requirement.
+    """
+    from packaging.requirements import InvalidRequirement, Requirement
+    from packaging.version import InvalidVersion, Version
+
+    try:
+        specifiers = Requirement(osprey_spec).specifier
+    except InvalidRequirement:
+        return False
+    for spec in specifiers:
+        if spec.operator == "!=":
+            continue
+        try:
+            if Version(spec.version).is_prerelease:
+                return True
+        except InvalidVersion:
+            continue
+    return False
+
+
 def _project_requires_python() -> str:
     """Mirror the framework's own ``Requires-Python`` into the built project.
 
@@ -435,6 +465,14 @@ def _write_project_pyproject(
         "# environment lookup here without attempting a build.",
         "",
     ]
+    if _pins_prerelease(osprey_spec):
+        lines += [
+            "[tool.uv]",
+            "# The osprey pin is a pre-release, and so is the osprey-connectors release",
+            "# it ships with; a resolve from this record has to admit both.",
+            'prerelease = "allow"',
+            "",
+        ]
     (project_path / "pyproject.toml").write_text("\n".join(lines), encoding="utf-8")
     logger.info("  ✓ Recorded %d dependencies in pyproject.toml", len(deps))
 
@@ -835,7 +873,12 @@ def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
     dep_count = len(extra_deps)
 
     if uv_path:
-        cmd = [uv_path, "pip", "install", "--quiet", "-p", str(venv_python), *all_deps]
+        cmd = [uv_path, "pip", "install", "--quiet", "-p", str(venv_python)]
+        if _pins_prerelease(osprey_spec):
+            # A beta pin needs the whole resolve to admit pre-releases, or the
+            # framework's connectors pair has no candidate; see _pins_prerelease.
+            cmd += ["--prerelease", "allow"]
+        cmd += all_deps
     else:
         cmd = [
             str(venv_python),

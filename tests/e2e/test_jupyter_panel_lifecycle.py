@@ -518,13 +518,18 @@ def _wait_for_ready(terminal: Terminal, timeout: float) -> None:
 
 
 def _fleet_settled(posture: dict[str, Any], target: str) -> bool:
-    """Whether every controls server has landed *target* at the record's generation.
+    """Whether every live controls server has landed *target* at the record's generation.
 
-    The condition the kernel's cell gate checks, read off the roster the chip
-    reads: a server still ``applying`` the record's generation refuses every
-    cell, and a server with children that reports an older binding has not got
-    there yet. A server serving nothing is passed over, as ``converged()``
-    passes over it.
+    The kernel's cell gate refuses a cell while any server reports ``applying``
+    at the record's generation. A server holding no connector when the record
+    moves launches one on the record's target, and it publishes ``applying``
+    only once its reconciler tick notices the move; until then the roster says
+    nothing about it, so a wait that passes over childless servers, as the
+    header chip does, returns inside the window before that server blocks the
+    gate. Every server in this deployment lands on a record move, so the
+    condition is that every one of them has: a row still ``applying``, or
+    bound anywhere but the record's ``(target, generation)``, is not settled,
+    whether or not it has children yet.
     """
     generation = posture.get("generation")
     if posture.get("control_target") != target or generation is None:
@@ -533,8 +538,7 @@ def _fleet_settled(posture: dict[str, Any], target: str) -> bool:
         block = row.get("last_switch") or {}
         if block.get("generation") == generation and block.get("status") == "applying":
             return False
-        bound = (row.get("applied_target"), row.get("applied_generation"))
-        if row.get("children") and bound != (target, generation):
+        if (row.get("applied_target"), row.get("applied_generation")) != (target, generation):
             return False
     return True
 
