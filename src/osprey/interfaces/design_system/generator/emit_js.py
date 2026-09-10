@@ -100,7 +100,7 @@ SCOPE_ATTRIBUTE = "data-osprey-storage-scope"
 #: freshness is verified by content diff, not by date.
 GENERATED_HEADER_LINES: tuple[str, ...] = (
     "// AUTO-GENERATED — DO NOT EDIT.",
-    "// Source: src/osprey/interfaces/design_system/tokens/",
+    "// Source: osprey/interfaces/design_system/tokens/ (src/osprey/... in a source checkout)",
     "// Regenerate with: python -m osprey.interfaces.design_system.generator.build",
 )
 

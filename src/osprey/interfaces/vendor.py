@@ -280,8 +280,7 @@ def asset_cdn_url(name: str) -> str:
         if asset.get("name") == name:
             return asset["url"]
     raise KeyError(
-        f"Unknown vendor asset name: {name!r}. Check the 'name' fields in "
-        "src/osprey/interfaces/vendor_manifest.json."
+        f"Unknown vendor asset name: {name!r}. Check the 'name' fields in {MANIFEST_PATH}."
     )
 
 

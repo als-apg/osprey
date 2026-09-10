@@ -5,7 +5,7 @@ name: Writes Kill Switch
 description: Blocks ALL write operations under a readonly write posture or an unarmed target
 summary: Blocks write operations when the deployment is sandboxed or the target is not armed
 event: PreToolUse
-tools: channel_write, execute
+tools: channel_write, phoebus_drive, execute, execute_file, queue_add, queue_start
 safety_layer: 1
 ---
 

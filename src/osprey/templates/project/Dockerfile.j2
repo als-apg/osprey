@@ -9,11 +9,12 @@
 #   docker run --rm -p {{ osprey_ports.web }}:{{ osprey_ports.web }} --env-file .env {{ project_name }}
 #
 # The container starts as ROOT and does not stay there. `build/entrypoint.sh`
-# re-renders any drifted Claude Code artifact and restores the operator's owned
+# re-renders any drifted Claude Code artifact, restores the operator's owned
 # scaffold bodies — both writes into a render this image deliberately leaves
-# root-owned — and only then drops to the unprivileged `osprey` user with
-# `gosu` for the actual command. Running the image with `--user` skips the two
-# startup steps and says so in the log rather than failing halfway through.
+# root-owned — and seeds Claude Code's missing first-run state, and only then
+# drops to the unprivileged `osprey` user with `gosu` for the actual command.
+# Running the image with `--user` skips the three startup steps and says so in
+# the log rather than failing halfway through.
 #
 # Build args:
 #   OSPREY_PIP_SPEC     pip requirement for OSPREY (default: PyPI release;

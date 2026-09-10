@@ -48,9 +48,11 @@ same gate the audience is there to see — and let the operator answer it. The
 on-screen verbs `open_panel` and `close_panel` do not ask on a stock build.
 
 A deployment that wants those beats to run uninterrupted sets
-`approval.tools.add_panel_to_rail: skip` in its `config.yml`, and the same for
-the other two. `skip` is the only value that silences a prompt: the policies are
-`skip`, `always` and `selective`, and there is no `never`.
+`config.approval.tools.add_panel_to_rail: skip` in its profile's `config:` block —
+`osprey set config.approval.tools.add_panel_to_rail=skip`, then `osprey build` — and
+the same for the other two. `approval.*` is protected, so `setup_patch` cannot do it.
+`skip` is the only value that silences a prompt: the policies are `skip`, `always`
+and `selective`, and there is no `never`.
 
 ## Pick a workflow
 
@@ -163,8 +165,8 @@ different surfaces on the rail.
    that layout resolves to — same primitive, same result, just reached by asking.
 3. **If it defines none** — compose a plausible one from the panels that exist
    (e.g. logbook review = the logbook panel plus the workspace) and mention the
-   deployment can name it in `config.yml` under `web.presets` so it becomes one
-   click for everyone.
+   deployment can name it in the profile's `config:` block under `config.web.presets`,
+   then `osprey build`, so it becomes one click for everyone.
 4. **Restore** the starting rail membership and active panel.
 
 ## 4. Grand tour
