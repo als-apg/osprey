@@ -1,0 +1,961 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>MCP Servers &#8212; Osprey Framework 2026.9.0b2 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=1819b4a7" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=c1f44fd5"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'architecture/mcp-servers';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.9.0b2';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/architecture/mcp-servers.html" />
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Python Executor" href="python-executor.html" />
+    <link rel="prev" title="Retrieval Paths" href="retrieval-paths.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="2026.9.0b2" />
+    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="safety-chain.html">Safety Chain</a></li>
+<li class="toctree-l1"><a class="reference internal" href="data-flow.html">Data Flow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="retrieval-paths.html">Retrieval Paths</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">MCP Servers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="python-executor.html">Python Executor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="virtual-accelerator.html">Virtual Accelerator</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Architecture</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">MCP Servers</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="mcp-servers">
+<h1>MCP Servers<a class="headerlink" href="#mcp-servers" title="Link to this heading">#</a></h1>
+<p>OSPREY exposes control system operations, data retrieval, and workspace
+management as tools through <a class="reference external" href="https://github.com/jlowin/fastmcp">FastMCP</a>
+servers. The Osprey agent discovers servers from <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> at startup and calls
+tools via stdio JSON-RPC. The <strong>10 core in-tree servers</strong> below are the ones a
+deployment normally renders; build profiles can inject additional servers beyond
+them.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 488" role="img" aria-labelledby="mcp-server-map-title mcp-server-map-desc">
+  <title id="mcp-server-map-title">The MCP server map</title>
+  <desc id="mcp-server-map-desc">The Osprey agent's tool calls pass the PreToolUse hook chain before reaching any of the seven core stdio MCP servers, which run as child processes of the harness and expose no network port.</desc>
+  <defs>
+    <marker id="mcp-server-map-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <!-- arrows first -->
+  <line class="e" x1="480" y1="80" x2="480" y2="120" marker-end="url(#mcp-server-map-arr)"/>
+  <line class="e" x1="480" y1="172" x2="480" y2="212" marker-end="url(#mcp-server-map-arr)"/>
+  <!-- arrow label (beside the vertical segment, 12px gap) -->
+  <rect class="mask" x="492" y="88" width="180" height="12" rx="2"/>
+  <text class="ta" x="496" y="97">TOOL CALLS · STDIO JSON-RPC</text>
+  <!-- zone -->
+  <rect class="zone" x="108" y="212" width="744" height="240" rx="6"/>
+  <rect class="mask" x="124" y="220" width="288" height="12" rx="2"/>
+  <text class="te" x="128" y="229">STDIO CHILD PROCESSES · NO NETWORK PORT</text>
+  <!-- agent -->
+  <rect class="mask" x="412" y="24" width="136" height="56" rx="6"/>
+  <rect class="nb-in" x="412" y="24" width="136" height="56" rx="6"/>
+  <text class="tn" x="480" y="48" text-anchor="middle">Osprey agent</text>
+  <text class="ts" x="480" y="64" text-anchor="middle">reads .mcp.json</text>
+  <!-- hook chain (focal) -->
+  <rect class="mask" x="200" y="120" width="560" height="52" rx="6"/>
+  <rect class="nb-foc" x="200" y="120" width="560" height="52" rx="6"/>
+  <text class="tn" x="480" y="142" text-anchor="middle">PreToolUse hook chain</text>
+  <text class="ts" x="480" y="158" text-anchor="middle">writes_check · limits · approval</text>
+  <!-- servers, row 1 -->
+  <rect class="mask" x="124" y="248" width="160" height="64" rx="6"/>
+  <rect class="nb" x="124" y="248" width="160" height="64" rx="6"/>
+  <text class="tn" x="204" y="274" text-anchor="middle">control_system</text>
+  <text class="ts" x="204" y="290" text-anchor="middle">read · write · archiver</text>
+  <rect class="mask" x="308" y="248" width="160" height="64" rx="6"/>
+  <rect class="nb" x="308" y="248" width="160" height="64" rx="6"/>
+  <text class="tn" x="388" y="274" text-anchor="middle">channel-finder</text>
+  <text class="ts" x="388" y="290" text-anchor="middle">1 of 4 pipelines</text>
+  <rect class="mask" x="492" y="248" width="160" height="64" rx="6"/>
+  <rect class="nb" x="492" y="248" width="160" height="64" rx="6"/>
+  <text class="tn" x="572" y="274" text-anchor="middle">workspace</text>
+  <text class="ts" x="572" y="290" text-anchor="middle">artifacts · session state</text>
+  <rect class="mask" x="676" y="248" width="160" height="64" rx="6"/>
+  <rect class="nb" x="676" y="248" width="160" height="64" rx="6"/>
+  <text class="tn" x="756" y="274" text-anchor="middle">python_executor</text>
+  <text class="ts" x="756" y="290" text-anchor="middle">execute</text>
+  <!-- servers, row 2 -->
+  <rect class="mask" x="216" y="336" width="160" height="64" rx="6"/>
+  <rect class="nb" x="216" y="336" width="160" height="64" rx="6"/>
+  <text class="tn" x="296" y="362" text-anchor="middle">ariel</text>
+  <text class="ts" x="296" y="378" text-anchor="middle">logbook search</text>
+  <rect class="mask" x="400" y="336" width="160" height="64" rx="6"/>
+  <rect class="nb" x="400" y="336" width="160" height="64" rx="6"/>
+  <text class="tn" x="480" y="362" text-anchor="middle">facility_knowledge</text>
+  <text class="ts" x="480" y="378" text-anchor="middle">OKF bundle</text>
+  <rect class="mask" x="584" y="336" width="160" height="64" rx="6"/>
+  <rect class="nb" x="584" y="336" width="160" height="64" rx="6"/>
+  <text class="tn" x="664" y="362" text-anchor="middle">graph</text>
+  <text class="ts" x="664" y="378" text-anchor="middle">facility graph · Cypher</text>
+  <!-- zone footnote -->
+  <text class="ts" x="480" y="428" text-anchor="middle">rendered from config.yml by osprey build — profiles can inject more servers</text>
+</svg>
+</div>
+<p>The four channel-finder variants count as four of the ten, but a deployment
+serves exactly one of them — whichever <code class="docutils literal notranslate"><span class="pre">channel_finder.pipeline_mode</span></code> names —
+under the single <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> name, which is why the map shows seven
+running processes.</p>
+<section id="control-system">
+<h2>Control System<a class="headerlink" href="#control-system" title="Link to this heading">#</a></h2>
+<section id="id1">
+<h3><code class="docutils literal notranslate"><span class="pre">control_system</span></code><a class="headerlink" href="#id1" title="Link to this heading">#</a></h3>
+<p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.control_system</span></code></p>
+<p>Reads and writes control system channels and queries archiver history.
+This is the primary server for live hardware interaction and includes
+safety-limits enforcement on all write operations.</p>
+<p><strong>Tools:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">channel_read</span></code> – Read current values from one or more control system channels.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">channel_write</span></code> – Write values to one or more control system channels (requires human approval).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">archiver_read</span></code> – Retrieve historical archived data for one or more channels over a
+time range. <code class="docutils literal notranslate"><span class="pre">processing</span></code> selects the per-bin aggregation (<code class="docutils literal notranslate"><span class="pre">raw</span></code>, <code class="docutils literal notranslate"><span class="pre">mean</span></code>, <code class="docutils literal notranslate"><span class="pre">min</span></code>,
+<code class="docutils literal notranslate"><span class="pre">max</span></code>, <code class="docutils literal notranslate"><span class="pre">median</span></code>, <code class="docutils literal notranslate"><span class="pre">std</span></code>, <code class="docutils literal notranslate"><span class="pre">count</span></code>) and <code class="docutils literal notranslate"><span class="pre">bin_size</span></code> sets the bin width in seconds;
+<code class="docutils literal notranslate"><span class="pre">bin_size=0</span></code> returns full resolution and is valid only with <code class="docutils literal notranslate"><span class="pre">processing=&quot;raw&quot;</span></code>.
+When <code class="docutils literal notranslate"><span class="pre">bin_size</span></code> is omitted the bin is derived from the time span so a continuously
+archived channel returns about <code class="docutils literal notranslate"><span class="pre">archiver.auto_bin_points</span></code> (default 10 000) points —
+1 s for anything under ~2.8 hours, ~53 minutes for a year — and the summary reports the
+bin that was used and whether it was requested or chosen automatically.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">channel_limits</span></code> – Query the channel write-safety limits database: which channels are
+write-gated and under what constraints (lookup, pattern match, summary). Not a channel
+roster – an unlisted channel may still exist; use channel-finder to discover what channels
+exist.</p></li>
+</ul>
+</section>
+</section>
+<section id="channel-finding">
+<h2>Channel Finding<a class="headerlink" href="#channel-finding" title="Link to this heading">#</a></h2>
+<p>OSPREY provides four channel finder variants, each suited to different
+facility data models and search strategies. A deployment picks one with
+<code class="docutils literal notranslate"><span class="pre">channel_finder.pipeline_mode</span></code>, and whichever it picks is served under the one
+<code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> name.</p>
+<section id="channel-finder-hierarchical">
+<h3><code class="docutils literal notranslate"><span class="pre">channel_finder_hierarchical</span></code><a class="headerlink" href="#channel-finder-hierarchical" title="Link to this heading">#</a></h3>
+<p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.channel_finder_hierarchical</span></code></p>
+<p>Finds channel addresses using a hierarchical drill-down through an
+in-memory JSON database. Users navigate levels (system, subsystem,
+device, signal) to narrow results.</p>
+<p><strong>Tools:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">get_options</span></code> – Get available options at a specific hierarchy level, filtered by prior selections.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">build_channels</span></code> – Build channel addresses from a set of hierarchy selections.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">view_examples</span></code> – View operator-verified search examples from prior sessions.</p></li>
+</ul>
+</section>
+<section id="channel-finder-in-context">
+<h3><code class="docutils literal notranslate"><span class="pre">channel_finder_in_context</span></code><a class="headerlink" href="#channel-finder-in-context" title="Link to this heading">#</a></h3>
+<p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.channel_finder_in_context</span></code></p>
+<p>Answers natural-language questions about channels by handing the full
+channel database to an inner LLM as context. Designed for databases small
+enough to fit in a single context window.</p>
+<p><strong>Tools:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">ask_channels</span></code> – Answer a natural-language question about channels; an inner LLM call sees the full channel database as context and returns the answer text together with tokenizer-estimated input/output token counts (used by the benchmark harness for cost accounting).</p></li>
+</ul>
+</section>
+<section id="channel-finder-middle-layer">
+<h3><code class="docutils literal notranslate"><span class="pre">channel_finder_middle_layer</span></code><a class="headerlink" href="#channel-finder-middle-layer" title="Link to this heading">#</a></h3>
+<p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.channel_finder_middle_layer</span></code></p>
+<p>Exposes the MATLAB Middle Layer (MML) channel database as MCP tools.
+Organized by system, family, and field with support for common-name
+lookups and validation.</p>
+<p><strong>Tools:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">list_systems</span></code> – List all systems in the channel database with descriptions.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">list_families</span></code> – List device families in a system with descriptions.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">list_channels</span></code> – Get channel names for a system/family/field path.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_common_names</span></code> – Get common (friendly) names for devices in a family.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">inspect_fields</span></code> – Inspect the field structure of a device family.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">validate</span></code> – Validate that channel names exist in the database.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">statistics</span></code> – Get database statistics (total channels, systems, families).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">run_sql</span></code> – Run a read-only SQL query directly against the channel finder DuckDB database (<code class="docutils literal notranslate"><span class="pre">channels</span></code>, <code class="docutils literal notranslate"><span class="pre">systems</span></code>, <code class="docutils literal notranslate"><span class="pre">families</span></code> tables).</p></li>
+</ul>
+</section>
+<section id="channel-finder-graph">
+<h3><code class="docutils literal notranslate"><span class="pre">channel_finder_graph</span></code><a class="headerlink" href="#channel-finder-graph" title="Link to this heading">#</a></h3>
+<p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.channel_finder_graph</span></code></p>
+<p>Finds channels by searching the facility knowledge graph. Instead of drilling
+through a database file, the agent looks a phrase up in the search index the
+build derives from the corpus, or writes read-only Cypher against the seeded
+<code class="docutils literal notranslate"><span class="pre">graphdb</span></code> store, so a question can start from a description, an alternate name
+or a system just as easily as from an address. Selected with
+<code class="docutils literal notranslate"><span class="pre">channel_finder.pipeline_mode:</span> <span class="pre">graph</span></code>, and needs a <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> store
+to search – deployed with the rest of the stack, or one the facility already
+runs.</p>
+<p><code class="docutils literal notranslate"><span class="pre">read_cypher</span></code> and <code class="docutils literal notranslate"><span class="pre">get_schema</span></code> are the <code class="docutils literal notranslate"><span class="pre">graph</span></code> server’s own tools, served
+here under the <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> name: the same read transaction, the same
+refusal of extension procedures and <code class="docutils literal notranslate"><span class="pre">LOAD</span> <span class="pre">CSV</span></code>, the same row and time bounds.
+The examples catalogue is this package’s own, written around the questions
+operators ask about channels rather than around general graph exploration. See
+<a class="reference internal" href="../how-to/facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p>
+<p><strong>Tools:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">search_channels</span></code> – Look addresses up by keyword and facet in the search
+index built from the corpus, a page of rows at a time.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">read_cypher</span></code> – Run one read-only Cypher query and return the matching rows,
+bounded by <code class="docutils literal notranslate"><span class="pre">services.graphdb.query_max_rows</span></code> and
+<code class="docutils literal notranslate"><span class="pre">services.graphdb.query_timeout_s</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_schema</span></code> – Report the node labels, relationship types, sampled per-label
+property names and namespace prefixes this graph holds.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">example_queries</span></code> – Return runnable Cypher examples for the common channel
+questions, each with per-corpus parameter values.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">capabilities</span></code> – Report the server description, tool list and operating notes.</p></li>
+</ul>
+</section>
+</section>
+<section id="workspace">
+<h2>Workspace<a class="headerlink" href="#workspace" title="Link to this heading">#</a></h2>
+<section id="id2">
+<h3><code class="docutils literal notranslate"><span class="pre">workspace</span></code><a class="headerlink" href="#id2" title="Link to this heading">#</a></h3>
+<p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.workspace</span></code></p>
+<p>Manages artifacts, data context, screen capture, visualizations,
+documents, and session state. This is the largest server, grouping
+tools into several functional areas.</p>
+<p><strong>Artifacts:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">artifact_register</span></code> – Register a file on disk, or literal text, as a gallery artifact.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">artifact_get</span></code> – Look up an artifact by ID to get its file path and metadata.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">artifact_list</span></code> – List stored artifacts, optionally narrowed by category, tool or agent.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">artifact_read</span></code> – Read a stored artifact’s full content (small artifacts only).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">artifact_delete</span></code> – Delete an artifact from the gallery.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">artifact_delete_all</span></code> – Delete a whole scope of artifacts (one category, or everything)
+in a single call. The <code class="docutils literal notranslate"><span class="pre">scope</span></code> argument is required.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">artifact_export</span></code> – Export an artifact to a different format (e.g., PNG, SVG, PDF).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">artifact_focus</span></code> – Select an artifact in the gallery so the user sees it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">artifact_pin</span></code> – Pin or unpin an artifact for quick-access filtering.</p></li>
+</ul>
+<p><strong>Visualization:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">create_static_plot</span></code> – Execute Python/Matplotlib code to produce a static plot image.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">create_interactive_plot</span></code> – Execute Plotly code to produce an interactive HTML plot.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">create_dashboard</span></code> – Execute Panel/Bokeh code to produce a live dashboard app.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">create_document</span></code> – Compile LaTeX source to PDF (Beamer slides or article reports).</p></li>
+</ul>
+<p><strong>Stored data:</strong></p>
+<p>Datasets are not a separate namespace – an archiver read or a run result is an
+artifact with a <code class="docutils literal notranslate"><span class="pre">category</span></code>, so the artifact tools above list, read and delete
+them (<code class="docutils literal notranslate"><span class="pre">artifact_list(category=&quot;archiver_data&quot;)</span></code>).</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">archiver_downsample</span></code> – Downsample an archiver artifact to a target point count.</p></li>
+</ul>
+<p><strong>Lattice Dashboard:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">lattice_init</span></code> – Load a lattice file into the dashboard and compute optics.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lattice_state</span></code> – Get current lattice state (summary, families, figures, baseline).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lattice_set_param</span></code> – Set a magnet family parameter override.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lattice_refresh</span></code> – Trigger recomputation of lattice figures.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lattice_set_baseline</span></code> – Snapshot the current state as the comparison baseline.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lattice_clear_baseline</span></code> – Discard the saved comparison baseline.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lattice_get_figure</span></code> – Retrieve a rendered lattice figure (e.g., optics, layout) by name.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lattice_get_data</span></code> – Retrieve the underlying numeric data behind a named figure.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lattice_get_settings</span></code> – Get current dashboard settings (display options, baselines).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lattice_update_settings</span></code> – Update dashboard settings.</p></li>
+</ul>
+<p><strong>Panels:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">list_panels</span></code> – List the panels available in the Web Terminal (built-in and custom).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">open_panel</span></code> – Put a panel on screen in front of the operator.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">close_panel</span></code> – Take a panel’s tile off screen, leaving it on the rail.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">arrange_workspace</span></code> – State a whole layout: exactly these tiles on screen,
+in this order.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">add_panel_to_rail</span></code> – Make a panel launchable from the rail in one click
+(requires human approval).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">remove_panel_from_rail</span></code> – Take a panel off the rail (and off screen with it)
+(requires human approval).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">register_panel</span></code> – Add a rail entry at runtime for an upstream URL the Web
+Terminal proxies (requires human approval).</p></li>
+</ul>
+<p>The three rail tools ask because rail membership is their whole effect:
+removing an entry costs the operator the ability to launch that panel back, and
+adding or registering one puts a new entry in front of them. The layout tools
+say what is on screen and are auto-allowed, even where a layout implies a rail
+change: <code class="docutils literal notranslate"><span class="pre">open_panel</span></code> adds the rail entry when the panel is off the rail, and
+<code class="docutils literal notranslate"><span class="pre">arrange_workspace</span></code> adds any listed panel that was not on it (with a
+<code class="docutils literal notranslate"><span class="pre">preset</span></code>, it also drops non-members – the same pruning the operator gets by
+clicking that layout).</p>
+<p><strong>Screen Capture:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">screenshot_capture</span></code> – Capture a screenshot (full screen, window, or region).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">list_windows</span></code> – List visible windows with optional app filter.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">manage_window</span></code> – Manage window state (raise, minimize, resize).</p></li>
+</ul>
+<p><strong>Session:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">session_log</span></code> – Retrieve the structured session activity log.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">session_summary</span></code> – Return a compact inventory of all data and artifacts in the session.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">submit_response</span></code> – Submit a formatted response to the web terminal.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">facility_description</span></code> – Get facility description and context.</p></li>
+</ul>
+<p><strong>Setup / Diagnostics:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">setup_inspect</span></code> – Inspect OSPREY agent configuration (config files, env vars, MCP state).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> – Modify an OSPREY configuration file (config.yml or .mcp.json).</p></li>
+</ul>
+</section>
+</section>
+<section id="python-executor">
+<h2>Python Executor<a class="headerlink" href="#python-executor" title="Link to this heading">#</a></h2>
+<section id="id3">
+<h3><code class="docutils literal notranslate"><span class="pre">python_executor</span></code><a class="headerlink" href="#id3" title="Link to this heading">#</a></h3>
+<p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.python_executor</span></code></p>
+<p>Runs agent-authored Python as a separate process on the host — a process
+boundary with limits enforcement and timeout protection, not a sandbox; see
+<a class="reference internal" href="python-executor.html"><span class="doc">Python Executor</span></a>.</p>
+<p><strong>Tools:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">execute</span></code> – Execute Python code with safety checks, process isolation, and timeout.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">execute_file</span></code> – Execute a Python file from the workspace with the same safety envelope as <code class="docutils literal notranslate"><span class="pre">execute</span></code>.</p></li>
+</ul>
+</section>
+</section>
+<section id="ariel">
+<h2>ARIEL<a class="headerlink" href="#ariel" title="Link to this heading">#</a></h2>
+<section id="id4">
+<h3><code class="docutils literal notranslate"><span class="pre">ariel</span></code><a class="headerlink" href="#id4" title="Link to this heading">#</a></h3>
+<p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.ariel</span></code></p>
+<p>Searches facility logbook entries and operational records. Supports
+keyword search, semantic (embedding-based) search, direct SQL queries,
+and entry creation with attachments.</p>
+<p><strong>Tools:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">browse</span></code> – Browse recent logbook entries with optional date and field filtering.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">filter_options</span></code> – Get distinct values for a filterable field (authors, systems, etc.).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">keyword_search</span></code> – Search the logbook using PostgreSQL full-text keyword search.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">semantic_search</span></code> – Search the logbook using embedding-based semantic similarity.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">sql_query</span></code> – Execute a read-only SQL query against the logbook database.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">entry_get</span></code> – Get a single logbook entry by its ID.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">entries_by_ids</span></code> – Get multiple logbook entries by their IDs in a single call.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">entry_create</span></code> – Create a new logbook entry, optionally with file attachments.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">entry_publish</span></code> – Publish an existing ARIEL entry to the facility logbook.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">capabilities</span></code> – Report available ARIEL search capabilities.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">status</span></code> – Get ARIEL service health, database connectivity, and statistics.</p></li>
+</ul>
+</section>
+</section>
+<section id="facility-knowledge">
+<h2>Facility Knowledge<a class="headerlink" href="#facility-knowledge" title="Link to this heading">#</a></h2>
+<section id="osprey-facility-knowledge">
+<h3><code class="docutils literal notranslate"><span class="pre">osprey_facility_knowledge</span></code><a class="headerlink" href="#osprey-facility-knowledge" title="Link to this heading">#</a></h3>
+<p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.facility_knowledge</span></code></p>
+<p>Serves a facility’s curated knowledge bundle (OKF §2 concept documents) so the
+agent can look up operational know-how and draft new concepts for human review.</p>
+<p><strong>Tools:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">capabilities</span></code> – Report facility knowledge bundle capabilities.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">list_concepts</span></code> – List all concepts in the facility knowledge bundle.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">read_concept</span></code> – Read a concept document by its OKF §2 concept ID.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">search</span></code> – Search the facility knowledge bundle for a query string.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">draft_concept</span></code> – Draft a new concept document for human review and approval.</p></li>
+</ul>
+</section>
+</section>
+<section id="facility-graph">
+<h2>Facility Graph<a class="headerlink" href="#facility-graph" title="Link to this heading">#</a></h2>
+<section id="graph">
+<h3><code class="docutils literal notranslate"><span class="pre">graph</span></code><a class="headerlink" href="#graph" title="Link to this heading">#</a></h3>
+<p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.graph</span></code></p>
+<p>Read-only Cypher search over the facility knowledge graph – the
+NARAD-convention RDF corpus held by the <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> store. Rendered only where
+<code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> is configured, and called by the
+<strong>facility-knowledge-graph subagent</strong>: the main agent’s route to the graph is
+delegation, mirroring the channel finder. Every query runs in a read
+transaction, and extension procedures, extension functions and <code class="docutils literal notranslate"><span class="pre">LOAD</span> <span class="pre">CSV</span></code> are
+refused before the store is dialed. See <a class="reference internal" href="../how-to/facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p>
+<p><strong>Tools:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">read_cypher</span></code> – Run one read-only Cypher query and return the matching rows,
+bounded by <code class="docutils literal notranslate"><span class="pre">services.graphdb.query_max_rows</span></code> and
+<code class="docutils literal notranslate"><span class="pre">services.graphdb.query_timeout_s</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_schema</span></code> – Report the node labels, relationship types, sampled per-label
+property names and namespace prefixes this graph holds.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">example_queries</span></code> – Return curated, runnable Cypher examples for the common
+question shapes, each with per-corpus parameter values.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">capabilities</span></code> – Report the server description, tool list and operating notes.</p></li>
+</ul>
+</section>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="retrieval-paths.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Retrieval Paths</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="python-executor.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Python Executor</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#control-system">Control System</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id1"><code class="docutils literal notranslate"><span class="pre">control_system</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#channel-finding">Channel Finding</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#channel-finder-hierarchical"><code class="docutils literal notranslate"><span class="pre">channel_finder_hierarchical</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#channel-finder-in-context"><code class="docutils literal notranslate"><span class="pre">channel_finder_in_context</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#channel-finder-middle-layer"><code class="docutils literal notranslate"><span class="pre">channel_finder_middle_layer</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#channel-finder-graph"><code class="docutils literal notranslate"><span class="pre">channel_finder_graph</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#workspace">Workspace</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id2"><code class="docutils literal notranslate"><span class="pre">workspace</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#python-executor">Python Executor</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id3"><code class="docutils literal notranslate"><span class="pre">python_executor</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel">ARIEL</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id4"><code class="docutils literal notranslate"><span class="pre">ariel</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#facility-knowledge">Facility Knowledge</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-facility-knowledge"><code class="docutils literal notranslate"><span class="pre">osprey_facility_knowledge</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#facility-graph">Facility Graph</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#graph"><code class="docutils literal notranslate"><span class="pre">graph</span></code></a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/architecture/mcp-servers.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

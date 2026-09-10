@@ -1,0 +1,314 @@
+Panels
+======
+
+A **panel** is a self-contained, themed mini-app the Web Terminal shows as a tab
+beside the chat. OSPREY's own tools — Channel Finder, ARIEL, the lattice
+dashboard, the artifact gallery — are all panels, and you can add your own.
+A panel that takes its colors from the shared design tokens (:doc:`theming`)
+matches your theme automatically, in light and dark, with no extra work. A
+service that brings its own colors — most facility dashboards do — follows
+the theme only once it opts in; `Theming a URL-backed panel`_ is what it needs
+to do.
+
+Enable OSPREY's built-in panels in ``config.yml``:
+
+.. code-block:: yaml
+
+   web:
+     panels:
+       ariel: true
+       channel-finder: true
+       lattice: true
+
+Where the panel rail lives
+--------------------------
+
+Open panels line up in the **panel rail**, which sits along the left edge by
+default. If your team prefers the panel buttons along the top, set
+``web.rail_position: top`` in ``config.yml``, or switch from the panel ``+``
+menu (or the command palette) at any time. The choice is remembered per
+browser, and each user's own pick wins over the configured default. (Pair it
+with the retro theme for a navy-and-teal terminal — see :doc:`theming`.)
+
+Panels backed by a URL
+----------------------
+
+An entry under ``web.panels`` can also declare a **URL-backed panel** — a tab
+that shows another web service inside the terminal. This is how the EVENTS
+dashboard and the BLUESKY tab ship in the
+``control-assistant`` preset (a build that includes those stacks registers
+the entries for you):
+
+.. code-block:: yaml
+
+   web:
+     panels:
+       events:
+         label: EVENTS
+         url: http://127.0.0.1:10010   # the backing service
+         path: /dashboard              # optional: page the tab opens (default /)
+         health_endpoint: /healthz     # optional: lets the hub report status
+
+The hub shows the service as a tab and proxies requests to it from the same
+origin, so the browser never needs direct access to the backing port.
+
+Theming a URL-backed panel
+--------------------------
+
+A service you did not write for OSPREY keeps its own colors when you hang it
+in a tab, and the terminal will not restyle it for you. What the terminal does
+do is tell the service, at every moment, which theme the operator is looking
+at — and it is then a small change in the service to follow along. This is the
+whole of what it is told. Everything below is **version 1** of the contract
+(``CONTRACT_VERSION`` in the design system's ``frame-params.js``), so a service
+that follows it keeps working as later versions add to it.
+
+**The theme arrives in the address.** The terminal opens the panel at the URL
+you configured with three parameters added:
+
+.. code-block:: text
+
+   ?embedded=true&theme=retro-dark&mode=expert
+
+``theme`` is the theme to paint with. ``embedded=true`` says the page is
+running inside the terminal rather than on its own, which is the cue to hide
+your own logo and page chrome — the terminal already draws a header around the
+tab, and without this you get two. ``mode`` is the operator's Expert or Simple
+preference. Read all three *before the page first paints*, or the operator sees
+your default colors flash before yours settle on theirs.
+
+**The theme is one of eight names.** ``light`` and ``dark`` for the main
+family, then ``desy-light``, ``desy-dark``, ``high-contrast-light``,
+``high-contrast-dark``, ``retro-light`` and ``retro-dark`` (:doc:`theming`
+describes the families). OSPREY's own pages put the name on the ``<html>``
+element as ``data-theme="retro-dark"`` and let their stylesheet key off it;
+a service is free to map the eight names onto whatever its own styling
+expects, and to treat an unfamiliar name as its nearest light or dark default.
+
+**A change while the tab is open arrives as a message.** When the operator
+switches theme, the terminal posts to the panel's frame:
+
+.. code-block:: javascript
+
+   { type: 'osprey-theme-change', theme: 'high-contrast-dark' }
+
+A panel is always served from the terminal's own address, so the message is
+same-origin. Check that before acting on it — ``if (event.origin !==
+window.location.origin) return;`` — and repaint. The Expert/Simple toggle
+broadcasts the same way, as ``{ type: 'osprey-mode-change', mode }``.
+
+**The tokens come from the terminal, not from your copy.** A page embedded as
+a panel can load OSPREY's design tokens with a plain root-absolute reference:
+
+.. code-block:: html
+
+   <link rel="stylesheet" href="/design-system/css/tokens.css">
+
+The proxy rewrites that to the terminal's own copy of the design system, so
+the colors a panel paints with are the ones the terminal is running — not
+whichever ones the service's own build happened to ship. Every OSPREY color is
+a CSS variable there, and all eight themes are defined in that one file, so a
+service that restates its colors in terms of those variables gets the whole
+theme switch for free.
+
+Two boundaries are worth saying out loud:
+
+- **Nothing happens on its own.** The terminal only *tells* the panel the
+  theme. A service that never reads the parameter, the message, or the tokens
+  is embedded successfully and stays exactly the color it always was.
+- **No credentials cross the proxy.** The terminal strips the operator's
+  cookies and ``Authorization`` header on the way to your service, and strips
+  headers that would act on the terminal's address on the way back — see the
+  note under `Adding your own panel`_. A service that authenticates its own
+  callers that way cannot be driven as a panel, themed or not.
+
+The Bluesky panel
+-----------------
+
+One tab covers a plan end to end, served by the ``bluesky-web`` sidecar.
+**BLUESKY** (``/bluesky/``) has three views, and the queue's state stays on
+screen across all three as a badge in the status strip — with **Stop** and
+**Abort** beside it whenever a plan is moving or the state is in doubt:
+
+**Plans** is where a plan is composed. It binds to the same shared draft the
+OSPREY agent edits, so a field the agent sets glows in the form as it lands,
+and a field you change by hand flows back to the agent. **Run** puts the
+exact revision on screen into the plan queue, and on an armed queue that runs
+it at once; on a stopped queue the button reads **Add to queue**.
+
+**Queue** is the control panel: **Start**, **Stop**, **Abort** and **Clear**
+in the strip, the waiting plans with their reorder/remove controls, and the
+runs that have finished, each removable. Picking any run opens it under
+Results. :doc:`/how-to/bluesky/queue` covers what those controls do.
+
+**Results** shows the selected run's record and its live figure, with the raw
+data table collapsed underneath and a one-click CSV export.
+
+Channel suggestions in plan forms
+---------------------------------
+
+A plan-form field that asks for a channel completes what you type: a popup
+lists matching channel names — substring matches first, looser fuzzy matches
+when those run dry. Arrow keys move through the list, **Enter** takes the
+highlighted name, **Escape** dismisses it. The suggestions only suggest — a
+name typed in full is accepted whether or not it appears in the list.
+
+The names come from the project's Channel Finder catalog — the channel
+database, or in graph mode the Turtle corpus named by
+``services.graphdb.ttl_path``: ``osprey build`` writes a snapshot of it next
+to the generated config, and the panel reads that snapshot — no
+control-system traffic, and nothing to keep in sync at run time. A project
+that configures neither shows no suggestions and is otherwise unchanged.
+
+The feature is on by default, tuned under ``web.channel_suggestions`` in
+``config.yml``:
+
+.. code-block:: yaml
+
+   web:
+     channel_suggestions:
+       enabled: true         # the default
+       max_channels: 50000   # the default
+
+``max_channels`` guards the browser, not the build: every panel load fetches
+the whole snapshot, so a catalog holding more channels than the limit is
+skipped instead of shipped — the build log names the limit it hit, and the
+form falls back to plain fields. Raise the limit to cover a larger facility,
+or set ``enabled: false`` to turn the feature off and write no snapshot at
+all. A build profile overrides these keys from its ``config:`` block in the
+dotted form, e.g. ``web.channel_suggestions.max_channels: 200000``.
+
+One staleness rule to know: editing a channel database or Turtle corpus
+inside the profile's ``data/`` tree changes the build fingerprint, so
+``osprey up`` refuses until you rebuild — the snapshot cannot silently go
+stale on that path. A database or corpus referenced from *outside* the
+profile tree is not fingerprinted; its snapshot refreshes only on the next
+explicit ``osprey build``.
+
+Adding your own panel
+---------------------
+
+The easy path is the guided ``/osprey:panel`` skill — a coding agent follows it
+to produce a panel that already meets every rule. It ships in the ``osprey``
+plugin; installing it is on :doc:`/contributing/agent-skills`.
+
+What the skill produces, and the test that pins panel discovery, are the panel
+seam in :doc:`/contributing/extending-osprey`.
+
+Once the panel is written and validated, drop its folder under your project's
+``panels/`` directory and turn on discovery:
+
+.. code-block:: yaml
+
+   web:
+     allow_runtime_panels: true    # off by default
+
+On the next start, every valid panel under ``panels/`` shows up as a tab. Invalid
+ones are skipped and logged, so one bad panel never breaks the others.
+
+.. warning::
+
+   Turning on ``allow_runtime_panels`` serves **whatever panels are on disk**.
+   The Web Terminal authenticates every request, so only a signed-in operator
+   reaches them — but it makes no judgement about what a panel does. Treat
+   ``panels/`` as trusted code, and leave discovery off on a deployment where
+   more people can drop a folder there than you would hand the terminal to.
+
+.. note::
+
+   A panel that reaches a backend does so through the web terminal's panel
+   proxy, and the proxy is deliberately strict about credentials. On every
+   request it forwards to a panel backend it strips the ``cookie``,
+   ``authorization``, and ``x-osprey-terminal-secret`` headers, and it
+   re-injects the operator secret *only* toward backends declared as loopback
+   in your config. The practical consequence: a backend that authenticates its
+   own callers with a cookie or an ``Authorization`` header — Grafana, for
+   example — cannot be driven as a custom panel, because the proxy will never
+   pass those credentials through to it. A panel OSPREY starts itself is the
+   one exception, and it is served rather than granted: the notebook sidecar
+   (:doc:`notebooks`) mints a token per launch, and the proxy attaches it to
+   each request on the way to the loopback backend, so the token never reaches
+   the browser.
+
+   The return direction is just as strict. A panel's response is served from
+   the terminal's own address, so any header that would act on *that* address
+   rather than on the panel is stripped: ``Set-Cookie``, ``Clear-Site-Data``,
+   ``Refresh``, ``WWW-Authenticate``, and CORS (``Access-Control-*``). A backend
+   therefore cannot log the operator out, send them off to another site, or pop
+   a login box that looks like the terminal's own. A redirect is relayed rather
+   than followed, so the browser re-requests the new address and that request is
+   authenticated like any other — unless the redirect points at a third site,
+   which is refused with a ``502`` so that a terminal URL never forwards an
+   operator somewhere the panel picked.
+
+Panel layouts ("presets")
+-------------------------
+
+A **layout** is a named set of panels an operator applies in one click — "the
+machine-setup view is these four panels." Define them under ``web.presets``, where
+each key is the menu label and each value is the exact set of panels to show:
+
+.. code-block:: yaml
+
+   web:
+     presets:
+       "Machine setup": [channel-finder, lattice, artifacts, okf]
+       "Logbook review": [ariel, artifacts]
+
+Each layout appears under a **Layouts** section at the top of the panel ``+``
+menu. Picking one is *exclusive*: its panels open and every other panel closes.
+Members must be enabled built-in panels or custom panels you have declared; an
+unknown id is dropped with a warning, and a layout with no valid members is
+skipped. When no ``web.presets`` are configured — the default — the ``+`` menu is
+unchanged, so layouts never add clutter to a deployment that has not opted in.
+
+Layouts are just a shortcut over adding and removing rail entries, so the OSPREY
+agent can reach the same end state either way — but not with the same prompting.
+Applying a layout with ``arrange_workspace`` does not ask; the
+``add_panel_to_rail`` / ``remove_panel_from_rail`` tools ask the operator to
+approve each call on a stock build.
+``list_panels`` reports the configured layouts so the agent can honor a request
+like "set up for machine setup."
+
+.. dropdown:: Going deeper — how panels work
+   :icon: package
+
+   You only need this to write a panel by hand or wire a new one into the hub;
+   the ``/osprey:panel`` skill and the source (which the panel validator and its
+   browser test suite back) are the real reference. The rough idea:
+
+   .. tab-set::
+
+      .. tab-item:: Authoring rules
+
+         A panel is one HTML entry point plus a ``manifest.json`` (its id, label,
+         entry file, and version). Two rules make it theme itself for free, and a
+         validator enforces both: it must **boot the shared theme before the page
+         paints** (so it never flashes the wrong colors), and it must use **only
+         design tokens** for color — never a raw hex value. Copy OSPREY's
+         reference panel and you start compliant.
+
+      .. tab-item:: Serving & discovery
+
+         Discovered panels are served straight from disk, from the same origin as
+         the terminal — no proxy. Discovery is **fail-closed**: only a fully valid
+         panel is ever served. The ``allow_runtime_panels`` switch is deliberately
+         off by default because it is also what lets the agent register panels at
+         runtime — turning it on is your explicit decision to trust the panels the
+         terminal makes available.
+
+      .. tab-item:: Embedding contract
+
+         The hub and its panels coordinate over a small shared contract — enough
+         for a panel to pick up the current theme and to hide its own logo when
+         embedded, so it sits flush inside the hub instead of showing two titles.
+         The browser test suite is the exact, up-to-date spec; this is only the
+         shape of it.
+
+.. seealso::
+
+   :doc:`theming`
+      The design tokens panels style against.
+
+   :doc:`operate`
+      Running the terminal that hosts them.

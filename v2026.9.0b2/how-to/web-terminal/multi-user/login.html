@@ -1,0 +1,1283 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Require a Login &#8212; Osprey Framework 2026.9.0b2 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=1819b4a7" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=c1f44fd5"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/web-terminal/multi-user/login';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.9.0b2';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/web-terminal/multi-user/login.html" />
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+    <link rel="next" title="Agent Interfaces" href="../../agent-interfaces/index.html" />
+    <link rel="prev" title="Privilege Tiers" href="tiers.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="2026.9.0b2" />
+    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../../build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../deploy-project/project-image.html">The Project Image</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../llm-providers/index.html">LLM Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../llm-providers/configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="../index.html">Web Terminal</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../operate.html">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../notebooks.html">Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l2 current active has-children"><a class="reference internal" href="index.html">Multi-User Support</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l3 current active"><a class="current reference internal" href="#">Require a Login</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../agent-interfaces/index.html">Agent Interfaces</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../agent-interfaces/cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../agent-interfaces/event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../agent-interfaces/add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../agent-interfaces/chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../control-systems/use-connectors.html">Use Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../facility-knowledge/facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ariel/standalone-deployment.html">Standalone Deployment</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../bluesky/run-first-plan.html">Run Your First Plan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../bluesky/queue.html">Plans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../bluesky/write-plans.html">Write Your Own Plans</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">How-To Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Web Terminal</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Multi-User Support</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Require a Login</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="require-a-login">
+<span id="multi-user-require-a-login"></span><h1>Require a Login<a class="headerlink" href="#require-a-login" title="Link to this heading">#</a></h1>
+<p>The landing page lists the roster; <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.auth.method</span></code>
+decides what stands between a card and the terminal behind it.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 15.0%" />
+<col style="width: 85.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p><code class="docutils literal notranslate"><span class="pre">method</span></code></p></th>
+<th class="head"><p>What a person meets</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">token</span></code></p></td>
+<td><p><strong>The default.</strong> No login page; each terminal is opened once from that
+user’s own login URL.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">none</span></code></p></td>
+<td><p><strong>Open.</strong> A card opens its terminal. Only for a room where everyone who
+can reach the page is trusted.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">password</span></code></p></td>
+<td><p>A login page, against passwords OSPREY manages.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">oidc</span></code></p></td>
+<td><p>A login page, against the single sign-on your facility already runs.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="osprey-diagram">
+<svg viewBox="0 0 640 328" role="img" aria-labelledby="auth-postures-title auth-postures-desc">
+  <title id="auth-postures-title">The four auth postures</title>
+  <desc id="auth-postures-desc">What stands between a landing-page card and its terminal under each auth.method: none makes the card the door, nginx stamping that user's secret; token hands out a login URL and nginx stamps nothing; password and oidc put a login page in front, the authentication service checking it before nginx stamps. Behind every posture the terminal itself still checks one credential of its own on every request.</desc>
+  <defs>
+    <marker id="auth-postures-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <text class="te" x="112" y="24">FRONT DOOR · NGINX</text>
+  <text class="te" x="430" y="24">BEHIND IT · THE TERMINAL ITSELF</text>
+
+  <!-- edges first -->
+  <line class="e" x1="382" y1="68" x2="430" y2="68" marker-end="url(#auth-postures-arr)"/>
+  <line class="e" x1="382" y1="140" x2="430" y2="140" marker-end="url(#auth-postures-arr)"/>
+  <line class="e" x1="382" y1="212" x2="430" y2="212" marker-end="url(#auth-postures-arr)"/>
+  <line class="e" x1="382" y1="284" x2="430" y2="284" marker-end="url(#auth-postures-arr)"/>
+
+  <!-- one row per posture -->
+  <text class="tn" x="24" y="72">none</text>
+  <rect class="nb-warn" x="112" y="40" width="270" height="56" rx="6"/>
+  <text class="tn" x="247" y="64" text-anchor="middle">a card is the door</text>
+  <text class="ts" x="247" y="82" text-anchor="middle">nginx stamps the user's secret</text>
+
+  <text class="tn" x="24" y="144">token</text>
+  <rect class="nb" x="112" y="112" width="270" height="56" rx="6"/>
+  <text class="tn" x="247" y="136" text-anchor="middle">a login URL, once</text>
+  <text class="ts" x="247" y="154" text-anchor="middle">the default · nginx stamps nothing</text>
+
+  <text class="tn" x="24" y="216">password</text>
+  <rect class="nb" x="112" y="184" width="270" height="56" rx="6"/>
+  <text class="tn" x="247" y="208" text-anchor="middle">a login page</text>
+  <text class="ts" x="247" y="226" text-anchor="middle">auth service · then nginx stamps</text>
+
+  <text class="tn" x="24" y="288">oidc</text>
+  <rect class="nb" x="112" y="256" width="270" height="56" rx="6"/>
+  <text class="tn" x="247" y="280" text-anchor="middle">a login page</text>
+  <text class="ts" x="247" y="298" text-anchor="middle">your SSO · then nginx stamps</text>
+
+  <!-- the terminal's own gate -->
+  <rect class="mask" x="430" y="40" width="186" height="272" rx="6"/>
+  <rect class="nb-foc" x="430" y="40" width="186" height="272" rx="6"/>
+  <text class="tn" x="523" y="140" text-anchor="middle">every terminal</text>
+  <text class="tn" x="523" y="156" text-anchor="middle">checks one credential</text>
+  <text class="tn" x="523" y="172" text-anchor="middle">of its own, every request</text>
+  <text class="ts" x="523" y="196" text-anchor="middle">the operator secret</text>
+  <text class="ts" x="523" y="210" text-anchor="middle">nginx stamps, or the cookie</text>
+  <text class="ts" x="523" y="224" text-anchor="middle">a login URL traded it for</text>
+</svg>
+</div>
+<p>Two things to read off the drawing. The front door is nginx, and
+<code class="docutils literal notranslate"><span class="pre">auth.method</span></code> decides what it does there — nothing, vouch for the caller, or
+ask the authentication service. The terminal behind it always checks a
+credential of its own; the postures differ only in who supplies it.</p>
+<section id="choose-a-method">
+<h2>Choose a method<a class="headerlink" href="#choose-a-method" title="Link to this heading">#</a></h2>
+<p><strong>Token</strong> needs no stanza. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints an operator secret for every
+roster user into the deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>; a terminal refuses you until you
+have opened that user’s login URL once:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>users<span class="w"> </span>login-url<span class="w"> </span>alice
+</pre></div>
+</div>
+<p>Send each person only their own URL, as you would a password. To rotate one,
+delete that user’s <code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SECRET_*</span></code> line from <code class="docutils literal notranslate"><span class="pre">.env</span></code> and run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> again. Token mode cannot tell one person from another — whoever
+holds a URL is that user — so it suits a single trusted host and nothing
+beyond it.</p>
+<p id="multi-user-open-mode"><strong>Open</strong> — no credential anywhere, for a console behind a locked door:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">none</span>
+</pre></div>
+</div>
+<p>nginx stamps each user’s operator secret onto every request it proxies, so a
+card opens its terminal and no login URL exists. That is only safe if nothing
+inside the deployment can reach nginx back:</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 276" role="img" aria-labelledby="open-mode-egress-title open-mode-egress-desc">
+  <title id="open-mode-egress-title">Why the open posture has conditions</title>
+  <desc id="open-mode-egress-desc">Under auth.method none an agent inside one terminal reaches nginx over loopback and looks like a browser, so nginx would stamp a neighbour's secret and serve that terminal. Two things stand in the way: every persona's deny defaults on Bash, WebFetch, WebSearch and Playwright, refused at osprey up otherwise, and — defence in depth behind them — the python executor's socket guard, which refuses connections from executed code to the deployment's own web ports.</desc>
+  <defs>
+    <marker id="open-mode-egress-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <text class="te" x="40" y="28">UNDER THE OPEN POSTURE · FROM INSIDE, THE AGENT LOOKS LIKE A BROWSER</text>
+
+  <!-- edges first -->
+  <line class="e-warn" x1="180" y1="84" x2="220" y2="84" marker-end="url(#open-mode-egress-arr)"/>
+  <path class="e-warn" d="M180,100 H196 Q204,100 204,108 V176 Q204,184 212,184 H220" marker-end="url(#open-mode-egress-arr)"/>
+  <line class="e-warn" x1="450" y1="84" x2="480" y2="84" marker-end="url(#open-mode-egress-arr)"/>
+  <line class="e-warn" x1="450" y1="184" x2="480" y2="184" marker-end="url(#open-mode-egress-arr)"/>
+  <line class="e-warn e-dash" x1="670" y1="84" x2="720" y2="84" marker-end="url(#open-mode-egress-arr)"/>
+  <path class="e-warn e-dash" d="M670,184 H700 Q708,184 708,176 V108 Q708,100 716,100 H720" marker-end="url(#open-mode-egress-arr)"/>
+  <line class="e-warn" x1="820" y1="112" x2="820" y2="156" marker-end="url(#open-mode-egress-arr)"/>
+
+  <!-- edge labels -->
+  <rect class="mask" x="673" y="64" width="44" height="12" rx="2"/>
+  <text class="ta ta-acc" x="695" y="73" text-anchor="middle">DENIED</text>
+  <rect class="mask" x="684" y="128" width="48" height="12" rx="2"/>
+  <text class="ta ta-acc" x="708" y="137" text-anchor="middle">REFUSED</text>
+  <rect class="mask" x="830" y="128" width="52" height="12" rx="2"/>
+  <text class="ta ta-warn" x="834" y="137">STAMPED</text>
+
+  <!-- nodes -->
+  <rect class="mask" x="40" y="56" width="140" height="56" rx="6"/>
+  <rect class="nb-in" x="40" y="56" width="140" height="56" rx="6"/>
+  <text class="tn" x="110" y="80" text-anchor="middle">alice's agent</text>
+  <text class="ts" x="110" y="96" text-anchor="middle">in its own container</text>
+
+  <rect class="mask" x="220" y="56" width="230" height="56" rx="6"/>
+  <rect class="nb" x="220" y="56" width="230" height="56" rx="6"/>
+  <text class="tn" x="335" y="80" text-anchor="middle">the agent's tools</text>
+  <text class="ts" x="335" y="96" text-anchor="middle">Bash · WebFetch · WebSearch · Playwright</text>
+
+  <rect class="mask" x="220" y="156" width="230" height="56" rx="6"/>
+  <rect class="nb" x="220" y="156" width="230" height="56" rx="6"/>
+  <text class="tn" x="335" y="180" text-anchor="middle">python executor</text>
+  <text class="ts" x="335" y="196" text-anchor="middle">host subprocess · no secrets in its env</text>
+
+  <rect class="mask" x="480" y="56" width="190" height="56" rx="6"/>
+  <rect class="nb-foc" x="480" y="56" width="190" height="56" rx="6"/>
+  <text class="tn" x="575" y="80" text-anchor="middle">deny defaults</text>
+  <text class="ts" x="575" y="96" text-anchor="middle">every persona · else up refuses</text>
+
+  <rect class="mask" x="480" y="156" width="190" height="56" rx="6"/>
+  <rect class="nb-bnd" x="480" y="156" width="190" height="56" rx="6"/>
+  <text class="tn" x="575" y="180" text-anchor="middle">executor socket guard</text>
+  <text class="ts" x="575" y="196" text-anchor="middle">web-port connect() refused</text>
+
+  <rect class="mask" x="720" y="56" width="200" height="56" rx="6"/>
+  <rect class="nb" x="720" y="56" width="200" height="56" rx="6"/>
+  <text class="tn" x="820" y="80" text-anchor="middle">nginx</text>
+  <text class="ts" x="820" y="96" text-anchor="middle">can't tell agent from browser</text>
+
+  <rect class="mask" x="720" y="156" width="200" height="56" rx="6"/>
+  <rect class="nb-warn" x="720" y="156" width="200" height="56" rx="6"/>
+  <text class="tn" x="820" y="180" text-anchor="middle">bob's terminal</text>
+  <text class="ts" x="820" y="196" text-anchor="middle">a neighbour's session, no login</text>
+
+  <!-- legend -->
+  <line class="divider" x1="40" y1="244" x2="920" y2="244"/>
+  <text class="te" x="40" y="262">LEGEND</text>
+  <rect x="120" y="254" width="10" height="10" rx="2" fill="var(--od-accent)"/>
+  <text class="ta" x="136" y="262">a gate that holds</text>
+  <rect class="nb-bnd" x="256" y="254" width="10" height="10" rx="2"/>
+  <text class="ta" x="272" y="262">defence in depth</text>
+  <line class="e-warn" x1="392" y1="259" x2="416" y2="259"/>
+  <text class="ta" x="424" y="262">a route a loopback caller has</text>
+  <line class="e-warn e-dash" x1="616" y1="259" x2="640" y2="259"/>
+  <text class="ta" x="648" y="262">what the gate refuses</text>
+</svg>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses to start an open deployment unless every persona’s
+<code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code> denies <code class="docutils literal notranslate"><span class="pre">Bash</span></code>, <code class="docutils literal notranslate"><span class="pre">WebFetch</span></code>, <code class="docutils literal notranslate"><span class="pre">WebSearch</span></code> and
+<code class="docutils literal notranslate"><span class="pre">mcp__plugin_playwright_playwright__*</span></code> (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span>
+<span class="pre">lint</span></code> reports the same, as <code class="docutils literal notranslate"><span class="pre">web_terminals.open_mode_egress</span></code>). All four are
+in OSPREY’s deny defaults, so a refusal means a persona lifted one — put it
+back in that persona’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block and rebuild. The python executor’s
+own guard against executed code reaching the web ports is defence in depth,
+not a boundary: <code class="docutils literal notranslate"><span class="pre">none</span></code> is for rooms where the agents are trusted too.</p>
+<p><strong>Passwords</strong>, managed by OSPREY:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">tls</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">      </span><span class="nt">host_cert_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/ssl/facility</span><span class="w">     </span><span class="c1"># host side; mounted for you</span>
+<span class="w">      </span><span class="nt">cert</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/osprey/tls/facility.crt</span><span class="w">   </span><span class="c1"># container side</span>
+<span class="w">      </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/osprey/tls/facility.key</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">password</span>
+</pre></div>
+</div>
+<p><strong>OIDC</strong>, against your facility’s single sign-on. Each roster entry names the
+identity that maps to it, so a valid login as somebody else cannot open this
+user’s terminal:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">tls</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">      </span><span class="nt">host_cert_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/ssl/facility</span>
+<span class="w">      </span><span class="nt">cert</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/osprey/tls/facility.crt</span>
+<span class="w">      </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/osprey/tls/facility.key</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">oidc</span>
+<span class="w">      </span><span class="nt">oidc</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">issuer</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://sso.example.org/realms/accelerator</span>
+<span class="w">        </span><span class="nt">client_id_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OSPREY_AUTH_OIDC_CLIENT_ID</span><span class="w">      </span><span class="c1"># names in .env.auth</span>
+<span class="w">        </span><span class="nt">client_secret_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OSPREY_AUTH_OIDC_CLIENT_SECRET</span>
+<span class="w">        </span><span class="nt">claim</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sub</span>
+<span class="w">    </span><span class="nt">users</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<span class="w">        </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;8f4c1e02-...&quot;</span><span class="w">     </span><span class="c1"># alice&#39;s value of that claim</span>
+</pre></div>
+</div>
+<p>A login matches when the asserted claim equals the card’s <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code>.
+The comparison is exact for every claim except <code class="docutils literal notranslate"><span class="pre">email</span></code>, which is compared
+case-insensitively: an address is the same mailbox in any case, and an
+identity provider is free to release the directory’s spelling
+(<code class="docutils literal notranslate"><span class="pre">THellert&#64;lbl.gov</span></code>) where the roster says <code class="docutils literal notranslate"><span class="pre">thellert&#64;lbl.gov</span></code>. <code class="docutils literal notranslate"><span class="pre">sub</span></code> is
+an opaque, case-sensitive identifier by specification and stays exact.</p>
+<p>Under <code class="docutils literal notranslate"><span class="pre">password</span></code> or <code class="docutils literal notranslate"><span class="pre">oidc</span></code> a small authentication service joins the stack
+and nginx asks it about every request under <code class="docutils literal notranslate"><span class="pre">/u/&lt;name&gt;/</span></code> before proxying
+anything. Optional keys: <code class="docutils literal notranslate"><span class="pre">auth.port</span></code> (the port layout’s <code class="docutils literal notranslate"><span class="pre">10001</span></code> unless you
+set it — see <a class="reference internal" href="../../../reference/ports.html#reference-ports"><span class="std std-ref">Ports</span></a>),
+<code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code> in whole seconds (default <code class="docutils literal notranslate"><span class="pre">43200</span></code>), and
+<code class="docutils literal notranslate"><span class="pre">auth.image</span></code>, required with <code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">registry</span></code>.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-gear" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0a8.2 8.2 0 0 1 .701.031C9.444.095 9.99.645 10.16 1.29l.288 1.107c.018.066.079.158.212.224.231.114.454.243.668.386.123.082.233.09.299.071l1.103-.303c.644-.176 1.392.021 1.82.63.27.385.506.792.704 1.218.315.675.111 1.422-.364 1.891l-.814.806c-.049.048-.098.147-.088.294.016.257.016.515 0 .772-.01.147.038.246.088.294l.814.806c.475.469.679 1.216.364 1.891a7.977 7.977 0 0 1-.704 1.217c-.428.61-1.176.807-1.82.63l-1.102-.302c-.067-.019-.177-.011-.3.071a5.909 5.909 0 0 1-.668.386c-.133.066-.194.158-.211.224l-.29 1.106c-.168.646-.715 1.196-1.458 1.26a8.006 8.006 0 0 1-1.402 0c-.743-.064-1.289-.614-1.458-1.26l-.289-1.106c-.018-.066-.079-.158-.212-.224a5.738 5.738 0 0 1-.668-.386c-.123-.082-.233-.09-.299-.071l-1.103.303c-.644.176-1.392-.021-1.82-.63a8.12 8.12 0 0 1-.704-1.218c-.315-.675-.111-1.422.363-1.891l.815-.806c.05-.048.098-.147.088-.294a6.214 6.214 0 0 1 0-.772c.01-.147-.038-.246-.088-.294l-.815-.806C.635 6.045.431 5.298.746 4.623a7.92 7.92 0 0 1 .704-1.217c.428-.61 1.176-.807 1.82-.63l1.102.302c.067.019.177.011.3-.071.214-.143.437-.272.668-.386.133-.066.194-.158.211-.224l.29-1.106C6.009.645 6.556.095 7.299.03 7.53.01 7.764 0 8 0Zm-.571 1.525c-.036.003-.108.036-.137.146l-.289 1.105c-.147.561-.549.967-.998 1.189-.173.086-.34.183-.5.29-.417.278-.97.423-1.529.27l-1.103-.303c-.109-.03-.175.016-.195.045-.22.312-.412.644-.573.99-.014.031-.021.11.059.19l.815.806c.411.406.562.957.53 1.456a4.709 4.709 0 0 0 0 .582c.032.499-.119 1.05-.53 1.456l-.815.806c-.081.08-.073.159-.059.19.162.346.353.677.573.989.02.03.085.076.195.046l1.102-.303c.56-.153 1.113-.008 1.53.27.161.107.328.204.501.29.447.222.85.629.997 1.189l.289 1.105c.029.109.101.143.137.146a6.6 6.6 0 0 0 1.142 0c.036-.003.108-.036.137-.146l.289-1.105c.147-.561.549-.967.998-1.189.173-.086.34-.183.5-.29.417-.278.97-.423 1.529-.27l1.103.303c.109.029.175-.016.195-.045.22-.313.411-.644.573-.99.014-.031.021-.11-.059-.19l-.815-.806c-.411-.406-.562-.957-.53-1.456a4.709 4.709 0 0 0 0-.582c-.032-.499.119-1.05.53-1.456l.815-.806c.081-.08.073-.159.059-.19a6.464 6.464 0 0 0-.573-.989c-.02-.03-.085-.076-.195-.046l-1.102.303c-.56.153-1.113.008-1.53-.27a4.44 4.44 0 0 0-.501-.29c-.447-.222-.85-.629-.997-1.189l-.289-1.105c-.029-.11-.101-.143-.137-.146a6.6 6.6 0 0 0-1.142 0ZM11 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM9.5 8a1.5 1.5 0 1 0-3.001.001A1.5 1.5 0 0 0 9.5 8Z"></path></svg></span><span class="sd-summary-text">Where <code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code> applies</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text">The key reaches past this page: it sets how long a terminal session cookie
+lasts wherever that cookie is used — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> and <code class="docutils literal notranslate"><span class="pre">auth.method:</span>
+<span class="pre">token</span></code>. For everyone who goes through the login page, nginx rather than
+that cookie is what lets them through, so here the key sets the login
+page’s cookie.</p>
+</div>
+</details><p><code class="docutils literal notranslate"><span class="pre">tls.port</span></code> is optional in the same way: nginx serves HTTPS on 443 unless you
+name another port, for a host that cannot bind 443 or already carries another
+deployment’s HTTPS. It is HTTPS’s own default rather than a port-layout slot,
+so <a class="reference internal" href="../../../reference/ports.html#reference-ports"><span class="std std-ref">Ports</span></a> does not list it, and a non-default value changes the
+address browsers reach — see <a class="reference internal" href="#multi-user-https"><span class="std std-ref">Serve it over HTTPS</span></a>. A <code class="docutils literal notranslate"><span class="pre">tls.port</span></code> or
+<code class="docutils literal notranslate"><span class="pre">auth.port</span></code> that is not a whole number between 1 and 65535 falls back to that
+key’s default, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code> reports as
+<code class="docutils literal notranslate"><span class="pre">web_terminals.invalid_listener_port</span></code>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>No secret may contain a <code class="docutils literal notranslate"><span class="pre">$</span></code> — not in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>, <code class="docutils literal notranslate"><span class="pre">.env</span></code> or
+<code class="docutils literal notranslate"><span class="pre">.env.users</span></code>, and not in an <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code>. Container stacks substitute
+<code class="docutils literal notranslate"><span class="pre">$</span></code> sequences on the way through, and the only symptom is a login that
+refuses for no visible reason. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses such a stack and names
+the variable; if a provider issued the secret, issue a new one.</p>
+</div>
+</section>
+<section id="let-single-sign-on-pick-the-tier">
+<span id="multi-user-role-from-sso"></span><h2>Let single sign-on pick the tier<a class="headerlink" href="#let-single-sign-on-pick-the-tier" title="Link to this heading">#</a></h2>
+<p>Instead of pinning a persona on every roster entry, name roles once and let
+the provider’s groups choose:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">authorization</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">roles</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">operator</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="nv">readwrite</span><span class="p p-Indicator">}</span>
+<span class="w">        </span><span class="nt">viewer</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="nv">readonly</span><span class="p p-Indicator">}</span>
+<span class="w">      </span><span class="nt">claims</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">claim</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">groups</span><span class="w">          </span><span class="c1"># the ID-token claim holding group membership</span>
+<span class="w">        </span><span class="nt">map</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">ca-operators</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">operator</span>
+<span class="w">          </span><span class="nt">ca-viewers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">viewer</span>
+<span class="w">    </span><span class="nt">users</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<span class="w">        </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">operator</span><span class="w">         </span><span class="c1"># in place of `persona: readwrite`</span>
+<span class="w">        </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;8f4c1e02-...&quot;</span>
+</pre></div>
+</div>
+<p>A roster entry carries <code class="docutils literal notranslate"><span class="pre">role:</span></code> or <code class="docutils literal notranslate"><span class="pre">persona:</span></code>, never both. The rules:</p>
+<ul class="simple">
+<li><p>Every value of the claim is matched, in any order. Exactly one distinct role
+must result: none → refused (<code class="docutils literal notranslate"><span class="pre">unmapped_role_claim</span></code>), more than one →
+refused (<code class="docutils literal notranslate"><span class="pre">ambiguous_role_claim</span></code>).</p></li>
+<li><p>The role the token grants must be the role the roster named for the card
+that was clicked; otherwise the login is refused (<code class="docutils literal notranslate"><span class="pre">role_mismatch</span></code>). Fix
+whichever of roster or provider has drifted.</p></li>
+<li><p>A role is resolved at login and travels inside the session — together with
+its origin, the roster entry or the provider’s claim — so a change at the
+provider or in the roster reaches the <em>next</em> login. To withdraw a role now,
+end the session: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">decommission</span> <span class="pre">&lt;name&gt;</span></code>.</p></li>
+</ul>
+<p>Every login and refusal is recorded in <code class="docutils literal notranslate"><span class="pre">var/audit/sidecar/auth_sidecar.jsonl</span></code>
+on the deploy host. A <code class="docutils literal notranslate"><span class="pre">claims</span></code> stanza under <code class="docutils literal notranslate"><span class="pre">password</span></code> resolves nothing;
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> warns rather than fails.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Microsoft Entra ID leaves <code class="docutils literal notranslate"><span class="pre">groups</span></code> out of the token for accounts in many
+groups (<em>group overage</em>), which lands on a missing-claim refusal. Either
+emit only the groups assigned to this application, or define app roles and
+point <code class="docutils literal notranslate"><span class="pre">claim</span></code> at <code class="docutils literal notranslate"><span class="pre">roles</span></code>.</p>
+</div>
+<p>Behind a proxy that re-signs TLS with a site certificate authority, the
+identity-provider fetch fails inside the login service even with the site-CA
+block in <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> uncommented: that service receives the three proxy
+variables and nothing else, and no site CA is mounted into its image. See
+<a class="reference internal" href="../../deploy-project/env-chain.html#deployment-env-chain"><span class="std std-ref">Environment Variables (the .env chain)</span></a> for what the chain delivers to which container.</p>
+</section>
+<section id="share-a-card-with-more-than-one-person">
+<span id="multi-user-shared-card"></span><h2>Share a card with more than one person<a class="headerlink" href="#share-a-card-with-more-than-one-person" title="Link to this heading">#</a></h2>
+<p>A roster entry admits one person. <code class="docutils literal notranslate"><span class="pre">access:</span></code> is the key that changes that.
+Its value is a <strong>principal set</strong> — the principals allowed to open the card,
+and nobody else. The two words you already know name one-principal sets:
+<code class="docutils literal notranslate"><span class="pre">own</span></code>, the default, is <code class="docutils literal notranslate"><span class="pre">[self]</span></code>, the entry’s own login and nobody else’s;
+<code class="docutils literal notranslate"><span class="pre">any</span></code> is <code class="docutils literal notranslate"><span class="pre">[roster]</span></code>, everyone this deployment can authenticate. Every
+other set is written as a list.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 75.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Principal</p></th>
+<th class="head"><p>Who it admits</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">self</span></code></p></td>
+<td><p>The entry’s own login. <code class="docutils literal notranslate"><span class="pre">access:</span> <span class="pre">own</span></code> is this set, spelled shorter.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">roster</span></code></p></td>
+<td><p>Everyone this deployment can authenticate. <code class="docutils literal notranslate"><span class="pre">access:</span> <span class="pre">any</span></code> is this
+set, spelled shorter.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">user:&lt;id&gt;</span></code></p></td>
+<td><p>One identity, written exactly as your provider asserts it under
+<code class="docutils literal notranslate"><span class="pre">auth.oidc.claim</span></code>. Needs <code class="docutils literal notranslate"><span class="pre">method:</span> <span class="pre">oidc</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">domain:&lt;domain&gt;</span></code></p></td>
+<td><p>Everyone whose asserted email address is in that domain. Needs
+<code class="docutils literal notranslate"><span class="pre">method:</span> <span class="pre">oidc</span></code> and <code class="docutils literal notranslate"><span class="pre">claim:</span> <span class="pre">email</span></code>.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A card whose set is anything but <code class="docutils literal notranslate"><span class="pre">[self]</span></code> is a <strong>shared card</strong>: one
+terminal, one persona, one audit directory, opened by more than one person.
+Here is one shared with the whole roster:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">tls</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">      </span><span class="nt">host_cert_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/ssl/facility</span>
+<span class="w">      </span><span class="nt">cert</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/osprey/tls/facility.crt</span>
+<span class="w">      </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/osprey/tls/facility.key</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">oidc</span>
+<span class="w">      </span><span class="nt">oidc</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">issuer</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://sso.example.org/realms/accelerator</span>
+<span class="w">        </span><span class="nt">client_id_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OSPREY_AUTH_OIDC_CLIENT_ID</span>
+<span class="w">        </span><span class="nt">client_secret_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OSPREY_AUTH_OIDC_CLIENT_SECRET</span>
+<span class="w">        </span><span class="nt">claim</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sub</span>
+<span class="w">    </span><span class="nt">users</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<span class="w">        </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readwrite</span>
+<span class="w">        </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;8f4c1e02-...&quot;</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">        </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
+<span class="w">        </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;41ab97d0-...&quot;</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ops-desk</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+<span class="w">        </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
+<span class="w">        </span><span class="nt">access</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">any</span><span class="w">                </span><span class="c1"># any roster login opens this card</span>
+</pre></div>
+</div>
+<p>And here are two cards that nobody needs a roster entry to open — one shared
+with a whole single sign-on domain, one with two named people:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">oidc</span>
+<span class="w">      </span><span class="nt">oidc</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">issuer</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://sso.example.org/realms/accelerator</span>
+<span class="w">        </span><span class="nt">client_id_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OSPREY_AUTH_OIDC_CLIENT_ID</span>
+<span class="w">        </span><span class="nt">client_secret_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OSPREY_AUTH_OIDC_CLIENT_SECRET</span>
+<span class="w">        </span><span class="nt">claim</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">email</span><span class="w">             </span><span class="c1"># domain: reads the email address</span>
+<span class="w">    </span><span class="nt">users</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ops-desk</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+<span class="w">        </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
+<span class="w">        </span><span class="nt">access</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">domain</span><span class="p p-Indicator">:</span><span class="nv">example.org</span><span class="p p-Indicator">]</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">controls</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
+<span class="w">        </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readwrite</span>
+<span class="w">        </span><span class="nt">access</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">user</span><span class="p p-Indicator">:</span><span class="nv">ada@example.org</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">user</span><span class="p p-Indicator">:</span><span class="nv">bo@example.org</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships its two standalone cards this way —
+<code class="docutils literal notranslate"><span class="pre">logbook</span></code> and <code class="docutils literal notranslate"><span class="pre">knowledge</span></code>, each <code class="docutils literal notranslate"><span class="pre">access:</span> <span class="pre">any</span></code> under <code class="docutils literal notranslate"><span class="pre">password</span></code> — so
+the logbook research and facility knowledge terminals are opened with any
+roster login’s own password and carry no credential of their own.</p>
+<p>Who can open it is answered one principal at a time. <code class="docutils literal notranslate"><span class="pre">roster</span></code> admits
+anyone this deployment can authenticate: under <code class="docutils literal notranslate"><span class="pre">password</span></code> that is every roster entry
+with a provisioned password; under <code class="docutils literal notranslate"><span class="pre">oidc</span></code>, every entry that carries an
+<code class="docutils literal notranslate"><span class="pre">oidc_subject:</span></code>, the shared card itself included when it carries one.
+<code class="docutils literal notranslate"><span class="pre">user:</span></code> admits the one identity it names, and <code class="docutils literal notranslate"><span class="pre">domain:</span></code> admits every
+asserted email address in that domain — in both cases whether or not that
+person has a roster entry of their own. The set only ever grants: a card
+admits someone when at least one of its principals covers them, nothing on
+the card takes admission back again, and a person no principal covers is
+refused.</p>
+<p>Write <code class="docutils literal notranslate"><span class="pre">self</span></code> into the list where the card’s own login has to keep working
+beside the rest. <code class="docutils literal notranslate"><span class="pre">[self,</span> <span class="pre">domain:example.org]</span></code> admits the card’s owner by
+their own credential and everyone in the domain; <code class="docutils literal notranslate"><span class="pre">[domain:example.org]</span></code>
+alone does not admit the owner, unless the identity they sign in with is
+itself in that domain. <code class="docutils literal notranslate"><span class="pre">roster</span></code> covers the owner too, as one roster member
+among the others.</p>
+<p><code class="docutils literal notranslate"><span class="pre">domain:</span></code> compares the domain exactly. <code class="docutils literal notranslate"><span class="pre">domain:example.org</span></code> admits
+<code class="docutils literal notranslate"><span class="pre">ada&#64;example.org</span></code> and refuses <code class="docutils literal notranslate"><span class="pre">ada&#64;labs.example.org</span></code>; name the subdomain
+as a principal of its own where you want it too. Case in the domain is
+ignored, because domain names ignore it, and there is a domain to read only
+where the identity claim is the email address — so <code class="docutils literal notranslate"><span class="pre">domain:</span></code> is refused
+before the deployment starts unless <code class="docutils literal notranslate"><span class="pre">claim:</span> <span class="pre">email</span></code> is set. Two further
+checks run once, at login, on claims the login service never stores: a token
+whose <code class="docutils literal notranslate"><span class="pre">hd</span></code> claim disagrees with the domain of its email address is refused,
+and so is one carrying <code class="docutils literal notranslate"><span class="pre">email_verified:</span> <span class="pre">false</span></code>. A provider that never
+verifies addresses — a Keycloak realm with <em>Verify email</em> switched off, say —
+emits that claim for everyone, so its <code class="docutils literal notranslate"><span class="pre">user:</span></code> principals refuse everybody
+until the address is verified, which is the provider behaving to spec rather
+than a fault.</p>
+<p>Under <code class="docutils literal notranslate"><span class="pre">password</span></code> only <code class="docutils literal notranslate"><span class="pre">self</span></code> and <code class="docutils literal notranslate"><span class="pre">roster</span></code> are evaluated: nothing there
+asserts an identity or an email domain, so a card listing only <code class="docutils literal notranslate"><span class="pre">user:</span></code> or
+<code class="docutils literal notranslate"><span class="pre">domain:</span></code> principals would admit nobody at all. The lint refuses that card
+before it can be deployed. A card whose set names <code class="docutils literal notranslate"><span class="pre">roster</span></code> gains a username
+field on its login form:
+the person types their <em>own</em> roster name beside the password, and it is that
+name’s stored password that is checked — and that name the rate limit counts
+against. A card that never had a password of its own has no credential to
+offer here; one flipped from <code class="docutils literal notranslate"><span class="pre">own</span></code> still does, until you decommission it —
+see <a class="reference internal" href="#multi-user-shared-card-removal"><span class="std std-ref">Removing someone</span></a> below.</p>
+<p>A session opened by someone the roster names carries who opened it — the
+<em>opener</em> — and re-checks that person against the roster on every request.
+Rotating the opener’s password or decommissioning them ends every shared
+session they opened at the next request, and under <code class="docutils literal notranslate"><span class="pre">oidc</span></code> so does editing
+or removing their <code class="docutils literal notranslate"><span class="pre">oidc_subject:</span></code> — that per-person revocation is how a
+shared card is taken away from one user without touching the rest.</p>
+<p>A session admitted by a <code class="docutils literal notranslate"><span class="pre">user:</span></code> or <code class="docutils literal notranslate"><span class="pre">domain:</span></code> principal has no roster
+entry behind it. It carries the identity the provider asserted, and every
+request re-checks that identity against the set the card carries <em>now</em>.
+Revocation is the same move made in a different place: drop the principal
+that covers someone, and their next request on that card is refused. Editing
+the <code class="docutils literal notranslate"><span class="pre">access</span></code> key settles the same way throughout — a card widened from
+<code class="docutils literal notranslate"><span class="pre">own</span></code> refuses the sessions minted while it was its owner’s, a card returned
+to <code class="docutils literal notranslate"><span class="pre">own</span></code> refuses the shared ones, and a narrowed list refuses whoever it no
+longer covers.</p>
+<p>The ledger records who opened a session beside the card
+(<a class="reference internal" href="../../../reference/contracts/audit-trail.html#audit-trail-identity-keys"><span class="std std-ref">The login behind the record</span></a>), so a shared terminal’s records still say
+who did what.</p>
+<p>The card’s role rides the card. The claims binding
+(<a class="reference internal" href="#multi-user-role-from-sso"><span class="std std-ref">Let single sign-on pick the tier</span></a>) is not consulted on a shared card — the
+card’s terminal is only ever built as its own tier — so a person the binding
+would refuse for their own card can still open a shared one. If the binding
+is your membership gate, do not share a card.</p>
+<p>These rosters are refused by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code> and the
+build verbs that run it:</p>
+<ul class="simple">
+<li><p><strong>A deployment-editing card cannot be shared</strong>
+(<code class="docutils literal notranslate"><span class="pre">web_terminals.shared_card_privileged</span></code>). A persona holding the setup
+tool or the Config panel was lifted for named people behind their own
+cards; any set wider than <code class="docutils literal notranslate"><span class="pre">[self]</span></code> would hand it to people it was never
+lifted for.</p></li>
+<li><p><strong>A principal OSPREY does not recognise is an error, never a wider card</strong>
+(<code class="docutils literal notranslate"><span class="pre">web_terminals.invalid_user_access</span></code>). An empty list, a value that is not
+a list, an unknown prefix and a misspelled one are all refused where they
+are written, rather than quietly leaving the card owner-only. <code class="docutils literal notranslate"><span class="pre">group:</span></code>
+gets its own wording: the prefix is reserved and not supported yet.</p></li>
+<li><p><strong>Both new principal kinds need</strong> <code class="docutils literal notranslate"><span class="pre">method:</span> <span class="pre">oidc</span></code>
+(<code class="docutils literal notranslate"><span class="pre">web_terminals.access_principal_without_idp</span></code>). Under <code class="docutils literal notranslate"><span class="pre">password</span></code>
+nothing asserts an identity or an email domain, so a card written that way
+could not mean what it says.</p></li>
+<li><p><strong>A</strong> <code class="docutils literal notranslate"><span class="pre">domain:</span></code> <strong>principal needs</strong> <code class="docutils literal notranslate"><span class="pre">claim:</span> <span class="pre">email</span></code>
+(<code class="docutils literal notranslate"><span class="pre">web_terminals.access_domain_without_email_claim</span></code>). Every other claim is
+refused, because there is no email address to read a domain from and the
+card would admit nobody.</p></li>
+<li><p><strong>Two</strong> <code class="docutils literal notranslate"><span class="pre">user:</span></code> <strong>principals on one card must not name the same
+identity</strong> (<code class="docutils literal notranslate"><span class="pre">web_terminals.duplicate_access_principal</span></code>). Identical values
+are refused, and so are values differing only in case under
+<code class="docutils literal notranslate"><span class="pre">claim:</span> <span class="pre">email</span></code>, because the login service has to resolve an identity to a
+single grant.</p></li>
+<li><p><strong>With a shared card on an</strong> <code class="docutils literal notranslate"><span class="pre">oidc</span></code> <strong>roster, two entries must not carry
+the same</strong> <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code> (<code class="docutils literal notranslate"><span class="pre">web_terminals.shared_card_duplicate_subject</span></code>).
+One person could always hold two cards — the same <code class="docutils literal notranslate"><span class="pre">oidc_subject:</span></code> on
+both, every login arriving through the card that was clicked. A shared card
+changes the question: the login service must resolve each identity to a
+single roster entry to know who opened it, so once any card is shared, such
+a person keeps <code class="docutils literal notranslate"><span class="pre">oidc_subject:</span></code> on one card only — a login by that
+identity would otherwise be ambiguous, and is refused. Under
+<code class="docutils literal notranslate"><span class="pre">claim:</span> <span class="pre">email</span></code> two subjects that differ only in case count as the same.</p></li>
+</ul>
+<p>The three principal refusals — <code class="docutils literal notranslate"><span class="pre">web_terminals.access_principal_without_idp</span></code>,
+<code class="docutils literal notranslate"><span class="pre">web_terminals.access_domain_without_email_claim</span></code> and
+<code class="docutils literal notranslate"><span class="pre">web_terminals.duplicate_access_principal</span></code> — say nothing where no login wall
+stands. Under <code class="docutils literal notranslate"><span class="pre">token</span></code> or <code class="docutils literal notranslate"><span class="pre">none</span></code> there is no door for a principal to open,
+and a profile’s passive base is allowed to carry the key for the variant that
+arms it. Once the deployment is running, a card whose
+<code class="docutils literal notranslate"><span class="pre">OSPREY_AUTH_ROSTER_ACCESS_*</span></code> value the login service cannot read admits
+nobody, its owner included, and the service logs a warning naming the
+variable until the deployment is rendered again from a corrected profile.</p>
+</section>
+<section id="serve-it-over-https">
+<span id="multi-user-https"></span><h2>Serve it over HTTPS<a class="headerlink" href="#serve-it-over-https" title="Link to this heading">#</a></h2>
+<p>A login page hands out session cookies, so <code class="docutils literal notranslate"><span class="pre">password</span></code> and <code class="docutils literal notranslate"><span class="pre">oidc</span></code> refuse to
+render with <code class="docutils literal notranslate"><span class="pre">tls.enabled:</span> <span class="pre">false</span></code> unless something else encrypts the
+connection. Two shapes:</p>
+<p><strong>This nginx terminates TLS.</strong> Set <code class="docutils literal notranslate"><span class="pre">tls.enabled:</span> <span class="pre">true</span></code> with a certificate
+and key; nginx serves HTTPS on 443 — or on <code class="docutils literal notranslate"><span class="pre">tls.port</span></code> when you set one — and
+redirects the plain port to it. <code class="docutils literal notranslate"><span class="pre">host_cert_dir</span></code> is the only key that names a
+path on the deploy host — it is bind-mounted, read-only, where <code class="docutils literal notranslate"><span class="pre">cert</span></code> and
+<code class="docutils literal notranslate"><span class="pre">key</span></code> (paths inside the container) sit, so both must be in that one directory
+and the path must be absolute. Leave <code class="docutils literal notranslate"><span class="pre">host_cert_dir</span></code> out to mount the
+certificate your own way.</p>
+<p>A non-default <code class="docutils literal notranslate"><span class="pre">tls.port</span></code> also becomes part of the address browsers reach.
+The deployment’s origin is then <code class="docutils literal notranslate"><span class="pre">https://&lt;fqdn&gt;:&lt;port&gt;</span></code>, built from
+<code class="docutils literal notranslate"><span class="pre">deploy.fqdn</span></code> unless <code class="docutils literal notranslate"><span class="pre">external_origin</span></code> names the address itself, and
+everything derived from it carries the port: the landing
+link, the address each terminal checks a state-changing request came from, and
+under <code class="docutils literal notranslate"><span class="pre">oidc</span></code> the callback the authentication service sends to your provider.
+Register <code class="docutils literal notranslate"><span class="pre">https://&lt;fqdn&gt;:&lt;port&gt;/auth/oidc/callback</span></code> with the identity
+provider, or change an existing registration to match — a provider refuses a
+callback that is not character-for-character the registered one. On 443 the
+port stays out of the origin and the callback is
+<code class="docutils literal notranslate"><span class="pre">https://&lt;fqdn&gt;/auth/oidc/callback</span></code>.</p>
+<p><strong>Something in front terminates TLS</strong> — a facility load balancer or ingress:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">external_origin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://terminals.example.org</span><span class="w">   </span><span class="c1"># what the browser reaches</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">password</span>
+<span class="w">      </span><span class="nt">allow_insecure_http</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">external_origin</span></code> is required here: every terminal refuses a state-changing
+request unless the browser says it came from that address, and nothing else
+in the configuration can work out what the thing in front answers on. Write
+it as a bare origin — scheme, host, port if non-default, no path.
+<code class="docutils literal notranslate"><span class="pre">allow_insecure_http</span></code> is not a way to postpone certificates on a reachable
+host; with nothing terminating TLS, anyone watching the traffic can become
+that user.</p>
+</section>
+<section id="passwords-and-where-they-live">
+<h2>Passwords, and where they live<a class="headerlink" href="#passwords-and-where-they-live" title="Link to this heading">#</a></h2>
+<p>Password hashes and cookie-signing keys live in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> in the project
+root — mode <code class="docutils literal notranslate"><span class="pre">0600</span></code>, gitignored, mounted into the authentication service
+only. On every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>, for each user in order:</p>
+<ol class="arabic simple">
+<li><p>An existing hash in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> is kept; deploying never resets a
+password.</p></li>
+<li><p>Otherwise a plaintext <code class="docutils literal notranslate"><span class="pre">OSPREY_AUTH_PW_&lt;USER&gt;</span></code> in <code class="docutils literal notranslate"><span class="pre">.env</span></code> is hashed in —
+the way to set a password you chose. <code class="docutils literal notranslate"><span class="pre">&lt;USER&gt;</span></code> is the name uppercased with
+<code class="docutils literal notranslate"><span class="pre">-</span></code> turned into <code class="docutils literal notranslate"><span class="pre">_</span></code>.</p></li>
+<li><p>Otherwise a password is generated, hashed, and printed once. Capture it.</p></li>
+</ol>
+<p>To change one later, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span> <span class="pre">alice</span></code> prompts, rewrites that hash
+and ends alice’s sessions — her own card’s, and every
+<a class="reference internal" href="#multi-user-shared-card"><span class="std std-ref">shared-card</span></a> session she opened, since those
+are held open by this same credential. Sessions held open by other people’s
+passwords stay up. Password login is rate-limited per user but never locks
+anyone out — a control-room operator must not be shut out of the terminals.</p>
+</section>
+<section id="removing-someone-and-turning-it-off">
+<span id="multi-user-shared-card-removal"></span><h2>Removing someone, and turning it off<a class="headerlink" href="#removing-someone-and-turning-it-off" title="Link to this heading">#</a></h2>
+<p>A credential can outlive an account, so:</p>
+<ul class="simple">
+<li><p><strong>Use</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">remove</span> <span class="pre">alice</span></code>, not a hand-edit of the roster —
+removing the entry alone leaves her hash in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>, and adding the
+name back months later revives her password. <code class="docutils literal notranslate"><span class="pre">decommission</span></code> (or
+<code class="docutils literal notranslate"><span class="pre">prune</span></code>, for names already edited out) retires the credential and, under
+OIDC, ends the session.</p></li>
+<li><p><strong>A shared card is revoked per person, through their own credential.</strong>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span> <span class="pre">alice</span></code> ends every shared-card session alice opened
+along with her own (see above); under <code class="docutils literal notranslate"><span class="pre">oidc</span></code>, editing or removing her
+<code class="docutils literal notranslate"><span class="pre">oidc_subject:</span></code> ends her shared-card sessions at the next request — her
+<em>own</em> card’s session is different, lapsing at expiry or logout as it always
+has, unless <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">decommission</span> <span class="pre">alice</span></code> ends it now.</p></li>
+<li><p><strong>Sharing a card does not retire the card’s own password</strong> — the hash stays
+in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> and still works: anyone who knows it can open the shared
+card by typing the card’s own name into the username field. Run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">decommission</span> <span class="pre">&lt;card&gt;</span></code> when you share a card that used to
+have its own password; returning the card to <code class="docutils literal notranslate"><span class="pre">own</span></code> revives an unretired
+hash. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span> <span class="pre">&lt;card&gt;</span></code> is refused while the card is shared —
+there is no password of its own to change.</p></li>
+<li><p><strong>A plaintext</strong> <code class="docutils literal notranslate"><span class="pre">OSPREY_AUTH_PW_ALICE</span></code> <strong>in</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code> <strong>survives
+decommission</strong> and would be hashed straight back in for the next alice.
+Delete the line by hand when the person leaves.</p></li>
+<li><p><strong>Logging out ends a terminal session</strong> on the server: the cookie it was
+carrying is refused from that moment on. The login page’s cookie is the
+other case — that logout is remembered in the authentication service’s
+memory only, so a copy captured beforehand can be replayed until it
+expires, within <code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code>.</p></li>
+<li><p><strong>Terminal sessions are kept on disk</strong> — behind <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">token</span></code> and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>, not behind the login page here — so there they outlive a
+restart of the web terminals and a change of the operator secret. A
+password change or a decommission ends the login-page session, not those.</p></li>
+<li><p><strong>A shortened</strong> <code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code> <strong>reaches sessions already
+running</strong> at the next restart of the web terminals, when their deadlines
+are clamped to the new value.</p></li>
+<li><p><strong>A terminal already on screen outlives its deadline</strong> until that page is
+closed, reloaded, or logged out from — the deadline is checked when a page
+connects, not on a timer, so a logout elsewhere does not cut a terminal that
+is already open.</p></li>
+</ul>
+<p>To turn the login page off, set <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">token</span></code> and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>;
+<code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> is kept, so turning it back on keeps everyone’s password.
+<code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">none</span></code> goes one step further and drops the login URLs too —
+read <a class="reference internal" href="#multi-user-open-mode"><span class="std std-ref">the open posture</span></a> first.</p>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="tiers.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Privilege Tiers</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../../agent-interfaces/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Agent Interfaces</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choose-a-method">Choose a method</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#let-single-sign-on-pick-the-tier">Let single sign-on pick the tier</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#share-a-card-with-more-than-one-person">Share a card with more than one person</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#serve-it-over-https">Serve it over HTTPS</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#passwords-and-where-they-live">Passwords, and where they live</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#removing-someone-and-turning-it-off">Removing someone, and turning it off</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/web-terminal/multi-user/login.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
