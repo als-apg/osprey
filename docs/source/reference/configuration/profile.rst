@@ -346,8 +346,8 @@ top-level ``provider:`` field picks one entry by name.
        base_url: https://my-gateway.example.org/v1
        models:
          haiku: claude-haiku-4-5
-         sonnet: claude-sonnet-4-6
-         opus: claude-opus-4-6
+         sonnet: claude-sonnet-5
+         opus: claude-opus-5
 
 ``base_url`` is required. ``api_key`` is optional and is normally an
 ``${ENV_VAR}`` reference resolved at run time from the repository's ``.env`` —
