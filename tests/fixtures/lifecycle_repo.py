@@ -1974,13 +1974,13 @@ __pycache__/
 ENV_EXAMPLE = """\
 # Als Exemplar Environment Configuration
 #
-# Every variable this agent reads, listed in one place. Copy this file to `.env`
-# beside it and fill in what you need. That one file holds all your secrets, and
-# a value in it survives every rebuild.
+# Every variable this agent reads, listed in one place. Copy it to `.env` at the
+# repository root, beside `profile.yml`, and fill in what you need. That one file
+# holds all your secrets, and a value in it survives every rebuild.
 #
 # This file has no secrets in it and is safe to commit.
 #
-# The `.env` files, and which one to edit:
+# The `.env` files at the repository root, and which one to edit:
 #
 #   .env.shared    the settings that are the same on every host; committed
 #   .env           this host's own values and every key; wins over
@@ -2181,8 +2181,10 @@ deletes the audit log as well; that plus deleting this folder removes it all.
 
 ## Backups
 
-Git covers your settings. `var/` and `.env` are everything else, so a backup
-is a copy of those two, and a restore is:
+Git covers your settings. `var/` and the root's `.env` files are everything
+else — `.env`, and on a deployment with web terminals the deploy-written `.env.auth`,
+which holds the password hashes and cannot be regenerated: without it `osprey up`
+mints a new password for every user. A backup is a copy of those, and a restore is:
 
 ```bash
 git clone <this repo> && tar xf state.tar.gz && osprey build && osprey up -d

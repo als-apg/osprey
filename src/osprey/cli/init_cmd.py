@@ -151,7 +151,7 @@ __pycache__/
 """
 
 
-def _repo_env_shared(name: str, seeded: tuple[str, ...] = ()) -> str:
+def _repo_env_shared(name: str, seeded: tuple[str, ...] = (), facility_rule: bool = False) -> str:
     """The committed half of the deployment's environment, as a commented starter.
 
     Every line is commented out, because a deployment needs no shared defaults
@@ -204,7 +204,7 @@ def _repo_env_shared(name: str, seeded: tuple[str, ...] = ()) -> str:
 """
 
 
-def _repo_readme(name: str, seeded: tuple[str, ...] = ()) -> str:
+def _repo_readme(name: str, seeded: tuple[str, ...] = (), facility_rule: bool = False) -> str:
     """The README an operator meets this layout through.
 
     Its subject is the repo, not the profile: which zone survives what, and the
@@ -226,7 +226,7 @@ the folder name is the assistant's name.
 | Generated files | `{BUILD_OUTPUT_DIR}/` | no | no, safe to delete |
 | The agent's memory and audit log | `{STATE_DIR}/agent_data/`, `{STATE_DIR}/audit/` | no | yes |
 
-In full, the first row is: {_source_zone_prose(seeded)}.
+In full, the first row is: {_source_zone_prose(seeded, facility_rule)}.
 
 `{BUILD_OUTPUT_DIR}/` is generated from your settings every time you run `osprey build`.
 Deleting it is always safe: no settings, no keys and no agent memory live there.
@@ -308,8 +308,10 @@ deletes the audit log as well; that plus deleting this folder removes it all.
 
 ## Backups
 
-Git covers your settings. `{STATE_DIR}/` and `.env` are everything else, so a backup
-is a copy of those two, and a restore is:
+Git covers your settings. `{STATE_DIR}/` and the root's `.env` files are everything
+else — `.env`, and on a deployment with web terminals the deploy-written `.env.auth`,
+which holds the password hashes and cannot be regenerated: without it `osprey up`
+mints a new password for every user. A backup is a copy of those, and a restore is:
 
 ```bash
 git clone <this repo> && tar xf state.tar.gz && osprey build && osprey up -d
@@ -374,7 +376,7 @@ Every key named here is written up in full at https://als-apg.github.io/osprey/.
 """
 
 
-def _ci_extra_text(name: str, seeded: tuple[str, ...] = ()) -> str:
+def _ci_extra_text(name: str, seeded: tuple[str, ...] = (), facility_rule: bool = False) -> str:
     """The starter ``ci-extra.yml`` — an include point with nothing in it yet.
 
     Written by this command and by nothing else, ever: the pipeline beside it
@@ -453,7 +455,9 @@ _NOT_A_DIRECTORY = "Not a directory: {target}. `osprey init` creates a deploymen
 # than by a promise anybody has to maintain.
 
 
-def _repo_gitignore_for(name: str, seeded: tuple[str, ...] = ()) -> str:
+def _repo_gitignore_for(
+    name: str, seeded: tuple[str, ...] = (), facility_rule: bool = False
+) -> str:
     """:func:`_repo_gitignore`, with the uniform signature the table needs.
 
     The zone paths are the layout's, not the deployment's, so this is the one
@@ -468,11 +472,12 @@ def _repo_gitignore_for(name: str, seeded: tuple[str, ...] = ()) -> str:
 #: its text. This mapping DRIVES the writing — ``init`` loops over it rather
 #: than naming the four files again — so a file that is written is a file that
 #: is listed, and the ``--force`` promise below cannot describe a set the code
-#: does not implement. Every builder takes the same pair — the deployment's
-#: name, and the directories :data:`WRITE_ONCE_DIRS` actually seeded into this
-#: repo — so that a builder may start describing a seeded directory without the
-#: loop that calls it having to learn which builders care.
-WRITE_ONCE_FILES: Mapping[str, Callable[[str, tuple[str, ...]], str]] = {
+#: does not implement. Every builder takes the same triple — the deployment's
+#: name, the directories :data:`WRITE_ONCE_DIRS` actually seeded into this repo,
+#: and whether the resolved profile selects the facility rule — so that a builder
+#: may start describing either conditional directory without the loop that calls
+#: it having to learn which builders care.
+WRITE_ONCE_FILES: Mapping[str, Callable[[str, tuple[str, ...], bool], str]] = {
     ".gitignore": _repo_gitignore_for,
     ENV_SHARED_FILENAME: _repo_env_shared,
     "README.md": _repo_readme,
@@ -511,7 +516,7 @@ WRITE_ONCE_DIRS: Mapping[str, str] = {MCP_SERVER_SOURCE_DIR: "mcp_servers"}
 FACILITY_RULE_DIR: str = "rules"
 
 
-def _source_zone_prose(seeded: tuple[str, ...] = ()) -> str:
+def _source_zone_prose(seeded: tuple[str, ...] = (), facility_rule: bool = False) -> str:
     """The SOURCE row of the README's zone table, derived from the categories above.
 
     The source zone is exactly what a materialization owns
@@ -534,6 +539,12 @@ def _source_zone_prose(seeded: tuple[str, ...] = ()) -> str:
     not name a directory the operator will not find. The names arrive already
     filtered, so the row grows only where the directory does.
 
+    ``facility_rule`` carries the same rule for :data:`FACILITY_RULE_DIR`, which
+    is written only where the resolved profile selects the facility rule — the
+    gate ``profile_cmd`` makes before it seeds the directory. A deployment whose
+    rule selection leaves the facility rule out has no such directory, so its
+    README does not name one.
+
     Imported inside the body rather than at module scope: ``profile_cmd`` pulls
     the build-profile chain in with it, which ``osprey --help`` must stay off
     (TR-2), and this is only ever called while a repo is being written.
@@ -544,7 +555,8 @@ def _source_zone_prose(seeded: tuple[str, ...] = ()) -> str:
         f"{name}/" if not Path(name).suffix else name for name in MATERIALIZED_SOURCE_ENTRIES
     ]
     entries.extend(f"{name}/" for name in seeded)
-    entries.append(f"{FACILITY_RULE_DIR}/")
+    if facility_rule:
+        entries.append(f"{FACILITY_RULE_DIR}/")
     entries.extend(WRITE_ONCE_FILES)
     entries.extend(CI_EMITTED_PATHS)
     return ", ".join(f"`{name}`" for name in entries)
@@ -1374,11 +1386,22 @@ def init(
             phase.step(f"settings and data from preset {preset}")
 
             name = materialized.profile_name
+            # Read from the profile that was written rather than from the preset
+            # name, and read through the same test `profile_cmd` seeds the
+            # directory on, so the README names `rules/` exactly where a repo has
+            # one. Imported here, not at module scope: `osprey --help` must not
+            # pull in the build pipeline (TR-2).
+            from .build_persistence import FACILITY_RULE_NAME
+
+            facility_rule = FACILITY_RULE_NAME in materialized.resolved.rules
             # Driven off the table rather than four calls written out: the set of
             # files this command authors and the set the --force promise names are
             # then the same object, not two lists that agree today.
             for filename, build_text in WRITE_ONCE_FILES.items():
-                _write_if_absent(target / filename, build_text(name, materialized.seeded))
+                _write_if_absent(
+                    target / filename,
+                    build_text(name, materialized.seeded, facility_rule),
+                )
             for relative in _STATE_DIRS:
                 (target / relative).mkdir(parents=True, exist_ok=True)
 
