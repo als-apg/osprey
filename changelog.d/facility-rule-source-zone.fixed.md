@@ -1,1 +1,0 @@
-The facility description now lives in the deployment repo at `rules/facility.md` instead of only in the disposable `build/` tree, so `rm -rf build` no longer discards it. `osprey init` writes it, and each build copies it into the render. A repo that has it only under `build/.claude/rules/` gets it moved into place on the next build.
