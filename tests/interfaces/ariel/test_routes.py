@@ -242,6 +242,19 @@ def test_list_entries_passes_pagination_and_filters(client, mock_ariel_service):
     assert ckwargs["source_system"] == "ALS"
 
 
+def test_list_entries_advertises_no_sort_order(client):
+    """Every parameter the endpoint declares reaches the query.
+
+    Ordering is newest-first and is not a parameter.
+    """
+    schema = client.get("/openapi.json").json()
+    names = {
+        param["name"] for param in schema["paths"]["/api/entries"]["get"].get("parameters", [])
+    }
+
+    assert "sort_order" not in names
+
+
 def test_get_entry_endpoint(client, mock_ariel_service):
     """Test get single entry endpoint."""
     # Mock entry
