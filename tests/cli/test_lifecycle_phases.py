@@ -497,6 +497,7 @@ def init_stubs(monkeypatch, seen):
 
     class _Resolved:
         mcp_servers: dict = {}
+        rules: tuple = ()
 
     class _Materialized:
         profile_name = "probe"

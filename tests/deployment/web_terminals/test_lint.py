@@ -2501,7 +2501,7 @@ def test_lint_valid_nginx_image_string_reports_nothing() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["nginx_image"] = (
-        "registry.example.com:5050/mirrors/nginx:1.27-alpine"
+        "registry.example.com:5050/mirrors/nginx:1.31-alpine"
     )
 
     # Act

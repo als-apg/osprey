@@ -73,9 +73,9 @@ Dockerfile
 # never from an image — gigabytes of GGUF that this image would carry for no
 # reader.
 #
-# The one `**/`-anchored entry in this file, deliberately: the staged directory
-# sits beside the qmd service's Dockerfile deep in the render, not at the
-# project root, so the root-anchored spelling the rest of the list uses would
-# match nothing here. The derivation described above prefixes another `**/`,
-# which is redundant but harmless.
+# The one `**/`-anchored entry in this file, deliberately: `services.qmd.models_dir`
+# is an absolute host path, so the staging directory can sit anywhere — this tree
+# included — and a root-anchored pattern would miss it. The files reach the sidecar
+# over that read-only mount, never through a build context. The derivation
+# described above prefixes another `**/`, which is redundant but harmless.
 **/prefetched-models/

@@ -20,10 +20,12 @@ literal).
 Follow these steps in order. The panel is done when the validator (Step 5)
 raises nothing. Do not skip the self-check.
 
-The canonical exemplar every panel is copied from lives in the OSPREY source at
-`src/osprey/interfaces/design_system/panels/reference/` (`index.html` +
-`manifest.json`). This skill inlines everything you need, but that reference is
-the source of truth if anything here is ambiguous.
+The canonical exemplar every panel is copied from ships with OSPREY at
+`interfaces/design_system/panels/reference/` (`index.html` + `manifest.json`),
+under the package root that
+`python3 -c "import osprey, pathlib; print(pathlib.Path(osprey.__file__).parent)"`
+prints. This skill inlines everything you need, but that reference is the source
+of truth if anything here is ambiguous.
 
 ---
 
@@ -112,8 +114,8 @@ Use these real token names (verified against `tokens.css`):
 | Monospace font family | `var(--font-mono)` |
 
 If you need a color that isn't in this list, look it up in
-`src/osprey/interfaces/design_system/static/css/tokens.css` — never invent a hex
-value. A `--…-tint-NN` token is a low-opacity fill of the base color (e.g.
+`interfaces/design_system/static/css/tokens.css` under that same package root —
+never invent a hex value. A `--…-tint-NN` token is a low-opacity fill of the base color (e.g.
 `--success-tint-08`), useful for badge/pill backgrounds.
 
 ---

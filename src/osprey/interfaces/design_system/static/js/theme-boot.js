@@ -1,6 +1,6 @@
 // @ts-check
 // AUTO-GENERATED — DO NOT EDIT.
-// Source: src/osprey/interfaces/design_system/tokens/
+// Source: osprey/interfaces/design_system/tokens/ (src/osprey/... in a source checkout)
 // Regenerate with: python -m osprey.interfaces.design_system.generator.build
 
 // Applies data-theme before first paint. Deliberately NOT an ES module —

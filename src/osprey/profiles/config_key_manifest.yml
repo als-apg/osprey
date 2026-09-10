@@ -1076,14 +1076,27 @@ keys:
     default: no-fallback
     default_note: an unstated leaf is not False — the write paths fail closed
   control_system.target_switch:
-    forward-declared: true
+    evidence: 'section\.get\("target_switch"\)'
     note: >-
       Tuning + acknowledgment block for the running-session control-system
-      target switch. Rendered ahead of its readers on this branch.
+      target switch. Consumed by descent: the host manager and the endpoint
+      prober each read their own leaf out of it.
     default: no-fallback
-    default_note: 'forward-declared: written by the presets, read by nothing today'
-  control_system.target_switch.drain_timeout_s: {forward-declared: true, default: no-fallback, default_note: 'forward-declared: written by the presets, read by nothing today'}
-  control_system.target_switch.probe_interval_s: {forward-declared: true, default: no-fallback, default_note: 'forward-declared: written by the presets, read by nothing today'}
+    default_note: >-
+      no-fallback: an absent block leaves each leaf at the default its own
+      reader supplies
+  control_system.target_switch.drain_timeout_s:
+    evidence: 'DRAIN_TIMEOUT_KEY = "drain_timeout_s"'
+    note: >-
+      How long a target switch waits for the outgoing connector host to drain
+      before it is killed. Read by the connector host manager.
+    default: 5.0
+  control_system.target_switch.probe_interval_s:
+    evidence: 'PROBE_INTERVAL_KEY = "control_system\.target_switch\.probe_interval_s"'
+    note: >-
+      Sweep period for the endpoint prober's reachability probe of every target
+      this deployment has.
+    default: 30.0
   control_system.target_switch.live_gateway_acknowledged:
     rendered: false
     evidence: 'ACK_KEY = "control_system\.target_switch\.live_gateway_acknowledged"'

@@ -65,6 +65,8 @@ For each issue found, propose a specific fix. Classify each as:
 - **Manual**: Requires operator action (e.g., setting environment variables, restarting services)
 - **Rebuild**: Requires `osprey build` to re-render the artifact from its template
 
+`setup_patch` refuses every protected key and records the refusal, so nothing under `control_system.`, `approval.`, `hooks.` (except `hooks.debug`), `claude_code.permissions.`, `claude_code.hooks.`, `claude_code.servers.`, `agent_data.`, `artifacts.`, `file_paths.` or `dangerously_allow_bash` is Auto-fixable: those belong to the deployment repo's profile, so they are Rebuild items — `osprey set config.<key>=<value>`, then `osprey build`.
+
 Ask the operator which fixes to apply before proceeding.
 
 ### Step 5 — Apply & Verify
@@ -100,6 +102,10 @@ Then re-enter `/setup-mode` to verify the fix.
 | `ariel` | ARIEL logbook search and entry creation | {% if "ariel" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
 {% if channel_finder_pipeline is defined %}| `channel-finder` | Channel finder pipeline ({{ channel_finder_pipeline }}) | {% if "channel-finder" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
 {% endif %}| `graph` | Facility knowledge-graph queries (read-only Cypher against the graphdb store) | {% if "graph" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
+| `osprey_facility_knowledge` | Facility knowledge bundle: concept index, concept read, full-text search, concept drafting | {% if "osprey_facility_knowledge" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
+| `bluesky` | Bluesky plan authoring, queue control and run data | {% if "bluesky" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
+| `phoebus` | Phoebus display bridge: open, perceive, drive | {% if "phoebus" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
+| `health` | Deployment health checks | {% if "health" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
 
 ### Required Environment Variables
 
@@ -156,7 +162,7 @@ Switching control target is not a config change: `control_system.type` only sets
 ### 2. Writes Blocked
 **Symptoms**: `channel_write` rejected.
 **Check**: `setup_inspect` → `config.control_system.writes_enabled`, and `config.control_system.connector.<type>.writes_enabled` for the type the control target resolves to. The per-type key answers on its own where it is set: a type that carries one never falls back to the deployment-wide key, so writes can be armed on the virtual accelerator and refused on the live machine in the same project.
-**Fix**: `setup_patch config.yml control_system.writes_enabled true` to arm every type that says nothing, or `setup_patch config.yml control_system.connector.virtual_accelerator.writes_enabled true` to arm that one type. Then `osprey build` and restart the agent. The patch alone only un-gates the hook — the connector and the enforced `permissions.deny` list still refuse writes until the rebuild and restart (cold change). Only a literal `true` arms writes; the string `"true"` and `1` do not.
+**Fix**: `control_system.*` is a protected key — `setup_patch` refuses it and records the refusal. The change belongs to the deployment repo's profile: run `osprey set config.control_system.writes_enabled=true` to arm every type that says nothing, or `osprey set config.control_system.connector.virtual_accelerator.writes_enabled=true` to arm one type. Then `osprey build` and restart the agent (cold change: the connector and the enforced `permissions.deny` list still refuse writes until then). Only a literal `true` arms writes; the string `"true"` and `1` do not.
 
 ### 3. Missing Safety Hooks
 **Symptoms**: Writes proceed without approval prompts.

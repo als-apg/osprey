@@ -3,7 +3,7 @@
 `test_render.py`'s and `test_auth_tls_seams.py`'s assertions are string matches
 on the Jinja output — cheap and fast, but they can't catch an nginx syntax error
 the strings happen to satisfy. This module closes that gap for real by actually
-invoking `nginx -t` inside `nginx:1.27-alpine` (the base image the deployed stack
+invoking `nginx -t` inside `nginx:1.31-alpine` (the base image the deployed stack
 uses) against each render shape the auth/TLS seams can produce:
 
 - the default render (`auth.method` unset -> "token", `tls.enabled` unset ->
@@ -58,7 +58,7 @@ from tests._container_support import docker_cli_unavailable_reason
 #: moves them, so they are the layout's own — derived here so a cookie name or a
 #: proxy_pass target asserted further down follows a slot that moves.
 _BASE_PORTS = {slot: default_port(slot) for slot in ("web", "artifact", "ariel", "lattice")}
-_NGINX_IMAGE = "nginx:1.27-alpine"
+_NGINX_IMAGE = "nginx:1.31-alpine"
 
 #: The `tls.port` a rootless deployment names: above 1024, so an unprivileged
 #: nginx can bind it, and pointedly not `TLS_LISTEN_PORT` — the whole point of
@@ -213,7 +213,7 @@ def _run_nginx_t(
     command: tuple[str, ...] = ("nginx", "-t"),
     entrypoint: str | None = None,
 ) -> subprocess.CompletedProcess:
-    """Run *command* (default ``nginx -t``) in ``nginx:1.27-alpine`` against the
+    """Run *command* (default ``nginx -t``) in ``nginx:1.31-alpine`` against the
     rendered fragment.
 
     When *templates_dir* is given, the base image's entrypoint is driven exactly

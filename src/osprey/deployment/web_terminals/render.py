@@ -93,7 +93,7 @@ _LOOPBACK_BIND_HOST = "127.0.0.1"
 # Default nginx image when `modules.web_terminals.nginx_image` is unset. Kept
 # byte-identical to docker-compose.web.yml.j2's own `| default(...)` fallback so
 # an absent config value renders the same image from either side.
-_DEFAULT_NGINX_IMAGE = "nginx:1.27-alpine"
+_DEFAULT_NGINX_IMAGE = "nginx:1.31-alpine"
 
 #: The TLS seam's listener port when ``modules.web_terminals.tls.port`` is
 #: unset: HTTPS's own default rather than a slot in this deployment's port

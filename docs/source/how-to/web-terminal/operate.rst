@@ -114,6 +114,11 @@ so far already in the log. Nothing is ended on a clock: only the turn
 finishing, closing the page, or that button ends it. The button interrupts the
 agent, and stops it outright if it has not yielded within five seconds.
 
+Flip views while the other side's agent is idle and there is nothing to wait
+for: the view you arrive in reads *Restarting the agent in this view…*, with no
+clock and no stop button. A restart that runs past about four seconds turns
+into the wait above.
+
 A refusal can meet you instead of the wait. *This session is in use in
 another tab or view.* means another browser tab holds it, so close that tab or
 work there instead. *The previous agent is still shutting down.* is the one

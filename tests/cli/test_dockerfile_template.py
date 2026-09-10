@@ -655,10 +655,10 @@ class TestDockerignore:
         """Model files staged by hand are qmd build inputs, not image content.
 
         Pinned with its ``**/`` prefix, which is the one deviation from the
-        root-anchored spelling the rest of the list uses: the staged directory
-        sits beside the qmd service's Dockerfile inside the render, so a
-        root-anchored pattern would name nothing and gigabytes of GGUF would
-        ride into the project image.
+        root-anchored spelling the rest of the list uses: ``services.qmd.models_dir``
+        is an absolute host path, so the staging directory can sit anywhere — this
+        tree included — and a root-anchored pattern would name nothing while
+        gigabytes of GGUF rode into the project image.
         """
         assert "**/prefetched-models/" in self._entries(hello_project)
 
