@@ -38,6 +38,7 @@ import json
 import os
 import re
 from contextlib import contextmanager
+from itertools import count
 from pathlib import Path
 from unittest.mock import patch
 
@@ -55,7 +56,7 @@ from osprey.interfaces.web_terminal.app import (
 from osprey.interfaces.web_terminal.bar_items_store import LAYOUT_FILENAME
 from osprey.interfaces.web_terminal.routes import bar_items as bar_items_routes
 from osprey.interfaces.web_terminal.routes.bar_items import MAX_REQUEST_BYTES
-from tests.interfaces.fsevents_wait import collect_paths
+from tests.interfaces.fsevents_wait import collect_frames_matching, collect_paths
 
 # ── fixtures ───────────────────────────────────────────────────────────────
 
@@ -798,6 +799,14 @@ class TestALayoutSaveIsNotAFileChange:
         watcher an empty ``concealed`` collection and the identical save
         broadcasts the document it wrote. This is what stops the narrowed
         ``agent_data/`` prefix from being an assertion that can no longer fail.
+
+        Alone in this class the claim is a **presence**, so the wait holds out
+        for the save's own frames instead of for an ordinary note behind them:
+        a note arriving proves only that the stream got as far as the note, and
+        frames the OS coalesced on the way past are gone rather than late. The
+        poke is another save, which the absence tests above cannot use and this
+        one can — it forbids nothing that a second save could satisfy falsely,
+        and the store assigns each save the revision after the one before.
         """
         with patch(
             "osprey.interfaces.web_terminal.app.resolve_store_rel",
@@ -813,17 +822,21 @@ class TestALayoutSaveIsNotAFileChange:
                 queue = unconcealed.app.state.broadcaster.subscribe()
                 _arm(queue, watched_workspace)
 
-                unconcealed.put("/api/bar-items", json=document(0))
-                control_note = watched_workspace / "control-note.txt"
-                control_note.write_text("ordinary content")
+                revisions = count()
 
-                paths = _broadcast_paths(
+                def save() -> None:
+                    saved = unconcealed.put("/api/bar-items", json=document(next(revisions)))
+                    assert saved.status_code == 200
+
+                save()
+                frames = collect_frames_matching(
                     queue,
-                    until="control-note.txt",
-                    poke=lambda: control_note.write_text("ordinary content"),
+                    matches=lambda frame: frame["path"].startswith("agent_data/"),
+                    poke=save,
+                    what="a frame from under the agent-data root",
                 )
 
-        assert [path for path in paths if path.startswith("agent_data/")] != []
+        assert [frame["path"] for frame in frames if frame["path"].startswith("agent_data/")] != []
 
     def test_the_first_ever_save_never_names_the_store_or_the_document(
         self, watched_client, watched_workspace

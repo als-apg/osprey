@@ -141,6 +141,60 @@ def drain(pump: Callable[[], bool]) -> None:
             time.sleep(POLL)
 
 
+def collect_frames_matching(
+    queue: asyncio.Queue,
+    *,
+    matches: Callable[[dict], bool],
+    poke: Callable[[], Any],
+    what: str,
+    budget: float = ARM_BUDGET,
+) -> list[dict]:
+    """Every frame delivered up to and shortly after one *matches* accepts.
+
+    The predicate form of :func:`collect_frames`, for a test whose sentinel is a
+    *class* of frames rather than one named path — "anything under this
+    directory", whose leaf is an atomic write's temp file and therefore has no
+    name to spell.
+
+    A test asserting a frame is **present** must wait for that frame here rather
+    than for an ordinary note written after it. A note only proves the stream
+    reached the note; frames the OS coalesced on the way past are not recovered
+    by waiting longer, so a presence assertion hung on someone else's sentinel
+    fails for a reason that has nothing to do with its subject. Only a test that
+    asserts no *absence* may poke with the very change it is about — pokes here
+    reproduce the subject itself, so a caller that also forbids something must
+    use :func:`collect_frames` and a poke that cannot manufacture it.
+
+    Args:
+        queue: A ``FileEventBroadcaster`` subscription.
+        matches: True for a frame that ends the wait.
+        poke: Re-applies the change that produces such a frame.
+        what: Named in the failure message — say what never arrived.
+        budget: Seconds of repeated stimulus before failing.
+
+    Returns:
+        Every frame delivered, in arrival order, sentinel included.
+    """
+    frames: list[dict] = []
+
+    def pump() -> bool:
+        took = False
+        while True:
+            try:
+                frames.append(queue.get_nowait())
+            except asyncio.QueueEmpty:
+                return took
+            took = True
+
+    def arrived() -> bool:
+        pump()
+        return any(matches(frame) for frame in frames)
+
+    poke_until(arrived, poke, what=what, budget=budget)
+    drain(pump)
+    return frames
+
+
 def collect_frames(
     queue: asyncio.Queue,
     *,
@@ -172,28 +226,12 @@ def collect_frames(
     Returns:
         Every frame delivered, in arrival order, sentinel included.
     """
-    frames: list[dict] = []
 
-    def pump() -> bool:
-        took = False
-        while True:
-            try:
-                frames.append(queue.get_nowait())
-            except asyncio.QueueEmpty:
-                return took
-            took = True
-
-    def matched(frame: dict) -> bool:
+    def matches(frame: dict) -> bool:
         return frame["path"] == until and (until_type is None or frame["type"] == until_type)
 
-    def arrived() -> bool:
-        pump()
-        return any(matched(frame) for frame in frames)
-
     wanted = f"a {until_type!r} frame for {until!r}" if until_type else f"a frame for {until!r}"
-    poke_until(arrived, poke, what=wanted, budget=budget)
-    drain(pump)
-    return frames
+    return collect_frames_matching(queue, matches=matches, poke=poke, what=wanted, budget=budget)
 
 
 def collect_paths(
