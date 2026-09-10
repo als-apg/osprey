@@ -35,10 +35,15 @@ class EPICSArchiverConnector(ArchiverConnector):
     Provides access to historical PV data from EPICS Archiver Appliance
     via direct HTTP requests using Python stdlib.
 
+    The appliance serves its retrieval servlet at ``/retrieval``; a facility
+    that fronts the appliance with a reverse proxy may publish it under another
+    prefix, named by ``retrieval_path``.
+
     Example:
         >>> config = {
         >>>     'url': 'https://archiver.als.lbl.gov:8443',
-        >>>     'timeout': 60
+        >>>     'timeout': 60,
+        >>>     'retrieval_path': '/retrieval',  # the default; a proxy may rename it
         >>> }
         >>> connector = EPICSArchiverConnector()
         >>> await connector.connect(config)
@@ -49,9 +54,13 @@ class EPICSArchiverConnector(ArchiverConnector):
         >>> )
     """
 
+    #: Where a bare Archiver Appliance mounts its retrieval servlet.
+    DEFAULT_RETRIEVAL_PATH = "/retrieval"
+
     def __init__(self):
         self._connected = False
         self._url = None
+        self._retrieval_path = self.DEFAULT_RETRIEVAL_PATH
 
     async def connect(self, config: dict[str, Any]) -> None:
         """
@@ -61,6 +70,10 @@ class EPICSArchiverConnector(ArchiverConnector):
             config: Configuration with keys:
                 - url: Archiver URL (required)
                 - timeout: Default timeout in seconds (default: 60)
+                - retrieval_path: Prefix under which the appliance's retrieval
+                  servlet is reached (default: ``/retrieval``). Set it when a
+                  reverse proxy in front of the appliance publishes the servlet
+                  under another name.
 
         Raises:
             ValueError: If URL is not provided
@@ -69,11 +82,15 @@ class EPICSArchiverConnector(ArchiverConnector):
         if not archiver_url:
             raise ValueError("archiver URL is required for EPICS archiver")
 
-        self._url = archiver_url
+        self._url = archiver_url.rstrip("/")
         self._timeout = config.get("timeout", 60)
+        retrieval_path = config.get("retrieval_path") or self.DEFAULT_RETRIEVAL_PATH
+        self._retrieval_path = "/" + retrieval_path.strip("/")
         self._connected = True
 
-        logger.debug(f"EPICS Archiver connector initialized: {archiver_url}")
+        logger.debug(
+            f"EPICS Archiver connector initialized: {self._url} (retrieval at {self._retrieval_path})"
+        )
 
     async def disconnect(self) -> None:
         """Cleanup archiver connection."""
@@ -100,7 +117,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         params = urllib.parse.urlencode(
             {"pv": pv, "from": start_str, "to": end_str, "fetchLatestMetadata": "true"}
         )
-        url = f"{self._url}/retrieval/data/getData.json?{params}"
+        url = f"{self._url}{self._retrieval_path}/data/getData.json?{params}"
         req = urllib.request.Request(url, method="GET")
 
         try:
