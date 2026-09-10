@@ -21,3 +21,42 @@ for (const key of ['localStorage', 'sessionStorage']) {
     });
   }
 }
+
+// happy-dom navigates a child frame for real: an iframe with a src issues an
+// HTTP request for that document to the environment's http://localhost:3000
+// origin, where no server is listening. The request outlives the test that
+// created the frame and its ECONNREFUSED surfaces after the last file, so the
+// run reports every test passing and still exits non-zero. Suites here assert
+// on an iframe's `src` and on messages posted to its window, never on a
+// document it loaded, so the frame needs its URL and not a page: with child
+// frame navigation disabled happy-dom sets the frame's location and skips the
+// request, leaving `contentWindow` in place.
+if (globalThis.happyDOM?.settings?.navigation) {
+  globalThis.happyDOM.settings.navigation.disableChildFrameNavigation = true;
+}
+
+// Nothing serves the environment's origin (http://localhost:3000), so a module
+// whose fetch a test did not stub opens a real socket that is refused. The
+// refusal lands after the test that started it has finished, where no test owns
+// it: the run reports every test passing and still exits non-zero on the
+// unhandled tail. Answer such a request in-process instead. The caller sees a
+// failed request either way — an unreachable origin is what it would have got —
+// and the failure is now deterministic and names the URL a test has yet to stub.
+if (globalThis.happyDOM?.settings?.fetch) {
+  globalThis.happyDOM.settings.fetch.interceptor = {
+    beforeAsyncRequest: async ({ request, window }) =>
+      new window.Response(`no server for ${request.url} — stub fetch in the test`, {
+        status: 503,
+        statusText: 'Service Unavailable'
+      }),
+    beforeSyncRequest: ({ request }) => ({
+      status: 503,
+      statusText: 'Service Unavailable',
+      ok: false,
+      url: request.url,
+      redirected: false,
+      headers: {},
+      body: null
+    })
+  };
+}
