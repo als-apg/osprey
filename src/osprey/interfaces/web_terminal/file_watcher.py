@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import threading
 import time
 from collections.abc import Sequence
@@ -16,6 +15,9 @@ from pathlib import Path, PurePath
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
+from watchdog.observers.api import BaseObserver
+
+from osprey.interfaces.fs_watch import ChangeStamp, ObserverFactory, one_level_listing
 
 logger = logging.getLogger(__name__)
 
@@ -53,28 +55,6 @@ class FileEventBroadcaster:
 # Patterns to ignore in file watching
 _IGNORE_PATTERNS = {".git", "__pycache__", ".DS_Store", "_notebook_cache"}
 _IGNORE_EXTENSIONS = {".pyc", ".pyo"}
-
-
-def _one_level_listing(directory: Path) -> dict[str, tuple[bool, int, int]]:
-    """One level of *directory* as ``{name: (is_dir, mtime_ns, size)}``.
-
-    The tuple is a change stamp, not metadata anyone reads: two listings of the
-    same directory differ at exactly the names that were added, removed, or
-    written to. A directory that has gone away between the frame and the scan
-    lists as empty rather than raising — the frame is a report about the past.
-    """
-    listing: dict[str, tuple[bool, int, int]] = {}
-    try:
-        entries = list(os.scandir(directory))
-    except OSError:
-        return listing
-    for entry in entries:
-        try:
-            stat = entry.stat()
-            listing[entry.name] = (entry.is_dir(), stat.st_mtime_ns, stat.st_size)
-        except OSError:  # vanished mid-scan
-            continue
-    return listing
 
 
 def filesystem_is_case_insensitive(directory: Path) -> bool:
@@ -212,7 +192,7 @@ class _WorkspaceHandler(FileSystemEventHandler):
         )
         self._last_event: dict[str, float] = {}
         self._debounce_seconds = 0.1
-        self._listings: dict[str, dict[str, tuple[bool, int, int]]] = {}
+        self._listings: dict[str, dict[str, ChangeStamp]] = {}
 
     def on_any_event(self, event: FileSystemEvent) -> None:
         src_path = Path(event.src_path)
@@ -256,6 +236,14 @@ class _WorkspaceHandler(FileSystemEventHandler):
             self._broadcast_directory_diff(src_path, relative)
             return
 
+        # A directory that is gone keeps no listing. This is the ordinary way
+        # one leaves: a deletion is delivered as its own event, and only a
+        # *frame* for a path that no longer exists is answered by the diff
+        # above. Evicting here rather than only there is what keeps the map
+        # bounded by the tree rather than by the watcher's lifetime.
+        if event.is_directory and simple_type == "deleted":
+            self._listings.pop(str(src_path), None)
+
         # Debounce: skip duplicate events for the same path within 100ms
         if not self._claim_debounce_slot(str(src_path)):
             return
@@ -297,13 +285,15 @@ class _WorkspaceHandler(FileSystemEventHandler):
         was already listed costs a redundant frame — where staying silent
         would lose the change the frame was reporting.
 
-        One listing is kept per directory that still exists: a directory that
-        has gone away is dropped after its contents are announced as deleted,
-        so a workspace that churns cannot grow the map without bound.
+        One listing is kept per directory that still exists: a directory whose
+        frame finds it already gone is dropped after its contents are announced
+        as deleted, and one that leaves the ordinary way is dropped by its own
+        deletion event, so a workspace that churns cannot grow the map without
+        bound.
         """
         key = str(directory)
         previous = self._listings.get(key)
-        current = _one_level_listing(directory)
+        current = one_level_listing(directory)
         if directory.is_dir():
             self._listings[key] = current
         else:
@@ -376,11 +366,22 @@ class WorkspaceWatcher:
         broadcaster: FileEventBroadcaster,
         *,
         concealed: Sequence[PurePath] = (),
+        observer_factory: ObserverFactory = Observer,
     ) -> None:
+        """
+        Args:
+            workspace_dir: Tree whose changes reach the file panel.
+            broadcaster: SSE broadcaster the frames are published to.
+            concealed: Workspace-relative paths of the server-side stores whose
+                events are dropped.
+            observer_factory: Builds the watchdog observer — see
+                :data:`ObserverFactory`.
+        """
         self._workspace_dir = workspace_dir
         self._broadcaster = broadcaster
         self._concealed = tuple(concealed)
-        self._observer: Observer | None = None
+        self._observer_factory = observer_factory
+        self._observer: BaseObserver | None = None
 
     def start(self) -> None:
         """Start watching the workspace directory."""
@@ -390,7 +391,7 @@ class WorkspaceWatcher:
         handler = _WorkspaceHandler(
             self._workspace_dir, self._broadcaster, concealed=self._concealed
         )
-        self._observer = Observer()
+        self._observer = self._observer_factory()
         self._observer.schedule(handler, str(self._workspace_dir), recursive=True)
         self._observer.daemon = True
         self._observer.start()

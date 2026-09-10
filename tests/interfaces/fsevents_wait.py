@@ -35,6 +35,16 @@ the wait itself hold out for the right kind of frame.
 Budget exhaustion is reported as a failure naming what never arrived. It is not
 absorbed and it is not retried at the test level: an observer that never
 delivers in :data:`ARM_BUDGET` seconds of repeated stimulus is broken, not slow.
+
+**A watcher running on a ``PollingObserver`` needs none of that**, and the
+wait-side functions for it live here too so a test module still imports one
+module for "wait until the watcher has said something". A polling emitter has
+no stream to arm and nothing to coalesce: it re-reads the watched directory on
+every interval and diffs it against the snapshot it took last, so a change made
+after that baseline is reported whether or not anything re-applies it. What a
+polling test does have to wait for is the *baseline itself* —
+:func:`wait_for_polling_baseline` — because a change already on disk when the
+snapshot is taken is inside it and is never a difference.
 """
 
 from __future__ import annotations
@@ -43,6 +53,9 @@ import asyncio
 import time
 from collections.abc import Callable
 from typing import Any
+
+from watchdog.observers.api import BaseObserver
+from watchdog.utils.dirsnapshot import EmptyDirectorySnapshot
 
 #: Overall ceiling on "this observer is delivering". Generous on purpose: it is
 #: only ever spent on a run that is already failing, and the poke loop returns
@@ -67,7 +80,7 @@ DRAIN_CEILING = 2.0
 
 def poke_until(
     check: Callable[[], bool],
-    poke: Callable[[], Any],
+    poke: Callable[[], Any] | None,
     *,
     what: str,
     budget: float = ARM_BUDGET,
@@ -81,6 +94,8 @@ def poke_until(
         check: True once the delivery under test has been observed. Called
             first, before any poke, so an already-delivered event costs nothing.
         poke: Reproduces the stimulus. Must not change what the test asserts.
+            ``None`` for a polling observer, which re-reads the directory itself
+            and so has nothing for a poke to fix — see :func:`wait_for`.
         what: Named in the failure message — say what never arrived.
         budget: Seconds of repeated stimulus before giving up.
 
@@ -96,12 +111,18 @@ def poke_until(
             return
         now = time.monotonic()
         if now >= deadline:
+            if poke is None:
+                raise AssertionError(
+                    f"{what} was never delivered in {budget:.0f}s of a polling "
+                    f"observer — the watcher is not reporting the change, rather "
+                    f"than reporting it late"
+                )
             raise AssertionError(
                 f"{what} was never delivered in {budget:.0f}s of a live observer, "
                 f"across {pokes} re-applications of the stimulus — the observer is "
                 f"not delivering, rather than delivering late"
             )
-        if now >= next_poke:
+        if poke is not None and now >= next_poke:
             poke()
             pokes += 1
             next_poke = now + POKE_INTERVAL
@@ -145,7 +166,7 @@ def collect_frames_matching(
     queue: asyncio.Queue,
     *,
     matches: Callable[[dict], bool],
-    poke: Callable[[], Any],
+    poke: Callable[[], Any] | None,
     what: str,
     budget: float = ARM_BUDGET,
 ) -> list[dict]:
@@ -199,7 +220,7 @@ def collect_frames(
     queue: asyncio.Queue,
     *,
     until: str,
-    poke: Callable[[], Any],
+    poke: Callable[[], Any] | None,
     until_type: str | None = None,
     budget: float = ARM_BUDGET,
 ) -> list[dict]:
@@ -247,3 +268,64 @@ def collect_paths(
     whether a particular kind of change did — those must read the frames.
     """
     return [frame["path"] for frame in collect_frames(queue, until=until, poke=poke, budget=budget)]
+
+
+# ── polling observers ──────────────────────────────────────────────────────
+
+
+def wait_for_polling_baseline(observer: BaseObserver, *, budget: float = ARM_BUDGET) -> None:
+    """Block until every emitter of a ``PollingObserver`` has snapshotted its watch.
+
+    ``PollingEmitter`` reports what differs from the snapshot it takes in
+    ``on_thread_start``, and ``Observer.start()`` returns once that thread
+    exists rather than once it has run. A file created in between is inside the
+    baseline and is therefore not a difference — the polling counterpart of the
+    arming window above, except that it is *observable* rather than only
+    provokable, so it is waited for directly instead of poked at.
+
+    The emitter's snapshot attribute is private to watchdog. It is read anyway
+    because the alternative is a sleep, and a sleep long enough to be safe on a
+    loaded box is a tax every green run pays for a condition that is plainly
+    visible.
+
+    Args:
+        observer: A started ``PollingObserver``.
+        budget: Seconds to wait before failing.
+
+    Raises:
+        AssertionError: No emitter ever took a baseline snapshot.
+    """
+    deadline = time.monotonic() + budget
+    while True:
+        emitters = list(observer.emitters)
+        if emitters and all(
+            not isinstance(emitter._snapshot, EmptyDirectorySnapshot) for emitter in emitters
+        ):
+            return
+        if time.monotonic() >= deadline:
+            raise AssertionError(
+                f"a polling observer took no baseline snapshot in {budget:.0f}s — "
+                f"its emitter thread never ran"
+            )
+        time.sleep(POLL)
+
+
+def wait_for(check: Callable[[], bool], *, what: str, budget: float = ARM_BUDGET) -> None:
+    """:func:`poke_until` for a polling watcher: the same wait, with no stimulus.
+
+    A polling emitter re-reads the directory itself, so there is nothing for a
+    poke to fix and a poke would only add a second change to the stream the test
+    is reading.
+    """
+    poke_until(check, None, what=what, budget=budget)
+
+
+def polled_frames(
+    queue: asyncio.Queue,
+    *,
+    until: str,
+    until_type: str | None = None,
+    budget: float = ARM_BUDGET,
+) -> list[dict]:
+    """:func:`collect_frames` for a polling watcher: the same wait, with no stimulus."""
+    return collect_frames(queue, until=until, until_type=until_type, poke=None, budget=budget)
