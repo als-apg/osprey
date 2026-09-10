@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 09, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
   </head>
   
   
@@ -453,7 +453,7 @@
 <p>Build and run your first OSPREY agent in about five minutes, with no containers
 and no hardware. The <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> preset is the smallest deployment that
 still shows the whole write-safety chain: a mock control system that invents
-channel values, ten safety and bookkeeping hooks, and a browser interface.</p>
+channel values, fourteen safety and bookkeeping hooks, and a browser interface.</p>
 <p>Three <code class="docutils literal notranslate"><span class="pre">osprey</span></code> commands take you from nothing to a running agent:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>my-first-agent<span class="w"> </span>--preset<span class="w"> </span>hello-world
 <span class="nb">cd</span><span class="w"> </span>my-first-agent
@@ -509,18 +509,20 @@ deleting it is safe.</p></li>
 <p>Open <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. This one file is the manifest for the whole deployment,
 and the preset deliberately leaves most of it unset — because every key it
 leaves unset is emitted into your copy as a <strong>commented block</strong> you can turn on
-later. The hello-world preset’s minimalism yields exactly <strong>13</strong> such blocks,
+later. The hello-world preset’s minimalism yields exactly <strong>12</strong> such blocks,
 covering everything from a channel database to event dispatch to a virtual
 accelerator. Growing this project into a production deployment is, quite
 literally, uncommenting one block at a time and rebuilding.</p>
-<p>The parts that <em>are</em> set are short. The agent’s capabilities are lists of
-named artifacts from the OSPREY library — eleven hooks (three of which form the
+<p>The parts that <em>are</em> set are short. The agent’s capabilities are lists of named
+artifacts from the OSPREY library — fourteen hooks (three of which form the
 write-safety chain), three rules, and one output style:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">hooks</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hook-log</span><span class="w">       </span><span class="c1"># Append every tool call to a structured JSONL audit log</span>
 <span class="w">  </span><span class="l l-Scalar l-Scalar-Plain">...</span>
 <span class="w">  </span><span class="c1"># The next three are the write-safety chain, and no write reaches the control</span>
-<span class="w">  </span><span class="c1"># system until all three agree. Removing any one of them removes a guard.</span>
+<span class="w">  </span><span class="c1"># system until all three agree. Remove any one of them and `osprey build`</span>
+<span class="w">  </span><span class="c1"># refuses the render while writes are armed, naming the hook and the server</span>
+<span class="w">  </span><span class="c1"># whose write tools it guarded. Only a read-only deployment may drop them.</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">writes-check</span><span class="w">   </span><span class="c1"># Kill switch: refuse every write while writes_enabled is false</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">approval</span><span class="w">       </span><span class="c1"># Gate hardware-write tool calls on human approval prompt</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">limits</span><span class="w">         </span><span class="c1"># Enforce per-channel min/max limits, from data/channel_limits.json</span>
@@ -637,7 +639,9 @@ bounds and writable flags in <code class="docutils literal notranslate"><span cl
 for your explicit yes/no before anything is executed.</p></li>
 </ol>
 <p>Safety is not optional equipment here: the three hooks are declared in your
-<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, and removing any one of them removes a guard.</p>
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. Remove any one of them and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses the render
+while writes are armed, naming the hook and the server whose write tools it
+guarded. Only a read-only deployment may drop them.</p>
 </section>
 <section id="step-7-enable-writes-in-profile-yml">
 <h2>Step 7: Enable Writes — in profile.yml<a class="headerlink" href="#step-7-enable-writes-in-profile-yml" title="Link to this heading">#</a></h2>

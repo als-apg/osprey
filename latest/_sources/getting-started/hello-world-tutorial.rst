@@ -5,7 +5,7 @@ Hello World Tutorial
 Build and run your first OSPREY agent in about five minutes, with no containers
 and no hardware. The ``hello-world`` preset is the smallest deployment that
 still shows the whole write-safety chain: a mock control system that invents
-channel values, ten safety and bookkeeping hooks, and a browser interface.
+channel values, fourteen safety and bookkeeping hooks, and a browser interface.
 
 Three ``osprey`` commands take you from nothing to a running agent:
 
@@ -70,13 +70,13 @@ Step 2: Read profile.yml — It Is the Curriculum
 Open ``profile.yml``. This one file is the manifest for the whole deployment,
 and the preset deliberately leaves most of it unset — because every key it
 leaves unset is emitted into your copy as a **commented block** you can turn on
-later. The hello-world preset's minimalism yields exactly **13** such blocks,
+later. The hello-world preset's minimalism yields exactly **12** such blocks,
 covering everything from a channel database to event dispatch to a virtual
 accelerator. Growing this project into a production deployment is, quite
 literally, uncommenting one block at a time and rebuilding.
 
-The parts that *are* set are short. The agent's capabilities are lists of
-named artifacts from the OSPREY library — eleven hooks (three of which form the
+The parts that *are* set are short. The agent's capabilities are lists of named
+artifacts from the OSPREY library — fourteen hooks (three of which form the
 write-safety chain), three rules, and one output style:
 
 .. code-block:: yaml
@@ -85,7 +85,9 @@ write-safety chain), three rules, and one output style:
      - hook-log       # Append every tool call to a structured JSONL audit log
      ...
      # The next three are the write-safety chain, and no write reaches the control
-     # system until all three agree. Removing any one of them removes a guard.
+     # system until all three agree. Remove any one of them and `osprey build`
+     # refuses the render while writes are armed, naming the hook and the server
+     # whose write tools it guarded. Only a read-only deployment may drop them.
      - writes-check   # Kill switch: refuse every write while writes_enabled is false
      - approval       # Gate hardware-write tool calls on human approval prompt
      - limits         # Enforce per-channel min/max limits, from data/channel_limits.json
@@ -219,7 +221,9 @@ This is the first of **three guards** that every write must pass:
    for your explicit yes/no before anything is executed.
 
 Safety is not optional equipment here: the three hooks are declared in your
-``profile.yml``, and removing any one of them removes a guard.
+``profile.yml``. Remove any one of them and ``osprey build`` refuses the render
+while writes are armed, naming the hook and the server whose write tools it
+guarded. Only a read-only deployment may drop them.
 
 Step 7: Enable Writes — in profile.yml
 ---------------------------------------

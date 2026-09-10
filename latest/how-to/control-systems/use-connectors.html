@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 09, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
   </head>
   
   
@@ -528,7 +528,9 @@ and its connector block, not of code.</p>
 <p>The Python API is the same for every connector. The mock connector answers for
 <strong>any</strong> channel name without hardware access, which is what makes it the
 development and R&amp;D default:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.connectors.factory</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorFactory</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.connectors.factory</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorFactory</span><span class="p">,</span> <span class="n">register_builtin_connectors</span>
+
+<span class="n">register_builtin_connectors</span><span class="p">()</span>   <span class="c1"># registers the built-in names; idempotent</span>
 
 <span class="c1"># Create mock connector - works with ANY channel names</span>
 <span class="n">connector</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">create_control_system_connector</span><span class="p">({</span>

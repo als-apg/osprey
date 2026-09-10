@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 09, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
   </head>
   
   
@@ -706,8 +706,8 @@ one of them, with its top-level <code class="docutils literal notranslate"><span
 <span class="w">    </span><span class="nt">base_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://my-gateway.example.com/v1</span>
 <span class="w">    </span><span class="nt">models</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">haiku</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-haiku-4-5</span>
-<span class="w">      </span><span class="nt">sonnet</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-sonnet-4-6</span>
-<span class="w">      </span><span class="nt">opus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-opus-4-6</span>
+<span class="w">      </span><span class="nt">sonnet</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-sonnet-5</span>
+<span class="w">      </span><span class="nt">opus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-opus-5</span>
 </pre></div>
 </div>
 <p>and one line in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> naming it:</p>
@@ -744,9 +744,9 @@ latest available model names before copying these values verbatim.</p>
 <span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${ANTHROPIC_API_KEY}</span>
 <span class="w">      </span><span class="nt">base_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.anthropic.com</span>
 <span class="w">      </span><span class="nt">models</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">haiku</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-haiku-4-5-20251001</span>
-<span class="w">        </span><span class="nt">sonnet</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-sonnet-4-5-20250929</span>
-<span class="w">        </span><span class="nt">opus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-opus-4-6</span>
+<span class="w">        </span><span class="nt">haiku</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-haiku-4-5</span>
+<span class="w">        </span><span class="nt">sonnet</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-sonnet-5</span>
+<span class="w">        </span><span class="nt">opus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-opus-5</span>
 
 <span class="w">    </span><span class="nt">cborg</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${CBORG_API_KEY}</span>
@@ -833,7 +833,7 @@ deployment’s <code class="docutils literal notranslate"><span class="pre">prof
 <span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sonnet</span>
 <span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="c1"># use sonnet even for opus-tier agents</span>
-<span class="w">  </span><span class="nt">claude_code.models.opus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-sonnet-4-6</span>
+<span class="w">  </span><span class="nt">claude_code.models.opus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-sonnet-5</span>
 </pre></div>
 </div>
 <p>Agents can also be pinned to specific tiers:</p>
@@ -940,7 +940,10 @@ beside <code class="docutils literal notranslate"><span class="pre">profile.yml<
 <ul class="simple">
 <li><p>Detects that <code class="docutils literal notranslate"><span class="pre">my-provider</span></code> is not a built-in Anthropic-native provider.</p></li>
 <li><p>Starts the translation proxy to bridge Anthropic → OpenAI protocols.</p></li>
-<li><p>Maps <code class="docutils literal notranslate"><span class="pre">${MY_PROVIDER_API_KEY}</span></code> to the auth token the Osprey agent expects.</p></li>
+<li><p>Reads the Osprey agent’s auth token from <code class="docutils literal notranslate"><span class="pre">MY_PROVIDER_API_KEY</span></code>. The launcher
+derives that variable name from the provider’s own name — uppercased, dashes to
+underscores — and never reads the entry’s <code class="docutils literal notranslate"><span class="pre">api_key</span></code> value, so the name here
+lines up only because the provider is called <code class="docutils literal notranslate"><span class="pre">my-provider</span></code>.</p></li>
 <li><p>Injects the resolved model IDs into the Osprey agent’s environment.</p></li>
 </ul>
 <div class="admonition note">
