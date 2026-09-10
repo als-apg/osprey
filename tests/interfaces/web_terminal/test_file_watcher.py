@@ -10,14 +10,24 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from watchdog.events import DirModifiedEvent, FileCreatedEvent, FileModifiedEvent
+from watchdog.events import (
+    DirDeletedEvent,
+    DirModifiedEvent,
+    FileCreatedEvent,
+    FileModifiedEvent,
+)
+from watchdog.observers.polling import PollingObserver
 
 from osprey.interfaces.web_terminal.file_watcher import (
     FileEventBroadcaster,
     WorkspaceWatcher,
     _WorkspaceHandler,
 )
-from tests.interfaces.fsevents_wait import collect_frames
+from tests.interfaces.fsevents_wait import (
+    collect_frames,
+    polled_frames,
+    wait_for_polling_baseline,
+)
 
 #: Tighter than the unit lane's 600 s cap, because this file is the one that
 #: has actually hung: ``test_start_creates_directory_if_missing`` sat inside
@@ -31,6 +41,15 @@ from tests.interfaces.fsevents_wait import collect_frames
 #: A timeout failure is ``Failed``, not ``AssertionError``, so a
 #: ``flaky(only_rerun=["AssertionError"])`` marker would not rerun it.
 pytestmark = pytest.mark.timeout(60)
+
+
+def _polling_observer() -> PollingObserver:
+    """A polling observer that re-reads its watch several times a second.
+
+    watchdog's default polling interval is a second, which is four wasted
+    seconds in a test that only needs the emitter to look again.
+    """
+    return PollingObserver(timeout=0.05)
 
 
 class TestFileEventBroadcaster:
@@ -97,7 +116,62 @@ class TestWorkspaceWatcher:
         # Should not raise on double stop
         watcher.stop()
 
+    def test_the_observer_backend_is_injectable(self, tmp_path):
+        """The seam every routing test below stands on.
+
+        Without it a test can only ask the platform's own notification stream
+        for a change and hope it was listening.
+        """
+        built = []
+
+        def factory() -> PollingObserver:
+            observer = _polling_observer()
+            built.append(observer)
+            return observer
+
+        watcher = WorkspaceWatcher(tmp_path, FileEventBroadcaster(), observer_factory=factory)
+        watcher.start()
+        try:
+            assert built == [watcher._observer]
+        finally:
+            watcher.stop()
+
     def test_detects_file_creation(self, tmp_path):
+        """Routing: a file that appears reaches the panel as ``created``.
+
+        On a polling observer, because the subject is what the handler does
+        with the change rather than whether a notification stream happened to
+        be carrying it. Polling re-reads the directory on every interval, so
+        the frame is decided by what is on disk — no arming window, no
+        coalescing, and nothing to re-apply. The live backend keeps its own
+        test below.
+        """
+        broadcaster = FileEventBroadcaster()
+        q = broadcaster.subscribe()
+        watcher = WorkspaceWatcher(tmp_path, broadcaster, observer_factory=_polling_observer)
+        watcher.start()
+
+        try:
+            wait_for_polling_baseline(watcher._observer)
+            (tmp_path / "new_file.txt").write_text("hello")
+
+            # Same requirement as the live test below: a ``created`` frame, not
+            # merely a frame naming the path.
+            frames = polled_frames(q, until="new_file.txt", until_type="created", budget=30)
+
+            assert {"created"} <= {
+                frame["type"] for frame in frames if frame["path"] == "new_file.txt"
+            }, f"no created frame for new_file.txt among {frames}"
+        finally:
+            watcher.stop()
+
+    def test_a_file_created_under_the_live_backend_reaches_the_panel(self, tmp_path):
+        """The one test here that runs the observer a deployment runs.
+
+        Everything above about routing is settled on a polling observer, which
+        cannot say whether the platform's own notification stream reaches the
+        handler at all. This one does, and only that.
+        """
         broadcaster = FileEventBroadcaster()
         q = broadcaster.subscribe()
         watcher = WorkspaceWatcher(tmp_path, broadcaster)
@@ -694,6 +768,23 @@ class TestACoalescedDirectoryFrame:
         assert {"type": "deleted", "path": str(Path("sub") / "note.txt"), "is_dir": False} in (
             self._events(broadcaster)
         ), "what the directory held is still announced as deleted"
+        assert str(sub) not in handler._listings
+
+    def test_a_deleted_directory_drops_its_listing(self, tmp_path):
+        """A directory removed the ordinary way is announced by a deletion and
+        by nothing else — no later frame arrives to evict its listing."""
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (sub / "note.txt").write_text("hello")
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+        handler.on_any_event(DirModifiedEvent(str(sub)))
+        assert str(sub) in handler._listings
+
+        (sub / "note.txt").unlink()
+        sub.rmdir()
+        handler.on_any_event(DirDeletedEvent(str(sub)))
+
         assert str(sub) not in handler._listings
 
     def test_a_frame_inside_the_debounce_window_still_announces_what_it_carries(self, tmp_path):

@@ -17,30 +17,11 @@ from typing import Any
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
+from watchdog.observers.api import BaseObserver
+
+from osprey.interfaces.fs_watch import ChangeStamp, ObserverFactory, one_level_listing
 
 logger = logging.getLogger("osprey.interfaces.artifacts.store_watcher")
-
-
-def _one_level_listing(directory: Path) -> dict[str, tuple[int, int]]:
-    """One level of *directory* as ``{name: (mtime_ns, size)}``.
-
-    A change stamp, not metadata anyone reads: two listings of the same
-    directory differ at exactly the names that were added, removed, or written
-    to. A directory that is gone by the time the scan runs lists as empty
-    rather than raising — the frame is a report about the past.
-    """
-    listing: dict[str, tuple[int, int]] = {}
-    try:
-        entries = list(os.scandir(directory))
-    except OSError:
-        return listing
-    for entry in entries:
-        try:
-            stat = entry.stat()
-            listing[entry.name] = (stat.st_mtime_ns, stat.st_size)
-        except OSError:  # vanished mid-scan
-            continue
-    return listing
 
 
 def _change_stamp(path: Path) -> tuple[int, int] | None:
@@ -80,7 +61,7 @@ class _IndexFileHandler(FileSystemEventHandler):
         self._last_event: dict[str, float] = {}
         self._last_stamp: dict[str, tuple[int, int] | None] = {}
         self._debounce_seconds = 0.1
-        self._listings: dict[str, dict[str, tuple[int, int]]] = {}
+        self._listings: dict[str, dict[str, ChangeStamp]] = {}
         # Snapshot known entry IDs per store
         self._known_ids: dict[str, set] = {}
         for filename, cfg in index_configs.items():
@@ -98,6 +79,14 @@ class _IndexFileHandler(FileSystemEventHandler):
         if event.is_directory:
             return
         self._handle(event)
+
+    def on_deleted(self, event: FileSystemEvent) -> None:
+        # A directory that is gone keeps no listing. The rescan below evicts
+        # one only when a *frame* arrives for a path that has already gone;
+        # a directory removed the ordinary way is announced by this event and
+        # by no other, so without this the entry would outlive the directory.
+        if event.is_directory:
+            self._listings.pop(str(Path(os.fsdecode(event.src_path))), None)
 
     def on_moved(self, event: FileSystemEvent) -> None:
         if event.is_directory:
@@ -125,13 +114,14 @@ class _IndexFileHandler(FileSystemEventHandler):
         One level, because that is what the frame names: a write in a
         subdirectory produces its own frame for its own directory.
 
-        One listing is kept per directory that still exists; a directory that
-        has gone away is dropped rather than remembered as empty.
+        One listing is kept per directory that still exists: one found already
+        gone is dropped here rather than remembered as empty, and one removed
+        the ordinary way is dropped by :meth:`on_deleted`.
         """
         directory = Path(os.fsdecode(event.src_path))
         key = str(directory)
         previous = self._listings.get(key)
-        current = _one_level_listing(directory)
+        current = one_level_listing(directory)
         if directory.is_dir():
             self._listings[key] = current
         else:
@@ -222,10 +212,21 @@ class StoreIndexWatcher:
         workspace_root: Path,
         broadcaster: Any,
         artifact_store: Any,
+        *,
+        observer_factory: ObserverFactory = Observer,
     ) -> None:
+        """
+        Args:
+            workspace_root: Deployment workspace the index files live under.
+            broadcaster: SSE broadcaster the index diffs are published to.
+            artifact_store: Store whose index this watcher reloads.
+            observer_factory: Builds the watchdog observer — see
+                :data:`ObserverFactory`.
+        """
         self._workspace_root = workspace_root
         self._broadcaster = broadcaster
-        self._observer: Observer | None = None
+        self._observer_factory = observer_factory
+        self._observer: BaseObserver | None = None
 
         self._index_configs: dict[str, dict[str, Any]] = {
             "artifacts.json": {
@@ -244,7 +245,7 @@ class StoreIndexWatcher:
     def start(self) -> None:
         """Start watching index files for changes."""
         handler = _IndexFileHandler(self._index_configs, self._broadcaster)
-        self._observer = Observer()
+        self._observer = self._observer_factory()
 
         # Schedule a watch on each directory that contains an index file
         watched = set()
