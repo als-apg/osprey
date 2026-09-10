@@ -112,6 +112,12 @@ the last stable release and skips betas; install this one with
   controls server that has not launched its connector yet brings it up on the
   new target, and the header chip stops waiting on servers that hold no
   connector at all.
+- `osprey build` from a pre-release install no longer stops in "Preparing the
+  project environment". The build pins `osprey-framework` to the running
+  version, and uv admitted that beta but not the `osprey-connectors` beta it
+  ships with; a pre-release pin now makes the whole resolve admit pre-releases,
+  and the recorded `pyproject.toml` carries `[tool.uv] prerelease = "allow"` so
+  a later `uv sync` in the built directory resolves the same way.
 
 ### Security
 
