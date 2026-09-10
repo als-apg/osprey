@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
 from osprey.port_layout import DEFAULT_PORT_BASE, SLOTS_BY_NAME, default_port, layout_ports
 
 #: The shape of an environment-variable NAME wherever a profile names one
@@ -407,8 +408,8 @@ class DispatchConfig:
     triggers: str
     worker_count: int = 1
     workspace_mode: Literal["isolated", "shared"] = "isolated"
-    max_concurrent_runs: int = 2
-    max_queue_depth: int = 50
+    max_concurrent_runs: int = DEFAULT_MAX_CONCURRENT_RUNS
+    max_queue_depth: int = DEFAULT_MAX_QUEUE_DEPTH
     dispatcher_port: int = default_port("dispatcher")
     """Host port the event dispatcher publishes, at the layout's ``dispatcher``
     slot.

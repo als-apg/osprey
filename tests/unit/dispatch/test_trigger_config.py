@@ -5,6 +5,8 @@ import textwrap
 import pytest
 
 from osprey.dispatch.trigger_config import (
+    DEFAULT_MAX_CONCURRENT_RUNS,
+    DEFAULT_MAX_QUEUE_DEPTH,
     DispatcherConfig,
     TriggerConfig,
     load_triggers,
@@ -181,7 +183,7 @@ def test_on_error_defaults_to_drop_when_omitted(tmp_path):
 
 # ---------------------------------------------------------------------------
 # Test 6: `dispatcher` section parses max_concurrent_runs and max_queue_depth
-#          with defaults (5, 100)
+#          with the package defaults
 # ---------------------------------------------------------------------------
 
 
@@ -210,8 +212,8 @@ def test_dispatcher_config_defaults_when_omitted(tmp_path):
     path = write_yaml(tmp_path, yaml_content)
     dispatcher_cfg, _ = load_triggers(path)
 
-    assert dispatcher_cfg.max_concurrent_runs == 5
-    assert dispatcher_cfg.max_queue_depth == 100
+    assert dispatcher_cfg.max_concurrent_runs == DEFAULT_MAX_CONCURRENT_RUNS
+    assert dispatcher_cfg.max_queue_depth == DEFAULT_MAX_QUEUE_DEPTH
 
 
 # ---------------------------------------------------------------------------
