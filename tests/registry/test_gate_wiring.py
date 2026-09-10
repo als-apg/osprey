@@ -35,9 +35,11 @@ import asyncio
 import json
 from pathlib import Path
 
+import yaml
+
 import osprey
 from osprey import bluesky_tool_names as bsky
-from osprey.registry.mcp import resolve_agents, resolve_servers
+from osprey.registry.mcp import FRAMEWORK_SERVERS, HOOK_PRESETS, resolve_agents, resolve_servers
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -82,6 +84,37 @@ def _hook_source(filename: str) -> str:
     path = _HOOKS_DIR / filename
     assert path.exists(), f"hook template source not found: {path}"
     return path.read_text(encoding="utf-8")
+
+
+def _hook_docstring_and_body(filename: str) -> tuple[str, str]:
+    """A hook template split at its module docstring: (docstring, everything after).
+
+    The docstring carries the frontmatter header — what the hook is called,
+    which event it answers and which tools it gates — and the body is the code
+    that runs. Guards that pin a *header* against the registry read the first;
+    guards that forbid a literal in the *code* read the second.
+    """
+    src = _hook_source(filename)
+    start = src.find('"""')
+    end = src.find('"""', start + 3)
+    assert start >= 0 and end > start, f"{filename} has no module docstring"
+    return src[start + 3 : end], src[end + 3 :]
+
+
+def _hook_header_tools(filename: str) -> set[str]:
+    """The short tool names a hook's frontmatter ``tools:`` line declares."""
+    docstring, _ = _hook_docstring_and_body(filename)
+    parts = docstring.split("---")
+    assert len(parts) >= 3, f"{filename} has no frontmatter block"
+    meta = yaml.safe_load(parts[1])
+    return {tool.strip() for tool in str(meta["tools"]).split(",") if tool.strip()}
+
+
+def _short_name(matcher: str) -> str:
+    """``mcp__<server>__<tool>`` → ``<tool>``; any other matcher as it is."""
+    if matcher.startswith("mcp__") and matcher.count("__") >= 2:
+        return matcher.split("__", 2)[2]
+    return matcher
 
 
 # ---------------------------------------------------------------------------
@@ -229,20 +262,50 @@ def test_approval_template_source_carries_the_queue_control_constants() -> None:
     )
 
 
+def test_hook_headers_list_exactly_the_tools_the_registry_attaches() -> None:
+    """Every safety hook's frontmatter ``tools:`` line equals its registry matchers.
+
+    The header is what an operator reads to learn what a hook gates, and the
+    registry's ``HookRule``s are what actually attach it — so the two are
+    pinned to each other, as sets, across every ``FRAMEWORK_SERVERS`` entry.
+    A tool gated in the registry and missing from the header under-reports the
+    hook; a tool named in the header and gated nowhere over-reports it. This
+    is also what lets a header carry a Bluesky tool name at all: a rename that
+    updates the constant moves the registry's matcher, and this guard then
+    names the header that still spells the old name.
+    """
+    for key, entry in HOOK_PRESETS.items():
+        filename = entry.command.rsplit("/", 1)[-1].rstrip('"')
+        attached = {
+            _short_name(rule.matcher)
+            for template in FRAMEWORK_SERVERS.values()
+            for rule in template.hooks_pre
+            if entry in rule.hooks
+        }
+        declared = _hook_header_tools(filename)
+        assert declared == attached, (
+            f"{filename} header tools: {sorted(declared)} != registry matchers for the "
+            f"{key!r} hook {sorted(attached)} — under-reported: "
+            f"{sorted(attached - declared)}, over-reported: {sorted(declared - attached)}"
+        )
+
+
 def test_writes_check_template_carries_no_bluesky_tool_literal() -> None:
     """The kill switch stays data-driven — no Bluesky tool name is hardcoded.
 
     Both of the hook's tool-keyed decisions arrive as rendered data, never as a
-    literal here: which tools it gates at all flows registry HookRule →
+    literal in its code: which tools it gates at all flows registry HookRule →
     ``hook_config.json`` → its runtime ``write_tools`` load, and which of them
     skip the per-target stage because a plan lane addresses them flows
     ``QUEUE_CONTROL_TOOLS`` → ``hook_config.json`` → its ``lane_addressed_tools``
-    load. Pinning the ABSENCE documents why a Bluesky tool rename never needs to
-    touch this standalone source (and flags anyone who reintroduces a literal
-    that would then silently drift on the next rename).
+    load. Pinning the ABSENCE flags anyone who reintroduces a literal that
+    would then silently drift on the next rename. The frontmatter header is
+    the one place the names may appear: it is pinned against the registry by
+    ``test_hook_headers_list_exactly_the_tools_the_registry_attaches``, so a
+    rename that leaves it stale fails there rather than drifting.
     """
-    src = _hook_source("osprey_writes_check.py")
-    present = [t for t in bsky.ALL_TOOLS if t in src]
+    _, body = _hook_docstring_and_body("osprey_writes_check.py")
+    present = [t for t in bsky.ALL_TOOLS if t in body]
     assert present == [], (
         f"osprey_writes_check.py hardcodes Bluesky tool name(s) {present} — the "
         f"writes kill switch must stay data-driven (write_tools loaded from "
