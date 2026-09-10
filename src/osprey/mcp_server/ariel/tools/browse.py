@@ -34,7 +34,8 @@ async def browse(
         page_size: Number of entries to return (default 20, max 100).
         start_date: Filter entries after this ISO-8601 date.
         end_date: Filter entries before this ISO-8601 date.
-        author: Filter by author name (case-insensitive partial match).
+        author: Filter by author name (exact match — use ``filter_options``
+            for the spelling).
         source_system: Filter by source system (exact match).
 
     Returns:
@@ -48,20 +49,24 @@ async def browse(
 
         parsed_start, parsed_end = parse_date_filters(start_date, end_date)
 
+        # Both filters go into the query rather than over its result: a
+        # post-filter can only narrow the page the query already returned, so a
+        # corpus larger than page_size loses the author's older entries and the
+        # count describes a different set from the entries beside it.
         entries = await service.repository.search_by_time_range(
             start=parsed_start,
             end=parsed_end,
             limit=page_size,
+            author=author,
+            source_system=source_system,
         )
 
-        # Repository doesn't support author/source_system filters, so filter in Python.
-        if author:
-            author_lower = author.lower()
-            entries = [e for e in entries if author_lower in e.get("author", "").lower()]
-        if source_system:
-            entries = [e for e in entries if e["source_system"] == source_system]
-
-        total_count = await service.repository.count_entries()
+        total_count = await service.repository.count_entries(
+            start=parsed_start,
+            end=parsed_end,
+            author=author,
+            source_system=source_system,
+        )
 
         # TypedDict entries -- use dict access, not attribute access
         entries_out = [serialize_entry(e, text_limit=300) for e in entries]

@@ -80,29 +80,70 @@ async def test_browse_empty_db(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 async def test_browse_author_filter(tmp_path, monkeypatch):
-    """Browse filters by author (post-filter)."""
+    """Browse hands the author filter to the repository, not to a post-filter.
+
+    A post-filter can only narrow the one page the query already returned, so
+    on a corpus larger than ``page_size`` it drops the author's older entries
+    entirely and reports a ``total_count`` for the whole table. Both filters go
+    into the query instead, and the count carries them too.
+    """
     _setup_registry(tmp_path, monkeypatch)
 
+    # The page the filtered query returns: every entry is already Alice's.
     entries = [
         make_mock_entry(entry_id="e1", author="Alice"),
-        make_mock_entry(entry_id="e2", author="Bob"),
-        make_mock_entry(entry_id="e3", author="Alice"),
+        make_mock_entry(entry_id="e2", author="Alice"),
     ]
 
     mock_service = AsyncMock()
     mock_service.repository.search_by_time_range.return_value = entries
-    mock_service.repository.count_entries.return_value = 3
+    # Alice's entries, not the 500 in the table.
+    mock_service.repository.count_entries.return_value = 2
 
     with patch(
         "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_browse()
-        result = await fn(author="Alice")
+        result = await fn(page_size=2, author="Alice")
+
+    search_kwargs = mock_service.repository.search_by_time_range.call_args.kwargs
+    assert search_kwargs["author"] == "Alice"
+    assert search_kwargs["source_system"] is None
+    count_kwargs = mock_service.repository.count_entries.call_args.kwargs
+    assert count_kwargs["author"] == "Alice"
+    assert count_kwargs["source_system"] is None
 
     data = json.loads(result)
     assert data["returned"] == 2
+    assert data["total_count"] == 2
     assert all(e["author"] == "Alice" for e in data["entries"])
+
+
+@pytest.mark.unit
+async def test_browse_source_system_filter(tmp_path, monkeypatch):
+    """The source-system filter takes the same route as the author one."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    mock_service = AsyncMock()
+    mock_service.repository.search_by_time_range.return_value = [
+        make_mock_entry(entry_id="e1", source_system="ARIEL Web")
+    ]
+    mock_service.repository.count_entries.return_value = 1
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_browse()
+        result = await fn(source_system="ARIEL Web")
+
+    assert (
+        mock_service.repository.search_by_time_range.call_args.kwargs["source_system"]
+        == "ARIEL Web"
+    )
+    assert mock_service.repository.count_entries.call_args.kwargs["source_system"] == "ARIEL Web"
+    assert json.loads(result)["total_count"] == 1
 
 
 @pytest.mark.unit
