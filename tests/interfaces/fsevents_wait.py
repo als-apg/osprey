@@ -144,7 +144,8 @@ def drain(pump: Callable[[], bool]) -> None:
 def collect_frames(
     queue: asyncio.Queue,
     *,
-    until: str,
+    until: str | None = None,
+    until_under: str | None = None,
     poke: Callable[[], Any],
     until_type: str | None = None,
     budget: float = ARM_BUDGET,
@@ -154,6 +155,14 @@ def collect_frames(
     The frame-queue shape of :func:`poke_until` plus :func:`drain`, shared by the
     workspace-watcher tests: wait for the sentinel frame, re-applying the change
     that produces it until it arrives, then take the coalesced tail behind it.
+
+    A sentinel proves the observer is live and delivering. It does not prove
+    that every event before it was delivered: a loaded FSEvents daemon hands a
+    stream its events in sparse batches, and a later write's frame can land
+    while an earlier write's frames are still pending. So a test that requires
+    a frame to be *present* waits for that frame — or, with *until_under*, for
+    any frame at or below a directory — and pokes with the stimulus that
+    produces it, never with a bystander write.
 
     Frames are returned whole rather than flattened to paths, because a poke
     only proves what it reproduces: a test whose subject is a *creation* has to
@@ -165,13 +174,20 @@ def collect_frames(
     Args:
         queue: A ``FileEventBroadcaster`` subscription.
         until: The workspace-relative path whose frame ends the wait.
-        poke: Re-applies the change that produces the *until* frame.
+        until_under: A workspace-relative directory instead of a path: the
+            first frame at or below it ends the wait. For a store whose write
+            lands at a random temp name and a rename, no single path can be
+            named in advance, but the store directory can. Exactly one of
+            *until* and *until_under* is given.
+        poke: Re-applies the change that produces the awaited frame.
         until_type: When given, only a frame of this ``type`` ends the wait.
         budget: Seconds of repeated stimulus before failing.
 
     Returns:
         Every frame delivered, in arrival order, sentinel included.
     """
+    if (until is None) == (until_under is None):
+        raise ValueError("pass exactly one of until= and until_under=")
     frames: list[dict] = []
 
     def pump() -> bool:
@@ -183,14 +199,21 @@ def collect_frames(
                 return took
             took = True
 
+    def at_target(path: str) -> bool:
+        if until is not None:
+            return path == until
+        prefix = until_under.rstrip("/")  # type: ignore[union-attr]
+        return path == prefix or path.startswith(prefix + "/")
+
     def matched(frame: dict) -> bool:
-        return frame["path"] == until and (until_type is None or frame["type"] == until_type)
+        return at_target(frame["path"]) and (until_type is None or frame["type"] == until_type)
 
     def arrived() -> bool:
         pump()
         return any(matched(frame) for frame in frames)
 
-    wanted = f"a {until_type!r} frame for {until!r}" if until_type else f"a frame for {until!r}"
+    where = f"for {until!r}" if until is not None else f"under {until_under!r}"
+    wanted = f"a {until_type!r} frame {where}" if until_type else f"a frame {where}"
     poke_until(arrived, poke, what=wanted, budget=budget)
     drain(pump)
     return frames
@@ -199,7 +222,8 @@ def collect_frames(
 def collect_paths(
     queue: asyncio.Queue,
     *,
-    until: str,
+    until: str | None = None,
+    until_under: str | None = None,
     poke: Callable[[], Any],
     budget: float = ARM_BUDGET,
 ) -> list[str]:
@@ -208,4 +232,5 @@ def collect_paths(
     Only for tests whose subject is *which* paths reached the panel, never
     whether a particular kind of change did — those must read the frames.
     """
-    return [frame["path"] for frame in collect_frames(queue, until=until, poke=poke, budget=budget)]
+    frames = collect_frames(queue, until=until, until_under=until_under, poke=poke, budget=budget)
+    return [frame["path"] for frame in frames]
