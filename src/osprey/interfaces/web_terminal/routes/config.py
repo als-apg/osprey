@@ -62,10 +62,13 @@ _RENDER_READONLY_DETAIL = "derived artifacts re-render on container restart"
 
 # Config sections the Form view offers for editing. Deliberately narrower than
 # the file: infra/build sections (api, cli, deploy, modules, file_paths, ...)
-# are left to the Raw YAML view. Every name here must match a real top-level
-# key -- an entry that matches nothing renders nothing, silently, which is how
-# "python_execution" (the section is called "execution") kept the execution
-# settings out of the form.
+# are left to the Raw YAML view, which reaches everything -- so this stays an
+# ALLOWLIST rather than becoming a denylist that would offer every new block by
+# default. Every name here must match a real top-level key -- an entry that
+# matches nothing renders nothing, silently, which is how "python_execution"
+# (the section is called "execution") kept the execution settings out of the
+# form. `tests/interfaces/web_terminal/test_config_form_sections.py` holds each
+# name against the sections the shipped presets carry.
 _AGENT_CONFIG_SECTIONS = [
     "control_system",
     "archiver",
@@ -77,7 +80,6 @@ _AGENT_CONFIG_SECTIONS = [
     "facility_knowledge",
     "execution",
     "artifact_server",
-    "screen_capture",
     "hooks",
 ]
 
