@@ -47,7 +47,7 @@ Adapters are discovered through Osprey's central registry. The built-in ones bel
      - Schema-ready prototype. Parses its logbook's JSON format into the common schema but does not yet implement that system's native API protocol.
    * - **Generic JSON**
      - ``generic_json``
-     - Reads from a JSON file with flexible field mapping. Useful for demos, testing, and facilities without a custom API.
+     - Reads entries from a JSON file. ``id``, ``title``, ``text``, ``author``, ``timestamp`` and ``attachments`` map onto the common schema; every other top-level field is kept as entry metadata, and an explicit ``metadata`` object merges last and wins. Useful for demos, testing, and facilities without a custom API.
 
 **Using a custom adapter:**
 

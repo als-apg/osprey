@@ -27,6 +27,18 @@ if TYPE_CHECKING:
 logger = get_logger("ariel")
 
 
+#: Top-level keys ``_convert_entry`` consumes itself. Everything else a payload
+#: carries is treated as the site's own metadata and rides through.
+#:
+#: The named promotions in that method are deliberately NOT listed here: they
+#: are promoted so their falsy values are handled deliberately, and the pass-through then
+#: carries whatever a promotion skipped. ``when`` is listed because it is a
+#: relative-timestamp *spec* the converter resolves, not a fact about the entry.
+_RESERVED_TOP_LEVEL = frozenset(
+    {"id", "title", "text", "author", "timestamp", "when", "attachments", "metadata"}
+)
+
+
 class GenericJSONAdapter(FacilityAdapter):
     """Generic JSON ingestion adapter.
 
@@ -273,6 +285,15 @@ class GenericJSONAdapter(FacilityAdapter):
             metadata["num_comments"] = data["num_comments"]
         if data.get("needs_attention") is not None:
             metadata["needs_attention"] = data["needs_attention"]
+
+        # Whatever the export carries that this converter does not consume is the
+        # site's own vocabulary. A generic adapter has no list of what that can be,
+        # so an unrecognised field is kept rather than dropped. ``setdefault`` so a
+        # promotion above, which decided how to treat that field's falsy values,
+        # stays in charge of it.
+        for key, value in data.items():
+            if key not in _RESERVED_TOP_LEVEL:
+                metadata.setdefault(key, value)
 
         if data.get("metadata") and isinstance(data["metadata"], dict):
             metadata.update(data["metadata"])
