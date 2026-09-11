@@ -18,8 +18,12 @@ from __future__ import annotations
 
 import importlib.resources
 import json
+import os
 import subprocess
+import threading
+import time
 from pathlib import Path
+from queue import Empty, Queue
 
 import pytest
 from click.testing import CliRunner
@@ -27,7 +31,15 @@ from click.testing import CliRunner
 from osprey.cli.build_cmd import build
 from osprey.cli.build_profile_emit import _MCP_SERVERS_APPENDIX
 from osprey.cli.init_cmd import init
-from tests.integration._mcp_handshake import list_mcp_tools
+from tests.integration._mcp_handshake import _STARTUP_TIMING, list_mcp_tools
+
+#: How long the spawned entry gets to say it is serving. It is a bound on a
+#: failure, not a wait: the read returns the moment the line arrives. The
+#: stream is drained on its own thread because a server that announces nothing
+#: never closes stderr either -- a blocking read would hang the test instead of
+#: failing it.
+_ANNOUNCE_TIMEOUT = 60.0
+_ANNOUNCE_POLL = 0.1
 
 PACKAGE_DIR = Path("src/osprey/templates/apps/hello_world/mcp_servers/example_server")
 PACKAGED_FILES = ("__init__.py", "server.py", "__main__.py")
@@ -192,4 +204,63 @@ def test_rendered_entry_spawns_the_seeded_server(runner: CliRunner, tmp_path: Pa
     assert "mcp__example_server__.*" in matchers, (
         "build did not wire the example_server guidance hook into PostToolUse; "
         f"matchers present: {matchers}"
+    )
+
+
+def test_the_rendered_entry_announces_when_it_is_ready(runner: CliRunner, tmp_path: Path) -> None:
+    """The seeded server says on stderr that it is serving, as the framework's do.
+
+    A launcher cannot otherwise tell a server that is still importing from one
+    that is stuck: both are silence on stdout. Every framework server announces
+    through ``run_mcp_server``, and the worked example a facility author copies
+    has to teach the same contract -- so the marker is asserted here against the
+    very pattern the boot smoke's handshake reads.
+    """
+    target = tmp_path / "my-facility"
+    init_result = runner.invoke(init, [str(target), "--preset", "hello-world", "--no-git"])
+    assert init_result.exit_code == 0, init_result.output
+
+    build_result = runner.invoke(build, ["--repo", str(target), "--skip-deps", "--skip-lifecycle"])
+    assert build_result.exit_code == 0, build_result.output
+
+    entry = json.loads((target / "build" / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"][
+        "example_server"
+    ]
+    env = dict(os.environ)
+    env.update(entry.get("env") or {})
+
+    proc = subprocess.Popen(  # noqa: S603 - command comes from the generated .mcp.json
+        [entry["command"], *entry["args"]],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+        text=True,
+        bufsize=1,
+    )
+    phases: list[str] = []
+    lines: Queue[str] = Queue()
+
+    def drain() -> None:
+        for line in iter(proc.stderr.readline, ""):
+            lines.put(line)
+
+    threading.Thread(target=drain, daemon=True).start()
+    try:
+        deadline = time.monotonic() + _ANNOUNCE_TIMEOUT
+        while time.monotonic() < deadline:
+            try:
+                line = lines.get(timeout=_ANNOUNCE_POLL)
+            except Empty:
+                continue
+            match = _STARTUP_TIMING.search(line)
+            if match:
+                phases.append(match.group(1))
+                break
+    finally:
+        proc.terminate()
+        proc.wait(timeout=_ANNOUNCE_TIMEOUT)
+
+    assert "total_startup" in phases, (
+        f"the seeded example server never announced total_startup on stderr; phases seen: {phases}"
     )
