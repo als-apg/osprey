@@ -264,6 +264,37 @@ def test_no_declared_ontology_renders_the_honest_line(tmp_path, mode):
     assert '| "readback" / "monitor" |' in section
 
 
+def test_no_declared_ontology_leaves_no_device_token_anywhere_in_the_prompt(tmp_path):
+    """The guard covers the whole agent file, not only its terminology table.
+
+    The partial was cleaned first, but the paradigm prose around it kept its own
+    glossary — a systems legend, a device-family cheat sheet, and worked examples
+    built from one machine's tokens. A subagent reads the file top to bottom, so
+    a token the table no longer claims is still a token the agent will try, and a
+    family that does not exist here returns no rows and no error.
+    """
+    manager, project_dir = _project(tmp_path, "cf-whole-file", "middle_layer")
+    _rewrite_config(project_dir, "  # ontology: data/facility_ontology.json")
+    manager.regenerate_claude_code(project_dir)
+
+    rendered = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text(
+        encoding="utf-8"
+    )
+    assert _forbidden_hits(rendered) == [], (
+        "the rendered channel-finder prompt names device tokens no declared "
+        "ontology put there; the vocabulary has one source, facility.ontology"
+    )
+
+
+def test_the_agent_source_spells_no_device_token():
+    """The agent template itself is a source of tokens exactly like the partials."""
+    source = (_TEMPLATE_ROOT.parent / "channel-finder.md.j2").read_text(encoding="utf-8")
+    assert _forbidden_hits(source) == [], (
+        "channel-finder.md.j2 spells a device token itself. The vocabulary has "
+        "one source — facility.ontology, through `facility_vocabulary`."
+    )
+
+
 # ---------------------------------------------------------------------------
 # The sources, and the failure mode
 # ---------------------------------------------------------------------------

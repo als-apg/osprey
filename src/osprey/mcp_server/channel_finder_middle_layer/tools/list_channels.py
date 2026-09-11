@@ -29,12 +29,11 @@ def list_channels(
     """Get channel names for a specific system/family/field path.
 
     Navigate the hierarchy (System -> Family -> Field -> Subfield) to get
-    the actual EPICS PV channel names. Optionally filter by sector and/or
-    device number.
+    the channel addresses. Optionally filter by sector and/or device number.
 
     Args:
-        system: System name (e.g., "SR").
-        family: Family name (e.g., "BPM").
+        system: System name, as returned by list_systems().
+        family: Family name, as returned by list_families().
         field: Field name (e.g., "Monitor", "Setpoint").
         subfield: Optional subfield name for nested structures (e.g., "X", "Y").
         sectors: Optional list of sector numbers to filter by.

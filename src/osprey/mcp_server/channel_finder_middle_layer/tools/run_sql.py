@@ -26,14 +26,14 @@ def run_sql(sql: str) -> str:
 
     The database contains these tables:
 
-    **channels** — One row per EPICS PV channel.
+    **channels** — One row per channel.
     Columns: channel_name (PK), system, family, field, subfield,
     description, units, data_type, mode, member_of, source, updated_at.
 
-    **systems** — Accelerator systems (e.g., SR, BR, BTS).
+    **systems** — Top-level systems.
     Columns: name (PK), description.
 
-    **families** — Device families within systems (e.g., BPM, HCM).
+    **families** — Device families within systems.
     Columns: system, name, description.  PK: (system, name).
 
     **device_map** — Physical device layout.
