@@ -796,7 +796,11 @@ def test_env_production_missing_secret_hint_names_only_the_repo_env(tmp_path, mo
 
 
 def test_env_production_missing_secret_absent_everywhere_has_no_shell_hint(tmp_path, monkeypatch):
+    """Every variable the persona needs is cleared from the ambient shell, the
+    gateway endpoint included: an ambient export of any of them earns the
+    shell hint, which is exactly what this asserts against."""
     monkeypatch.delenv("ALS_APG_API_KEY", raising=False)
+    monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
     _write_dotenv(tmp_path / ".env", {"SOMETHING_ELSE": "x"})
     config = _persona_config(tmp_path, {"operator": "als-apg"})
 
