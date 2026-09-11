@@ -1160,6 +1160,12 @@ class TestComposeCoverage:
         )
         assert block["verdict"] == "gap_within_coverage"
         assert "recorded" in block["message"]
+        # The archiver observed an empty window; it did not observe *why*.
+        # Whether silence means a dead channel or an on-change archiver that
+        # simply had nothing to record is the deployment's fact, not ours.
+        assert "not answering" not in block["message"]
+        # The anti-hallucination clause is the point of the message and stays.
+        assert "not data awaiting synthesis" in block["message"]
 
     def test_window_touching_the_archive_start_counts_as_overlap(self):
         # end == archival_start is NOT "precedes": the boundary sample's
