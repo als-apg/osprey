@@ -48,7 +48,7 @@ _CLEAN_CONFIG = {
             "artifact_base_port": default_port("artifact", 0, base=_OVERRIDE_PORT_BASE),
             "ariel_base_port": default_port("ariel", 0, base=_OVERRIDE_PORT_BASE),
             "lattice_base_port": default_port("lattice", 0, base=_OVERRIDE_PORT_BASE),
-            "users": ["thellert", "gmartino"],
+            "users": ["alice", "bob"],
         },
     },
 }
@@ -84,7 +84,7 @@ def test_lint_duplicate_user_is_an_error() -> None:
     """Repeating a username breaks the one-service-per-user invariant."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = ["thellert", "thellert"]
+    config["modules"]["web_terminals"]["users"] = ["alice", "alice"]
 
     # Act
     findings = lint_web_terminals(config)
@@ -208,7 +208,7 @@ def test_lint_username_matching_a_service_name_is_not_an_error() -> None:
     """
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = ["nginx", "gmartino"]
+    config["modules"]["web_terminals"]["users"] = ["nginx", "bob"]
 
     # Act
     findings = lint_web_terminals(config)
@@ -225,7 +225,7 @@ def test_lint_username_matching_a_service_audit_identity_is_an_error(name: str) 
     same rejection at scaffold time, before a deploy is attempted."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [name, "gmartino"]
+    config["modules"]["web_terminals"]["users"] = [name, "bob"]
 
     # Act
     findings = lint_web_terminals(config)
@@ -287,8 +287,8 @@ def test_lint_roster_index_past_the_family_band_is_an_error() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0},
-        {"name": "gmartino", "index": INDEX_MAX + 1},
+        {"name": "alice", "index": 0},
+        {"name": "bob", "index": INDEX_MAX + 1},
     ]
 
     # Act
@@ -310,8 +310,8 @@ def test_lint_roster_filling_the_family_band_is_not_an_error() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0},
-        {"name": "gmartino", "index": INDEX_MAX},
+        {"name": "alice", "index": 0},
+        {"name": "bob", "index": INDEX_MAX},
     ]
 
     # Act
@@ -342,7 +342,7 @@ def test_lint_username_bad_charset_is_an_error() -> None:
     ``^[a-z0-9][a-z0-9_-]*$``."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = ["Bad_User", "gmartino"]
+    config["modules"]["web_terminals"]["users"] = ["Bad_User", "bob"]
 
     # Act
     findings = lint_web_terminals(config)
@@ -442,8 +442,8 @@ def test_lint_duplicate_explicit_index_is_an_error() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0},
-        {"name": "gmartino", "index": 0},
+        {"name": "alice", "index": 0},
+        {"name": "bob", "index": 0},
     ]
 
     # Act
@@ -459,8 +459,8 @@ def test_lint_distinct_explicit_indices_are_not_a_duplicate_index_error() -> Non
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0},
-        {"name": "gmartino", "index": 1},
+        {"name": "alice", "index": 0},
+        {"name": "bob", "index": 1},
     ]
 
     # Act
@@ -475,7 +475,7 @@ def test_lint_missing_index_on_object_form_user_is_an_error() -> None:
     """An object-form entry with no `index` key at all is invalid."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [{"name": "thellert"}]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice"}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -489,7 +489,7 @@ def test_lint_non_integer_index_is_an_error() -> None:
     """A string index (e.g. from a hand-edited YAML) is not a valid port offset."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": "0"}]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": "0"}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -503,7 +503,7 @@ def test_lint_boolean_index_is_an_error() -> None:
     """`bool` is an `int` subclass in Python, but `index: true`/`false` is invalid."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": True}]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": True}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -517,7 +517,7 @@ def test_lint_negative_index_is_an_error() -> None:
     """A negative index can't resolve to a real port offset."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": -1}]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": -1}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -532,8 +532,8 @@ def test_lint_valid_object_form_users_report_no_index_errors() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0},
-        {"name": "gmartino", "index": 1},
+        {"name": "alice", "index": 0},
+        {"name": "bob", "index": 1},
     ]
 
     # Act
@@ -551,7 +551,7 @@ def test_lint_non_string_display_name_is_an_error() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "display_name": ["not", "a", "string"]}
+        {"name": "alice", "index": 0, "display_name": ["not", "a", "string"]}
     ]
 
     # Act
@@ -567,8 +567,8 @@ def test_lint_string_display_name_reports_no_error() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "display_name": "Operations"},
-        {"name": "gmartino", "index": 1},  # no display_name at all is equally fine
+        {"name": "alice", "index": 0, "display_name": "Operations"},
+        {"name": "bob", "index": 1},  # no display_name at all is equally fine
     ]
 
     # Act
@@ -591,7 +591,7 @@ def test_lint_has_no_rule_about_the_retired_login_key(method: str) -> None:
     # Arrange
     config = _auth_config({"method": method, "allow_insecure_http": True}, tls=False, fqdn=None)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "login": True},
+        {"name": "alice", "index": 0, "login": True},
         {"name": "ariel", "index": 1, "login": False},
         {"name": "kiosk", "index": 2, "login": "false"},
     ]
@@ -610,9 +610,7 @@ def test_lint_non_literal_user_access_is_an_error() -> None:
     — so the typo is an ERROR rather than a silent narrowing."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "access": "maybe"}
-    ]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0, "access": "maybe"}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -626,9 +624,7 @@ def test_lint_wrong_case_user_access_is_an_error() -> None:
     so lint must call the spelling out."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "access": "ANY"}
-    ]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0, "access": "ANY"}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -642,7 +638,7 @@ def test_lint_boolean_user_access_is_an_error() -> None:
     a principal list, and deploys as `own` — an ERROR, not a widened entry."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0, "access": True}]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0, "access": True}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -656,7 +652,7 @@ def test_lint_user_access_skips_non_dict_entries() -> None:
     key — the check skips them without crashing and reports nothing."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = ["thellert", 42]
+    config["modules"]["web_terminals"]["users"] = ["alice", 42]
 
     # Act
     findings = lint_web_terminals(config)
@@ -674,9 +670,7 @@ def test_lint_access_any_without_sidecar_is_silent() -> None:
     entry, exactly where `oidc_subject` already sits silently."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "access": "any"}
-    ]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0, "access": "any"}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -690,9 +684,7 @@ def test_lint_access_any_under_auth_none_is_silent() -> None:
     tunnel-only posture is the usual passive base an `sso` variant arms."""
     # Arrange
     config = _auth_config({"method": "none"}, tls=False, fqdn=None)
-    config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "access": "any"}
-    ]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0, "access": "any"}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -712,7 +704,7 @@ def test_lint_access_any_beside_the_retired_login_key_is_not_inert() -> None:
     web_terminals = config["modules"]["web_terminals"]
     web_terminals["auth"] = {"method": "password", "allow_insecure_http": True}
     web_terminals["users"] = [
-        {"name": "thellert", "index": 0, "access": "any", "login": False},
+        {"name": "alice", "index": 0, "access": "any", "login": False},
     ]
 
     # Act
@@ -729,7 +721,7 @@ def test_lint_access_any_under_walled_auth_reports_nothing() -> None:
     config = copy.deepcopy(_CLEAN_CONFIG)
     web_terminals = config["modules"]["web_terminals"]
     web_terminals["auth"] = {"method": "password", "allow_insecure_http": True}
-    web_terminals["users"] = [{"name": "thellert", "index": 0, "access": "any"}]
+    web_terminals["users"] = [{"name": "alice", "index": 0, "access": "any"}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -744,9 +736,7 @@ def test_lint_explicit_access_own_reports_nothing() -> None:
     the normalizer drops it."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "access": "own"}
-    ]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0, "access": "own"}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -779,9 +769,7 @@ def test_lint_well_formed_access_principal_lists_report_nothing(access: list[str
     sugar for — lint accepts every member kind the resolver does."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "access": access}
-    ]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0, "access": access}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -795,7 +783,7 @@ def test_lint_null_user_access_is_silent() -> None:
     out: the resolver reads it as the entry's own login, so lint stays silent."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0, "access": None}]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0, "access": None}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -809,7 +797,7 @@ def test_lint_empty_access_list_is_an_error() -> None:
     so it is refused with the entry named."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0, "access": []}]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0, "access": []}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -817,7 +805,7 @@ def test_lint_empty_access_list_is_an_error() -> None:
     # Assert
     offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
     assert len(offenders) == 1
-    assert "'thellert'" in offenders[0].message
+    assert "'alice'" in offenders[0].message
     assert "empty access list" in offenders[0].message
 
 
@@ -827,7 +815,7 @@ def test_lint_unknown_access_prefix_is_an_error() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "access": ["team:controls"]}
+        {"name": "alice", "index": 0, "access": ["team:controls"]}
     ]
 
     # Act
@@ -846,7 +834,7 @@ def test_lint_non_string_access_member_is_an_error() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "access": ["self", 42]}
+        {"name": "alice", "index": 0, "access": ["self", 42]}
     ]
 
     # Act
@@ -855,7 +843,7 @@ def test_lint_non_string_access_member_is_an_error() -> None:
     # Assert
     offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
     assert len(offenders) == 1
-    assert "'thellert'" in offenders[0].message
+    assert "'alice'" in offenders[0].message
     assert "not a string" in offenders[0].message
 
 
@@ -866,7 +854,7 @@ def test_lint_group_access_member_says_not_supported_yet() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "access": ["group:operators"]}
+        {"name": "alice", "index": 0, "access": ["group:operators"]}
     ]
 
     # Act
@@ -886,7 +874,7 @@ def test_lint_bare_access_word_outside_the_vocabulary_is_an_error() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "access": ["everyone"]}
+        {"name": "alice", "index": 0, "access": ["everyone"]}
     ]
 
     # Act
@@ -906,7 +894,7 @@ def test_lint_user_access_member_with_whitespace_is_an_error() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "access": ["user:alice smith@lbl.gov"]}
+        {"name": "alice", "index": 0, "access": ["user:alice smith@lbl.gov"]}
     ]
 
     # Act
@@ -926,7 +914,7 @@ def test_lint_domain_access_member_holding_an_address_is_an_error() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "access": ["domain:alice@lbl.gov"]}
+        {"name": "alice", "index": 0, "access": ["domain:alice@lbl.gov"]}
     ]
 
     # Act
@@ -948,7 +936,7 @@ def test_lint_access_member_carrying_a_dollar_is_an_error() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "access": ["user:$ALICE@lbl.gov"]}
+        {"name": "alice", "index": 0, "access": ["user:$ALICE@lbl.gov"]}
     ]
 
     # Act
@@ -967,7 +955,7 @@ def test_lint_malformed_access_reports_one_finding_per_entry() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "access": ["group:operators"]},
+        {"name": "alice", "index": 0, "access": ["group:operators"]},
         {"name": "ariel", "index": 1, "access": "maybe"},
         {"name": "control", "index": 2, "access": ["domain:lbl.gov"]},
     ]
@@ -978,7 +966,7 @@ def test_lint_malformed_access_reports_one_finding_per_entry() -> None:
     # Assert
     offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
     assert len(offenders) == 2
-    assert any("'thellert'" in f.message for f in offenders)
+    assert any("'alice'" in f.message for f in offenders)
     assert any("'ariel'" in f.message for f in offenders)
 
 
@@ -988,7 +976,7 @@ def test_lint_non_string_user_theme_is_an_error() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "theme": {"family": "desy"}}
+        {"name": "alice", "index": 0, "theme": {"family": "desy"}}
     ]
 
     # Act
@@ -1004,8 +992,8 @@ def test_lint_string_user_theme_reports_no_error() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "theme": "desy"},
-        {"name": "gmartino", "index": 1, "theme": "desy-light"},
+        {"name": "alice", "index": 0, "theme": "desy"},
+        {"name": "bob", "index": 1, "theme": "desy-light"},
         {"name": "aallezy", "index": 2},  # no theme at all is equally fine
     ]
 
@@ -1027,7 +1015,7 @@ def test_lint_does_not_validate_the_theme_name_itself() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "theme": "no-such-theme"}
+        {"name": "alice", "index": 0, "theme": "no-such-theme"}
     ]
 
     # Act
@@ -1042,7 +1030,7 @@ def test_lint_non_string_user_tour_reports_error() -> None:
     renderer would drop it silently otherwise."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0, "tour": False}]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0, "tour": False}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -1058,8 +1046,8 @@ def test_lint_does_not_validate_the_tour_word_itself() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "tour": "always"},
-        {"name": "gmartino", "index": 1, "tour": "sometimes"},  # unknown word, still a string
+        {"name": "alice", "index": 0, "tour": "always"},
+        {"name": "bob", "index": 1, "tour": "sometimes"},  # unknown word, still a string
         {"name": "aallezy", "index": 2},  # no tour at all is equally fine
     ]
 
@@ -1074,7 +1062,7 @@ def test_lint_bare_multi_user_list_warns_about_port_drift_risk() -> None:
     """A legacy bare list with >1 user risks positional port drift on decommission."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = ["thellert", "gmartino"]
+    config["modules"]["web_terminals"]["users"] = ["alice", "bob"]
 
     # Act
     findings = lint_web_terminals(config)
@@ -1088,7 +1076,7 @@ def test_lint_bare_single_user_list_does_not_warn_about_port_drift_risk() -> Non
     """A single-user bare list has no positional drift risk to warn about."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = ["thellert"]
+    config["modules"]["web_terminals"]["users"] = ["alice"]
 
     # Act
     findings = lint_web_terminals(config)
@@ -1103,8 +1091,8 @@ def test_lint_explicit_index_roster_does_not_warn_about_port_drift_risk() -> Non
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0},
-        {"name": "gmartino", "index": 1},
+        {"name": "alice", "index": 0},
+        {"name": "bob", "index": 1},
     ]
 
     # Act
@@ -1120,7 +1108,7 @@ def test_lint_mixed_roster_does_not_crash_and_does_not_warn_about_port_drift_ris
     is exempt from the bare-list drift warning (it isn't a pure legacy list)."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = ["thellert", {"name": "gmartino", "index": 1}]
+    config["modules"]["web_terminals"]["users"] = ["alice", {"name": "bob", "index": 1}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -1150,8 +1138,8 @@ def test_lint_object_form_valid_name_reports_no_charset_error() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0},
-        {"name": "gmartino", "index": 1},
+        {"name": "alice", "index": 0},
+        {"name": "bob", "index": 1},
     ]
 
     # Act
@@ -1168,8 +1156,8 @@ def test_lint_object_form_duplicate_name_is_still_a_duplicate_user_error() -> No
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0},
-        {"name": "thellert", "index": 1},
+        {"name": "alice", "index": 0},
+        {"name": "alice", "index": 1},
     ]
 
     # Act
@@ -1195,8 +1183,8 @@ def test_lint_clean_persona_catalog_reports_no_error_findings() -> None:
     }
     config["modules"]["web_terminals"]["default_persona"] = "assistant"
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0},
-        {"name": "gmartino", "index": 1, "persona": "analysis"},
+        {"name": "alice", "index": 0},
+        {"name": "bob", "index": 1, "persona": "analysis"},
     ]
 
     # Act
@@ -1213,7 +1201,7 @@ def test_lint_unknown_explicit_persona_reference_is_an_error() -> None:
     config["modules"]["web_terminals"]["personas"] = {"assistant": {"project": "als-assistant"}}
     config["modules"]["web_terminals"]["default_persona"] = "assistant"
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "persona": "ghost"}
+        {"name": "alice", "index": 0, "persona": "ghost"}
     ]
 
     # Act
@@ -1223,7 +1211,7 @@ def test_lint_unknown_explicit_persona_reference_is_an_error() -> None:
     errors = _errors(findings)
     unknown_ref = [f for f in errors if f.code == "web_terminals.unknown_persona_reference"]
     assert unknown_ref
-    assert any("thellert" in f.message and "ghost" in f.message for f in unknown_ref)
+    assert any("alice" in f.message and "ghost" in f.message for f in unknown_ref)
 
 
 def test_lint_unknown_inherited_default_persona_reference_is_an_error() -> None:
@@ -1233,7 +1221,7 @@ def test_lint_unknown_inherited_default_persona_reference_is_an_error() -> None:
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["personas"] = {"assistant": {"project": "als-assistant"}}
     config["modules"]["web_terminals"]["default_persona"] = "ghost"
-    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -1249,7 +1237,7 @@ def test_lint_default_persona_not_in_catalog_is_an_error() -> None:
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["personas"] = {"assistant": {"project": "als-assistant"}}
     config["modules"]["web_terminals"]["default_persona"] = "ghost"
-    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -1268,7 +1256,7 @@ def test_lint_default_persona_in_catalog_reports_no_error() -> None:
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["personas"] = {"assistant": {"project": "als-assistant"}}
     config["modules"]["web_terminals"]["default_persona"] = "assistant"
-    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -1284,7 +1272,7 @@ def test_lint_persona_catalog_bad_charset_is_an_error() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["personas"] = {"Bad Persona": {"project": "als-x"}}
-    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -1300,7 +1288,7 @@ def test_lint_persona_charset_rejects_a_trailing_newline() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["personas"] = {"ops\n": {"project": "als-x"}}
-    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -1319,7 +1307,7 @@ def test_lint_persona_named_after_a_service_is_not_an_error() -> None:
     config["modules"]["web_terminals"]["personas"] = {"nginx": {"project": "als-x"}}
     config["modules"]["web_terminals"]["default_persona"] = "nginx"
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "persona": "nginx"}
+        {"name": "alice", "index": 0, "persona": "nginx"}
     ]
 
     # Act
@@ -1338,7 +1326,7 @@ def test_lint_persona_seed_base_non_bool_is_an_error() -> None:
     config["modules"]["web_terminals"]["personas"] = {
         "standalone": {"project": "als-x", "seed_base": "false"}
     }
-    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -1356,7 +1344,7 @@ def test_lint_persona_seed_base_bool_is_accepted() -> None:
         "keep": {"project": "als-keep", "seed_base": True},
         "drop": {"project": "als-drop", "seed_base": False},
     }
-    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -1370,7 +1358,7 @@ def test_lint_persona_seed_base_absent_is_accepted() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["personas"] = {"plain": {"project": "als-x"}}
-    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -1414,7 +1402,7 @@ def _persona_config(**overrides: object) -> dict:
         "assistant": {"project": "als-assistant"},
     }
     config["modules"]["web_terminals"]["default_persona"] = "assistant"
-    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0}]
     config["modules"]["web_terminals"].update(web_terminals_overrides)
     if registry_overrides is not None:
         config["registry"] = registry_overrides
@@ -2182,8 +2170,8 @@ def test_lint_registry_mode_non_default_persona_without_build_profile_is_an_erro
                 "analysis": {"project": "als-analysis"},
             },
             "users": [
-                {"name": "thellert", "index": 0},
-                {"name": "gmartino", "index": 1, "persona": "analysis"},
+                {"name": "alice", "index": 0},
+                {"name": "bob", "index": 1, "persona": "analysis"},
             ],
         },
         registry={"url": "registry.example.org:5050"},
@@ -2226,8 +2214,8 @@ def test_lint_registry_mode_non_default_persona_with_build_profile_reports_no_er
                 },
             },
             "users": [
-                {"name": "thellert", "index": 0},
-                {"name": "gmartino", "index": 1, "persona": "analysis"},
+                {"name": "alice", "index": 0},
+                {"name": "bob", "index": 1, "persona": "analysis"},
             ],
         },
         registry={"url": "registry.example.org:5050"},
@@ -3338,8 +3326,8 @@ def test_lint_auth_oidc_subject_with_dollar_is_an_error() -> None:
         {"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}},
     )
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "oidc_subject": "user$123@example.org"},
-        {"name": "gmartino", "oidc_subject": "gmartino@example.org"},
+        {"name": "alice", "oidc_subject": "user$123@example.org"},
+        {"name": "bob", "oidc_subject": "bob@example.org"},
     ]
 
     # Act
@@ -3349,8 +3337,8 @@ def test_lint_auth_oidc_subject_with_dollar_is_an_error() -> None:
     errors = _errors(findings)
     offenders = [f for f in errors if f.code == "web_terminals.auth_oidc_subject_unsafe"]
     assert len(offenders) == 1
-    assert "'thellert'" in offenders[0].message
-    assert "gmartino" not in offenders[0].message
+    assert "'alice'" in offenders[0].message
+    assert "bob" not in offenders[0].message
 
 
 def test_lint_auth_oidc_clean_subjects_report_no_subject_finding() -> None:
@@ -3360,8 +3348,8 @@ def test_lint_auth_oidc_clean_subjects_report_no_subject_finding() -> None:
         {"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}},
     )
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "oidc_subject": "8f14e45f-ceea-4a5c-9c76-01dd8f7f56a2"},
-        {"name": "gmartino", "oidc_subject": "gmartino@example.org"},
+        {"name": "alice", "oidc_subject": "8f14e45f-ceea-4a5c-9c76-01dd8f7f56a2"},
+        {"name": "bob", "oidc_subject": "bob@example.org"},
     ]
 
     # Act
@@ -3378,7 +3366,7 @@ def test_lint_auth_oidc_subject_check_is_mode_gated() -> None:
     # Arrange
     config = _auth_config({"method": "password"})
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "oidc_subject": "user$123@example.org"},
+        {"name": "alice", "oidc_subject": "user$123@example.org"},
     ]
 
     # Act
@@ -3469,8 +3457,8 @@ def test_lint_duplicate_subject_with_a_shared_card_is_an_error() -> None:
     # Arrange
     config = _auth_config({"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}})
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "oidc_subject": "thorsten@example.org"},
-        {"name": "thellert-admin", "index": 1, "oidc_subject": " thorsten@example.org "},
+        {"name": "alice", "index": 0, "oidc_subject": "thorsten@example.org"},
+        {"name": "alice-admin", "index": 1, "oidc_subject": " thorsten@example.org "},
         {"name": "control", "index": 2, "access": "any"},
     ]
 
@@ -3482,8 +3470,8 @@ def test_lint_duplicate_subject_with_a_shared_card_is_an_error() -> None:
         f for f in _errors(findings) if f.code == "web_terminals.shared_card_duplicate_subject"
     ]
     assert len(offenders) == 1
-    assert "thellert" in offenders[0].message
-    assert "thellert-admin" in offenders[0].message
+    assert "alice" in offenders[0].message
+    assert "alice-admin" in offenders[0].message
     assert "control" not in offenders[0].message
     assert "ambiguous_identity" in offenders[0].message
     assert "one of them only" in offenders[0].message
@@ -3499,8 +3487,8 @@ def test_lint_duplicate_email_subjects_differing_only_in_case_are_an_error() -> 
         {"method": "oidc", "oidc": {"issuer": "https://idp.example.org", "claim": "email"}}
     )
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "oidc_subject": "THellert@lbl.gov"},
-        {"name": "thellert-admin", "index": 1, "oidc_subject": "thellert@lbl.gov"},
+        {"name": "alice", "index": 0, "oidc_subject": "Alice@lbl.gov"},
+        {"name": "alice-admin", "index": 1, "oidc_subject": "alice@lbl.gov"},
         {"name": "control", "index": 2, "access": "any"},
     ]
 
@@ -3512,8 +3500,8 @@ def test_lint_duplicate_email_subjects_differing_only_in_case_are_an_error() -> 
         f for f in _errors(findings) if f.code == "web_terminals.shared_card_duplicate_subject"
     ]
     assert len(offenders) == 1
-    assert "thellert" in offenders[0].message
-    assert "thellert-admin" in offenders[0].message
+    assert "alice" in offenders[0].message
+    assert "alice-admin" in offenders[0].message
 
 
 def test_lint_sub_subjects_differing_only_in_case_are_distinct() -> None:
@@ -3522,8 +3510,8 @@ def test_lint_sub_subjects_differing_only_in_case_are_distinct() -> None:
     # Arrange
     config = _auth_config({"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}})
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "oidc_subject": "IDP|Thorsten"},
-        {"name": "thellert-admin", "index": 1, "oidc_subject": "idp|thorsten"},
+        {"name": "alice", "index": 0, "oidc_subject": "IDP|Thorsten"},
+        {"name": "alice-admin", "index": 1, "oidc_subject": "idp|thorsten"},
         {"name": "control", "index": 2, "access": "any"},
     ]
 
@@ -3541,8 +3529,8 @@ def test_lint_duplicate_subject_without_a_shared_card_reports_nothing() -> None:
     # Arrange
     config = _auth_config({"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}})
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "oidc_subject": "thorsten@example.org"},
-        {"name": "thellert-admin", "index": 1, "oidc_subject": "thorsten@example.org"},
+        {"name": "alice", "index": 0, "oidc_subject": "thorsten@example.org"},
+        {"name": "alice-admin", "index": 1, "oidc_subject": "thorsten@example.org"},
     ]
 
     # Act
@@ -3558,8 +3546,8 @@ def test_lint_distinct_subjects_with_a_shared_card_report_nothing() -> None:
     # Arrange
     config = _auth_config({"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}})
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "oidc_subject": "thorsten@example.org"},
-        {"name": "gmartino", "index": 1, "oidc_subject": "gmartino@example.org"},
+        {"name": "alice", "index": 0, "oidc_subject": "thorsten@example.org"},
+        {"name": "bob", "index": 1, "oidc_subject": "bob@example.org"},
         {"name": "control", "index": 2, "access": "any"},
     ]
 
@@ -3580,8 +3568,8 @@ def test_lint_shared_card_with_a_subject_is_a_warning() -> None:
     # Arrange
     config = _auth_config({"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}})
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "access": "any", "oidc_subject": "thorsten@example.org"},
-        {"name": "gmartino", "index": 1, "oidc_subject": "gmartino@example.org"},
+        {"name": "alice", "index": 0, "access": "any", "oidc_subject": "thorsten@example.org"},
+        {"name": "bob", "index": 1, "oidc_subject": "bob@example.org"},
     ]
 
     # Act
@@ -3590,8 +3578,8 @@ def test_lint_shared_card_with_a_subject_is_a_warning() -> None:
     # Assert
     offenders = [f for f in _warnings(findings) if f.code == "web_terminals.shared_card_subject"]
     assert len(offenders) == 1
-    assert "'thellert'" in offenders[0].message
-    assert "'gmartino'" not in offenders[0].message
+    assert "'alice'" in offenders[0].message
+    assert "'bob'" not in offenders[0].message
     assert "thorsten@example.org" not in offenders[0].message
     # The authored value, quoted as written — the sugar form reaches this rule
     # through the same predicate every list-valued card does.
@@ -3607,7 +3595,7 @@ def test_lint_shared_card_with_a_blank_subject_reports_nothing() -> None:
     config = _auth_config({"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}})
     config["modules"]["web_terminals"]["users"] = [
         {"name": "control", "index": 0, "access": "any", "oidc_subject": "  "},
-        {"name": "gmartino", "index": 1, "oidc_subject": "gmartino@example.org"},
+        {"name": "bob", "index": 1, "oidc_subject": "bob@example.org"},
     ]
 
     # Act
@@ -3625,7 +3613,7 @@ def test_lint_shared_card_subject_check_is_mode_gated() -> None:
     # Arrange
     config = _auth_config({"method": "none"}, tls=False, fqdn=None)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "access": "any", "oidc_subject": "thorsten@example.org"},
+        {"name": "alice", "index": 0, "access": "any", "oidc_subject": "thorsten@example.org"},
     ]
 
     # Act
@@ -3641,8 +3629,8 @@ def test_lint_duplicate_subject_check_is_mode_gated() -> None:
     # Arrange
     config = _auth_config({"method": "password"})
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "oidc_subject": "thorsten@example.org"},
-        {"name": "thellert-admin", "index": 1, "oidc_subject": "thorsten@example.org"},
+        {"name": "alice", "index": 0, "oidc_subject": "thorsten@example.org"},
+        {"name": "alice-admin", "index": 1, "oidc_subject": "thorsten@example.org"},
         {"name": "control", "index": 2, "access": "any"},
     ]
 
@@ -4057,8 +4045,8 @@ def test_lint_duplicate_subject_gate_sees_a_list_valued_shared_card() -> None:
     # Arrange
     config = _auth_config(_oidc(claim="email"))
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "oidc_subject": "thorsten@example.org"},
-        {"name": "thellert-admin", "index": 1, "oidc_subject": "thorsten@example.org"},
+        {"name": "alice", "index": 0, "oidc_subject": "thorsten@example.org"},
+        {"name": "alice-admin", "index": 1, "oidc_subject": "thorsten@example.org"},
         {"name": "logbook", "index": 2, "access": ["domain:lbl.gov"]},
     ]
 
@@ -4068,7 +4056,7 @@ def test_lint_duplicate_subject_gate_sees_a_list_valued_shared_card() -> None:
     # Assert
     offenders = _coded(_errors(findings), "shared_card_duplicate_subject")
     assert len(offenders) == 1
-    assert "'thellert'" in offenders[0].message
+    assert "'alice'" in offenders[0].message
 
 
 # --- profile altitude: the same engine over a build profile's `config:` block -
@@ -4584,7 +4572,7 @@ def _role_config(role_persona: str, *, catalog: dict | None = None) -> dict:
     """A clean config whose sole roster entry reaches its persona through a role."""
     config = copy.deepcopy(_CLEAN_CONFIG)
     web = config["modules"]["web_terminals"]
-    web["users"] = [{"name": "thellert", "index": 0, "role": "operator"}]
+    web["users"] = [{"name": "alice", "index": 0, "role": "operator"}]
     web["authorization"] = {"roles": {"operator": {"persona": role_persona}}}
     if catalog is not None:
         web["personas"] = catalog
@@ -4658,7 +4646,7 @@ def test_lint_conflicting_persona_and_role_survives_an_undeclared_role() -> None
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "persona": "cli", "role": "nope"}
+        {"name": "alice", "index": 0, "persona": "cli", "role": "nope"}
     ]
 
     # Act
@@ -4723,7 +4711,7 @@ def test_lint_a_roster_role_under_oidc_is_not_reported_as_inert() -> None:
     # Arrange
     config = _auth_config({"method": "oidc"})
     web = config["modules"]["web_terminals"]
-    web["users"] = [{"name": "thellert", "index": 0, "role": "operator"}]
+    web["users"] = [{"name": "alice", "index": 0, "role": "operator"}]
     web["authorization"] = {"roles": {"operator": {"persona": "cli"}}}
 
     # Act
@@ -4740,7 +4728,7 @@ def test_lint_does_not_raise_on_an_incoherent_authorization_stanza_with_roles() 
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "role": "operator"}
+        {"name": "alice", "index": 0, "role": "operator"}
     ]
     config["modules"]["web_terminals"]["authorization"] = {"roles": {"operator": {}}}
 
@@ -4781,7 +4769,7 @@ def _open_mode_config(tmp_path, *, method: str = "none", deny: list[str] | None 
         web_terminals={
             "image_source": "local",
             "auth": {"method": method},
-            "users": [{"name": "thellert", "index": 0, "persona": "assistant"}],
+            "users": [{"name": "alice", "index": 0, "persona": "assistant"}],
             "personas": {
                 "assistant": {"project": "als-assistant", "project_path": str(project_dir)}
             },

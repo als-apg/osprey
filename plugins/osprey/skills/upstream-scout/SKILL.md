@@ -242,16 +242,19 @@ gh issue create -R als-apg/osprey --title "<title>" --label enhancement \
 ```
 
 On success set `status: filed <returned url>`; on failure show stderr and offer the
-email option.
+browser path below.
 
-### Email
+### Without `gh`
 
-Build a `mailto:` URL — recipient `thellert@lbl.gov`, subject
-`OSPREY upstream request — <title> (<facility>)`, body = the write-up as plain text,
-URL-encoded (space `%20`, newline `%0A`, `&` `%26`, `=` `%3D`, `#` `%23`). Open it
-with `open` (macOS) / `xdg-open` (Linux). If the URL exceeds ~2000 characters or no
-opener works (headless host), tell the user to send `upstream/<short-id>.md` to that
-address themselves. Then set `status: emailed <YYYY-MM-DD>`.
+The destination is the same tracker, reached in a browser: build
+`https://github.com/als-apg/osprey/issues/new` with `title` and `body` query
+parameters — the title as above, the body the write-up as plain text — URL-encoded
+(space `%20`, newline `%0A`, `&` `%26`, `=` `%3D`, `#` `%23`). Open it with `open`
+(macOS) / `xdg-open` (Linux). If the URL exceeds ~2000 characters or no opener works
+(headless host), give the user the bare
+`https://github.com/als-apg/osprey/issues/new` and tell them to paste
+`upstream/<short-id>.md` into it themselves. Set `status: filed <url>` once they have
+the issue URL; leave `status: open` if they do not file it now.
 
 ### Keep it local
 

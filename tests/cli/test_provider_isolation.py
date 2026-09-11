@@ -693,18 +693,18 @@ class TestSpendAttributionEnv:
         assert spec.gateway == "litellm"
 
     def test_inject_sets_identity_headers_for_gateway(self, monkeypatch):
-        monkeypatch.setenv("OSPREY_TERMINAL_USER", "thellert")
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
         spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"}, _ALS_APG)
         environ = {"ALS_APG_API_KEY": "sk-secret"}
 
         inject_provider_env(environ, spec)
 
         assert environ["ANTHROPIC_CUSTOM_HEADERS"] == (
-            "x-litellm-end-user-id: thellert\nx-litellm-tags: osprey,surface:terminal"
+            "x-litellm-end-user-id: alice\nx-litellm-tags: osprey,surface:terminal"
         )
 
     def test_inject_keeps_operator_headers(self, monkeypatch):
-        monkeypatch.setenv("OSPREY_TERMINAL_USER", "thellert")
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
         spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
         environ = {
             "CBORG_API_KEY": "sk-secret",
@@ -715,10 +715,10 @@ class TestSpendAttributionEnv:
 
         lines = environ["ANTHROPIC_CUSTOM_HEADERS"].splitlines()
         assert lines[0] == "X-Corp-Trace: abc123"
-        assert "x-litellm-end-user-id: thellert" in lines
+        assert "x-litellm-end-user-id: alice" in lines
 
     def test_inject_leaves_direct_provider_alone(self, monkeypatch):
-        monkeypatch.setenv("OSPREY_TERMINAL_USER", "thellert")
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
         spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
         environ = {"ANTHROPIC_API_KEY": "secret-123"}
 
