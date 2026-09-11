@@ -11,13 +11,12 @@
  * throughout — no innerHTML with interpolated data.
  */
 
-import { subscribe, chartTheme } from '/design-system/js/theme-manager.js';
+import { subscribe, chartTheme, monoFontStack } from '/design-system/js/theme-manager.js';
 
 // Theme-independent Plotly layout — colors come from chartTheme() at
 // render/re-theme time (see renderPlotly() and the theme subscription
 // below).
 const FIGURE_MARGIN = { l: 45, r: 15, t: 30, b: 35 };
-const FIGURE_FONT_FAMILY = 'JetBrains Mono, monospace';
 const FIGURE_FONT_SIZE = 10;
 
 const PLOTLY_CONFIG = {
@@ -167,7 +166,9 @@ export function renderPlotly(name, figData) {
     ...figData.layout,
     paper_bgcolor: themeLayout.paper_bgcolor,
     plot_bgcolor: themeLayout.plot_bgcolor,
-    font: { family: FIGURE_FONT_FAMILY, size: FIGURE_FONT_SIZE, color: themeLayout.font.color },
+    // Read per render so a re-theme that changes the stack takes effect on
+    // the next draw.
+    font: { family: monoFontStack(), size: FIGURE_FONT_SIZE, color: themeLayout.font.color },
     margin: FIGURE_MARGIN,
   };
   const defaultFontColor = themeLayout.font.color;

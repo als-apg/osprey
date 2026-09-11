@@ -184,7 +184,7 @@
     }
   },
   "font": {
-    "display": { "$value": "'Outfit', system-ui, sans-serif", "$type": "fontFamily", "$description": "Fleet-wide display/UI font; canon = web-terminal variables.css. ariel/lattice's '--font-sans: Inter' is retired fleet-wide (Task 3.5/3.6 rename usages to this token)." },
+    "display": { "$value": "'Outfit', system-ui, sans-serif", "$type": "fontFamily", "$description": "Fleet-wide display/UI font; canon = web-terminal variables.css. A local '--font-sans: Inter' is retired fleet-wide -- every surface reads this token." },
     "mono": { "$value": "'JetBrains Mono', monospace", "$type": "fontFamily", "$description": "Sole monospace stack fleet-wide per user decision. Canon = web-terminal variables.css. Retires artifacts' 'DM Mono' and the richer fallback chains ('Fira Code'/'SF Mono'/Consolas) used elsewhere — those interfaces just get JetBrains Mono now." }
   },
   "weight": {
