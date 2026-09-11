@@ -177,6 +177,38 @@ def _ariel_config(config_dict: dict) -> ARIELConfig:
     return ARIELConfig.from_dict(config_dict, _postgresql_services(), base=_port_base())
 
 
+def _require_ingestion_block(config_dict: dict) -> None:
+    """Refuse a logbook-reading command whose config declares no ingestion.
+
+    ``ariel watch`` and ``ariel sync`` both read a logbook, so an ``ariel``
+    section with no ``ingestion`` block at all has not configured the thing they
+    do. Left to the parser, that shape produces a message about the block's
+    ``adapter`` field -- naming a key inside a block the operator never wrote,
+    which reads as a typo in something they have rather than as something
+    missing. Checked here, before the parse, so the refusal names the block.
+
+    A block that IS present keeps the parser's message: ``adapter`` really is
+    the missing answer then.
+
+    Args:
+        config_dict: The raw ``ariel`` section, after any CLI override that
+            mints the block has been applied.
+
+    Raises:
+        ConfigurationError: If the section carries no ``ingestion`` block.
+    """
+    if config_dict.get("ingestion"):
+        return
+
+    from osprey.services.ariel_search.exceptions import ConfigurationError
+
+    raise ConfigurationError(
+        "ariel.ingestion is not configured: `ariel watch` and `ariel sync` read "
+        "a logbook, so name the adapter and source_url under ariel.ingestion",
+        config_key="ingestion",
+    )
+
+
 def check_vocabulary(
     config_dict: dict,
     path: str | None = None,
@@ -437,6 +469,7 @@ async def run_sync(
     from osprey.services.ariel_search.database.migrations import run_migrations
     from osprey.services.ariel_search.ingestion.scheduler import IngestionScheduler
 
+    _require_ingestion_block(config_dict)
     config = _ariel_config(config_dict)
 
     # Step 1: Migrate
@@ -653,6 +686,7 @@ async def run_watch(
         if require_initial_ingest is not None:
             ingestion.setdefault("watch", {})["require_initial_ingest"] = require_initial_ingest
 
+    _require_ingestion_block(config_dict)
     config = _ariel_config(config_dict)
 
     if not config.ingestion or not config.ingestion.source_url:
