@@ -3599,8 +3599,8 @@ def _check_duplicate_access_principals(
 
     * ``domain:`` under every claim, because the resolver ASCII-lower-cases the
       value and the login side folds the asserted domain the same way — so
-      ``domain:LBL.gov`` and ``domain:lbl.gov`` are one principal wherever they
-      are read, and the pair is invisible in the resolved set;
+      ``domain:EXAMPLE.org`` and ``domain:example.org`` are one principal
+      wherever they are read, and the pair is invisible in the resolved set;
     * ``user:`` byte-exact, and additionally without regard to case under an
       ``email`` claim — the fold
       :data:`~osprey.services.auth_sidecar.identity_headers.CASE_INSENSITIVE_CLAIMS`

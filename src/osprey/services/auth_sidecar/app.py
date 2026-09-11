@@ -173,10 +173,10 @@ principal rather than a rule of its own.
 """
 
 ACCESS_USER_PREFIX = "user:"
-"""Prefix of a principal naming one asserted identity: ``user:carol@lbl.gov``."""
+"""Prefix of a principal naming one asserted identity: ``user:carol@example.org``."""
 
 ACCESS_DOMAIN_PREFIX = "domain:"
-"""Prefix of a principal naming an identity domain: ``domain:lbl.gov``."""
+"""Prefix of a principal naming an identity domain: ``domain:example.org``."""
 
 OWNER_ONLY: frozenset[str] = frozenset({ACCESS_SELF})
 """The resolved set of an unshared card, and the reading an absent variable gets."""
