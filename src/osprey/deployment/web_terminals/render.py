@@ -20,6 +20,7 @@ from urllib.parse import quote
 from jinja2 import Environment, FileSystemLoader
 
 from osprey.bluesky_bridge_connection import LANE_KEYS, lane_env_prefix
+from osprey.config_guards import is_positive_int
 from osprey.deployment.compose_generator import (
     DISPATCH_WORKER_SERVICE_PREFIX,
     FIXED_SERVICE_AUDIT_IDENTITIES,
@@ -2308,12 +2309,18 @@ def _tls_mount_target(tls: dict[str, Any]) -> str | None:
 def _positive_int(value: Any, default: int) -> int:
     """A config value read as a positive int, falling back to ``default``.
 
-    ``bool`` is excluded explicitly: it passes ``isinstance(..., int)``, and
-    ``auth.port: true`` becoming port 1 would be a baffling deployment.
+    What counts as a positive integer — ``bool`` excluded, because it passes
+    ``isinstance(..., int)`` and ``auth.port: true`` becoming port 1 would be a
+    baffling deployment — is
+    :func:`osprey.config_guards.is_positive_int`'s definition.
+
+    This reader falls back rather than refusing, unlike the guard's refusing
+    forms. Lint owns the diagnostic for an unusable value
+    (``web_terminals.invalid_session_lifetime``,
+    ``web_terminals.invalid_listener_port``), and :func:`_port_int` needs the
+    whole invalid domain to land on one default.
     """
-    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
-        return value
-    return default
+    return value if is_positive_int(value) else default
 
 
 def _port_int(value: Any, default: int) -> int:

@@ -27,6 +27,7 @@ from typing import Any, Literal, cast
 
 import yaml
 
+from osprey.config_guards import is_positive_int
 from osprey.deployment.compose_generator import DISPATCH_WORKER_SERVICE_PREFIX
 from osprey.deployment.web_terminals.persona_images import persona_build_profile_shape_problem
 from osprey.deployment.web_terminals.personas import (
@@ -2896,10 +2897,11 @@ def _check_auth_session_lifetime(web_terminals: dict[str, Any]) -> list[Finding]
     lifetime = auth_raw["session_lifetime"]
     if lifetime is None:
         return []
-    # `bool` is excluded for render's reason (see `render._positive_int`): it
-    # passes `isinstance(..., int)`, and `session_lifetime: true` becoming a
+    # The same predicate the render reads, so this rule and the fall-back it
+    # describes cannot drift: `bool` is excluded there because it passes
+    # `isinstance(..., int)`, and `session_lifetime: true` becoming a
     # one-second session would be a baffling deployment.
-    if isinstance(lifetime, int) and not isinstance(lifetime, bool) and lifetime > 0:
+    if is_positive_int(lifetime):
         return []
     return [
         Finding(
@@ -2962,10 +2964,12 @@ def _check_listener_ports(root: dict[str, Any], web_terminals: dict[str, Any]) -
         port = stanza["port"]
         if port is None:
             continue
-        # `bool` is excluded for render's reason (see `render._positive_int`):
-        # it passes `isinstance(..., int)`, and `tls.port: true` becoming a
-        # listener on port 1 would be a baffling deployment.
-        if isinstance(port, int) and not isinstance(port, bool) and 0 < port <= _MAX_PORT:
+        # The same predicate the render reads (see
+        # :func:`osprey.config_guards.is_positive_int`), bounded above by the
+        # highest port there is: `bool` is excluded because it passes
+        # `isinstance(..., int)`, and `tls.port: true` becoming a listener on
+        # port 1 would be a baffling deployment.
+        if is_positive_int(port) and port <= _MAX_PORT:
             continue
         findings.append(
             Finding(
