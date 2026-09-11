@@ -69,7 +69,7 @@ class TestALSAPGMetadata:
         instead of asking for the deployment's own.
         """
         assert ALSAPGProviderAdapter.default_base_url is None
-        assert ALSAPGProviderAdapter.apply_default_base_url_fallback is False
+        assert ALSAPGProviderAdapter.effective_base_url(None) is None
 
     def test_default_and_health_models(self):
         assert ALSAPGProviderAdapter.default_model_id == "claude-haiku-4-5-20251001"

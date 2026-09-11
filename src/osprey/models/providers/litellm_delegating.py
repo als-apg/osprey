@@ -30,9 +30,8 @@ from .litellm_adapter import check_litellm_health, execute_litellm_completion
 class LiteLLMDelegatingProvider(BaseProvider):
     """Data-driven base for providers that only delegate to ``litellm_adapter``.
 
-    Subclasses override the :class:`BaseProvider` metadata attributes and,
-    optionally, :attr:`apply_default_base_url_fallback`. They inherit the
-    ``execute_completion`` / ``check_health`` bodies unchanged.
+    Subclasses override the :class:`BaseProvider` metadata attributes and
+    inherit the ``execute_completion`` / ``check_health`` bodies unchanged.
     """
 
     # The endpoint is resolved through BaseProvider.resolve_base_url, which

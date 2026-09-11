@@ -151,9 +151,6 @@ class ArgoProviderAdapter(BaseProvider):
     # through litellm), so a deployment with a baked-in URL can be pointed at a
     # different gateway at runtime.
     base_url_env_var = "ARGO_BASE_URL"
-    # Argo routes openai-compatible; without a base_url litellm would fall
-    # through to api.openai.com, so a missing base_url resolves to the default.
-    apply_default_base_url_fallback = True
     default_model_id = "claudesonnet45"  # Claude 4.5 Sonnet via ARGO for general use
     health_check_model_id = "gpt5mini"  # Fast and cost-effective for health checks
     available_models = [
