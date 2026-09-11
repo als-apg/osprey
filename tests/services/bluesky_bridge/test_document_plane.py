@@ -28,6 +28,7 @@ fail; it does.
 
 from __future__ import annotations
 
+import logging
 import time
 from pathlib import Path
 from typing import Any
@@ -119,8 +120,45 @@ def plane(certificates: dict[str, Path]):
         started.stop()
 
 
-def _publisher(plane: DocumentPlane, certificates: dict[str, Path] | None = None):
-    """A ``Publisher`` aimed at *plane*, authenticated only if given certificates."""
+@pytest.fixture
+def publishers(plane):
+    """Every publisher a test opens, closed before the plane goes down.
+
+    ``Publisher`` owns a 0MQ context and a PUB socket and releases neither
+    until ``close()`` is called. Left to the garbage collector that teardown
+    runs at a time and on a thread nobody chose — and for a forged publisher it
+    runs against a CURVE handshake that never completed, while the proxy's own
+    context may be terminating on another thread. libzmq answers a context torn
+    down in that state by aborting the process, which arrives as a crashed test
+    worker rather than as a failing test. Depending on ``plane`` is what orders
+    this teardown ahead of the proxy's.
+
+    Publishers close in reverse order of opening, and each close is attempted
+    even if an earlier one raised, so one bad socket cannot strand the rest.
+    """
+    opened: list[Any] = []
+    try:
+        yield opened
+    finally:
+        _close_all(opened)
+
+
+def _close_all(opened: list[Any]) -> None:
+    """Close *opened* newest first, attempting every one."""
+    for publisher in reversed(opened):
+        try:
+            publisher.close()
+        except Exception:  # noqa: BLE001 — teardown reports, it does not fail
+            logging.getLogger(__name__).warning("publisher close failed", exc_info=True)
+
+
+def _publisher(
+    opened: list[Any], plane: DocumentPlane, certificates: dict[str, Path] | None = None
+):
+    """A ``Publisher`` aimed at *plane*, authenticated only if given certificates.
+
+    Registered with *opened* so the ``publishers`` fixture closes it.
+    """
     from bluesky.callbacks.zmq import ClientCurve, Publisher
 
     curve = None
@@ -129,7 +167,9 @@ def _publisher(plane: DocumentPlane, certificates: dict[str, Path] | None = None
             secret_path=certificates["client_secret"],
             server_public_key=certificates["server_public"],
         )
-    return Publisher(plane.publish_address, curve_config=curve)
+    publisher = Publisher(plane.publish_address, curve_config=curve)
+    opened.append(publisher)
+    return publisher
 
 
 def _wait_until(predicate, timeout: float = _DELIVERY_TIMEOUT) -> bool:
@@ -193,9 +233,9 @@ def _establish_link(publisher, plane: DocumentPlane) -> None:
     live_rows._clear()
 
 
-def test_rows_land_under_the_osprey_run_id(plane, certificates):
+def test_rows_land_under_the_osprey_run_id(plane, certificates, publishers):
     """A worker's documents become live rows keyed by the enqueued run id."""
-    publisher = _publisher(plane, certificates)
+    publisher = _publisher(publishers, plane, certificates)
     _establish_link(publisher, plane)
 
     run_uid = "run-engine-uid-1"
@@ -260,15 +300,15 @@ def _assert_refused(forged, authorized, label: str) -> None:
     assert document_plane.progress(run_id) is None
 
 
-def test_documents_without_the_client_key_are_rejected(plane, certificates):
+def test_documents_without_the_client_key_are_rejected(plane, certificates, publishers):
     """CurveZMQ, not network placement, is what protects the in-side socket."""
-    authorized = _publisher(plane, certificates)
+    authorized = _publisher(publishers, plane, certificates)
     _establish_link(authorized, plane)
 
-    _assert_refused(_publisher(plane, certificates=None), authorized, "unkeyed")
+    _assert_refused(_publisher(publishers, plane, certificates=None), authorized, "unkeyed")
 
 
-def test_documents_from_an_unpinned_keypair_are_rejected(plane, certificates):
+def test_documents_from_an_unpinned_keypair_are_rejected(plane, certificates, publishers):
     """A well-formed key the accepted-client directory doesn't list is still a stranger.
 
     This is the difference the pinned directory buys over ``CURVE_ALLOW_ANY``:
@@ -284,10 +324,11 @@ def test_documents_from_an_unpinned_keypair_are_rejected(plane, certificates):
     directory in the fixture — i.e. before startup — must make this test fail;
     it does.
     """
-    authorized = _publisher(plane, certificates)
+    authorized = _publisher(publishers, plane, certificates)
     _establish_link(authorized, plane)
 
     intruder = _publisher(
+        publishers,
         plane,
         {
             "client_secret": certificates["intruder_secret"],
@@ -297,9 +338,9 @@ def test_documents_from_an_unpinned_keypair_are_rejected(plane, certificates):
     _assert_refused(intruder, authorized, "unpinned")
 
 
-def test_a_run_without_an_osprey_run_id_falls_back_to_its_run_uid(plane, certificates):
+def test_a_run_without_an_osprey_run_id_falls_back_to_its_run_uid(plane, certificates, publishers):
     """A worker driven outside the queue is still recorded — under its only identity."""
-    publisher = _publisher(plane, certificates)
+    publisher = _publisher(publishers, plane, certificates)
     _establish_link(publisher, plane)
 
     run_uid = "unmanaged-run-uid"
@@ -313,9 +354,9 @@ def test_a_run_without_an_osprey_run_id_falls_back_to_its_run_uid(plane, certifi
     assert buffer["rows"] == [[0.5]]
 
 
-def test_a_run_that_declares_its_point_count_gets_a_denominator(plane, certificates):
+def test_a_run_that_declares_its_point_count_gets_a_denominator(plane, certificates, publishers):
     """A run's own declaration of its extent is what progress divides by."""
-    publisher = _publisher(plane, certificates)
+    publisher = _publisher(publishers, plane, certificates)
     _establish_link(publisher, plane)
 
     run_uid = "declared-run-uid"
@@ -334,7 +375,9 @@ def test_a_run_that_declares_its_point_count_gets_a_denominator(plane, certifica
     }
 
 
-def test_the_worker_publisher_and_this_proxy_speak_the_same_configuration(plane, certificates):
+def test_the_worker_publisher_and_this_proxy_speak_the_same_configuration(
+    plane, certificates, publishers
+):
     """The two halves are built by different modules from the same env contract.
 
     Every other test in this file builds its publisher by hand, which proves
@@ -354,6 +397,7 @@ def test_the_worker_publisher_and_this_proxy_speak_the_same_configuration(plane,
         }
     )
     assert publisher is not None
+    publishers.append(publisher)
     _establish_link(publisher, plane)
 
     run_uid = "worker-built-run-uid"
@@ -570,3 +614,29 @@ def test_router_never_raises_on_a_malformed_document():
     router("event", {"seq_num": 1})  # no descriptor
     router("stop", {})  # no run_start
     assert live_rows.get("") is None
+
+
+def test_every_publisher_is_closed_even_when_one_refuses() -> None:
+    """The teardown closes all of them, newest first, whatever one of them does.
+
+    The order matters because a later publisher may have been built against
+    state an earlier one owns, and the completeness matters because a single
+    context left to the garbage collector is the whole defect: one refusing
+    socket must not strand the rest.
+    """
+
+    closed: list[str] = []
+
+    class Fake:
+        def __init__(self, name: str, refuses: bool = False) -> None:
+            self.name = name
+            self.refuses = refuses
+
+        def close(self) -> None:
+            closed.append(self.name)
+            if self.refuses:
+                raise RuntimeError("this socket will not close")
+
+    _close_all([Fake("first"), Fake("second", refuses=True), Fake("third")])
+
+    assert closed == ["third", "second", "first"]
