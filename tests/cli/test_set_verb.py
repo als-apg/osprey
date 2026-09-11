@@ -242,7 +242,10 @@ def test_no_facility_gateway_addresses_are_shipped():
     """Core carries no table of named facilities' gateway hostnames."""
     import osprey.templates as templates_pkg
 
-    assert not (Path(templates_pkg.__file__).parent / "data").exists()
+    # A stale ``__pycache__`` from a checkout that still had the table leaves the
+    # directory behind with no source in it; the guard is about shipped source.
+    data_dir = Path(templates_pkg.__file__).parent / "data"
+    assert not data_dir.exists() or not any(data_dir.rglob("*.py")), sorted(data_dir.rglob("*.py"))
 
 
 def test_tier_is_a_settable_key(runner, lifecycle_repo):
