@@ -3692,6 +3692,7 @@ def test_auth_context_reads_the_oidc_scopes_and_leaves_them_none_when_unusable()
         == "openid groups"
     )
     assert _auth_tls_context(_with({"scopes": []}))["auth_oidc_scopes"] is None
+    assert _auth_tls_context(_with({"scopes": ["openid", "  "]}))["auth_oidc_scopes"] is None
     assert _auth_tls_context(_with({"scopes": {"openid": True}}))["auth_oidc_scopes"] is None
     assert _auth_tls_context(_with({}))["auth_oidc_scopes"] is None
 
