@@ -64,15 +64,6 @@ class BaseProvider(ABC):
     supports_proxy: bool = NotImplemented
     default_base_url: str | None = None
     base_url_env_var: str | None = None  # Env var overriding all base_url sources (opt-in)
-    # Whether a missing base_url resolves to default_base_url. Opt-in: for most
-    # providers litellm derives the endpoint from the model prefix, and forcing a
-    # default would redirect them. A provider turns this on when a config that
-    # omits base_url means "the default I declare" — openai-compatible routes
-    # (which would otherwise fall through to api.openai.com) and local servers on
-    # a well-known port. Declaring a default_base_url without this flag makes that
-    # default unreachable through get_chat_completion, which rejects the call for a
-    # missing base_url before any adapter body runs.
-    apply_default_base_url_fallback: bool = False
     default_model_id: str | None = None  # Default model for templates/general use
     health_check_model_id: str | None = None  # Cheapest model for health checks
     available_models: list[str] = []  # List of available models for this provider
@@ -115,6 +106,18 @@ class BaseProvider(ABC):
         otherwise hand the literal string to the HTTP client and fail somewhere
         far from the cause.
 
+        **When a missing value falls back to** :attr:`default_base_url`: when
+        this provider also requires one. Requiring an endpoint is what makes a
+        config that omits ``base_url`` mean "the default I declare" — an
+        openai-compatible route that would otherwise fall through to
+        api.openai.com, or a local server on a well-known port — and it is what
+        would otherwise make the declared default unreachable, since
+        :mod:`osprey.models.completion` rejects the call for a missing base_url
+        before any adapter body runs. A provider that requires no endpoint keeps
+        resolving to ``None`` even with a default declared: litellm derives the
+        endpoint from the model prefix there, and forwarding a default would pin
+        a route the client is meant to choose.
+
         Args:
             base_url: The caller's value, usually from deployment config. May be
                 ``None``.
@@ -130,7 +133,7 @@ class BaseProvider(ABC):
                 return override
         if is_unresolved_placeholder(base_url):
             base_url = None
-        if cls.apply_default_base_url_fallback:
+        if cls.requires_base_url and cls.default_base_url:
             return base_url or cls.default_base_url
         return base_url
 

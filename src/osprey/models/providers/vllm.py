@@ -37,11 +37,6 @@ class VLLMProviderAdapter(BaseProvider):
     requires_model_id = True
     supports_proxy = True
     default_base_url = "http://localhost:8000/v1"
-    # vLLM routes openai-compatible, so without a base_url litellm would fall
-    # through to api.openai.com. The fallback also makes the local default above
-    # reachable through get_chat_completion, whose requires_base_url check would
-    # otherwise reject a config that deliberately relies on it.
-    apply_default_base_url_fallback = True
     default_model_id = None  # Model depends on what's served
     health_check_model_id = None  # Will query the server for available models
 
