@@ -40,15 +40,23 @@ import {
   slugifyThemeName,
   checkCollision,
 } from '/design-system/js/theme-lab.js';
+import { THEMES, DEFAULTS, DEFAULT_FAMILY } from '/design-system/js/tokens.js';
 
-/** The osprey family's two scopes, verbatim from the generated tokens.css. */
+/** The main family's two scopes, verbatim from the generated tokens.css. */
 const DARK_SCOPE = { bgPrimary: '#0a0f1a', textPrimary: '#f1f5f9' };
 const LIGHT_SCOPE = { bgPrimary: '#f7f9fc', textPrimary: '#0c1322' };
 
-/** The shipped registry, as the DOM layer will pass it in from tokens.js. */
+/**
+ * The shipped registry, built from the generated `tokens.js` exactly as the DOM
+ * layer builds it before calling `checkCollision`. Derived rather than copied:
+ * a hand-listed snapshot goes stale the moment a family is added, and then the
+ * collision tests below pin a registry that is not the one that ships.
+ */
 const MANIFEST = {
-  ids: ['apex-dark', 'apex-light', 'dark', 'high-contrast-dark', 'high-contrast-light', 'light'],
-  families: ['osprey', 'apex', 'high-contrast'],
+  ids: THEMES.map((theme) => theme.id),
+  families: [
+    ...new Set([DEFAULT_FAMILY, ...Object.keys(DEFAULTS), ...THEMES.map((t) => t.family)]),
+  ],
 };
 
 /**
@@ -428,6 +436,17 @@ describe('slugifyThemeName', () => {
 });
 
 describe('checkCollision', () => {
+  test('the fixture registry really carries the ids and families these tests name', () => {
+    // The cases below pick their slugs out of the shipped registry; this keeps
+    // them honest if a theme is renamed or retired out from under them.
+    expect(MANIFEST.ids).toContain('dark');
+    expect(MANIFEST.ids).toEqual(expect.arrayContaining(['retro-dark', 'retro-light']));
+    expect(MANIFEST.families).toContain('high-contrast');
+    expect(MANIFEST.families).toContain(DEFAULT_FAMILY);
+    expect(MANIFEST.ids).not.toContain('midnight-teal');
+    expect(MANIFEST.families).not.toContain('midnight-teal');
+  });
+
   test('accepts a clean name', () => {
     expect(checkCollision('midnight-teal', MANIFEST)).toEqual({ collides: false, reason: null });
   });
@@ -449,9 +468,9 @@ describe('checkCollision', () => {
     // if `<slug>-dark`/`<slug>-light` already exist even when the slug itself
     // is free. Uses a manifest with the family list deliberately empty so the
     // derived-id rule is what does the rejecting.
-    const result = checkCollision('apex', { ids: MANIFEST.ids, families: [] });
+    const result = checkCollision('retro', { ids: MANIFEST.ids, families: [] });
     expect(result.collides).toBe(true);
-    expect(result.reason).toContain('apex-dark');
+    expect(result.reason).toContain('retro-dark');
   });
 
   test('rejects the empty slug', () => {
