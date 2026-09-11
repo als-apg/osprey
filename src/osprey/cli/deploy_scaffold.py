@@ -418,7 +418,8 @@ def _load_profile(profile_file: Path, *, command: str) -> tuple[dict[str, Any], 
         raise ConfigurationError(
             f"No profile at {profile_file}. '{command}' renders from a "
             f"deployment repo's profile — run it from a repo holding "
-            f"{PROFILE_FILENAME}, or create one with 'osprey init'."
+            f"{PROFILE_FILENAME}, or create one with "
+            f"'osprey init <dir> --preset <NAME>'."
         )
 
     raw = _read_profile_document(profile_file)

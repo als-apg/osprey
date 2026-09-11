@@ -1314,6 +1314,46 @@ class TestGateFailures:
         assert "changelog.d/other.fixed.md" in failures[0]
         assert ok_lines[1] == "✓ [Unreleased]: untouched"
 
+    def test_a_retyped_fragment_is_not_a_deletion(self):
+        """Changing a fragment's type renames it; the entry itself is kept.
+
+        The diff is read without rename detection, so the retype arrives as
+        one added and one deleted path. Pairing them by name is what keeps
+        rule 3 from asking for a fragment nobody removed.
+        """
+        text = self.changelog(self.EMPTY)
+        failures, ok_lines = cf.gate_failures(
+            [
+                "src/osprey/a.py",
+                "changelog.d/745.fixed.md",
+                "changelog.d/lock.changed.md",
+                "changelog.d/lock.internal.md",
+            ],
+            ["changelog.d/745.fixed.md", "changelog.d/lock.internal.md"],
+            ["changelog.d/lock.changed.md"],
+            text,
+            text,
+        )
+        assert failures == []
+        assert ok_lines[0] == (
+            "✓ changelog gate: changelog.d/745.fixed.md added for 1 changed file(s) under "
+            "src/, packages/, plugins/"
+        )
+        assert "✓ 1 fragment(s) retyped: changelog.d/lock.changed.md → lock.internal.md" in ok_lines
+
+    def test_a_retype_does_not_satisfy_the_fragment_requirement(self):
+        """Retyping somebody else's fragment adds no entry for this change."""
+        text = self.changelog(self.EMPTY)
+        failures, _ = cf.gate_failures(
+            ["src/osprey/a.py", "changelog.d/lock.changed.md", "changelog.d/lock.internal.md"],
+            ["changelog.d/lock.internal.md"],
+            ["changelog.d/lock.changed.md"],
+            text,
+            text,
+        )
+        assert len(failures) == 1
+        assert failures[0].startswith("no changelog fragment for 1 changed file(s)")
+
     def test_the_release_pr_passes_when_the_base_block_is_already_empty(self):
         """The release cut from the steady state: both blocks empty, one new section."""
         base = self.changelog(self.EMPTY)

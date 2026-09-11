@@ -38,7 +38,6 @@ import json
 import os
 import re
 from contextlib import contextmanager
-from itertools import count
 from pathlib import Path
 from unittest.mock import patch
 
@@ -56,7 +55,7 @@ from osprey.interfaces.web_terminal.app import (
 from osprey.interfaces.web_terminal.bar_items_store import LAYOUT_FILENAME
 from osprey.interfaces.web_terminal.routes import bar_items as bar_items_routes
 from osprey.interfaces.web_terminal.routes.bar_items import MAX_REQUEST_BYTES
-from tests.interfaces.fsevents_wait import collect_frames_matching, collect_paths
+from tests.interfaces.fsevents_wait import collect_paths
 
 # ── fixtures ───────────────────────────────────────────────────────────────
 
@@ -678,27 +677,37 @@ class TestAStoredDocumentThisBuildCannotRead:
 # ── the watcher does not announce a save ───────────────────────────────────
 
 
-def _broadcast_paths(queue, *, until: str, poke) -> list[str]:
-    """Every path broadcast up to and shortly after *until* arrives.
+def _broadcast_paths(
+    queue, *, until: str | None = None, until_under: str | None = None, poke
+) -> list[str]:
+    """Every path broadcast up to and shortly after the awaited frame arrives.
 
-    The control write is made **after** the save, so its frame arriving is
-    proof the observer has caught up past the save — the ordering that makes an
-    assertion about the save's *absence* a real one rather than a race.
+    *until* names a control note whose frame ends the wait; *until_under* names
+    the store directory instead, for the one test whose subject is the save's
+    own frames.
 
-    *poke* rewrites the file *until* names, and it is what makes that proof
-    obtainable rather than hoped for. A watchdog observer is not delivering the
-    moment the lifespan's ``start()`` returns; a control write made while its
-    stream is still arming is delivered late or not at all, and waiting longer
-    cannot recover a stimulus the stream never saw. So the wait re-applies the
-    stimulus instead of extending — see ``tests/interfaces/fsevents_wait.py``,
-    which also owns the trailing drain that catches a coalesced frame arriving a
-    beat behind the sentinel.
+    The control write is made **after** the save. Its frame arriving proves the
+    observer is live and delivering; it does not prove that the save's frames
+    were delivered first — a loaded FSEvents daemon hands a stream its events in
+    sparse batches, and a later write's frame can land while an earlier write's
+    frames are still pending. That is enough for an *absence* assertion, which
+    waiting longer can only strengthen, and not enough for a *presence* one:
+    the test that requires the save to be seen waits under the store and pokes
+    with the save itself.
+
+    *poke* re-applies the stimulus, and it is what makes the wait converge
+    rather than expire. A watchdog observer is not delivering the moment the
+    lifespan's ``start()`` returns; a write made while its stream is still
+    arming is delivered late or not at all, and waiting longer cannot recover a
+    stimulus the stream never saw — see ``tests/interfaces/fsevents_wait.py``,
+    which also owns the trailing drain that catches a coalesced frame arriving
+    a beat behind the sentinel.
 
     Rewriting an ordinary workspace note can only add more of the frames these
     tests require to be *present*. It cannot manufacture one they require to be
-    absent, so the assertions below keep their full strength.
+    absent, so the absence assertions below keep their full strength.
     """
-    return collect_paths(queue, until=until, poke=poke)
+    return collect_paths(queue, until=until, until_under=until_under, poke=poke)
 
 
 def _arm(queue, workspace) -> None:
@@ -800,14 +809,13 @@ class TestALayoutSaveIsNotAFileChange:
         broadcasts the document it wrote. This is what stops the narrowed
         ``agent_data/`` prefix from being an assertion that can no longer fail.
 
-        Alone in this class the claim is a **presence**, so the wait holds out
-        for the save's own frames instead of for an ordinary note behind them:
-        a note arriving proves only that the stream got as far as the note, and
-        frames the OS coalesced on the way past are gone rather than late. The
-        poke is another save, which the absence tests above cannot use and this
-        one can — it forbids nothing that a second save could satisfy falsely,
-        and the store assigns each save the revision after the one before.
+        The wait targets the store rather than a control note: a note's frame
+        can arrive while the save's own frames are still pending, so it proves
+        nothing about their presence. The poke re-applies the save through the
+        store's own atomic write — the temp file and rename the route performs —
+        which is the one stimulus that reproduces the frames this test requires.
         """
+        store_dir = watched_workspace / "agent_data" / "bar_items"
         with patch(
             "osprey.interfaces.web_terminal.app.resolve_store_rel",
             return_value=None,
@@ -822,21 +830,19 @@ class TestALayoutSaveIsNotAFileChange:
                 queue = unconcealed.app.state.broadcaster.subscribe()
                 _arm(queue, watched_workspace)
 
-                revisions = count()
+                unconcealed.put("/api/bar-items", json=document(0))
+                stored = bar_items_store.read_json_object(bar_items_store.layout_path(store_dir))
+                assert stored is not None, "the save landed in the store the watcher sees"
 
-                def save() -> None:
-                    saved = unconcealed.put("/api/bar-items", json=document(next(revisions)))
-                    assert saved.status_code == 200
-
-                save()
-                frames = collect_frames_matching(
+                paths = _broadcast_paths(
                     queue,
-                    matches=lambda frame: frame["path"].startswith("agent_data/"),
-                    poke=save,
-                    what="a frame from under the agent-data root",
+                    until_under="agent_data/bar_items",
+                    poke=lambda: bar_items_store.write_json_atomic(
+                        bar_items_store.layout_path(store_dir), stored
+                    ),
                 )
 
-        assert [frame["path"] for frame in frames if frame["path"].startswith("agent_data/")] != []
+        assert [path for path in paths if path.startswith("agent_data/bar_items")] != []
 
     def test_the_first_ever_save_never_names_the_store_or_the_document(
         self, watched_client, watched_workspace

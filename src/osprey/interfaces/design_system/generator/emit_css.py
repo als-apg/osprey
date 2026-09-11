@@ -41,7 +41,7 @@ __all__ = ["css_variable_name", "emit_css"]
 
 _HEADER = (
     "/* AUTO-GENERATED — DO NOT EDIT.\n"
-    " * Source: src/osprey/interfaces/design_system/tokens/\n"
+    " * Source: osprey/interfaces/design_system/tokens/ (src/osprey/... in a source checkout)\n"
     " * Regenerate with: python -m osprey.interfaces.design_system.generator.build\n"
     " */"
 )

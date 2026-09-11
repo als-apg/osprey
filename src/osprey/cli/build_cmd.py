@@ -3974,6 +3974,17 @@ def _attached_service_overrides(config_overrides: Mapping[str, Any]) -> dict[str
     unexamined either way: :func:`reach_override_errors` has already refused it
     if it contradicts what the host's render projects.
 
+    One kind of ``services.<name>`` key is not a claim about the stack at all:
+    a key that names a file in the render's OWN data tree —
+    ``services.graphdb.ttl_path``, the corpus, and ``index_path``, the search
+    index the build derives from it. An attached render stages that ``data/``
+    tree like any other, and its build and its containers read both files from
+    it, so the key is as true for the persona as for its host. Which keys those
+    are is the Reach Contract's declaration
+    (:attr:`osprey.deployment.reach.ReachContract.render_local`), read here
+    through :func:`osprey.deployment.reach.render_local_keys`, and they are
+    kept whether or not the service is claimed.
+
     The bare ``services`` key goes unconditionally: a whole-mapping override
     restates the deploying shape wholesale, which is the statement an attached
     render must not make.
@@ -3986,12 +3997,15 @@ def _attached_service_overrides(config_overrides: Mapping[str, Any]) -> dict[str
         The same overrides without the claimed stack's service keys, and with
         ``deployed_services`` emptied.
     """
+    from osprey.deployment.reach import render_local_keys
+
     claimed = {str(name) for name in (config_overrides.get("deployed_services") or [])}
+    render_local = render_local_keys()
     kept: dict[str, Any] = {}
     for key, value in config_overrides.items():
         if key in ("services", "deployed_services"):
             continue
-        if key.startswith("services.") and key.split(".")[1] in claimed:
+        if key.startswith("services.") and key.split(".")[1] in claimed and key not in render_local:
             continue
         kept[key] = value
     kept["deployed_services"] = []

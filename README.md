@@ -23,7 +23,8 @@ Built for large scientific facilities, such as particle accelerators.
 ## Quick start
 
 ```bash
-# Install the framework as a standalone CLI tool (using uv, recommended)
+# Install the framework as a standalone CLI tool (using uv, recommended).
+# A pre-release needs the flag: uv tool install --prerelease allow osprey-framework
 uv tool install osprey-framework
 
 # Create a minimal deployment repo to verify your setup

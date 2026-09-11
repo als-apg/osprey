@@ -812,14 +812,14 @@ class TestALSConnector:
             await connector.close()
 
     def test_proxy_without_aiohttp_socks_raises(self, monkeypatch):
-        """A proxy without the optional dependency installed fails with an install hint."""
+        """A proxy whose transport module will not import fails with a repair hint."""
         adapter = _als_adapter(proxy_url="socks5://127.0.0.1:9095")
         monkeypatch.setitem(sys.modules, "aiohttp_socks", None)
 
         with pytest.raises(IngestionError) as exc_info:
             adapter._create_connector()
 
-        assert "aiohttp-socks is not installed" in str(exc_info.value)
+        assert "pip install --force-reinstall aiohttp-socks" in str(exc_info.value)
 
 
 class TestFacilityAdapterTransportDefaults:
@@ -998,7 +998,7 @@ class TestJSONAdapterTransport:
         """A proxy that cannot be built stops the fetch instead of going direct.
 
         The connector is created inside the same ``try`` that maps a missing
-        aiohttp to an install hint, so this also pins that the proxy failure
+        aiohttp to a repair hint, so this also pins that the proxy failure
         keeps its own message rather than being reported as a missing aiohttp.
         """
         adapter = GenericJSONAdapter(
@@ -1009,7 +1009,7 @@ class TestJSONAdapterTransport:
         with pytest.raises(IngestionError) as exc_info:
             await adapter._load_data()
 
-        assert "aiohttp-socks is not installed" in str(exc_info.value)
+        assert "pip install --force-reinstall aiohttp-socks" in str(exc_info.value)
 
 
 class TestALSConvertEntry:

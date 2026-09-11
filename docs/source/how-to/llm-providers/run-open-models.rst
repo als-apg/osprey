@@ -37,7 +37,7 @@ In ``providers.yml``, beside the deployment's ``profile.yml``:
 
    providers:
      cborg-open:
-       api_key: ${CBORG_API_KEY}
+       api_key: ${CBORG_OPEN_API_KEY}
        base_url: https://api.cborg.lbl.gov/v1   # keep the /v1
        models:
          haiku: gpt-oss-120b
@@ -50,6 +50,11 @@ and in ``profile.yml``:
 
    provider: cborg-open
    model: sonnet
+
+A provider you add yourself takes its key from ``<NAME>_API_KEY`` — uppercased,
+dashes to underscores — so ``cborg-open`` reads ``CBORG_OPEN_API_KEY``. Put
+``CBORG_OPEN_API_KEY=<your CBORG key>`` in the repo's ``.env``; the same CBORG
+key serves both entries.
 
 Any model ID from CBORG's catalogue works in the ``models`` block — the
 *Benchmark snapshot* box on this page shows which ones hold up in practice. The

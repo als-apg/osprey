@@ -220,7 +220,8 @@ def find_repo_root(start: Path | None = None) -> Path:
         f"No OSPREY deployment repo found: no {PROFILE_FILENAME} in {searched_from} "
         "or any parent directory.\n\n"
         "A deployment repo is the directory holding its profile.yml. Either cd into "
-        "one, point at one with --repo PATH, or create one with 'osprey init <name>'.",
+        "one, point at one with --repo PATH, or create one with "
+        "'osprey init <name> --preset <NAME>'. 'osprey init --list-presets' lists them.",
         searched_from=searched_from,
     )
 

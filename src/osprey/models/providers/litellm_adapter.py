@@ -202,6 +202,10 @@ def execute_litellm_completion(
         "temperature": temperature,
     }
 
+    extra_body = kwargs.get("extra_body")
+    if isinstance(extra_body, dict) and extra_body:
+        completion_kwargs["extra_body"] = dict(extra_body)
+
     # Set API key
     if api_key:
         completion_kwargs["api_key"] = api_key

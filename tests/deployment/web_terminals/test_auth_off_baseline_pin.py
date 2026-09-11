@@ -132,6 +132,15 @@ disappearance, so
 ``test_the_frozen_baseline_really_predates_the_feature`` counts them on both
 sides.
 
+**The front proxy's image tag is masked too.** The baseline was frozen against
+one nginx release, and the front proxy tracks the supported mainline, so the
+``image:`` line moves for reasons SC6 has no opinion about. :func:`_mask_image_tag`
+blanks the tag on both sides; the image NAME still compares byte for byte, and the
+tag itself is pinned by ``test_golden_render.py`` for today's output and by the
+renderer's own default. ``_assert_the_frozen_image_tag_predates_the_current_default``
+reads it back unmasked, on the same argument the ports use.
+
+
 **When a hunk here fails**, the question is not "how do I widen the allowlist".
 It is: does the new line belong in a ``token``, roles-off render at all? If it
 carries authorization, a role, a claim or a login, the answer is no and the
@@ -154,7 +163,10 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.deployment.web_terminals.render import render_web_terminals
+from osprey.deployment.web_terminals.render import (
+    _DEFAULT_NGINX_IMAGE,
+    render_web_terminals,
+)
 from osprey.port_layout import default_port, resolve_port_base
 from osprey.services.auth_sidecar.app import ENV_ROSTER_ACCESS_PREFIX
 from osprey.services.auth_sidecar.routes.recheck import ENV_ROSTER_ROLE_PREFIX
@@ -306,6 +318,49 @@ def _notice_bodies(text: str) -> list[str]:
         landing page.
     """
     return [match.group("body") for match in _NOTICE_BODY.finditer(text)]
+
+
+# --- The front-proxy image-tag mask ------------------------------------------
+# See "The front proxy's image tag is masked" in the module docstring. Only the
+# tag is replaced: the image NAME stays in the diff, so swapping the front proxy
+# for a different image is still a difference this pin reports.
+
+#: What a masked image tag reads as, in the same shape as :data:`_PORT_MASK`.
+_IMAGE_TAG_MASK = "<tag>"
+
+#: The front proxy's own `image:` line, and nothing else that carries a tag.
+_IMAGE_TAG_SITE = re.compile(r"^(?P<lead>\s*image:\s*nginx):(?P<tag>\S+)$", re.MULTILINE)
+
+
+def _mask_image_tag(text: str) -> str:
+    """Blank out the front proxy's image tag in one artifact.
+
+    Args:
+        text: A rendered or frozen artifact.
+
+    Returns:
+        The same text with the tag on the nginx ``image:`` line replaced by
+        :data:`_IMAGE_TAG_MASK`, so an artifact rendered against one nginx
+        release compares equal to the same artifact rendered against another.
+    """
+    return _IMAGE_TAG_SITE.sub(rf"\g<lead>:{_IMAGE_TAG_MASK}", text)
+
+
+def _image_tag_in(text: str) -> str | None:
+    """The front proxy's image tag as one artifact spells it, or ``None``.
+
+    The inverse of :func:`_mask_image_tag`, so the tag read back here is exactly
+    the one the diffs below stop seeing.
+
+    Args:
+        text: A rendered or frozen artifact.
+
+    Returns:
+        The tag, or ``None`` for an artifact that carries no nginx ``image:``
+        line -- ``nginx.conf`` and ``landing.html`` carry none.
+    """
+    match = _IMAGE_TAG_SITE.search(text)
+    return match.group("tag") if match else None
 
 
 #: The registry port families `EXAMPLE_CONFIG`'s roster renders, one port per
@@ -552,9 +607,9 @@ def _opcodes(
 ) -> tuple[list[str], list[str], list[tuple]]:
     """Baseline lines, current lines, and the line-level edit script between them.
 
-    Both sides are port-masked and notice-body-masked first (see the module
-    docstring), so the edit script reports structure and never renumbering or a
-    reworded safety notice.
+    Both sides are port-masked, notice-body-masked and image-tag-masked first
+    (see the module docstring), so the edit script reports structure and never
+    renumbering, a reworded safety notice or a base-image release.
 
     ``artifacts`` defaults to the absent-stanza render; pass the explicit-token
     render to hold that spelling to the same frozen baseline.
@@ -566,8 +621,8 @@ def _opcodes(
 
 
 def _masked(text: str) -> str:
-    """One artifact with both masks applied, in the order the diffs see them."""
-    return _mask_notice_bodies(_mask_ports(text))
+    """One artifact with every mask applied, in the order the diffs see them."""
+    return _mask_image_tag(_mask_notice_bodies(_mask_ports(text)))
 
 
 def test_the_frozen_baseline_really_predates_the_feature() -> None:
@@ -606,6 +661,7 @@ def test_the_frozen_baseline_really_predates_the_feature() -> None:
 
     _assert_the_frozen_ports_predate_the_layout()
     _assert_the_notice_body_mask_still_matches()
+    _assert_the_frozen_image_tag_predates_the_current_default()
 
 
 def _assert_the_notice_body_mask_still_matches() -> None:
@@ -660,6 +716,32 @@ def _assert_the_frozen_ports_predate_the_layout() -> None:
         f"{sorted(frozen & _LAYOUT_PORTS)}. `golden/pre_audit_roles/` predates the "
         f"layout and must never be regenerated from the current renderer — see the "
         f"module docstring."
+    )
+
+
+def _assert_the_frozen_image_tag_predates_the_current_default() -> None:
+    """The same anti-tamper argument, for the other axis a mask hides.
+
+    :func:`_mask_image_tag` blanks the front proxy's tag on both sides, so a
+    refreshed baseline's tag would slip through every comparison in this module.
+    It is therefore read back unmasked here: the frozen copy must spell a tag
+    the renderer's current default does not, which a copy regenerated from the
+    current renderer cannot do.
+    """
+    live = _image_tag_in(_token_render()["docker-compose.web.yml"])
+    assert live, "today's render spells no front-proxy image tag — the mask has stopped matching"
+    assert live == _DEFAULT_NGINX_IMAGE.split(":", 1)[1], (
+        f"today's `token` render spells front-proxy tag {live!r}, which is not the "
+        f"renderer's default {_DEFAULT_NGINX_IMAGE!r} — the mask is watching a line "
+        f"the renderer no longer owns."
+    )
+
+    frozen = _image_tag_in((_BASELINE_DIR / "docker-compose.web.yml").read_text())
+    assert frozen, "the frozen baseline spells no front-proxy image tag"
+    assert frozen != live, (
+        f"the frozen baseline spells the same front-proxy tag as today's render "
+        f"({frozen!r}), so it can no longer be shown to predate the current "
+        f"default. Restore `golden/pre_audit_roles/` from the commit that froze it."
     )
 
 

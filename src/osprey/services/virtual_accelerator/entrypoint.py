@@ -291,8 +291,7 @@ def _resolve_channels_file(data_dir: Path) -> Path:
             "VA_CHANNELS_FILE into its .env.\n"
             "  Standalone demo: ask for the packaged demo manifest by name --\n"
             f"    -e VA_CHANNELS_FILE={MANIFEST_OUTPUT} -e VA_LATTICE={LATTICE_BUILTIN}\n"
-            "  (that path is where this installation carries it; "
-            "scripts/va/run_va.sh arranges the same demo)."
+            "  (that path is where this installation carries it)."
         )
     path = Path(raw)
     return path if path.is_absolute() else data_dir / path

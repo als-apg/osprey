@@ -26,6 +26,13 @@ enforcement reads the same declaration:
   what its app template deploys at the shipped defaults instead — the
   deployment it extends is one of that template — with its own ``config:``
   laid over them, which is where a host that differs is named.
+* **The build keeps what is the render's own.** An attached render's copy
+  of a claimed service's block is stripped before the projection, because it
+  restates a stack the render does not run — except the keys a contract
+  declares *render-local* (:attr:`ReachContract.render_local`,
+  :func:`render_local_keys`): a file in the render's own ``data/`` tree, the
+  graph corpus and its search index, which the persona stages exactly as its
+  host does and reads from inside its own container.
 * **The build refuses.** :func:`reach_errors` reads a rendered config and
   refuses a consumer that is on with nothing to resolve — the generic backstop
   for a render whose host, or whose app template, deploys no such service —
@@ -66,9 +73,11 @@ from osprey.bluesky_bridge_connection import (
     lane_env_prefix,
 )
 from osprey.deployment.graphdb_service import (
+    GRAPHDB_INDEX_PATH_CONFIG_KEY,
     GRAPHDB_PASSWORD_ENV,
     GRAPHDB_PORT_CONFIG_KEY,
     GRAPHDB_SERVICE_NAME,
+    GRAPHDB_TTL_PATH_CONFIG_KEY,
     resolve_graphdb_connection,
     resolve_graphdb_service_config,
 )
@@ -102,6 +111,7 @@ __all__ = [
     "Dial",
     "dotted_get",
     "project_attached_overrides",
+    "render_local_keys",
     "reach_errors",
     "live_consumers",
     "reach_dials",
@@ -238,6 +248,15 @@ class ReachContract:
             in which a deploying render keeps a consumer on for a service
             absent from ``deployed_services``. ``None`` where the service has
             no such form (the sidecar and the plan lanes are loopback-only).
+        render_local: Keys under ``services.<name>`` that name a file in the
+            render's OWN data tree rather than anything about the deployed
+            service — the graph store's corpus and the search index derived
+            from it. An attached render stages that tree exactly as its host
+            does, so these keys are as true for it as for the deployment and
+            the build keeps them where it strips the rest of a claimed
+            service's block (``osprey.cli.build_cmd._attached_service_overrides``).
+            Never also projected: a projected key is the host's value, a
+            render-local key is the render's own.
         note: One line for the completeness report.
     """
 
@@ -248,6 +267,7 @@ class ReachContract:
     no_client_reach: bool = False
     derived_by: str | None = None
     names_external: Predicate | None = None
+    render_local: tuple[str, ...] = ()
     note: str = ""
 
 
@@ -860,6 +880,12 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         ),
         credentials=(CredentialGrant(GRAPHDB_PASSWORD_ENV, config_needs_graphdb_password),),
         names_external=_graphdb_named,
+        # The corpus and the search index derived from it are files in the
+        # render's own data/ tree, which every attached render stages: the
+        # build derives the persona's index from the persona's own corpus key,
+        # and inside the container the roster, the explorer and the keyword
+        # tool resolve both files against the render they sit in.
+        render_local=(GRAPHDB_TTL_PATH_CONFIG_KEY, GRAPHDB_INDEX_PATH_CONFIG_KEY),
         note="the graph MCP server and the graph channel finder dial bolt on loopback",
     ),
     "postgresql": ReachContract(
@@ -1174,6 +1200,21 @@ def project_attached_overrides(
                 continue
             overrides[projected.key] = value
     return overrides
+
+
+def render_local_keys() -> frozenset[str]:
+    """Every ``services.<name>.<leaf>`` a contract declares render-local.
+
+    The keys the attached strip keeps out of a claimed service's block
+    (``osprey.cli.build_cmd._attached_service_overrides``): each names a file in
+    the render's own data tree, not a fact about the deployed service. Read from
+    the registry so the strip and the contracts cannot disagree about which
+    keys those are.
+
+    Returns:
+        The dotted keys, across every contract.
+    """
+    return frozenset(key for contract in REACH_CONTRACTS.values() for key in contract.render_local)
 
 
 def live_consumers(config: Mapping[str, Any]) -> list[tuple[ReachContract, Consumer]]:

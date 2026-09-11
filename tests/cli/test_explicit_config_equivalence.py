@@ -467,6 +467,37 @@ _CONTROL_ASSISTANT_DOCUMENTS = (
     "root",
 )
 
+#: The control-assistant personas: every document of the cell but the root.
+_CONTROL_ASSISTANT_PERSONAS = tuple(
+    document for document in _CONTROL_ASSISTANT_DOCUMENTS if document != "root"
+)
+
+
+def _persona_corpus_deltas() -> tuple[Delta, ...]:
+    """The corpus key every control-assistant persona carries beside its host's port.
+
+    ``services.graphdb.ttl_path`` names a file in the render's own ``data/``
+    tree, which a persona stages exactly as the deployment does, so the
+    attached strip keeps it — the Reach Contract declares it render-local
+    (:attr:`osprey.deployment.reach.ReachContract.render_local`). The fixtures
+    were frozen while the strip took every ``services.graphdb.*`` key of a
+    claimed store, so each persona reads as gaining the leaf. The preset
+    spells the key in every channel-finder mode, so every control-assistant
+    cell carries the delta.
+
+    Returns:
+        One delta per persona.
+    """
+    return tuple(
+        Delta(
+            document=persona,
+            path="services.graphdb.ttl_path",
+            fixture=ABSENT,
+            live="./data/demo_machine.ttl",
+        )
+        for persona in _CONTROL_ASSISTANT_PERSONAS
+    )
+
 
 CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     # The posture floor makes `hooks.debug` unconditional, and hello-world is the
@@ -495,25 +526,29 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _dispatch_max_turns_deltas()
-    + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _persona_corpus_deltas(),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _dispatch_max_turns_deltas()
-    + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _persona_corpus_deltas(),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _dispatch_max_turns_deltas()
-    + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _persona_corpus_deltas(),
     "control-assistant/graph": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _dispatch_max_turns_deltas()
-    + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _persona_corpus_deltas(),
 }
 
 

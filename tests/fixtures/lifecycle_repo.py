@@ -1562,7 +1562,9 @@ config:
   # deployment host and the copied ports are dialed there. The build renders
   # no services for this persona and writes `deployed_services: []` into its
   # config — every `services.*` key inherited from the base profile is dropped
-  # from this render — and a host that differs is named here.
+  # from this render, except the ones that name a file in the render's own
+  # data tree (the graph corpus and its search index), which stay as this
+  # render's own — and a host that differs is named here.
 """
 
 PERSONA_KNOWLEDGE_YML = """\
@@ -1678,7 +1680,9 @@ config:
   # deployment host and the copied ports are dialed there. The build renders
   # no services for this persona and writes `deployed_services: []` into its
   # config — every `services.*` key inherited from the base profile is dropped
-  # from this render — and a host that differs is named here.
+  # from this render, except the ones that name a file in the render's own
+  # data tree (the graph corpus and its search index), which stay as this
+  # render's own — and a host that differs is named here.
 """
 
 PERSONA_READONLY_YML = """\
@@ -1738,7 +1742,9 @@ config:
   # the build refuses the contradiction. The build renders no services for
   # this persona and writes `deployed_services: []` into its config — every
   # `services.*` key inherited from the base profile is dropped from this
-  # render — and a host that differs IS named here.
+  # render, except the ones that name a file in the render's own data tree
+  # (the graph corpus and its search index), which stay as this render's own
+  # — and a host that differs IS named here.
 """
 
 PERSONA_READWRITE_YML = """\
@@ -1799,8 +1805,10 @@ config:
   # every persona follows; spell a different one here and the build refuses
   # the contradiction. The build renders no services for this persona and
   # writes `deployed_services: []` into its config — every `services.*` key
-  # inherited from the base profile is dropped from this render — and a host
-  # that differs IS named here.
+  # inherited from the base profile is dropped from this render, except the
+  # ones that name a file in the render's own data tree (the graph corpus and
+  # its search index), which stay as this render's own — and a host that
+  # differs IS named here.
 """
 
 PERSONA_ADMIN_YML = """\
@@ -1888,7 +1896,9 @@ config:
   # the build refuses the contradiction. The build renders no services for
   # this persona and writes `deployed_services: []` into its config — every
   # `services.*` key inherited from the base profile is dropped from this
-  # render — and a host that differs IS named here.
+  # render, except the ones that name a file in the render's own data tree
+  # (the graph corpus and its search index), which stay as this render's own
+  # — and a host that differs IS named here.
 """
 
 
@@ -2056,8 +2066,8 @@ ENV_EXAMPLE = """\
 #
 # Every variable this deployment supplies: the provider keys, whatever its
 # profile declares, and the tokens `osprey up` mints. Copy this file to `.env`
-# beside it and fill in what you need. That one file holds all your secrets, and
-# a value in it survives every rebuild.
+# at the repository root, beside `profile.yml`, and fill in what you need. That
+# one file holds all your secrets, and a value in it survives every rebuild.
 #
 # Not listed here: the host-level knobs a command reads from its own environment
 # (CONTAINER_RUNTIME, OSPREY_OFFLINE, ...), and the names the build stamps into
@@ -2065,7 +2075,7 @@ ENV_EXAMPLE = """\
 #
 # This file has no secrets in it and is safe to commit.
 #
-# The `.env` files, and which one to edit:
+# The `.env` files at the repository root, and which one to edit:
 #
 #   .env.shared    the settings that are the same on every host; committed
 #   .env           this host's own values and every key; wins over
@@ -2273,8 +2283,10 @@ deletes the audit log as well; that plus deleting this folder removes it all.
 
 ## Backups
 
-Git covers your settings. `var/` and `.env` are everything else, so a backup
-is a copy of those two, and a restore is:
+Git covers your settings. `var/` and the root's `.env` files are everything
+else — `.env`, and on a deployment with web terminals the deploy-written `.env.auth`,
+which holds the password hashes and cannot be regenerated: without it `osprey up`
+mints a new password for every user. A backup is a copy of those, and a restore is:
 
 ```bash
 git clone <this repo> && tar xf state.tar.gz && osprey build && osprey up -d

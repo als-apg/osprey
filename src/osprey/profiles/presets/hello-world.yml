@@ -1,6 +1,6 @@
 # hello-world.yml
 # The onboarding preset: the smallest agent that still shows the whole
-# write-safety chain. A mock control system, twelve hooks, and one container (the
+# write-safety chain. A mock control system, fourteen hooks, and one container (the
 # telemetry store), so `osprey init` → `osprey build` → `osprey web` is the entire
 # first session.
 #
@@ -43,7 +43,9 @@ hooks:
   - hook-config    # Inject project config.yml path into every tool call env
   - error-guidance # Post-error hook that surfaces remediation hints
   # The next three are the write-safety chain, and no write reaches the control
-  # system until all three agree. Removing any one of them removes a guard.
+  # system until all three agree. Remove any one of them and `osprey build`
+  # refuses the render while writes are armed, naming the hook and the server
+  # whose write tools it guarded. Only a read-only deployment may drop them.
   - writes-check   # Kill switch: refuse every write while writes_enabled is false
   - approval       # Gate hardware-write tool calls on human approval prompt
   - limits         # Enforce per-channel min/max limits, from data/channel_limits.json

@@ -46,7 +46,7 @@ import yaml
 from osprey.cli.build_cmd import _attached_service_overrides
 from osprey.cli.build_profile_merge import merge_persona_delta
 from osprey.cli.build_profile_ports import layout_port_fill
-from osprey.deployment.reach import REACH_CONTRACTS
+from osprey.deployment.reach import REACH_CONTRACTS, render_local_keys
 from osprey.port_layout import DEFAULT_PORT_BASE
 from tests.fixtures.explicit_config.freeze import (
     FIXTURE_ROOT,
@@ -75,6 +75,11 @@ PROJECTED_SERVICE_KEYS = frozenset(
     for projected in contract.projected
     if projected.key.startswith("services.")
 )
+
+#: Every ``services.<name>.<leaf>`` the Reach Contract declares render-local — a
+#: file in the render's own data tree, kept through the attached strip. Read
+#: from the registry for the same reason as the projected set.
+RENDER_LOCAL_SERVICE_KEYS = render_local_keys()
 
 
 def _baseline_root() -> dict[str, Any]:
@@ -128,18 +133,19 @@ def _service_leaves(document: dict[str, Any]) -> list[str]:
 
 
 @pytest.fixture(scope="session")
-def rendered(tmp_path_factory: pytest.TempPathFactory) -> dict[str, dict[str, Any]]:
+def built_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """One real ``osprey init`` + ``osprey build`` of the cell, shared by the session.
 
     Invoked exactly as the fixture freeze invoked it — same verbs, same fixed
     project name, same ``*_API_KEY``-stripped environment — so what it renders
     is comparable to what was frozen. No source directories are prepended to
     ``PYTHONPATH``: the CLI imports OSPREY as installed, which is the tree under
-    test.
+    test. A subprocess, so the in-process index stub ``tests/conftest.py``
+    installs does not reach it: every render's search index here is the one
+    the real build step wrote, or did not.
 
     Returns:
-        The build's rendered documents, keyed by render name: ``root`` for the
-        deployment, one per persona for the attached renders.
+        The deployment repo, with its ``build/`` rendered.
     """
     scratch = tmp_path_factory.mktemp("deployed-services-injection")
     env = _cli_env([])
@@ -162,8 +168,24 @@ def rendered(tmp_path_factory: pytest.TempPathFactory) -> dict[str, dict[str, An
     project: Path = scratch / PROJECT_NAME
     result = _run_cli(["build"], cwd=project, env=env)
     assert result.returncode == 0, f"osprey build refused the cell:\n{_failure_reason(result)}"
+    return project
 
-    return {name: document or {} for name, document in collect_rendered_configs(project).items()}
+
+@pytest.fixture(scope="session")
+def rendered(built_project: Path) -> dict[str, dict[str, Any]]:
+    """The cell's rendered documents, keyed by render name.
+
+    Returns:
+        ``root`` for the deployment, one per persona for the attached renders.
+    """
+    return {
+        name: document or {} for name, document in collect_rendered_configs(built_project).items()
+    }
+
+
+def _persona_render_dir(built_project: Path, persona: str) -> Path:
+    """The render directory of one persona, as :func:`collect_rendered_configs` keys it."""
+    return built_project / "build" / f"{built_project.name}-{persona}"
 
 
 @pytest.fixture(scope="session")
@@ -294,16 +316,52 @@ def test_attached_renders_carry_only_what_their_host_told_them(
     """No persona states a service key of its own.
 
     Every ``services.*`` leaf a persona ends up with is one the Reach Contract
-    projects from the hosting deployment's render. The preset's own service
-    keys — the image tags and heap sizes of a stack this render does not run —
-    are not among them.
+    projects from the hosting deployment's render, or one it declares
+    render-local — a file in the persona's own data tree. The preset's other
+    service keys — the image tags and heap sizes of a stack this render does
+    not run — are not among them.
     """
+    allowed = PROJECTED_SERVICE_KEYS | RENDER_LOCAL_SERVICE_KEYS
     strayed = {
-        name: [leaf for leaf in _service_leaves(document) if leaf not in PROJECTED_SERVICE_KEYS]
+        name: [leaf for leaf in _service_leaves(document) if leaf not in allowed]
         for name, document in rendered.items()
         if name != "root"
     }
     assert {name: leaves for name, leaves in strayed.items() if leaves} == {}
+
+
+@pytest.mark.slow
+def test_attached_renders_ship_the_corpus_they_stage_and_the_index_built_from_it(
+    built_project: Path, rendered: dict[str, dict[str, Any]]
+) -> None:
+    """Every persona names the same corpus as its host and carries an index derived from it.
+
+    A persona is built from the same ``data/`` tree as the deployment, so the
+    corpus key is as true for it as for the root render, and the build's index
+    step — which resolves the corpus from the persona's OWN rendered config —
+    derives the search index into the persona render. That render is what the
+    per-user image copies, so this is the file the CHANNELS tab, the roster
+    and the agent's keyword tool open inside the container.
+    """
+    from osprey.deployment.graphdb_service import resolve_graph_index_path
+
+    corpus = rendered["root"]["services"]["graphdb"]["ttl_path"]
+    personas = {name: document for name, document in rendered.items() if name != "root"}
+    assert personas, "the control-assistant build renders personas; none were captured"
+
+    stated = {
+        name: document["services"]["graphdb"].get("ttl_path") for name, document in personas.items()
+    }
+    assert stated == dict.fromkeys(personas, corpus)
+
+    missing = [
+        name
+        for name, document in personas.items()
+        if not resolve_graph_index_path(
+            document, config_dir=_persona_render_dir(built_project, name)
+        ).is_file()
+    ]
+    assert missing == [], f"persona renders with no channel search index: {missing}"
 
 
 @pytest.mark.slow
@@ -440,3 +498,36 @@ def test_a_persona_override_of_deployed_services_reaches_nothing_else() -> None:
         key: value for key, value in merged["config"].items() if key != "deployed_services"
     } == {key: value for key, value in root["config"].items() if key != "deployed_services"}
     assert root == before, "merge_persona_delta mutated the root profile"
+
+
+def test_attached_overrides_keep_the_render_local_keys_of_a_claimed_service() -> None:
+    """A key that names a file in the render's own data tree is not a stack claim.
+
+    ``services.graphdb.ttl_path`` and ``index_path`` say where THIS render's
+    corpus and search index are, and every persona stages that same ``data/``
+    tree. Dropped with the claimed stack, the persona's build could not derive
+    its index and its containers could not say where the corpus is. The Reach
+    Contract declares them render-local, so they survive the drop; the store's
+    address, image and JVM keys go as before.
+    """
+    assert RENDER_LOCAL_SERVICE_KEYS >= {
+        "services.graphdb.ttl_path",
+        "services.graphdb.index_path",
+    }
+
+    overrides = _attached_service_overrides(
+        {
+            "services.graphdb.image": "neo4j:5.26-community",
+            "services.graphdb.port_host": 10802,
+            "services.graphdb.heap_max_size": "1G",
+            "services.graphdb.ttl_path": "./data/demo_machine.ttl",
+            "services.graphdb.index_path": "./data/channel_databases/graph.duckdb",
+            "deployed_services": ["graphdb"],
+        }
+    )
+
+    assert overrides == {
+        "deployed_services": [],
+        "services.graphdb.ttl_path": "./data/demo_machine.ttl",
+        "services.graphdb.index_path": "./data/channel_databases/graph.duckdb",
+    }

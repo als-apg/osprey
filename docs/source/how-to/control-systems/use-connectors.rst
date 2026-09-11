@@ -18,7 +18,9 @@ development and R&D default:
 
 .. code-block:: python
 
-   from osprey.connectors.factory import ConnectorFactory
+   from osprey.connectors.factory import ConnectorFactory, register_builtin_connectors
+
+   register_builtin_connectors()   # registers the built-in names; idempotent
 
    # Create mock connector - works with ANY channel names
    connector = await ConnectorFactory.create_control_system_connector({

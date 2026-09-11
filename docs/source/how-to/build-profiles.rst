@@ -829,7 +829,7 @@ It never touches the source zone — only ``osprey init --force`` replaces that.
    osprey build
 
    # Change a setting, then carry it through to build/
-   osprey set model=claude-sonnet-4-6
+   osprey set model=claude-sonnet-5
    osprey build
 
    # Render another repository's build/ without cd-ing to it

@@ -1184,8 +1184,10 @@ class TestALSLogbookAdapterHTTPMocked:
                             raise ImportError("No module named 'aiohttp_socks'")
                         except ImportError as e:
                             raise IngestionError(
-                                "SOCKS proxy configured but aiohttp-socks is not installed. "
-                                "Install with: pip install osprey-framework",
+                                "SOCKS proxy support needs aiohttp-socks, a core "
+                                "osprey dependency, so a missing module means a "
+                                "broken install — repair it with: pip install "
+                                "--force-reinstall aiohttp-socks",
                                 source_system=adapter.source_system_name,
                             ) from e
                     return original_method()

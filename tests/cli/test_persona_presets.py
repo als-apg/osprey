@@ -936,8 +936,14 @@ class TestControlAssistantPersonas:
         assert project.is_dir(), f"{persona} was never rendered"
 
         config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
+        host = yaml.safe_load(
+            (built_persona_stack / "build" / "config.yml").read_text(encoding="utf-8")
+        )
+        # The store's address, projected from the host, beside the corpus the
+        # persona stages for itself (render-local, never stripped).
         assert (config.get("services") or {}).get("graphdb") == {
-            "port_host": default_port("graphdb_bolt")
+            "port_host": default_port("graphdb_bolt"),
+            "ttl_path": host["services"]["graphdb"]["ttl_path"],
         }
 
         permissions = json.loads((project / ".claude" / "settings.json").read_text())["permissions"]
@@ -975,13 +981,16 @@ class TestControlAssistantPersonas:
         which would satisfy ``config.yml`` as YAML and be read by nobody.
 
         Most entries are the address a consumer in this container dials.
-        ``archiver_recorder`` is the exception and is asserted here beside
+        ``archiver_recorder`` is one exception and is asserted here beside
         them: nothing in a persona dials the recorder, but ``path`` is the
         host's fact THAT it records, which is what
         ``archive_belongs_to_standin`` reads to refuse the ``live`` target — a
         gate that has to hold in a multi-user session exactly as it does in a
         single-user one, and whose host-side spelling (``deployed_services``)
-        is empty in every attached render.
+        is empty in every attached render. The graph store's ``ttl_path`` is
+        the other: not projected but kept, because it names the corpus in the
+        persona's OWN data tree, from which the build derives this render's
+        search index (the graphdb contract's ``render_local`` keys).
         """
         project = built_persona_stack / "build" / f"{built_persona_stack.name}-{persona}"
         config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
@@ -991,7 +1000,10 @@ class TestControlAssistantPersonas:
 
         assert config["services"] == {
             "qmd": {"port": host["services"]["qmd"]["port"]},
-            "graphdb": {"port_host": host["services"]["graphdb"]["port_host"]},
+            "graphdb": {
+                "port_host": host["services"]["graphdb"]["port_host"],
+                "ttl_path": host["services"]["graphdb"]["ttl_path"],
+            },
             "postgresql": {
                 "port_host": host["services"]["postgresql"]["port_host"],
                 "username": host["services"]["postgresql"]["username"],
@@ -1072,17 +1084,22 @@ class TestControlAssistantPersonas:
 
         ``control-assistant-logbook`` switches off every control-surface tool
         server explicitly (``claude_code.servers.<name>.enabled: false``), the
-        graph server among them. The line is load-bearing now: the build tells
+        graph server among them. The line is load-bearing: the build tells
         every attached render where the hosting deployment's services are, and
-        a ``services.graphdb`` block is what makes the graph server render —
-        so only a server switched off is told nothing about the store
-        (``osprey.deployment.reach``, the graphdb contract's gate).
+        a store the render knows how to dial is what makes the graph server
+        render — so only a server switched off is told nothing about WHERE the
+        store is (``osprey.deployment.reach``, the graphdb contract's gate).
+        The corpus key is not an address: it names a file in this render's own
+        data tree and stays, and the explicit ``enabled: false`` is what keeps
+        the server off beside it.
         """
         project = built_persona_stack / "build" / f"{built_persona_stack.name}-logbook"
         assert project.is_dir(), "the logbook persona was never rendered"
 
         config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
-        assert (config.get("services") or {}).get("graphdb") is None
+        graphdb = (config.get("services") or {}).get("graphdb") or {}
+        assert not {"port_host", "http_port_host", "uri", "username"} & set(graphdb), graphdb
+        assert set(graphdb) <= {"ttl_path", "index_path"}, graphdb
         preset = resolve_preset("control-assistant-logbook").config
         assert preset.get("claude_code.servers.graph.enabled") is False
 

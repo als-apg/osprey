@@ -1,1 +1,0 @@
-CI's eight model-spending lanes (agentic per-preset, E2E, dispatch stacks, scan and target-switch agentic, chat bridges) run nightly on `main` and on pull requests only under the `full-ci` label, instead of on every push; the roll-up gate's run summary names what skipped and prints the label command.

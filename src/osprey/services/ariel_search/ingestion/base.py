@@ -95,7 +95,7 @@ class FacilityAdapter(ABC):
             aiohttp connector (with proxy if configured)
 
         Raises:
-            IngestionError: If proxy is configured but aiohttp-socks is not installed
+            IngestionError: If a proxy is configured but aiohttp-socks cannot be imported
         """
         if not self.proxy_url:
             return aiohttp.TCPConnector()
@@ -104,8 +104,9 @@ class FacilityAdapter(ABC):
             from aiohttp_socks import ProxyConnector
         except ImportError as e:
             raise IngestionError(
-                "SOCKS proxy configured but aiohttp-socks is not installed. "
-                "Install with: pip install osprey-framework",
+                "SOCKS proxy support needs aiohttp-socks, a core osprey "
+                "dependency, so a missing module means a broken install — "
+                "repair it with: pip install --force-reinstall aiohttp-socks",
                 source_system=self.source_system_name,
             ) from e
 

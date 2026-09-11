@@ -150,8 +150,8 @@ A gateway that OSPREY does not ship is an entry appended to ``providers.yml``:
        base_url: https://my-gateway.example.com/v1
        models:
          haiku: claude-haiku-4-5
-         sonnet: claude-sonnet-4-6
-         opus: claude-opus-4-6
+         sonnet: claude-sonnet-5
+         opus: claude-opus-5
 
 and one line in ``profile.yml`` naming it:
 
@@ -193,9 +193,9 @@ see what the two source files become. The whole catalog appears under
          api_key: ${ANTHROPIC_API_KEY}
          base_url: https://api.anthropic.com
          models:
-           haiku: claude-haiku-4-5-20251001
-           sonnet: claude-sonnet-4-5-20250929
-           opus: claude-opus-4-6
+           haiku: claude-haiku-4-5
+           sonnet: claude-sonnet-5
+           opus: claude-opus-5
 
        cborg:
          api_key: ${CBORG_API_KEY}
@@ -231,6 +231,11 @@ the built-in one. ``anthropic`` ships none, so omitting it sends requests to
 Anthropic's own API. Keep the trailing
 ``/v1`` on OpenAI-compatible gateways — the translation proxy needs it, and the
 agent's own requests have it stripped automatically.
+
+``extra_body`` is an optional mapping sent in the request body of every
+completion. A LiteLLM gateway that uses client-side auth reads a per-user
+upstream key from it, so ``api_key`` stays the gateway credential while
+``extra_body: {api_key: ${UPSTREAM_KEY}}`` carries the user's own.
 
 **Select the active provider** with the profile's two top-level fields:
 
@@ -290,7 +295,7 @@ deployment's ``profile.yml``:
    model: sonnet
    config:
      # use sonnet even for opus-tier agents
-     claude_code.models.opus: claude-sonnet-4-6
+     claude_code.models.opus: claude-sonnet-5
 
 Agents can also be pinned to specific tiers:
 
@@ -418,7 +423,10 @@ The framework automatically:
 
 - Detects that ``my-provider`` is not a built-in Anthropic-native provider.
 - Starts the translation proxy to bridge Anthropic → OpenAI protocols.
-- Maps ``${MY_PROVIDER_API_KEY}`` to the auth token the Osprey agent expects.
+- Reads the Osprey agent's auth token from ``MY_PROVIDER_API_KEY``. The launcher
+  derives that variable name from the provider's own name — uppercased, dashes to
+  underscores — and never reads the entry's ``api_key`` value, so the name here
+  lines up only because the provider is called ``my-provider``.
 - Injects the resolved model IDs into the Osprey agent's environment.
 
 .. note::

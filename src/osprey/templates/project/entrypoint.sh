@@ -29,11 +29,11 @@
 # files that decide what the agent is allowed to do. Only root can perform
 # them, and only before the server starts — so they happen here, once, and the
 # process that serves requests never has the privilege to repeat them. A
-# container started with `--user osprey` skips both and says so, rather than
-# failing halfway through a partial write.
+# container started with `--user osprey` skips every maintenance step and says so,
+# rather than failing halfway through a partial write.
 #
-# Both steps fail open: a regen or restore that raises is reported and the
-# container still starts. A container that will not boot because an artifact
+# All three steps fail open: a regen, restore or seed that raises is reported and
+# the container still starts. A container that will not boot because an artifact
 # could not be re-rendered is strictly worse than one running slightly stale
 # artifacts and saying so in its logs. The privilege drop is the opposite —
 # a missing `gosu` is fatal, because continuing would run the agent as root,
@@ -86,7 +86,7 @@ die() {
 # run in one interpreter rather than two: importing osprey is the expensive part
 # and doing it twice would add seconds to every container start for nothing.
 # Each step carries its own try/except — including its import — so a step that
-# cannot even load does not take the other one down with it.
+# cannot even load does not take the others down with it.
 #
 # The restore is deliberately the shared `restore_scaffold_bodies`, not a
 # reimplementation. Its refusal to install a reserved path lives in that
@@ -438,14 +438,15 @@ main() {
 
     log "starting: render $RENDER_DIR, command: $*"
 
-    # Already unprivileged — someone ran the image with `--user`. Neither
+    # Already unprivileged — someone ran the image with `--user`. No
     # maintenance step can write a root-owned render, and gosu cannot drop to a
     # user it is not root to become, so do the one useful thing left: run the
     # command. Loud, because the artifacts this would have refreshed are now
     # whatever the image happens to carry.
     if [ "$(id -u)" -ne 0 ]; then
-        log "WARNING: running as uid $(id -u), not root; skipping the startup regen"
-        log "         and scaffold restore, and running the command directly."
+        log "WARNING: running as uid $(id -u), not root; skipping the startup regen,"
+        log "         scaffold restore and first-run state seed, and running the command"
+        log "         directly."
         log "         Derived artifacts will be whatever this image was built with."
         exec "$@"
     fi
@@ -462,7 +463,7 @@ main() {
     if command -v "$PYTHON" > /dev/null 2>&1; then
         run_maintenance || log "WARNING: startup maintenance exited non-zero; continuing to the privilege drop"
     else
-        log "WARNING: no '$PYTHON' interpreter on PATH; skipping the startup regen and scaffold restore"
+        log "WARNING: no '$PYTHON' interpreter on PATH; skipping the startup regen, scaffold restore and first-run state seed"
     fi
 
     # Groups before the drop, because `gosu` reads /etc/group and not this
