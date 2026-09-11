@@ -395,6 +395,65 @@ class TestGenericJSONAdapter:
         assert entry["entry_id"] == ""
         assert entry["author"] == "nobody"
 
+    def test_unrecognised_top_level_fields_survive_as_metadata(self):
+        """A generic adapter cannot enumerate what a site records.
+
+        The converter promotes a fixed list of top-level names and used to drop
+        everything else on the floor, so a facility exporting flat JSON silently
+        lost every field the list did not happen to contain — no error, no log,
+        and nothing to search on afterwards.
+        """
+        config = self._make_config("/fake/path.json")
+        adapter = GenericJSONAdapter(config)
+
+        entry = adapter._convert_entry(
+            {
+                "id": "GEN-100",
+                "text": "pump swapped",
+                "author": "nobody",
+                "timestamp": "2024-01-01T00:00:00Z",
+                "shift_lead": "A. Operator",
+                "work_order": 4711,
+                "metadata": {"explicit": "wins"},
+            }
+        )
+
+        assert entry["metadata"]["shift_lead"] == "A. Operator"
+        assert entry["metadata"]["work_order"] == 4711
+        # The explicit block still merges last.
+        assert entry["metadata"]["explicit"] == "wins"
+        # Fields the converter consumes itself are not duplicated into metadata.
+        for consumed in ("id", "text", "author", "timestamp", "metadata"):
+            assert consumed not in entry["metadata"]
+
+    def test_an_explicit_metadata_object_outranks_a_top_level_field(self):
+        """The documented precedence survives the pass-through."""
+        config = self._make_config("/fake/path.json")
+        adapter = GenericJSONAdapter(config)
+
+        entry = adapter._convert_entry(
+            {
+                "id": "GEN-101",
+                "text": "t",
+                "timestamp": "2024-01-01T00:00:00Z",
+                "segment_area": "from the top level",
+                "metadata": {"segment_area": "from the metadata object"},
+            }
+        )
+
+        assert entry["metadata"]["segment_area"] == "from the metadata object"
+
+    def test_a_relative_when_spec_is_consumed_not_stored(self):
+        """``when`` is how seed data asks for a timestamp, not a fact about the entry."""
+        config = self._make_config("/fake/path.json")
+        adapter = GenericJSONAdapter(config)
+
+        entry = adapter._convert_entry(
+            {"id": "GEN-102", "text": "t", "when": {"days_ago": 1, "time": "08:00:00"}}
+        )
+
+        assert "when" not in entry["metadata"]
+
     @pytest.mark.asyncio
     async def test_fetch_with_limit(self):
         """Limit parameter works correctly."""
